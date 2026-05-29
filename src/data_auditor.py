@@ -22,7 +22,7 @@ def audit_historical_data(data_root=DEFAULT_DATA_ROOT, target_month=None, target
     summary_path = data_root / "daily" / "daily_summary.csv"
     if not summary_path.exists():
         print(f"Error: Daily summary file not found at {summary_path}")
-        return False
+        return None
 
     target_month = target_month or TARGET_MONTH
     target_day = target_day or TARGET_DAY
@@ -165,7 +165,15 @@ def audit_historical_data(data_root=DEFAULT_DATA_ROOT, target_month=None, target
             print("  ...")
 
     print("\nAudit Complete.")
-    return len(missing_days) == 0 and len(impossible_values) == 0
+    return {
+        "target_dates": len(target_dates),
+        "recorded_days": len(summary_dates),
+        "missing_days": missing_days,
+        "sparse_days": sparse_days,
+        "duplicate_timestamps": duplicate_timestamps,
+        "impossible_values": impossible_values,
+        "hourly_days_audited": hourly_checked_days,
+    }
 
 if __name__ == "__main__":
     audit_historical_data()

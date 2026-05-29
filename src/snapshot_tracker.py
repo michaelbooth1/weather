@@ -17,13 +17,14 @@ from forecast_archive import (  # noqa: E402
     build_forecast_rows,
 )
 from market_config import config_for_date, config_from_event
-from toronto_model import TORONTO_TZ
+from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()
 DEFAULT_SNAPSHOT_ROOT = Path("data") / "snapshots" / DEFAULT_MARKET_CONFIG.event_slug
-MODEL_VERSION = "v0.4.9 HGBC feature-based ML model"
+# Fallback used only when a snapshot's model dict carries no model_version.
+MODEL_VERSION = MODEL_VERSION_HGB
 
 
 LONG_COLUMNS = [

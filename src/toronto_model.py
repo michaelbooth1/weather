@@ -1,6 +1,7 @@
 import csv
 import json
 import math
+import os
 import re
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,7 +20,11 @@ DEFAULT_MARKET_CONFIG = config_for_date()
 TORONTO_TZ = ZoneInfo("America/Toronto")
 TARGET_DATE = DEFAULT_MARKET_CONFIG.target_date
 TARGET_DATE_STR = DEFAULT_MARKET_CONFIG.target_date_str
-WEATHER_COM_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
+# Weather.com's public web API key. Overridable via env; the default is the
+# widely-published browser key, kept so the app runs without configuration.
+WEATHER_COM_KEY = os.environ.get(
+    "WEATHER_COM_API_KEY", "e1f10a1e78da46f5b10a1e78da96f525"
+)
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 CYYZ_ICAO = "CYYZ"
 PEARSON_LAT = 43.6767
@@ -28,6 +33,12 @@ HISTORY_MIN_ROW_COUNT = 20
 HISTORY_WINDOW_DAYS = 7
 INTRADAY_CUTOFF_HOURS = (9, 10, 12, 13, 15, 16, 17, 18, 20)
 LIVE_CACHE_MAX_AGE_MINUTES = 90
+
+# Model-version labels — the single source of truth shared with snapshot_tracker.
+ML_MODEL_VERSION = "v0.4.9"
+MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
+MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
+MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"
 
 # Sentinel so memoized loaders can cache a None result (missing/failed file)
 # without re-reading from disk on every build.
@@ -400,11 +411,20 @@ class TorontoHighTempModel:
 
         files = sorted(set(re.findall(r'href="([^"]*CYYZ-MAN-swob\.xml)"', index_html)))
         rows = []
-        for filename in files:
-            xml_text = requests.get(f"{base_url}{filename}", timeout=self.timeout).text
-            row = self.parse_swob_xml(xml_text)
-            if row.get("local_date") == self.target_date.isoformat():
-                rows.append(row)
+        if files:
+            # Fetch the per-observation XML files concurrently — there can be ~50
+            # of them and sequential GETs dominated this source's latency. map()
+            # preserves file order, so `latest = rows[-1]` stays correct.
+            with ThreadPoolExecutor(max_workers=min(8, len(files))) as executor:
+                parsed = executor.map(
+                    lambda filename: self.parse_swob_xml(
+                        requests.get(f"{base_url}{filename}", timeout=self.timeout).text
+                    ),
+                    files,
+                )
+                for row in parsed:
+                    if row.get("local_date") == self.target_date.isoformat():
+                        rows.append(row)
 
         latest = rows[-1] if rows else None
         same_day_max = self.max_value(*[
@@ -1891,10 +1911,10 @@ class TorontoHighTempModel:
     def get_model_version_string(self):
         kind = getattr(self, "active_model_kind", "empirical")
         if kind == "hgb":
-            return "v0.4.9 HGBC feature-based ML model"
+            return MODEL_VERSION_HGB
         if kind == "lr":
-            return "v0.4.9 LogisticRegression feature-based ML model"
-        return "v0.3.1 empirical lookup baseline"
+            return MODEL_VERSION_LR
+        return MODEL_VERSION_EMPIRICAL
 
     def extract_live_features(self, sources, cutoff_hour):
         """Build the cutoff-aligned feature vector shared by the feature model
