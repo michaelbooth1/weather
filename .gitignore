@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Virtual environment ---
+venv/
+.venv/
+env/
+
+# --- Raw source payloads (large, regenerable auditability backups) ---
+# ~600 MB+ of provider JSON/XML/CSV. Rebuildable from the network via the
+# collector CLIs (e.g. `python -m src.wu_history backfill`), and normalized
+# hourly/daily artifacts are derived from these.
+data/**/raw/
+
+# --- Runtime / transient state (not source of truth) ---
+data/wunderground/cyyz/last_good_sources.json
+data/snapshots/loop_pause.flag
+**/.snapshot.lock
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

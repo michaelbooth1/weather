@@ -1,0 +1,8 @@
+# Pin line endings to LF in the repo and working tree on all platforms.
+# The data manifests record SHA-256 checksums of the hourly/daily partitions;
+# letting Git rewrite LF<->CRLF would change those bytes and break audits.
+* text=auto eol=lf
+
+# Binary artifacts: never touch.
+*.png binary
+*.pkl binary

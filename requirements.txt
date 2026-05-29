@@ -1,0 +1,10 @@
+# Direct dependencies, pinned to the versions in the working venv.
+# scikit-learn is pinned exactly on purpose: src/feature_model_hgb.pkl is a
+# pickled sklearn model and can fail to unpickle across sklearn versions.
+matplotlib==3.10.9
+numpy==2.4.6
+pandas==3.0.3
+requests==2.34.2
+scikit-learn==1.8.0
+scipy==1.17.1
+streamlit==1.57.0
