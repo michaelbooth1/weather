@@ -140,6 +140,13 @@ class FeatureModelMixin:
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
 
+        # Forecast features: Open-Meteo forecasted daily max, defined identically
+        # to the archived-forecast training value, and the gap above the high so
+        # far. None if Open-Meteo is unavailable (model handles it as missing).
+        open_meteo = self.source_data(sources, "open_meteo")
+        forecast_high = open_meteo.get("day_max_c")
+        forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
+
         return {
             "feature_rows": feature_rows,
             "feature_latest": feature_latest,
@@ -153,6 +160,8 @@ class FeatureModelMixin:
             "wind_speed_kmh": wind_speed,
             "wind_group": wind_group,
             "cloud_group": cloud_group,
+            "forecast_high": forecast_high,
+            "forecast_gap": forecast_gap,
         }
 
     def predict_feature_distribution(self, sources, cutoff_hour, now):
@@ -173,6 +182,8 @@ class FeatureModelMixin:
         wind_speed = feats["wind_speed_kmh"]
         wind_group = feats["wind_group"]
         cloud_group = feats["cloud_group"]
+        forecast_high = feats["forecast_high"]
+        forecast_gap = feats["forecast_gap"]
 
         # Check if HGBC is available (preferred)
         if hgb_bundle and str(cutoff_hour) in hgb_bundle:
@@ -192,7 +203,9 @@ class FeatureModelMixin:
                     "humidity": humidity,
                     "pressure": pressure,
                     "pressure_trend_3h": pressure_trend_3h,
-                    "wind_speed_kmh": wind_speed
+                    "wind_speed_kmh": wind_speed,
+                    "forecast_high": forecast_high,
+                    "forecast_gap": forecast_gap
                 }
                 for g in all_wind:
                     feat_dict[f"wind_{g}"] = 1.0 if wind_group == g else 0.0
@@ -202,10 +215,18 @@ class FeatureModelMixin:
                 # Format as pandas DataFrame to avoid feature name warnings
                 import pandas as pd
                 X_feat = pd.DataFrame([feat_dict], columns=bundle["feature_names"])
-                
+
                 # Impute
                 X_imputed = imputer_obj.transform(X_feat)
-                
+
+                # Restore native NaN for the forecast columns (the model was
+                # trained with them un-imputed): a present forecast is used, a
+                # missing one stays NaN for the tree to handle.
+                fnames = list(bundle["feature_names"])
+                if "forecast_high" in fnames:
+                    for col in ("forecast_high", "forecast_gap"):
+                        X_imputed[0, fnames.index(col)] = float(feat_dict[col]) if feat_dict[col] is not None else float("nan")
+
                 # Predict probability distribution
                 probs = model_obj.predict_proba(X_imputed)[0]
                 classes = model_obj.classes_
@@ -227,20 +248,22 @@ class FeatureModelMixin:
                 scaler_scale = coef_data["scaler_scale"]
                 imputer_median = coef_data["imputer_median"]
                 
-                # Build raw feature vector
+                # Build raw numeric feature vector (count comes from the scaler so
+                # it tracks the trained feature set, e.g. with forecast features).
                 raw_vec = [
                     high_so_far, current_temp, rise_from_7am, dewpoint,
-                    humidity, pressure, pressure_trend_3h, wind_speed
+                    humidity, pressure, pressure_trend_3h, wind_speed,
+                    forecast_high, forecast_gap
                 ]
-                # Impute first 8 elements
-                for i in range(8):
+                n_num = len(scaler_mean)
+                # Impute then scale the numeric elements.
+                for i in range(n_num):
                     if raw_vec[i] is None:
                         raw_vec[i] = imputer_median[i]
-                # Scale first 8 elements
-                scaled_vec = [(raw_vec[i] - scaler_mean[i]) / scaler_scale[i] for i in range(8)]
-                
-                # Add one-hot encoded groups (index 8 onwards)
-                for name in feature_names[8:]:
+                scaled_vec = [(raw_vec[i] - scaler_mean[i]) / scaler_scale[i] for i in range(n_num)]
+
+                # Add one-hot encoded groups (after the numeric block)
+                for name in feature_names[n_num:]:
                     if name.startswith("wind_"):
                         g = name[5:]
                         scaled_vec.append(1.0 if wind_group == g else 0.0)

@@ -57,8 +57,16 @@ All run from the repo root with the venv interpreter:
 # Forecast archive (migrate schema, backfill ECCC, learn source bias)
 .\venv\Scripts\python.exe -m src.forecast_archive analyze <snapshot-folder>
 
-# Capture market/model odds snapshots (one-shot or --loop)
+# Capture snapshots: one-shot, or a crash-proof managed loop with heartbeat
 .\venv\Scripts\python.exe -m src.snapshot_tracker --force
+.\venv\Scripts\python.exe -m src.snapshot_tracker --loop --interval-minutes 10
+.\venv\Scripts\python.exe -m src.snapshot_tracker --status   # is the loop alive?
+
+# Collection health: which captured days are clean (gap/coverage check)
+.\venv\Scripts\python.exe -m src.collection_health
+
+# Settlement-scored backtest: model vs market edge on captured days
+.\venv\Scripts\python.exe -m src.backtest
 
 # Analytics over a snapshot tape
 .\venv\Scripts\python.exe -m src.snapshot_analytics
@@ -66,12 +74,17 @@ All run from the repo root with the venv interpreter:
 # Calibrate empirical intraday blend weights
 .\venv\Scripts\python.exe -m src.intraday_calibration
 
-# Train the feature model + late-day continuation models
+# Train the feature model + late-day continuation models (with LOO + calibration)
 .\venv\Scripts\python.exe src\feature_model.py
 
 # Data-quality audit (missing/sparse days, duplicates, impossible values)
 .\venv\Scripts\python.exe src\data_auditor.py
 ```
+
+For resilient collection, run `--loop` under an OS supervisor that restarts it
+(Windows Task Scheduler with "restart on failure", or run at logon). The loop
+survives transient capture errors itself; `--status` (heartbeat-based) tells you
+if the process is alive, and `diagnostics.jsonl` records every iteration.
 
 ## Data layout
 

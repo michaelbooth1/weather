@@ -380,6 +380,128 @@ def capture_snapshot(force=False):
     )
 
 
+SNAPSHOT_DATA_ROOT = Path("data") / "snapshots"
+PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
+LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
+DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
+
+
+def read_loop_status():
+    if not LOOP_STATUS_PATH.exists():
+        return None
+    try:
+        with LOOP_STATUS_PATH.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_loop_status(status):
+    LOOP_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LOOP_STATUS_PATH.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(status, handle, indent=2, sort_keys=True, default=str)
+    tmp.replace(LOOP_STATUS_PATH)
+
+
+def append_diagnostic(record):
+    DIAGNOSTICS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with DIAGNOSTICS_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
+
+
+def _age_minutes(now, iso_value):
+    if not iso_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(iso_value))
+    except ValueError:
+        return None
+    return (now - parsed).total_seconds() / 60.0
+
+
+def loop_health(status, now, interval_minutes=10.0):
+    """Judge collection liveness from the heartbeat. Liveness is decided by
+    heartbeat freshness, not PID (a stale heartbeat means dead regardless, and
+    PIDs get reused across reboots)."""
+    if not status:
+        return {"state": "UNKNOWN", "detail": "no status file (loop never ran or was cleaned)"}
+    interval = status.get("interval_minutes", interval_minutes)
+    hb_age = _age_minutes(now, status.get("last_heartbeat"))
+    snap_age = _age_minutes(now, status.get("last_snapshot_written_at"))
+    errors = status.get("consecutive_errors", 0)
+    dead_after = 2 * interval + 2  # tolerate one full sleep cycle plus slack
+    if status.get("paused"):
+        state = "PAUSED"
+    elif hb_age is None or hb_age > dead_after:
+        state = "DEAD"
+    elif errors >= 3:
+        state = "ERRORING"
+    else:
+        state = "RUNNING"
+    return {
+        "state": state,
+        "pid": status.get("pid"),
+        "heartbeat_age_min": round(hb_age, 1) if hb_age is not None else None,
+        "last_snapshot_age_min": round(snap_age, 1) if snap_age is not None else None,
+        "consecutive_errors": errors,
+        "last_error": status.get("last_error"),
+        "started_at": status.get("started_at"),
+    }
+
+
+def run_loop(force=False, interval_minutes=10.0):
+    """Crash-proof managed snapshot loop: a capture failure is logged and the
+    loop continues, so collection never silently dies on a transient error. A
+    heartbeat + diagnostics record is written every iteration."""
+    status = {
+        "pid": os.getpid(),
+        "started_at": datetime.now(TORONTO_TZ).isoformat(),
+        "interval_minutes": interval_minutes,
+        "iterations": 0,
+        "consecutive_errors": 0,
+        "last_error": None,
+        "last_snapshot_id": None,
+        "last_snapshot_written_at": None,
+        "paused": False,
+    }
+    while True:
+        now = datetime.now(TORONTO_TZ)
+        status["iterations"] += 1
+        status["last_heartbeat"] = now.isoformat()
+        status["paused"] = PAUSE_FLAG_PATH.exists()
+        if status["paused"]:
+            write_loop_status(status)
+            append_diagnostic({"time": now.isoformat(), "status": "paused"})
+            print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)
+        else:
+            try:
+                result = capture_snapshot(force=force)
+                status["consecutive_errors"] = 0
+                status["last_error"] = None
+                if result.get("written"):
+                    status["last_snapshot_id"] = result.get("snapshot_id")
+                    status["last_snapshot_written_at"] = now.isoformat()
+                write_loop_status(status)
+                append_diagnostic({
+                    "time": now.isoformat(),
+                    "written": bool(result.get("written")),
+                    "snapshot_id": result.get("snapshot_id"),
+                })
+                print(json.dumps(result, sort_keys=True), flush=True)
+            except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                status["consecutive_errors"] += 1
+                status["last_error"] = f"{type(exc).__name__}: {exc}"
+                write_loop_status(status)
+                append_diagnostic({
+                    "time": now.isoformat(),
+                    "error": status["last_error"],
+                    "consecutive_errors": status["consecutive_errors"],
+                })
+                print(json.dumps({"status": "error", "error": status["last_error"]}), flush=True)
+        time.sleep(max(1.0, interval_minutes * 60))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Capture Toronto weather-market model/market odds snapshots."
@@ -400,19 +522,22 @@ def main():
         default=10.0,
         help="Loop interval in minutes.",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print the managed loop's health (from the heartbeat) and exit.",
+    )
     args = parser.parse_args()
+
+    if args.status:
+        health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
+        print(json.dumps(health, indent=2, sort_keys=True, default=str))
+        return
     if not args.loop:
         print(json.dumps(capture_snapshot(force=args.force), indent=2, sort_keys=True))
         return
 
-    while True:
-        pause_flag = Path("data") / "snapshots" / "loop_pause.flag"
-        if pause_flag.exists():
-            print(json.dumps({"status": "paused", "reason": "pause flag file exists", "time": datetime.now().isoformat()}), flush=True)
-        else:
-            result = capture_snapshot(force=args.force)
-            print(json.dumps(result, sort_keys=True), flush=True)
-        time.sleep(max(1.0, args.interval_minutes * 60))
+    run_loop(force=args.force, interval_minutes=args.interval_minutes)
 
 
 if __name__ == "__main__":

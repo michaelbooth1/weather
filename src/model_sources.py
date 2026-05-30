@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,34 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
+
+
+def _is_retryable(exc):
+    """Transient network errors worth retrying. 4xx (e.g. a missing SWOB
+    directory for a date) is not retryable; connection/timeout/5xx is."""
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        response = getattr(exc, "response", None)
+        return response is not None and response.status_code >= 500
+    return False
+
+
+def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep):
+    """Call ``fn`` (an idempotent GET), retrying transient failures with
+    exponential backoff. Re-raises the last error if all attempts fail, and
+    raises non-transient errors immediately. ``sleep`` is injectable for tests."""
+    last = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - re-raised below
+            if not _is_retryable(exc):
+                raise
+            last = exc
+            if attempt < attempts - 1:
+                sleep(base_delay * (2 ** attempt))
+    raise last
 
 
 class SourceFetchMixin:
@@ -317,13 +346,15 @@ class SourceFetchMixin:
             # Fetch the per-observation XML files concurrently — there can be ~50
             # of them and sequential GETs dominated this source's latency. map()
             # preserves file order, so `latest = rows[-1]` stays correct.
+            def _fetch_one(filename):
+                def _once():
+                    resp = requests.get(f"{base_url}{filename}", timeout=self.timeout)
+                    resp.raise_for_status()
+                    return resp.text
+                return self.parse_swob_xml(request_with_retries(_once))
+
             with ThreadPoolExecutor(max_workers=min(8, len(files))) as executor:
-                parsed = executor.map(
-                    lambda filename: self.parse_swob_xml(
-                        requests.get(f"{base_url}{filename}", timeout=self.timeout).text
-                    ),
-                    files,
-                )
+                parsed = executor.map(_fetch_one, files)
                 for row in parsed:
                     if row.get("local_date") == self.target_date.isoformat():
                         rows.append(row)
@@ -451,10 +482,16 @@ class SourceFetchMixin:
         })
         hourly = payload.get("hourly", {}) or {}
         rows = []
+        day_temps = []  # all of today's forecast hours, for the daily-max feature
         now = datetime.now(TORONTO_TZ).replace(tzinfo=None)
         for index, raw_time in enumerate(hourly.get("time", []) or []):
             dt = datetime.fromisoformat(raw_time)
-            if dt.date() != self.target_date or dt < now:
+            if dt.date() != self.target_date:
+                continue
+            temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
+            if temp is not None:
+                day_temps.append(temp)
+            if dt < now:
                 continue
             local_dt = dt.replace(tzinfo=TORONTO_TZ)
             rows.append({
@@ -468,7 +505,10 @@ class SourceFetchMixin:
                 "wind_kmh": self.array_get(hourly, "wind_speed_10m", index),
                 "solar": self.array_get(hourly, "shortwave_radiation", index),
             })
-        return {"url": url, "rows": rows[:12]}
+        # Forecasted daily max over ALL of today's hours (the canonical forecast
+        # feature, matching the Open-Meteo historical-forecast training value).
+        day_max_c = max(day_temps) if day_temps else None
+        return {"url": url, "rows": rows[:12], "day_max_c": day_max_c}
 
     def parse_swob_xml(self, xml_text):
         root = ET.fromstring(xml_text)
@@ -494,9 +534,11 @@ class SourceFetchMixin:
         }
 
     def get_json(self, url, params):
-        response = requests.get(url, params=params, timeout=self.timeout)
-        response.raise_for_status()
-        return response.json()
+        def _once():
+            response = requests.get(url, params=params, timeout=self.timeout)
+            response.raise_for_status()
+            return response.json()
+        return request_with_retries(_once)
 
     def parse_weather_com_time(self, value):
         if not value:

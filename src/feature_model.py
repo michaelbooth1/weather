@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 # Ensure src is in import path
 sys.path.insert(0, os.path.abspath("src"))
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
+from forecast_history import load_forecast_daily
 
 RUN_LOO = True
 
@@ -97,7 +98,12 @@ def main():
     bucket_space = cache["bucket_space"]
     
     print(f"Loaded {len(daily)} target-season days with observations.")
-    
+
+    # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
+    forecast_index = load_forecast_daily()
+    print(f"Loaded {len(forecast_index)} historical forecast-days "
+          f"(forecast feature present for those, NaN otherwise).")
+
     # Pre-extract features for all days and hours
     print("Extracting features at each cutoff hour...")
     raw_data = defaultdict(list)
@@ -152,7 +158,14 @@ def main():
             wind_speed = current_obs.get("wind_kmh")
             wind_group = model.wind_group(current_obs.get("wind"))
             cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
-            
+
+            # Forecast features (Open-Meteo archived daily-max forecast); NaN
+            # before the forecast archive starts. forecast_gap is the key signal:
+            # how much more warming the forecast implies beyond the high so far.
+            forecast_high = forecast_index.get(local_date.isoformat())
+            forecast_gap = (forecast_high - high_so_far) if (
+                forecast_high is not None and high_so_far is not None) else None
+
             raw_data[hour].append({
                 "date": local_date,
                 "high_so_far": high_so_far,
@@ -163,6 +176,8 @@ def main():
                 "pressure": pressure,
                 "pressure_trend_3h": pressure_trend_3h,
                 "wind_speed_kmh": wind_speed,
+                "forecast_high": forecast_high,
+                "forecast_gap": forecast_gap,
                 "wind_group": wind_group,
                 "cloud_group": cloud_group,
                 "final_bucket": final_bucket
@@ -214,24 +229,36 @@ def main():
         for g in all_cloud_groups:
             df[f"cloud_{g}"] = (df["cloud_group"] == g).astype(float)
             
-        feature_cols = [
+        numeric_cols = [
             "high_so_far", "current_temp", "rise_from_7am",
             "dewpoint_c", "humidity", "pressure", "pressure_trend_3h",
-            "wind_speed_kmh"
-        ] + [f"wind_{g}" for g in all_wind_groups] + [f"cloud_{g}" for g in all_cloud_groups]
-        
+            "wind_speed_kmh", "forecast_high", "forecast_gap"
+        ]
+        n_numeric = len(numeric_cols)
+        feature_cols = numeric_cols + [f"wind_{g}" for g in all_wind_groups] + [f"cloud_{g}" for g in all_cloud_groups]
+
         X = df[feature_cols].copy()
         y = df["final_bucket"].copy()
-        
-        # Impute missing values
+
+        # Impute missing values (forecast features are median-filled where absent;
+        # pre-archive that degenerates to a constant high / a redundant gap, so it
+        # is benign, while post-archive rows carry the real forecast signal).
         imputer = SimpleImputer(strategy="median")
         X_imputed = imputer.fit_transform(X)
-        
-        # Standardize numeric columns (first 8 columns are numeric)
+
+        # Standardize the numeric columns (the leading n_numeric columns).
         scaler = StandardScaler()
         X_scaled = X_imputed.copy()
-        X_scaled[:, :8] = scaler.fit_transform(X_imputed[:, :8])
-        
+        X_scaled[:, :n_numeric] = scaler.fit_transform(X_imputed[:, :n_numeric])
+
+        # HGB version: keep the forecast columns as native NaN where absent (pre
+        # archive) instead of median-filling, so the tree learns "forecast
+        # unknown" rather than splitting on a fake value. (LR can't do NaN, so it
+        # keeps the imputed+scaled matrix above.)
+        forecast_idx = [feature_cols.index("forecast_high"), feature_cols.index("forecast_gap")]
+        X_hgb = X_imputed.copy()
+        X_hgb[:, forecast_idx] = X[["forecast_high", "forecast_gap"]].to_numpy(dtype=float)
+
         # Run Leave-One-Out cross-validation
         n_samples = len(df)
         if not RUN_LOO:
@@ -317,10 +344,13 @@ def main():
             briers_baseline.append(brier_score(scores_base, val_actual))
             cc_baseline.append((scores_base[base_top], 1.0 if base_top == val_actual else 0.0))
             
-            # Train and fit splits
+            # Train and fit splits (LR uses scaled+imputed; HGB uses the
+            # native-NaN matrix so it sees missing forecasts as missing).
             X_train, y_train = X_scaled[train_mask], y[train_mask]
             X_val, y_val = X_scaled[val_idx].reshape(1, -1), y[val_idx]
-            
+            X_hgb_train = X_hgb[train_mask]
+            X_hgb_val = X_hgb[val_idx].reshape(1, -1)
+
             # --- 2. Train & Predict Logistic Regression ---
             # Using simple Logistic Regression
             lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
@@ -341,9 +371,9 @@ def main():
             
             # --- 3. Train & Predict HistGradientBoostingClassifier ---
             hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
-            hgb.fit(X_train, y_train)
-            
-            hgb_probs_raw = hgb.predict_proba(X_val)[0]
+            hgb.fit(X_hgb_train, y_train)
+
+            hgb_probs_raw = hgb.predict_proba(X_hgb_val)[0]
             hgb_classes = hgb.classes_
             hgb_prob_dict = {int(c): float(p) for c, p in zip(hgb_classes, hgb_probs_raw)}
             hgb_prob_blended = blend(p_clim.copy(), hgb_prob_dict, 0.80)
@@ -414,7 +444,7 @@ def main():
         X_final_imputed = final_imputer.fit_transform(X)
         final_scaler = StandardScaler()
         X_final_scaled = X_final_imputed.copy()
-        X_final_scaled[:, :8] = final_scaler.fit_transform(X_final_imputed[:, :8])
+        X_final_scaled[:, :n_numeric] = final_scaler.fit_transform(X_final_imputed[:, :n_numeric])
         
         # Fit final Logistic Regression
         final_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
@@ -427,15 +457,18 @@ def main():
             "classes": [int(c) for c in final_lr.classes_],
             "coef": final_lr.coef_.tolist(), # Shape: (n_classes, n_features)
             "intercept": final_lr.intercept_.tolist(), # Shape: (n_classes,)
-            "scaler_mean": final_scaler.mean_[:8].tolist(),
-            "scaler_scale": final_scaler.scale_[:8].tolist(),
+            "scaler_mean": final_scaler.mean_[:n_numeric].tolist(),
+            "scaler_scale": final_scaler.scale_[:n_numeric].tolist(),
             "imputer_median": final_imputer.statistics_.tolist(),
             "blend_weight": 0.80
         }
 
-        # Fit final HistGradientBoostingClassifier (using the non-scaled data since tree-based models don't need scaling)
+        # Fit final HistGradientBoostingClassifier (trees need no scaling; forecast
+        # columns keep native NaN where absent, matching the LOO and inference).
+        X_final_hgb = X_final_imputed.copy()
+        X_final_hgb[:, forecast_idx] = X[["forecast_high", "forecast_gap"]].to_numpy(dtype=float)
         final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
-        final_hgb.fit(X_final_imputed, y)
+        final_hgb.fit(X_final_hgb, y)
         
         # Export HGBC bundle (blend_weight tuned by LOO log loss; 0.80 fallback)
         hgb_models_info[str(hour)] = {

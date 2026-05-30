@@ -1,0 +1,50 @@
+{
+  "covered_years": [
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "endpoint": "https://historical-forecast-api.open-meteo.com/v1/forecast",
+  "generated_at": "2026-05-30T15:11:02.365916",
+  "params": {
+    "hourly": "temperature_2m",
+    "latitude": 43.6767,
+    "longitude": -79.6306,
+    "timezone": "America/Toronto"
+  },
+  "per_year_days": {
+    "2010": 0,
+    "2011": 0,
+    "2012": 0,
+    "2013": 0,
+    "2014": 0,
+    "2015": 0,
+    "2016": 0,
+    "2017": 0,
+    "2018": 37,
+    "2019": 37,
+    "2020": 37,
+    "2021": 37,
+    "2022": 37,
+    "2023": 37,
+    "2024": 37,
+    "2025": 37,
+    "2026": 0
+  },
+  "season_window": {
+    "end": [
+      6,
+      15
+    ],
+    "start": [
+      5,
+      10
+    ]
+  },
+  "total_days": 296
+}

@@ -22,9 +22,68 @@ from model_constants import (
     _UNLOADED,
 )
 
+# --- Forecast floor ---------------------------------------------------------
+# The cap bounds the distribution from above (the high won't exceed the
+# forecast); the forecast floor is its mirror — when independent forecasts
+# agree, the high will very likely *reach* near them, so mass far below the
+# forecast is suppressed. Kept soft (residual mass always remains) and decayed
+# to zero by late afternoon, when a low high-so-far falsifies the forecast.
+FORECAST_FLOOR_MARGIN = 2            # "almost certainly reaches forecast minus this"
+                                     # (2 for same-day forecasts, which rarely miss low by >2)
+FORECAST_AGREEMENT_SPREAD = 3.0      # forecasts must agree within this many degrees
+FORECAST_FLOOR_MIN_SOURCES = 2       # and come from at least this many sources
+FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (softer than the cap)
+
 
 class DistributionMixin:
     """The probability engine: priors, blending, live signals, caps, weighting."""
+
+    def forecast_floor_time_weight(self, hour):
+        """Strong in the morning (plenty of time to warm up), zero by late
+        afternoon (a low high-so-far by then means the forecast is busting)."""
+        if hour <= 12:
+            return 1.0
+        if hour >= 17:
+            return 0.0
+        return (17 - hour) / 5.0
+
+    def forecast_floor_plan(self, forecasts, hour, observed_bucket):
+        """Return (threshold, strength) for the forecast-anchored lower bound,
+        or None when forecasts disagree, are too few, or it is too late."""
+        vals = [float(v) for v in forecasts if v is not None]
+        if len(vals) < FORECAST_FLOOR_MIN_SOURCES:
+            return None
+        spread = max(vals) - min(vals)
+        if spread > FORECAST_AGREEMENT_SPREAD:
+            return None
+        time_weight = self.forecast_floor_time_weight(hour)
+        if time_weight <= 0:
+            return None
+        anchor = sum(vals) / len(vals)
+        threshold = self.round_half_up(anchor) - FORECAST_FLOOR_MARGIN
+        # Mild penalty for a wider (but still agreeing) spread; never below 0.5.
+        spread_weight = max(0.5, 1.0 - spread / (2 * FORECAST_AGREEMENT_SPREAD))
+        return threshold, time_weight * spread_weight
+
+    def apply_forecast_floor(self, scores, forecasts, hour, observed_bucket):
+        """Suppress buckets well below an agreed forecast, scaled by confidence
+        and time of day. Soft: the multiplier is a convex blend so probability
+        is never driven to zero (a busted forecast must stay survivable)."""
+        plan = self.forecast_floor_plan(forecasts, hour, observed_bucket)
+        if not plan:
+            return self.normalize_scores(scores)
+        threshold, strength = plan
+        adjusted = {}
+        for temp, score in scores.items():
+            if temp < threshold:
+                factor = (1 - strength) + strength * (FORECAST_FLOOR_BASE ** (threshold - temp))
+                adjusted[temp] = score * factor
+            else:
+                adjusted[temp] = score
+        return self.normalize_scores(adjusted)
+
+    def estimate_distribution(self, sources, now=None):
+        history = self.source_data(sources, "wu_history")
 
     def estimate_distribution(self, sources, now=None):
         history = self.source_data(sources, "wu_history")
@@ -269,6 +328,17 @@ class DistributionMixin:
             for temp in list(scores):
                 if temp > plausible_cap + 1:
                     scores[temp] *= 0.28 ** (temp - plausible_cap - 1)
+
+        # Symmetric to the cap: when forecasts agree, the high will very likely
+        # reach near them, so suppress mass far below the forecast (soft, and
+        # only while there's still daytime to warm up).
+        if not using_calibrated_empirical:
+            scores = self.apply_forecast_floor(
+                scores,
+                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                now.hour,
+                observed_bucket,
+            )
 
         return self.normalize_scores(scores)
 
