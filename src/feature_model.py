@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.abspath("src"))
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
 
-RUN_LOO = False
+RUN_LOO = True
 
 # We will use scikit-learn models
 from sklearn.linear_model import LogisticRegression
@@ -67,6 +67,25 @@ def brier_score(prob_dict, actual_bucket):
         y = 1.0 if k == actual_bucket else 0.0
         score += (v - y) ** 2
     return score
+
+def expected_calibration_error(conf_correct, n_bins=10):
+    """ECE over the predicted top-class confidence: how far the model's stated
+    confidence is from its realized accuracy. 0 = perfectly calibrated."""
+    if not conf_correct:
+        return 0.0
+    bins = [[] for _ in range(n_bins)]
+    for conf, correct in conf_correct:
+        idx = min(n_bins - 1, int(conf * n_bins))
+        bins[idx].append((conf, correct))
+    n = len(conf_correct)
+    ece = 0.0
+    for b in bins:
+        if not b:
+            continue
+        avg_conf = sum(c for c, _ in b) / len(b)
+        acc = sum(k for _, k in b) / len(b)
+        ece += (len(b) / n) * abs(acc - avg_conf)
+    return ece
 
 def main():
     model = TorontoHighTempModel()
@@ -162,9 +181,17 @@ def main():
         "This report compares the Leave-One-Out validation performance of the empirical baseline model (Item 2) against the new feature-based ML models:\n",
         "1. **Multinomial Logistic Regression** (L2 penalty, Softmax probabilities)\n",
         "2. **HistGradientBoostingClassifier** (Non-linear decision tree ensemble)\n\n",
-        "| Cutoff Hour | Baseline Log Loss | Baseline Acc | LR Log Loss | LR Acc | HGBC Log Loss | HGBC Acc |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        "Lower log loss / Brier is better. ECE (expected calibration error over the\n"
+        "top-class confidence) is reported per model below the table; lower is better.\n\n",
+        "| Cutoff Hour | Base LogLoss | Base Brier | Base Acc | LR LogLoss | LR Brier | LR Acc | HGBC LogLoss | HGBC Brier | HGBC Acc |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
+
+    # Accumulated (confidence, correct) pairs across all hours for overall ECE.
+    overall_cc = {"baseline": [], "lr": [], "hgb": [], "hgb_tuned": []}
+    # Per-hour climatology<->HGB blend weight, grid-searched by LOO log loss.
+    tuned_blend_weight = {}
+    calibration_rows = []
 
     trained_models_info = {}
     hgb_models_info = {}
@@ -218,13 +245,20 @@ def main():
         
         losses_baseline = []
         accs_baseline = []
-        
+        briers_baseline = []
+        cc_baseline = []  # (top-class confidence, was_correct) for ECE
+
         losses_lr = []
         accs_lr = []
-        
+        briers_lr = []
+        cc_lr = []
+
         losses_hgb = []
         accs_hgb = []
-        
+        briers_hgb = []
+        cc_hgb = []
+        hgb_fold_data = []  # (p_clim, raw_hgb_prob_dict, val_actual) for weight tuning
+
         for val_idx in range(n_samples):
             # Split train and validation
             train_mask = np.ones(n_samples, dtype=bool)
@@ -278,7 +312,10 @@ def main():
                 scores_base = blend(scores_base, p_cloud, w_cld)
                 
             losses_baseline.append(log_loss(scores_base, val_actual))
-            accs_baseline.append(1.0 if max(scores_base, key=scores_base.get) == val_actual else 0.0)
+            base_top = max(scores_base, key=scores_base.get)
+            accs_baseline.append(1.0 if base_top == val_actual else 0.0)
+            briers_baseline.append(brier_score(scores_base, val_actual))
+            cc_baseline.append((scores_base[base_top], 1.0 if base_top == val_actual else 0.0))
             
             # Train and fit splits
             X_train, y_train = X_scaled[train_mask], y[train_mask]
@@ -297,7 +334,10 @@ def main():
             lr_prob_blended = blend(p_clim.copy(), lr_prob_dict, 0.80)
             
             losses_lr.append(log_loss(lr_prob_blended, val_actual))
-            accs_lr.append(1.0 if max(lr_prob_blended, key=lr_prob_blended.get) == val_actual else 0.0)
+            lr_top = max(lr_prob_blended, key=lr_prob_blended.get)
+            accs_lr.append(1.0 if lr_top == val_actual else 0.0)
+            briers_lr.append(brier_score(lr_prob_blended, val_actual))
+            cc_lr.append((lr_prob_blended[lr_top], 1.0 if lr_top == val_actual else 0.0))
             
             # --- 3. Train & Predict HistGradientBoostingClassifier ---
             hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
@@ -309,28 +349,65 @@ def main():
             hgb_prob_blended = blend(p_clim.copy(), hgb_prob_dict, 0.80)
             
             losses_hgb.append(log_loss(hgb_prob_blended, val_actual))
-            accs_hgb.append(1.0 if max(hgb_prob_blended, key=hgb_prob_blended.get) == val_actual else 0.0)
+            hgb_top = max(hgb_prob_blended, key=hgb_prob_blended.get)
+            accs_hgb.append(1.0 if hgb_top == val_actual else 0.0)
+            briers_hgb.append(brier_score(hgb_prob_blended, val_actual))
+            cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
+            hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
 
         if RUN_LOO:
             # Print metrics summary
             base_ll = np.mean(losses_baseline)
             base_acc = np.mean(accs_baseline)
-            
+            base_brier = np.mean(briers_baseline)
+
             lr_ll = np.mean(losses_lr)
             lr_acc = np.mean(accs_lr)
-            
+            lr_brier = np.mean(briers_lr)
+
             hgb_ll = np.mean(losses_hgb)
             hgb_acc = np.mean(accs_hgb)
-            
-            print(f"  Baseline:  Log Loss = {base_ll:.4f}, Accuracy = {base_acc*100:.2f}%")
-            print(f"  LogisticR: Log Loss = {lr_ll:.4f}, Accuracy = {lr_acc*100:.2f}%")
-            print(f"  HGBC:      Log Loss = {hgb_ll:.4f}, Accuracy = {hgb_acc*100:.2f}%")
-            
-            report_lines.append(
-                f"| {hour:02d}:00 | {base_ll:.4f} | {base_acc*100:.1f}% | "
-                f"{lr_ll:.4f} | {lr_acc*100:.1f}% | {hgb_ll:.4f} | {hgb_acc*100:.1f}% |"
+            hgb_brier = np.mean(briers_hgb)
+
+            overall_cc["baseline"].extend(cc_baseline)
+            overall_cc["lr"].extend(cc_lr)
+            overall_cc["hgb"].extend(cc_hgb)
+
+            # Grid-search the climatology<->HGB blend weight that minimizes LOO
+            # log loss for this hour. 0.80 (the old hardcoded value) is in the
+            # grid, so the tuned weight can never be worse on log loss.
+            WEIGHT_GRID = [0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.97]
+            best_w, best_w_ll = 0.80, float("inf")
+            for w in WEIGHT_GRID:
+                ll_w = np.mean([log_loss(blend(pc.copy(), hd, w), ya)
+                                for pc, hd, ya in hgb_fold_data])
+                if ll_w < best_w_ll - 1e-9:
+                    best_w_ll, best_w = ll_w, w
+            tuned_blend_weight[str(hour)] = best_w
+            tuned_blended = [(blend(pc.copy(), hd, best_w), ya) for pc, hd, ya in hgb_fold_data]
+            tuned_ll = np.mean([log_loss(pb, ya) for pb, ya in tuned_blended])
+            tuned_brier = np.mean([brier_score(pb, ya) for pb, ya in tuned_blended])
+            tuned_cc = [(pb[max(pb, key=pb.get)], 1.0 if max(pb, key=pb.get) == ya else 0.0)
+                        for pb, ya in tuned_blended]
+            overall_cc["hgb_tuned"].extend(tuned_cc)
+            hour_ece_fixed = expected_calibration_error(cc_hgb)
+            hour_ece_tuned = expected_calibration_error(tuned_cc)
+            calibration_rows.append(
+                f"| {hour:02d}:00 | {best_w:.2f} | {hgb_ll:.4f} | {tuned_ll:.4f} | "
+                f"{hgb_ll - tuned_ll:+.4f} | {hour_ece_fixed:.4f} | {hour_ece_tuned:.4f} |"
             )
-        
+
+            print(f"  Baseline:  Log Loss = {base_ll:.4f}, Brier = {base_brier:.4f}, Accuracy = {base_acc*100:.2f}%")
+            print(f"  LogisticR: Log Loss = {lr_ll:.4f}, Brier = {lr_brier:.4f}, Accuracy = {lr_acc*100:.2f}%")
+            print(f"  HGBC:      Log Loss = {hgb_ll:.4f}, Brier = {hgb_brier:.4f}, Accuracy = {hgb_acc*100:.2f}%")
+            print(f"  HGBC tuned w={best_w:.2f}: Log Loss = {tuned_ll:.4f}, Brier = {tuned_brier:.4f}")
+
+            report_lines.append(
+                f"| {hour:02d}:00 | {base_ll:.4f} | {base_brier:.4f} | {base_acc*100:.1f}% | "
+                f"{lr_ll:.4f} | {lr_brier:.4f} | {lr_acc*100:.1f}% | "
+                f"{hgb_ll:.4f} | {hgb_brier:.4f} | {hgb_acc*100:.1f}% |"
+            )
+
         # Train final models on 100% of data to export coefficients
         # Impute and scale on 100% data
         final_imputer = SimpleImputer(strategy="median")
@@ -360,14 +437,14 @@ def main():
         final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
         final_hgb.fit(X_final_imputed, y)
         
-        # Export HGBC bundle
+        # Export HGBC bundle (blend_weight tuned by LOO log loss; 0.80 fallback)
         hgb_models_info[str(hour)] = {
             "model": final_hgb,
             "imputer": final_imputer,
             "feature_names": feature_cols,
             "all_wind_groups": all_wind_groups,
             "all_cloud_groups": all_cloud_groups,
-            "blend_weight": 0.80
+            "blend_weight": tuned_blend_weight.get(str(hour), 0.80)
         }
         
     # Write coefficients json
@@ -511,6 +588,31 @@ def main():
     print(f"Saved final late-day model coefficients to {ld_coefs_path}")
     
     if RUN_LOO:
+        # Per-hour blend-weight calibration table.
+        report_lines.append("\n## HGB climatology-blend calibration (tuned by LOO log loss)\n")
+        report_lines.append(
+            "Blend weight = fraction on the HGB prediction vs the climatology prior. "
+            "Previously hardcoded at 0.80 for every hour and ignored at inference; now "
+            "grid-searched per hour and read from the model bundle.\n")
+        report_lines.append("| Cutoff | Tuned w | LogLoss @0.80 | LogLoss @tuned | Delta | ECE @0.80 | ECE @tuned |")
+        report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        report_lines.extend(calibration_rows)
+
+        # Overall calibration (ECE) across all cutoff hours.
+        base_ece = expected_calibration_error(overall_cc["baseline"])
+        lr_ece = expected_calibration_error(overall_cc["lr"])
+        hgb_ece = expected_calibration_error(overall_cc["hgb"])
+        hgb_tuned_ece = expected_calibration_error(overall_cc["hgb_tuned"])
+        print(f"\nOverall ECE  -  Baseline: {base_ece:.4f}  LR: {lr_ece:.4f}  "
+              f"HGBC@0.80: {hgb_ece:.4f}  HGBC@tuned: {hgb_tuned_ece:.4f}")
+        report_lines.append("\n## Overall calibration (Expected Calibration Error)\n")
+        report_lines.append("| Model | ECE (top-class confidence vs accuracy) |")
+        report_lines.append("| :--- | :--- |")
+        report_lines.append(f"| Empirical baseline | {base_ece:.4f} |")
+        report_lines.append(f"| Logistic Regression | {lr_ece:.4f} |")
+        report_lines.append(f"| HGBC (fixed 0.80 blend) | {hgb_ece:.4f} |")
+        report_lines.append(f"| HGBC (tuned blend) | {hgb_tuned_ece:.4f} |")
+
         # Save Report file
         report_path = os.path.join("data", "wunderground", "cyyz", "analysis", "feature_model_report.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)

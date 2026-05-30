@@ -1,0 +1,474 @@
+import math
+from collections import Counter
+from datetime import datetime
+from model_constants import (
+    DEFAULT_MARKET_CONFIG,
+    TORONTO_TZ,
+    TARGET_DATE,
+    TARGET_DATE_STR,
+    WEATHER_COM_KEY,
+    CYYZ_HISTORY_ID,
+    CYYZ_ICAO,
+    PEARSON_LAT,
+    PEARSON_LON,
+    HISTORY_MIN_ROW_COUNT,
+    HISTORY_WINDOW_DAYS,
+    INTRADAY_CUTOFF_HOURS,
+    LIVE_CACHE_MAX_AGE_MINUTES,
+    ML_MODEL_VERSION,
+    MODEL_VERSION_HGB,
+    MODEL_VERSION_LR,
+    MODEL_VERSION_EMPIRICAL,
+    _UNLOADED,
+)
+
+
+class DistributionMixin:
+    """The probability engine: priors, blending, live signals, caps, weighting."""
+
+    def estimate_distribution(self, sources, now=None):
+        history = self.source_data(sources, "wu_history")
+        current = self.source_data(sources, "wu_current")
+        local_history = self.source_data(sources, "local_history")
+        eccc_city = self.source_data(sources, "eccc_citypage")
+        eccc = self.source_data(sources, "eccc_swob")
+        metar = self.source_data(sources, "metar")
+        weather_forecast = self.source_data(sources, "weather_forecast")
+        open_meteo = self.source_data(sources, "open_meteo")
+
+        now = now or datetime.now(TORONTO_TZ)
+        history_max = history.get("max_c")
+        current_temp = current.get("temp_c")
+        current_max = current.get("max_since_7am_c")
+        eccc_max = eccc.get("same_day_max_c")
+        metar_temp = metar.get("temp_c")
+        weather_forecast_max = self.max_row_temp(weather_forecast.get("rows"))
+        open_meteo_max = self.max_row_temp(open_meteo.get("rows"))
+        eccc_forecast_high = eccc_city.get("forecast_high_c")
+
+        local_analysis = local_history.get("analysis") or {}
+        probabilities = local_analysis.get("bucket_probabilities") or {}
+        if local_history.get("available") and local_analysis.get("target_window_count", 0) >= 30:
+            scores = {
+                int(bucket): float(probability)
+                for bucket, probability in probabilities.items()
+            }
+        else:
+            scores = {temp: 1.0 / 25.0 for temp in range(8, 33)}
+
+        live_values = [
+            history_max,
+            current_temp,
+            current_max,
+            self.round_half_up(eccc_max) if eccc_max is not None else None,
+            metar_temp,
+            weather_forecast_max,
+            self.round_half_up(open_meteo_max) if open_meteo_max is not None else None,
+            eccc_forecast_high,
+        ]
+        observed_bucket = self.round_half_up(history_max)
+        max_signal = self.round_half_up(self.max_value(*live_values))
+        if max_signal is None and not scores:
+            return {}
+
+        low = min(min(scores), 8, (observed_bucket or max_signal or 16) - 5)
+        high = max(max(scores), 34, (max_signal or observed_bucket or 30) + 4)
+        for temp in range(low, high + 1):
+            scores.setdefault(temp, 0.0005)
+        scores = self.normalize_scores(scores)
+
+        cutoff_hour = self.effective_intraday_cutoff_hour(
+            now,
+            history.get("rows") or [],
+        )
+        weights_config = self.calibrated_hour_config(cutoff_hour)
+        weight_map = (weights_config or {}).get("weights") or (weights_config or {})
+        has_component_weights = any(
+            name in weight_map
+            for name in (
+                "climatology",
+                "intraday_high",
+                "current_bucket",
+                "wind_regime",
+                "cloud_regime",
+                "forecast_cap",
+            )
+        )
+        
+        intraday = None
+        using_feature_model = False
+        feature_probs, active_kind = self.predict_feature_distribution(sources, cutoff_hour, now)
+        using_calibrated_empirical = False
+        if feature_probs:
+            using_feature_model = True
+            self.active_model_kind = active_kind
+            feature_probs = self.ordinal_smooth_distribution(
+                feature_probs,
+                sigma=0.75,
+                blend_weight=0.50,
+            )
+            # Blend the ML prediction with the climatology prior, using the
+            # per-hour weight tuned by LOO log loss (was a flat 0.80).
+            scores = self.blend_distribution(
+                scores, feature_probs, self.feature_blend_weight(cutoff_hour)
+            )
+        else:
+            self.active_model_kind = "empirical"
+            intraday = self.historical_intraday_distribution(
+                observed_bucket, cutoff_hour
+            )
+            wind_group = self.live_wind_group(current, weather_forecast)
+            wind_distribution = self.historical_regime_distribution("wind", wind_group)
+            cloud_group = self.live_cloud_group(current, eccc_city, weather_forecast)
+            cloud_distribution = self.historical_regime_distribution("cloud", cloud_group)
+            current_distribution = self.historical_current_distribution(
+                self.round_half_up(current_temp),
+                cutoff_hour,
+            )
+            calibrated_cap = self.round_half_up(self.max_value(
+                observed_bucket,
+                weather_forecast_max,
+                open_meteo_max,
+                eccc_forecast_high,
+            ))
+            cap_distribution = self.cap_prior_distribution(
+                scores.keys(),
+                calibrated_cap,
+                floor_bucket=observed_bucket,
+            )
+
+            if has_component_weights:
+                using_calibrated_empirical = True
+                components = {
+                    "climatology": scores,
+                    "intraday_high": intraday["probabilities"] if intraday else None,
+                    "current_bucket": current_distribution["probabilities"] if current_distribution else None,
+                    "wind_regime": wind_distribution["probabilities"] if wind_distribution else None,
+                    "cloud_regime": cloud_distribution["probabilities"] if cloud_distribution else None,
+                    "forecast_cap": cap_distribution,
+                }
+                scores = self.weighted_component_distribution(
+                    components,
+                    weight_map,
+                )
+            else:
+                if intraday:
+                    if weights_config:
+                        w_int_base = weights_config.get("w_intraday_base", 0.36)
+                        intraday_weight = w_int_base * (intraday["n"] / (intraday["n"] + 25))
+                    else:
+                        intraday_weight = self.intraday_blend_weight(now.hour, intraday["n"])
+                    scores = self.blend_distribution(
+                        scores, intraday["probabilities"], intraday_weight
+                    )
+
+                if wind_distribution:
+                    w_wnd = weights_config.get("w_wind", 0.14) if weights_config else 0.14
+                    scores = self.blend_distribution(
+                        scores, wind_distribution["probabilities"], w_wnd
+                    )
+
+                if cloud_distribution:
+                    w_cld = weights_config.get("w_cloud", 0.12) if weights_config else 0.12
+                    scores = self.blend_distribution(
+                        scores, cloud_distribution["probabilities"], w_cld
+                    )
+
+        if using_feature_model:
+            current_max_signal = None
+            current_max_bucket = self.round_half_up(current_max)
+            if current_max_bucket is not None and (
+                observed_bucket is None or current_max_bucket > observed_bucket
+            ):
+                current_max_signal = current_max
+            peak_cluster_values = [
+                current_max_signal,
+                weather_forecast_max,
+                self.round_half_up(open_meteo_max)
+                if open_meteo_max is not None else None,
+            ]
+            peak_cluster_signal = self.max_value(*peak_cluster_values)
+            peak_cluster_count = sum(
+                1 for value in peak_cluster_values if value is not None
+            )
+            peak_cluster_weight = 1.1 if peak_cluster_count <= 1 else 1.6
+            live_signals = [
+                # Current max, Weather.com forecast, and Open-Meteo often share
+                # the same weather-family signal. Treat them as one peak cluster
+                # so a single bucket does not get triple-counted.
+                (peak_cluster_signal, peak_cluster_weight, 1.0),
+                (eccc_max, 0.6, 0.8),
+                (eccc_forecast_high, 0.5, 1.2),
+            ]
+        elif using_calibrated_empirical:
+            live_signals = [
+                (history_max, self.history_signal_weight(now.hour), 0.65),
+                (
+                    self.round_half_up(eccc_max) if eccc_max is not None else None,
+                    0.6,
+                    0.9,
+                ),
+                (metar_temp, 0.3, 0.9),
+            ]
+        else:
+            live_signals = [
+                (history_max, self.history_signal_weight(now.hour), 0.65),
+                (current_temp, 1.8, 0.65),
+                # Weather.com's 24h max can include the previous afternoon. For this
+                # market we only use the same-day max-since-7am field.
+                (current_max, 2.3, 0.75),
+                (
+                    self.round_half_up(eccc_max) if eccc_max is not None else None,
+                    0.6,
+                    0.9,
+                ),
+                (metar_temp, 0.3, 0.9),
+                (weather_forecast_max, self.forecast_signal_weight(now.hour), 0.9),
+                (
+                    self.round_half_up(open_meteo_max)
+                    if open_meteo_max is not None else None,
+                    0.8,
+                    1.1,
+                ),
+                (eccc_forecast_high, 0.5, 1.2),
+            ]
+        scores = self.apply_live_signals(scores, live_signals)
+
+        history_bucket = self.round_half_up(history_max)
+        if history_bucket is not None:
+            self.apply_floor(scores, history_bucket, 0.001)
+        if observed_bucket is not None:
+            self.apply_floor(scores, observed_bucket, 0.000001)
+            scores = self.normalize_scores(scores)
+
+        if intraday and observed_bucket is not None:
+            tail_target = sum(
+                probability for temp, probability in intraday["probabilities"].items()
+                if temp > observed_bucket
+            )
+            if weather_forecast_max is not None and self.round_half_up(weather_forecast_max) <= observed_bucket:
+                tail_target *= 0.70
+            if self.max_value(open_meteo_max, eccc_forecast_high) is not None:
+                if self.round_half_up(self.max_value(open_meteo_max, eccc_forecast_high)) > observed_bucket:
+                    tail_target *= 1.12
+            tail_target = max(0.01, min(0.95, tail_target))
+            scores = self.apply_tail_target(
+                scores,
+                observed_bucket,
+                tail_target,
+                self.tail_target_weight(now.hour),
+            )
+
+        plausible_cap = self.round_half_up(self.max_value(
+            observed_bucket,
+            weather_forecast_max,
+            open_meteo_max,
+            eccc_forecast_high,
+        ))
+        if plausible_cap is not None and not using_calibrated_empirical:
+            for temp in list(scores):
+                if temp > plausible_cap + 1:
+                    scores[temp] *= 0.28 ** (temp - plausible_cap - 1)
+
+        return self.normalize_scores(scores)
+
+    def weighted_component_distribution(self, components, weights):
+        support = sorted({
+            int(bucket)
+            for distribution in components.values()
+            if distribution
+            for bucket in distribution.keys()
+        })
+        if not support:
+            return {}
+        available = {
+            name: self.normalize_scores(distribution)
+            for name, distribution in components.items()
+            if distribution
+        }
+        if not available:
+            return {}
+        raw_weights = {
+            name: max(0.0, float(weights.get(name, 0.0)))
+            for name in available
+        }
+        total_weight = sum(raw_weights.values())
+        if total_weight <= 0:
+            raw_weights = {name: 1.0 for name in available}
+            total_weight = float(len(raw_weights))
+
+        combined = {bucket: 0.0 for bucket in support}
+        for name, distribution in available.items():
+            component_weight = raw_weights[name] / total_weight
+            for bucket in support:
+                combined[bucket] += component_weight * distribution.get(bucket, 0.0)
+        return self.normalize_scores(combined)
+
+    def cap_prior_distribution(self, support, cap_bucket, floor_bucket=None, above_decay=0.28):
+        if cap_bucket is None:
+            return None
+        support = sorted(int(bucket) for bucket in support)
+        if not support:
+            return None
+        cap_bucket = int(cap_bucket)
+        floor_bucket = int(floor_bucket) if floor_bucket is not None else None
+        scores = {}
+        for bucket in support:
+            if floor_bucket is not None and bucket < floor_bucket:
+                scores[bucket] = 0.02 ** max(1, floor_bucket - bucket)
+            elif bucket <= cap_bucket:
+                scores[bucket] = 1.0 / (1.0 + abs(bucket - cap_bucket))
+            else:
+                scores[bucket] = above_decay ** (bucket - cap_bucket)
+        return self.normalize_scores(scores)
+
+    def apply_live_signals(self, scores, signals):
+        for value, weight, sigma in signals:
+            if value is None:
+                continue
+            for temp in scores:
+                scores[temp] *= 1 + weight * math.exp(
+                    -0.5 * ((temp - value) / sigma) ** 2
+                )
+        return self.normalize_scores(scores)
+
+    def apply_floor(self, scores, floor_bucket, multiplier):
+        for temp in list(scores):
+            if temp < floor_bucket:
+                scores[temp] *= multiplier
+
+    def apply_tail_target(self, scores, threshold, target_tail, weight):
+        if weight <= 0:
+            return self.normalize_scores(scores)
+        scores = self.normalize_scores(scores)
+        current_tail = sum(
+            score for temp, score in scores.items()
+            if temp > threshold
+        )
+        desired_tail = (1 - weight) * current_tail + weight * target_tail
+        desired_tail = max(0.0, min(1.0, desired_tail))
+        if current_tail > 0:
+            tail_scale = desired_tail / current_tail
+        else:
+            tail_scale = 0.0
+        current_body = 1 - current_tail
+        if current_body > 0:
+            body_scale = (1 - desired_tail) / current_body
+        else:
+            body_scale = 0.0
+        return self.normalize_scores({
+            temp: score * (tail_scale if temp > threshold else body_scale)
+            for temp, score in scores.items()
+        })
+
+    def blend_distribution(self, scores, probabilities, weight):
+        if not probabilities or weight <= 0:
+            return self.normalize_scores(scores)
+        current = self.normalize_scores(scores)
+        keys = set(current) | {int(bucket) for bucket in probabilities}
+        return self.normalize_scores({
+            key: ((1 - weight) * current.get(key, 0.0))
+            + (weight * float(probabilities.get(key, probabilities.get(str(key), 0.0))))
+            for key in keys
+        })
+
+    def ordinal_smooth_distribution(self, probabilities, sigma=0.75, blend_weight=0.50):
+        base = self.normalize_scores(probabilities)
+        if not base or sigma <= 0 or blend_weight <= 0:
+            return base
+        smoothed = {}
+        for bucket in base:
+            weighted_sum = 0.0
+            weight_total = 0.0
+            for other_bucket, probability in base.items():
+                distance = bucket - other_bucket
+                weight = math.exp(-0.5 * (distance / sigma) ** 2)
+                weighted_sum += probability * weight
+                weight_total += weight
+            smoothed[bucket] = weighted_sum / weight_total if weight_total else 0.0
+        return self.blend_distribution(base, smoothed, blend_weight)
+
+    def normalize_scores(self, scores):
+        cleaned = {
+            int(temp): max(0.0, float(score))
+            for temp, score in scores.items()
+            if score is not None
+        }
+        total = sum(cleaned.values())
+        if total <= 0:
+            return {}
+        return {
+            temp: score / total
+            for temp, score in sorted(cleaned.items())
+        }
+
+    def smoothed_distribution(self, buckets, bucket_space, alpha=0.10):
+        counts = Counter(int(bucket) for bucket in buckets)
+        support = sorted(set(bucket_space) | set(counts))
+        denominator = len(buckets) + alpha * len(support)
+        return {
+            bucket: (counts.get(bucket, 0) + alpha) / denominator
+            for bucket in support
+        }
+
+    def intraday_cutoff_hour(self, now):
+        hour = now.hour
+        eligible = [cutoff for cutoff in INTRADAY_CUTOFF_HOURS if cutoff <= hour]
+        return eligible[-1] if eligible else INTRADAY_CUTOFF_HOURS[0]
+
+    def effective_intraday_cutoff_hour(self, now, rows):
+        wall_cutoff = self.intraday_cutoff_hour(now)
+        latest_minute = None
+        for row in rows or []:
+            minute = self.minute_of_day(row.get("time"))
+            if minute is not None:
+                latest_minute = minute if latest_minute is None else max(latest_minute, minute)
+        if latest_minute is None:
+            return wall_cutoff
+        eligible = [
+            cutoff for cutoff in INTRADAY_CUTOFF_HOURS
+            if cutoff <= wall_cutoff and cutoff * 60 <= latest_minute
+        ]
+        return eligible[-1] if eligible else wall_cutoff
+
+    def intraday_blend_weight(self, hour, sample_size):
+        if hour >= 17:
+            base = 0.82
+        elif hour >= 15:
+            base = 0.70
+        elif hour >= 13:
+            base = 0.58
+        elif hour >= 12:
+            base = 0.48
+        else:
+            base = 0.36
+        return base * (sample_size / (sample_size + 25))
+
+    def tail_target_weight(self, hour):
+        if hour >= 18:
+            return 0.90
+        if hour >= 16:
+            return 0.75
+        if hour >= 15:
+            return 0.55
+        if hour >= 13:
+            return 0.35
+        return 0.15
+
+    def history_signal_weight(self, hour):
+        if hour >= 18:
+            return 3.5
+        if hour >= 16:
+            return 2.7
+        if hour >= 15:
+            return 2.2
+        if hour >= 13:
+            return 1.6
+        return 1.0
+
+    def forecast_signal_weight(self, hour):
+        if hour >= 16:
+            return 1.0
+        if hour >= 13:
+            return 1.4
+        return 1.8
