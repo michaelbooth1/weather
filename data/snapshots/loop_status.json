@@ -1,11 +1,11 @@
 {
   "consecutive_errors": 0,
   "interval_minutes": 10.0,
-  "iterations": 1,
+  "iterations": 8,
   "last_error": null,
-  "last_heartbeat": "2026-05-30T18:50:21.472559-04:00",
-  "last_snapshot_id": null,
-  "last_snapshot_written_at": null,
+  "last_heartbeat": "2026-05-30T20:00:39.774665-04:00",
+  "last_snapshot_id": "20260530T200041-0400",
+  "last_snapshot_written_at": "2026-05-30T20:00:39.774665-04:00",
   "paused": false,
   "pid": 10868,
   "started_at": "2026-05-30T18:50:21.472559-04:00"
