@@ -34,9 +34,38 @@ FORECAST_AGREEMENT_SPREAD = 3.0      # forecasts must agree within this many deg
 FORECAST_FLOOR_MIN_SOURCES = 2       # and come from at least this many sources
 FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (softer than the cap)
 
+# --- Live-observed floor ----------------------------------------------------
+# Wunderground *history* (the settlement source) prints with a lag and can stall
+# for hours. SWOB station observations lead it by ~1 hour and match the WU final
+# high within ~0.3 C. So when SWOB has already observed a higher bucket than WU
+# history has printed, the high has physically reached there: suppress mass below
+# it. Soft one bucket down (SWOB's +0.3 bias can round it up — the v0.4.8 case),
+# strong further down. This is observed data, not a forecast, so no time decay.
+LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below the SWOB bucket
+LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
+
 
 class DistributionMixin:
     """The probability engine: priors, blending, live signals, caps, weighting."""
+
+    def apply_live_observed_floor(self, scores, swob_max, history_max):
+        """Suppress buckets below what SWOB has already observed, when SWOB leads
+        the printed WU-history high. Keeps a hedge one bucket down for SWOB's
+        small warm bias; strongly suppresses further down. Never zero."""
+        swob_bucket = self.round_half_up(swob_max)
+        if swob_bucket is None:
+            return self.normalize_scores(scores)
+        wu_bucket = self.round_half_up(history_max)
+        if wu_bucket is not None and swob_bucket <= wu_bucket:
+            return self.normalize_scores(scores)  # WU floor already covers it
+        adjusted = {}
+        for temp, score in scores.items():
+            if temp >= swob_bucket:
+                adjusted[temp] = score
+            else:
+                below = swob_bucket - temp
+                adjusted[temp] = score * LIVE_FLOOR_HEDGE * (LIVE_FLOOR_BASE ** (below - 1))
+        return self.normalize_scores(adjusted)
 
     def forecast_floor_time_weight(self, hour):
         """Strong in the morning (plenty of time to warm up), zero by late
@@ -339,6 +368,10 @@ class DistributionMixin:
                 now.hour,
                 observed_bucket,
             )
+
+        # Live-observed floor: react to SWOB leading the lagging WU history,
+        # instead of waiting hours for WU to print what already happened.
+        scores = self.apply_live_observed_floor(scores, eccc_max, history_max)
 
         return self.normalize_scores(scores)
 
