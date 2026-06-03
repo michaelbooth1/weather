@@ -196,8 +196,53 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
 
         distribution = model.estimate_distribution(sources)
 
+        self.assertEqual(
+            model._last_probability_calibration_context["observed_support_bucket"],
+            18,
+        )
         self.assertLess(distribution[17], 0.001)
         self.assertGreater(distribution[18], 0.05)
+
+    def test_current_temperature_moves_probability_off_lagging_wu_bucket(self):
+        model = TorontoHighTempModel(target_date="2026-06-01")
+        model.calibrated_weights = None
+        model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
+            {18: 0.47, 19: 0.23, 20: 0.22, 21: 0.06, 22: 0.02},
+            "hgb",
+        )
+        sources = {
+            "local_history": {
+                "ok": True,
+                "data": {
+                    "available": True,
+                    "analysis": {
+                        "target_window_count": 100,
+                        "bucket_probabilities": {
+                            "18": 0.08,
+                            "19": 0.10,
+                            "20": 0.12,
+                            "21": 0.16,
+                            "22": 0.18,
+                        },
+                    },
+                },
+            },
+            "wu_history": {"ok": True, "data": {"max_c": 18.0, "rows": []}},
+            "wu_current": {
+                "ok": True,
+                "data": {"temp_c": 19.0, "max_since_7am_c": 20.0},
+            },
+            "eccc_swob": {"ok": True, "data": {"same_day_max_c": 19.2}},
+            "eccc_citypage": {"ok": True, "data": {"forecast_high_c": 21.0}},
+            "metar": {"ok": True, "data": {"temp_c": 19.0}},
+            "weather_forecast": {"ok": True, "data": {"rows": [{"temp_c": 20.0}]}},
+            "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 19.5}]}},
+        }
+
+        distribution = model.estimate_distribution(sources)
+
+        self.assertLess(distribution[18], 0.01)
+        self.assertGreater(distribution[19] + distribution[20], 0.75)
 
     def test_feature_model_uses_current_max_since_7am_as_soft_signal_only(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
@@ -245,7 +290,7 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         self.assertGreater(with_soft_max[19], without_soft_max[19])
         self.assertLess(with_soft_max[18], without_soft_max[18])
 
-    def test_current_temperature_is_not_hard_resolution_floor(self):
+    def test_current_temperature_is_near_hard_resolution_floor(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
         model.calibrated_weights = None
         model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
@@ -285,7 +330,8 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         explanation = model.get_model_explanation(sources, distribution)
 
         self.assertEqual(explanation["observed_floor"], 18)
-        self.assertGreater(distribution[18], 0.01)
+        self.assertGreater(distribution[18], 0.001)
+        self.assertLess(distribution[18], 0.01)
         self.assertGreater(distribution[19], 0.10)
 
     def test_eccc_swob_is_not_hard_resolution_floor(self):
@@ -597,6 +643,7 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             },
             "weather_forecast": {"ok": True, "data": {"rows": []}},
             "eccc_citypage": {"ok": True, "data": {}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 22.0}},
         }
 
         result = model.find_analog_days(
@@ -609,6 +656,9 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         self.assertAlmostEqual(result["today_features"]["high_so_far"], 18.0)
         self.assertAlmostEqual(result["today_features"]["rise_from_7am"], 5.0)
         self.assertAlmostEqual(result["today_features"]["dewpoint_c"], 10.0)
+        self.assertAlmostEqual(result["today_features"]["forecast_high"], 22.0)
+        self.assertAlmostEqual(result["today_features"]["forecast_gap"], 4.0)
+        self.assertIn("forecast_gap", result["analogs"][0])
 
     def test_last_good_cache_does_not_use_old_live_source(self):
         old_root = toronto_model.DEFAULT_DATA_ROOT

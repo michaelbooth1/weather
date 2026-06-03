@@ -4,6 +4,93 @@ This roadmap is organized around the fastest path from a useful live dashboard
 to a calibrated, auditable trading/research system for Toronto high-temperature
 markets.
 
+## Roadmap Deep Dive (2026-05-31)
+
+### North Star
+
+The project goal is to project the daily high-temperature settlement bucket
+better than Polymarket. The durable accuracy target is therefore not "does the
+weather forecast look right?" but:
+
+- model Brier/log loss better than Polymarket yes prices on settlement-scored
+  snapshot tapes,
+- positive Brier skill score versus the market,
+- calibrated probability buckets across market bands and cutoff hours,
+- realized edge/P&L that survives thresholding, first-entry scoring, and
+  out-of-sample market days.
+
+The latest settlement-scored report (`data/backtest/backtest_report.md`,
+regenerated 2026-05-31) is the most important evidence. After adding
+coverage-aware market-day labels, only May 28 currently passes the
+`complete,manual_override` quality filter; May 27 starts too late and May 30
+has a 74-minute collection gap. The strict headline report therefore scores 1
+clean market day and 704 band rows. The uncalibrated model Brier was 0.0583
+versus market Brier 0.0394, and model log loss was 0.1850 versus market log
+loss 0.1230, for a Brier skill score of -0.478. The older 3-day calibration
+sample remains useful as provisional research, but two of those tapes are now
+partial. The correct roadmap posture is clear: we need more clean settled
+market days before claiming the model beats Polymarket.
+
+### Current Work That Needed Roadmap Reconciliation
+
+- `AGENT_CONTEXT.md` now exists at the repo root and captures the current
+  mission, architecture, settlement hierarchy, commands, risks, and best next
+  work.
+- The test suite is much larger than the 2026-05-28 audit stated. Current
+  verification on 2026-06-01: `pytest -q` passed with 141 tests, and
+  `python -m compileall src tests` passed.
+- The feature model now includes Open-Meteo forecast daily-max features
+  (`forecast_high`, `forecast_gap`) in training and live extraction, and
+  `src/feature_model.py` has `RUN_LOO = True`.
+- The feature-model report now includes log loss, Brier, accuracy, ECE,
+  per-hour HGB climatology-blend weights, and feature-family ablations. This
+  updates old item-6/item-24 audit notes that said forecast max, Brier/ECE, and
+  ablation visibility were absent.
+- Market-day labels are now coverage-aware: settlement labels include capture
+  ratio, max gap, and coverage reason, and the headline backtest excludes
+  partial tapes by quality grade.
+- The snapshot loop now has a managed runner, PID/start/heartbeat/error status,
+  `--status`, pause flag handling, and diagnostics logging. Item 16 is now
+  partial rather than not-started; clean stop/restart remains open.
+- Live fetches now have retry/backoff and last-good source caching with a
+  90-minute age cap. Item 17 is now partial; separate per-source TTLs and
+  structured source-level diagnostics remain open.
+- Several "COMPLETE" roadmap items were really implemented prototypes with
+  accuracy-grade follow-up work. This roadmap now distinguishes "visible in the
+  app" from "calibrated enough to improve edge versus Polymarket."
+
+### Best Path To A More Accurate Model
+
+1. Make the evaluation target unambiguous. Every model improvement should be
+   scored against Polymarket prices, by target day and cutoff hour, with
+   correlated intraday snapshots handled conservatively. This is item 20.
+2. Increase clean market-day capture. Better models need more settled market
+   tapes, not just more historical weather rows. This depends on items 16, 17,
+   20, and 25.
+3. Calibrate before adding complexity. The HGB model has useful signal, but
+   the live model can be overconfident versus market prices. Add a market-bin
+   calibration layer and shrink high-confidence exact buckets unless history
+   and live settlement-source evidence justify them. This is item 21 and is now
+   complete; it reduced overconfidence but did not close the gap to Polymarket.
+4. Replace heuristic forecast caps/floors with learned forecast-error
+   distributions by source, horizon, and regime. This is item 22 and is now
+   complete for the first artifact-backed forecast component.
+5. Explicitly model WU settlement lag and revisions. Non-resolution sources
+   should update probability through a learned catch-up process, not through
+   ad-hoc confidence. This is item 23.
+6. Use one feature-generation path for training, backtesting, live inference,
+   and explanations. This prevents train/serve skew and makes model changes
+   auditable. This is item 24 and is now complete.
+7. Build the ensemble/ablation framework on top of those shared features, with
+   fast sampled validation and separate no-market versus market-informed
+   scores. This is item 26 and is now complete as a framework; the strict
+   sample is still too small to promote an ensemble.
+8. Add physically meaningful weather-regime and microclimate features only when
+   item-20/item-26 reports can prove their value. This is item 27.
+9. Only then expand model classes, other markets, or trading automation.
+   Sophistication without a stronger evaluation harness will create attractive
+   but unproven probabilities.
+
 ## Codex Audit Summary (2026-05-28)
 
 - Verification run: `.\venv\Scripts\python.exe -m pytest -q` passed with 24 tests.
@@ -18,9 +105,11 @@ markets.
 - Verification run: `.\venv\Scripts\python.exe src\data_auditor.py` found 3
   missing WU target-window days (`2000-06-01`, `2000-06-02`, `2000-06-03`) and
   1 sparse WU day (`2019-05-29`, 5 rows).
-- Repo note: `C:\Users\micha\Desktop\github\weather` is not currently a Git
-  repository, so this audit used filesystem contents, generated artifacts, and
-  runnable checks rather than commit history.
+- Historical repo note: at the time of this 2026-05-28 audit,
+  `C:\Users\micha\Desktop\github\weather` was not observed as a Git repository,
+  so that audit used filesystem contents, generated artifacts, and runnable
+  checks rather than commit history. Superseded by the 2026-05-31 audit, which
+  observed a normal Git working tree with live snapshot files already modified.
 
 ## Near-Term Priorities
 
@@ -182,12 +271,12 @@ first reached the WU final high 180 minutes before WU's first max timestamp.
 The 2026-05-27 WU high comes from the snapshot `wu_history_high_c` override, so
 that row is scored for level/bucket but not lead timing.
 
-### 5. METAR Historical Layer [COMPLETE]
+### 5. METAR Historical Layer [PARTIAL]
 
 - [x] Collect historical METAR rows for CYYZ.
-- [x] Compare hourly METAR max versus final WU bucket.
-- [x] Quantify how often METAR misses the settlement bucket intraday and full-day.
-- [x] Use this to calibrate the hourly-report sanity-check role.
+- [x] Compare full-day hourly METAR max versus final WU bucket.
+- [ ] Quantify how often METAR misses the settlement bucket by intraday cutoff hour.
+- [ ] Use this to calibrate the live METAR sanity-check role instead of a small hard-coded signal.
 
 Codex audit (2026-05-28): partial. `src/metar_history.py` collects IEM ASOS
 METAR data, normalizes local rows, and generates a full-day WU comparison report
@@ -195,9 +284,13 @@ over 656 matched days. Issues found: intraday miss rates by cutoff hour are not
 computed, and the live model only uses METAR as a small hard-coded sanity-check
 signal rather than a calibrated role learned from this layer.
 
+Codex update (2026-05-31): still partial. This item should stay open because
+METAR can be valuable as an independent airport observation stream, but only if
+its miss/lead behavior is learned by cutoff hour and market bucket.
+
 ## Model Improvements
 
-### 6. Feature-Based Probability Model [COMPLETE]
+### 6. Feature-Based Probability Model [IMPLEMENTED - CALIBRATION NEXT]
 
 - [x] Build a tabular training set with one row per historical day per cutoff hour.
 - [x] Include features:
@@ -216,7 +309,16 @@ calibrated, the checked-in training script has `RUN_LOO = False` so reruns do
 not regenerate the evaluation report, and the feature-model report lacks Brier
 or calibration metrics.
 
-### 7. Bucket Boundary Logic [COMPLETE]
+Codex update (2026-05-31): the old item-6 audit notes are partly superseded.
+`src/feature_model.py` now includes `forecast_high` and `forecast_gap`, has
+`RUN_LOO = True`, exports refreshed LR/HGB/late-day artifacts, and writes
+`data/wunderground/cyyz/analysis/feature_model_report.md` with log loss, Brier,
+accuracy, ECE, and tuned per-hour HGB blend weights. Remaining accuracy work:
+the HGB output is still not probability-calibrated with a dedicated
+Platt/isotonic/temperature layer, and validation is still model-vs-history
+rather than model-vs-Polymarket market-bin edge. New item 21 owns this.
+
+### 7. Bucket Boundary Logic [IMPLEMENTED - REFINEMENT NEXT]
 
 - [x] Explicitly model exact bucket risk around 24/25/26 C.
 - [x] Add conditional probability tables:
@@ -230,12 +332,19 @@ skip-rate statistic. Issues found: the logic is generic to the current bucket,
 not explicitly centered on 24/25/26 C, and it tracks skipped intermediate
 buckets but not late whole-degree update timing.
 
-### 8. Late-Day Tail Model [COMPLETE]
+Codex update (2026-05-31): the generic transition panel is useful and should
+stay, but accuracy work should move beyond display. The next version should
+feed calibrated continuation and skip/timing probabilities back into the final
+distribution, especially near exact buckets where Polymarket prices can be
+sticky.
+
+### 8. Late-Day Tail Model [PARTIAL]
 
 - [x] Learn a separate after-3 PM / after-4 PM / after-5 PM continuation model.
-- [x] Condition late-day tail on sun/cloud, wind direction, forecast remaining max,
-  and whether the current high was first reached recently.
+- [x] Condition late-day tail on sun/cloud, wind direction, and whether the current high was first reached recently.
+- [ ] Add forecast remaining max / forecast gap to the late-day continuation model.
 - [x] Make late-day extension risk visible in the dashboard.
+- [ ] Blend late-day continuation risk into the final distribution when the feature-model path is active.
 
 Codex audit (2026-05-28): partial. Logistic continuation models are exported
 for 15:00, 16:00, and 17:00, and the dashboard has a late-day extension risk
@@ -244,12 +353,20 @@ late-day validation report is generated, and the learned continuation risk is
 displayed but not clearly blended into the final distribution when the feature
 model path is active.
 
-### 9. Analog Search [COMPLETE]
+Codex update (2026-05-31): still partial. Training and live extraction share
+most cutoff-aligned features, but late-day coefficients still omit
+`forecast_high` / `forecast_gap`, the report does not score continuation model
+calibration, and the visible risk panel is not yet an accuracy-grade
+probability adjustment.
+
+### 9. Analog Search [PARTIAL]
 
 - [x] Add a dashboard panel showing the closest historical analog days.
 - [x] Match on:
   date window, high by current hour, 7 AM-noon rise, wind regime, cloud regime,
-  dew point, and forecast profile once available.
+  and dew point.
+- [ ] Add forecast profile / forecast gap to analog distance now that forecast
+  history features are available.
 - [x] Show each analog's final WU high and path through the day.
 
 Codex audit (2026-05-28): mostly passes. The dashboard shows closest analogs,
@@ -257,9 +374,13 @@ final WU highs, and temperature paths, using the historical target-date window,
 high so far, rise from 7 AM, wind/cloud regime, and dew point. Issue found:
 forecast profile is not included in the analog distance.
 
+Codex update (2026-05-31): unchanged. Keep this item open until analog distance
+uses the same forecast information as the feature model, or explicitly proves
+that forecast distance does not improve analog usefulness.
+
 ## Dashboard Improvements
 
-### 10. Odds Timeline View [COMPLETE]
+### 10. Odds Timeline View [MOSTLY COMPLETE - CLEANUP]
 
 - [x] Add charts for each price band:
   market price, model probability, and edge through time.
@@ -272,7 +393,11 @@ tables. Issues found: the current-edge table rebuilds labels from nonexistent
 `groupItemTitle` fields instead of using `bin_data["label"]`, so labels can be
 blank; several warning/status strings show mojibake from corrupted emoji text.
 
-### 11. Source Freshness Panel [COMPLETE]
+Codex update (2026-05-31): still mostly complete. The cleanup should be small
+but should happen before relying on the dashboard during live trading/research:
+use canonical bin labels and remove user-visible mojibake.
+
+### 11. Source Freshness Panel [MOSTLY COMPLETE - CLEANUP]
 
 - [x] Show last successful fetch time for each live source.
 - [x] Flag stale feeds or failed requests.
@@ -283,19 +408,27 @@ sources and the dashboard shows age, stale/failed status, and stale warnings.
 Issue found: visible status/warning strings contain mojibake from corrupted
 emoji/warning glyphs, which should be cleaned up for users.
 
-### 12. Model Explanation Panel [COMPLETE]
+Codex update (2026-05-31): source retry/backoff and 90-minute last-good cache
+age limits are now in place. Remaining work is presentation cleanup plus
+per-source TTL/status policy under item 17.
+
+### 12. Model Explanation Panel [PARTIAL]
 
 - [x] Show the major probability drivers for the current top buckets.
-- [x] Include:
+- [ ] Include quantitative contributions from:
   base climatology, intraday analog set, current max floor, forecast cap,
   wind/cloud analog adjustment, and late-day tail.
-- [x] Keep the 25 C deep dive, but make it data-driven rather than fixed text.
+- [ ] Make the deep dive bucket-agnostic rather than centered on fixed 25 C text.
 
 Codex audit (2026-05-28): partial. A model explanation panel and data-backed
 25 C deep dive exist. Issues found: the explanation is mostly descriptive and
 does not expose quantitative driver contributions for base climatology,
 intraday analogs, wind/cloud adjustment, or late-day tail; the deep dive is
 still hardcoded around the 25 C bucket.
+
+Codex update (2026-05-31): unchanged. This is more than UX polish: a
+quantitative explanation panel is how we catch overconfident exact-bucket
+probabilities before they become bad trades.
 
 ### 13. Snapshot Controls [COMPLETE]
 
@@ -311,7 +444,7 @@ changelog. Full PID/heartbeat/error process management remains item 16.
 
 ## Data Quality And Operations
 
-### 14. Data Validation Suite [COMPLETE]
+### 14. Data Validation Suite [PARTIAL]
 
 - [x] Add tests for:
   WU history parsing, daily summary generation, market-bin parsing,
@@ -326,6 +459,11 @@ format, the data auditor is not wired into the automated test suite, and the
 auditor currently reports 4 missing target-window days plus 1 sparse day for
 the May 28 market window.
 
+Codex update (2026-05-31): unit coverage has expanded to 103 passing tests,
+including forecast features, live observed floors, collection health, retries,
+and backtest settlement behavior. This item remains partial until data audits
+and snapshot append/schema checks are part of routine verification.
+
 ### 15. Reproducible Backfills [COMPLETE]
 
 - [x] Add commands to rebuild WU normalized data from raw payloads without
@@ -339,18 +477,33 @@ Codex audit (2026-05-28): passes. `src/wu_history.py` provides `backfill`,
 params, generated timestamp, code version, row counts, and SHA-256 checksums.
 The partition audit passed for 533 WU hourly partitions.
 
-### 16. Background Process Management
+### 16. Background Process Management [PARTIAL]
 
-- Replace ad hoc background loops with a small managed runner.
-- Track process PID, start time, last heartbeat, last snapshot, and errors.
-- Add a command to stop/restart the snapshot loop cleanly.
+- [x] Replace ad hoc background loops with a small managed runner.
+- [x] Track process PID, start time, last heartbeat, last snapshot, and errors.
+- [x] Add a heartbeat-based status command.
+- [x] Add pause/resume via dashboard flag.
+- [ ] Add a command to stop/restart the snapshot loop cleanly.
+- [ ] Document the recommended OS supervisor setup for always-on capture.
 
-### 17. Error Handling And Caching
+Codex update (2026-05-31): `src.snapshot_tracker` now has `--loop`,
+`--status`, `loop_status.json`, `diagnostics.jsonl`, pause flag support, and
+health tests. The missing piece is process lifecycle control: stop/restart
+without relying on manual process management.
 
-- Add per-source retries with backoff.
-- Preserve last-good live payloads when a source fails.
-- Separate short TTLs for fast sources from slower/stabler sources.
-- Log fetch failures into a local diagnostics file.
+### 17. Error Handling And Caching [PARTIAL]
+
+- [x] Add per-source retries with backoff for live HTTP GETs.
+- [x] Preserve last-good live payloads when a source fails.
+- [x] Enforce an age cap on last-good live payloads.
+- [ ] Separate short TTLs for fast sources from slower/stabler sources.
+- [x] Log snapshot-loop capture failures into a local diagnostics file.
+- [ ] Add structured source-level diagnostics for partial live-source failures.
+
+Codex update (2026-05-31): `request_with_retries()` and last-good caching now
+handle the biggest transient-source risk. The next accuracy risk is staleness:
+different feeds age differently, and the model should not treat a stale forecast
+and a stale settlement-source row the same way.
 
 ## Market Expansion
 
@@ -366,6 +519,429 @@ The partition audit passed for 533 WU hourly partitions.
 - Define each market's resolution source and station mapping explicitly.
 - Avoid assuming WU/Weather.com behavior transfers across locations.
 
+## Long-Run Accuracy Roadmap
+
+These items are the highest-leverage path to a model that can credibly beat
+Polymarket, not just explain the weather well.
+
+### 20. Settlement-Scored Evaluation V2 [COMPLETE]
+
+Goal: make every model change answer "did this beat the market?" with the same
+settlement, scoring, and sample accounting.
+
+- [x] Extend `src.backtest` to report metrics by target day, cutoff hour, and
+  market-bin type (`lte`, exact, `gte`).
+- [x] Add daily-first scoring that avoids treating highly correlated intraday
+  snapshots as independent evidence.
+- [x] Report first-entry, last-pre-close, and fixed-cutoff performance
+  separately.
+- [x] Add confidence calibration tables for model and market by hour and band.
+- [x] Add a stable "model card" section with Brier skill score, log-loss
+  delta, reliability, and P&L by threshold.
+- [x] Keep old reports reproducible by recording model version, data snapshot
+  paths, target dates, and settlement source.
+
+Acceptance: a model change is not considered accuracy-improving unless item 20
+shows improvement versus market prices on settled days, with the sample caveats
+visible.
+
+Detailed design (implemented 2026-05-31):
+
+- Keep the original all-snapshot score for continuity, but no longer treat it as
+  the only accuracy gate because intraday rows from the same day are correlated.
+- Add a daily-first equal-day score so market days with more snapshots do not
+  dominate headline Brier/log-loss metrics.
+- Add one-row-per-day-band views: first-entry trade P&L, last-pre-close score
+  and P&L, and fixed-cutoff score using the first available snapshot at or after
+  each configured cutoff hour.
+- Add grouped scoring by target date, capture/cutoff hour, and market-bin type.
+- Add reliability slices for model and market probabilities overall, by capture
+  hour, and by market band.
+- Add a stable model-card section recording market days, all-snapshot rows,
+  model versions, Brier skill, log-loss delta, and ECE.
+- Add run-input metadata for reproducibility: snapshot tape path, target date,
+  model version(s), snapshot count, band count, settlement bucket, settlement
+  source, and settlement notes.
+
+Codex implementation status (2026-05-31): complete for the item-20 scope.
+`src/backtest.py` now produces the V2 report sections and exposes helper
+functions for daily-first scoring, last-pre-close row selection, fixed-cutoff
+row selection, grouped scores, and grouped reliability. `tests/test_backtest.py`
+now covers cutoff/bin metadata, last-pre-close selection, fixed-cutoff
+selection, daily-first equal-day scoring, and report-section generation.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_backtest.py -q`: 22 passed.
+- `.\venv\Scripts\python.exe -m src.backtest data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: regenerated
+  `data/backtest/backtest_report.md` over 3 settled-looking market days and
+  1760 band rows. All-snapshot Brier skill was -1.500; daily-first Brier skill
+  was -1.723. The active May 31 tape was intentionally excluded from this
+  validation report because it was still the live/current market day.
+- Post-item-25 coverage-aware rerun:
+  `.\venv\Scripts\python.exe -m src.backtest data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026 --quality-grades complete,manual_override`
+  now includes only the one clean tape, May 28, with 704 scored band rows,
+  model Brier 0.0583 versus market Brier 0.0394, and Brier skill -0.478.
+
+Follow-up now unlocked: item 21 should use the item-20 report as the gate for
+probability calibration work. The current report shows the model remains
+materially overconfident versus Polymarket on the small settled sample.
+
+### 21. Market-Bin Probability Calibration [COMPLETE - HIGHEST PRIORITY]
+
+Goal: turn useful raw model signal into probabilities that are less
+overconfident than the current live distribution.
+
+- [x] Calibrate exact-bucket and market-bin probabilities separately.
+- [x] Compare Platt scaling, isotonic regression, temperature scaling, and
+  simple shrinkage-to-market/seasonal-prior baselines.
+- [x] Learn calibration by cutoff hour, bucket distance from observed WU floor,
+  and sample size.
+- [x] Penalize extreme probabilities unless the settlement source has printed a
+  hard floor/cap justification.
+- [x] Export a lightweight calibration artifact consumed by live inference.
+- [x] Add tests that calibrated distributions remain normalized and respect hard
+  WU settlement floors.
+
+Acceptance: calibration reduces model log loss/Brier versus the uncalibrated
+model, and improves or at least does not damage Brier skill score versus
+Polymarket on settled snapshot tapes.
+
+Codex implementation status (2026-05-31): complete for the item-21 scope.
+`src/probability_calibration.py` now trains a lightweight artifact and report
+from settled snapshot tapes. Exact distributions are temperature-scaled
+separately from binary market bins, with deployment temperature capped at `1.5`
+so calibration does not revive buckets that live physical constraints already
+crushed. Live market-bin probabilities now pass through the artifact in
+`src/model_presentation.py`. `src/model_distribution.py` applies
+exact-distribution calibration while preserving hard WU printed floors.
+The binary calibrator compares deployable no-market methods against a
+market-shrink baseline, uses cutoff-hour/bin-kind/floor-distance context
+summaries for fallback base rates, and keeps hard YES/NO outputs only when WU
+history has already printed the relevant floor.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_probability_calibration.py tests\test_estimate_distribution.py tests\test_validation.py -q`: 28 passed.
+- `.\venv\Scripts\python.exe -m pytest tests\test_intraday_calibration.py tests\test_probability_calibration.py -q`: 23 passed after capping exact-distribution deployment temperature to preserve live floor behavior.
+- `.\venv\Scripts\python.exe -m pytest -q`: 113 passed.
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+- `.\venv\Scripts\python.exe -m src.probability_calibration train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
+  `src/probability_calibration.json` and
+  `data/backtest/probability_calibration_report.md`.
+- Settled-tape leave-one-day validation selected deployable `prior_shrink`
+  with weight `0.6`: Brier improved from 0.0954 to 0.0775, log loss improved
+  from 0.3705 to 0.2743, and Brier skill versus Polymarket improved from
+  -1.500 to -1.031. Artifact replay on the same tapes scored Brier 0.0762 and
+  log loss 0.2309. The market-informed comparison baseline still shows
+  Polymarket ahead at Brier 0.0382, so the next accuracy work needs better
+  weather signal, not just calibration.
+- Quality caveat added after item 25: this calibration artifact/report used the
+  3 settled-looking tapes before coverage-aware labels existed. It is still
+  useful as a provisional overconfidence fix, but future calibration reports
+  should either filter or explicitly stratify by label quality once there are
+  enough complete market days.
+
+Follow-up now unlocked: item 22 should replace forecast cap/floor heuristics
+with learned source-error distributions. That is the best next route to a more
+accurate model because calibration reduced overconfidence but did not create
+new information edge over the market.
+
+### 22. Forecast-Error And Source-Bias Model [COMPLETE]
+
+Goal: replace heuristic forecast caps/floors with learned error distributions.
+
+- [x] Score Weather.com, Open-Meteo, and ECCC forecast archives by horizon,
+  source, time of day, wind/cloud regime, and target-season window.
+- [x] Learn source-specific bias, MAE/RMSE, and tail miss rates against WU final
+  highs.
+- [x] Convert forecast highs into probability components instead of point caps.
+- [x] Model source disagreement explicitly; agreement should tighten the
+  distribution and disagreement should widen it.
+- [x] Add forecast-error features to analog search and late-day continuation.
+
+Acceptance: a forecast component improves settlement-scored performance beyond
+the current forecast-cap/floor heuristics in item 20.
+
+Codex implementation status (2026-05-31): complete for the first item-22
+artifact-backed forecast component. `src/forecast_error_model.py` now trains
+`src/forecast_error_model.json` and
+`data/backtest/forecast_error_report.md` from the historical Open-Meteo daily
+forecast archive plus settled snapshot forecast tapes. It learns source-level
+observed-minus-forecast bias, MAE/RMSE, within-1 C rate, and >=2 C tail miss
+rates for Open-Meteo, Weather.com, and ECCC city-page forecasts. Live inference
+loads the artifact in `src/toronto_model.py`, and `src/model_distribution.py`
+uses the learned forecast-error distribution in the existing `forecast_cap`
+component slot so calibrated empirical weights remain compatible while the
+component itself is no longer a one-bucket point cap. Multi-source disagreement
+widens the component distribution. Analog search now includes Open-Meteo
+forecast gap in its distance and returned feature payloads, and late-day
+continuation blends in the forecast-error component's above-current-bucket tail
+probability when the artifact is available.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_forecast_error_model.py tests\test_estimate_distribution.py tests\test_intraday_calibration.py -q`: 35 passed.
+- `.\venv\Scripts\python.exe -m src.forecast_error_model train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
+  `src/forecast_error_model.json` and
+  `data/backtest/forecast_error_report.md`.
+- Forecast-component artifact replay improved exact-bucket Brier from 0.7433
+  for the prior cap proxy to 0.6387, and log loss from 1.7935 to 1.2643 over
+  552 forecast rows.
+- Leave-one-year validation on the historical daily Open-Meteo archive improved
+  Brier from 0.7185 to 0.6417 and log loss from 1.6525 to 1.1919 over 296
+  rows.
+- `.\venv\Scripts\python.exe -m pytest -q`: 118 passed.
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+
+Implementation caveat: the artifact proves the forecast component is better
+than the old point-cap proxy, but it does not yet prove the whole calibrated
+model beats Polymarket. That still depends on more settled market-day tapes and
+item-20 end-to-end scoring.
+
+Follow-up now unlocked: item 23 should learn WU settlement lag and revision
+behavior so non-resolution observations can move probabilities through a
+measured catch-up curve rather than ad-hoc soft floors.
+
+### 23. WU Settlement Lag And Revision Model [COMPLETE]
+
+Goal: learn how Wunderground history catches up to physical observations and
+when non-resolution sources should move probability.
+
+- [x] Measure lag between SWOB/METAR/Weather.com current highs and WU history
+  printed highs across historical and captured days.
+- [x] Estimate probability that WU will later print a bucket already observed
+  by SWOB or current Weather.com.
+- [x] Measure end-of-day and next-day WU revision frequency.
+- [x] Replace ad-hoc soft floors with a learned catch-up probability curve.
+- [x] Keep a hard floor only for WU history itself.
+
+Acceptance: non-resolution live observations improve late-day settlement
+probabilities without repeating the v0.4.8 hard-floor bug.
+
+Codex implementation status (2026-05-31): complete for the item-23 scope.
+`src/settlement_lag_model.py` now trains `src/settlement_lag_model.json` and
+`data/backtest/settlement_lag_report.md` from historical METAR/WU hourly rows
+plus settled snapshot tapes containing SWOB and Weather.com current highs. The
+artifact learns catch-up rates by source, cutoff hour, and source-minus-WU
+bucket gap, and WU revision-up rates by cutoff hour. `src/toronto_model.py`
+loads the artifact, and `src/model_distribution.py` uses it when SWOB leads WU:
+the learned catch-up probability controls the soft-floor strength, but a
+one-bucket hedge is capped at `0.30` minimum so SWOB can never become a hard
+settlement floor. WU history remains the only hard floor.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_settlement_lag_model.py tests\test_live_floor.py tests\test_estimate_distribution.py -q`: 19 passed.
+- `.\venv\Scripts\python.exe -m src.settlement_lag_model train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
+  `src/settlement_lag_model.json` and
+  `data/backtest/settlement_lag_report.md`.
+- Training produced 9045 lag/revision rows: 369 non-resolution lead rows and
+  8676 WU revision rows. Global catch-up was 63.7%; source-level rates were
+  99.3% for SWOB on the tiny settled snapshot sample, 66.5% for historical
+  METAR leads, and 40.9% for Weather.com current highs.
+- WU revision-up rates now show the expected intraday decay: about 91.9% at
+  10:00, 55.7% at 14:00, 16.3% at 16:00, and 0.3% at 20:00.
+- A full-suite regression initially caught over-suppression of the WU floor
+  bucket when SWOB had a high learned catch-up rate. The live hedge cap was
+  added, then `.\venv\Scripts\python.exe -m pytest -q` passed with 121 tests
+  and `.\venv\Scripts\python.exe -m compileall src tests` passed.
+
+Follow-up now completed: item 24 consolidates feature generation and artifact
+metadata so these new calibration, forecast-error, and lag components are
+auditable from one train/serve feature path.
+
+### 24. Unified Feature Store And Train/Serve Parity [COMPLETE]
+
+Goal: prevent future train/serve skew and make every feature explainable.
+
+- [x] Move shared feature schema into one module used by training,
+  backtests, live inference, analog search, and explanations.
+- [x] Version every live feature vector and future model artifact export with a
+  shared feature schema.
+- [x] Add a feature parity test: historical/live feature extraction for the
+  same synthetic day must match.
+- [x] Persist per-snapshot feature vectors next to probabilities for audits.
+- [x] Add feature-schema and snapshot feature-persistence tests.
+- [x] Move the full historical feature-construction logic into the shared
+  feature-store module, not only the schema/record layer.
+- [x] Add ablation reporting so each feature family's value is visible.
+- [x] Add backtest joins from probability rows to feature vectors so item-20
+  report deltas can be sliced by feature families.
+
+Acceptance: feature changes can be reviewed from one code path and tied to
+measured backtest deltas.
+
+Codex implementation status (2026-05-31): complete. `src/feature_store.py` now
+defines `toronto_feature_store_v0.1`, the canonical feature column order, audit
+columns, and helpers to build serializable live feature records.
+`src/model_features.py` adds the schema version to live extraction and exposes
+`live_feature_record()`.
+`src/feature_model.py` now imports the shared feature column order, uses
+`feature_store.build_historical_feature_record()` for historical training
+records, and stamps future LR/HGB/late-day artifacts with the schema version.
+`src/toronto_model.py` returns a `feature_vector` from model builds, and
+`src/snapshot_tracker.py` persists feature vectors to `features_long.csv` and
+`features.jsonl` next to snapshot probabilities. `src.backtest` now joins
+`features_long.csv` by `snapshot_id`, reports feature-vector coverage, and will
+slice scores by the forecast-gap feature once feature-audited snapshots exist.
+`data/wunderground/cyyz/analysis/feature_model_report.md` now includes
+feature-family ablation tables over 5,823 HGB leave-one-out validation rows.
+The ablation shows the observed temperature path dominates value
+(overall delta log loss +2.3907 when neutralized), with smaller positive
+contributions from wind regime, forecast, and atmosphere features; cloud regime
+is currently neutral to slightly negative in this sensitivity pass.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_feature_store.py tests\test_forecast_feature.py tests\test_collection_robustness.py -q`: 20 passed.
+- `.\venv\Scripts\python.exe -m pytest tests\test_feature_store.py tests\test_forecast_feature.py -q`: 8 passed, including live-vs-historical feature parity for a synthetic day.
+- `.\venv\Scripts\python.exe -m pytest tests\test_backtest.py tests\test_feature_store.py -q`: 28 passed.
+- `.\venv\Scripts\python.exe -m pytest tests\test_feature_model_ablation.py tests\test_feature_store.py -q`: 8 passed.
+- `.\venv\Scripts\python.exe src\feature_model.py`: regenerated
+  `src/feature_model_coefs.json`, `src/feature_model_hgb.pkl`,
+  `src/late_day_model_coefs.json`, and
+  `data/wunderground/cyyz/analysis/feature_model_report.md` with ablation
+  tables. This full LOO retrain is slow enough that item 26 should add a faster
+  sampled/incremental research mode before routine model-comparison work.
+- `.\venv\Scripts\python.exe -m src.backtest data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026 --quality-grades complete,manual_override`: regenerated
+  `data/backtest/backtest_report.md` with feature-vector coverage. After
+  coverage-aware labels, only May 28 is in the strict quality-filtered headline
+  sample, so current historical tapes have 0/704 scored rows with feature
+  vectors because feature persistence starts with new snapshots.
+- `.\venv\Scripts\python.exe -m pytest -q`: 141 passed after item-26 ensemble tests were added.
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+
+### 25. Market-Day Data Collection And Label Quality [COMPLETE]
+
+Goal: build the dataset that makes items 20 and 21 statistically meaningful.
+
+- [x] Keep collecting complete 10-minute market/model/forecast tapes for every
+  Toronto market day.
+- [x] Add a daily settlement finalization command that freezes WU final high,
+  settlement bucket, and evidence source after the market resolves.
+- [x] Add collection-quality grades per day: complete, partial, stale-source,
+  missing settlement, or manually overridden.
+- [x] Surface quality grades in the item-20 backtest report.
+- [x] Exclude or downweight partial days in model-vs-market metrics.
+- [x] Backfill or manually reconcile known sparse settlement days where possible.
+
+Acceptance: the backtest dataset grows by clean market days, not just by more
+correlated intraday rows.
+
+Codex implementation status (2026-06-01): complete for the code and operating
+policy. Settlement-label finalization, coverage-aware grading, strict backtest
+filtering, and live coverage monitoring are in place.
+`src/market_day_labels.py` now provides
+`python -m src.market_day_labels finalize`, writes per-folder `settlement.json`
+files, and writes `data/backtest/market_day_labels.csv` with settlement bucket,
+source, snapshot count, band count, row count, quality grade, quality reason,
+coverage-clean flag, capture ratio, max gap, and coverage reason. It
+distinguishes `complete`, `partial`, `stale_source`, `manual_override`,
+`missing_tape`, and `missing_settlement`, and uses `src.collection_health` to
+mark days partial when the decisive afternoon window is not covered or the tape
+has large gaps. `src.backtest` reads `settlement.json` when present, includes
+the quality grade in the Run Inputs And Settlement table, and supports
+`--quality-grades` to include only accepted-quality market days in headline
+metrics. `src.collection_health` now has a live mode and strict machine-readable
+output so the same coverage policy can be checked before a day is already lost:
+`python -m src.collection_health --live --strict --json <snapshot-folder>`.
+`src.snapshot_tracker --status` now includes the active market day's collection
+state alongside heartbeat health. On 2026-06-01 at 10:00 local, the live June 1
+tape reported `COLLECTING` with no action required rather than a false
+completed-day warning. May 27 and May 30 remain explicitly reconciled as
+`partial`; their missing intraday coverage cannot be backfilled honestly, so
+they stay out of strict headline metrics.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_market_day_labels.py tests\test_collection_robustness.py -q`: 21 passed after live collection status was added.
+- `.\venv\Scripts\python.exe -m pytest tests\test_market_day_labels.py tests\test_backtest.py -q`: 26 passed.
+- `.\venv\Scripts\python.exe -m src.market_day_labels finalize data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote 3 labels, now `complete=1, partial=2`. May 27 is partial because the tape starts at 14:35, and May 30 is partial because it has a 74-minute collection gap.
+- `.\venv\Scripts\python.exe -m src.backtest data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026 --quality-grades complete,manual_override`: regenerated
+  `data/backtest/backtest_report.md` with quality grades and an explicit
+  `complete, manual_override` quality filter. The strict headline sample now
+  includes only May 28: 704 scored band rows, model Brier 0.0583 versus market
+  Brier 0.0394, Brier skill -0.478.
+- `.\venv\Scripts\python.exe -m src.collection_health --live data\snapshots\highest-temperature-in-toronto-on-june-1-2026`: reported June 1 as `COLLECTING`.
+- `.\venv\Scripts\python.exe -m src.snapshot_tracker --status`: reported loop
+  state `RUNNING` and collection state `COLLECTING`.
+- `.\venv\Scripts\python.exe -m pytest -q`: 141 passed.
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+
+Follow-up now completed: item 26 uses the clean/partial labels as a hard gate
+for ensemble and ablation research, and includes a fast sampled research mode
+so model comparisons do not require multi-hour full leave-one-out retrains.
+
+### 26. Model Ensemble And Ablation Framework [COMPLETE - AWAITING MORE CLEAN DAYS]
+
+Goal: improve accuracy by combining complementary signals only when they add
+out-of-sample value.
+
+- [x] Treat empirical climatology, HGB, forecast-error model, lag model, and
+  market price as separate candidate forecasters.
+- [x] Report each component's standalone performance by cutoff hour and band.
+- [x] Learn ensemble weights under leave-one-day-out or rolling-day validation.
+- [x] Add a fast sampled or cached research mode so component ablations and
+  ensemble tests do not require multi-hour full leave-one-out retrains.
+- [x] Keep a no-market-input model and a market-informed model separate, so
+  "edge over market" remains interpretable.
+- [x] Add guardrails against adding components that improve in-sample metrics
+  but hurt settlement-scored market performance.
+
+Acceptance: ensemble weights are justified by ablation tables and item-20
+market-relative metrics.
+
+Codex implementation status (2026-06-01): complete as an executable framework,
+with promotion correctly blocked by sample size. Live inference now exposes
+`distribution_components` with schema `toronto_distribution_components_v0.1`;
+`src.snapshot_tracker` persists market-bin component probabilities to
+`components_long.csv` and `components.jsonl` for future settled days. Component
+names include climatology prior, HGB/LR feature model, feature blend,
+forecast-error/cap distributions, post-live-signal distribution,
+settlement-lag-adjusted distribution, pre-calibration model, and final model
+when those components are present.
+
+`src/model_ensemble.py` reads settled tapes, filters by market-day quality,
+joins future component probability tapes, reports standalone forecasters
+overall/by cutoff/by market-bin type, and learns simple leave-one-day tuned
+pairs. It keeps no-market candidates separate from market-informed candidates
+and writes the promotion guardrail directly into
+`data/backtest/model_ensemble_report.md`. The current strict clean sample has
+only May 28, so the report scores deployed model versus market but refuses to
+fit leave-one-day ensembles:
+
+- Rows scored: 704.
+- Market price Brier/log loss: 0.0394 / 0.1230.
+- Deployed model Brier/log loss: 0.0583 / 0.1850.
+- No-market and market-informed ensembles: insufficient clean target days.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_model_ensemble.py tests\test_feature_store.py -q`: 7 passed.
+- `.\venv\Scripts\python.exe -m src.model_ensemble data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026 --quality-grades complete,manual_override`: wrote `data/backtest/model_ensemble_report.md` and correctly refused ensemble promotion with only one clean day.
+
+Follow-up now unlocked: item 27 should add new weather-regime features only
+behind this harness, and only promote features that improve clean
+settlement-scored no-market validation.
+
+### 27. Weather Regime And Microclimate Features [NEW]
+
+Goal: add physically meaningful signal once the evaluation/calibration loop is
+strong enough to judge it.
+
+- [ ] Add solar/radiation and cloud-thickness features from Open-Meteo or other
+  stable sources.
+- [ ] Add lake-breeze/onshore-flow indicators for Pearson and Toronto-specific
+  warm-season patterns.
+- [ ] Add pressure tendency, humidity/dewpoint, wind shift, and gust features to
+  late-day continuation where they are not already used.
+- [ ] Evaluate whether feature value differs by month/season and cutoff hour.
+- [ ] Promote only features that improve out-of-sample item-20 metrics.
+
+Acceptance: new weather features improve the calibrated model, not just feature
+importance charts.
+
 ## Research Questions
 
 - Does WU final high usually equal Weather.com max-since-7 once history settles?
@@ -375,6 +951,12 @@ The partition audit passed for 533 WU hourly partitions.
 - Are market prices systematically too sticky around psychologically salient
   buckets like 25 C?
 - Does edge persistence matter more than one-time edge size?
+- Which cutoff hours have true model edge versus Polymarket, and which are
+  better left to the market?
+- Is the model's biggest weakness directional accuracy, bucket-boundary
+  calibration, or overconfidence after a WU floor prints?
+- Does using market price as an ensemble input improve settlement accuracy
+  while still leaving tradable residual edge?
 
 ## Codex Deep Model Audit - 2026-05-28
 

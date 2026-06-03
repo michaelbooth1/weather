@@ -21,6 +21,7 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
+from probability_calibration import calibrate_market_probability
 
 
 class PresentationMixin:
@@ -439,10 +440,18 @@ class PresentationMixin:
             return 0.0
         value = bin_data["value"]
         if bin_data["kind"] == "lte":
-            return sum(prob for temp, prob in distribution.items() if temp <= value)
-        if bin_data["kind"] == "gte":
-            return sum(prob for temp, prob in distribution.items() if temp >= value)
-        return distribution.get(value, 0.0)
+            raw_probability = sum(prob for temp, prob in distribution.items() if temp <= value)
+        elif bin_data["kind"] == "gte":
+            raw_probability = sum(prob for temp, prob in distribution.items() if temp >= value)
+        else:
+            raw_probability = distribution.get(value, 0.0)
+        return calibrate_market_probability(
+            raw_probability,
+            bin_data,
+            getattr(self, "probability_calibration", None),
+            context=getattr(self, "_last_probability_calibration_context", None),
+            market_yes=bin_data.get("market_yes"),
+        )
 
     def bin_sort_key(self, bin_data):
         if bin_data["kind"] == "lte":

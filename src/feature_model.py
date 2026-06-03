@@ -12,6 +12,11 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.abspath("src"))
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
 from forecast_history import load_forecast_daily
+from feature_store import (
+    FEATURE_COLUMNS,
+    FEATURE_SCHEMA_VERSION,
+    build_historical_feature_record,
+)
 
 RUN_LOO = True
 
@@ -88,6 +93,81 @@ def expected_calibration_error(conf_correct, n_bins=10):
         ece += (len(b) / n) * abs(acc - avg_conf)
     return ece
 
+
+FEATURE_FAMILIES = {
+    "observed_temp_path": ["high_so_far", "current_temp", "rise_from_7am"],
+    "atmosphere": [
+        "dewpoint_c",
+        "humidity",
+        "pressure",
+        "pressure_trend_3h",
+        "wind_speed_kmh",
+    ],
+    "forecast": ["forecast_high", "forecast_gap"],
+    "wind_regime": "wind_",
+    "cloud_regime": "cloud_",
+}
+
+
+def feature_family_columns(feature_cols):
+    families = {}
+    for family, spec in FEATURE_FAMILIES.items():
+        if isinstance(spec, str):
+            columns = [column for column in feature_cols if column.startswith(spec)]
+        else:
+            columns = [column for column in spec if column in feature_cols]
+        if columns:
+            families[family] = columns
+    return families
+
+
+def neutralize_feature_family(row, train_matrix, feature_cols, family_columns):
+    out = row.copy()
+    for column in family_columns:
+        idx = feature_cols.index(column)
+        if column in {"forecast_high", "forecast_gap"}:
+            out[idx] = np.nan
+        elif column.startswith("wind_") or column.startswith("cloud_"):
+            out[idx] = 0.0
+        else:
+            train_values = train_matrix[:, idx]
+            train_values = train_values[~np.isnan(train_values)]
+            out[idx] = float(np.median(train_values)) if len(train_values) else 0.0
+    return out
+
+
+def summarize_ablation_by_family(rows):
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[row["family"]].append(row)
+    summary = []
+    for family, family_rows in sorted(grouped.items()):
+        n = sum(row["n"] for row in family_rows)
+        if n <= 0:
+            continue
+        summary.append({
+            "family": family,
+            "n": n,
+            "full_logloss": sum(row["full_logloss"] * row["n"] for row in family_rows) / n,
+            "ablated_logloss": sum(row["ablated_logloss"] * row["n"] for row in family_rows) / n,
+            "delta_logloss": sum(row["delta_logloss"] * row["n"] for row in family_rows) / n,
+            "full_brier": sum(row["full_brier"] * row["n"] for row in family_rows) / n,
+            "ablated_brier": sum(row["ablated_brier"] * row["n"] for row in family_rows) / n,
+            "delta_brier": sum(row["delta_brier"] * row["n"] for row in family_rows) / n,
+        })
+    return sorted(summary, key=lambda row: row["delta_logloss"], reverse=True)
+
+
+def ablation_table_row(row, include_hour=False):
+    prefix = f"| {row['hour']:02d}:00 | " if include_hour else "| "
+    return (
+        f"{prefix}{row['family']} | {row['n']} | "
+        f"{row['full_logloss']:.4f} | {row['ablated_logloss']:.4f} | "
+        f"{row['delta_logloss']:+.4f} | {row['full_brier']:.4f} | "
+        f"{row['ablated_brier']:.4f} | {row['delta_brier']:+.4f} |"
+    )
+
+
 def main():
     model = TorontoHighTempModel()
     print("Loading historical data cache...")
@@ -113,75 +193,18 @@ def main():
         if not rows:
             continue
             
-        final_bucket = daily[local_date]["bucket"]
-        
-        # Pre-find 7 AM temp (target minute 420, search window 360 to 480)
-        obs_7am_candidates = [r for r in rows if 360 <= r["minute_of_day"] <= 480 and r["temp_c"] is not None]
-        temp_7am = None
-        if obs_7am_candidates:
-            closest_obs_7am = min(obs_7am_candidates, key=lambda r: abs(r["minute_of_day"] - 420))
-            temp_7am = closest_obs_7am["temp_c"]
-            
         for hour in INTRADAY_CUTOFF_HOURS:
-            cutoff_minutes = hour * 60
-            obs_before = [r for r in rows if r["minute_of_day"] <= cutoff_minutes]
-            if not obs_before:
-                continue
-                
-            current_obs = obs_before[-1]
-            temps_before = [r["temp_c"] for r in obs_before if r["temp_c"] is not None]
-            if not temps_before:
-                continue
-                
-            high_so_far = max(temps_before)
-            current_temp = current_obs.get("temp_c")
-            
-            # Rise from 7 AM
-            rise_from_7am = 0.0
-            if current_temp is not None and temp_7am is not None:
-                rise_from_7am = current_temp - temp_7am
-                
-            # Dewpoint, humidity, pressure
-            dewpoint = current_obs.get("dewpoint_c")
-            humidity = current_obs.get("humidity")
-            pressure = current_obs.get("pressure")
-            
-            # Pressure trend (3h ago, target cutoff - 180, window cutoff - 240 to cutoff - 120)
-            obs_3h_candidates = [r for r in rows if (cutoff_minutes - 240) <= r["minute_of_day"] <= (cutoff_minutes - 120) and r["pressure"] is not None]
-            pressure_trend_3h = 0.0
-            if pressure is not None and obs_3h_candidates:
-                closest_obs_3h = min(obs_3h_candidates, key=lambda r: abs(r["minute_of_day"] - (cutoff_minutes - 180)))
-                press_3h_ago = closest_obs_3h["pressure"]
-                pressure_trend_3h = pressure - press_3h_ago
-                
-            # Wind speed and directions
-            wind_speed = current_obs.get("wind_kmh")
-            wind_group = model.wind_group(current_obs.get("wind"))
-            cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
-
-            # Forecast features (Open-Meteo archived daily-max forecast); NaN
-            # before the forecast archive starts. forecast_gap is the key signal:
-            # how much more warming the forecast implies beyond the high so far.
-            forecast_high = forecast_index.get(local_date.isoformat())
-            forecast_gap = (forecast_high - high_so_far) if (
-                forecast_high is not None and high_so_far is not None) else None
-
-            raw_data[hour].append({
-                "date": local_date,
-                "high_so_far": high_so_far,
-                "current_temp": current_temp,
-                "rise_from_7am": rise_from_7am,
-                "dewpoint_c": dewpoint,
-                "humidity": humidity,
-                "pressure": pressure,
-                "pressure_trend_3h": pressure_trend_3h,
-                "wind_speed_kmh": wind_speed,
-                "forecast_high": forecast_high,
-                "forecast_gap": forecast_gap,
-                "wind_group": wind_group,
-                "cloud_group": cloud_group,
-                "final_bucket": final_bucket
-            })
+            record = build_historical_feature_record(
+                local_date,
+                rows,
+                daily[local_date],
+                hour,
+                forecast_high=forecast_index.get(local_date.isoformat()),
+                wind_group_fn=model.wind_group,
+                cloud_group_fn=model.cloud_group,
+            )
+            if record:
+                raw_data[hour].append(record)
 
     # Available wind and cloud categories for one-hot encoding consistency
     all_wind_groups = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
@@ -207,6 +230,7 @@ def main():
     # Per-hour climatology<->HGB blend weight, grid-searched by LOO log loss.
     tuned_blend_weight = {}
     calibration_rows = []
+    ablation_rows = []
 
     trained_models_info = {}
     hgb_models_info = {}
@@ -230,12 +254,12 @@ def main():
             df[f"cloud_{g}"] = (df["cloud_group"] == g).astype(float)
             
         numeric_cols = [
-            "high_so_far", "current_temp", "rise_from_7am",
-            "dewpoint_c", "humidity", "pressure", "pressure_trend_3h",
-            "wind_speed_kmh", "forecast_high", "forecast_gap"
+            column for column in FEATURE_COLUMNS
+            if column not in {"wind_group", "cloud_group"}
         ]
         n_numeric = len(numeric_cols)
         feature_cols = numeric_cols + [f"wind_{g}" for g in all_wind_groups] + [f"cloud_{g}" for g in all_cloud_groups]
+        feature_families = feature_family_columns(feature_cols)
 
         X = df[feature_cols].copy()
         y = df["final_bucket"].copy()
@@ -285,6 +309,8 @@ def main():
         briers_hgb = []
         cc_hgb = []
         hgb_fold_data = []  # (p_clim, raw_hgb_prob_dict, val_actual) for weight tuning
+        ablation_losses = defaultdict(list)
+        ablation_briers = defaultdict(list)
 
         for val_idx in range(n_samples):
             # Split train and validation
@@ -385,6 +411,22 @@ def main():
             cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
             hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
 
+            for family, family_columns in feature_families.items():
+                X_hgb_val_ablated = neutralize_feature_family(
+                    X_hgb_val[0],
+                    X_hgb_train,
+                    feature_cols,
+                    family_columns,
+                ).reshape(1, -1)
+                ablated_probs_raw = hgb.predict_proba(X_hgb_val_ablated)[0]
+                ablated_prob_dict = {
+                    int(c): float(p)
+                    for c, p in zip(hgb_classes, ablated_probs_raw)
+                }
+                ablated_blended = blend(p_clim.copy(), ablated_prob_dict, 0.80)
+                ablation_losses[family].append(log_loss(ablated_blended, val_actual))
+                ablation_briers[family].append(brier_score(ablated_blended, val_actual))
+
         if RUN_LOO:
             # Print metrics summary
             base_ll = np.mean(losses_baseline)
@@ -426,6 +468,20 @@ def main():
                 f"| {hour:02d}:00 | {best_w:.2f} | {hgb_ll:.4f} | {tuned_ll:.4f} | "
                 f"{hgb_ll - tuned_ll:+.4f} | {hour_ece_fixed:.4f} | {hour_ece_tuned:.4f} |"
             )
+            for family in sorted(feature_families):
+                ab_ll = np.mean(ablation_losses[family])
+                ab_brier = np.mean(ablation_briers[family])
+                ablation_rows.append({
+                    "hour": hour,
+                    "family": family,
+                    "n": n_samples,
+                    "full_logloss": hgb_ll,
+                    "ablated_logloss": ab_ll,
+                    "delta_logloss": ab_ll - hgb_ll,
+                    "full_brier": hgb_brier,
+                    "ablated_brier": ab_brier,
+                    "delta_brier": ab_brier - hgb_brier,
+                })
 
             print(f"  Baseline:  Log Loss = {base_ll:.4f}, Brier = {base_brier:.4f}, Accuracy = {base_acc*100:.2f}%")
             print(f"  LogisticR: Log Loss = {lr_ll:.4f}, Brier = {lr_brier:.4f}, Accuracy = {lr_acc*100:.2f}%")
@@ -453,6 +509,7 @@ def main():
         # Export model coefficients for quick, dependency-free load in toronto_model
         # W_c^T X + intercept_c.
         trained_models_info[str(hour)] = {
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": feature_cols,
             "classes": [int(c) for c in final_lr.classes_],
             "coef": final_lr.coef_.tolist(), # Shape: (n_classes, n_features)
@@ -474,6 +531,7 @@ def main():
         hgb_models_info[str(hour)] = {
             "model": final_hgb,
             "imputer": final_imputer,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": feature_cols,
             "all_wind_groups": all_wind_groups,
             "all_cloud_groups": all_cloud_groups,
@@ -604,6 +662,7 @@ def main():
         
         # Save coefficients
         late_day_info[str(H)] = {
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": ld_feature_cols,
             "coef": ld_lr.coef_[0].tolist(),
             "intercept": float(ld_lr.intercept_[0]),
@@ -645,6 +704,25 @@ def main():
         report_lines.append(f"| Logistic Regression | {lr_ece:.4f} |")
         report_lines.append(f"| HGBC (fixed 0.80 blend) | {hgb_ece:.4f} |")
         report_lines.append(f"| HGBC (tuned blend) | {hgb_tuned_ece:.4f} |")
+
+        report_lines.append("\n## Feature-family ablation (HGB LOO validation)\n")
+        report_lines.append(
+            "For each leave-one-out fold, the trained HGB model is held fixed and "
+            "one feature family is neutralized in the validation row. Positive "
+            "deltas mean the feature family helped the HGB validation score; "
+            "negative deltas mean neutralizing it improved the score. This is a "
+            "fast sensitivity ablation, not a full retrain-without-family study.\n"
+        )
+        report_lines.append("| Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+        report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        for row in summarize_ablation_by_family(ablation_rows):
+            report_lines.append(ablation_table_row(row))
+
+        report_lines.append("\n### Feature-family ablation by cutoff hour\n")
+        report_lines.append("| Cutoff | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+        report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+        for row in sorted(ablation_rows, key=lambda item: (item["hour"], item["family"])):
+            report_lines.append(ablation_table_row(row, include_hour=True))
 
         # Save Report file
         report_path = os.path.join("data", "wunderground", "cyyz", "analysis", "feature_model_report.md")

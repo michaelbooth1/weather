@@ -1,17 +1,26 @@
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import requests
+import pandas as pd
 
 # Add src to the path
 sys.path.insert(0, os.path.abspath("src"))
 
 from model_sources import request_with_retries, _is_retryable
 from snapshot_tracker import loop_health
-from collection_health import detect_gaps, coverage_summary, parse_times
+from collection_health import (
+    detect_gaps,
+    coverage_summary,
+    live_coverage_summary,
+    parse_times,
+    summarize_folder,
+)
 
 
 class TestRetries(unittest.TestCase):
@@ -109,6 +118,61 @@ class TestGapDetection(unittest.TestCase):
         cov = coverage_summary(times, 10.0)
         self.assertFalse(cov["clean"])
         self.assertFalse(cov["covers_afternoon"])
+
+    def test_live_coverage_collecting_before_afternoon_window(self):
+        times = self._times("09:40", "09:50", "10:00")
+        cov = live_coverage_summary(times, 10.0, as_of=datetime(2026, 5, 30, 10, 5))
+
+        self.assertEqual(cov["state"], "COLLECTING")
+        self.assertFalse(cov["action_required"])
+
+    def test_live_coverage_flags_overdue_capture(self):
+        times = self._times("12:00", "12:10")
+        cov = live_coverage_summary(times, 10.0, as_of=datetime(2026, 5, 30, 12, 40))
+
+        self.assertEqual(cov["state"], "AT_RISK")
+        self.assertTrue(cov["action_required"])
+        self.assertIn("latest capture", cov["reason"])
+
+    def test_live_coverage_closes_clean_after_window(self):
+        start = datetime(2026, 5, 30, 11, 0)
+        times = [start + timedelta(minutes=10 * i) for i in range(49)]  # 11:00..19:00
+        cov = live_coverage_summary(times, 10.0, as_of=datetime(2026, 5, 30, 19, 5))
+
+        self.assertEqual(cov["state"], "CLEAN")
+        self.assertFalse(cov["action_required"])
+
+    def test_live_coverage_closes_partial_after_gap(self):
+        times = self._times("11:50", "12:00", "13:00", "18:00")
+        cov = live_coverage_summary(times, 10.0, as_of=datetime(2026, 5, 30, 19, 0))
+
+        self.assertEqual(cov["state"], "PARTIAL")
+        self.assertTrue(cov["action_required"])
+
+    def test_summarize_folder_live_uses_event_slug_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-toronto-on-may-30-2026"
+            folder.mkdir()
+            pd.DataFrame([
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_local": "2026-05-30T09:40:00",
+                },
+                {
+                    "snapshot_id": "s2",
+                    "captured_at_local": "2026-05-30T09:50:00",
+                },
+            ]).to_csv(folder / "snapshots_long.csv", index=False)
+
+            cov = summarize_folder(
+                folder,
+                interval_minutes=10.0,
+                live=True,
+                as_of=datetime(2026, 5, 30, 10, 0),
+            )
+
+            self.assertEqual(cov["event_slug"], folder.name)
+            self.assertEqual(cov["state"], "COLLECTING")
 
 
 if __name__ == "__main__":

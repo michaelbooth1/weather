@@ -1,0 +1,17 @@
+{
+  "band_count": 11,
+  "capture_ratio": 0.9846153846153847,
+  "coverage_clean": true,
+  "coverage_reason": "ok",
+  "event_slug": "highest-temperature-in-toronto-on-may-28-2026",
+  "finalized_at_utc": "2026-05-31T16:56:27.578886+00:00",
+  "max_gap_minutes": 10.0,
+  "note": "snapshot wu_history_high (daily summary missing/incomplete)",
+  "quality_grade": "complete",
+  "quality_reason": "complete enough for headline scoring",
+  "row_count": 704,
+  "settlement_bucket": 20,
+  "settlement_source": "snapshot_high",
+  "snapshot_count": 64,
+  "target_date": "2026-05-28"
+}

@@ -21,6 +21,9 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
+from forecast_error_model import forecast_error_distribution
+from probability_calibration import apply_exact_distribution_calibration
+from settlement_lag_model import settlement_catchup_probability
 
 # --- Forecast floor ---------------------------------------------------------
 # The cap bounds the distribution from above (the high won't exceed the
@@ -43,12 +46,15 @@ FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (sof
 # strong further down. This is observed data, not a forecast, so no time decay.
 LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below the SWOB bucket
 LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
+CURRENT_OBSERVED_FLOOR_HEDGE = 0.001
+CURRENT_OBSERVED_FLOOR_BASE = 0.05
+COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 
 
 class DistributionMixin:
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
-    def apply_live_observed_floor(self, scores, swob_max, history_max):
+    def apply_live_observed_floor(self, scores, swob_max, history_max, hour=None):
         """Suppress buckets below what SWOB has already observed, when SWOB leads
         the printed WU-history high. Keeps a hedge one bucket down for SWOB's
         small warm bias; strongly suppresses further down. Never zero."""
@@ -58,13 +64,51 @@ class DistributionMixin:
         wu_bucket = self.round_half_up(history_max)
         if wu_bucket is not None and swob_bucket <= wu_bucket:
             return self.normalize_scores(scores)  # WU floor already covers it
+        catchup_probability = settlement_catchup_probability(
+            getattr(self, "settlement_lag_model", None),
+            "eccc_swob",
+            swob_bucket,
+            wu_bucket,
+            cutoff_hour=hour,
+        )
+        one_bucket_hedge = LIVE_FLOOR_HEDGE
+        if catchup_probability is not None:
+            # SWOB is not the settlement source. Even when historical catch-up
+            # rates are high, keep a meaningful one-bucket hedge to avoid
+            # recreating a hard non-resolution floor.
+            one_bucket_hedge = max(0.30, min(0.80, 1.0 - catchup_probability))
         adjusted = {}
         for temp, score in scores.items():
             if temp >= swob_bucket:
                 adjusted[temp] = score
             else:
                 below = swob_bucket - temp
-                adjusted[temp] = score * LIVE_FLOOR_HEDGE * (LIVE_FLOOR_BASE ** (below - 1))
+                adjusted[temp] = score * one_bucket_hedge * (LIVE_FLOOR_BASE ** (below - 1))
+        return self.normalize_scores(adjusted)
+
+    def apply_current_observed_floor(self, scores, current_observed_max, history_max):
+        """Strongly suppress buckets below current observed temperature readings.
+
+        This uses live current-temperature readings, not max-since-7am, because
+        max-since can overstate the eventual WU settlement bucket by rounding.
+        """
+        support_bucket = self.round_half_up(current_observed_max)
+        if support_bucket is None:
+            return self.normalize_scores(scores)
+        history_bucket = self.round_half_up(history_max)
+        if history_bucket is not None and support_bucket <= history_bucket:
+            return self.normalize_scores(scores)
+        adjusted = {}
+        for temp, score in scores.items():
+            if temp >= support_bucket:
+                adjusted[temp] = score
+            else:
+                below = support_bucket - temp
+                adjusted[temp] = (
+                    score
+                    * CURRENT_OBSERVED_FLOOR_HEDGE
+                    * (CURRENT_OBSERVED_FLOOR_BASE ** (below - 1))
+                )
         return self.normalize_scores(adjusted)
 
     def forecast_floor_time_weight(self, hour):
@@ -111,10 +155,32 @@ class DistributionMixin:
                 adjusted[temp] = score
         return self.normalize_scores(adjusted)
 
-    def estimate_distribution(self, sources, now=None):
-        history = self.source_data(sources, "wu_history")
+    def forecast_error_component_distribution(
+        self,
+        support,
+        observed_bucket,
+        weather_forecast_max,
+        open_meteo_max,
+        eccc_forecast_high,
+        hour,
+    ):
+        values = []
+        if weather_forecast_max is not None:
+            values.append({"source": "weather_forecast", "forecast_high_c": weather_forecast_max})
+        if open_meteo_max is not None:
+            values.append({"source": "open_meteo", "forecast_high_c": open_meteo_max})
+        if eccc_forecast_high is not None:
+            values.append({"source": "eccc_citypage", "forecast_high_c": eccc_forecast_high})
+        return forecast_error_distribution(
+            support,
+            values,
+            getattr(self, "forecast_error_model", None),
+            floor_bucket=observed_bucket,
+            capture_hour=hour,
+        )
 
     def estimate_distribution(self, sources, now=None):
+        self._last_distribution_components = {}
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
         local_history = self.source_data(sources, "local_history")
@@ -155,8 +221,23 @@ class DistributionMixin:
             eccc_forecast_high,
         ]
         observed_bucket = self.round_half_up(history_max)
+        current_observed_bucket = self.round_half_up(self.max_value(
+            history_max,
+            current_temp,
+            metar_temp,
+        ))
+        observed_support_bucket = self.round_half_up(self.max_value(
+            history_max,
+            current_temp,
+            eccc_max,
+            metar_temp,
+        ))
         max_signal = self.round_half_up(self.max_value(*live_values))
         if max_signal is None and not scores:
+            self._last_distribution_components = {
+                "schema_version": COMPONENT_SCHEMA_VERSION,
+                "components": {},
+            }
             return {}
 
         low = min(min(scores), 8, (observed_bucket or max_signal or 16) - 5)
@@ -164,11 +245,21 @@ class DistributionMixin:
         for temp in range(low, high + 1):
             scores.setdefault(temp, 0.0005)
         scores = self.normalize_scores(scores)
+        distribution_components = {
+            "climatology_prior": dict(scores),
+        }
 
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
         )
+        self._last_probability_calibration_context = {
+            "cutoff_hour": cutoff_hour,
+            "observed_floor_bucket": observed_bucket,
+            "current_observed_bucket": current_observed_bucket,
+            "observed_support_bucket": observed_support_bucket,
+            "target_date": getattr(self, "target_date_str", TARGET_DATE_STR),
+        }
         weights_config = self.calibrated_hour_config(cutoff_hour)
         weight_map = (weights_config or {}).get("weights") or (weights_config or {})
         has_component_weights = any(
@@ -184,6 +275,7 @@ class DistributionMixin:
         )
         
         intraday = None
+        forecast_component = None
         using_feature_model = False
         feature_probs, active_kind = self.predict_feature_distribution(sources, cutoff_hour, now)
         using_calibrated_empirical = False
@@ -195,11 +287,15 @@ class DistributionMixin:
                 sigma=0.75,
                 blend_weight=0.50,
             )
+            distribution_components[f"{active_kind}_feature_model"] = dict(
+                self.normalize_scores(feature_probs)
+            )
             # Blend the ML prediction with the climatology prior, using the
             # per-hour weight tuned by LOO log loss (was a flat 0.80).
             scores = self.blend_distribution(
                 scores, feature_probs, self.feature_blend_weight(cutoff_hour)
             )
+            distribution_components["feature_blend"] = dict(scores)
         else:
             self.active_model_kind = "empirical"
             intraday = self.historical_intraday_distribution(
@@ -219,26 +315,45 @@ class DistributionMixin:
                 open_meteo_max,
                 eccc_forecast_high,
             ))
-            cap_distribution = self.cap_prior_distribution(
+            forecast_component = self.forecast_error_component_distribution(
+                scores.keys(),
+                observed_bucket,
+                weather_forecast_max,
+                open_meteo_max,
+                eccc_forecast_high,
+                now.hour,
+            )
+            cap_distribution = forecast_component or self.cap_prior_distribution(
                 scores.keys(),
                 calibrated_cap,
                 floor_bucket=observed_bucket,
             )
+            empirical_components = {
+                "intraday_high": intraday["probabilities"] if intraday else None,
+                "current_bucket": current_distribution["probabilities"] if current_distribution else None,
+                "wind_regime": wind_distribution["probabilities"] if wind_distribution else None,
+                "cloud_regime": cloud_distribution["probabilities"] if cloud_distribution else None,
+                "forecast_error" if forecast_component else "forecast_cap": cap_distribution,
+            }
+            for name, distribution in empirical_components.items():
+                if distribution:
+                    distribution_components[name] = dict(self.normalize_scores(distribution))
 
             if has_component_weights:
                 using_calibrated_empirical = True
                 components = {
                     "climatology": scores,
-                    "intraday_high": intraday["probabilities"] if intraday else None,
-                    "current_bucket": current_distribution["probabilities"] if current_distribution else None,
-                    "wind_regime": wind_distribution["probabilities"] if wind_distribution else None,
-                    "cloud_regime": cloud_distribution["probabilities"] if cloud_distribution else None,
+                    "intraday_high": empirical_components["intraday_high"],
+                    "current_bucket": empirical_components["current_bucket"],
+                    "wind_regime": empirical_components["wind_regime"],
+                    "cloud_regime": empirical_components["cloud_regime"],
                     "forecast_cap": cap_distribution,
                 }
                 scores = self.weighted_component_distribution(
                     components,
                     weight_map,
                 )
+                distribution_components["empirical_weighted"] = dict(scores)
             else:
                 if intraday:
                     if weights_config:
@@ -321,6 +436,7 @@ class DistributionMixin:
                 (eccc_forecast_high, 0.5, 1.2),
             ]
         scores = self.apply_live_signals(scores, live_signals)
+        distribution_components["post_live_signals"] = dict(self.normalize_scores(scores))
 
         history_bucket = self.round_half_up(history_max)
         if history_bucket is not None:
@@ -371,9 +487,33 @@ class DistributionMixin:
 
         # Live-observed floor: react to SWOB leading the lagging WU history,
         # instead of waiting hours for WU to print what already happened.
-        scores = self.apply_live_observed_floor(scores, eccc_max, history_max)
+        scores = self.apply_live_observed_floor(scores, eccc_max, history_max, hour=now.hour)
+        distribution_components["settlement_lag_adjusted"] = dict(self.normalize_scores(scores))
+        scores = self.apply_current_observed_floor(
+            scores,
+            self.max_value(history_max, current_temp, metar_temp),
+            history_max,
+        )
+        distribution_components["current_observed_floor"] = dict(self.normalize_scores(scores))
 
-        return self.normalize_scores(scores)
+        scores = self.normalize_scores(scores)
+        distribution_components["pre_calibration_model"] = dict(scores)
+        calibrated_scores = apply_exact_distribution_calibration(
+            scores,
+            getattr(self, "probability_calibration", None),
+            floor_bucket=observed_bucket,
+        )
+        distribution_components["final_model"] = dict(calibrated_scores)
+        self._last_distribution_components = {
+            "schema_version": COMPONENT_SCHEMA_VERSION,
+            "cutoff_hour": cutoff_hour,
+            "active_model_kind": getattr(self, "active_model_kind", "empirical"),
+            "observed_floor_bucket": observed_bucket,
+            "current_observed_bucket": current_observed_bucket,
+            "observed_support_bucket": observed_support_bucket,
+            "components": distribution_components,
+        }
+        return calibrated_scores
 
     def weighted_component_distribution(self, components, weights):
         support = sorted({

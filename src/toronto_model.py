@@ -39,6 +39,9 @@ from model_climatology import ClimatologyMixin
 from model_distribution import DistributionMixin
 from model_features import FeatureModelMixin
 from model_presentation import PresentationMixin
+from forecast_error_model import load_forecast_error_model
+from probability_calibration import load_probability_calibration
+from settlement_lag_model import load_settlement_lag_model
 
 
 class TorontoHighTempModel(
@@ -55,6 +58,10 @@ class TorontoHighTempModel(
         self.timeout = timeout
         self.set_target_date(target_date or TARGET_DATE)
         self.calibrated_weights = self.load_calibrated_weights()
+        self.forecast_error_model = self.load_forecast_error_model()
+        self.settlement_lag_model = self.load_settlement_lag_model()
+        self.probability_calibration = self.load_probability_calibration()
+        self._last_probability_calibration_context = {}
         self.active_model_kind = "empirical"
         self._feature_model_hgb = _UNLOADED
         self._feature_model_coefs = _UNLOADED
@@ -80,6 +87,18 @@ class TorontoHighTempModel(
             except Exception as e:
                 print(f"Error loading calibrated weights: {e}")
         return None
+
+    def load_probability_calibration(self):
+        path = Path(__file__).parent / "probability_calibration.json"
+        return load_probability_calibration(path)
+
+    def load_forecast_error_model(self):
+        path = Path(__file__).parent / "forecast_error_model.json"
+        return load_forecast_error_model(path)
+
+    def load_settlement_lag_model(self):
+        path = Path(__file__).parent / "settlement_lag_model.json"
+        return load_settlement_lag_model(path)
 
     def calibrated_hour_config(self, cutoff_hour):
         if not self.calibrated_weights:
@@ -115,19 +134,28 @@ class TorontoHighTempModel(
             now_tz,
             self.source_data(sources, "wu_history").get("rows") or [],
         )
+        model_version = self.get_model_version_string()
+        feature_vector = self.live_feature_record(
+            sources,
+            cutoff_hour,
+            captured_at=now_tz,
+            model_version=model_version,
+        )
         # Compute analogs once at the effective cutoff and reuse them in the deep
         # dive, so both panels agree and the heaviest lookup runs a single time.
         analog_search = self.find_analog_days(sources, cutoff_hour, now_tz, limit=5)
         return {
             "sources": sources,
             "distribution": distribution,
+            "distribution_components": getattr(self, "_last_distribution_components", {}),
             "model_rows": model_rows,
             "source_rows": self.source_rows(sources),
             "forecast_rows": self.forecast_rows(sources),
             "deep_dive_rows": self.deep_dive_rows(sources, distribution, analog_search, now=now_tz),
             "notes": self.model_notes(sources),
             "top_temp": top_temp,
-            "model_version": self.get_model_version_string(),
+            "model_version": model_version,
+            "feature_vector": feature_vector,
             "boundary_transitions": self.get_bucket_transitions(sources, now_tz),
             "late_day_risk": self.predict_late_day_continuation(sources, cutoff_hour, now_tz),
             "analog_search": analog_search,

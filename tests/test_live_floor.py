@@ -33,6 +33,19 @@ class TestLiveObservedFloor(unittest.TestCase):
         self.assertEqual(max(out, key=out.get), 20)
         self.assertLess(out[18], peaked[18])  # the stuck bucket is suppressed
 
+    def test_current_observed_floor_nearly_eliminates_buckets_below_current_temp(self):
+        peaked = {18: 0.50, 19: 0.25, 20: 0.20, 21: 0.05}
+
+        out = self.m.apply_current_observed_floor(
+            peaked,
+            current_observed_max=19.0,
+            history_max=18.0,
+        )
+
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=9)
+        self.assertLess(out[18], 0.001)
+        self.assertEqual(max(out, key=out.get), 19)
+
     def test_noop_when_swob_not_ahead_of_wu(self):
         scores = {t: 1.0 for t in range(16, 22)}
         out = self.m.apply_live_observed_floor(scores, swob_max=18.0, history_max=19.0)

@@ -1,0 +1,17 @@
+{
+  "band_count": 11,
+  "capture_ratio": 1.0,
+  "coverage_clean": false,
+  "coverage_reason": "afternoon window not fully covered (captured 14:35-21:58)",
+  "event_slug": "highest-temperature-in-toronto-on-may-27-2026",
+  "finalized_at_utc": "2026-05-31T16:56:27.578886+00:00",
+  "max_gap_minutes": 10.0,
+  "note": "daily_summary=22 (rows=12) disagrees with snapshot high=25",
+  "quality_grade": "partial",
+  "quality_reason": "collection coverage incomplete: afternoon window not fully covered (captured 14:35-21:58)",
+  "row_count": 495,
+  "settlement_bucket": 25,
+  "settlement_source": "snapshot_high",
+  "snapshot_count": 45,
+  "target_date": "2026-05-27"
+}

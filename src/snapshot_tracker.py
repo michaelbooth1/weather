@@ -16,6 +16,8 @@ from forecast_archive import (  # noqa: E402
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
+from collection_health import serialize_summary, summarize_folder  # noqa: E402
+from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from market_config import config_for_date, config_from_event
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
@@ -58,6 +60,23 @@ LONG_COLUMNS = [
     "eccc_forecast_high_c",
 ]
 
+COMPONENT_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "model_version",
+    "component_schema_version",
+    "cutoff_hour",
+    "active_model_kind",
+    "component_name",
+    "range_label",
+    "bin_kind",
+    "bin_value_c",
+    "component_probability",
+    "market_yes",
+]
+
 
 class SnapshotStore:
     def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None):
@@ -74,6 +93,10 @@ class SnapshotStore:
         self.lock_path = self.root / ".snapshot.lock"
         self.forecasts_long_path = self.root / "forecasts_long.csv"
         self.forecasts_jsonl_path = self.root / "forecasts.jsonl"
+        self.features_long_path = self.root / "features_long.csv"
+        self.features_jsonl_path = self.root / "features.jsonl"
+        self.components_long_path = self.root / "components_long.csv"
+        self.components_jsonl_path = self.root / "components.jsonl"
 
     def maybe_write(self, event, model, model_client, force=False):
         event_config = config_from_event(event, fallback_date=getattr(model_client, "target_date", None))
@@ -163,9 +186,38 @@ class SnapshotStore:
             "top_temp_c": top_temp,
             "top_probability": top_probability,
             "distribution": distribution,
+            "distribution_components": model.get("distribution_components"),
             "source_values": source_values,
+            "feature_vector": model.get("feature_vector"),
             "bands": long_rows,
         })
+
+        feature_vector = model.get("feature_vector")
+        if feature_vector:
+            feature_row = audit_row(
+                {
+                    "snapshot_id": snapshot_id,
+                    "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+                    "captured_at_local": captured_at.isoformat(),
+                    "event_slug": self.event_slug,
+                    "model_version": model_version,
+                },
+                feature_vector,
+            )
+            self.append_csv(self.features_long_path, FEATURE_AUDIT_COLUMNS, [feature_row])
+            self.append_jsonl(self.features_jsonl_path, feature_row)
+
+        component_rows = self.component_rows(
+            model.get("distribution_components"),
+            bins,
+            snapshot_id,
+            captured_at,
+            model_version,
+        )
+        if component_rows:
+            self.append_csv(self.components_long_path, COMPONENT_COLUMNS, component_rows)
+            for row in component_rows:
+                self.append_jsonl(self.components_jsonl_path, row)
 
         forecast_rows = build_forecast_rows(
             sources,
@@ -193,6 +245,8 @@ class SnapshotStore:
             "path": str(self.long_path),
             "wide_path": str(self.wide_path),
             "jsonl_path": str(self.jsonl_path),
+            "features_path": str(self.features_long_path),
+            "components_path": str(self.components_long_path),
             "next_due_at": self.next_due_at(captured_at),
         }
 
@@ -238,6 +292,56 @@ class SnapshotStore:
             "open_meteo_max_c": model_client.max_row_temp(open_meteo.get("rows")),
             "eccc_forecast_high_c": eccc_city.get("forecast_high_c"),
         }
+
+    def component_rows(self, bundle, bins, snapshot_id, captured_at, model_version):
+        bundle = bundle or {}
+        components = bundle.get("components") or {}
+        if not components or not bins:
+            return []
+        base = {
+            "snapshot_id": snapshot_id,
+            "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+            "captured_at_local": captured_at.isoformat(),
+            "event_slug": self.event_slug,
+            "model_version": model_version,
+            "component_schema_version": bundle.get("schema_version"),
+            "cutoff_hour": bundle.get("cutoff_hour"),
+            "active_model_kind": bundle.get("active_model_kind"),
+        }
+        rows = []
+        for component_name, distribution in sorted(components.items()):
+            if not distribution:
+                continue
+            for bin_data in bins:
+                rows.append({
+                    **base,
+                    "component_name": component_name,
+                    "range_label": bin_data.get("label"),
+                    "bin_kind": bin_data.get("kind"),
+                    "bin_value_c": bin_data.get("value"),
+                    "component_probability": self.raw_bin_probability(distribution, bin_data),
+                    "market_yes": bin_data.get("market_yes"),
+                })
+        return rows
+
+    def raw_bin_probability(self, distribution, bin_data):
+        if not distribution:
+            return None
+        kind = bin_data.get("kind")
+        value = bin_data.get("value")
+        if value is None:
+            return None
+        value = int(value)
+        items = {
+            int(float(bucket)): float(probability)
+            for bucket, probability in distribution.items()
+            if probability is not None
+        }
+        if kind == "lte":
+            return sum(prob for temp, prob in items.items() if temp <= value)
+        if kind == "gte":
+            return sum(prob for temp, prob in items.items() if temp >= value)
+        return items.get(value, 0.0)
 
     def wide_columns(self, long_rows):
         columns = [
@@ -450,6 +554,20 @@ def loop_health(status, now, interval_minutes=10.0):
     }
 
 
+def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
+    now = now or datetime.now(TORONTO_TZ)
+    config = config_for_date(now.date())
+    folder = SNAPSHOT_DATA_ROOT / config.event_slug
+    summary = summarize_folder(
+        folder,
+        interval_minutes=interval_minutes,
+        tolerance=tolerance,
+        live=True,
+        as_of=now,
+    )
+    return serialize_summary(summary)
+
+
 def run_loop(force=False, interval_minutes=10.0):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
@@ -527,10 +645,20 @@ def main():
         action="store_true",
         help="Print the managed loop's health (from the heartbeat) and exit.",
     )
+    parser.add_argument(
+        "--status-tolerance",
+        type=float,
+        default=1.5,
+        help="Collection gap tolerance multiplier used by --status.",
+    )
     args = parser.parse_args()
 
     if args.status:
         health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
+        health["collection"] = current_collection_health(
+            interval_minutes=args.interval_minutes,
+            tolerance=args.status_tolerance,
+        )
         print(json.dumps(health, indent=2, sort_keys=True, default=str))
         return
     if not args.loop:

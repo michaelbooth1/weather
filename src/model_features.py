@@ -3,6 +3,11 @@ import math
 from collections import Counter
 from pathlib import Path
 
+from feature_store import (
+    FEATURE_SCHEMA_VERSION,
+    build_live_feature_record,
+)
+from forecast_history import load_forecast_daily
 from model_constants import _UNLOADED
 
 
@@ -162,7 +167,17 @@ class FeatureModelMixin:
             "cloud_group": cloud_group,
             "forecast_high": forecast_high,
             "forecast_gap": forecast_gap,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
         }
+
+    def live_feature_record(self, sources, cutoff_hour, captured_at=None, model_version=None):
+        return build_live_feature_record(
+            getattr(self, "target_date", None),
+            cutoff_hour,
+            captured_at,
+            model_version,
+            self.extract_live_features(sources, cutoff_hour),
+        )
 
     def predict_feature_distribution(self, sources, cutoff_hour, now):
         hgb_bundle = self.load_feature_model_hgb()
@@ -420,6 +435,8 @@ class FeatureModelMixin:
         wind_group = feats["wind_group"]
         cloud_group = feats["cloud_group"]
         feature_rows = feats["feature_rows"]
+        forecast_high = feats.get("forecast_high")
+        forecast_gap = feats.get("forecast_gap")
 
         # 2. Late-day-specific feature: how long ago today's high was first reached.
         first_reached_min = None
@@ -469,13 +486,37 @@ class FeatureModelMixin:
                     
             z = sum(coef[i] * scaled_vec[i] for i in range(len(scaled_vec))) + intercept
             prob = 1.0 / (1.0 + math.exp(-z))
+            forecast_tail_probability = None
+            observed_bucket = self.round_half_up(high_so_far)
+            if observed_bucket is not None:
+                weather_forecast = self.source_data(sources, "weather_forecast")
+                open_meteo = self.source_data(sources, "open_meteo")
+                eccc_city = self.source_data(sources, "eccc_citypage")
+                forecast_component = self.forecast_error_component_distribution(
+                    range(observed_bucket, observed_bucket + 8),
+                    observed_bucket,
+                    self.max_row_temp(weather_forecast.get("rows")),
+                    open_meteo.get("day_max_c") or self.max_row_temp(open_meteo.get("rows")),
+                    eccc_city.get("forecast_high_c"),
+                    cutoff_hour,
+                )
+                if forecast_component:
+                    forecast_tail_probability = sum(
+                        probability
+                        for bucket, probability in forecast_component.items()
+                        if bucket > observed_bucket
+                    )
+                    prob = 0.75 * prob + 0.25 * forecast_tail_probability
             
             return {
                 "active": True,
                 "continuation_probability": prob,
                 "time_since_reached": time_since_reached,
                 "first_reached_time": first_reached_time,
-                "empirical_prior": model_data.get("empirical_prior", 0.10)
+                "empirical_prior": model_data.get("empirical_prior", 0.10),
+                "forecast_high": forecast_high,
+                "forecast_gap": forecast_gap,
+                "forecast_tail_probability": forecast_tail_probability,
             }
         except Exception as e:
             print(f"Error predicting late-day continuation: {e}")
@@ -494,6 +535,7 @@ class FeatureModelMixin:
         current = self.source_data(sources, "wu_current")
         weather_forecast = self.source_data(sources, "weather_forecast")
         eccc_city = self.source_data(sources, "eccc_citypage")
+        open_meteo = self.source_data(sources, "open_meteo")
 
         rows = history.get("rows") or []
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
@@ -547,10 +589,17 @@ class FeatureModelMixin:
             self.cloud_group(feature_latest.get("condition"), feature_latest.get("clouds"))
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
+        today_forecast_high = open_meteo.get("day_max_c") or self.max_row_temp(open_meteo.get("rows"))
+        today_forecast_gap = (
+            today_forecast_high - today_high
+            if today_forecast_high is not None and today_high is not None
+            else None
+        )
 
         # 3. Extract historical features at same cutoff hour
         cutoff_minutes = cutoff_hour * 60
         hist_days_features = []
+        forecast_index = load_forecast_daily()
         
         for local_date, daily in cache["daily"].items():
             day_obs = cache["by_date"].get(local_date, [])
@@ -593,6 +642,12 @@ class FeatureModelMixin:
             # wind and cloud groups
             h_wind = self.wind_group(h_curr_obs.get("wind"))
             h_cloud = self.cloud_group(h_curr_obs.get("condition"), h_curr_obs.get("clouds"))
+            h_forecast_high = forecast_index.get(local_date.isoformat())
+            h_forecast_gap = (
+                h_forecast_high - h_high
+                if h_forecast_high is not None and h_high is not None
+                else None
+            )
 
             hist_days_features.append({
                 "date": local_date,
@@ -601,6 +656,8 @@ class FeatureModelMixin:
                 "dewpoint_c": h_dewpoint,
                 "wind_group": h_wind,
                 "cloud_group": h_cloud,
+                "forecast_high": h_forecast_high,
+                "forecast_gap": h_forecast_gap,
                 "final_high": daily["max_temp_c"],
                 "final_bucket": daily["bucket"],
                 "observations": day_obs
@@ -613,6 +670,10 @@ class FeatureModelMixin:
         highs = [d["high_so_far"] for d in hist_days_features]
         rises = [d["rise_from_7am"] for d in hist_days_features]
         dews = [d["dewpoint_c"] for d in hist_days_features]
+        forecast_gaps = [
+            d["forecast_gap"] for d in hist_days_features
+            if d.get("forecast_gap") is not None
+        ]
 
         def std_dev(vals, default=2.0):
             if len(vals) < 2:
@@ -625,6 +686,7 @@ class FeatureModelMixin:
         std_high = std_dev(highs, 2.0)
         std_rise = std_dev(rises, 2.0)
         std_dew = std_dev(dews, 3.0)
+        std_forecast_gap = std_dev(forecast_gaps, 2.0)
 
         # 5. Compute distances and similarity scores
         w_high = 2.0
@@ -632,6 +694,7 @@ class FeatureModelMixin:
         w_dew = 1.0
         w_wind = 1.0
         w_cloud = 1.0
+        w_forecast_gap = 1.0
 
         analogs = []
         for d in hist_days_features:
@@ -641,13 +704,18 @@ class FeatureModelMixin:
 
             d_wind = 1.0 if d["wind_group"] != today_wind else 0.0
             d_cloud = 1.0 if d["cloud_group"] != today_cloud else 0.0
+            if today_forecast_gap is not None and d.get("forecast_gap") is not None:
+                d_forecast_gap = ((d["forecast_gap"] - today_forecast_gap) / std_forecast_gap) ** 2
+            else:
+                d_forecast_gap = 0.0
 
             dist = math.sqrt(
                 w_high * d_high +
                 w_rise * d_rise +
                 w_dew * d_dew +
                 w_wind * d_wind +
-                w_cloud * d_cloud
+                w_cloud * d_cloud +
+                w_forecast_gap * d_forecast_gap
             )
 
             similarity = 100.0 * math.exp(-dist / 3.0)
@@ -677,6 +745,8 @@ class FeatureModelMixin:
                 "dewpoint_c": d["dewpoint_c"],
                 "wind_group": d["wind_group"],
                 "cloud_group": d["cloud_group"],
+                "forecast_high": d["forecast_high"],
+                "forecast_gap": d["forecast_gap"],
                 "temp_path": temp_path
             })
 
@@ -704,6 +774,8 @@ class FeatureModelMixin:
                 "dewpoint_c": today_dewpoint,
                 "wind_group": today_wind,
                 "cloud_group": today_cloud,
+                "forecast_high": today_forecast_high,
+                "forecast_gap": today_forecast_gap,
                 "temp_path": today_temp_path
             },
             "analogs": analogs[:limit]
