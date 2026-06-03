@@ -32,9 +32,14 @@ DEFAULT_FORECAST_DAILY = Path("data") / "forecast_history" / "cyyz" / "forecast_
 DEFAULT_ARTIFACT_PATH = Path("src") / "forecast_error_model.json"
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "forecast_error_report.md"
 DEFAULT_SETTLED_SLUGS = (
+    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
+    # add each day once it has settled (date < today) and its tape is clean.
     "highest-temperature-in-toronto-on-may-27-2026",
     "highest-temperature-in-toronto-on-may-28-2026",
     "highest-temperature-in-toronto-on-may-30-2026",
+    "highest-temperature-in-toronto-on-may-31-2026",
+    "highest-temperature-in-toronto-on-june-1-2026",
+    "highest-temperature-in-toronto-on-june-2-2026",
 )
 EPSILON = 1e-9
 

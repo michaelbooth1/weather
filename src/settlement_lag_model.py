@@ -34,9 +34,14 @@ DEFAULT_REPORT_PATH = Path("data") / "backtest" / "settlement_lag_report.md"
 DEFAULT_WU_ROOT = Path("data") / "wunderground" / "cyyz" / "hourly"
 DEFAULT_METAR_ROOT = Path("data") / "metar" / "cyyz" / "hourly"
 DEFAULT_SETTLED_SLUGS = (
+    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
+    # add each day once it has settled (date < today) and its tape is clean.
     "highest-temperature-in-toronto-on-may-27-2026",
     "highest-temperature-in-toronto-on-may-28-2026",
     "highest-temperature-in-toronto-on-may-30-2026",
+    "highest-temperature-in-toronto-on-may-31-2026",
+    "highest-temperature-in-toronto-on-june-1-2026",
+    "highest-temperature-in-toronto-on-june-2-2026",
 )
 CUTOFF_HOURS = tuple(range(8, 21))
 SEASON_START = (5, 10)

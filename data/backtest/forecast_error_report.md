@@ -1,40 +1,40 @@
 # Forecast Error Report
 
-Generated: 2026-05-31T15:33:56.494772+00:00
+Generated: 2026-06-03T20:54:27.257757+00:00
 
 ## Scope
 
-- Training rows: 552
+- Training rows: 1131
 - Daily archive rows: 296
-- Settled snapshot forecast rows: 256
-- Target dates: 299 (2018-05-10 to 2026-05-30)
+- Settled snapshot forecast rows: 835
+- Target dates: 302 (2018-05-10 to 2026-06-02)
 
 ## Component Score
 
 Scores compare the learned forecast-error distribution to the previous point-cap proxy on exact settled buckets.
 
-- Artifact replay learned Brier: 0.6387
-- Artifact replay cap-proxy Brier: 0.7433
-- Artifact replay Brier delta vs cap: 0.1046
-- Artifact replay learned log loss: 1.2643
-- Artifact replay cap-proxy log loss: 1.7935
-- Artifact replay log-loss delta vs cap: 0.5293
+- Artifact replay learned Brier: 0.7758
+- Artifact replay cap-proxy Brier: 0.7540
+- Artifact replay Brier delta vs cap: -0.0218
+- Artifact replay learned log loss: 1.8668
+- Artifact replay cap-proxy log loss: 2.1642
+- Artifact replay log-loss delta vs cap: 0.2974
 
 ## Leave-One-Year Daily Archive
 
 - Rows: 296
-- Learned Brier: 0.6417
+- Learned Brier: 0.7682
 - Cap-proxy Brier: 0.7185
-- Learned log loss: 1.1919
+- Learned log loss: 1.6406
 - Cap-proxy log loss: 1.6525
 
 ## Source Error Stats
 
 | Source | N | Bias obs-fc | MAE | RMSE | Within 1 C | |error| >= 2 C |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| eccc_citypage | 24 | -1.583 | 1.583 | 1.658 | 41.7% | 58.3% |
-| open_meteo | 412 | 0.070 | 0.627 | 0.839 | 82.3% | 2.4% |
-| weather_forecast | 116 | 0.448 | 0.672 | 0.991 | 89.7% | 10.3% |
+| eccc_citypage | 55 | -1.218 | 1.218 | 1.421 | 60.0% | 40.0% |
+| open_meteo | 686 | 0.514 | 0.943 | 1.686 | 75.1% | 9.8% |
+| weather_forecast | 390 | 0.638 | 0.931 | 1.706 | 83.1% | 16.9% |
 
 ## Live Use
 

@@ -43,9 +43,14 @@ from market_config import date_from_event_slug  # noqa: E402
 DEFAULT_ARTIFACT_PATH = Path("src") / "probability_calibration.json"
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "probability_calibration_report.md"
 DEFAULT_SETTLED_SLUGS = (
+    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
+    # add each day once it has settled (date < today) and its tape is clean.
     "highest-temperature-in-toronto-on-may-27-2026",
     "highest-temperature-in-toronto-on-may-28-2026",
     "highest-temperature-in-toronto-on-may-30-2026",
+    "highest-temperature-in-toronto-on-may-31-2026",
+    "highest-temperature-in-toronto-on-june-1-2026",
+    "highest-temperature-in-toronto-on-june-2-2026",
 )
 EPSILON = 1e-6
 MAX_EXACT_DEPLOYMENT_TEMPERATURE = 1.5

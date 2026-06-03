@@ -48,6 +48,20 @@ LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below the SWOB bucket
 LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
 CURRENT_OBSERVED_FLOOR_HEDGE = 0.001
 CURRENT_OBSERVED_FLOOR_BASE = 0.05
+
+# --- Late-day lock-in (upper-tail mirror of the floors) ---------------------
+# The biggest model-vs-market gap is end-of-day under-confidence: once the day
+# is past its peak and the temperature is falling, the high is essentially
+# locked at the observed maximum, but the forecast cap stays wide and SWOB
+# overshoot keeps mass on a higher bucket the high will never reach. As the day
+# closes (time) AND the temperature drops below the day's high (past peak),
+# concentrate mass onto the observed high by suppressing buckets above it. Soft
+# one bucket up (WU history can still revise up a degree), strong further up.
+LATE_LOCKIN_START_HOUR = 15    # no lock-in before this (peak is usually 15-16h)
+LATE_LOCKIN_FULL_HOUR = 20     # full strength by this hour
+LATE_LOCKIN_PEAK_DROP = 2.0    # degrees the temp must fall below the high for full past-peak
+LATE_LOCKIN_HEDGE = 0.20       # retained fraction one bucket above the high at full strength
+LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 
 
@@ -109,6 +123,50 @@ class DistributionMixin:
                     * CURRENT_OBSERVED_FLOOR_HEDGE
                     * (CURRENT_OBSERVED_FLOOR_BASE ** (below - 1))
                 )
+        return self.normalize_scores(adjusted)
+
+    def late_day_lockin_strength(self, hour, current_reading, history_max):
+        """How locked-in the day's high is: 0 until both late enough (time) and
+        past peak (temperature has fallen below the observed high), ramping to 1
+        once it is clearly evening and the temperature has dropped well below."""
+        if history_max is None or current_reading is None:
+            return 0.0
+        if hour <= LATE_LOCKIN_START_HOUR:
+            time_factor = 0.0
+        elif hour >= LATE_LOCKIN_FULL_HOUR:
+            time_factor = 1.0
+        else:
+            time_factor = (hour - LATE_LOCKIN_START_HOUR) / (
+                LATE_LOCKIN_FULL_HOUR - LATE_LOCKIN_START_HOUR
+            )
+        drop = history_max - current_reading
+        if drop <= 0:
+            peak_factor = 0.0  # temperature still at/above the high: it could rise
+        elif drop >= LATE_LOCKIN_PEAK_DROP:
+            peak_factor = 1.0
+        else:
+            peak_factor = drop / LATE_LOCKIN_PEAK_DROP
+        return time_factor * peak_factor
+
+    def apply_late_day_lockin(self, scores, history_max, current_reading, hour):
+        """Suppress buckets above the observed high as the day locks in. Soft one
+        bucket up (WU history can still revise up a degree), strong further up.
+        Never zero, and a no-op until the day is both late and past peak."""
+        strength = self.late_day_lockin_strength(hour, current_reading, history_max)
+        if strength <= 0:
+            return self.normalize_scores(scores)
+        observed_bucket = self.round_half_up(history_max)
+        if observed_bucket is None:
+            return self.normalize_scores(scores)
+        adjusted = {}
+        for temp, score in scores.items():
+            if temp <= observed_bucket:
+                adjusted[temp] = score
+            else:
+                above = temp - observed_bucket
+                full_retained = LATE_LOCKIN_HEDGE * (LATE_LOCKIN_BASE ** (above - 1))
+                factor = (1.0 - strength) + strength * full_retained
+                adjusted[temp] = score * factor
         return self.normalize_scores(adjusted)
 
     def forecast_floor_time_weight(self, hour):
@@ -495,6 +553,13 @@ class DistributionMixin:
             history_max,
         )
         distribution_components["current_observed_floor"] = dict(self.normalize_scores(scores))
+
+        # Late-day lock-in: once the day is past peak and the temperature is
+        # falling, concentrate onto the observed high (suppress the upper tail
+        # the high will no longer reach). Current reading prefers live temps.
+        current_reading = current_temp if current_temp is not None else metar_temp
+        scores = self.apply_late_day_lockin(scores, history_max, current_reading, now.hour)
+        distribution_components["late_day_lockin"] = dict(self.normalize_scores(scores))
 
         scores = self.normalize_scores(scores)
         distribution_components["pre_calibration_model"] = dict(scores)
