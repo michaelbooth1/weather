@@ -1,5 +1,6 @@
 import json
 import math
+import statistics
 from collections import Counter
 from pathlib import Path
 
@@ -61,6 +62,33 @@ class FeatureModelMixin:
             return float(cfg.get("blend_weight", default))
         except (TypeError, ValueError):
             return default
+
+    def resolve_forecast_high(self, open_meteo, weather_forecast, eccc_city):
+        """Forecasted daily max for the feature model, robust to a missing
+        Open-Meteo.
+
+        Open-Meteo is the canonical source -- the model is trained on its
+        historical archive, and across the captured corpus it tracks the other
+        forecasts (median gap 0 C) -- so it is used whenever present, leaving the
+        served feature identical to today in the common case. Only when it is
+        absent (a fetch outage, or a day before the feature existed) do we
+        substitute the consensus (median) of the other live forecasts, rather
+        than leaving the model forecast-blind and anchored to the morning's
+        high-so-far. Returns (value, source_label) for auditability.
+        """
+        day_max = self.to_number(open_meteo.get("day_max_c"))
+        if day_max is not None:
+            return day_max, "open_meteo"
+        others = []
+        weather_com = self.max_row_temp(weather_forecast.get("rows"))
+        if weather_com is not None:
+            others.append(weather_com)
+        eccc_high = self.to_number(eccc_city.get("forecast_high_c"))
+        if eccc_high is not None:
+            others.append(eccc_high)
+        if not others:
+            return None, "none"
+        return statistics.median(others), "fallback_consensus"
 
     def extract_live_features(self, sources, cutoff_hour):
         """Build the cutoff-aligned feature vector shared by the feature model
@@ -145,11 +173,15 @@ class FeatureModelMixin:
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
 
-        # Forecast features: Open-Meteo forecasted daily max, defined identically
-        # to the archived-forecast training value, and the gap above the high so
-        # far. None if Open-Meteo is unavailable (model handles it as missing).
+        # Forecast features: forecasted daily max (matching the archived-forecast
+        # training value) and the gap above the high so far. Open-Meteo is the
+        # canonical source, but when it is unavailable we fall back to the other
+        # live forecasts instead of going forecast-blind (which leaves the model
+        # anchored to a modest morning high-so-far). See resolve_forecast_high.
         open_meteo = self.source_data(sources, "open_meteo")
-        forecast_high = open_meteo.get("day_max_c")
+        forecast_high, _forecast_source = self.resolve_forecast_high(
+            open_meteo, weather_forecast, eccc_city
+        )
         forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
 
         return {
