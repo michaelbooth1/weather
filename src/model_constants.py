@@ -29,7 +29,9 @@ INTRADAY_CUTOFF_HOURS = (9, 10, 12, 13, 15, 16, 17, 18, 20)
 LIVE_CACHE_MAX_AGE_MINUTES = 90
 
 # Model-version labels — the single source of truth shared with snapshot_tracker.
-ML_MODEL_VERSION = "v0.4.9"
+# v0.5.0: multi-source forecast fallback (resolve_forecast_high) + forecast pull
+# (apply_forecast_pull) — the morning forecast-trust upgrade.
+ML_MODEL_VERSION = "v0.5.0"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"
