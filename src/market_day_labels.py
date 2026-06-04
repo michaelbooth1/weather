@@ -20,20 +20,10 @@ from backtest import (  # noqa: E402
 )
 from collection_health import coverage_summary, parse_times  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
+from settled_days import discover_settled_folders  # noqa: E402
 
 
 DEFAULT_LABELS_CSV = Path("data") / "backtest" / "market_day_labels.csv"
-DEFAULT_SETTLED_SLUGS = (
-    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
-    # add each day once it has settled (date < today) and its tape is clean.
-    "highest-temperature-in-toronto-on-may-27-2026",
-    "highest-temperature-in-toronto-on-may-28-2026",
-    "highest-temperature-in-toronto-on-may-30-2026",
-    "highest-temperature-in-toronto-on-may-31-2026",
-    "highest-temperature-in-toronto-on-june-1-2026",
-    "highest-temperature-in-toronto-on-june-2-2026",
-)
-
 LABEL_COLUMNS = [
     "event_slug",
     "target_date",
@@ -179,11 +169,7 @@ def write_labels_csv(path, labels):
 
 
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    root = Path(root)
-    return [
-        root / slug for slug in DEFAULT_SETTLED_SLUGS
-        if (root / slug / "snapshots_long.csv").exists()
-    ]
+    return discover_settled_folders(root, required_file="snapshots_long.csv")
 
 
 def finalize_folders(

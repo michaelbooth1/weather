@@ -27,22 +27,13 @@ from backtest import (  # noqa: E402
 )
 from forecast_error_model import load_daily_summary  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
+from settled_days import discover_settled_folders  # noqa: E402
 
 
 DEFAULT_ARTIFACT_PATH = Path("src") / "settlement_lag_model.json"
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "settlement_lag_report.md"
 DEFAULT_WU_ROOT = Path("data") / "wunderground" / "cyyz" / "hourly"
 DEFAULT_METAR_ROOT = Path("data") / "metar" / "cyyz" / "hourly"
-DEFAULT_SETTLED_SLUGS = (
-    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
-    # add each day once it has settled (date < today) and its tape is clean.
-    "highest-temperature-in-toronto-on-may-27-2026",
-    "highest-temperature-in-toronto-on-may-28-2026",
-    "highest-temperature-in-toronto-on-may-30-2026",
-    "highest-temperature-in-toronto-on-may-31-2026",
-    "highest-temperature-in-toronto-on-june-1-2026",
-    "highest-temperature-in-toronto-on-june-2-2026",
-)
 CUTOFF_HOURS = tuple(range(8, 21))
 SEASON_START = (5, 10)
 SEASON_END = (6, 15)
@@ -365,11 +356,7 @@ def build_artifact(rows, folders):
 
 
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    root = Path(root)
-    return [
-        root / slug for slug in DEFAULT_SETTLED_SLUGS
-        if (root / slug / "snapshots_long.csv").exists()
-    ]
+    return discover_settled_folders(root, required_file="snapshots_long.csv")
 
 
 def read_training_rows(wu_root, metar_root, daily_summary_path, folders):

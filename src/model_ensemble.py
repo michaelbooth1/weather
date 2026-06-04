@@ -30,19 +30,10 @@ from backtest import (  # noqa: E402
     settlement_for_tape,
 )
 from market_config import date_from_event_slug  # noqa: E402
+from settled_days import discover_settled_folders  # noqa: E402
 
 
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "model_ensemble_report.md"
-DEFAULT_SETTLED_SLUGS = (
-    # Settled, collection-clean Toronto market days. NOTE: hand-maintained;
-    # add each day once it has settled (date < today) and its tape is clean.
-    "highest-temperature-in-toronto-on-may-27-2026",
-    "highest-temperature-in-toronto-on-may-28-2026",
-    "highest-temperature-in-toronto-on-may-30-2026",
-    "highest-temperature-in-toronto-on-may-31-2026",
-    "highest-temperature-in-toronto-on-june-1-2026",
-    "highest-temperature-in-toronto-on-june-2-2026",
-)
 CANDIDATE_PREFIX = "candidate:"
 DEPLOYED_MODEL = f"{CANDIDATE_PREFIX}deployed_model"
 MARKET_PRICE = f"{CANDIDATE_PREFIX}market_price"
@@ -100,11 +91,7 @@ def load_component_probabilities(folder):
 
 
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    root = Path(root)
-    return [
-        root / slug for slug in DEFAULT_SETTLED_SLUGS
-        if (root / slug / "snapshots_long.csv").exists()
-    ]
+    return discover_settled_folders(root, required_file="snapshots_long.csv")
 
 
 def load_scored_rows(
