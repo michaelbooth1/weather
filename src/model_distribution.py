@@ -37,6 +37,20 @@ FORECAST_AGREEMENT_SPREAD = 3.0      # forecasts must agree within this many deg
 FORECAST_FLOOR_MIN_SOURCES = 2       # and come from at least this many sources
 FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (softer than the cap)
 
+# --- Forecast pull (upper-tail mirror of the forecast floor) ----------------
+# The floor lifts the BOTTOM; the pull lifts the TOP. The HGB feature model
+# saturates ~1 C below agreeing hot morning forecasts (it under-calls the high),
+# yet the forecast-vs-realized tracker (src/forecast_tracker.py) measured the
+# morning consensus actually being reached ~70% of the time while the model gave
+# it only ~45%. So early in the day, when independent forecasts agree on a high
+# the model has not yet reached, raise P(high >= forecast) toward that measured
+# reach-rate. One-directional (never lowers an already-confident model),
+# time-decayed (the observed high takes over by mid-afternoon), and capped at the
+# reach-rate so it trusts the forecast's track record, not blindly the top bucket.
+FORECAST_PULL_TARGET_REACH = 0.70   # measured 09:00 reach-rate (forecast_tracker)
+FORECAST_PULL_START_HOUR = 11       # full strength at/under this hour
+FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
+
 # --- Live-observed floor ----------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall
 # for hours. SWOB station observations lead it by ~1 hour and match the WU final
@@ -212,6 +226,53 @@ class DistributionMixin:
             else:
                 adjusted[temp] = score
         return self.normalize_scores(adjusted)
+
+    def forecast_pull_time_weight(self, hour):
+        """Strong in the morning (when the model under-calls before the high
+        develops), zero by mid-afternoon once the observed high has taken over."""
+        if hour <= FORECAST_PULL_START_HOUR:
+            return 1.0
+        if hour >= FORECAST_PULL_END_HOUR:
+            return 0.0
+        return (FORECAST_PULL_END_HOUR - hour) / (FORECAST_PULL_END_HOUR - FORECAST_PULL_START_HOUR)
+
+    def forecast_anchor_bucket(self, forecasts):
+        """The agreed forecast-high bucket and an agreement weight, or None when
+        forecasts are too few or disagree (same gate as the forecast floor)."""
+        values = [float(v) for v in forecasts if v is not None]
+        if len(values) < FORECAST_FLOOR_MIN_SOURCES:
+            return None
+        spread = max(values) - min(values)
+        if spread > FORECAST_AGREEMENT_SPREAD:
+            return None
+        anchor = sum(values) / len(values)
+        spread_weight = max(0.5, 1.0 - spread / (2 * FORECAST_AGREEMENT_SPREAD))
+        return self.round_half_up(anchor), spread_weight
+
+    def apply_forecast_pull(self, scores, forecasts, hour, observed_bucket, current_observed_bucket):
+        """Raise P(high >= agreed forecast) toward the measured reach-rate early
+        in the day, when the model has under-called a high the forecasts agree on.
+
+        One-directional: only ever increases that tail. No-op when forecasts
+        disagree, it is past mid-afternoon, the observed high has already reached
+        the forecast, or the model is already at/above the reach-rate.
+        """
+        anchor = self.forecast_anchor_bucket(forecasts)
+        if anchor is None:
+            return self.normalize_scores(scores)
+        anchor_bucket, spread_weight = anchor
+        reached = self.max_value(observed_bucket, current_observed_bucket)
+        if reached is not None and anchor_bucket <= reached:
+            return self.normalize_scores(scores)   # already there: nothing to pull
+        weight = self.forecast_pull_time_weight(hour) * spread_weight
+        if weight <= 0:
+            return self.normalize_scores(scores)
+        scores = self.normalize_scores(scores)
+        threshold = anchor_bucket - 1               # tail = P(temp >= anchor_bucket)
+        current_tail = sum(score for temp, score in scores.items() if temp > threshold)
+        if current_tail >= FORECAST_PULL_TARGET_REACH:
+            return scores                            # already confident enough
+        return self.apply_tail_target(scores, threshold, FORECAST_PULL_TARGET_REACH, weight)
 
     def forecast_error_component_distribution(
         self,
@@ -542,6 +603,16 @@ class DistributionMixin:
                 now.hour,
                 observed_bucket,
             )
+            # Mirror of the floor: lift the upper tail toward an agreed morning
+            # forecast the model has under-called (the measured reach-rate gap).
+            scores = self.apply_forecast_pull(
+                scores,
+                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                now.hour,
+                observed_bucket,
+                current_observed_bucket,
+            )
+            distribution_components["forecast_pull"] = dict(self.normalize_scores(scores))
 
         # Live-observed floor: react to SWOB leading the lagging WU history,
         # instead of waiting hours for WU to print what already happened.
