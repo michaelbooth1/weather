@@ -20,6 +20,11 @@ data/wunderground/cyyz/last_good_sources.json
 data/snapshots/loop_pause.flag
 **/.snapshot.lock
 
+# --- Reconstructed replay corpus (approximate, regenerable) ---
+# Bootstrapped from snapshots.jsonl via `python -m src.replay`; large and
+# approximate. The committed replay_inputs.jsonl holds only real captured inputs.
+data/snapshots/**/replay_inputs_reconstructed.jsonl
+
 # --- OS / editor noise ---
 .DS_Store
 Thumbs.db

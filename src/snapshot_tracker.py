@@ -28,6 +28,12 @@ DEFAULT_SNAPSHOT_ROOT = Path("data") / "snapshots" / DEFAULT_MARKET_CONFIG.event
 # Fallback used only when a snapshot's model dict carries no model_version.
 MODEL_VERSION = MODEL_VERSION_HGB
 
+# Replay corpus: each snapshot persists the full merged model `sources` plus the
+# exact build `now`, so any future model version can be re-run over the captured
+# day and scored against settlement. This turns every captured snapshot into a
+# permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
+REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
+
 
 LONG_COLUMNS = [
     "snapshot_id",
@@ -97,6 +103,7 @@ class SnapshotStore:
         self.features_jsonl_path = self.root / "features.jsonl"
         self.components_long_path = self.root / "components_long.csv"
         self.components_jsonl_path = self.root / "components.jsonl"
+        self.replay_inputs_path = self.root / "replay_inputs.jsonl"
 
     def maybe_write(self, event, model, model_client, force=False):
         event_config = config_from_event(event, fallback_date=getattr(model_client, "target_date", None))
@@ -237,6 +244,8 @@ class SnapshotStore:
                 "captured_at_local": captured_at.isoformat(),
                 "forecasts": forecast_rows,
             })
+
+        self.write_replay_input(snapshot_id, captured_at, model, model_client, model_version)
 
         return {
             "written": True,
@@ -424,7 +433,33 @@ class SnapshotStore:
 
     def append_jsonl(self, path, payload):
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
+
+    def write_replay_input(self, snapshot_id, captured_at, model, model_client, model_version):
+        """Persist the full model inputs for this snapshot so it can be replayed.
+
+        The merged ``sources`` dict is exactly what ``estimate_distribution`` consumes
+        (it is pure given sources + the build ``now``), and it is already
+        JSON-serializable. ``recorded_distribution`` is kept alongside as a fidelity
+        canary: replaying with the same code version must reproduce it.
+        """
+        sources = model.get("sources")
+        if not sources:
+            return
+        target_date = getattr(model_client, "target_date", None)
+        self.append_jsonl(self.replay_inputs_path, {
+            "schema_version": REPLAY_SCHEMA_VERSION,
+            "snapshot_id": snapshot_id,
+            "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+            "captured_at_local": captured_at.isoformat(),
+            "event_slug": self.event_slug,
+            "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
+            "model_version": model_version,
+            # The timestamp the build actually used (falls back to the write time).
+            "built_at": model.get("built_at") or captured_at.isoformat(),
+            "recorded_distribution": model.get("distribution") or {},
+            "sources": sources,
+        })
 
     def acquire_lock(self):
         self.root.mkdir(parents=True, exist_ok=True)

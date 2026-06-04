@@ -146,6 +146,11 @@ class TorontoHighTempModel(
         analog_search = self.find_analog_days(sources, cutoff_hour, now_tz, limit=5)
         return {
             "sources": sources,
+            # The exact timestamp this build used. Persisted with the captured
+            # sources so the replay corpus can re-run estimate_distribution with
+            # the identical `now` the model saw (the hour drives the cutoff, the
+            # late-day lock-in, and every time-weighted signal).
+            "built_at": now_tz.isoformat(),
             "distribution": distribution,
             "distribution_components": getattr(self, "_last_distribution_components", {}),
             "model_rows": model_rows,
