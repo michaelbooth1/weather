@@ -16,7 +16,7 @@ env/
 data/**/raw/
 
 # --- Runtime / transient state (not source of truth) ---
-data/wunderground/cyyz/last_good_sources.json
+data/wunderground/*/last_good_sources.json
 data/snapshots/loop_pause.flag
 **/.snapshot.lock
 

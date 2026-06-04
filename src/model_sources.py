@@ -74,7 +74,7 @@ class SourceFetchMixin:
         })
 
     def fetch_live_sources(self):
-        fetched = self.fetch_source_group({
+        all_fetchers = {
             "wu_history": self.fetch_wu_history,
             "wu_current": self.fetch_wu_current,
             "eccc_citypage": self.fetch_eccc_citypage,
@@ -82,8 +82,10 @@ class SourceFetchMixin:
             "metar": self.fetch_metar,
             "weather_forecast": self.fetch_weather_com_forecast,
             "open_meteo": self.fetch_open_meteo,
-        })
-        return self.blend_with_last_good(fetched)
+        }
+        # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
+        fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
+        return self.blend_with_last_good(self.fetch_source_group(fetchers))
 
     def fetch_source_group(self, fetchers):
         fetchers = {
@@ -114,7 +116,7 @@ class SourceFetchMixin:
         return results
 
     def blend_with_last_good(self, fetched):
-        cache_path = DEFAULT_DATA_ROOT / "last_good_sources.json"
+        cache_path = self.spec.data_root / "last_good_sources.json"
         
         # Load cache
         cache = {}
@@ -175,7 +177,7 @@ class SourceFetchMixin:
                     
         # Save cache
         try:
-            DEFAULT_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+            self.spec.data_root.mkdir(parents=True, exist_ok=True)
             with cache_path.open("w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=2)
         except Exception as e:
@@ -197,7 +199,7 @@ class SourceFetchMixin:
     def fetch_wu_history(self):
         url = (
             "https://api.weather.com/v1/location/"
-            f"{CYYZ_HISTORY_ID}/observations/historical.json"
+            f"{self.spec.wu_history_id}/observations/historical.json"
         )
         payload = self.get_json(url, {
             "apiKey": WEATHER_COM_KEY,
@@ -252,7 +254,7 @@ class SourceFetchMixin:
             "language": "en-US",
             "units": "m",
             "format": "json",
-            "icaoCode": CYYZ_ICAO,
+            "icaoCode": self.spec.icao,
         })
         valid_time = self.parse_weather_com_time(data.get("validTimeLocal"))
         is_target_day = valid_time is not None and valid_time.date() == self.target_date
@@ -274,7 +276,7 @@ class SourceFetchMixin:
         }
 
     def fetch_local_history(self):
-        summary_path = DEFAULT_DATA_ROOT / "daily" / "daily_summary.csv"
+        summary_path = self.spec.data_root / "daily" / "daily_summary.csv"
         if not summary_path.exists():
             return {
                 "available": False,
@@ -421,7 +423,7 @@ class SourceFetchMixin:
     def fetch_metar(self):
         url = "https://aviationweather.gov/api/data/metar"
         payload = self.get_json(url, {
-            "ids": CYYZ_ICAO,
+            "ids": self.spec.icao,
             "format": "json",
         })
         row = payload[0] if payload else {}
@@ -444,7 +446,7 @@ class SourceFetchMixin:
         url = "https://api.weather.com/v3/wx/forecast/hourly/15day"
         payload = self.get_json(url, {
             "apiKey": WEATHER_COM_KEY,
-            "geocode": f"{PEARSON_LAT},{PEARSON_LON}",
+            "geocode": f"{self.spec.lat},{self.spec.lon}",
             "units": "m",
             "language": "en-US",
             "format": "json",
@@ -469,15 +471,15 @@ class SourceFetchMixin:
     def fetch_open_meteo(self):
         url = "https://api.open-meteo.com/v1/forecast"
         payload = self.get_json(url, {
-            "latitude": PEARSON_LAT,
-            "longitude": PEARSON_LON,
+            "latitude": self.spec.lat,
+            "longitude": self.spec.lon,
             "hourly": (
                 "temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,"
                 "cloud_cover_high,wind_speed_10m,shortwave_radiation"
             ),
             "temperature_unit": "celsius",
             "wind_speed_unit": "kmh",
-            "timezone": "America/Toronto",
+            "timezone": self.spec.timezone,
             "forecast_days": 2,
         })
         hourly = payload.get("hourly", {}) or {}

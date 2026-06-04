@@ -2,11 +2,12 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 
+from market_registry import DEFAULT_MARKET_ID, TORONTO, spec_for_id, spec_for_slug
 
-TORONTO_TZ = ZoneInfo("America/Toronto")
-TORONTO_EVENT_PREFIX = "highest-temperature-in-toronto-on"
+# Back-compat aliases: callers historically imported these Toronto constants here.
+TORONTO_TZ = TORONTO.tz
+TORONTO_EVENT_PREFIX = TORONTO.slug_prefix
 TARGET_DATE_ENV = "TORONTO_MARKET_DATE"
 
 MONTH_NAMES = {
@@ -32,6 +33,11 @@ class MarketConfig:
     target_date: date
     event_slug: str
     polymarket_url: str
+    market_id: str = DEFAULT_MARKET_ID
+
+    @property
+    def spec(self):
+        return spec_for_id(self.market_id)
 
     @property
     def target_date_str(self):
@@ -49,32 +55,43 @@ def default_target_date():
     return datetime.now(TORONTO_TZ).date()
 
 
-def event_slug_for_date(target_date):
+def event_slug_for_date(target_date, market_id=DEFAULT_MARKET_ID):
     target_date = ensure_date(target_date)
+    spec = spec_for_id(market_id)
     month = MONTH_NAMES[target_date.month]
-    return f"{TORONTO_EVENT_PREFIX}-{month}-{target_date.day}-{target_date.year}"
+    return f"{spec.slug_prefix}-{month}-{target_date.day}-{target_date.year}"
 
 
 def polymarket_url_for_slug(event_slug):
     return f"https://polymarket.com/event/{event_slug}"
 
 
-def config_for_date(target_date=None):
+def config_for_date(target_date=None, market_id=DEFAULT_MARKET_ID):
     target_date = ensure_date(target_date or default_target_date())
-    event_slug = event_slug_for_date(target_date)
+    event_slug = event_slug_for_date(target_date, market_id)
     return MarketConfig(
         target_date=target_date,
         event_slug=event_slug,
         polymarket_url=polymarket_url_for_slug(event_slug),
+        market_id=market_id,
     )
 
 
+def market_id_from_slug(slug):
+    spec = spec_for_slug(slug)
+    return spec.id if spec else None
+
+
 def date_from_event_slug(slug):
+    """Parse the target date from any registered market's event slug."""
     if not slug:
         return None
+    spec = spec_for_slug(slug)
+    if not spec:
+        return None
     match = re.search(
-        rf"{TORONTO_EVENT_PREFIX}-([a-z]+)-(\d{{1,2}})-(\d{{4}})",
-        slug.lower(),
+        rf"{re.escape(spec.slug_prefix)}-([a-z]+)-(\d{{1,2}})-(\d{{4}})",
+        str(slug).lower(),
     )
     if not match:
         return None
@@ -94,8 +111,10 @@ def date_from_event(event):
 
 
 def config_from_event(event, fallback_date=None):
+    slug = (event or {}).get("slug") or (event or {}).get("eventSlug") or ""
+    market_id = market_id_from_slug(slug) or DEFAULT_MARKET_ID
     target_date = date_from_event(event) or fallback_date or default_target_date()
-    return config_for_date(target_date)
+    return config_for_date(target_date, market_id)
 
 
 def ensure_date(value):

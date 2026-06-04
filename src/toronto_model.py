@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from market_config import config_for_date, config_from_event
+from market_registry import DEFAULT_MARKET_ID
 # Re-exported for backward compatibility: callers historically imported these
 # from toronto_model when it owned the wu_history import.
 from wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary  # noqa: F401
@@ -54,8 +55,9 @@ class TorontoHighTempModel(
 ):
     _historical_target_cache = {}
 
-    def __init__(self, timeout=8, target_date=None):
+    def __init__(self, timeout=8, target_date=None, market_id=DEFAULT_MARKET_ID):
         self.timeout = timeout
+        self.market_id = market_id
         self.set_target_date(target_date or TARGET_DATE)
         self.calibrated_weights = self.load_calibrated_weights()
         self.forecast_error_model = self.load_forecast_error_model()
@@ -68,14 +70,16 @@ class TorontoHighTempModel(
         self._late_day_model_coefs = _UNLOADED
 
     def set_target_date(self, target_date):
-        self.config = config_for_date(target_date)
+        self.config = config_for_date(target_date, getattr(self, "market_id", DEFAULT_MARKET_ID))
+        self.spec = self.config.spec
         self.target_date = self.config.target_date
         self.target_date_str = self.config.target_date_str
         return self
 
     def sync_target_date_from_event(self, event):
         config = config_from_event(event, fallback_date=self.target_date)
-        if config.target_date != self.target_date:
+        if config.market_id != self.market_id or config.target_date != self.target_date:
+            self.market_id = config.market_id
             self.set_target_date(config.target_date)
 
     def load_calibrated_weights(self):
