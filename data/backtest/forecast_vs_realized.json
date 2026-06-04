@@ -1,0 +1,746 @@
+{
+  "cutoffs": [
+    7,
+    9,
+    11,
+    13
+  ],
+  "n_days_total": 7,
+  "per_cutoff": {
+    "7": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T08:55:13.165168-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.5269999999999999,
+          "model_median": 19,
+          "model_reach": 0.39979065893138116,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-30T10:41:53.935163-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7755,
+          "model_median": 19,
+          "model_reach": 0.36577143639534504,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-31T08:41:15.548812-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 24.0,
+            "open_meteo": 22.8,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.68,
+          "model_median": 23,
+          "model_reach": 0.1928744397165871,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-01T09:46:19.175838-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.8704999999999999,
+          "model_median": 20,
+          "model_reach": 0.7485718420874021,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-02T07:07:02.960603-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 25.0,
+            "open_meteo": 24.8,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.6715,
+          "model_median": 24,
+          "model_reach": 0.4262659287027787,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-03T07:01:24.055846-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 28.5,
+            "eccc": 29.0,
+            "open_meteo": 28.5,
+            "weather_com": 28.0
+          },
+          "market_median": 28,
+          "market_reach": 0.855,
+          "model_median": 27,
+          "model_reach": 0.3709323456519043,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.42857142857142855,
+        "model_point_mae": 1.0,
+        "n_days": 7,
+        "reach": {
+          "market_reach": 0.6575,
+          "model_reach": 0.4080508128069047,
+          "n": 7,
+          "reach_rate": 0.7142857142857143
+        },
+        "sources": {
+          "consensus": {
+            "bias": -0.24285714285714274,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.3857142857142856,
+            "n": 7
+          },
+          "eccc": {
+            "bias": -0.7142857142857143,
+            "hit_rate": 0.42857142857142855,
+            "mae": 0.7142857142857143,
+            "n": 7
+          },
+          "open_meteo": {
+            "bias": -0.014285714285714488,
+            "hit_rate": 0.5714285714285714,
+            "mae": 0.6142857142857139,
+            "n": 7
+          },
+          "weather_com": {
+            "bias": 0.2857142857142857,
+            "hit_rate": 0.42857142857142855,
+            "mae": 0.5714285714285714,
+            "n": 7
+          }
+        }
+      }
+    },
+    "9": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T09:05:17.858906-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.49400000000000005,
+          "model_median": 19,
+          "model_reach": 0.39979065893138116,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-30T10:41:53.935163-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7755,
+          "model_median": 19,
+          "model_reach": 0.36577143639534504,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-31T09:12:58.178171-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 24.0,
+            "open_meteo": 23.6,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.7095,
+          "model_median": 23,
+          "model_reach": 0.1982760168471917,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-01T09:46:19.175838-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.8704999999999999,
+          "model_median": 20,
+          "model_reach": 0.7485718420874021,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-02T09:07:27.409623-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 25.0,
+            "open_meteo": 25.2,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.6779999999999999,
+          "model_median": 24,
+          "model_reach": 0.3451454229560417,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-03T09:01:43.193747-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.9,
+            "weather_com": 29.0
+          },
+          "market_median": 28,
+          "market_reach": 0.84,
+          "model_median": 28,
+          "model_reach": 0.7658897721705101,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.42857142857142855,
+        "model_point_mae": 0.8571428571428571,
+        "n_days": 7,
+        "reach": {
+          "market_reach": 0.6557857142857142,
+          "model_reach": 0.4536563125072581,
+          "n": 7,
+          "reach_rate": 0.7142857142857143
+        },
+        "sources": {
+          "consensus": {
+            "bias": -0.31428571428571417,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.31428571428571417,
+            "n": 7
+          },
+          "eccc": {
+            "bias": -0.7142857142857143,
+            "hit_rate": 0.42857142857142855,
+            "mae": 0.7142857142857143,
+            "n": 7
+          },
+          "open_meteo": {
+            "bias": -0.24285714285714274,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.44285714285714256,
+            "n": 7
+          },
+          "weather_com": {
+            "bias": 0.14285714285714285,
+            "hit_rate": 0.5714285714285714,
+            "mae": 0.42857142857142855,
+            "n": 7
+          }
+        }
+      }
+    },
+    "11": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T11:09:25.106787-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 19.7,
+            "eccc": 22.0,
+            "open_meteo": 19.7,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.4615,
+          "model_median": 20,
+          "model_reach": 0.5165577303451314,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-30T11:02:18.060988-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 22.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7904999999999999,
+          "model_median": 19,
+          "model_reach": 0.3691813893986285,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-31T11:09:25.075331-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 25.0,
+            "open_meteo": 23.6,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.819,
+          "model_median": 24,
+          "model_reach": 0.6590451958631771,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-01T11:08:41.978681-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.1,
+            "eccc": 21.0,
+            "open_meteo": 20.1,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.9359999999999999,
+          "model_median": 21,
+          "model_reach": 0.800460533700137,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-02T11:07:44.507386-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 24.9,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.7529999999999999,
+          "model_median": 24,
+          "model_reach": 0.32447946571492503,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-03T11:02:08.898744-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.5,
+            "weather_com": 29.0
+          },
+          "market_median": 28,
+          "market_reach": 0.83,
+          "model_median": 28,
+          "model_reach": 0.7658690360874565,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.42857142857142855,
+        "model_point_mae": 0.7142857142857143,
+        "n_days": 7,
+        "reach": {
+          "market_reach": 0.6875714285714285,
+          "model_reach": 0.5411060556103414,
+          "n": 7,
+          "reach_rate": 0.7142857142857143
+        },
+        "sources": {
+          "consensus": {
+            "bias": -0.2285714285714288,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.31428571428571467,
+            "n": 7
+          },
+          "eccc": {
+            "bias": -1.2857142857142858,
+            "hit_rate": 0.14285714285714285,
+            "mae": 1.2857142857142858,
+            "n": 7
+          },
+          "open_meteo": {
+            "bias": -0.057142857142857446,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.48571428571428604,
+            "n": 7
+          },
+          "weather_com": {
+            "bias": 0.14285714285714285,
+            "hit_rate": 0.5714285714285714,
+            "mae": 0.42857142857142855,
+            "n": 7
+          }
+        }
+      }
+    },
+    "13": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T13:03:30.446937-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 19.7,
+            "eccc": 22.0,
+            "open_meteo": 19.7,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.5375,
+          "model_median": 19,
+          "model_reach": 0.4425865969847222,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-30T13:50:26.518724-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 22.0,
+            "open_meteo": 18.7,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.6065,
+          "model_median": 19,
+          "model_reach": 0.22587701310030212,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-31T13:08:21.416471-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 25.0,
+            "open_meteo": 23.5,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.7480000000000001,
+          "model_median": 23,
+          "model_reach": 0.20928114985284163,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-01T13:02:26.668469-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.4,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7784999999999999,
+          "model_median": 20,
+          "model_reach": 0.7134963547985743,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-02T13:08:04.395343-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 24.8,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.8584999999999999,
+          "model_median": 25,
+          "model_reach": 0.9992133069220734,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-03T13:02:30.325635-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.6,
+            "weather_com": 30.0
+          },
+          "market_median": 28,
+          "market_reach": 0.963,
+          "model_median": 28,
+          "model_reach": 0.9994944214901214,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.42857142857142855,
+        "model_point_mae": 0.7142857142857143,
+        "n_days": 7,
+        "reach": {
+          "market_reach": 0.6735714285714286,
+          "model_reach": 0.563156840187367,
+          "n": 7,
+          "reach_rate": 0.7142857142857143
+        },
+        "sources": {
+          "consensus": {
+            "bias": -0.21428571428571427,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.3000000000000002,
+            "n": 7
+          },
+          "eccc": {
+            "bias": -1.2857142857142858,
+            "hit_rate": 0.14285714285714285,
+            "mae": 1.2857142857142858,
+            "n": 7
+          },
+          "open_meteo": {
+            "bias": 0.21428571428571427,
+            "hit_rate": 0.7142857142857143,
+            "mae": 0.5571428571428569,
+            "n": 7
+          },
+          "weather_com": {
+            "bias": 0.0,
+            "hit_rate": 0.42857142857142855,
+            "mae": 0.5714285714285714,
+            "n": 7
+          }
+        }
+      }
+    }
+  },
+  "verdict": {
+    "consensus_bias": -0.31428571428571417,
+    "detail": "the morning forecast is reached 71% of the time, but the model gives it only 45% -- it UNDER-calls the high; trusting the forecast more would help.",
+    "gap": 0.2606294017784562,
+    "headline": "SKEPTICISM IS COSTING",
+    "market_reach": 0.6557857142857142,
+    "model_reach": 0.4536563125072581,
+    "n": 7,
+    "reach_rate": 0.7142857142857143
+  },
+  "verdict_cutoff": 9
+}
