@@ -12,6 +12,11 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+SRC_ROOT = Path(__file__).resolve().parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+from market_registry import spec_for_id  # noqa: E402
+
 
 def get_code_version():
     try:
@@ -49,13 +54,15 @@ DEFAULT_DATA_ROOT = Path("data") / "wunderground" / "cyyz"
 
 
 class WundergroundHistoryClient:
-    def __init__(self, api_key=WEATHER_COM_KEY, timeout=20, sleep_seconds=0.2):
+    def __init__(self, api_key=WEATHER_COM_KEY, timeout=20, sleep_seconds=0.2,
+                 history_id=CYYZ_HISTORY_ID):
         self.api_key = api_key
         self.timeout = timeout
         self.sleep_seconds = sleep_seconds
+        self.history_id = history_id
         self.url = (
             "https://api.weather.com/v1/location/"
-            f"{CYYZ_HISTORY_ID}/observations/historical.json"
+            f"{history_id}/observations/historical.json"
         )
 
     def fetch_range(self, start_date, end_date, units="m"):
@@ -81,8 +88,12 @@ class WundergroundHistoryClient:
 
 
 class WundergroundHistoryStore:
-    def __init__(self, root=DEFAULT_DATA_ROOT):
+    def __init__(self, root=DEFAULT_DATA_ROOT, station_icao=STATION_ICAO,
+                 station_name=STATION_NAME, history_id=CYYZ_HISTORY_ID):
         self.root = Path(root)
+        self.station_icao = station_icao
+        self.station_name = station_name
+        self.history_id = history_id
         self.raw_root = self.root / "raw"
         self.hourly_root = self.root / "hourly"
         self.daily_root = self.root / "daily"
@@ -100,8 +111,8 @@ class WundergroundHistoryStore:
             raw_path.parent.mkdir(parents=True, exist_ok=True)
             with raw_path.open("w", encoding="utf-8") as handle:
                 json.dump({
-                    "station": STATION_ICAO,
-                    "station_name": STATION_NAME,
+                    "station": self.station_icao,
+                    "station_name": self.station_name,
                     "source": "weather.com v1 historical observations",
                     "units": "metric",
                     "local_date": obs_date.isoformat(),
@@ -200,14 +211,14 @@ class WundergroundHistoryStore:
                 })
         
         payload = {
-            "station": STATION_ICAO,
-            "station_name": STATION_NAME,
-            "history_id": CYYZ_HISTORY_ID,
+            "station": self.station_icao,
+            "station_name": self.station_name,
+            "history_id": self.history_id,
             "timezone": str(TORONTO_TZ),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "code_version": get_code_version(),
             "source_details": {
-                "endpoint": WundergroundHistoryClient().url,
+                "endpoint": WundergroundHistoryClient(history_id=self.history_id).url,
                 "api_params": {
                     "units": "m",
                     "apiKey": redacted_key
@@ -454,11 +465,28 @@ def parse_date(value):
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
+def _resolve(args):
+    """Resolve the market spec + data root from --market / --data-root."""
+    spec = spec_for_id(getattr(args, "market", "toronto"))
+    data_root = args.data_root or str(spec.data_root)
+    return spec, data_root
+
+
+def _store_for(spec, data_root):
+    return WundergroundHistoryStore(
+        data_root,
+        station_icao=spec.icao,
+        station_name=spec.city_label,
+        history_id=spec.wu_history_id,
+    )
+
+
 def cmd_backfill(args):
+    spec, data_root = _resolve(args)
     start_date = parse_date(args.start)
     end_date = parse_date(args.end)
-    client = WundergroundHistoryClient(sleep_seconds=args.sleep)
-    store = WundergroundHistoryStore(args.data_root)
+    client = WundergroundHistoryClient(sleep_seconds=args.sleep, history_id=spec.wu_history_id)
+    store = _store_for(spec, data_root)
     for chunk_start, chunk_end, payload in client.fetch_chunks(
         start_date, end_date, chunk_days=args.chunk_days
     ):
@@ -470,7 +498,8 @@ def cmd_backfill(args):
 
 
 def cmd_analyze(args):
-    summary_path = Path(args.data_root) / "daily" / "daily_summary.csv"
+    _spec, data_root = _resolve(args)
+    summary_path = Path(data_root) / "daily" / "daily_summary.csv"
     exclude_dates = [parse_date(value) for value in args.exclude_date]
     analysis = analyze_daily_summary(
         summary_path,
@@ -483,14 +512,14 @@ def cmd_analyze(args):
 
 
 def cmd_rebuild(args):
-    store = WundergroundHistoryStore(args.data_root)
+    store = _store_for(*_resolve(args))
     print("Rebuilding normalized hourly, daily summary, and manifest files from raw payloads...")
     hourly, daily = store.rebuild_normalized_files()
     print(f"Rebuild completed successfully. Wrote {len(hourly)} hourly rows and {len(daily)} daily rows.")
 
 
 def cmd_audit(args):
-    store = WundergroundHistoryStore(args.data_root)
+    store = _store_for(*_resolve(args))
     print("Auditing partition files against manifest checksums and row counts...")
     success = store.audit_partitions()
     if not success:
@@ -502,9 +531,14 @@ def build_parser():
         description="Collect and analyze Wunderground/Weather.com CYYZ history."
     )
     parser.add_argument(
+        "--market",
+        default="toronto",
+        help="Registered market id (toronto, nyc, ...); sets the WU station + data root.",
+    )
+    parser.add_argument(
         "--data-root",
-        default=str(DEFAULT_DATA_ROOT),
-        help="Root folder for local Wunderground CYYZ data.",
+        default=None,
+        help="Override the per-market data root (defaults to the market's station folder).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

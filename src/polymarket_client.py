@@ -3,6 +3,7 @@ import json
 import requests
 
 from market_config import config_for_date, config_from_event
+from market_registry import DEFAULT_MARKET_ID
 
 
 DEFAULT_MARKET_CONFIG = config_for_date()
@@ -12,16 +13,19 @@ GAMMA_EVENT_URL = f"https://gamma-api.polymarket.com/events/slug/{TORONTO_EVENT_
 
 
 class PolymarketClient:
-    def __init__(self, timeout=10, target_date=None):
+    def __init__(self, timeout=10, target_date=None, market_id=DEFAULT_MARKET_ID):
         self.timeout = timeout
-        self.config = config_for_date(target_date)
+        self.config = config_for_date(target_date, market_id)
 
-    def get_toronto_weather_event(self):
+    def get_event(self):
         response = requests.get(self.gamma_event_url, timeout=self.timeout)
         response.raise_for_status()
         event = response.json()
         self.config = config_from_event(event, fallback_date=self.config.target_date)
         return event
+
+    def get_toronto_weather_event(self):  # back-compat alias
+        return self.get_event()
 
     @property
     def event_slug(self):

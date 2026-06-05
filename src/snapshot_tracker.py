@@ -19,6 +19,7 @@ from forecast_archive import (  # noqa: E402
 from collection_health import serialize_summary, summarize_folder  # noqa: E402
 from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from market_config import config_for_date, config_from_event
+from market_registry import DEFAULT_MARKET_ID, all_specs
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
 
@@ -496,14 +497,14 @@ class SnapshotStore:
         return age > 300
 
 
-def capture_snapshot(force=False):
+def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID):
     from polymarket_client import PolymarketClient
     from toronto_model import TorontoHighTempModel
 
-    market_client = PolymarketClient()
-    event = market_client.get_toronto_weather_event()
+    market_client = PolymarketClient(market_id=market_id)
+    event = market_client.get_event()
     event_config = config_from_event(event, fallback_date=market_client.config.target_date)
-    model_client = TorontoHighTempModel(target_date=event_config.target_date)
+    model_client = TorontoHighTempModel(target_date=event_config.target_date, market_id=market_id)
     historical_sources = model_client.fetch_historical_sources()
     live_sources = model_client.fetch_live_sources()
     model = model_client.build(
@@ -628,30 +629,37 @@ def run_loop(force=False, interval_minutes=10.0):
             append_diagnostic({"time": now.isoformat(), "status": "paused"})
             print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)
         else:
-            try:
-                result = capture_snapshot(force=force)
+            # Capture every registered market each tick; one market's failure is
+            # isolated so it never kills the loop or the other markets.
+            market_results = {}
+            for spec in all_specs():
+                try:
+                    market_results[spec.id] = capture_snapshot(force=force, market_id=spec.id)
+                except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                    market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
+            errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
+            if errors:
+                status["consecutive_errors"] += 1
+                status["last_error"] = "; ".join(f"{mid}: {err}" for mid, err in errors.items())
+            else:
                 status["consecutive_errors"] = 0
                 status["last_error"] = None
-                if result.get("written"):
-                    status["last_snapshot_id"] = result.get("snapshot_id")
-                    status["last_snapshot_written_at"] = now.isoformat()
-                write_loop_status(status)
-                append_diagnostic({
-                    "time": now.isoformat(),
-                    "written": bool(result.get("written")),
-                    "snapshot_id": result.get("snapshot_id"),
-                })
-                print(json.dumps(result, sort_keys=True), flush=True)
-            except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                status["consecutive_errors"] += 1
-                status["last_error"] = f"{type(exc).__name__}: {exc}"
-                write_loop_status(status)
-                append_diagnostic({
-                    "time": now.isoformat(),
-                    "error": status["last_error"],
-                    "consecutive_errors": status["consecutive_errors"],
-                })
-                print(json.dumps({"status": "error", "error": status["last_error"]}), flush=True)
+            written = {mid: r.get("snapshot_id") for mid, r in market_results.items() if r.get("written")}
+            if written:
+                status["last_snapshot_id"] = next(iter(written.values()))
+                status["last_snapshot_written_at"] = now.isoformat()
+            write_loop_status(status)
+            append_diagnostic({
+                "time": now.isoformat(),
+                "markets": {
+                    mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id"), "error": r.get("error")}
+                    for mid, r in market_results.items()
+                },
+            })
+            print(json.dumps({
+                "time": now.isoformat(),
+                "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
+            }, sort_keys=True), flush=True)
         time.sleep(max(1.0, interval_minutes * 60))
 
 

@@ -8,7 +8,7 @@ from feature_store import (
     FEATURE_SCHEMA_VERSION,
     build_live_feature_record,
 )
-from forecast_history import load_forecast_daily
+from forecast_history import load_forecast_daily, daily_path_for
 from model_constants import _UNLOADED
 
 
@@ -631,7 +631,7 @@ class FeatureModelMixin:
         # 3. Extract historical features at same cutoff hour
         cutoff_minutes = cutoff_hour * 60
         hist_days_features = []
-        forecast_index = load_forecast_daily()
+        forecast_index = load_forecast_daily(daily_path_for(self.spec))
         
         for local_date, daily in cache["daily"].items():
             day_obs = cache["by_date"].get(local_date, [])

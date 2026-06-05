@@ -16,51 +16,58 @@ from polymarket_client import (  # noqa: E402
 from market_config import config_for_date, config_from_event  # noqa: E402
 from snapshot_tracker import SnapshotStore  # noqa: E402
 from toronto_model import TorontoHighTempModel, TORONTO_TZ  # noqa: E402
+from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id  # noqa: E402
 
 
 LIVE_REFRESH_SECONDS = 60
 LIVE_CACHE_TTL_SECONDS = 55
 
 
-st.set_page_config(page_title="Toronto Weather Market", layout="wide")
+st.set_page_config(page_title="Weather Markets", layout="wide")
 
-APP_MARKET_CONFIG = config_for_date()
+_MARKET_LABELS = {spec.city_label: spec.id for spec in all_specs()}
+_selected_label = st.sidebar.selectbox("Market", list(_MARKET_LABELS.keys()))
+MARKET_ID = _MARKET_LABELS[_selected_label]
+SPEC = spec_for_id(MARKET_ID)
 
-st.title("Toronto Weather Market")
+APP_MARKET_CONFIG = config_for_date(market_id=MARKET_ID)
+
+st.title(f"{SPEC.city_label} Weather Market")
 st.caption(
     "Single-market view for the "
-    f"{APP_MARKET_CONFIG.display_date} Toronto high-temperature event."
+    f"{APP_MARKET_CONFIG.display_date} {SPEC.city_label} high-temperature event "
+    f"(settles °{SPEC.display_unit} at {SPEC.icao})."
 )
 
 
 @st.cache_resource(show_spinner=False)
-def model_client():
-    return TorontoHighTempModel()
+def model_client(market_id=DEFAULT_MARKET_ID):
+    return TorontoHighTempModel(market_id=market_id)
 
 
 @st.cache_resource(show_spinner=False)
-def snapshot_store():
-    return SnapshotStore()
+def snapshot_store(market_id=DEFAULT_MARKET_ID):
+    return SnapshotStore(event_slug=config_for_date(market_id=market_id).event_slug)
 
 
 @st.cache_data(show_spinner=False)
-def fetch_historical_sources():
-    return model_client().fetch_historical_sources()
+def fetch_historical_sources(market_id=DEFAULT_MARKET_ID):
+    return model_client(market_id).fetch_historical_sources()
 
 
 @st.cache_data(ttl=LIVE_CACHE_TTL_SECONDS, show_spinner=False)
-def fetch_event():
-    return PolymarketClient().get_toronto_weather_event()
+def fetch_event(market_id=DEFAULT_MARKET_ID):
+    return PolymarketClient(market_id=market_id).get_event()
 
 
 @st.cache_data(ttl=LIVE_CACHE_TTL_SECONDS, show_spinner=False)
-def fetch_live_sources():
-    return model_client().fetch_live_sources()
+def fetch_live_sources(market_id=DEFAULT_MARKET_ID):
+    return model_client(market_id).fetch_live_sources()
 
 
 @st.cache_data(ttl=LIVE_CACHE_TTL_SECONDS, show_spinner=False)
-def load_snapshot_history():
-    path = snapshot_store().long_path
+def load_snapshot_history(market_id=DEFAULT_MARKET_ID):
+    path = snapshot_store(market_id).long_path
     if not path.exists():
         return None
     try:
@@ -95,10 +102,10 @@ def fmt_price(value):
 
 if st.button("Rebuild historical cache"):
     fetch_historical_sources.clear()
-    model_client().clear_historical_cache()
+    model_client(MARKET_ID).clear_historical_cache()
     st.rerun()
 
-historical_sources = fetch_historical_sources()
+historical_sources = fetch_historical_sources(MARKET_ID)
 
 
 @st.fragment(run_every=f"{LIVE_REFRESH_SECONDS}s")
@@ -110,25 +117,25 @@ def live_dashboard(static_sources):
         fetch_live_sources.clear()
         st.rerun()
 
-    with st.spinner("Fetching Toronto market and live weather..."):
+    with st.spinner(f"Fetching {SPEC.city_label} market and live weather..."):
         try:
-            event = fetch_event()
-            live_sources = fetch_live_sources()
+            event = fetch_event(MARKET_ID)
+            live_sources = fetch_live_sources(MARKET_ID)
         except Exception as exc:
-            st.error(f"Could not fetch live Toronto data: {exc}")
+            st.error(f"Could not fetch live {SPEC.city_label} data: {exc}")
             st.stop()
 
-    client = PolymarketClient()
+    client = PolymarketClient(market_id=MARKET_ID)
     rows = client.event_market_rows(event)
-    model = model_client().build(
+    model = model_client(MARKET_ID).build(
         event,
         historical_sources=static_sources,
         live_sources=live_sources,
     )
-    snapshot_result = snapshot_store().maybe_write(
+    snapshot_result = snapshot_store(MARKET_ID).maybe_write(
         event,
         model,
-        model_client(),
+        model_client(MARKET_ID),
         force=force_snapshot,
     )
 
@@ -188,10 +195,10 @@ def live_dashboard(static_sources):
             "Fetch Error": error_msg or "-"
         })
 
-    event_config = config_from_event(event, fallback_date=model_client().target_date)
+    event_config = config_from_event(event, fallback_date=model_client(MARKET_ID).target_date)
     title = event.get(
         "title",
-        f"Highest temperature in Toronto on {event_config.target_date:%B %d}?",
+        f"Highest temperature in {SPEC.city_label} on {event_config.target_date:%B %d}?",
     )
     updated_at = event.get("updatedAt", "-")
     resolution_source = event.get("resolutionSource", "")
@@ -334,7 +341,7 @@ def live_dashboard(static_sources):
         
         comparison_rows = []
         comparison_rows.append({
-            "Date": f"TODAY ({model_client().target_date:%B %d})",
+            "Date": f"TODAY ({model_client(MARKET_ID).target_date:%B %d})",
             "Match %": "-",
             "Final High": "-",
             "High so far": f"{today_feat.get('high_so_far')} C",
@@ -390,8 +397,8 @@ def live_dashboard(static_sources):
     
     # 1. Compact table of current biggest positive and negative edges
     current_edges = []
-    for bin_data in model_client().market_bins(event):
-        label = model_client().clean_label(
+    for bin_data in model_client(MARKET_ID).market_bins(event):
+        label = model_client(MARKET_ID).clean_label(
             bin_data.get("groupItemTitle") or bin_data.get("question", "")
         )
         model_prob = distribution.get(bin_data.get("value"), 0.0)
@@ -433,7 +440,7 @@ def live_dashboard(static_sources):
                 st.caption("No negative edges.")
 
     # 2. Historical Timeline Line Charts
-    hist_df = load_snapshot_history()
+    hist_df = load_snapshot_history(MARKET_ID)
     if hist_df is not None and not hist_df.empty:
         st.write("---")
         st.markdown("**Historical Probability & Edge Timeline**")
@@ -511,7 +518,7 @@ def live_dashboard(static_sources):
         st.markdown("### Snapshot Storage & Stats")
         
         # Path details
-        store = snapshot_store()
+        store = snapshot_store(MARKET_ID)
         
         # Calculate row counts
         long_rows_cnt = 0

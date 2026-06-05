@@ -1,0 +1,96 @@
+{
+  "code_version": "git:ce680c9581ade38e726aa2d09e4c7778f927e520",
+  "daily_record_count": 427,
+  "first_date": "2019-05-01",
+  "generated_at": "2026-06-05T00:51:46.070208+00:00",
+  "history_id": "KLGA:9:US",
+  "hourly_record_count": 12139,
+  "last_date": "2025-06-30",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2019/month=05/observations.jsonl",
+      "row_count": 984,
+      "sha256": "832b606d91c3ca0d401cdbe3145407aacebf9f0bf08c36f49de30fbd3da9b94a"
+    },
+    {
+      "path": "hourly/year=2019/month=06/observations.jsonl",
+      "row_count": 886,
+      "sha256": "0782e8818fb8bf3152a52736b1fdd0b56159e5bac124e8f852deb7660f52c290"
+    },
+    {
+      "path": "hourly/year=2020/month=05/observations.jsonl",
+      "row_count": 888,
+      "sha256": "ef646351445ea4cd7d4509f2bbc2906124b31403006556cb05fc0bbcb376aa13"
+    },
+    {
+      "path": "hourly/year=2020/month=06/observations.jsonl",
+      "row_count": 779,
+      "sha256": "cfa686f7fd78edcb9da2fee448715182d8a5eef5bf4378a40a159db903b32539"
+    },
+    {
+      "path": "hourly/year=2021/month=05/observations.jsonl",
+      "row_count": 834,
+      "sha256": "daa1f60e278356145fac04685a76abeed85129ee6b952335996a8ad0162a4bbb"
+    },
+    {
+      "path": "hourly/year=2021/month=06/observations.jsonl",
+      "row_count": 811,
+      "sha256": "77595249271d6155fef9af20af7b7bb090c00654844ce18360965852020d16f7"
+    },
+    {
+      "path": "hourly/year=2022/month=05/observations.jsonl",
+      "row_count": 972,
+      "sha256": "c76baa324896742d8f77f213d623fb84490c704b7ad4743f39e701985c53bca5"
+    },
+    {
+      "path": "hourly/year=2022/month=06/observations.jsonl",
+      "row_count": 842,
+      "sha256": "e3d04cc290e1176ffdceed721be3f199b4712e7a880755dafca264fd21755e5b"
+    },
+    {
+      "path": "hourly/year=2023/month=05/observations.jsonl",
+      "row_count": 787,
+      "sha256": "2a23e64ad8e2020085abde727d36e534d102a3ca5fee5393e22436c43f422f47"
+    },
+    {
+      "path": "hourly/year=2023/month=06/observations.jsonl",
+      "row_count": 842,
+      "sha256": "e7df77677f32e7b6498a0023ecf66c5ad0d955988612b834f28dca4e3f57d49d"
+    },
+    {
+      "path": "hourly/year=2024/month=05/observations.jsonl",
+      "row_count": 901,
+      "sha256": "3ee45dc3f940472879290be27b2e86d4504388d2f054231abf2e2766e5ad0a03"
+    },
+    {
+      "path": "hourly/year=2024/month=06/observations.jsonl",
+      "row_count": 792,
+      "sha256": "3b9829e84843bba597593774529194c7051a177ee4fefb3df988362a97adcf6f"
+    },
+    {
+      "path": "hourly/year=2025/month=05/observations.jsonl",
+      "row_count": 964,
+      "sha256": "710a635b84f705aac3f26bfa7f1505077d870e4ae0fcf8d9bfad13f15b256a8c"
+    },
+    {
+      "path": "hourly/year=2025/month=06/observations.jsonl",
+      "row_count": 857,
+      "sha256": "cc7b1691c1d5e6c0a33d07df36cad862d3ec1babe79e49779b0b4bf72311082a"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KLGA:9:US/observations/historical.json"
+  },
+  "station": "KLGA",
+  "station_name": "NYC",
+  "timezone": "America/Toronto"
+}
