@@ -612,3 +612,5 @@
 {"snapshot_id": "20260604T203925-0400", "time": "2026-06-04T20:39:24.245669-04:00", "written": true}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260604T204210-0400", "written": true}, "toronto": {"error": null, "snapshot_id": null, "written": false}}, "time": "2026-06-04T20:42:05.482691-04:00"}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260604T205212-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260604T205211-0400", "written": true}}, "time": "2026-06-04T20:52:10.658933-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260604T210214-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260604T210213-0400", "written": true}}, "time": "2026-06-04T21:02:12.582904-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260604T211226-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260604T211225-0400", "written": true}}, "time": "2026-06-04T21:12:14.375496-04:00"}

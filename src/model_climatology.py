@@ -31,11 +31,13 @@ class ClimatologyMixin:
     """Historical target-season climatology cache and conditional lookups."""
 
     def historical_target_cache(self):
-        cache_key = self.target_date.isoformat()
+        # Keyed by market so Toronto and NYC caches never collide, and read from
+        # the market's own data root (NYC analogs/transitions use NYC history).
+        cache_key = f"{self.spec.id}:{self.target_date.isoformat()}"
         if cache_key in type(self)._historical_target_cache:
             return type(self)._historical_target_cache[cache_key]
 
-        summary_path = DEFAULT_DATA_ROOT / "daily" / "daily_summary.csv"
+        summary_path = self.spec.data_root / "daily" / "daily_summary.csv"
         if not summary_path.exists():
             type(self)._historical_target_cache[cache_key] = {
                 "daily": {},
@@ -69,7 +71,7 @@ class ClimatologyMixin:
         needed_paths = defaultdict(set)
         for local_date in daily:
             path = (
-                DEFAULT_DATA_ROOT
+                self.spec.data_root
                 / "hourly"
                 / f"year={local_date.year}"
                 / f"month={local_date.month:02d}"
