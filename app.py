@@ -40,6 +40,46 @@ st.caption(
 )
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_trust_score(market_id):
+    from location_trust import score_market
+    return score_market(market_id)
+
+
+def render_trust_banner(market_id):
+    try:
+        trust = cached_trust_score(market_id)
+    except Exception as exc:  # never let the score break the dashboard
+        st.caption(f"Model trust score unavailable: {exc}")
+        return
+    grade_help = {
+        "Strong": "🟢", "Good": "🟢", "Moderate": "🟡", "Low": "🟠", "Unproven": "⚪",
+    }.get(trust["grade"], "⚪")
+    cols = st.columns(4)
+    cols[0].metric(
+        "Model trust",
+        f"{trust['trust_score']} / 100",
+        help="How much to trust this location's probabilities: calibration weighted by "
+             "how many settled days validate it (0-100). Rises as clean settled days accumulate.",
+    )
+    cols[1].metric("Grade", f"{grade_help} {trust['grade']}")
+    cols[2].metric(
+        "Settled days", trust["settled_days"],
+        help="Clean settled market-days backing the score.",
+    )
+    ece = trust.get("model_ece")
+    cols[3].metric(
+        "Calibration (ECE)", f"{ece:.3f}" if ece is not None else "—",
+        help="Expected calibration error on settled days; lower is better. "
+             "(Calibration = whether the stated probabilities are honest — separate from beating the market.)",
+    )
+    st.caption(trust["rationale"])
+    st.divider()
+
+
+render_trust_banner(MARKET_ID)
+
+
 @st.cache_resource(show_spinner=False)
 def model_client(market_id=DEFAULT_MARKET_ID):
     return TorontoHighTempModel(market_id=market_id)
