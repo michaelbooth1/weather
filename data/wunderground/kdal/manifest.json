@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:08.442115+00:00",
+  "history_id": "KDAL:9:US",
+  "hourly_record_count": 906,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 731,
+      "sha256": "baf6bceaa02aa5f5835496355fa1ccc09102c3421e27b1cf61fa5d2d53f9b9bb"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 175,
+      "sha256": "7063d6bfb5c897df6855de267a445784f6521f941748cc7f7256964f7487b223"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KDAL:9:US/observations/historical.json"
+  },
+  "station": "KDAL",
+  "station_name": "Dallas",
+  "timezone": "America/Toronto"
+}

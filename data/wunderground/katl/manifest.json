@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:01.449286+00:00",
+  "history_id": "KATL:9:US",
+  "hourly_record_count": 1018,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 873,
+      "sha256": "0de277c06400a34b2a7dda33cc34e854f9d48af80fd24e3e7651e96f455eb86c"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 145,
+      "sha256": "2759077637a1d66256e184e35c0e86d0c6816f4fbbbfe030437f41ac1457f4bc"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KATL:9:US/observations/historical.json"
+  },
+  "station": "KATL",
+  "station_name": "Atlanta",
+  "timezone": "America/Toronto"
+}

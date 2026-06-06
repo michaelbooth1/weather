@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:10.781091+00:00",
+  "history_id": "KBKF:9:US",
+  "hourly_record_count": 946,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 794,
+      "sha256": "eedd5a06c14b4fb87dd45118455e17abe17675ac338f5d867fd9b9e3e12045fd"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 152,
+      "sha256": "113b0275fe8a0c37bd6cf467312d13bb0cc1ba74da0f7042ac6de935c7b3c216"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KBKF:9:US/observations/historical.json"
+  },
+  "station": "KBKF",
+  "station_name": "Denver",
+  "timezone": "America/Toronto"
+}

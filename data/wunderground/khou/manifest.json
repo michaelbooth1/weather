@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:13.051467+00:00",
+  "history_id": "KHOU:9:US",
+  "hourly_record_count": 938,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 738,
+      "sha256": "674c37923e50812b6869bac6d99fae5db9989d99c7c524ba83a7180b9c026b61"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 200,
+      "sha256": "0b9859d02195fbb4eafe978f1e3fd19e16377dc5dcccd53a236e3d531e32f724"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KHOU:9:US/observations/historical.json"
+  },
+  "station": "KHOU",
+  "station_name": "Houston",
+  "timezone": "America/Toronto"
+}

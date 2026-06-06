@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:05.957896+00:00",
+  "history_id": "KORD:9:US",
+  "hourly_record_count": 943,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 789,
+      "sha256": "ba09ed20a626b85444ead3faa275a858dc6b6f21eec53c15c72462a1f555d1b9"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 154,
+      "sha256": "157ce1121521a4ce8e8e76a5792803fca88e2a91b8dfaf758bd14c5303538519"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KORD:9:US/observations/historical.json"
+  },
+  "station": "KORD",
+  "station_name": "Chicago",
+  "timezone": "America/Toronto"
+}

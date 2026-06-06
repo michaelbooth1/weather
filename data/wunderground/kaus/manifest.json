@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:03.745612+00:00",
+  "history_id": "KAUS:9:US",
+  "hourly_record_count": 926,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 753,
+      "sha256": "86e778a665e09e1c35b17c968fa6fae50465cb2b528794237b27cb4660ff22e9"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 173,
+      "sha256": "ad0de1099fbfc1e8b353df53feec5c7d391b669bcda93f1d5fcbd2d4d5100430"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KAUS:9:US/observations/historical.json"
+  },
+  "station": "KAUS",
+  "station_name": "Austin",
+  "timezone": "America/Toronto"
+}

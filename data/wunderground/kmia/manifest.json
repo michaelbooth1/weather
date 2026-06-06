@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:17.323128+00:00",
+  "history_id": "KMIA:9:US",
+  "hourly_record_count": 854,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 698,
+      "sha256": "bbbc1b2f40aaf502d4f8e56d45f01f04337e7549cc2d10af7a120ce1bc79a9a5"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 156,
+      "sha256": "9eccc447baca2de95e3874f4308ab6b3ef8c258486a3376b47b95eeb9bcdd0c6"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KMIA:9:US/observations/historical.json"
+  },
+  "station": "KMIA",
+  "station_name": "Miami",
+  "timezone": "America/Toronto"
+}

@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:19.521036+00:00",
+  "history_id": "KSFO:9:US",
+  "hourly_record_count": 851,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 704,
+      "sha256": "90d46434218ae5b5964083aa45e0139deaff34b6a2282c1aca88ff9b21e5296f"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 147,
+      "sha256": "0981f2ebb3ed0a61268af4ecb2f8d8567b213bcd57c2a63110f15999e174c147"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KSFO:9:US/observations/historical.json"
+  },
+  "station": "KSFO",
+  "station_name": "San Francisco",
+  "timezone": "America/Toronto"
+}

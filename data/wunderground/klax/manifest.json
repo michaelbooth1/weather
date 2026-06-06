@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:15.248823+00:00",
+  "history_id": "KLAX:9:US",
+  "hourly_record_count": 848,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 684,
+      "sha256": "9cd4eb8dda427f250627e7d9f12dd69d3d3bcf0602310af44a80e26804a2f5a8"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 164,
+      "sha256": "08200cc70f3e8b8f1a8d43a5c0b7f19d0a4997fdff4fcbb40709e60b911962e5"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KLAX:9:US/observations/historical.json"
+  },
+  "station": "KLAX",
+  "station_name": "Los Angeles",
+  "timezone": "America/Toronto"
+}

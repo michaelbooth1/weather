@@ -1,0 +1,36 @@
+{
+  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
+  "daily_record_count": 37,
+  "first_date": "2026-05-01",
+  "generated_at": "2026-06-06T19:42:21.702008+00:00",
+  "history_id": "KSEA:9:US",
+  "hourly_record_count": 846,
+  "last_date": "2026-06-06",
+  "layout": {
+    "daily": "daily/daily_summary.csv",
+    "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
+    "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 706,
+      "sha256": "a1db18cb77b20b26fd3d937ecadf12c8c0965247b117b65ebdc7f2d52f0e3654"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 140,
+      "sha256": "0df97153f8b53871eee232fa9108f723585d26d23cd1aa2bacd336073b1ebc44"
+    }
+  ],
+  "source_details": {
+    "api_params": {
+      "apiKey": "e1f10a...f525",
+      "units": "m"
+    },
+    "endpoint": "https://api.weather.com/v1/location/KSEA:9:US/observations/historical.json"
+  },
+  "station": "KSEA",
+  "station_name": "Seattle",
+  "timezone": "America/Toronto"
+}
