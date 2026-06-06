@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 # Ensure src is in import path
 sys.path.insert(0, os.path.abspath("src"))
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
-from forecast_history import load_forecast_daily
+from forecast_history import load_forecast_daily, daily_path_for
 from feature_store import (
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
@@ -168,19 +168,24 @@ def ablation_table_row(row, include_hour=False):
     )
 
 
-def main():
-    model = TorontoHighTempModel()
+def main(market_id="toronto"):
+    model = TorontoHighTempModel(market_id=market_id)
+    spec = model.spec
+    suffix = spec.artifact_suffix
+    print(f"Training feature model for market '{spec.id}' (unit {spec.unit}, "
+          f"artifacts '*{suffix}').")
     print("Loading historical data cache...")
     cache = model.historical_target_cache()
-    
+
     daily = cache["daily"]
     by_date = cache["by_date"]
     bucket_space = cache["bucket_space"]
-    
+
     print(f"Loaded {len(daily)} target-season days with observations.")
 
     # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
-    forecast_index = load_forecast_daily()
+    # Per-market path so the F family trains on its own native-unit forecasts.
+    forecast_index = load_forecast_daily(daily_path_for(spec))
     print(f"Loaded {len(forecast_index)} historical forecast-days "
           f"(forecast feature present for those, NaN otherwise).")
 
@@ -538,14 +543,14 @@ def main():
             "blend_weight": tuned_blend_weight.get(str(hour), 0.80)
         }
         
-    # Write coefficients json
-    coefs_path = os.path.join("src", "feature_model_coefs.json")
+    # Write coefficients json (per-unit artifact: '' for C, '_f' for F)
+    coefs_path = os.path.join("src", f"feature_model_coefs{suffix}.json")
     with open(coefs_path, "w", encoding="utf-8") as f:
         json.dump(trained_models_info, f, indent=2, sort_keys=True)
     print(f"\nSaved final model coefficients to {coefs_path}")
 
-    # Write HGBC pickle
-    hgb_path = os.path.join("src", "feature_model_hgb.pkl")
+    # Write HGBC pickle (per-unit artifact)
+    hgb_path = os.path.join("src", f"feature_model_hgb{suffix}.pkl")
     with open(hgb_path, "wb") as f:
         pickle.dump(hgb_models_info, f)
     print(f"Saved final HGBC models to {hgb_path}")
@@ -673,8 +678,8 @@ def main():
         }
         print(f"  Cutoff Hour {H:02d}:00 trained. Base continuation rate: {prior_p*100:.1f}%.")
         
-    # Save late day coefficients JSON
-    ld_coefs_path = os.path.join("src", "late_day_model_coefs.json")
+    # Save late day coefficients JSON (per-unit artifact)
+    ld_coefs_path = os.path.join("src", f"late_day_model_coefs{suffix}.json")
     with open(ld_coefs_path, "w", encoding="utf-8") as f:
         json.dump(late_day_info, f, indent=2, sort_keys=True)
     print(f"Saved final late-day model coefficients to {ld_coefs_path}")
@@ -725,11 +730,19 @@ def main():
             report_lines.append(ablation_table_row(row, include_hour=True))
 
         # Save Report file
-        report_path = os.path.join("data", "wunderground", "cyyz", "analysis", "feature_model_report.md")
+        report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("\n".join(report_lines) + "\n")
         print(f"Saved model report to {report_path}")
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Train the feature model for one market's unit family.")
+    parser.add_argument(
+        "--market", default="toronto",
+        help="Registered market id (toronto -> C artifacts, nyc -> *_f artifacts).")
+    args = parser.parse_args()
+    main(market_id=args.market)

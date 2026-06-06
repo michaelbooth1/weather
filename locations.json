@@ -1,0 +1,2215 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-06",
+  "source": {
+    "category_url": "https://polymarket.com/weather/high-temperature",
+    "gamma_events_query": "https://gamma-api.polymarket.com/events?tag_slug=highest-temperature&active=true&closed=false",
+    "tag_slug": "highest-temperature",
+    "event_count": 112,
+    "location_count": 51,
+    "note": "Snapshot of active, not-closed Gamma API events for daily high-temperature markets on 2026-06-06."
+  },
+  "defaults": {
+    "market_type": "daily_high_temperature",
+    "event_slug_template": "highest-temperature-in-{location_id}-on-{month}-{day}-{year}",
+    "settlement_precision": "whole degree in the market unit",
+    "resolution_rule_summary": "Highest recorded daily temperature at the named settlement station/source; revisions considered until the source finalization window described by the market.",
+    "core_forecast_sources_to_evaluate": [
+      "settlement source history/current",
+      "METAR or national obs",
+      "Weather.com forecast",
+      "Open-Meteo",
+      "local national weather service where available"
+    ]
+  },
+  "locations": [
+    {
+      "id": "amsterdam",
+      "city": "Amsterdam",
+      "country": "Netherlands",
+      "country_code": "NL",
+      "timezone": "Europe/Amsterdam",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "amsterdam-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-amsterdam-on",
+        "latest_event_slug": "highest-temperature-in-amsterdam-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-amsterdam-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/nl/schiphol/EHAM",
+        "station_id": "EHAM",
+        "station_name": "Amsterdam Airport Schiphol Station",
+        "station_iata": "AMS",
+        "station_wmo": "06240",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 52.315,
+        "lon": 4.79,
+        "elevation_m": -2
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "ankara",
+      "city": "Ankara",
+      "country": "Turkey",
+      "country_code": "TR",
+      "timezone": "Europe/Istanbul",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "ankara-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-ankara-on",
+        "latest_event_slug": "highest-temperature-in-ankara-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-ankara-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/tr/%C3%A7ubuk/LTAC",
+        "station_id": "LTAC",
+        "station_name": "Esenboga Intl Airport Station",
+        "station_iata": "ESB",
+        "station_wmo": "17128",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 40.128,
+        "lon": 32.995,
+        "elevation_m": 952
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "atlanta",
+      "city": "Atlanta",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "atlanta-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-atlanta-on",
+        "latest_event_slug": "highest-temperature-in-atlanta-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-atlanta-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/ga/atlanta/KATL",
+        "station_id": "KATL",
+        "station_name": "Hartsfield-Jackson International Airport Station",
+        "station_iata": "ATL",
+        "station_wmo": "72219",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 33.62972,
+        "lon": -84.44223,
+        "elevation_m": 309
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "austin",
+      "city": "Austin",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "austin-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-austin-on",
+        "latest_event_slug": "highest-temperature-in-austin-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-austin-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/austin/KAUS",
+        "station_id": "KAUS",
+        "station_name": "Austin-Bergstrom International Airport Station",
+        "station_iata": "AUS",
+        "station_wmo": "72254",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 30.1831,
+        "lon": -97.68063,
+        "elevation_m": 148
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "beijing",
+      "city": "Beijing",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "beijing-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-beijing-on",
+        "latest_event_slug": "highest-temperature-in-beijing-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-beijing-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/beijing/ZBAA",
+        "station_id": "ZBAA",
+        "station_name": "Beijing Capital International Airport Station",
+        "station_iata": "PEK",
+        "station_wmo": "54511",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 40.082,
+        "lon": 116.603,
+        "elevation_m": 31
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "buenos-aires",
+      "city": "Buenos Aires",
+      "country": "Argentina",
+      "country_code": "AR",
+      "timezone": "America/Argentina/Buenos_Aires",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "buenos-aires-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-buenos-aires-on",
+        "latest_event_slug": "highest-temperature-in-buenos-aires-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-buenos-aires-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/ar/ezeiza/SAEZ",
+        "station_id": "SAEZ",
+        "station_name": "Minister Pistarini Intl Airport Station",
+        "station_iata": "EZE",
+        "station_wmo": "87576",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": -34.822,
+        "lon": -58.536,
+        "elevation_m": 16
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "busan",
+      "city": "Busan",
+      "country": "South Korea",
+      "country_code": "KR",
+      "timezone": "Asia/Seoul",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "busan-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-busan-on",
+        "latest_event_slug": "highest-temperature-in-busan-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-busan-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/kr/busan/RKPK",
+        "station_id": "RKPK",
+        "station_name": "Gimhae Intl Airport Station",
+        "station_iata": "PUS",
+        "station_wmo": "47153",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 35.179,
+        "lon": 128.938,
+        "elevation_m": 3
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "cape-town",
+      "city": "Cape Town",
+      "country": "South Africa",
+      "country_code": "ZA",
+      "timezone": "Africa/Johannesburg",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "cape-town-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-cape-town-on",
+        "latest_event_slug": "highest-temperature-in-cape-town-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-cape-town-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/za/matroosfontein/FACT",
+        "station_id": "FACT",
+        "station_name": "Cape Town International Airport Station",
+        "station_iata": "CPT",
+        "station_wmo": "68816",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": -33.965,
+        "lon": 18.602,
+        "elevation_m": 48
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "chengdu",
+      "city": "Chengdu",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "chengdu-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-chengdu-on",
+        "latest_event_slug": "highest-temperature-in-chengdu-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chengdu-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chengdu/ZUUU",
+        "station_id": "ZUUU",
+        "station_name": "Chengdu Shuangliu International Airport Station",
+        "station_iata": "CTU",
+        "station_wmo": "56294",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 30.576,
+        "lon": 103.95,
+        "elevation_m": 494
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "chicago",
+      "city": "Chicago",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "chicago-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-chicago-on",
+        "latest_event_slug": "highest-temperature-in-chicago-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chicago-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/il/chicago/KORD",
+        "station_id": "KORD",
+        "station_name": "Chicago O'Hare Intl Airport Station",
+        "station_iata": "ORD",
+        "station_wmo": "72530",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 41.96017,
+        "lon": -87.93161,
+        "elevation_m": 202
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "chongqing",
+      "city": "Chongqing",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "chongqing-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-chongqing-on",
+        "latest_event_slug": "highest-temperature-in-chongqing-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chongqing-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chongqing/ZUCK",
+        "station_id": "ZUCK",
+        "station_name": "Chongqing Jiangbei International Airport Station",
+        "station_iata": "CKG",
+        "station_wmo": "57516",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 29.718,
+        "lon": 106.639,
+        "elevation_m": 416
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "dallas",
+      "city": "Dallas",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "dallas-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-dallas-on",
+        "latest_event_slug": "highest-temperature-in-dallas-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-dallas-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/dallas/KDAL",
+        "station_id": "KDAL",
+        "station_name": "Dallas Love Field Station",
+        "station_iata": "DAL",
+        "station_wmo": "72258",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 32.83836,
+        "lon": -96.83584,
+        "elevation_m": 148
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "denver",
+      "city": "Denver",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Denver",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "denver-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-denver-on",
+        "latest_event_slug": "highest-temperature-in-denver-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-denver-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/co/aurora/KBKF",
+        "station_id": "KBKF",
+        "station_name": "Buckley Space Force Base Station",
+        "station_iata": "BFK",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 39.713,
+        "lon": -104.758,
+        "elevation_m": 1703
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "guangzhou",
+      "city": "Guangzhou",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "guangzhou-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-guangzhou-on",
+        "latest_event_slug": "highest-temperature-in-guangzhou-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-guangzhou-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/guangzhou/ZGGG",
+        "station_id": "ZGGG",
+        "station_name": "Guangzhou Baiyun International Airport Station",
+        "station_iata": "CAN",
+        "station_wmo": "59287",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 23.392,
+        "lon": 113.307,
+        "elevation_m": 11
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "helsinki",
+      "city": "Helsinki",
+      "country": "Finland",
+      "country_code": "FI",
+      "timezone": "Europe/Helsinki",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "helsinki-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-helsinki-on",
+        "latest_event_slug": "highest-temperature-in-helsinki-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-helsinki-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/fi/vantaa/EFHK",
+        "station_id": "EFHK",
+        "station_name": "Helsinki Vantaa Airport Station",
+        "station_iata": "HEL",
+        "station_wmo": "02974",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 60.327,
+        "lon": 24.957,
+        "elevation_m": 56
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "hong-kong",
+      "city": "Hong Kong",
+      "country": "Hong Kong",
+      "country_code": "HK",
+      "timezone": "Asia/Hong_Kong",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "hong-kong-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-hong-kong-on",
+        "latest_event_slug": "highest-temperature-in-hong-kong-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-8-2026",
+        "source_event_count": 4,
+        "source_event_dates": [
+          "2026-06-05",
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "hong_kong_observatory_daily_extract",
+        "resolution_source_url": "https://www.weather.gov.hk/en/cis/climat.htm",
+        "station_id": "HKO",
+        "station_name": "Hong Kong Observatory",
+        "station_iata": null,
+        "station_wmo": "45005",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 22.3022,
+        "lon": 114.1742,
+        "elevation_m": 32
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted."
+      ]
+    },
+    {
+      "id": "houston",
+      "city": "Houston",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Chicago",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "houston-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-houston-on",
+        "latest_event_slug": "highest-temperature-in-houston-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-houston-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/houston/KHOU",
+        "station_id": "KHOU",
+        "station_name": "William P. Hobby Airport Station",
+        "station_iata": "HOU",
+        "station_wmo": "72244",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 29.64582,
+        "lon": -95.28214,
+        "elevation_m": 13
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "istanbul",
+      "city": "Istanbul",
+      "country": "Turkey",
+      "country_code": "TR",
+      "timezone": "Europe/Istanbul",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "istanbul-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-istanbul-on",
+        "latest_event_slug": "highest-temperature-in-istanbul-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-istanbul-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "noaa_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=LTFM",
+        "station_id": "LTFM",
+        "station_name": "Istanbul Airport",
+        "station_iata": "IST",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 41.262,
+        "lon": 28.74,
+        "elevation_m": 99
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted."
+      ]
+    },
+    {
+      "id": "jeddah",
+      "city": "Jeddah",
+      "country": "Saudi Arabia",
+      "country_code": "SA",
+      "timezone": "Asia/Riyadh",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "jeddah-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-jeddah-on",
+        "latest_event_slug": "highest-temperature-in-jeddah-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-jeddah-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/sa/jeddah/OEJN",
+        "station_id": "OEJN",
+        "station_name": "King Abdulaziz International Airport Station",
+        "station_iata": "JED",
+        "station_wmo": "41024",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 21.685,
+        "lon": 39.166,
+        "elevation_m": 8
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "jinan",
+      "city": "Jinan",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": null,
+        "event_slug_prefix": "highest-temperature-in-jinan-on",
+        "latest_event_slug": "highest-temperature-in-jinan-on-may-21-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-jinan-on-may-21-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-05-20",
+          "2026-05-21"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/jinan/ZSJN",
+        "station_id": "ZSJN",
+        "station_name": "Jinan Yaoqiang International Airport Station",
+        "station_iata": "TNA",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 36.856,
+        "lon": 117.206,
+        "elevation_m": 22
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "No Polymarket seriesSlug was present in the active Gamma API event; likely lower priority or non-recurring seed."
+      ]
+    },
+    {
+      "id": "karachi",
+      "city": "Karachi",
+      "country": "Pakistan",
+      "country_code": "PK",
+      "timezone": "Asia/Karachi",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "karachi-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-karachi-on",
+        "latest_event_slug": "highest-temperature-in-karachi-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-karachi-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/pk/karachi/OPKC",
+        "station_id": "OPKC",
+        "station_name": "Masroor Airbase Station",
+        "station_iata": "KHI",
+        "station_wmo": "41780",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 24.902,
+        "lon": 67.139,
+        "elevation_m": 20
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "kuala-lumpur",
+      "city": "Kuala Lumpur",
+      "country": "Malaysia",
+      "country_code": "MY",
+      "timezone": "Asia/Kuala_Lumpur",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "kuala-lumpur-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-kuala-lumpur-on",
+        "latest_event_slug": "highest-temperature-in-kuala-lumpur-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-kuala-lumpur-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/my/sepang-district/WMKK",
+        "station_id": "WMKK",
+        "station_name": "Kuala Lumpur Intl Airport Station",
+        "station_iata": "KUL",
+        "station_wmo": "48650",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 2.747,
+        "lon": 101.714,
+        "elevation_m": 21
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "london",
+      "city": "London",
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "timezone": "Europe/London",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "london-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-london-on",
+        "latest_event_slug": "highest-temperature-in-london-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-london-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+        "station_id": "EGLC",
+        "station_name": "London City Airport Station",
+        "station_iata": "LCY",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 51.505,
+        "lon": 0.055,
+        "elevation_m": 10
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "los-angeles",
+      "city": "Los Angeles",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "los-angeles-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-los-angeles-on",
+        "latest_event_slug": "highest-temperature-in-los-angeles-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-los-angeles-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/los-angeles/KLAX",
+        "station_id": "KLAX",
+        "station_name": "Los Angeles International Airport Station",
+        "station_iata": "LAX",
+        "station_wmo": "72295",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 33.93817,
+        "lon": -118.3866,
+        "elevation_m": 30
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "lucknow",
+      "city": "Lucknow",
+      "country": "India",
+      "country_code": "IN",
+      "timezone": "Asia/Kolkata",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "lucknow-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-lucknow-on",
+        "latest_event_slug": "highest-temperature-in-lucknow-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-lucknow-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/in/lucknow/VILK",
+        "station_id": "VILK",
+        "station_name": "Chaudhary Charan Singh Intl Airport Station",
+        "station_iata": "LKO",
+        "station_wmo": "42369",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 26.761,
+        "lon": 80.889,
+        "elevation_m": 121
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "madrid",
+      "city": "Madrid",
+      "country": "Spain",
+      "country_code": "ES",
+      "timezone": "Europe/Madrid",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "madrid-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-madrid-on",
+        "latest_event_slug": "highest-temperature-in-madrid-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-madrid-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/es/madrid/LEMD",
+        "station_id": "LEMD",
+        "station_name": "Adolfo Suarez Madrid-Barajas Airport Station",
+        "station_iata": "MAD",
+        "station_wmo": "08221",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 40.466,
+        "lon": -3.555,
+        "elevation_m": 589
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "manila",
+      "city": "Manila",
+      "country": "Philippines",
+      "country_code": "PH",
+      "timezone": "Asia/Manila",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "manila-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-manila-on",
+        "latest_event_slug": "highest-temperature-in-manila-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-manila-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/ph/manila/RPLL",
+        "station_id": "RPLL",
+        "station_name": "Ninoy Aquino International Airport Station",
+        "station_iata": "MNL",
+        "station_wmo": "98429",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 14.507,
+        "lon": 121.004,
+        "elevation_m": 15
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "mexico-city",
+      "city": "Mexico City",
+      "country": "Mexico",
+      "country_code": "MX",
+      "timezone": "America/Mexico_City",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "mexico-city-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-mexico-city-on",
+        "latest_event_slug": "highest-temperature-in-mexico-city-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-mexico-city-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/mx/mexico-city/MMMX",
+        "station_id": "MMMX",
+        "station_name": "Benito Juarez International Airport Station",
+        "station_iata": "MEX",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 19.436,
+        "lon": -99.072,
+        "elevation_m": 2224
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "miami",
+      "city": "Miami",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "miami-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-miami-on",
+        "latest_event_slug": "highest-temperature-in-miami-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-miami-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/fl/miami/KMIA",
+        "station_id": "KMIA",
+        "station_name": "Miami Intl Airport Station",
+        "station_iata": "MIA",
+        "station_wmo": "72202",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 25.78806,
+        "lon": -80.31692,
+        "elevation_m": 1
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "milan",
+      "city": "Milan",
+      "country": "Italy",
+      "country_code": "IT",
+      "timezone": "Europe/Rome",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "milan-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-milan-on",
+        "latest_event_slug": "highest-temperature-in-milan-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-milan-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/it/milan/LIMC",
+        "station_id": "LIMC",
+        "station_name": "Malpensa Intl Airport Station",
+        "station_iata": "MXP",
+        "station_wmo": "16066",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 45.631,
+        "lon": 8.728,
+        "elevation_m": 221
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "moscow",
+      "city": "Moscow",
+      "country": "Russia",
+      "country_code": "RU",
+      "timezone": "Europe/Moscow",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "moscow-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-moscow-on",
+        "latest_event_slug": "highest-temperature-in-moscow-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-moscow-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "noaa_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=UUWW",
+        "station_id": "UUWW",
+        "station_name": "Vnukovo International Airport",
+        "station_iata": "VKO",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 55.592,
+        "lon": 37.261,
+        "elevation_m": 195
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted."
+      ]
+    },
+    {
+      "id": "munich",
+      "city": "Munich",
+      "country": "Germany",
+      "country_code": "DE",
+      "timezone": "Europe/Berlin",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "munich-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-munich-on",
+        "latest_event_slug": "highest-temperature-in-munich-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-munich-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/de/munich/EDDM",
+        "station_id": "EDDM",
+        "station_name": "Munich Airport Station",
+        "station_iata": "MUC",
+        "station_wmo": "10866",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 48.348,
+        "lon": 11.813,
+        "elevation_m": 445
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "nyc",
+      "city": "NYC",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/New_York",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "nyc-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-nyc-on",
+        "latest_event_slug": "highest-temperature-in-nyc-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-nyc-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/ny/new-york-city/KLGA",
+        "station_id": "KLGA",
+        "station_name": "LaGuardia Airport Station",
+        "station_iata": "LGA",
+        "station_wmo": "72503",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 40.77945,
+        "lon": -73.88027,
+        "elevation_m": 9
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "panama-city",
+      "city": "Panama City",
+      "country": "Panama",
+      "country_code": "PA",
+      "timezone": "America/Panama",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "panama-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-panama-city-on",
+        "latest_event_slug": "highest-temperature-in-panama-city-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-panama-city-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/pa/panama-city/MPMG",
+        "station_id": "MPMG",
+        "station_name": "Marcos A. Gelabert Intl Airport Station",
+        "station_iata": "PAC",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 8.967,
+        "lon": -79.555,
+        "elevation_m": 6
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "paris",
+      "city": "Paris",
+      "country": "France",
+      "country_code": "FR",
+      "timezone": "Europe/Paris",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "paris-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-paris-on",
+        "latest_event_slug": "highest-temperature-in-paris-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-paris-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+        "station_id": "LFPB",
+        "station_name": "Paris-Le Bourget Airport Station",
+        "station_iata": "LBG",
+        "station_wmo": "07150",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 48.967,
+        "lon": 2.428,
+        "elevation_m": 50
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "qingdao",
+      "city": "Qingdao",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "qingdao-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-qingdao-on",
+        "latest_event_slug": "highest-temperature-in-qingdao-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-qingdao-on-june-7-2026",
+        "source_event_count": 1,
+        "source_event_dates": [
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/qingdao/ZSQD",
+        "station_id": "ZSQD",
+        "station_name": "Qingdao Jiaodong International Airport Station",
+        "station_iata": "TAO",
+        "station_wmo": "54857",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 36.362,
+        "lon": 120.087,
+        "elevation_m": 2
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "san-francisco",
+      "city": "San Francisco",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "san-francisco-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-san-francisco-on",
+        "latest_event_slug": "highest-temperature-in-san-francisco-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-san-francisco-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/san-francisco/KSFO",
+        "station_id": "KSFO",
+        "station_name": "San Francisco International Airport Station",
+        "station_iata": "SFO",
+        "station_wmo": "72494",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 37.61961,
+        "lon": -122.36561,
+        "elevation_m": 2
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "sao-paulo",
+      "city": "Sao Paulo",
+      "country": "Brazil",
+      "country_code": "BR",
+      "timezone": "America/Sao_Paulo",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "sao-paulo-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-sao-paulo-on",
+        "latest_event_slug": "highest-temperature-in-sao-paulo-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-sao-paulo-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/br/guarulhos/SBGR",
+        "station_id": "SBGR",
+        "station_name": "Sao Paulo-Guarulhos International Airport Station",
+        "station_iata": "GRU",
+        "station_wmo": "83075",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": -23.432,
+        "lon": -46.469,
+        "elevation_m": 745
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "seattle",
+      "city": "Seattle",
+      "country": "United States",
+      "country_code": "US",
+      "timezone": "America/Los_Angeles",
+      "market_unit": "F",
+      "polymarket": {
+        "series_slug": "seattle-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-seattle-on",
+        "latest_event_slug": "highest-temperature-in-seattle-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-seattle-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/us/wa/seatac/KSEA",
+        "station_id": "KSEA",
+        "station_name": "Seattle-Tacoma International Airport Station",
+        "station_iata": "SEA",
+        "station_wmo": "72793",
+        "precision": "whole_degree",
+        "unit": "F"
+      },
+      "coordinates": {
+        "lat": 47.44467,
+        "lon": -122.31442,
+        "elevation_m": 115
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Market bands settle in Fahrenheit; keep model internals/native units aligned with market_unit."
+      ]
+    },
+    {
+      "id": "seoul",
+      "city": "Seoul",
+      "country": "South Korea",
+      "country_code": "KR",
+      "timezone": "Asia/Seoul",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "seoul-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-seoul-on",
+        "latest_event_slug": "highest-temperature-in-seoul-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-seoul-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/kr/incheon/RKSI",
+        "station_id": "RKSI",
+        "station_name": "Incheon Intl Airport Station",
+        "station_iata": "ICN",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 37.469,
+        "lon": 126.451,
+        "elevation_m": 7
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "shanghai",
+      "city": "Shanghai",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "shanghai-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-shanghai-on",
+        "latest_event_slug": "highest-temperature-in-shanghai-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-shanghai-on-june-7-2026",
+        "source_event_count": 1,
+        "source_event_dates": [
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD",
+        "station_id": "ZSPD",
+        "station_name": "Shanghai Pudong International Airport Station",
+        "station_iata": "PVG",
+        "station_wmo": null,
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 31.146,
+        "lon": 121.8,
+        "elevation_m": 4
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "shenzhen",
+      "city": "Shenzhen",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "shenzhen-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-shenzhen-on",
+        "latest_event_slug": "highest-temperature-in-shenzhen-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-shenzhen-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shenzhen/ZGSZ",
+        "station_id": "ZGSZ",
+        "station_name": "Shenzhen Bao'an International Airport Station",
+        "station_iata": "SZX",
+        "station_wmo": "59493",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 22.639,
+        "lon": 113.803,
+        "elevation_m": 18
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "singapore",
+      "city": "Singapore",
+      "country": "Singapore",
+      "country_code": "SG",
+      "timezone": "Asia/Singapore",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "singapore-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-singapore-on",
+        "latest_event_slug": "highest-temperature-in-singapore-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-singapore-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/sg/singapore/WSSS",
+        "station_id": "WSSS",
+        "station_name": "Singapore Changi Airport Station",
+        "station_iata": "SIN",
+        "station_wmo": "48698",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 1.368,
+        "lon": 103.982,
+        "elevation_m": 17
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "taipei",
+      "city": "Taipei",
+      "country": "Taiwan",
+      "country_code": "TW",
+      "timezone": "Asia/Taipei",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "taipei-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-taipei-on",
+        "latest_event_slug": "highest-temperature-in-taipei-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-taipei-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/tw/taipei/RCSS",
+        "station_id": "RCSS",
+        "station_name": "Taipei Songshan Airport Station",
+        "station_iata": "TSA",
+        "station_wmo": "46696",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 25.069,
+        "lon": 121.552,
+        "elevation_m": 8
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "tel-aviv",
+      "city": "Tel Aviv",
+      "country": "Israel",
+      "country_code": "IL",
+      "timezone": "Asia/Jerusalem",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "tel-aviv-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-tel-aviv-on",
+        "latest_event_slug": "highest-temperature-in-tel-aviv-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-tel-aviv-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "noaa_wrh_timeseries",
+        "resolution_source_url": "https://www.weather.gov/wrh/timeseries?site=LLBG",
+        "station_id": "LLBG",
+        "station_name": "Ben Gurion International Airport",
+        "station_iata": "TLV",
+        "station_wmo": "40180",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 32.011,
+        "lon": 34.887,
+        "elevation_m": 35
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "Non-Wunderground settlement source; needs a dedicated adapter before hard settlement floors are trusted."
+      ]
+    },
+    {
+      "id": "tokyo",
+      "city": "Tokyo",
+      "country": "Japan",
+      "country_code": "JP",
+      "timezone": "Asia/Tokyo",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "tokyo-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-tokyo-on",
+        "latest_event_slug": "highest-temperature-in-tokyo-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
+        "station_id": "RJTT",
+        "station_name": "Tokyo Haneda Airport Station",
+        "station_iata": "HND",
+        "station_wmo": "47671",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 35.553,
+        "lon": 139.781,
+        "elevation_m": 5
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "toronto",
+      "city": "Toronto",
+      "country": "Canada",
+      "country_code": "CA",
+      "timezone": "America/Toronto",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "toronto-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-toronto-on",
+        "latest_event_slug": "highest-temperature-in-toronto-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-toronto-on-june-7-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/ca/mississauga/CYYZ",
+        "station_id": "CYYZ",
+        "station_name": "Toronto Pearson Intl Airport Station",
+        "station_iata": "YYZ",
+        "station_wmo": "71624",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 43.679,
+        "lon": -79.629,
+        "elevation_m": 171
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "eccc_citypage",
+        "eccc_swob",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "warsaw",
+      "city": "Warsaw",
+      "country": "Poland",
+      "country_code": "PL",
+      "timezone": "Europe/Warsaw",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "warsaw-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-warsaw-on",
+        "latest_event_slug": "highest-temperature-in-warsaw-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-warsaw-on-june-8-2026",
+        "source_event_count": 3,
+        "source_event_dates": [
+          "2026-06-06",
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/pl/warsaw/EPWA",
+        "station_id": "EPWA",
+        "station_name": "Warsaw Chopin Airport Station",
+        "station_iata": "WAW",
+        "station_wmo": "12375",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 52.163,
+        "lon": 20.961,
+        "elevation_m": 107
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "wellington",
+      "city": "Wellington",
+      "country": "New Zealand",
+      "country_code": "NZ",
+      "timezone": "Pacific/Auckland",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "wellington-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-wellington-on",
+        "latest_event_slug": "highest-temperature-in-wellington-on-june-7-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-june-7-2026",
+        "source_event_count": 1,
+        "source_event_dates": [
+          "2026-06-07"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/nz/wellington/NZWN",
+        "station_id": "NZWN",
+        "station_name": "Wellington Intl Airport Station",
+        "station_iata": "WLG",
+        "station_wmo": "93436",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": -41.331,
+        "lon": 174.806,
+        "elevation_m": 12
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "wuhan",
+      "city": "Wuhan",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": "wuhan-daily-weather",
+        "event_slug_prefix": "highest-temperature-in-wuhan-on",
+        "latest_event_slug": "highest-temperature-in-wuhan-on-june-8-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wuhan-on-june-8-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-06-07",
+          "2026-06-08"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/wuhan/ZHHH",
+        "station_id": "ZHHH",
+        "station_name": "Wuhan Tianhe International Airport Station",
+        "station_iata": "WUH",
+        "station_wmo": "57494",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 30.783,
+        "lon": 114.205,
+        "elevation_m": 33
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": []
+    },
+    {
+      "id": "zhengzhou",
+      "city": "Zhengzhou",
+      "country": "China",
+      "country_code": "CN",
+      "timezone": "Asia/Shanghai",
+      "market_unit": "C",
+      "polymarket": {
+        "series_slug": null,
+        "event_slug_prefix": "highest-temperature-in-zhengzhou-on",
+        "latest_event_slug": "highest-temperature-in-zhengzhou-on-may-21-2026",
+        "latest_event_url": "https://polymarket.com/event/highest-temperature-in-zhengzhou-on-may-21-2026",
+        "source_event_count": 2,
+        "source_event_dates": [
+          "2026-05-20",
+          "2026-05-21"
+        ]
+      },
+      "settlement": {
+        "source_type": "wunderground_history",
+        "resolution_source_url": "https://www.wunderground.com/history/daily/cn/zhengzhou/ZHCC",
+        "station_id": "ZHCC",
+        "station_name": "Zhengzhou Xinzheng International Airport Station",
+        "station_iata": "CGO",
+        "station_wmo": "57083",
+        "precision": "whole_degree",
+        "unit": "C"
+      },
+      "coordinates": {
+        "lat": 34.52,
+        "lon": 113.834,
+        "elevation_m": 149
+      },
+      "live_source_plan": [
+        "settlement_history",
+        "settlement_current",
+        "metar",
+        "weather_forecast",
+        "open_meteo"
+      ],
+      "notes": [
+        "No Polymarket seriesSlug was present in the active Gamma API event; likely lower priority or non-recurring seed."
+      ]
+    }
+  ]
+}
