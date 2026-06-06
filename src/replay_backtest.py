@@ -54,13 +54,11 @@ from backtest import (
     markdown_table,
     reliability,
     resolve_outcome,
-    resolve_outcome_fahrenheit,
     safe_float,
     score_rows,
     settlement_for_tape,
 )
 from market_config import date_from_event_slug
-from market_registry import spec_for_slug
 from replay import (
     band_model_probability,
     distribution_l1,
@@ -195,12 +193,6 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         target_date = date_from_event_slug(slug)
         date_label = target_date.isoformat() if target_date else slug
         bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
-        spec = spec_for_slug(slug)
-        unit = spec.display_unit if spec else "C"
-        realized_c = None
-        if unit == "F" and "wu_history_high_c" in df:
-            _vals = pd.to_numeric(df["wu_history_high_c"], errors="coerce")
-            realized_c = float(_vals.max()) if _vals.notna().any() else None
 
         day_rows = []
         for snapshot_id, group in df.groupby("snapshot_id"):
@@ -229,12 +221,9 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
 
             for _, band_series in group.iterrows():
                 band = band_series.to_dict()
-                if unit == "F":
-                    outcome = resolve_outcome_fahrenheit(
-                        band.get("bin_kind"), band.get("bin_value_c"),
-                        band_value_hi(band.get("range_label"), band.get("bin_value_c")), realized_c)
-                else:
-                    outcome = resolve_outcome(band.get("bin_kind"), band.get("bin_value_c"), bucket)
+                outcome = resolve_outcome(
+                    band.get("bin_kind"), band.get("bin_value_c"), bucket,
+                    value_hi=band_value_hi(band.get("range_label"), band.get("bin_value_c")))
                 if outcome is None:
                     continue
                 market_yes = safe_float(band.get("market_yes"))

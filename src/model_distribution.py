@@ -158,12 +158,13 @@ class DistributionMixin:
                 LATE_LOCKIN_FULL_HOUR - LATE_LOCKIN_START_HOUR
             )
         drop = history_max - current_reading
+        peak_drop = self.spec.scale_delta(LATE_LOCKIN_PEAK_DROP)
         if drop <= 0:
             peak_factor = 0.0  # temperature still at/above the high: it could rise
-        elif drop >= LATE_LOCKIN_PEAK_DROP:
+        elif drop >= peak_drop:
             peak_factor = 1.0
         else:
-            peak_factor = drop / LATE_LOCKIN_PEAK_DROP
+            peak_factor = drop / peak_drop
         return time_factor * peak_factor
 
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour):
@@ -202,16 +203,17 @@ class DistributionMixin:
         vals = [float(v) for v in forecasts if v is not None]
         if len(vals) < FORECAST_FLOOR_MIN_SOURCES:
             return None
+        agreement = self.spec.scale_delta(FORECAST_AGREEMENT_SPREAD)
         spread = max(vals) - min(vals)
-        if spread > FORECAST_AGREEMENT_SPREAD:
+        if spread > agreement:
             return None
         time_weight = self.forecast_floor_time_weight(hour)
         if time_weight <= 0:
             return None
         anchor = sum(vals) / len(vals)
-        threshold = self.round_half_up(anchor) - FORECAST_FLOOR_MARGIN
+        threshold = self.round_half_up(anchor) - self.spec.scale_delta(FORECAST_FLOOR_MARGIN)
         # Mild penalty for a wider (but still agreeing) spread; never below 0.5.
-        spread_weight = max(0.5, 1.0 - spread / (2 * FORECAST_AGREEMENT_SPREAD))
+        spread_weight = max(0.5, 1.0 - spread / (2 * agreement))
         return threshold, time_weight * spread_weight
 
     def apply_forecast_floor(self, scores, forecasts, hour, observed_bucket):
@@ -246,11 +248,12 @@ class DistributionMixin:
         values = [float(v) for v in forecasts if v is not None]
         if len(values) < FORECAST_FLOOR_MIN_SOURCES:
             return None
+        agreement = self.spec.scale_delta(FORECAST_AGREEMENT_SPREAD)
         spread = max(values) - min(values)
-        if spread > FORECAST_AGREEMENT_SPREAD:
+        if spread > agreement:
             return None
         anchor = sum(values) / len(values)
-        spread_weight = max(0.5, 1.0 - spread / (2 * FORECAST_AGREEMENT_SPREAD))
+        spread_weight = max(0.5, 1.0 - spread / (2 * agreement))
         return self.round_half_up(anchor), spread_weight
 
     def apply_forecast_pull(self, scores, forecasts, hour, observed_bucket, current_observed_bucket):
@@ -331,7 +334,9 @@ class DistributionMixin:
                 for bucket, probability in probabilities.items()
             }
         else:
-            scores = {temp: 1.0 / 25.0 for temp in range(8, 33)}
+            prior_lo = round(self.spec.c_to_native(8))
+            prior_hi = round(self.spec.c_to_native(33))
+            scores = {temp: 1.0 / (prior_hi - prior_lo) for temp in range(prior_lo, prior_hi)}
 
         live_values = [
             history_max,
@@ -363,8 +368,10 @@ class DistributionMixin:
             }
             return {}
 
-        low = min(min(scores), 8, (observed_bucket or max_signal or 16) - 5)
-        high = max(max(scores), 34, (max_signal or observed_bucket or 30) + 4)
+        low = min(min(scores), round(self.spec.c_to_native(8)),
+                  (observed_bucket or max_signal or round(self.spec.c_to_native(16))) - round(self.spec.scale_delta(5)))
+        high = max(max(scores), round(self.spec.c_to_native(34)),
+                   (max_signal or observed_bucket or round(self.spec.c_to_native(30))) + round(self.spec.scale_delta(4)))
         for temp in range(low, high + 1):
             scores.setdefault(temp, 0.0005)
         scores = self.normalize_scores(scores)

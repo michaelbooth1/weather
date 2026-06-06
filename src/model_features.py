@@ -21,7 +21,7 @@ class FeatureModelMixin:
         return self._feature_model_hgb
 
     def _read_feature_model_hgb(self):
-        path = Path(__file__).parent / "feature_model_hgb.pkl"
+        path = Path(__file__).parent / f"feature_model_hgb{self.spec.artifact_suffix}.pkl"
         if path.exists():
             try:
                 import pickle
@@ -37,7 +37,7 @@ class FeatureModelMixin:
         return self._feature_model_coefs
 
     def _read_feature_model_coefs(self):
-        path = Path(__file__).parent / "feature_model_coefs.json"
+        path = Path(__file__).parent / f"feature_model_coefs{self.spec.artifact_suffix}.json"
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:
@@ -440,7 +440,7 @@ class FeatureModelMixin:
         return self._late_day_model_coefs
 
     def _read_late_day_model_coefs(self):
-        path = Path(__file__).parent / "late_day_model_coefs.json"
+        path = Path(__file__).parent / f"late_day_model_coefs{self.spec.artifact_suffix}.json"
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:

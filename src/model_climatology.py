@@ -39,10 +39,13 @@ class ClimatologyMixin:
 
         summary_path = self.spec.data_root / "daily" / "daily_summary.csv"
         if not summary_path.exists():
+            lo, hi = round(self.spec.c_to_native(8)), round(self.spec.c_to_native(35))
             type(self)._historical_target_cache[cache_key] = {
                 "daily": {},
                 "by_date": {},
-                "bucket_space": list(range(8, 35)),
+                "bucket_space": list(range(lo, hi)),
+                "conditional": {},
+                "regime": {},
             }
             return type(self)._historical_target_cache[cache_key]
 

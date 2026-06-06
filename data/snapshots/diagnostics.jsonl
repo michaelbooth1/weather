@@ -858,3 +858,10 @@
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T134127-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T134126-0400", "written": true}}, "time": "2026-06-06T13:41:25.894558-04:00"}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T135129-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T135128-0400", "written": true}}, "time": "2026-06-06T13:51:27.910396-04:00"}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T140132-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T140130-0400", "written": true}}, "time": "2026-06-06T14:01:29.777492-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": null, "written": false}, "toronto": {"error": null, "snapshot_id": null, "written": false}}, "time": "2026-06-06T14:03:07.908610-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T141134-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T141133-0400", "written": true}}, "time": "2026-06-06T14:11:32.437048-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": null, "written": false}, "toronto": {"error": null, "snapshot_id": null, "written": false}}, "time": "2026-06-06T14:13:18.463774-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T142139-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T142136-0400", "written": true}}, "time": "2026-06-06T14:21:34.577841-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": null, "written": false}, "toronto": {"error": null, "snapshot_id": null, "written": false}}, "time": "2026-06-06T14:23:20.251471-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T143142-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T143141-0400", "written": true}}, "time": "2026-06-06T14:31:39.259049-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T143226-0400", "written": true}, "toronto": {"error": null, "snapshot_id": null, "written": false}}, "time": "2026-06-06T14:32:16.426532-04:00"}

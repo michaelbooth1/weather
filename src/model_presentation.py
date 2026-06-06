@@ -437,54 +437,21 @@ class PresentationMixin:
             )
         return notes
 
-    @staticmethod
-    def _fahrenheit_to_celsius(value):
-        return (float(value) - 32.0) * 5.0 / 9.0
-
-    def interval_probability(self, distribution, c_lo, c_hi):
-        """Integrate a canonical-Celsius bucket distribution over [c_lo, c_hi],
-        treating each integer bucket k as the 1 C interval [k-0.5, k+0.5]. This
-        is the unit-agnostic band probability: a Celsius eq/lte/gte band maps to
-        an aligned interval and reproduces the exact-bucket sums, while a
-        Fahrenheit range maps to a fractional interval."""
-        total = 0.0
-        for temp, prob in distribution.items():
-            overlap = min(temp + 0.5, c_hi) - max(temp - 0.5, c_lo)
-            if overlap > 0:
-                total += prob * overlap  # bucket width is 1, so overlap == the fraction
-        return total
-
-    def fahrenheit_bin_probability(self, distribution, bin_data):
-        """Probability a Fahrenheit market band contains the realized high,
-        from the canonical-Celsius model distribution. Uncalibrated -- a
-        bootstrap for new F markets; per-market calibration arrives with the
-        pooled model."""
-        value = float(bin_data["value"])
-        value_hi = float(bin_data.get("value_hi", value))
-        kind = bin_data["kind"]
-        inf = float("inf")
-        if kind == "lte":
-            c_lo, c_hi = -inf, self._fahrenheit_to_celsius(value + 0.5)
-        elif kind == "gte":
-            c_lo, c_hi = self._fahrenheit_to_celsius(value - 0.5), inf
-        else:  # eq / range: F highs in [value, value_hi] -> true temp [value-0.5, value_hi+0.5] F
-            c_lo = self._fahrenheit_to_celsius(value - 0.5)
-            c_hi = self._fahrenheit_to_celsius(value_hi + 0.5)
-        return self.interval_probability(distribution, c_lo, c_hi)
-
     def bin_probability(self, distribution, bin_data):
+        """Probability a market band contains the realized high. Each market runs
+        in its native unit, so the distribution buckets and the band values are
+        already in the same unit -- this is a plain native sum (range bands sum
+        ``[value, value_hi]``), no cross-unit conversion."""
         if not distribution:
             return 0.0
-        unit = bin_data.get("unit") or getattr(getattr(self, "spec", None), "display_unit", "C")
-        if unit == "F":
-            return self.fahrenheit_bin_probability(distribution, bin_data)
         value = bin_data["value"]
+        value_hi = bin_data.get("value_hi", value)
         if bin_data["kind"] == "lte":
             raw_probability = sum(prob for temp, prob in distribution.items() if temp <= value)
         elif bin_data["kind"] == "gte":
             raw_probability = sum(prob for temp, prob in distribution.items() if temp >= value)
-        else:
-            raw_probability = distribution.get(value, 0.0)
+        else:  # exact bucket (value_hi == value) or a range band [value, value_hi]
+            raw_probability = sum(prob for temp, prob in distribution.items() if value <= temp <= value_hi)
         return calibrate_market_probability(
             raw_probability,
             bin_data,

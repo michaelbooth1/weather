@@ -11,7 +11,7 @@
     2026
   ],
   "endpoint": "https://historical-forecast-api.open-meteo.com/v1/forecast",
-  "generated_at": "2026-06-04T20:50:34.180023",
+  "generated_at": "2026-06-06T14:34:35.772173",
   "market": "nyc",
   "params": {
     "hourly": "temperature_2m",

@@ -55,20 +55,21 @@ DEFAULT_DATA_ROOT = Path("data") / "wunderground" / "cyyz"
 
 class WundergroundHistoryClient:
     def __init__(self, api_key=WEATHER_COM_KEY, timeout=20, sleep_seconds=0.2,
-                 history_id=CYYZ_HISTORY_ID):
+                 history_id=CYYZ_HISTORY_ID, units="m"):
         self.api_key = api_key
         self.timeout = timeout
         self.sleep_seconds = sleep_seconds
         self.history_id = history_id
+        self.units = units  # 'm' (Celsius) or 'e' (Fahrenheit) -- the market's native unit
         self.url = (
             "https://api.weather.com/v1/location/"
             f"{history_id}/observations/historical.json"
         )
 
-    def fetch_range(self, start_date, end_date, units="m"):
+    def fetch_range(self, start_date, end_date, units=None):
         params = {
             "apiKey": self.api_key,
-            "units": units,
+            "units": units or self.units,
             "startDate": start_date.strftime("%Y%m%d"),
             "endDate": end_date.strftime("%Y%m%d"),
         }
@@ -76,7 +77,7 @@ class WundergroundHistoryClient:
         response.raise_for_status()
         return response.json()
 
-    def fetch_chunks(self, start_date, end_date, chunk_days=14, units="m"):
+    def fetch_chunks(self, start_date, end_date, chunk_days=14, units=None):
         current = start_date
         while current <= end_date:
             chunk_end = min(current + timedelta(days=chunk_days - 1), end_date)
@@ -485,7 +486,9 @@ def cmd_backfill(args):
     spec, data_root = _resolve(args)
     start_date = parse_date(args.start)
     end_date = parse_date(args.end)
-    client = WundergroundHistoryClient(sleep_seconds=args.sleep, history_id=spec.wu_history_id)
+    client = WundergroundHistoryClient(
+        sleep_seconds=args.sleep, history_id=spec.wu_history_id, units=spec.wu_units
+    )
     store = _store_for(spec, data_root)
     for chunk_start, chunk_end, payload in client.fetch_chunks(
         start_date, end_date, chunk_days=args.chunk_days

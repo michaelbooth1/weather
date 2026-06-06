@@ -203,7 +203,7 @@ class SourceFetchMixin:
         )
         payload = self.get_json(url, {
             "apiKey": WEATHER_COM_KEY,
-            "units": "m",
+            "units": self.spec.wu_units,
             "startDate": self.target_date_str,
             "endDate": self.target_date_str,
         })
@@ -252,7 +252,7 @@ class SourceFetchMixin:
         data = self.get_json(url, {
             "apiKey": WEATHER_COM_KEY,
             "language": "en-US",
-            "units": "m",
+            "units": self.spec.wu_units,
             "format": "json",
             "icaoCode": self.spec.icao,
         })
@@ -433,8 +433,10 @@ class SourceFetchMixin:
             "url": url,
             "report_time": row.get("reportTime"),
             "target_date_match": is_target_day,
-            "temp_c": self.to_number(row.get("temp")) if is_target_day else None,
-            "dewpoint_c": self.to_number(row.get("dewp")) if is_target_day else None,
+            # METAR temps are always Celsius from the API; convert to the
+            # market's native unit so all features share one unit.
+            "temp_c": self.spec.c_to_native(self.to_number(row.get("temp"))) if is_target_day else None,
+            "dewpoint_c": self.spec.c_to_native(self.to_number(row.get("dewp"))) if is_target_day else None,
             "wind_dir": row.get("wdir"),
             "wind_speed": self.to_number(row.get("wspd")) if is_target_day else None,
             "wind_gust": self.to_number(row.get("wgst")) if is_target_day else None,
@@ -447,7 +449,7 @@ class SourceFetchMixin:
         payload = self.get_json(url, {
             "apiKey": WEATHER_COM_KEY,
             "geocode": f"{self.spec.lat},{self.spec.lon}",
-            "units": "m",
+            "units": self.spec.wu_units,
             "language": "en-US",
             "format": "json",
         })
@@ -477,7 +479,7 @@ class SourceFetchMixin:
                 "temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,"
                 "cloud_cover_high,wind_speed_10m,shortwave_radiation"
             ),
-            "temperature_unit": "celsius",
+            "temperature_unit": self.spec.om_temperature_unit,
             "wind_speed_unit": "kmh",
             "timezone": self.spec.timezone,
             "forecast_days": 2,

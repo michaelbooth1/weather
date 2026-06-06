@@ -1,8 +1,8 @@
 {
-  "code_version": "git:ce680c9581ade38e726aa2d09e4c7778f927e520",
+  "code_version": "git:380038fc34289981134dd6e31e4605e6b6073a5c",
   "daily_record_count": 427,
   "first_date": "2019-05-01",
-  "generated_at": "2026-06-05T00:51:46.070208+00:00",
+  "generated_at": "2026-06-06T18:35:41.386922+00:00",
   "history_id": "KLGA:9:US",
   "hourly_record_count": 12139,
   "last_date": "2025-06-30",
@@ -15,72 +15,72 @@
     {
       "path": "hourly/year=2019/month=05/observations.jsonl",
       "row_count": 984,
-      "sha256": "832b606d91c3ca0d401cdbe3145407aacebf9f0bf08c36f49de30fbd3da9b94a"
+      "sha256": "3ce6133435a04127ec5bbd3419fc9b690fe47e7b1fe165f43dafbd3436d0d2f9"
     },
     {
       "path": "hourly/year=2019/month=06/observations.jsonl",
       "row_count": 886,
-      "sha256": "0782e8818fb8bf3152a52736b1fdd0b56159e5bac124e8f852deb7660f52c290"
+      "sha256": "7eba7ddbc91d7b079e7f340d21e5c68c96f438c25fd97474c6a23737bedf743c"
     },
     {
       "path": "hourly/year=2020/month=05/observations.jsonl",
       "row_count": 888,
-      "sha256": "ef646351445ea4cd7d4509f2bbc2906124b31403006556cb05fc0bbcb376aa13"
+      "sha256": "346b285c452a8c0a7219b2cee96737984930ea598bdd51d5975250eb1e0d7232"
     },
     {
       "path": "hourly/year=2020/month=06/observations.jsonl",
       "row_count": 779,
-      "sha256": "cfa686f7fd78edcb9da2fee448715182d8a5eef5bf4378a40a159db903b32539"
+      "sha256": "e86164501ebdf7e9be2e2e5441b309921521153b3f51ebd9b7a47ff7207f16fa"
     },
     {
       "path": "hourly/year=2021/month=05/observations.jsonl",
       "row_count": 834,
-      "sha256": "daa1f60e278356145fac04685a76abeed85129ee6b952335996a8ad0162a4bbb"
+      "sha256": "75bf0a718b59ec03fddaf70316e2ef15492f1c26c75815e893a3cef5f17d2fc5"
     },
     {
       "path": "hourly/year=2021/month=06/observations.jsonl",
       "row_count": 811,
-      "sha256": "77595249271d6155fef9af20af7b7bb090c00654844ce18360965852020d16f7"
+      "sha256": "160355682ed9ec02579559f798ff0fb47e9f555a9d65193ad62ca95c4ce3a3dc"
     },
     {
       "path": "hourly/year=2022/month=05/observations.jsonl",
       "row_count": 972,
-      "sha256": "c76baa324896742d8f77f213d623fb84490c704b7ad4743f39e701985c53bca5"
+      "sha256": "1d85cf3fc7c0aaf50835a229b307b93e2ca41bc5cec308cdce0a1721f5fe0450"
     },
     {
       "path": "hourly/year=2022/month=06/observations.jsonl",
       "row_count": 842,
-      "sha256": "e3d04cc290e1176ffdceed721be3f199b4712e7a880755dafca264fd21755e5b"
+      "sha256": "7b759a6404cb6836a8f5489dcc0b38b067544e128793ff3d13fbc9a193d3f0af"
     },
     {
       "path": "hourly/year=2023/month=05/observations.jsonl",
       "row_count": 787,
-      "sha256": "2a23e64ad8e2020085abde727d36e534d102a3ca5fee5393e22436c43f422f47"
+      "sha256": "0adc072f1e0bf3445488e80db01ca03aee673cf3795bcd6780a755b9a62ae153"
     },
     {
       "path": "hourly/year=2023/month=06/observations.jsonl",
       "row_count": 842,
-      "sha256": "e7df77677f32e7b6498a0023ecf66c5ad0d955988612b834f28dca4e3f57d49d"
+      "sha256": "8d0919077cc747140bf502277ac0d469967b61cf30cfd5fa5c4511583ea97ebf"
     },
     {
       "path": "hourly/year=2024/month=05/observations.jsonl",
       "row_count": 901,
-      "sha256": "3ee45dc3f940472879290be27b2e86d4504388d2f054231abf2e2766e5ad0a03"
+      "sha256": "14a1e228f9ea696f121d7e2d00f9c71b804f216974bf0e7bf4052b6191996e15"
     },
     {
       "path": "hourly/year=2024/month=06/observations.jsonl",
       "row_count": 792,
-      "sha256": "3b9829e84843bba597593774529194c7051a177ee4fefb3df988362a97adcf6f"
+      "sha256": "fa662a7a2b790a70ee66e0df5ae5a4ecb42ed152ee753ab12dfaba9cd408c284"
     },
     {
       "path": "hourly/year=2025/month=05/observations.jsonl",
       "row_count": 964,
-      "sha256": "710a635b84f705aac3f26bfa7f1505077d870e4ae0fcf8d9bfad13f15b256a8c"
+      "sha256": "bc2f6d267085c1bd99a4f881f070e33fba4ab939e7a9f75ae83fa3743641e41d"
     },
     {
       "path": "hourly/year=2025/month=06/observations.jsonl",
       "row_count": 857,
-      "sha256": "cc7b1691c1d5e6c0a33d07df36cad862d3ec1babe79e49779b0b4bf72311082a"
+      "sha256": "1b0a564e6edcf3422996af531d5cbebda3ebc481ebcfd03273fb7b4eba79b592"
     }
   ],
   "source_details": {

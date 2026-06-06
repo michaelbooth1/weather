@@ -83,7 +83,7 @@ class TorontoHighTempModel(
             self.set_target_date(config.target_date)
 
     def load_calibrated_weights(self):
-        path = Path(__file__).parent / "calibrated_weights.json"
+        path = Path(__file__).parent / f"calibrated_weights{self.spec.artifact_suffix}.json"
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:
@@ -93,15 +93,15 @@ class TorontoHighTempModel(
         return None
 
     def load_probability_calibration(self):
-        path = Path(__file__).parent / "probability_calibration.json"
+        path = Path(__file__).parent / f"probability_calibration{self.spec.artifact_suffix}.json"
         return load_probability_calibration(path)
 
     def load_forecast_error_model(self):
-        path = Path(__file__).parent / "forecast_error_model.json"
+        path = Path(__file__).parent / f"forecast_error_model{self.spec.artifact_suffix}.json"
         return load_forecast_error_model(path)
 
     def load_settlement_lag_model(self):
-        path = Path(__file__).parent / "settlement_lag_model.json"
+        path = Path(__file__).parent / f"settlement_lag_model{self.spec.artifact_suffix}.json"
         return load_settlement_lag_model(path)
 
     def calibrated_hour_config(self, cutoff_hour):

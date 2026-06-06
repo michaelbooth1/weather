@@ -63,6 +63,7 @@ def fetch_year_forecast(year, spec=TORONTO, timeout=30):
             "start_date": start,
             "end_date": end,
             "hourly": "temperature_2m",
+            "temperature_unit": spec.om_temperature_unit,
             "timezone": spec.timezone,
         }, timeout=timeout)
         resp.raise_for_status()

@@ -39,6 +39,46 @@ class MarketSpec:
         """Per-market local data root (climatology summary, last-good cache)."""
         return Path("data") / "wunderground" / self.icao.lower()
 
+    # --- Native-unit operation --------------------------------------------
+    # Every market runs end-to-end in its own unit (display_unit): C markets in
+    # Celsius, F markets in Fahrenheit. These helpers translate the pipeline's
+    # Celsius-authored constants into the market's unit, so a single code path
+    # serves both. For C markets they are the identity (Toronto byte-identical).
+
+    @property
+    def unit(self):
+        return self.display_unit
+
+    @property
+    def is_fahrenheit(self):
+        return self.display_unit == "F"
+
+    @property
+    def wu_units(self):
+        """Weather.com units param: 'e' (English/F) or 'm' (metric/C)."""
+        return "e" if self.is_fahrenheit else "m"
+
+    @property
+    def om_temperature_unit(self):
+        return "fahrenheit" if self.is_fahrenheit else "celsius"
+
+    @property
+    def artifact_suffix(self):
+        """Model-artifact filename suffix per unit family ('' for C, '_f' for F)."""
+        return "_f" if self.is_fahrenheit else ""
+
+    def c_to_native(self, celsius):
+        """Convert an absolute Celsius temperature/bucket to the market's unit."""
+        if celsius is None:
+            return None
+        return celsius * 9.0 / 5.0 + 32.0 if self.is_fahrenheit else celsius
+
+    def scale_delta(self, celsius_delta):
+        """Convert a Celsius *difference* (margin/spread/drop) to the market's unit."""
+        if celsius_delta is None:
+            return None
+        return celsius_delta * 9.0 / 5.0 if self.is_fahrenheit else celsius_delta
+
 
 TORONTO = MarketSpec(
     id="toronto",
