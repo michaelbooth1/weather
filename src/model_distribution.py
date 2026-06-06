@@ -47,8 +47,12 @@ FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (sof
 # reach-rate. One-directional (never lowers an already-confident model),
 # time-decayed (the observed high takes over by mid-afternoon), and capped at the
 # reach-rate so it trusts the forecast's track record, not blindly the top bucket.
-FORECAST_PULL_TARGET_REACH = 0.70   # measured 09:00 reach-rate (forecast_tracker)
-FORECAST_PULL_START_HOUR = 11       # full strength at/under this hour
+FORECAST_PULL_TARGET_REACH = 0.85   # the morning forecast is reached ~78-88% of the
+                                    # time (forecast_tracker + reach probe); the model
+                                    # was under-calling at ~72%, so target the measured
+                                    # reach-rate (the pull weight still hedges below it).
+FORECAST_PULL_START_HOUR = 12       # full strength through noon (the high usually is
+                                    # not reached until mid-afternoon)
 FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 
 # --- Live-observed floor ----------------------------------------------------

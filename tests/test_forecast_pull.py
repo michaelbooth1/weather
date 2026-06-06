@@ -5,6 +5,11 @@ import unittest
 sys.path.insert(0, os.path.abspath("src"))
 
 from toronto_model import TorontoHighTempModel
+from model_distribution import (
+    FORECAST_PULL_END_HOUR,
+    FORECAST_PULL_START_HOUR,
+    FORECAST_PULL_TARGET_REACH,
+)
 
 
 def p_ge(dist, bucket):
@@ -16,11 +21,14 @@ class TestForecastPullTimeWeight(unittest.TestCase):
         self.m = TorontoHighTempModel()
 
     def test_weight_curve(self):
-        self.assertEqual(self.m.forecast_pull_time_weight(10), 1.0)   # morning: full
-        self.assertEqual(self.m.forecast_pull_time_weight(11), 1.0)
-        self.assertEqual(self.m.forecast_pull_time_weight(16), 0.0)   # mid-afternoon: off
-        self.assertEqual(self.m.forecast_pull_time_weight(20), 0.0)
-        self.assertAlmostEqual(self.m.forecast_pull_time_weight(13), (16 - 13) / 5)
+        self.assertEqual(self.m.forecast_pull_time_weight(FORECAST_PULL_START_HOUR), 1.0)  # full
+        self.assertEqual(self.m.forecast_pull_time_weight(FORECAST_PULL_START_HOUR - 1), 1.0)
+        self.assertEqual(self.m.forecast_pull_time_weight(FORECAST_PULL_END_HOUR), 0.0)    # off
+        self.assertEqual(self.m.forecast_pull_time_weight(FORECAST_PULL_END_HOUR + 4), 0.0)
+        mid = (FORECAST_PULL_START_HOUR + FORECAST_PULL_END_HOUR) // 2
+        span = FORECAST_PULL_END_HOUR - FORECAST_PULL_START_HOUR
+        self.assertAlmostEqual(self.m.forecast_pull_time_weight(mid),
+                               (FORECAST_PULL_END_HOUR - mid) / span)
 
 
 class TestApplyForecastPull(unittest.TestCase):
@@ -35,18 +43,19 @@ class TestApplyForecastPull(unittest.TestCase):
             observed_bucket=23, current_observed_bucket=23,
         )
         self.assertAlmostEqual(sum(out.values()), 1.0, places=9)
-        # P(>=29) lifted from 0.15 toward the 0.70 target, but never past it.
+        # P(>=29) lifted from 0.15 toward the reach-rate target, but never past it.
         self.assertGreater(p_ge(out, 29), 0.50)
-        self.assertLessEqual(p_ge(out, 29), 0.70 + 1e-9)
+        self.assertLessEqual(p_ge(out, 29), FORECAST_PULL_TARGET_REACH + 1e-9)
         self.assertLess(out[27], self.under[27])  # body gave up mass
 
     def test_one_directional_noop_when_already_confident(self):
-        confident = {28: 0.2, 29: 0.5, 30: 0.3}  # P(>=29)=0.8 > target
+        # Already above the target -> the one-directional pull must leave it alone.
+        confident = {28: 0.05, 29: 0.45, 30: 0.50}  # P(>=29)=0.95 > target
         out = self.m.apply_forecast_pull(
             confident, forecasts=[29, 29], hour=9,
             observed_bucket=23, current_observed_bucket=23,
         )
-        self.assertAlmostEqual(p_ge(out, 29), 0.8, places=6)  # unchanged
+        self.assertAlmostEqual(p_ge(out, 29), 0.95, places=6)  # unchanged
 
     def test_noop_when_forecasts_disagree(self):
         out = self.m.apply_forecast_pull(

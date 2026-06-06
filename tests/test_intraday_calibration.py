@@ -375,7 +375,10 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 19.8}]}},
         }
 
-        distribution = model.estimate_distribution(sources)
+        # Fixed afternoon time: deterministic, and isolates the (non-floor) eccc_swob
+        # behavior from the morning-only forecast pull.
+        now = datetime(2026, 5, 28, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
+        distribution = model.estimate_distribution(sources, now=now)
         explanation = model.get_model_explanation(sources, distribution)
 
         self.assertEqual(explanation["observed_floor"], 19)
