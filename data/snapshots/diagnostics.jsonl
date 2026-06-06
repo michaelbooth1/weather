@@ -836,3 +836,6 @@
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T095943-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T095941-0400", "written": true}}, "time": "2026-06-06T09:59:39.884192-04:00"}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T100945-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T100944-0400", "written": true}}, "time": "2026-06-06T10:09:43.113031-04:00"}
 {"markets": {"nyc": {"error": null, "snapshot_id": "20260606T101956-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T101954-0400", "written": true}}, "time": "2026-06-06T10:19:45.557420-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T102958-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T102957-0400", "written": true}}, "time": "2026-06-06T10:29:56.350140-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T104004-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T103959-0400", "written": true}}, "time": "2026-06-06T10:39:58.462583-04:00"}
+{"markets": {"nyc": {"error": null, "snapshot_id": "20260606T105013-0400", "written": true}, "toronto": {"error": null, "snapshot_id": "20260606T105011-0400", "written": true}}, "time": "2026-06-06T10:50:04.209539-04:00"}

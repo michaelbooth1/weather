@@ -1,30 +1,30 @@
 [
   {
-    "band_rows": 6479,
-    "brier_skill_vs_market": -1.179,
+    "band_rows": 9570,
+    "brier_skill_vs_market": -1.041,
     "calibration_subscore": 1.0,
     "grade": "Moderate",
     "market": "toronto",
-    "market_brier": 0.0253,
-    "maturity_subscore": 0.467,
-    "model_brier": 0.0551,
-    "model_ece": 0.0175,
-    "rationale": "7 settled days; ECE 0.017 (well-calibrated). Maturity 0.47 of 1.0 -- more days raise confidence.",
-    "settled_days": 7,
-    "trust_score": 55
+    "market_brier": 0.0224,
+    "maturity_subscore": 0.529,
+    "model_brier": 0.0458,
+    "model_ece": 0.009,
+    "rationale": "9 settled days; ECE 0.009 (well-calibrated). Maturity 0.53 of 1.0 -- more days raise confidence.",
+    "settled_days": 9,
+    "trust_score": 60
   },
   {
-    "band_rows": 0,
-    "brier_skill_vs_market": null,
-    "calibration_subscore": null,
-    "grade": "Unproven",
+    "band_rows": 1749,
+    "brier_skill_vs_market": -2.41,
+    "calibration_subscore": 1.0,
+    "grade": "Low",
     "market": "nyc",
-    "market_brier": null,
-    "maturity_subscore": 0.0,
-    "model_brier": null,
-    "model_ece": null,
-    "rationale": "0 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
-    "settled_days": 0,
-    "trust_score": 15
+    "market_brier": 0.0133,
+    "maturity_subscore": 0.2,
+    "model_brier": 0.0454,
+    "model_ece": 0.0294,
+    "rationale": "2 settled days; ECE 0.029 (well-calibrated). Maturity 0.20 of 1.0 -- more days raise confidence.",
+    "settled_days": 2,
+    "trust_score": 32
   }
 ]

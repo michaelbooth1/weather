@@ -108,9 +108,12 @@ def collect_scored_rows(folders, daily_index):
         if not tape.exists():
             continue
         df = pd.read_csv(tape)
-        target_date = date_from_event_slug(Path(folder).name)
+        slug = Path(folder).name
+        target_date = date_from_event_slug(slug)
         bucket, _, _ = settlement_for_tape(df, target_date, daily_index, {})
-        scored, _, _, _ = backtest_tape(df, bucket, [0.05], target_date=target_date)
+        spec = spec_for_slug(slug)
+        unit = spec.display_unit if spec else "C"
+        scored, _, _, _ = backtest_tape(df, bucket, [0.05], target_date=target_date, unit=unit)
         rows.extend(scored)
     return rows
 

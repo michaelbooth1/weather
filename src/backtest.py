@@ -24,6 +24,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -37,6 +38,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from feature_store import FEATURE_COLUMNS
 from market_config import date_from_event_slug
+from market_registry import spec_for_slug
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_DAILY_SUMMARY = Path("data") / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
@@ -55,7 +57,8 @@ def round_half_up(value):
 
 
 def resolve_outcome(kind, value, settlement_bucket):
-    """Did this market band resolve YES (1) or NO (0) given settlement?"""
+    """Did this market band resolve YES (1) or NO (0) given settlement (Celsius
+    bucket markets)."""
     if settlement_bucket is None or kind is None or value is None:
         return None
     value = int(value)
@@ -65,6 +68,34 @@ def resolve_outcome(kind, value, settlement_bucket):
     if kind == "gte":      # "X C or higher"
         return 1 if settlement_bucket >= value else 0
     return 1 if settlement_bucket == value else 0  # exact "X C"
+
+
+def fahrenheit_to_celsius(value):
+    return (float(value) - 32.0) * 5.0 / 9.0
+
+
+def band_value_hi(range_label, value):
+    """Upper value of a band from its label ('76-77F' -> 77); single bands -> value."""
+    numbers = re.findall(r"\d+", str(range_label or ""))
+    return int(numbers[-1]) if len(numbers) >= 2 else value
+
+
+def resolve_outcome_fahrenheit(kind, value, value_hi, realized_c):
+    """Outcome for a Fahrenheit (range) band: map the band to a canonical-Celsius
+    interval and test the realized canonical-Celsius high against it -- the same
+    framing the model uses to integrate band probabilities."""
+    if realized_c is None or kind is None or value is None:
+        return None
+    value = float(value)
+    value_hi = float(value_hi if value_hi is not None else value)
+    inf = float("inf")
+    if kind == "lte":
+        lo, hi = -inf, fahrenheit_to_celsius(value + 0.5)
+    elif kind == "gte":
+        lo, hi = fahrenheit_to_celsius(value - 0.5), inf
+    else:
+        lo, hi = fahrenheit_to_celsius(value - 0.5), fahrenheit_to_celsius(value_hi + 0.5)
+    return 1 if (lo <= realized_c < hi) else 0
 
 
 def brier(p, y):
@@ -426,20 +457,34 @@ def attach_feature_vector(scoring_row, feature_row):
     return scoring_row
 
 
-def backtest_tape(df, settlement_bucket, thresholds, target_date=None, feature_index=None):
+def backtest_tape(df, settlement_bucket, thresholds, target_date=None, feature_index=None, unit="C"):
     """Score one market day's tape.
 
     Returns per-row scoring rows, per-threshold P&L (per-snapshot and
-    first-entry), and persistence per band.
+    first-entry), and persistence per band. ``unit`` selects the settlement
+    convention: "C" (Celsius bucket markets) or "F" (Fahrenheit range bands,
+    resolved against the realized canonical-Celsius high).
     """
     rows = []
     target_date_value = target_date.isoformat() if target_date else None
+    realized_c = None
+    if unit == "F" and "wu_history_high_c" in df:
+        values = pd.to_numeric(df["wu_history_high_c"], errors="coerce")
+        realized_c = float(values.max()) if values.notna().any() else None
     for row_order, (_, r) in enumerate(df.iterrows()):
         mp = safe_float(r.get("model_probability"))
         my = safe_float(r.get("market_yes"))
         if mp is None or my is None:
             continue
-        outcome = resolve_outcome(r.get("bin_kind"), r.get("bin_value_c"), settlement_bucket)
+        if unit == "F":
+            outcome = resolve_outcome_fahrenheit(
+                r.get("bin_kind"),
+                r.get("bin_value_c"),
+                band_value_hi(r.get("range_label"), r.get("bin_value_c")),
+                realized_c,
+            )
+        else:
+            outcome = resolve_outcome(r.get("bin_kind"), r.get("bin_value_c"), settlement_bucket)
         if outcome is None:
             continue
         captured_at = r.get("captured_at_local")
@@ -695,7 +740,7 @@ def write_report(results, out_path, thresholds):
                 day["snapshot_count"],
                 day["band_count"],
                 ", ".join(day.get("model_versions") or []) or "-",
-                f"{day['settlement']} C" if day["settlement"] is not None else "-",
+                day.get("settlement_display") or (f"{day['settlement']} C" if day["settlement"] is not None else "-"),
                 day["source"],
                 day.get("quality_grade") or "-",
                 day["note"] or "-",
@@ -1000,13 +1045,22 @@ def run_backtest(
             continue
         feature_index = load_feature_vectors(folder)
         bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
+        spec = spec_for_slug(slug)
+        unit = spec.display_unit if spec else "C"
         rows, per_snap, first_entry, persistence = backtest_tape(
             df,
             bucket,
             thresholds,
             target_date=target_date,
             feature_index=feature_index,
+            unit=unit,
         )
+        if unit == "F" and "wu_history_high_c" in df:
+            _vals = pd.to_numeric(df["wu_history_high_c"], errors="coerce")
+            _realized_c = float(_vals.max()) if _vals.notna().any() else None
+            settlement_display = f"{round(_realized_c * 9 / 5 + 32)} F" if _realized_c is not None else "-"
+        else:
+            settlement_display = f"{bucket} C" if bucket is not None else "-"
         all_rows.extend(rows)
         for threshold in thresholds:
             pnl_ps[threshold].append(per_snap[threshold])
@@ -1025,6 +1079,8 @@ def run_backtest(
             "band_count": band_count,
             "model_versions": model_versions,
             "settlement": bucket,
+            "settlement_display": settlement_display,
+            "unit": unit,
             "source": source,
             "note": note,
             "quality_grade": grade,
@@ -1032,7 +1088,7 @@ def run_backtest(
             "score": day_score,
             "persistence": persistence,
         })
-        print(f"  {slug}: settlement {bucket} C ({source}); {len(rows)} band-rows scored")
+        print(f"  {slug}: settlement {settlement_display} ({source}); {len(rows)} band-rows scored")
 
     last_rows = last_pre_close_rows(all_rows)
     fixed_rows = fixed_cutoff_rows(all_rows, fixed_cutoffs=fixed_cutoffs)

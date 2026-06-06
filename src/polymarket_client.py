@@ -4,6 +4,7 @@ import requests
 
 from market_config import config_for_date, config_from_event
 from market_registry import DEFAULT_MARKET_ID
+from model_sources import request_with_retries
 
 
 DEFAULT_MARKET_CONFIG = config_for_date()
@@ -18,9 +19,13 @@ class PolymarketClient:
         self.config = config_for_date(target_date, market_id)
 
     def get_event(self):
-        response = requests.get(self.gamma_event_url, timeout=self.timeout)
-        response.raise_for_status()
-        event = response.json()
+        # Retry transient failures (the gamma API occasionally read-times-out);
+        # a single slow response should not cost a snapshot for every market.
+        def _fetch():
+            response = requests.get(self.gamma_event_url, timeout=self.timeout)
+            response.raise_for_status()
+            return response.json()
+        event = request_with_retries(_fetch)
         self.config = config_from_event(event, fallback_date=self.config.target_date)
         return event
 

@@ -239,7 +239,10 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 19.5}]}},
         }
 
-        distribution = model.estimate_distribution(sources)
+        # Fixed afternoon time so the test is deterministic and isolates the
+        # current-observed floor from the (morning-only) forecast pull.
+        now = datetime(2026, 6, 1, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
+        distribution = model.estimate_distribution(sources, now=now)
 
         self.assertLess(distribution[18], 0.01)
         self.assertGreater(distribution[19] + distribution[20], 0.75)
@@ -326,7 +329,10 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 19.7}]}},
         }
 
-        distribution = model.estimate_distribution(sources)
+        # Fixed afternoon time so the test is deterministic and isolates the
+        # current-observed floor from the (morning-only) forecast pull.
+        now = datetime(2026, 5, 28, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
+        distribution = model.estimate_distribution(sources, now=now)
         explanation = model.get_model_explanation(sources, distribution)
 
         self.assertEqual(explanation["observed_floor"], 18)
