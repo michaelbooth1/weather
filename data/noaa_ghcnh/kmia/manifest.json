@@ -1,0 +1,85 @@
+{
+  "city": "Miami",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:39.373715+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "miami",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1966,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 3,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2007,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 664,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 247,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 3,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "1.5",
+      "GHCN_ID": "USW00012839",
+      "GSN": "",
+      "ICAO": "KMIA",
+      "ISO_CODE": "US",
+      "LATITUDE": "25.7881",
+      "LONGITUDE": "-80.3169",
+      "NAME": "MIAMI INTL AP",
+      "STATE": "FL",
+      "WMO_ID": "72202"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 7,
+      "sha256": "8016cb34f913dee4f56372cd0e4aa733c4849006bfa0b2d6ddeeb3f1958b2ab4"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1080,
+      "sha256": "7fcc88bfd2aaac134edb7721ce5e2895aa79e6a78c6678f806bc1742bffb6318"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 916,
+      "sha256": "cba216b443d6313ad988aaaf8bdeaa320c91039c2d237ed63621eb2601d62810"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1088,
+      "sha256": "ed65e62543f551db85bb5ae57380af73e495005af991cdf73260ce1ebbae7c8c"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 813,
+      "sha256": "0a2a31cbf73a0b766f4e0e98ec30d3da7d370dd3c1c9de0528e7e84603394964"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 852,
+      "sha256": "e8fcb0e83ab6e5f0deb2374547a2cf6b727af6b8c9cc553f84b3021d6bf1eb83"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 136,
+      "sha256": "80198447b751528935fbd756abed4a6818606b5435a9df590f7c823ed9f67975"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 13666011,
+      "path": "raw/year=2026/GHCNh_USW00012839_2026.psv",
+      "sha256": "2cfafa5159136e1d408a4c923d4b7b31c5a73ba7faf26a1ddf786e4ccd6eddd5"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KMIA",
+  "temperature_unit": "F"
+}

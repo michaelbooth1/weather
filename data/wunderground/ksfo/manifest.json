@@ -1,11 +1,11 @@
 {
-  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
-  "daily_record_count": 37,
-  "first_date": "2026-05-01",
-  "generated_at": "2026-06-06T19:42:19.521036+00:00",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 429,
+  "first_date": "2019-05-01",
+  "generated_at": "2026-06-07T01:16:29.241076+00:00",
   "history_id": "KSFO:9:US",
-  "hourly_record_count": 851,
-  "last_date": "2026-06-06",
+  "hourly_record_count": 11273,
+  "last_date": "2026-06-02",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -13,24 +13,89 @@
   },
   "partitions": [
     {
-      "path": "hourly/year=2026/month=05/observations.jsonl",
-      "row_count": 704,
-      "sha256": "90d46434218ae5b5964083aa45e0139deaff34b6a2282c1aca88ff9b21e5296f"
+      "path": "hourly/year=2019/month=05/observations.jsonl",
+      "row_count": 807,
+      "sha256": "6c417f02e3fced7f2a0a5664505475731b2bfa928f84a0c24f2cee015da6ac8d"
+    },
+    {
+      "path": "hourly/year=2019/month=06/observations.jsonl",
+      "row_count": 766,
+      "sha256": "a1fc2f1d2309eae3cad697008f38a9c154b888d265b4978a8ee21c42cf4b3398"
+    },
+    {
+      "path": "hourly/year=2020/month=05/observations.jsonl",
+      "row_count": 822,
+      "sha256": "efdf2b17605b454ed1e03d0464cc1d09e9883ff37490cd4474a38ee1288eb5a8"
+    },
+    {
+      "path": "hourly/year=2020/month=06/observations.jsonl",
+      "row_count": 778,
+      "sha256": "caee82dab243753b29ef6aa1c5b50875456962057062903070869815fdd67e66"
+    },
+    {
+      "path": "hourly/year=2021/month=05/observations.jsonl",
+      "row_count": 807,
+      "sha256": "e86b75a13930241ef6613b1df6d967827c9cd652c500a7411638137d40831de7"
+    },
+    {
+      "path": "hourly/year=2021/month=06/observations.jsonl",
+      "row_count": 811,
+      "sha256": "6562e53a0406a2fadca252bf024bc3751560114445a164b71aafa03a5f57fcc3"
+    },
+    {
+      "path": "hourly/year=2022/month=05/observations.jsonl",
+      "row_count": 786,
+      "sha256": "507a6d5751d010193a8f13d43c7daebbf66429f620145867dd9d2161a0a8e019"
+    },
+    {
+      "path": "hourly/year=2022/month=06/observations.jsonl",
+      "row_count": 775,
+      "sha256": "b68765048977e7bc21de6bc62f53de9165f74c9a799201c28323390e32be3e7e"
+    },
+    {
+      "path": "hourly/year=2023/month=05/observations.jsonl",
+      "row_count": 831,
+      "sha256": "1abfc5a7713591ac54e8c15af11a775d8e4c0cf447d79fd99a0d2c129ad7ed2e"
+    },
+    {
+      "path": "hourly/year=2023/month=06/observations.jsonl",
+      "row_count": 803,
+      "sha256": "ce459d4e94398228b5cc9a41f5f5f855166dad0494db933b06053c8d809f745e"
+    },
+    {
+      "path": "hourly/year=2024/month=05/observations.jsonl",
+      "row_count": 811,
+      "sha256": "cebf498981bb4c30c519ad4159d5678767d50e0ffc5f7bc1b4ed06c90c5401e1"
+    },
+    {
+      "path": "hourly/year=2024/month=06/observations.jsonl",
+      "row_count": 767,
+      "sha256": "a5a0926bcc49f70a082165a04d40eb046c8eb63429ab5679c38815e17d510851"
+    },
+    {
+      "path": "hourly/year=2025/month=05/observations.jsonl",
+      "row_count": 843,
+      "sha256": "938caa1b15a6efdecdd0fb2797fb122399217250a4ea5d77d77023c04094b92b"
+    },
+    {
+      "path": "hourly/year=2025/month=06/observations.jsonl",
+      "row_count": 814,
+      "sha256": "a2a1b0e12bfabcc505e041af8c9429043b33b5405b7134f47000b31a7710c29c"
     },
     {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 147,
-      "sha256": "0981f2ebb3ed0a61268af4ecb2f8d8567b213bcd57c2a63110f15999e174c147"
+      "row_count": 52,
+      "sha256": "57f976cea46dd931538197a8772509dad65bd41432a1287d5a366f05dc32113c"
     }
   ],
   "source_details": {
     "api_params": {
       "apiKey": "e1f10a...f525",
-      "units": "m"
+      "units": "e"
     },
     "endpoint": "https://api.weather.com/v1/location/KSFO:9:US/observations/historical.json"
   },
   "station": "KSFO",
   "station_name": "San Francisco",
-  "timezone": "America/Toronto"
+  "timezone": "America/Los_Angeles"
 }

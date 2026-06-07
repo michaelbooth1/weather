@@ -1,11 +1,11 @@
 {
-  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
-  "daily_record_count": 37,
-  "first_date": "2026-05-01",
-  "generated_at": "2026-06-06T19:42:15.248823+00:00",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 429,
+  "first_date": "2019-05-01",
+  "generated_at": "2026-06-07T01:16:23.365314+00:00",
   "history_id": "KLAX:9:US",
-  "hourly_record_count": 848,
-  "last_date": "2026-06-06",
+  "hourly_record_count": 12047,
+  "last_date": "2026-06-02",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -13,24 +13,89 @@
   },
   "partitions": [
     {
-      "path": "hourly/year=2026/month=05/observations.jsonl",
-      "row_count": 684,
-      "sha256": "9cd4eb8dda427f250627e7d9f12dd69d3d3bcf0602310af44a80e26804a2f5a8"
+      "path": "hourly/year=2019/month=05/observations.jsonl",
+      "row_count": 841,
+      "sha256": "6f6eca680a9eb17f7b36cb5a0a127de60209be1f9b4dfc32128c230cfaa3c250"
+    },
+    {
+      "path": "hourly/year=2019/month=06/observations.jsonl",
+      "row_count": 864,
+      "sha256": "2a0ecae3402a051639933cdc6a4a09e988d9c5c96131d4f2325d36c7bcc2e66a"
+    },
+    {
+      "path": "hourly/year=2020/month=05/observations.jsonl",
+      "row_count": 868,
+      "sha256": "d0ae6fdf8be6ab6b101f30929c4911b4d6470e55fa26d3e0b2d770df07e0da50"
+    },
+    {
+      "path": "hourly/year=2020/month=06/observations.jsonl",
+      "row_count": 818,
+      "sha256": "54858e234e767775afe66eb10c338a96f6fc2d5015b2f277b6070800fe743393"
+    },
+    {
+      "path": "hourly/year=2021/month=05/observations.jsonl",
+      "row_count": 900,
+      "sha256": "565091ecfd3ed802cbe03bce99b1659cab4352256acdda988fb503cf45ba8757"
+    },
+    {
+      "path": "hourly/year=2021/month=06/observations.jsonl",
+      "row_count": 841,
+      "sha256": "17062f8e671f8fd76c50461ab8bdf2d2d8c67bdd379be36e98116f1f3ff9f47c"
+    },
+    {
+      "path": "hourly/year=2022/month=05/observations.jsonl",
+      "row_count": 834,
+      "sha256": "9985a7be7c99633a2af2626130f503ce5373a3489ed4a1be8f6a6b4056a4b570"
+    },
+    {
+      "path": "hourly/year=2022/month=06/observations.jsonl",
+      "row_count": 853,
+      "sha256": "a8649e0acb57d460076bd5130d03b94b1772e456ca38197ee242a642492b9420"
+    },
+    {
+      "path": "hourly/year=2023/month=05/observations.jsonl",
+      "row_count": 871,
+      "sha256": "63850bc4ff2e5ac186413d756a155e44478b3aeaa650e842e654022c14d327dc"
+    },
+    {
+      "path": "hourly/year=2023/month=06/observations.jsonl",
+      "row_count": 842,
+      "sha256": "167956e7b85fe4c577eb1b4d4fb4911c6d72d7c260e6f11900c21537016e6707"
+    },
+    {
+      "path": "hourly/year=2024/month=05/observations.jsonl",
+      "row_count": 853,
+      "sha256": "e4a069b2c1e5fe6fcbc93a556bcaa35c92a53e8973d2faa3b6d0a11759a9bd44"
+    },
+    {
+      "path": "hourly/year=2024/month=06/observations.jsonl",
+      "row_count": 866,
+      "sha256": "3e31c8ff6127df72d135e72a8a46db30a67211d49d8b2b076416aca7f0d642b5"
+    },
+    {
+      "path": "hourly/year=2025/month=05/observations.jsonl",
+      "row_count": 884,
+      "sha256": "a2f1317be38fc91c274b3ab21829c998c85f84ccbb625c6dcceaf5f771c64535"
+    },
+    {
+      "path": "hourly/year=2025/month=06/observations.jsonl",
+      "row_count": 855,
+      "sha256": "4ff688292e553990b2bbf539d368060f1b624db998a77186923b819a648509dc"
     },
     {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 164,
-      "sha256": "08200cc70f3e8b8f1a8d43a5c0b7f19d0a4997fdff4fcbb40709e60b911962e5"
+      "row_count": 57,
+      "sha256": "f725a7b7a87eb9eebb14b962e7ee5ff58bd09966e5e65f3ef266b243d8985259"
     }
   ],
   "source_details": {
     "api_params": {
       "apiKey": "e1f10a...f525",
-      "units": "m"
+      "units": "e"
     },
     "endpoint": "https://api.weather.com/v1/location/KLAX:9:US/observations/historical.json"
   },
   "station": "KLAX",
   "station_name": "Los Angeles",
-  "timezone": "America/Toronto"
+  "timezone": "America/Los_Angeles"
 }

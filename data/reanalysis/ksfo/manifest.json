@@ -1,0 +1,45 @@
+{
+  "city": "San Francisco",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 1,
+  "first_date": "2026-06-01",
+  "generated_at_utc": "2026-06-07T01:17:47.661652+00:00",
+  "last_date": "2026-06-01",
+  "market_id": "san-francisco",
+  "metadata": {
+    "archive_url": "https://archive-api.open-meteo.com/v1/archive",
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "hourly_variables": [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "dew_point_2m",
+      "pressure_msl",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "wind_gusts_10m",
+      "cloud_cover"
+    ],
+    "model": "era5",
+    "quality_counts": {
+      "reanalysis_grid": 17
+    }
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 17,
+      "sha256": "7d8fa238d0f377cfe624f71f06f94e36feede712e5d0691071bd6c79df880ca7"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 7032,
+      "path": "raw/year=2026/2026-06-01_2026-06-02.json",
+      "sha256": "49d3bbcee8c056c30add193da00985d3b0c20e8393dbcded9aa7305e5a65cd00"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "open_meteo_era5_reanalysis",
+  "station": "KSFO",
+  "temperature_unit": "F"
+}

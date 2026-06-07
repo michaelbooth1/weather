@@ -1,0 +1,2 @@
+schema_version,source,market_id,city,station,station_name,local_date,temperature_unit,row_count,first_time,last_time,max_temp,max_temp_bucket,max_temp_times,min_temp,avg_temp,max_dewpoint,max_wind_kmh,max_gust_kmh
+historical_daily_native_v1,open_meteo_era5_reanalysis,chicago,Chicago,"era5:41.9602,-87.9316",Chicago ERA5 grid,2026-06-01,F,19,00:00,18:00,69.6,70,16:00,55.8,61.63,47.2,13.5,30.6

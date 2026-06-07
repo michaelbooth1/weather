@@ -1,11 +1,11 @@
 {
-  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
-  "daily_record_count": 37,
-  "first_date": "2026-05-01",
-  "generated_at": "2026-06-06T19:42:08.442115+00:00",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 429,
+  "first_date": "2019-05-01",
+  "generated_at": "2026-06-07T01:16:05.854205+00:00",
   "history_id": "KDAL:9:US",
-  "hourly_record_count": 906,
-  "last_date": "2026-06-06",
+  "hourly_record_count": 12281,
+  "last_date": "2026-06-02",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -13,24 +13,89 @@
   },
   "partitions": [
     {
-      "path": "hourly/year=2026/month=05/observations.jsonl",
-      "row_count": 731,
-      "sha256": "baf6bceaa02aa5f5835496355fa1ccc09102c3421e27b1cf61fa5d2d53f9b9bb"
+      "path": "hourly/year=2019/month=05/observations.jsonl",
+      "row_count": 993,
+      "sha256": "79437aa5c67d5da4c5911e32af1048dd7f71d6c92a213d2f72f1ea1074865663"
+    },
+    {
+      "path": "hourly/year=2019/month=06/observations.jsonl",
+      "row_count": 882,
+      "sha256": "c10f3c70a7280b98b123ef03ee6e83489a90312f22b3085ba06bb7261982bd8d"
+    },
+    {
+      "path": "hourly/year=2020/month=05/observations.jsonl",
+      "row_count": 889,
+      "sha256": "d643c14ec1e167c7a8c25e8b357c652296c932e86e2bd8445314aaa9600e5846"
+    },
+    {
+      "path": "hourly/year=2020/month=06/observations.jsonl",
+      "row_count": 788,
+      "sha256": "ca9532bf68fb9b965b87b7489a9400ba5edf9c34f205d34763e7e48451403cc3"
+    },
+    {
+      "path": "hourly/year=2021/month=05/observations.jsonl",
+      "row_count": 994,
+      "sha256": "f78c4b6b3ff165b4c6b285fdadd2a72a80166403e438f1736e4b6d995ad45591"
+    },
+    {
+      "path": "hourly/year=2021/month=06/observations.jsonl",
+      "row_count": 845,
+      "sha256": "cbf1e7d127760a0f13d6eb172df353f48ff8446d1271de0e1d8da810d27125b7"
+    },
+    {
+      "path": "hourly/year=2022/month=05/observations.jsonl",
+      "row_count": 875,
+      "sha256": "5e094f7bc472be736fb0bc104e0709e29c0ba3d9ff1d0afd57577a395c70401a"
+    },
+    {
+      "path": "hourly/year=2022/month=06/observations.jsonl",
+      "row_count": 770,
+      "sha256": "aab72dfad88f4ebaeaea8ab7090630d7d2e532826e73e319eec12669fd90f4a7"
+    },
+    {
+      "path": "hourly/year=2023/month=05/observations.jsonl",
+      "row_count": 838,
+      "sha256": "56da12bbee2722ad61faf89ba4be41541c576654e3080da4c5caa26793e72d96"
+    },
+    {
+      "path": "hourly/year=2023/month=06/observations.jsonl",
+      "row_count": 840,
+      "sha256": "00698853df03756956aaea010707094e2625bd97a2590dee583b5c796b57382d"
+    },
+    {
+      "path": "hourly/year=2024/month=05/observations.jsonl",
+      "row_count": 960,
+      "sha256": "bcf5f23577eff707dfc219a61eb268eac19ca5adae6ae648855e0497fd0f0329"
+    },
+    {
+      "path": "hourly/year=2024/month=06/observations.jsonl",
+      "row_count": 830,
+      "sha256": "b859e11b8a0a7f834b8b000355c7b51a432165c735188d4ec8c8dd9b69032240"
+    },
+    {
+      "path": "hourly/year=2025/month=05/observations.jsonl",
+      "row_count": 885,
+      "sha256": "42b8a2776769ef84ed5c4bfd92aa74c20f84a8f981b19f38c8213d86c43001b1"
+    },
+    {
+      "path": "hourly/year=2025/month=06/observations.jsonl",
+      "row_count": 841,
+      "sha256": "55deffc03bc32a4a4cb9e715b528bfd9c85a68a6eb5c06c8adb2a17be7d3fcf4"
     },
     {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 175,
-      "sha256": "7063d6bfb5c897df6855de267a445784f6521f941748cc7f7256964f7487b223"
+      "row_count": 51,
+      "sha256": "dcbbbc0dfa6e22a72893444a1d3b78174f7f0acbcf9caeb13348566c496df74b"
     }
   ],
   "source_details": {
     "api_params": {
       "apiKey": "e1f10a...f525",
-      "units": "m"
+      "units": "e"
     },
     "endpoint": "https://api.weather.com/v1/location/KDAL:9:US/observations/historical.json"
   },
   "station": "KDAL",
   "station_name": "Dallas",
-  "timezone": "America/Toronto"
+  "timezone": "America/Chicago"
 }

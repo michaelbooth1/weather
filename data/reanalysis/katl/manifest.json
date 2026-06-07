@@ -1,0 +1,45 @@
+{
+  "city": "Atlanta",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 1,
+  "first_date": "2026-06-01",
+  "generated_at_utc": "2026-06-07T01:17:07.160558+00:00",
+  "last_date": "2026-06-01",
+  "market_id": "atlanta",
+  "metadata": {
+    "archive_url": "https://archive-api.open-meteo.com/v1/archive",
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "hourly_variables": [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "dew_point_2m",
+      "pressure_msl",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "wind_gusts_10m",
+      "cloud_cover"
+    ],
+    "model": "era5",
+    "quality_counts": {
+      "reanalysis_grid": 20
+    }
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 20,
+      "sha256": "e5124df9c93a61ba234c39a0a3813f5237aebdde143a1eb1e903fb1485d73e0c"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 7048,
+      "path": "raw/year=2026/2026-06-01_2026-06-02.json",
+      "sha256": "5d64041c4b61e60bb7557a45af247613a75d6eb5ccaaffc34e2b2667636ccdcf"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "open_meteo_era5_reanalysis",
+  "station": "KATL",
+  "temperature_unit": "F"
+}

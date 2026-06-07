@@ -1,0 +1,84 @@
+{
+  "city": "Dallas",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:19.810106+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "dallas",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 2067,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 2,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2010,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 238,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=4,dew_point_temperature_Quality_Code=4,wind_speed_Quality_Code=1": 2
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "147.5",
+      "GHCN_ID": "USW00013960",
+      "GSN": "",
+      "ICAO": "KDAL",
+      "ISO_CODE": "US",
+      "LATITUDE": "32.8383",
+      "LONGITUDE": "-96.8358",
+      "NAME": "DALLAS FAA AP",
+      "STATE": "TX",
+      "WMO_ID": "72258"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 6,
+      "sha256": "f29a6254ff5a11ea40b0dbeae274a70585fc37e1ee0ae2466eb519fa1022c41a"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 842,
+      "sha256": "230f3eef3ea1b91067e134d0498fe26bbc37a1b197690ddd8cedc6320af7f59e"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 719,
+      "sha256": "b2bdbcc4b7d4a8724caf3ee9921dc926ecfae3d8d0150843a61de3d26a9897fd"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 825,
+      "sha256": "d3f13c3088366f818a9ede899c167464dcdab1e7ad3ffe0adbf2d38db7546055"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 920,
+      "sha256": "bb9a473ef480a41d9c4bb3b36e2daf20bae55dc5c1a5b811a626d0e4cab62743"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 868,
+      "sha256": "722d61ec843ead08297a71db450bb3dbcbaffc1e122ff18f79787fca1107e90f"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 142,
+      "sha256": "8228df48bdffce84526b8ef2fbb6dca5a1806128fe19b68b276f1b009dad9dfd"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 16518411,
+      "path": "raw/year=2026/GHCNh_USW00013960_2026.psv",
+      "sha256": "1f66e1b63284317c4edec4447f18a8d201372f9d9c49d583222249a549306241"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KDAL",
+  "temperature_unit": "F"
+}

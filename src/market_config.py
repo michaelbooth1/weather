@@ -48,11 +48,11 @@ class MarketConfig:
         return self.target_date.strftime("%B %-d, %Y") if os.name != "nt" else self.target_date.strftime("%B %#d, %Y")
 
 
-def default_target_date():
+def default_target_date(tz=TORONTO_TZ):
     configured = os.environ.get(TARGET_DATE_ENV)
     if configured:
         return date.fromisoformat(configured)
-    return datetime.now(TORONTO_TZ).date()
+    return datetime.now(tz).date()
 
 
 def event_slug_for_date(target_date, market_id=DEFAULT_MARKET_ID):
@@ -67,7 +67,7 @@ def polymarket_url_for_slug(event_slug):
 
 
 def config_for_date(target_date=None, market_id=DEFAULT_MARKET_ID):
-    target_date = ensure_date(target_date or default_target_date())
+    target_date = ensure_date(target_date or default_target_date(spec_for_id(market_id).tz))
     event_slug = event_slug_for_date(target_date, market_id)
     return MarketConfig(
         target_date=target_date,
@@ -113,7 +113,7 @@ def date_from_event(event):
 def config_from_event(event, fallback_date=None):
     slug = (event or {}).get("slug") or (event or {}).get("eventSlug") or ""
     market_id = market_id_from_slug(slug) or DEFAULT_MARKET_ID
-    target_date = date_from_event(event) or fallback_date or default_target_date()
+    target_date = date_from_event(event) or fallback_date or default_target_date(spec_for_id(market_id).tz)
     return config_for_date(target_date, market_id)
 
 

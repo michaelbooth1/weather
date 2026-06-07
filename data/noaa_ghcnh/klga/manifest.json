@@ -1,0 +1,82 @@
+{
+  "city": "NYC",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:01.450765+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "nyc",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1868,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2015,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 668,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 366,
+      "temperature_Quality_Code=4,dew_point_temperature_Quality_Code=4,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "3.0",
+      "GHCN_ID": "USW00014732",
+      "GSN": "",
+      "ICAO": "KLGA",
+      "ISO_CODE": "US",
+      "LATITUDE": "40.7794",
+      "LONGITUDE": "-73.8803",
+      "NAME": "LAGUARDIA AP",
+      "STATE": "NY",
+      "WMO_ID": "72503"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 7,
+      "sha256": "061f5ba42cbb139059c8d814694510a3d09aa643b03a2ae73184ad32cfae985c"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1086,
+      "sha256": "3597c1262446680123bfcc19ca83ae83215b4791c1bd01a65f852da912a999cb"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 1003,
+      "sha256": "9c5f8c95562f7214d389bc3f526ceccc598c97f8df2fea5ec7f13c1b830c2f89"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1082,
+      "sha256": "6a9c11ad5a3adea636ce241d5d1908960136112a996e951d1977878a1b0c8ab9"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 815,
+      "sha256": "a257a2a2402af39a03c892bdeab620d6d46f9bcd47fd1d3ef3a1cbc8ee0deaa2"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 808,
+      "sha256": "c7d9f0882396c974d0ccb02610918391644bf258bf6c55eb23693f2768c7977e"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 117,
+      "sha256": "ac6c06a1f4f6db56404cb8eb55daeec0ceb93ff2900ebc9247555a9fc716f691"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 15181265,
+      "path": "raw/year=2026/GHCNh_USW00014732_2026.psv",
+      "sha256": "8cc8d4362363f55f987e09369f80ad3098fed3b8d8eab75b539578c3ee01a7b7"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KLGA",
+  "temperature_unit": "F"
+}

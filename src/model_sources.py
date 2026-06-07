@@ -11,7 +11,6 @@ import requests
 from wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
-    TORONTO_TZ,
     TARGET_DATE,
     TARGET_DATE_STR,
     WEATHER_COM_KEY,
@@ -100,7 +99,7 @@ class SourceFetchMixin:
             }
             for future in as_completed(futures):
                 name = futures[future]
-                fetched_time = datetime.now(TORONTO_TZ).isoformat()
+                fetched_time = datetime.now(self.spec.tz).isoformat()
                 try:
                     results[name] = {
                         "ok": True,
@@ -193,8 +192,8 @@ class SourceFetchMixin:
         except ValueError:
             return None
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=TORONTO_TZ)
-        return max(0.0, (datetime.now(TORONTO_TZ) - parsed.astimezone(TORONTO_TZ)).total_seconds() / 60.0)
+            parsed = parsed.replace(tzinfo=self.spec.tz)
+        return max(0.0, (datetime.now(self.spec.tz) - parsed.astimezone(self.spec.tz)).total_seconds() / 60.0)
 
     def fetch_wu_history(self):
         url = (
@@ -212,7 +211,7 @@ class SourceFetchMixin:
         for obs in payload.get("observations", []) or []:
             local_dt = datetime.fromtimestamp(
                 obs.get("valid_time_gmt", 0), timezone.utc
-            ).astimezone(TORONTO_TZ)
+            ).astimezone(self.spec.tz)
             if local_dt.date() != self.target_date:
                 continue
             rows.append({
@@ -454,7 +453,7 @@ class SourceFetchMixin:
             "format": "json",
         })
         rows = []
-        now = datetime.now(TORONTO_TZ)
+        now = datetime.now(self.spec.tz)
         for index, raw_time in enumerate(payload.get("validTimeLocal", []) or []):
             dt = self.parse_weather_com_time(raw_time)
             if not dt or dt.date() != self.target_date or dt < now:
@@ -487,7 +486,7 @@ class SourceFetchMixin:
         hourly = payload.get("hourly", {}) or {}
         rows = []
         day_temps = []  # all of today's forecast hours, for the daily-max feature
-        now = datetime.now(TORONTO_TZ).replace(tzinfo=None)
+        now = datetime.now(self.spec.tz).replace(tzinfo=None)
         for index, raw_time in enumerate(hourly.get("time", []) or []):
             dt = datetime.fromisoformat(raw_time)
             if dt.date() != self.target_date:
@@ -497,7 +496,7 @@ class SourceFetchMixin:
                 day_temps.append(temp)
             if dt < now:
                 continue
-            local_dt = dt.replace(tzinfo=TORONTO_TZ)
+            local_dt = dt.replace(tzinfo=self.spec.tz)
             rows.append({
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
@@ -548,13 +547,13 @@ class SourceFetchMixin:
         if not value:
             return None
         try:
-            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z").astimezone(TORONTO_TZ)
+            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z").astimezone(self.spec.tz)
         except ValueError:
             pass
         # Fallback for other ISO-8601 offsets (colon in offset, missing seconds,
         # or a trailing Z) that strptime's fixed format would reject.
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(TORONTO_TZ)
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(self.spec.tz)
         except ValueError:
             return None
 
@@ -563,7 +562,7 @@ class SourceFetchMixin:
             return None
         try:
             value = value.replace("Z", "+00:00")
-            return datetime.fromisoformat(value).astimezone(TORONTO_TZ)
+            return datetime.fromisoformat(value).astimezone(self.spec.tz)
         except ValueError:
             return None
 

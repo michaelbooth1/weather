@@ -45,6 +45,9 @@ class TestWundergroundHistoryParsing(unittest.TestCase):
             "gust": 20.0
         }
         res = normalize_observation(obs)
+        self.assertEqual(res["schema_version"], "wu_hourly_native_v1")
+        self.assertEqual(res["temperature_unit"], "C")
+        self.assertEqual(res["temp_native"], 15.2)
         self.assertEqual(res["temp_c"], 15.2)
         self.assertEqual(res["dewpoint_c"], 8.5)
         self.assertEqual(res["humidity"], 65)
@@ -73,7 +76,11 @@ class TestWundergroundHistoryParsing(unittest.TestCase):
         summary_list = summarize_daily(records)
         self.assertEqual(len(summary_list), 1)
         summary = summary_list[0]
+        self.assertEqual(summary["schema_version"], "wu_daily_native_v1")
+        self.assertEqual(summary["temperature_unit"], "C")
         self.assertEqual(summary["row_count"], 5)
+        self.assertEqual(summary["max_temp"], 22.0)
+        self.assertEqual(summary["max_temp_bucket"], 22)
         self.assertEqual(summary["max_temp_c"], 22.0)
         self.assertEqual(summary["max_temp_bucket_c"], 22)
         self.assertEqual(summary["min_temp_c"], 12.0)
@@ -165,4 +172,3 @@ class TestWundergroundHistoryRebuildAndAudit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

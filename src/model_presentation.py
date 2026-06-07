@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
-    TORONTO_TZ,
     TARGET_DATE,
     TARGET_DATE_STR,
     WEATHER_COM_KEY,
@@ -260,7 +259,7 @@ class PresentationMixin:
 
         # 7. Intraday Analogs
         if analogs_data is None:
-            now = now or datetime.now(TORONTO_TZ)
+            now = now or datetime.now(self.spec.tz)
             history_rows = self.source_data(sources, "wu_history").get("rows") or []
             analogs_data = self.find_analog_days(
                 sources,

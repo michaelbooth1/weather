@@ -3,7 +3,6 @@ from collections import Counter
 from datetime import datetime
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
-    TORONTO_TZ,
     TARGET_DATE,
     TARGET_DATE_STR,
     WEATHER_COM_KEY,
@@ -316,7 +315,7 @@ class DistributionMixin:
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
 
-        now = now or datetime.now(TORONTO_TZ)
+        now = now or datetime.now(self.spec.tz)
         history_max = history.get("max_c")
         current_temp = current.get("temp_c")
         current_max = current.get("max_since_7am_c")

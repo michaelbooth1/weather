@@ -1,0 +1,84 @@
+{
+  "city": "Houston",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:28.516720+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "houston",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 2074,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 2,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2004,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 394,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "13.1",
+      "GHCN_ID": "USW00012918",
+      "GSN": "",
+      "ICAO": "KHOU",
+      "ISO_CODE": "US",
+      "LATITUDE": "29.6458",
+      "LONGITUDE": "-95.2822",
+      "NAME": "HOUSTON WILLIAM P HOBBY AP",
+      "STATE": "TX",
+      "WMO_ID": "72244"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 6,
+      "sha256": "9afff5e6f243b07b190743a34d5e9fad2af3a9044a790e97d20c3c3853bd7161"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 847,
+      "sha256": "3be459ac4bd79ae46c7041f86c6ec90fe5b049661a6ca3c4f6448f0c03dad467"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 820,
+      "sha256": "d34dd0992669238906277530591631114e4ba28e9445a767e9f061df70fbd38d"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 870,
+      "sha256": "e2ff4d7c4e3cf8ad006c3ed50c01335d407ba527d3ae46b97c42b0272cd736a0"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 863,
+      "sha256": "ff6bcd83f474ad8e5b93042b980d3744acd3a87a1e28fbea5588d27a2d181697"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 894,
+      "sha256": "f5d19a80c2b208723bbd96f2ec561e44b6c749e8dc8ac9b64396b7eba013958c"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 177,
+      "sha256": "5d5b2653403396b4f27a546bab03b22761dac1e3de3bb40a36682590df1772c8"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 15941146,
+      "path": "raw/year=2026/GHCNh_USW00012918_2026.psv",
+      "sha256": "2a9ceb4645d084c29d64b701bb6fdb1b70a803353b54d101f196b870fa6f43a3"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KHOU",
+  "temperature_unit": "F"
+}

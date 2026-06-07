@@ -1,0 +1,83 @@
+{
+  "city": "Seattle",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:51.817754+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "seattle",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1940,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 3,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2011,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 666,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 637
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "112.5",
+      "GHCN_ID": "USW00024233",
+      "GSN": "",
+      "ICAO": "KSEA",
+      "ISO_CODE": "US",
+      "LATITUDE": "47.4447",
+      "LONGITUDE": "-122.3144",
+      "NAME": "SEATTLE TACOMA AP",
+      "STATE": "WA",
+      "WMO_ID": "72793"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 16,
+      "sha256": "55e0f1704ba485596bc50b56fa47446474992ce9ef235510761722b674e180cb"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1209,
+      "sha256": "e65db501b4d00e216fb862ee58688a549c9eeb0f7659527876096d538df12423"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 1043,
+      "sha256": "156ba3557ea7c68473c1ba60ae8251281a5cd9272b8e5b92172c572d71516982"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1202,
+      "sha256": "24572e9361d6888be10a84f91aa0331cfc48aa03ccc2d2525e0008ca33dd3cee"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 815,
+      "sha256": "14e331f8428a9d71a524ad81c272e61c1d3688d8e557dcf59a1429ae34581ce3"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 856,
+      "sha256": "71d9c8cb6bef569e24e1bdc9ce3abd8db85700d4aa3a73f125f9f16c1068c43f"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 117,
+      "sha256": "1bf6e16a5d3c28c16a4f57b51b5c9dc085d87cc85ce940123be9cebb4df041e7"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 19772552,
+      "path": "raw/year=2026/GHCNh_USW00024233_2026.psv",
+      "sha256": "88fb522a9ce228e2298965f9e487928a49240251b0fbbd8c496d4903636950b4"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KSEA",
+  "temperature_unit": "F"
+}

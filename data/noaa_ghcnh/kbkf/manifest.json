@@ -1,0 +1,83 @@
+{
+  "city": "Denver",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:22.428257+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "denver",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1663,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2070,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 11,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 4,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 26
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "1726.1",
+      "GHCN_ID": "USW00023036",
+      "GSN": "",
+      "ICAO": "KBKF",
+      "ISO_CODE": "US",
+      "LATITUDE": "39.7167",
+      "LONGITUDE": "-104.75",
+      "NAME": "AURORA BUCKLEY FLD ANGB",
+      "STATE": "CO",
+      "WMO_ID": ""
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 7,
+      "sha256": "586ae62c34fe94ec472629b8ac61ada1dbb763b1fe52b73c1a985a5206fc5f36"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 794,
+      "sha256": "5d57b995b1fbb55c9b27d3f49eedde66ee251a702d7003e7dbc8e5d2cd2cf24a"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 679,
+      "sha256": "c61ef75fbb071cd3bbff0a16dd57961d83f1efa252c81b22d1bbd09f800c5c12"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 690,
+      "sha256": "002ac1d38450a3068af60f492ff77490debd9aa8b21f0de545f98950fef18e32"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 674,
+      "sha256": "f91664513c699b16987384fb8b5cdb818db570594393e51031d9ba3cc148e3a2"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 802,
+      "sha256": "cd3858771fd4fbd6cef1035b8a026911c17cbd60a29227db45b99e03240209f5"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 129,
+      "sha256": "a7bfcc92f995db56f969aa81e06a2976d65d11fb026d687d8f107f1628bd9bc9"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 3226573,
+      "path": "raw/year=2026/GHCNh_USW00023036_2026.psv",
+      "sha256": "fd479a03fd1e01bfacd805919d9d3d596a8b57175b11ad0ea0e2fbfb612ffad5"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KBKF",
+  "temperature_unit": "F"
+}

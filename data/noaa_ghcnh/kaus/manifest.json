@@ -1,0 +1,86 @@
+{
+  "city": "Austin",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:10.298176+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "austin",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 2064,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1999,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=2": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 260,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 4,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 4,
+      "temperature_Quality_Code=4,dew_point_temperature_Quality_Code=4,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "146.6",
+      "GHCN_ID": "USW00013904",
+      "GSN": "",
+      "ICAO": "KAUS",
+      "ISO_CODE": "US",
+      "LATITUDE": "30.1831",
+      "LONGITUDE": "-97.68",
+      "NAME": "AUSTIN BERGSTROM INTL AP",
+      "STATE": "TX",
+      "WMO_ID": "74745"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 6,
+      "sha256": "aa8b813406d39153e2d1b44184eaa383af3f9de8ee370f4a5dcd204254fe9960"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 811,
+      "sha256": "7b7e3f052b142a832857aa080082370b524192d130fa1766a6b13708a0260dc2"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 751,
+      "sha256": "16b940cd3e11668baa00ac8fa9ed8457056eefe6327fd470618ac43212e39dbf"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 840,
+      "sha256": "4ec239035410e8f47770e72112a052d87ccad3aba7452b796389258a427f467a"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 889,
+      "sha256": "ad4eb2d78e7b3b9f9ae6ca02c86aef70338bc7224b83664f637c64b7443d0961"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 899,
+      "sha256": "cf9863acbfe0317c6e2c53ea820c385bec436d1208448af4fb9eb31ffb88d25b"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 140,
+      "sha256": "7c8154b4afc13170b37f0d044843b4846a211a947e244db7acaf43208b2e4391"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 14714262,
+      "path": "raw/year=2026/GHCNh_USW00013904_2026.psv",
+      "sha256": "5cb6460750e020a2e02c06fa80e8283be5829f9f700da0399a310c0a3542abc4"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KAUS",
+  "temperature_unit": "F"
+}

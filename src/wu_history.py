@@ -44,6 +44,33 @@ def calculate_sha256(filepath):
     return hasher.hexdigest()
 
 
+def replace_with_retry(src, dst, attempts=8, delay=0.5):
+    src = Path(src)
+    dst = Path(dst)
+    for attempt in range(attempts):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+def unlink_with_retry(path, attempts=8, delay=0.5):
+    path = Path(path)
+    for attempt in range(attempts):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
 
 TORONTO_TZ = ZoneInfo("America/Toronto")
 WEATHER_COM_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
@@ -90,20 +117,27 @@ class WundergroundHistoryClient:
 
 class WundergroundHistoryStore:
     def __init__(self, root=DEFAULT_DATA_ROOT, station_icao=STATION_ICAO,
-                 station_name=STATION_NAME, history_id=CYYZ_HISTORY_ID):
+                 station_name=STATION_NAME, history_id=CYYZ_HISTORY_ID,
+                 tz=TORONTO_TZ, unit="C", wu_units="m"):
         self.root = Path(root)
         self.station_icao = station_icao
         self.station_name = station_name
         self.history_id = history_id
+        self.unit = unit
+        self.wu_units = wu_units
+        # The market's local timezone -- day boundaries and intraday times must be
+        # bucketed in the city's own tz, not a global one (Pacific != Eastern).
+        self.tz = tz
         self.raw_root = self.root / "raw"
         self.hourly_root = self.root / "hourly"
         self.daily_root = self.root / "daily"
+        self.error_log_path = self.root / "backfill_errors.jsonl"
 
     def write_payload(self, start_date, end_date, payload):
         observations = payload.get("observations", []) or []
         by_day = defaultdict(list)
         for obs in observations:
-            local_dt = local_datetime(obs)
+            local_dt = local_datetime(obs, self.tz)
             if local_dt:
                 by_day[local_dt.date()].append(obs)
 
@@ -115,7 +149,8 @@ class WundergroundHistoryStore:
                     "station": self.station_icao,
                     "station_name": self.station_name,
                     "source": "weather.com v1 historical observations",
-                    "units": "metric",
+                    "temperature_unit": self.unit,
+                    "weather_com_units": self.wu_units,
                     "local_date": obs_date.isoformat(),
                     "fetched_range": {
                         "start": start_date.isoformat(),
@@ -126,7 +161,7 @@ class WundergroundHistoryStore:
 
     def rebuild_normalized_files(self):
         records = list(self.iter_raw_records())
-        hourly_records = [normalize_observation(obs) for obs in records]
+        hourly_records = [normalize_observation(obs, self.tz, unit=self.unit) for obs in records]
         hourly_records = [
             row for row in hourly_records
             if row.get("local_date") and row.get("valid_time_utc")
@@ -146,30 +181,42 @@ class WundergroundHistoryStore:
             yield from payload.get("observations", []) or []
 
     def write_hourly_partitions(self, records):
-        if self.hourly_root.exists():
-            for old_file in self.hourly_root.glob("year=*/month=*/observations.jsonl"):
-                old_file.unlink()
-
         grouped = defaultdict(list)
         for row in records:
             local_date = date.fromisoformat(row["local_date"])
             grouped[(local_date.year, local_date.month)].append(row)
 
+        written_paths = set()
         for (year, month), rows in grouped.items():
             path = self.hourly_root / f"year={year:04d}" / f"month={month:02d}" / "observations.jsonl"
+            written_paths.add(path)
             path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("w", encoding="utf-8", newline="\n") as handle:
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            with tmp_path.open("w", encoding="utf-8", newline="\n") as handle:
                 for row in rows:
                     handle.write(json.dumps(row, sort_keys=True) + "\n")
+            replace_with_retry(tmp_path, path)
+
+        if self.hourly_root.exists():
+            for old_file in self.hourly_root.glob("year=*/month=*/observations.jsonl"):
+                if old_file not in written_paths:
+                    unlink_with_retry(old_file)
 
     def write_daily_summary(self, daily_rows):
         path = self.daily_root / "daily_summary.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         fields = [
+            "schema_version",
             "local_date",
+            "temperature_unit",
             "row_count",
             "first_time",
             "last_time",
+            "max_temp",
+            "max_temp_bucket",
+            "min_temp",
+            "avg_temp",
+            "max_dewpoint",
             "max_temp_c",
             "max_temp_times",
             "min_temp_c",
@@ -215,13 +262,13 @@ class WundergroundHistoryStore:
             "station": self.station_icao,
             "station_name": self.station_name,
             "history_id": self.history_id,
-            "timezone": str(TORONTO_TZ),
+            "timezone": str(self.tz),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "code_version": get_code_version(),
             "source_details": {
                 "endpoint": WundergroundHistoryClient(history_id=self.history_id).url,
                 "api_params": {
-                    "units": "m",
+                    "units": self.wu_units,
                     "apiKey": redacted_key
                 }
             },
@@ -280,26 +327,95 @@ class WundergroundHistoryStore:
         print(f"Audit PASSED: Checked {len(partitions)} partitions successfully.")
         return True
 
+    def raw_dates(self):
+        dates = set()
+        for path in self.raw_root.glob("year=*/month=*/*.json"):
+            try:
+                dates.add(date.fromisoformat(path.stem))
+            except ValueError:
+                continue
+        return dates
 
-def normalize_observation(obs):
-    local_dt = local_datetime(obs)
+    def write_fetch_error(self, start_date, end_date, exc):
+        response = getattr(exc, "response", None)
+        payload = {
+            "source": "weather.com v1 historical observations",
+            "station": self.station_icao,
+            "history_id": self.history_id,
+            "temperature_unit": self.unit,
+            "start": start_date.isoformat(),
+            "end": end_date.isoformat(),
+            "status_code": getattr(response, "status_code", None),
+            "url": getattr(response, "url", None),
+            "error": str(exc),
+            "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+            "treated_as_source_unavailable": True,
+        }
+        self.error_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.error_log_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        return payload
+
+    def unavailable_dates(self):
+        dates = set()
+        if not self.error_log_path.exists():
+            return dates
+        with self.error_log_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                    start = date.fromisoformat(row.get("start"))
+                    end = date.fromisoformat(row.get("end"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                dates.update(iter_dates(start, end))
+        return dates
+
+    def missing_dates(self, start_date, end_date):
+        existing = self.raw_dates()
+        unavailable = self.unavailable_dates()
+        return [
+            current
+            for current in iter_dates(start_date, end_date)
+            if current not in existing and current not in unavailable
+        ]
+
+    def missing_ranges(self, start_date, end_date, chunk_days=14):
+        return split_date_runs(self.missing_dates(start_date, end_date), chunk_days)
+
+
+def normalize_observation(obs, tz=TORONTO_TZ, unit="C"):
+    local_dt = local_datetime(obs, tz)
     utc_dt = datetime.fromtimestamp(
         int(obs["valid_time_gmt"]), timezone.utc
     ) if obs.get("valid_time_gmt") is not None else None
+    temp = to_number(obs.get("temp"))
+    dewpoint = to_number(obs.get("dewPt"))
+    heat_index = to_number(obs.get("heat_index"))
+    wind_chill = to_number(obs.get("wc"))
 
     return {
+        "schema_version": "wu_hourly_native_v1",
         "station": obs.get("key") or obs.get("obs_id") or STATION_ICAO,
         "obs_id": obs.get("obs_id"),
         "obs_name": obs.get("obs_name"),
+        "temperature_unit": unit,
         "valid_time_utc": utc_dt.isoformat() if utc_dt else None,
         "valid_time_local": local_dt.isoformat() if local_dt else None,
         "local_date": local_dt.date().isoformat() if local_dt else None,
         "local_time": local_dt.strftime("%H:%M") if local_dt else None,
         "minute": local_dt.minute if local_dt else None,
-        "temp_c": to_number(obs.get("temp")),
-        "dewpoint_c": to_number(obs.get("dewPt")),
-        "heat_index_c": to_number(obs.get("heat_index")),
-        "wind_chill_c": to_number(obs.get("wc")),
+        "temp_native": temp,
+        "dewpoint_native": dewpoint,
+        "heat_index_native": heat_index,
+        "wind_chill_native": wind_chill,
+        "temp_c": temp,
+        "dewpoint_c": dewpoint,
+        "heat_index_c": heat_index,
+        "wind_chill_c": wind_chill,
         "humidity": to_number(obs.get("rh")),
         "pressure": to_number(obs.get("pressure")),
         "visibility": to_number(obs.get("vis")),
@@ -324,18 +440,19 @@ def summarize_daily(records):
     daily_rows = []
     for local_date, rows in sorted(grouped.items()):
         rows = sorted(rows, key=lambda row: row["valid_time_local"])
-        temps = [row["temp_c"] for row in rows if row.get("temp_c") is not None]
+        unit = next((row.get("temperature_unit") for row in rows if row.get("temperature_unit")), "C")
+        temps = [row_temp(row) for row in rows if row_temp(row) is not None]
         if temps:
             max_temp = max(temps)
             min_temp = min(temps)
             avg_temp = round(sum(temps) / len(temps), 2)
             max_times = [
                 row["local_time"] for row in rows
-                if row.get("temp_c") == max_temp
+                if row_temp(row) == max_temp
             ]
             max_temp_bucket = round_half_up(max_temp)
             max_on_hour_mark = any(
-                row.get("temp_c") == max_temp and row.get("minute") == 0
+                row_temp(row) == max_temp and row.get("minute") == 0
                 for row in rows
             )
         else:
@@ -348,15 +465,22 @@ def summarize_daily(records):
             if row.get("minute") not in (None, 0)
         ]
         daily_rows.append({
+            "schema_version": "wu_daily_native_v1",
             "local_date": local_date,
+            "temperature_unit": unit,
             "row_count": len(rows),
             "first_time": rows[0].get("local_time"),
             "last_time": rows[-1].get("local_time"),
+            "max_temp": max_temp,
+            "max_temp_bucket": max_temp_bucket,
+            "min_temp": min_temp,
+            "avg_temp": avg_temp,
+            "max_dewpoint": max_value(row_dewpoint(row) for row in rows),
             "max_temp_c": max_temp,
             "max_temp_times": "|".join(max_times),
             "min_temp_c": min_temp,
             "avg_temp_c": avg_temp,
-            "max_dewpoint_c": max_value(row.get("dewpoint_c") for row in rows),
+            "max_dewpoint_c": max_value(row_dewpoint(row) for row in rows),
             "max_wind_kmh": max_value(row.get("wind_speed_kmh") for row in rows),
             "max_gust_kmh": max_value(row.get("wind_gust_kmh") for row in rows),
             "max_temp_bucket_c": max_temp_bucket,
@@ -367,6 +491,45 @@ def summarize_daily(records):
             "cloud_mode": mode(row.get("clouds") for row in rows),
         })
     return daily_rows
+
+
+def row_temp(row):
+    return row.get("temp_native") if row.get("temp_native") is not None else row.get("temp_c")
+
+
+def row_dewpoint(row):
+    return row.get("dewpoint_native") if row.get("dewpoint_native") is not None else row.get("dewpoint_c")
+
+
+def iter_dates(start_date, end_date):
+    current = start_date
+    while current <= end_date:
+        yield current
+        current += timedelta(days=1)
+
+
+def chunk_date_range(start_date, end_date, chunk_days=14):
+    current = start_date
+    while current <= end_date:
+        chunk_end = min(current + timedelta(days=chunk_days - 1), end_date)
+        yield current, chunk_end
+        current = chunk_end + timedelta(days=1)
+
+
+def split_date_runs(dates, chunk_days=14):
+    dates = sorted(set(dates))
+    if not dates:
+        return []
+    runs = []
+    run_start = prev = dates[0]
+    for current in dates[1:]:
+        if current == prev + timedelta(days=1):
+            prev = current
+            continue
+        runs.extend(chunk_date_range(run_start, prev, chunk_days))
+        run_start = prev = current
+    runs.extend(chunk_date_range(run_start, prev, chunk_days))
+    return runs
 
 
 def analyze_daily_summary(
@@ -427,12 +590,12 @@ def analyze_daily_summary(
     }
 
 
-def local_datetime(obs):
+def local_datetime(obs, tz=TORONTO_TZ):
     if obs.get("valid_time_gmt") is None:
         return None
     return datetime.fromtimestamp(
         int(obs["valid_time_gmt"]), timezone.utc
-    ).astimezone(TORONTO_TZ)
+    ).astimezone(tz)
 
 
 def to_number(value):
@@ -479,6 +642,9 @@ def _store_for(spec, data_root):
         station_icao=spec.icao,
         station_name=spec.city_label,
         history_id=spec.wu_history_id,
+        tz=spec.tz,
+        unit=spec.display_unit,
+        wu_units=spec.wu_units,
     )
 
 
@@ -490,12 +656,33 @@ def cmd_backfill(args):
         sleep_seconds=args.sleep, history_id=spec.wu_history_id, units=spec.wu_units
     )
     store = _store_for(spec, data_root)
-    for chunk_start, chunk_end, payload in client.fetch_chunks(
-        start_date, end_date, chunk_days=args.chunk_days
-    ):
+    ranges = (
+        store.missing_ranges(start_date, end_date, chunk_days=args.chunk_days)
+        if args.skip_existing
+        else list(chunk_date_range(start_date, end_date, chunk_days=args.chunk_days))
+    )
+    if args.skip_existing:
+        covered = (end_date - start_date).days + 1 - sum((end - start).days + 1 for start, end in ranges)
+        print(f"Skip-existing enabled: {covered} raw day(s) already present; {len(ranges)} range(s) to fetch")
+    if not ranges:
+        print("No missing raw WU history days to fetch.")
+    for chunk_start, chunk_end in ranges:
+        try:
+            payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
+        except requests.HTTPError as exc:
+            error = store.write_fetch_error(chunk_start, chunk_end, exc)
+            print(
+                f"Fetch unavailable {chunk_start} to {chunk_end}: "
+                f"HTTP {error.get('status_code')} ({error.get('error')})"
+            )
+            if not args.continue_on_error:
+                raise
+            continue
         count = len(payload.get("observations", []) or [])
         print(f"Fetched {chunk_start} to {chunk_end}: {count} rows")
         store.write_payload(chunk_start, chunk_end, payload)
+        if args.sleep:
+            time.sleep(args.sleep)
     hourly, daily = store.rebuild_normalized_files()
     print(f"Wrote {len(hourly)} hourly rows and {len(daily)} daily rows")
 
@@ -529,6 +716,48 @@ def cmd_audit(args):
         sys.exit(1)
 
 
+def history_coverage(store, start_date=None, end_date=None):
+    raw_dates = store.raw_dates()
+    unavailable_dates = store.unavailable_dates()
+    if start_date and end_date:
+        expected = set(iter_dates(start_date, end_date))
+    else:
+        expected = set(raw_dates) | set(unavailable_dates)
+    unavailable = sorted(expected & unavailable_dates)
+    missing = sorted(expected - raw_dates - unavailable_dates)
+    return {
+        "station": store.station_icao,
+        "history_id": store.history_id,
+        "temperature_unit": store.unit,
+        "data_root": str(store.root),
+        "first_raw_date": min(raw_dates).isoformat() if raw_dates else None,
+        "last_raw_date": max(raw_dates).isoformat() if raw_dates else None,
+        "raw_days": len(raw_dates),
+        "expected_days": len(expected),
+        "source_unavailable_days": len(unavailable),
+        "source_unavailable_ranges": [
+            {"start": start.isoformat(), "end": end.isoformat()}
+            for start, end in split_date_runs(unavailable, chunk_days=10_000)
+        ],
+        "missing_days": len(missing),
+        "missing_ranges": [
+            {"start": start.isoformat(), "end": end.isoformat()}
+            for start, end in split_date_runs(missing, chunk_days=10_000)
+        ],
+        "manifest_exists": (store.root / "manifest.json").exists(),
+        "daily_summary_exists": (store.daily_root / "daily_summary.csv").exists(),
+    }
+
+
+def cmd_coverage(args):
+    store = _store_for(*_resolve(args))
+    start_date = parse_date(args.start) if args.start else None
+    end_date = parse_date(args.end) if args.end else None
+    if (start_date is None) != (end_date is None):
+        raise SystemExit("--start and --end must be supplied together for bounded coverage")
+    print(json.dumps(history_coverage(store, start_date, end_date), indent=2, sort_keys=True))
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Collect and analyze Wunderground/Weather.com CYYZ history."
@@ -550,6 +779,16 @@ def build_parser():
     backfill.add_argument("--end", required=True, help="YYYY-MM-DD")
     backfill.add_argument("--chunk-days", type=int, default=14)
     backfill.add_argument("--sleep", type=float, default=0.2)
+    backfill.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Only fetch raw dates not already present; rebuild outputs afterward.",
+    )
+    backfill.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Record source-unavailable ranges and continue instead of aborting.",
+    )
     backfill.set_defaults(func=cmd_backfill)
 
     rebuild = subparsers.add_parser("rebuild")
@@ -557,6 +796,11 @@ def build_parser():
 
     audit = subparsers.add_parser("audit")
     audit.set_defaults(func=cmd_audit)
+
+    coverage = subparsers.add_parser("coverage")
+    coverage.add_argument("--start", default="")
+    coverage.add_argument("--end", default="")
+    coverage.set_defaults(func=cmd_coverage)
 
     analyze = subparsers.add_parser("analyze")
     analyze.add_argument("--month", type=int, default=5)

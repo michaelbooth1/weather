@@ -129,7 +129,7 @@ class TorontoHighTempModel(
         # One timestamp for the whole build so every panel (distribution, cutoff,
         # analogs, transitions, late-day) agrees, and so callers can backtest by
         # passing a historical `now`.
-        now_tz = now or datetime.now(TORONTO_TZ)
+        now_tz = now or datetime.now(self.spec.tz)
         distribution = self.estimate_distribution(sources, now=now_tz)
         model_rows = self.model_market_rows(event, distribution)
         top_temp = max(distribution, key=distribution.get) if distribution else None

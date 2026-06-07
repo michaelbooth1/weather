@@ -942,6 +942,374 @@ strong enough to judge it.
 Acceptance: new weather features improve the calibrated model, not just feature
 importance charts.
 
+## Platform Era Reconciliation (2026-06-06)
+
+Since the 2026-05-31 deep dive the project changed shape: it is no longer a
+single-Toronto system. It now serves **12 markets** (1 Celsius: Toronto;
+11 Fahrenheit: NYC, Atlanta, Austin, Chicago, Dallas, Denver, Houston,
+Los Angeles, Miami, San Francisco, Seattle) — "foundations for all Canada + USA
+Polymarket high-temperature markets," the first milestone. Work landed that
+supersedes parts of items 18-19:
+
+- **Declarative market registry** (`src/market_registry.py`): a market is a
+  config entry (slug, station, geo, tz, unit, source set). Adding one needs no
+  engine changes.
+- **Native-unit operation (the C/F split)**: each market runs end-to-end in its
+  settlement unit, with per-unit model artifacts (`*_f`). This replaced an
+  earlier canonical-Celsius approach that leaked probability across the 2°F
+  bands.
+- **Per-market data layer**: WU history + Open-Meteo forecast archive + live
+  sources, all under `spec.data_root`, in native units.
+- **Timezone correctness**: `spec.tz` is now threaded through serving and
+  backfill. It had been a global Toronto constant that silently put the 8
+  non-Eastern cities on the wrong clock (day boundaries + intraday cutoff) in
+  both history and live serving — found and fixed in the 2026-06-06 design audit.
+- **Improvement engine** in place: replay corpus, settlement backtest (item 20),
+  per-location trust score, forecast-vs-realized tracker, market-day labels.
+
+Open architectural finding from the audit: **C vs F is an I/O concern (band unit
++ granularity), not a model/training axis.** Features, training, and calibration
+should be shared; only band parsing (in) and discretization (out) differ. Today
+the F model is trained on NYC alone and served to all 11 F cities (climatology +
+floors rescue out-of-range cities like Seattle/Denver). The two tracks below take
+the data layer and the model from this bootstrap to production.
+
+## Track A — From Basic To Best-Possible Data Layer
+
+Principle: for every market, produce a faithful, gap-free, deep record of (1) the
+settlement ground truth, (2) the observations that lead it, and (3) the forecasts
+that predict it — in native unit and local time, with provenance. The model can
+only be as good as this layer.
+
+### 28. Settlement Ground-Truth Ledger [COMPLETE - LEDGER LIVE]
+
+Goal: encode and archive EXACTLY how each market resolves, and the realized
+outcome, as the supervised label.
+
+- [x] Per market, pin the resolution spec: source (Wunderground station id),
+  daily-max window, rounding, unit, timezone.
+- [x] After each market day, freeze the realized settlement high + winning band +
+  evidence (generalize `market_day_labels finalize` to all 12 markets).
+- [x] Reconcile the live WU-history settlement against the actual Polymarket
+  resolution; alert on mismatch.
+- [x] Maintain a per-market settlement ledger = the supervised labels and the
+  calibration target.
+
+Acceptance: every settled market day has a frozen, source-verified label, and
+backtests/trust read from the ledger.
+
+Detailed design (implemented 2026-06-06):
+
+- Add `src/settlement_ledger.py` as the authoritative settlement-label layer.
+  It writes pinned market-resolution specs to
+  `data/settlements/resolution_specs.json` and per-market ledgers to
+  `data/settlements/{market_id}/ledger.jsonl`.
+- Keep folder-local `settlement.json` files as evidence copies, but make the
+  per-market ledger the first source read by scoring tools.
+- Resolve each folder's market from the registered Polymarket slug, then use
+  that market's WU station, unit, timezone, daily-summary path, and local
+  midnight-to-midnight daily-max window.
+- Freeze native-unit settlement high, rounded settlement bucket, winning market
+  band, quality grade, collection coverage, source evidence, Polymarket URL,
+  Gamma API URL, and reconciliation status.
+- Reconcile closed Polymarket events by reading the resolved Yes band from Gamma
+  final outcome prices. Matches are recorded as `reconciliation_status=match`;
+  mismatches append an alert row to `data/settlements/reconciliation_alerts.jsonl`.
+- Make `src.backtest` and `src.location_trust` ledger-first. Backtest falls back
+  only for unfinalized legacy tapes; trust now counts clean/manual ledger labels
+  rather than every historical folder.
+
+Codex implementation status (2026-06-06): complete for the current 12-market
+platform foundation. The registry now has pinned resolution specs for Toronto
+plus the 11 US Fahrenheit markets. The finalizer wrote 9 settled Toronto ledger
+rows; all 9 matched Polymarket's resolved winning band. Current clean scoring
+uses 3 complete ledger days, while 6 partial rows remain preserved in the ledger
+but excluded from headline quality-filtered backtests/trust.
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_market_day_labels.py tests\test_settlement_ledger.py tests\test_backtest.py tests\test_location_trust.py -q`: 37 passed.
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+- `.\venv\Scripts\python.exe -m src.market_day_labels finalize`: wrote 9 labels,
+  per-market ledgers under `data/settlements`, and `complete=3, partial=6`;
+  Polymarket reconciliation `match=9`.
+- `.\venv\Scripts\python.exe -m src.backtest --quality-grades complete,manual_override`:
+  scored 3 complete Toronto ledger days, with settlements reported as
+  `settlement_ledger:snapshot_high`; all-snapshot model Brier 0.0550 versus
+  market Brier 0.0337, daily-first model Brier 0.0539 versus market 0.0347.
+- `.\venv\Scripts\python.exe -m src.location_trust`: Toronto trust now uses 3
+  clean ledger days and reports 38/100 Low; US markets remain Unproven until
+  their first post-ledger days settle.
+
+### 29. Deepen And Widen The Historical Record [PARTIAL - CURRENT WINDOW MULTI-SOURCE]
+
+Goal: give each market the deepest faithful history its sources allow (currently
+7 years × a narrow May-June window).
+
+- [ ] Extend WU history beyond 2019-2025 where available; add ISD/GHCN-hourly
+  (NOAA) and ERA5 for multi-decade depth.
+- [ ] Widen the seasonal window, and support non-summer windows if Polymarket
+  lists them.
+- [ ] Make backfills idempotent, resumable, and scheduled; keep raw + rebuild +
+  checksum (item 15) per market.
+- [ ] Normalize every source into one native-unit hourly/daily schema.
+
+Acceptance: each market's training window is sources-limited, not effort-limited,
+and fully rebuildable offline.
+
+Codex progress update (2026-06-06): WU, NOAA GHCNh, and ERA5-style reanalysis
+adapters now exist, but this item remains open until the wide backfills have
+actually populated raw archives for every market and the resulting source
+coverage is accepted as training-ready.
+
+What changed:
+
+- `src.wu_history` now has resumable WU backfills. `backfill --skip-existing`
+  discovers raw day payloads already present, fetches only missing contiguous
+  ranges, then rebuilds normalized hourly partitions, daily summaries, and the
+  checksum manifest.
+- `src.wu_history coverage` reports per-market raw coverage, missing day count,
+  missing ranges, unit, station, and manifest/daily-summary presence.
+- WU normalized hourly rows now include native-unit aliases
+  (`temperature_unit`, `temp_native`, `dewpoint_native`, etc.) while preserving
+  legacy `*_c` fields. Daily summaries now include native aliases
+  (`max_temp`, `max_temp_bucket`, `temperature_unit`, etc.) while preserving the
+  existing columns consumers use today.
+- `backfill_all.py` is now registry-driven and resumable by default, with
+  `--markets`, `--start`, `--end`, `--dry-run`, and `--refetch-existing`.
+- `src.historical_schema` defines the shared native-unit hourly/daily schema
+  used by new historical sources.
+- `src.noaa_ghcnh_history` adds a NOAA GHCNh adapter: ICAO-to-GHCN station
+  resolution, raw station-year PSV files, normalized hourly partitions, daily
+  summaries, manifest checksums, coverage, and resumable `--skip-existing`
+  backfills. This is the NOAA hourly replacement/successor path for the older
+  ISD/Global Hourly layer.
+- GHCNh station metadata is now pinned under `data/noaa_ghcnh/{station}/` for
+  all 12 registered markets. Toronto has no ICAO value in the GHCNh station
+  list, so it resolves by nearest same-country/WMO fallback to `CAN06158731`
+  (`TORONTO INTL A`, WMO 71624).
+- `src.reanalysis_history` adds an Open-Meteo archive adapter pinned to ERA5
+  reanalysis semantics: raw chunk JSON, normalized hourly partitions, daily
+  summaries, manifest checksums, coverage, and resumable `--skip-existing`
+  backfills.
+- `src.reanalysis_history coverage` now reports normalized daily coverage
+  separately from raw filename coverage. This matters because Open-Meteo can
+  return a raw range whose later hours are all `null`; those days are now
+  treated as missing normalized history rather than silently counted covered.
+- `src.historical_coverage` writes a fleet source-coverage report across WU,
+  GHCNh, and reanalysis; current artifact:
+  `data/backtest/historical_coverage.json`.
+- `backfill_all.py` now supports `--sources wu,ghcnh,reanalysis`, so the same
+  fleet command can drive all item-29 historical sources.
+- `src.historical_backfill_plan` writes the remaining resumable queue to
+  `data/backtest/historical_backfill_plan.json`; WU queue items include
+  `--continue-on-error` so Weather.com source-unavailable dates are logged
+  rather than killing the whole fleet run.
+
+Current WU depth snapshot from the audit:
+
+- Toronto/CYYZ: 1982-01-01 through 2026-06-06, all months except
+  Weather.com 2020-11-08, which returned HTTP 400 and is now logged in
+  `data/wunderground/cyyz/backfill_errors.jsonl` as source-unavailable.
+- Atlanta/KATL: 2015-01-01 through 2026-06-06, all months.
+- NYC/KLGA, Austin/KAUS, Chicago/KORD, Dallas/KDAL, Denver/KBKF, Houston/KHOU,
+  Los Angeles/KLAX, San Francisco/KSFO, Seattle/KSEA: 2019-05-01 through
+  2025-06-30, May-June only, plus 2026-06-01 through 2026-06-02 now fetched
+  and normalized.
+- Miami/KMIA: 2026-05-01 through 2026-06-06 only.
+- Current two-day source-coverage check (`2026-06-01` through `2026-06-02`):
+  WU missing=0 and GHCNh missing=0 for all 12 markets. Reanalysis has raw
+  files covering both days for all 12, but only one normalized daily row per
+  market because June 2 returned all-null weather variables; coverage now
+  reports reanalysis missing=1 per market instead of hiding the source lag.
+- Minimum-window queue (`2015-01-01` through `2026-06-06`) still has 4,491
+  remaining resumable items: WU=2,727, GHCNh=132, reanalysis=1,632. This is why
+  the item remains partial.
+
+Validation results for this increment:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_validation.py tests\test_backfill_markets.py -q`: 15 passed.
+- `.\venv\Scripts\python.exe -m pytest tests\test_historical_sources.py tests\test_backfill_markets.py -q`: 11 passed.
+- `.\venv\Scripts\python.exe -m pytest tests\test_historical_sources.py tests\test_backfill_markets.py tests\test_validation.py -q`: 27 passed after tightening
+  reanalysis coverage to actual normalized daily dates.
+- `.\venv\Scripts\python.exe -m src.wu_history --market toronto rebuild`: rebuilt
+  Toronto normalized WU history from raw after the interrupted Windows file-lock
+  run; wrote 466,582 hourly rows and 16,167 daily rows, and restored manifest
+  audit consistency.
+- `.\venv\Scripts\python.exe -m src.wu_history --market nyc coverage --start 2019-05-01 --end 2019-05-05`: reported 5 expected days, 0 missing, unit F.
+- `.\venv\Scripts\python.exe backfill_all.py --markets nyc --sources wu,ghcnh,reanalysis --start 2026-06-01 --end 2026-06-02 --dry-run`: printed resumable commands for all three sources.
+- `.\venv\Scripts\python.exe backfill_all.py --markets nyc,austin,chicago,dallas,denver,houston,los-angeles,san-francisco,seattle --sources wu --start 2026-06-01 --end 2026-06-02 --between-markets-sleep 0 --sleep 0.1`: fetched and rebuilt the current-window WU gaps for the 9 US markets missing those days.
+- `.\venv\Scripts\python.exe backfill_all.py --sources ghcnh,reanalysis --start 2026-06-01 --end 2026-06-02 --between-markets-sleep 0 --sleep 0.1`: fetched 2026 GHCNh raw PSV files for all 12 markets and reanalysis raw JSON for the same current window.
+- `.\venv\Scripts\python.exe -m src.historical_coverage report --start 2026-06-01 --end 2026-06-02 --out data\backtest\historical_coverage.json`: wrote fleet coverage across all 12 markets and all three sources.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_plan --sources wu,ghcnh,reanalysis --start 2015-01-01 --end 2026-06-06 --out data\backtest\historical_backfill_plan.json`: wrote 4,491 remaining queue items (`ghcnh=132`, `reanalysis=1632`, `wu=2727`).
+- `.\venv\Scripts\python.exe -m src.noaa_ghcnh_history --market nyc --data-root scratch\ghcnh_smoke station`: resolved KLGA to GHCNh station `USW00014732`.
+- One-pass GHCNh station resolution over all registered markets: resolved
+  Toronto `CAN06158731`, NYC `USW00014732`, Atlanta `USW00013874`, Austin
+  `USW00013904`, Chicago `USW00094846`, Dallas `USW00013960`, Denver
+  `USW00023036`, Houston `USW00012918`, Los Angeles `USW00023174`, Miami
+  `USW00012839`, San Francisco `USW00023234`, Seattle `USW00024233`.
+- `.\venv\Scripts\python.exe -m src.reanalysis_history --market nyc --data-root scratch\reanalysis_smoke backfill --start 2026-06-01 --end 2026-06-01 --skip-existing`: fetched and rebuilt 20 hourly rows / 1 daily row from the ERA5-style archive path.
+
+Remaining work before item 29 can close:
+
+- Run or schedule the resumable WU widener so each registered market reaches
+  the deepest WU window available, not only the current mixed coverage.
+- Run the GHCNh and reanalysis backfills across every registered market and the
+  chosen training window, then keep the raw files/checksum manifests as the
+  offline rebuild source.
+- Decide the production training window bounds per source and market
+  (`historical_coverage.json` currently shows what is missing, not a completed
+  source-limited archive).
+
+### 30. Source Redundancy And Gap-Filling [NEW]
+
+Goal: no single feed is a single point of failure or bias.
+
+- [ ] >=2 observation streams per city (WU + METAR/ASOS + ISD), cross-validated;
+  learn each one's lead/bias versus settlement (generalize items 4-5 to all
+  markets).
+- [ ] Multiple forecast sources (Open-Meteo + NWS/NDFD + a global ensemble) into
+  an ensemble-forecast feature plus a disagreement signal (extends item 22).
+- [ ] Automated gap detection and targeted re-fetch; fill observation gaps from
+  the redundant stream.
+
+Acceptance: a single source outage degrades gracefully, and forecast
+disagreement is a measured feature, not an assumption.
+
+### 31. Data Integrity And Observability At Scale [NEW]
+
+Goal: answer "is every market complete and fresh right now?" at a glance.
+
+- [ ] Extend `collection_health` to all 12 markets plus a fleet view; per-market
+  freshness SLAs.
+- [ ] Wire data audits (missing/sparse/duplicate/impossible) into CI and the loop
+  (closes item 14).
+- [ ] Provenance manifests and schema versions on every artifact; drift/outlier
+  alerts.
+
+Acceptance: data problems surface as alerts before they corrupt training or
+serving — the way the timezone bug should have.
+
+### 32. Reanalysis And Synoptic Feature Layer [NEW - GATED]
+
+Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
+lacks.
+
+- [ ] ERA5 / synoptic upper-air (850 mb temperature, thickness), soil moisture,
+  antecedent-day state.
+- [ ] Teleconnection indices (ENSO/PNA), coastal sea-breeze and continentality
+  flags per city.
+- [ ] Add only behind the model harness (item 36); promote features that improve
+  out-of-sample skill.
+
+Acceptance: each new feature family earns its place via settlement-scored
+validation, not importance charts (extends item 27 to all markets).
+
+## Track B — From Bootstrap To Full Production Model
+
+Principle: one shared learning pipeline, split only at the unit/band I/O edges,
+validated by the improvement engine before anything ships, with per-market gating
+and automated retraining.
+
+### 33. Family-Pooled Model + City Features [NEXT - UNBLOCKED]
+
+Goal: train on all cities in a unit family, not one (audit Option A).
+
+- [ ] Add city features to `feature_store` (city one-hot, climate-normal, lat,
+  coastal, continentality).
+- [ ] Add a pooled training mode to `feature_model` (iterate a family's specs,
+  concatenate records, train one HGB).
+- [ ] Train the F family on all 11 US cities (~1,150 window-days); keep Toronto/C
+  as its own family.
+- [ ] Validate per-market on replay + trust before cutover; per-market
+  HGB-vs-empirical gate.
+
+Acceptance: the pooled F model beats the NYC-only HGB on per-market replay/trust
+without regressing NYC.
+
+### 34. Per-Market Calibration And F-Family Secondary Artifacts [NEW]
+
+Goal: generalize the Toronto calibration/forecast/lag work (items 21-23) to the
+F family as data accrues.
+
+- [ ] Build F-family probability-calibration, forecast-error, and settlement-lag
+  artifacts once F days settle.
+- [ ] Per-market trust gating: serve the ML model only where trust > threshold,
+  else empirical fallback.
+- [ ] Calibrate by cutoff hour and floor distance per family.
+
+Acceptance: each F market is either calibrated-and-promoted or honestly
+empirical, never overconfident.
+
+### 35. Unified Continuous-Density Model [NEW - ENDGAME]
+
+Goal: one model for all cities; C/F becomes serving-only (audit Option B).
+
+- [ ] Predict a fine canonical-grid / continuous max-temp density pooled across
+  all 12 cities plus city features.
+- [ ] Discretize the density to each market's native bands at serve time
+  (finer-than-bands grid => leakage-free, the principled fix the coarse
+  canonical-C approach lacked).
+- [ ] Port calibration and floors from integer buckets to the continuous
+  representation.
+- [ ] Prove it rescues the data-poor C/Canada family (Toronto borrows US-city
+  structure).
+
+Acceptance: the unified model matches or beats the family models per-market and
+lifts the data-poor side.
+
+### 36. Production Validation, Gating, And Promotion [NEW]
+
+Goal: a model change ships only if it provably beats the incumbent, per market.
+
+- [ ] One promotion gauntlet across markets: replay fidelity + settlement
+  Brier-skill-vs-market + trust + forecast tracker.
+- [ ] Per-market promotion (a build can be production in NYC and shadow in
+  Seattle).
+- [ ] Record model cards + data snapshot + gate results for every promotion
+  (extends item 20).
+
+Acceptance: no model reaches a market's live serving without passing that
+market's gate.
+
+### 37. MLOps And Always-On Production Hardening [NEW]
+
+Goal: make the fleet reproducible, self-retraining, and observable.
+
+- [ ] Model/artifact registry + versioning; scheduled nightly
+  retrain -> validate -> promote.
+- [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
+  market.
+- [ ] Clean supervised always-on capture (closes item 16); one market's failure
+  cannot stall the loop.
+
+Acceptance: a new market or a model update flows through the pipeline with no
+manual surgery.
+
+### 38. Cross-Market And Market-Microstructure Signal [NEW - FURTHEST OUT]
+
+Goal: squeeze the last edge once per-market models are solid.
+
+- [ ] Borrow strength across correlated cities (regional heat waves / shared
+  synoptics).
+- [ ] Model Polymarket price dynamics (stickiness, liquidity) toward edge/P&L,
+  not just calibration.
+
+Acceptance: cross-market structure or microstructure adds settlement-scored or
+P&L value over independent per-market models.
+
+## Sequencing The Two Tracks
+
+1. **Item 28 (settlement ledger)** and **item 33 (pooled F + city features)** in
+   parallel — the foundation labels and the immediate model win, both unblocked
+   now.
+2. Then **31 (observability)** and **34 (F calibration + gating)** as F days
+   settle.
+3. Then **29-30 (deeper, redundant data)** feeding **35 (unified model)**.
+4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
+5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are
+   the long-tail accuracy and edge plays.
+
 ## Research Questions
 
 - Does WU final high usually equal Weather.com max-since-7 once history settles?

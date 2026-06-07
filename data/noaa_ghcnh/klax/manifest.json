@@ -1,0 +1,83 @@
+{
+  "city": "Los Angeles",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:32.865050+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "los-angeles",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1975,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2006,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 667,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 285,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 7
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "29.6",
+      "GHCN_ID": "USW00023174",
+      "GSN": "",
+      "ICAO": "KLAX",
+      "ISO_CODE": "US",
+      "LATITUDE": "33.9381",
+      "LONGITUDE": "-118.3867",
+      "NAME": "LOS ANGELES INTL AP",
+      "STATE": "CA",
+      "WMO_ID": "72295"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 14,
+      "sha256": "7bdcb12d02cf664163f292098b6c4368beda51f62787012594d67e5c0cd3f8d3"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1093,
+      "sha256": "49594fd02f01093da4eb0122ffe2789d998e238e9638ecceb2f869eb4f11c8a0"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 964,
+      "sha256": "ef9bf31f66641e29d569a22b4d5872b2ff4ad51f475eb765c7608b50dd71f710"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1090,
+      "sha256": "bfef2c6e6e19173c1d682c497d6ebcc59d1f734df195851345f3da4512e0eec6"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 791,
+      "sha256": "6486cccb87ee1176b4df59fd0562aed996a91d97fa311e035503421388950386"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 849,
+      "sha256": "45a0e593cb72782a9023534dc068735605a168ab12deee75427ede150ca09cd4"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 140,
+      "sha256": "ceaca481a2e106a111674cf9a154bd4ec83ba96e24c8d600dc0d520076db4ae9"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 14295687,
+      "path": "raw/year=2026/GHCNh_USW00023174_2026.psv",
+      "sha256": "e14db9a59644fde4f9bf95e8ea5f575e319fa5a5aaa574cd3871a4cf2e1774e4"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KLAX",
+  "temperature_unit": "F"
+}

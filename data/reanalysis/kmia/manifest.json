@@ -1,0 +1,45 @@
+{
+  "city": "Miami",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 1,
+  "first_date": "2026-06-01",
+  "generated_at_utc": "2026-06-07T01:17:42.147288+00:00",
+  "last_date": "2026-06-01",
+  "market_id": "miami",
+  "metadata": {
+    "archive_url": "https://archive-api.open-meteo.com/v1/archive",
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "hourly_variables": [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "dew_point_2m",
+      "pressure_msl",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "wind_gusts_10m",
+      "cloud_cover"
+    ],
+    "model": "era5",
+    "quality_counts": {
+      "reanalysis_grid": 20
+    }
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 20,
+      "sha256": "16ffc436c802f41ecb695c2c54e38f5daac2e5afc19fa9c04146aebda2400156"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 7030,
+      "path": "raw/year=2026/2026-06-01_2026-06-02.json",
+      "sha256": "941b44637da2bf475cb425eb501b6b2b1d96b8aea3469d9c0cfc5d3d66b303ff"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "open_meteo_era5_reanalysis",
+  "station": "KMIA",
+  "temperature_unit": "F"
+}

@@ -1,0 +1,50 @@
+{
+  "city": "Toronto",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 1,
+  "first_date": "2026-06-01",
+  "generated_at_utc": "2026-06-07T01:19:27.195066+00:00",
+  "last_date": "2026-06-01",
+  "market_id": "toronto",
+  "metadata": {
+    "archive_url": "https://archive-api.open-meteo.com/v1/archive",
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "hourly_variables": [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "dew_point_2m",
+      "pressure_msl",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "wind_gusts_10m",
+      "cloud_cover"
+    ],
+    "model": "era5",
+    "quality_counts": {
+      "reanalysis_grid": 20
+    }
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 20,
+      "sha256": "5147b9804e72a8650a3ab8b3fb9fa82ac56ee051eb85485065d7f8e5047f56d1"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 6993,
+      "path": "raw/year=2026/2026-06-01_2026-06-02.json",
+      "sha256": "c56e58b575bc4e11f5cbce2be8034a49e9724b648d198e1e13337c7269c30231"
+    },
+    {
+      "bytes": 3969,
+      "path": "raw/year=2026/2026-06-02_2026-06-02.json",
+      "sha256": "ec63fb2933f0d1e97f51f6b3c6bd9a24d9c83d216f036ecd63af44627c894fab"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "open_meteo_era5_reanalysis",
+  "station": "CYYZ",
+  "temperature_unit": "C"
+}

@@ -7,7 +7,6 @@ from pathlib import Path
 from wu_history import DEFAULT_DATA_ROOT
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
-    TORONTO_TZ,
     TARGET_DATE,
     TARGET_DATE_STR,
     WEATHER_COM_KEY,

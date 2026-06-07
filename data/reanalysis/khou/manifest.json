@@ -1,0 +1,45 @@
+{
+  "city": "Houston",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 1,
+  "first_date": "2026-06-01",
+  "generated_at_utc": "2026-06-07T01:17:30.746630+00:00",
+  "last_date": "2026-06-01",
+  "market_id": "houston",
+  "metadata": {
+    "archive_url": "https://archive-api.open-meteo.com/v1/archive",
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "hourly_variables": [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "dew_point_2m",
+      "pressure_msl",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "wind_gusts_10m",
+      "cloud_cover"
+    ],
+    "model": "era5",
+    "quality_counts": {
+      "reanalysis_grid": 19
+    }
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 19,
+      "sha256": "b86f9ee0976245630893fe3197df168c851f149fa3ecad7397a894367610c03d"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 7028,
+      "path": "raw/year=2026/2026-06-01_2026-06-02.json",
+      "sha256": "508a02fad6df41f0e9a0b1d2b74a78819f276fb260c08d28adf549a94f6a5e35"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "open_meteo_era5_reanalysis",
+  "station": "KHOU",
+  "temperature_unit": "F"
+}

@@ -1,0 +1,82 @@
+{
+  "city": "Atlanta",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:05.978476+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "atlanta",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1962,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2015,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 668,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 444,
+      "temperature_Quality_Code=4,dew_point_temperature_Quality_Code=4,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "308.2",
+      "GHCN_ID": "USW00013874",
+      "GSN": "",
+      "ICAO": "KATL",
+      "ISO_CODE": "US",
+      "LATITUDE": "33.6297",
+      "LONGITUDE": "-84.4422",
+      "NAME": "ATLANTA HARTSFIELD-JACKSON INT",
+      "STATE": "GA",
+      "WMO_ID": "72219"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 7,
+      "sha256": "dd2c40a7a24ffa5add9e8f8af942d2a5dc90f9a4090e5675b2844a572bebebd4"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1152,
+      "sha256": "f261369a1a45118769aaf0b4bd3049fd6229e55c812f3856e8f13756872b60b3"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 1021,
+      "sha256": "99acdd23a15439631c79f37b9fe2de84f3f83957087d4adbad48f2739a85710c"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1073,
+      "sha256": "33943fe34435bdf37a53b2962881cc1d49817df91ed2b61b09270d168ca9d933"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 810,
+      "sha256": "94d6c1a2761847aa5554a637ca7e27007800e9fe9ef5f1d29a4e8226213e7269"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 902,
+      "sha256": "5f9380a9f62f170d8ebfaecf8a0becb01648699e87a2cafd2f31019bfed221df"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 125,
+      "sha256": "daabea0378f5c271f960d629d39e57d43384914c09b22e99eb6ebf0756c3c387"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 17998940,
+      "path": "raw/year=2026/GHCNh_USW00013874_2026.psv",
+      "sha256": "c35f955a55452d8caa2bb943d26c386fd3a1c019ec9f45aace021a9d69a1c90d"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KATL",
+  "temperature_unit": "F"
+}

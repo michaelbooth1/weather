@@ -39,6 +39,10 @@ if str(SRC_ROOT) not in sys.path:
 from feature_store import FEATURE_COLUMNS
 from market_config import date_from_event_slug
 from market_registry import spec_for_slug
+from settlement_ledger import (
+    ledger_label_for_slug,
+    settlement_from_sources as ledger_settlement_from_sources,
+)
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_DAILY_SUMMARY = Path("data") / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
@@ -112,7 +116,35 @@ def settlement_for_tape(df, target_date, daily_index, overrides):
     wu_history_high_c. Snapshot highs are used when the current-day daily
     summary is missing or incomplete.
     """
+    event_slug = None
+    if "event_slug" in df:
+        values = df["event_slug"].dropna().astype(str)
+        event_slug = next((value for value in values if value), None)
     iso = target_date.isoformat() if target_date else None
+    if event_slug and iso not in (overrides or {}) and event_slug not in (overrides or {}):
+        spec = spec_for_slug(event_slug)
+        market_key = f"{spec.id}:{iso}" if spec and iso else None
+        if not market_key or market_key not in (overrides or {}):
+            label = ledger_label_for_slug(event_slug)
+            if label and label.get("settlement_bucket") is not None:
+                source = label.get("settlement_source") or "unknown"
+                status = label.get("reconciliation_status") or "unknown"
+                note = label.get("note") or ""
+                if status and status != "not_requested":
+                    note = f"{note}; polymarket_reconciliation={status}" if note else f"polymarket_reconciliation={status}"
+                return int(label["settlement_bucket"]), f"settlement_ledger:{source}", note
+
+    ledger_result = ledger_settlement_from_sources(
+        df,
+        target_date,
+        daily_index,
+        overrides=overrides,
+        spec=spec_for_slug(event_slug),
+        event_slug=event_slug,
+    )
+    if ledger_result["bucket"] is not None or ledger_result["source"] == "none":
+        return ledger_result["bucket"], ledger_result["source"], ledger_result["note"]
+
     snapshot_high = None
     if "wu_history_high_c" in df:
         snapshot_high = round_half_up(pd.to_numeric(df["wu_history_high_c"], errors="coerce").max())
@@ -666,7 +698,8 @@ def write_report(results, out_path, thresholds):
         ),
         f"Quality filter: {', '.join(results.get('quality_filter') or ['all'])}",
         "",
-        "> Model resolution = WU CYYZ printed daily high. Results over a handful of",
+        "> Model resolution = settlement ledger labels (WU history per registered market),",
+        "> with legacy source fallback only for unfinalized tapes. Results over a handful of",
         "> market days are illustrative, not conclusive. Intraday snapshots from the",
         "> same day are correlated, so use the daily-first, last-pre-close, and",
         "> fixed-cutoff sections as the safer accuracy gates.",
@@ -1001,6 +1034,7 @@ def run_backtest(
     days, all_rows = [], []
     pnl_ps = {threshold: [] for threshold in thresholds}
     pnl_fe = {threshold: [] for threshold in thresholds}
+    per_market_daily_indexes = {}
 
     for folder in folders:
         tape = Path(folder) / "snapshots_long.csv"
@@ -1015,9 +1049,22 @@ def run_backtest(
         if allowed_quality and grade not in allowed_quality:
             print(f"  skip {slug}: quality {grade} not in {sorted(allowed_quality)}")
             continue
-        feature_index = load_feature_vectors(folder)
-        bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
         spec = spec_for_slug(slug)
+        day_daily_index = daily_index
+        if spec and Path(daily_summary_path) == DEFAULT_DAILY_SUMMARY:
+            if spec.id not in per_market_daily_indexes:
+                per_market_daily_indexes[spec.id] = load_daily_summary(
+                    spec.data_root / "daily" / "daily_summary.csv"
+                )
+            day_daily_index = per_market_daily_indexes[spec.id]
+        feature_index = load_feature_vectors(folder)
+        if label and label.get("settlement_bucket") is not None and not overrides:
+            bucket = int(label["settlement_bucket"])
+            label_source = "settlement_ledger" if label.get("schema_version") == "settlement_ledger_v1" else "settlement_json"
+            source = f"{label_source}:{label.get('settlement_source') or 'unknown'}"
+            note = label.get("note") or ""
+        else:
+            bucket, source, note = settlement_for_tape(df, target_date, day_daily_index, overrides)
         unit = spec.display_unit if spec else "C"
         rows, per_snap, first_entry, persistence = backtest_tape(
             df,
@@ -1088,6 +1135,10 @@ def run_backtest(
 
 
 def load_market_day_label(folder):
+    slug = Path(folder).name
+    label = ledger_label_for_slug(slug)
+    if label and ledger_label_matches_folder(label, folder):
+        return label
     path = Path(folder) / "settlement.json"
     if not path.exists():
         return None
@@ -1095,6 +1146,16 @@ def load_market_day_label(folder):
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def ledger_label_matches_folder(label, folder):
+    tape_path = label.get("snapshot_tape_path")
+    if not tape_path:
+        return True
+    try:
+        return Path(tape_path).resolve() == (Path(folder) / "snapshots_long.csv").resolve()
+    except OSError:
+        return False
 
 
 def parse_csv_numbers(value, type_fn=float):

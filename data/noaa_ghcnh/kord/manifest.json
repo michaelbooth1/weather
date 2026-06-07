@@ -1,0 +1,84 @@
+{
+  "city": "Chicago",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:14.747973+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "chicago",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 2035,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2010,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 659,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 6,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 750,
+      "temperature_Quality_Code=4,dew_point_temperature_Quality_Code=4,wind_speed_Quality_Code=1": 1
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "204.8",
+      "GHCN_ID": "USW00094846",
+      "GSN": "",
+      "ICAO": "KORD",
+      "ISO_CODE": "US",
+      "LATITUDE": "41.9603",
+      "LONGITUDE": "-87.9317",
+      "NAME": "CHICAGO OHARE INTL AP",
+      "STATE": "IL",
+      "WMO_ID": "72530"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 13,
+      "sha256": "7521f26bac6e613697833285d6ab9273fa6524200d25a33294e0da4c7903b0cc"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1311,
+      "sha256": "cfe2f0fa813ffe0600d71223f9e6d3514aee11875bd05809629ac49c3a48398e"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 1041,
+      "sha256": "27600811b01d3c9428d6c03825a64c865414fda03a653c09b5de6d9b13c81b74"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 1204,
+      "sha256": "36969f374e46d53aa37ff309e832bf52dcaea20a7abb4b1e020f08808368def8"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 971,
+      "sha256": "7472a6c55550f88ab428adde0ca4a3a8df4132ffbd492fc697519bee9e0ef2e7"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 807,
+      "sha256": "37bc6eba865f0b14aaea1f0793fc9466f1697a775b9a305e7d18b5df53a6e3d5"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 115,
+      "sha256": "60fac071f198a270a1d73bb35df20d06242ecd8abfb0dd44f52627c16ae24ad0"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 8276200,
+      "path": "raw/year=2026/GHCNh_USW00094846_2026.psv",
+      "sha256": "d6da67533f22c0ecdd81c6b705564597e9822818dd1869f061cc83464625ffe8"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KORD",
+  "temperature_unit": "F"
+}

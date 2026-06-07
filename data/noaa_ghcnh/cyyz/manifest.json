@@ -1,0 +1,78 @@
+{
+  "city": "Toronto",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:16:56.083787+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "toronto",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 3725
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "-999.9",
+      "GHCN_ID": "CAN06158731",
+      "GSN": "",
+      "ICAO": "",
+      "ISO_CODE": "CA",
+      "LATITUDE": "43.677",
+      "LONGITUDE": "-79.631",
+      "NAME": "TORONTO INTL A",
+      "STATE": "",
+      "WMO_ID": "71624"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 5,
+      "sha256": "adf17d41cae105a75566766fa8849c42ce1c521eb8cd9eeaf16e69b098e963f8"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 744,
+      "sha256": "c1d7136e9b41c05ce8b4352e9d2a080a20406e5de800ce45449f4031392562a9"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 672,
+      "sha256": "5fe4a3cab712f1e925d45a00b67ee5a60b14b99dce6f44c8dfce32556df32ab6"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 743,
+      "sha256": "51ee5c6fb1ebf7ad82ddfb4fddb36ec89fca0323a5a71bfcdd3cc40ade6ee663"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 720,
+      "sha256": "b3644afef367702a725217e246feb6ff0b5a8e14499b6091d0aa49a81a4c6650"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 744,
+      "sha256": "99a4e97a706a4fe0e1b1116892f21b3c30eeb30dd00acf552091131eaed38880"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 97,
+      "sha256": "32387db435eb876009d7c28ee107e10bc0ccb9e2c61ff202d512eb2eb7fd6e4a"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 2056925,
+      "path": "raw/year=2026/GHCNh_CAN06158731_2026.psv",
+      "sha256": "e33eedee0068b4a13de4ff044919d504e0f2f9fefd11d27226b9db15c7a4a127"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "CYYZ",
+  "temperature_unit": "C"
+}

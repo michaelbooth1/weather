@@ -22,6 +22,7 @@ from backtest import (
     daily_first_score,
     fixed_cutoff_rows,
     last_pre_close_rows,
+    load_market_day_label,
     run_backtest,
 )
 from feature_store import FEATURE_AUDIT_COLUMNS, FEATURE_SCHEMA_VERSION
@@ -120,6 +121,39 @@ class TestSettlementAndTape(unittest.TestCase):
         daily = {"2026-05-27": (25, 30)}
         bucket, source, _ = settlement_for_tape(df, date(2026, 5, 27), daily, {})
         self.assertEqual((bucket, source), (25, "daily_summary"))
+
+    def test_settlement_prefers_ledger_label(self):
+        from datetime import date
+        with tempfile.TemporaryDirectory() as tmp:
+            old_root = os.environ.get("SETTLEMENT_LEDGER_ROOT")
+            os.environ["SETTLEMENT_LEDGER_ROOT"] = str(Path(tmp) / "settlements")
+            try:
+                ledger = Path(os.environ["SETTLEMENT_LEDGER_ROOT"]) / "toronto" / "ledger.jsonl"
+                ledger.parent.mkdir(parents=True)
+                slug = "highest-temperature-in-toronto-on-may-27-2026"
+                ledger.write_text(
+                    json.dumps({
+                        "event_slug": slug,
+                        "quality_grade": "complete",
+                        "settlement_bucket": 20,
+                        "settlement_source": "daily_summary",
+                        "reconciliation_status": "match",
+                    }) + "\n",
+                    encoding="utf-8",
+                )
+                df = _tape([{"event_slug": slug, "wu_history_high_c": 25.0}])
+
+                bucket, source, note = settlement_for_tape(df, date(2026, 5, 27), {}, {})
+
+                self.assertEqual(bucket, 20)
+                self.assertEqual(source, "settlement_ledger:daily_summary")
+                self.assertIn("polymarket_reconciliation=match", note)
+                self.assertEqual(load_market_day_label(Path(tmp) / slug)["settlement_bucket"], 20)
+            finally:
+                if old_root is None:
+                    os.environ.pop("SETTLEMENT_LEDGER_ROOT", None)
+                else:
+                    os.environ["SETTLEMENT_LEDGER_ROOT"] = old_root
 
     def test_backtest_tape_scores_and_trades(self):
         # Two snapshots, two bands; settlement = 25.

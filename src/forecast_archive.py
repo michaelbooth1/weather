@@ -54,13 +54,14 @@ def build_forecast_rows(
     target_date=None,
 ):
     target_date = target_date or getattr(model_client, "target_date", TARGET_DATE)
+    tz = getattr(getattr(model_client, "spec", None), "tz", TORONTO_TZ)
     captured_utc = captured_at.astimezone(timezone.utc).isoformat()
     captured_local = captured_at.isoformat()
     rows = []
 
     weather = model_client.source_data(sources, "weather_forecast")
     for raw in weather.get("rows", []) or []:
-        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date)
+        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
             snapshot_id=snapshot_id,
             captured_at_utc=captured_utc,
@@ -83,7 +84,7 @@ def build_forecast_rows(
 
     open_meteo = model_client.source_data(sources, "open_meteo")
     for raw in open_meteo.get("rows", []) or []:
-        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date)
+        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
             snapshot_id=snapshot_id,
             captured_at_utc=captured_utc,
@@ -175,7 +176,7 @@ def forecast_row(
     return row
 
 
-def normalize_valid_time(value, target_date=TARGET_DATE):
+def normalize_valid_time(value, target_date=TARGET_DATE, tz=TORONTO_TZ):
     if not value:
         return ""
     text = str(value)
@@ -189,7 +190,7 @@ def normalize_valid_time(value, target_date=TARGET_DATE):
             target_date.day,
             hour,
             minute,
-            tzinfo=TORONTO_TZ,
+            tzinfo=tz,
         ).isoformat()
     return text
 

@@ -56,10 +56,22 @@ class TestMarketDayLabels(unittest.TestCase):
                 encoding="utf-8",
             )
             labels_csv = root / "labels.csv"
+            ledger_root = root / "settlements"
 
-            labels = finalize_folders([folder], daily_summary_path=daily, labels_csv=labels_csv)
+            labels = finalize_folders(
+                [folder],
+                daily_summary_path=daily,
+                labels_csv=labels_csv,
+                ledger_root=ledger_root,
+            )
             folder_label = json.loads((folder / "settlement.json").read_text(encoding="utf-8"))
             csv_rows = list(csv.DictReader(labels_csv.open(encoding="utf-8", newline="")))
+            ledger_rows = [
+                json.loads(line)
+                for line in (ledger_root / "toronto" / "ledger.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            resolution_specs = json.loads((ledger_root / "resolution_specs.json").read_text(encoding="utf-8"))
 
             self.assertEqual(labels[0]["quality_grade"], "complete")
             self.assertTrue(labels[0]["coverage_clean"])
@@ -68,6 +80,10 @@ class TestMarketDayLabels(unittest.TestCase):
             self.assertEqual(csv_rows[0]["event_slug"], folder.name)
             self.assertIn("quality_reason", csv_rows[0])
             self.assertIn("coverage_reason", csv_rows[0])
+            self.assertEqual(ledger_rows[0]["event_slug"], folder.name)
+            self.assertEqual(ledger_rows[0]["settlement_unit"], "C")
+            self.assertEqual(ledger_rows[0]["resolution_station"], "CYYZ")
+            self.assertEqual(resolution_specs["schema_version"], "resolution_spec_v1")
 
 
 if __name__ == "__main__":

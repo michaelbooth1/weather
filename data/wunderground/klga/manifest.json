@@ -1,11 +1,11 @@
 {
-  "code_version": "git:380038fc34289981134dd6e31e4605e6b6073a5c",
-  "daily_record_count": 427,
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 429,
   "first_date": "2019-05-01",
-  "generated_at": "2026-06-06T18:35:41.386922+00:00",
+  "generated_at": "2026-06-07T01:15:48.814224+00:00",
   "history_id": "KLGA:9:US",
-  "hourly_record_count": 12139,
-  "last_date": "2025-06-30",
+  "hourly_record_count": 12188,
+  "last_date": "2026-06-02",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -15,82 +15,87 @@
     {
       "path": "hourly/year=2019/month=05/observations.jsonl",
       "row_count": 984,
-      "sha256": "3ce6133435a04127ec5bbd3419fc9b690fe47e7b1fe165f43dafbd3436d0d2f9"
+      "sha256": "acb69a2f3bdf85e29e360cc0a9bef98d0c058696018f2eebee1305886a582c7d"
     },
     {
       "path": "hourly/year=2019/month=06/observations.jsonl",
       "row_count": 886,
-      "sha256": "7eba7ddbc91d7b079e7f340d21e5c68c96f438c25fd97474c6a23737bedf743c"
+      "sha256": "4cfd1be3ebaac2b3d30158a2623e420c6d59df27c4900e172e7a406c8a624e1e"
     },
     {
       "path": "hourly/year=2020/month=05/observations.jsonl",
       "row_count": 888,
-      "sha256": "346b285c452a8c0a7219b2cee96737984930ea598bdd51d5975250eb1e0d7232"
+      "sha256": "9d5cf4da674c8732cea055cee9002a76fdb678c9efe7f9692c795fc988d28a7c"
     },
     {
       "path": "hourly/year=2020/month=06/observations.jsonl",
       "row_count": 779,
-      "sha256": "e86164501ebdf7e9be2e2e5441b309921521153b3f51ebd9b7a47ff7207f16fa"
+      "sha256": "aa7ff05bee370768d738cb4d1c57b8853ea843d7993c1975efcb82c82c8e0ef3"
     },
     {
       "path": "hourly/year=2021/month=05/observations.jsonl",
       "row_count": 834,
-      "sha256": "75bf0a718b59ec03fddaf70316e2ef15492f1c26c75815e893a3cef5f17d2fc5"
+      "sha256": "120f6ea879e0ceb857eca7f6a3ef338636d7eb5d8fca6562144b08d5e03c935b"
     },
     {
       "path": "hourly/year=2021/month=06/observations.jsonl",
       "row_count": 811,
-      "sha256": "160355682ed9ec02579559f798ff0fb47e9f555a9d65193ad62ca95c4ce3a3dc"
+      "sha256": "5efd731aefaa409e619af3fbab8f1b1a8048385480522a5c8473e8723c7e03ff"
     },
     {
       "path": "hourly/year=2022/month=05/observations.jsonl",
       "row_count": 972,
-      "sha256": "1d85cf3fc7c0aaf50835a229b307b93e2ca41bc5cec308cdce0a1721f5fe0450"
+      "sha256": "eba822a18b141d4a39727e21d111369a3da0c2677937eb6af568397c3c22c79b"
     },
     {
       "path": "hourly/year=2022/month=06/observations.jsonl",
       "row_count": 842,
-      "sha256": "7b759a6404cb6836a8f5489dcc0b38b067544e128793ff3d13fbc9a193d3f0af"
+      "sha256": "377b9a1cfcf8d576d55a0e241bf891a024d8247550093c509c4ecbd691ec3fc0"
     },
     {
       "path": "hourly/year=2023/month=05/observations.jsonl",
       "row_count": 787,
-      "sha256": "0adc072f1e0bf3445488e80db01ca03aee673cf3795bcd6780a755b9a62ae153"
+      "sha256": "014d86ba6d29f17548222d938bcf271b82189deef4eb7ef63bf3138ae3ae3478"
     },
     {
       "path": "hourly/year=2023/month=06/observations.jsonl",
       "row_count": 842,
-      "sha256": "8d0919077cc747140bf502277ac0d469967b61cf30cfd5fa5c4511583ea97ebf"
+      "sha256": "224a441430c9ca19b69ad351fb689d30bfb798a09a807787c173a53c3463af2e"
     },
     {
       "path": "hourly/year=2024/month=05/observations.jsonl",
       "row_count": 901,
-      "sha256": "14a1e228f9ea696f121d7e2d00f9c71b804f216974bf0e7bf4052b6191996e15"
+      "sha256": "72ce30430e607cfa73e4616ec1b9b5a6c2392eeb4d2e8cb2fb9152ca24319868"
     },
     {
       "path": "hourly/year=2024/month=06/observations.jsonl",
       "row_count": 792,
-      "sha256": "fa662a7a2b790a70ee66e0df5ae5a4ecb42ed152ee753ab12dfaba9cd408c284"
+      "sha256": "da2b31e554d3327ee7f0904502c9d6fc4d84b63b7107228b88c45697bf471527"
     },
     {
       "path": "hourly/year=2025/month=05/observations.jsonl",
       "row_count": 964,
-      "sha256": "bc2f6d267085c1bd99a4f881f070e33fba4ab939e7a9f75ae83fa3743641e41d"
+      "sha256": "5c392706f3c06a41b19206eb552937c4aa9e7ca9b6c1822615b7feb9bfa093dd"
     },
     {
       "path": "hourly/year=2025/month=06/observations.jsonl",
       "row_count": 857,
-      "sha256": "1b0a564e6edcf3422996af531d5cbebda3ebc481ebcfd03273fb7b4eba79b592"
+      "sha256": "682e74341ea4860d078fbe922789496999e1bd4cc828a08ee21fd4de367274fe"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 49,
+      "sha256": "c21c055a19efa02130957479bdcf041ef72fc16e8c48bd899139347248cb2cbf"
     }
   ],
   "source_details": {
     "api_params": {
       "apiKey": "e1f10a...f525",
-      "units": "m"
+      "units": "e"
     },
     "endpoint": "https://api.weather.com/v1/location/KLGA:9:US/observations/historical.json"
   },
   "station": "KLGA",
   "station_name": "NYC",
-  "timezone": "America/Toronto"
+  "timezone": "America/New_York"
 }

@@ -1,0 +1,86 @@
+{
+  "city": "San Francisco",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 157,
+  "first_date": "2025-12-31",
+  "generated_at_utc": "2026-06-07T01:17:46.555942+00:00",
+  "last_date": "2026-06-05",
+  "market_id": "san-francisco",
+  "metadata": {
+    "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+    "quality_counts": {
+      "": 1924,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2010,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 665,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=1,wind_speed_Quality_Code=1": 194,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=1,dew_point_temperature_Quality_Code=2,wind_speed_Quality_Code=1": 1,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 3,
+      "temperature_Quality_Code=2,dew_point_temperature_Quality_Code=2,station_level_pressure_Quality_Code=1,sea_level_pressure_Quality_Code=1,wind_speed_Quality_Code=1": 2
+    },
+    "station": {
+      "(US)HCN_(US)CRN": "",
+      "ELEVATION": "3.0",
+      "GHCN_ID": "USW00023234",
+      "GSN": "",
+      "ICAO": "KSFO",
+      "ISO_CODE": "US",
+      "LATITUDE": "37.6197",
+      "LONGITUDE": "-122.3656",
+      "NAME": "SAN FRANCISCO INTL AP",
+      "STATE": "CA",
+      "WMO_ID": "72494"
+    },
+    "station_list_url": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/doc/ghcnh-station-list.csv",
+    "year_file_url_template": "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
+  },
+  "partitions": [
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 16,
+      "sha256": "099b5bca9c86b7fe23ba6736be37fd10bf288dfcd73698e70a38234c168592ca"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 1037,
+      "sha256": "21b594cd7550e2e6b0b2229ab2fdab73d4cd76b59b8972cb3db54099b2772851"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 979,
+      "sha256": "81e4f08df05d278e7202b59d8ae15310018f32a42e096bd2d037d89fe2346090"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 977,
+      "sha256": "2a4e985d57107d5c8ea30d02ccb8dbf48aa258d23d44a8d0d09c973beadd2fee"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 834,
+      "sha256": "72d590b0d10b51f5cf53482d41a2c0471bf3c38cc999ae09a4676177e6957e5c"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 834,
+      "sha256": "bc7005134fbf38bed2f1a0cce0439b8fcdb149672021dbc6802ec2d7125795ba"
+    },
+    {
+      "path": "hourly/year=2026/month=06/observations.jsonl",
+      "row_count": 124,
+      "sha256": "88c972ba8adc100289768012544cdc21ceadbf003fd8f8e55823e8c227f92e97"
+    }
+  ],
+  "raw_files": [
+    {
+      "bytes": 18387677,
+      "path": "raw/year=2026/GHCNh_USW00023234_2026.psv",
+      "sha256": "9c2a76ff5874a00c9eefaec9d77c8a1b8b78f7a40fe1c295523bbcd6d9df38a6"
+    }
+  ],
+  "schema_version": "historical_source_manifest_v1",
+  "source": "noaa_ghcnh",
+  "station": "KSFO",
+  "temperature_unit": "F"
+}

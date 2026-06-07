@@ -40,6 +40,7 @@ from backtest import (
     backtest_tape,
     expected_calibration_error,
     load_daily_summary,
+    load_market_day_label,
     score_rows,
     settlement_for_tape,
 )
@@ -53,6 +54,7 @@ ECE_GOOD = 0.04      # ECE at/below this -> calibration sub-score 1.0
 ECE_POOR = 0.16      # ECE at/above this -> calibration sub-score 0.0
 PRIOR = 0.15         # trust assigned to an unvalidated (bootstrap) location
 MIN_DAYS_FOR_ECE = 2 # need at least this many settled days to trust an ECE
+ACCEPTED_QUALITY_GRADES = {"complete", "manual_override"}
 
 GRADE_BANDS = [(80, "Strong"), (65, "Good"), (45, "Moderate"), (25, "Low"), (0, "Unproven")]
 DEFAULT_OUT = Path("data") / "backtest" / "location_trust.json"
@@ -96,7 +98,14 @@ def market_settled_folders(market_id, root, as_of):
     folders = []
     for folder in discover_settled_folders(root, as_of=as_of):
         spec = spec_for_slug(Path(folder).name)
-        if spec and spec.id == market_id:
+        label = load_market_day_label(folder)
+        if (
+            spec
+            and spec.id == market_id
+            and label
+            and label.get("settlement_bucket") is not None
+            and label.get("quality_grade") in ACCEPTED_QUALITY_GRADES
+        ):
             folders.append(folder)
     return folders
 
@@ -109,6 +118,9 @@ def collect_scored_rows(folders, daily_index):
             continue
         df = pd.read_csv(tape)
         target_date = date_from_event_slug(Path(folder).name)
+        label = load_market_day_label(folder)
+        if not label or label.get("settlement_bucket") is None:
+            continue
         bucket, _, _ = settlement_for_tape(df, target_date, daily_index, {})
         scored, _, _, _ = backtest_tape(df, bucket, [0.05], target_date=target_date)
         rows.extend(scored)
@@ -127,7 +139,11 @@ def _rationale(n_settled, ece, components):
 
 
 def score_market(market_id, root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_DAILY_SUMMARY, as_of=None):
-    daily_index = load_daily_summary(daily_summary)
+    spec = next((item for item in all_specs() if item.id == market_id), None)
+    if spec and Path(daily_summary) == DEFAULT_DAILY_SUMMARY:
+        daily_index = load_daily_summary(spec.data_root / "daily" / "daily_summary.csv")
+    else:
+        daily_index = load_daily_summary(daily_summary)
     folders = market_settled_folders(market_id, root, as_of)
     n_settled = len(folders)
     rows = collect_scored_rows(folders, daily_index)

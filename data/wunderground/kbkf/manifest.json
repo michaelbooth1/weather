@@ -1,11 +1,11 @@
 {
-  "code_version": "git:cfdef658f236097bb9e2cc323aef7863465727ca",
-  "daily_record_count": 37,
-  "first_date": "2026-05-01",
-  "generated_at": "2026-06-06T19:42:10.781091+00:00",
+  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
+  "daily_record_count": 429,
+  "first_date": "2019-05-01",
+  "generated_at": "2026-06-07T01:16:11.607839+00:00",
   "history_id": "KBKF:9:US",
-  "hourly_record_count": 946,
-  "last_date": "2026-06-06",
+  "hourly_record_count": 11625,
+  "last_date": "2026-06-02",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -13,24 +13,89 @@
   },
   "partitions": [
     {
-      "path": "hourly/year=2026/month=05/observations.jsonl",
-      "row_count": 794,
-      "sha256": "eedd5a06c14b4fb87dd45118455e17abe17675ac338f5d867fd9b9e3e12045fd"
+      "path": "hourly/year=2019/month=05/observations.jsonl",
+      "row_count": 878,
+      "sha256": "a04e1a4c938d66511aafe0b23e4f4bf5753d0f9d663b78aeec8cc45d815127c5"
+    },
+    {
+      "path": "hourly/year=2019/month=06/observations.jsonl",
+      "row_count": 837,
+      "sha256": "b3f8a35cc7382380599e986acf88f63430be1b4d88ef0ede69fcb6f1a667be39"
+    },
+    {
+      "path": "hourly/year=2020/month=05/observations.jsonl",
+      "row_count": 813,
+      "sha256": "aac377be1f42b0f6ee95097bf6042f5bb674c2c814bd671b39958b6d25cc9b2f"
+    },
+    {
+      "path": "hourly/year=2020/month=06/observations.jsonl",
+      "row_count": 779,
+      "sha256": "c63c8f07a72a7aac1498842908ba7e1dd322a9b711c0ef0ece74c5e0d3ff9542"
+    },
+    {
+      "path": "hourly/year=2021/month=05/observations.jsonl",
+      "row_count": 883,
+      "sha256": "57519a099a7c32266d4848c5c7268eeda4d5683ed4eb0057d6c95d36a4af1943"
+    },
+    {
+      "path": "hourly/year=2021/month=06/observations.jsonl",
+      "row_count": 771,
+      "sha256": "72d8f058e5e07f9362f77aa2eef40b299b230d42ecd245e1528f1d0b717a8be0"
+    },
+    {
+      "path": "hourly/year=2022/month=05/observations.jsonl",
+      "row_count": 827,
+      "sha256": "d87194544ad2785ed4ef3bfe0e66dd3591b1f323f0baf974d8bac46538375ca6"
+    },
+    {
+      "path": "hourly/year=2022/month=06/observations.jsonl",
+      "row_count": 762,
+      "sha256": "fad168dcad3ec378f2f77e189f1399e02a7be2403700630461ee9e4c603a716a"
+    },
+    {
+      "path": "hourly/year=2023/month=05/observations.jsonl",
+      "row_count": 919,
+      "sha256": "18fd820b11ecc1876e5b29f17ce739e08e9b29022770bd4dc69a6bac00557102"
+    },
+    {
+      "path": "hourly/year=2023/month=06/observations.jsonl",
+      "row_count": 865,
+      "sha256": "19db218e86816090957cf75cd879bfa064fbd549ee22038b9527dcf21fbca085"
+    },
+    {
+      "path": "hourly/year=2024/month=05/observations.jsonl",
+      "row_count": 820,
+      "sha256": "2fa0b93d71fa9d01060906fde0a49384efb99a2a6893f1d6d3a4ad601765e830"
+    },
+    {
+      "path": "hourly/year=2024/month=06/observations.jsonl",
+      "row_count": 776,
+      "sha256": "28ecb071e386a4b4b71ce8e8fccb1ad53f6d4ea2ccb8d8aaaed1081478ca57ef"
+    },
+    {
+      "path": "hourly/year=2025/month=05/observations.jsonl",
+      "row_count": 841,
+      "sha256": "674aeccdcb7548cc5cd68b59d0724765dc23c0012f039b36d5ffa1c76bf2d6c1"
+    },
+    {
+      "path": "hourly/year=2025/month=06/observations.jsonl",
+      "row_count": 790,
+      "sha256": "5e082b857b23e609c5dae085a6cdccf1291129af50aded33c64a169d5c3e366f"
     },
     {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 152,
-      "sha256": "113b0275fe8a0c37bd6cf467312d13bb0cc1ba74da0f7042ac6de935c7b3c216"
+      "row_count": 64,
+      "sha256": "5e155eaee53a3742211b092c04403c18729bcb41e56188895cf3cfcc24b5615c"
     }
   ],
   "source_details": {
     "api_params": {
       "apiKey": "e1f10a...f525",
-      "units": "m"
+      "units": "e"
     },
     "endpoint": "https://api.weather.com/v1/location/KBKF:9:US/observations/historical.json"
   },
   "station": "KBKF",
   "station_name": "Denver",
-  "timezone": "America/Toronto"
+  "timezone": "America/Denver"
 }
