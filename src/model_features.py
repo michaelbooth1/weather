@@ -438,6 +438,7 @@ class FeatureModelMixin:
         # Calculate transition distribution
         transitions = []
         sample_size = len(matching_final_buckets)
+        unit = self.spec.display_unit
         if sample_size >= 5:
             counts = Counter(matching_final_buckets)
             # Group into stays at X, rises to X+1, rises to X+2, rises to >= X+3
@@ -445,14 +446,14 @@ class FeatureModelMixin:
                 cnt = counts.get(target_b, 0)
                 prob = cnt / sample_size
                 transitions.append({
-                    "Target Bucket": f"{target_b} C",
+                    "Target Bucket": f"{target_b} {unit}",
                     "Probability": f"{prob * 100:.1f}%",
                     "Historical Days": cnt
                 })
             cnt_plus_3 = sum(cnt for target_b, cnt in counts.items() if target_b >= observed_bucket + 3)
             prob_plus_3 = cnt_plus_3 / sample_size
             transitions.append({
-                "Target Bucket": f">= {observed_bucket + 3} C",
+                "Target Bucket": f">= {observed_bucket + 3} {unit}",
                 "Probability": f"{prob_plus_3 * 100:.1f}%",
                 "Historical Days": cnt_plus_3
             })

@@ -122,12 +122,12 @@ class PresentationMixin:
             "Source": "Local WU history",
             "Signal": "+/-7 day prior + intraday analogs",
             "Value": (
-                f"{self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_25'))}"
-                if local_history.get("prob_25") is not None else "-"
+                f"{self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_key'))}"
+                if local_history.get("prob_key") is not None else "-"
             ),
             "Detail": (
                 f"{local_analysis.get('target_window_count', 0)} days; "
-                f">={self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_25_plus'))}"
+                f">={self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_key_plus'))}"
                 if local_history.get("available") else local_history.get("reason", "-")
             ),
             "Model role": "Empirical prior, catch-up, and late-day tail",
@@ -172,54 +172,59 @@ class PresentationMixin:
 
         rows = []
 
+        # All source values below are already in the market's native unit;
+        # comparisons against key_bucket are direct. scale_delta keeps the
+        # "extremely close" margin one PHYSICAL degree C in either unit.
+        impact_key = f"Impact on {kb} {u}"
+
         # 1. Wunderground History
         hist_max = history.get("max_c")
         if hist_max is None:
             impact = f"No historical printed observations yet. {kb} {u} is wide open."
-        elif self.spec.c_to_native(hist_max) >= kb:
+        elif hist_max >= kb:
             impact = f"Guaranteed floor. Printed high is already {self.format_temp(hist_max)} (>= {kb} {u})."
-        elif self.spec.c_to_native(hist_max) >= kb - self.spec.scale_delta(1.0):
+        elif hist_max >= kb - self.spec.scale_delta(1.0):
             impact = f"Extremely close. Needs only +{self.spec.scale_delta(1.0):.1f} {u} to reach {kb} {u}."
         else:
-            impact = f"Printed high is {self.format_temp(hist_max)}. Needs {kb - self.spec.c_to_native(hist_max):.1f} {u} rise."
+            impact = f"Printed high is {self.format_temp(hist_max)}. Needs {kb - hist_max:.1f} {u} rise."
         rows.append({
             "Question": "What has Wunderground history printed?",
             "Answer": self.format_temp(hist_max),
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 2. Weather.com Current
         curr_temp = current.get("temp_c")
         max_7am = current.get("max_since_7am_c")
-        if max_7am is not None and self.spec.c_to_native(max_7am) >= kb:
+        if max_7am is not None and max_7am >= kb:
             impact = f"Strong indicator. Max since 7 AM is {self.format_temp(max_7am)}, which matches or exceeds {kb} {u}."
-        elif curr_temp is not None and self.spec.c_to_native(curr_temp) >= kb:
+        elif curr_temp is not None and curr_temp >= kb:
             impact = f"Very bullish. Live temperature is already {self.format_temp(curr_temp)}."
         else:
             impact = f"Current temp is {self.format_temp(curr_temp)}; max since 7 AM is {self.format_temp(max_7am)}."
         rows.append({
             "Question": "What does Weather.com current say?",
             "Answer": f"current {self.format_temp(curr_temp)}, max since 7 AM {self.format_temp(max_7am)}",
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 3. ECCC SWOB
         swob_max = eccc.get("same_day_max_c")
-        if swob_max is not None and self.spec.c_to_native(swob_max) >= kb:
+        if swob_max is not None and swob_max >= kb:
             impact = f"Floor validator. SWOB same-day max is {self.format_temp(swob_max)}, guaranteeing settlement >= {kb} {u}."
         elif swob_max is not None:
-            impact = f"Pearson SWOB max is {self.format_temp(swob_max)}, trailing {kb} {u} by {kb - self.spec.c_to_native(swob_max):.1f} {u}."
+            impact = f"Station SWOB max is {self.format_temp(swob_max)}, trailing {kb} {u} by {kb - swob_max:.1f} {u}."
         else:
             impact = "No live SWOB observations yet."
         rows.append({
             "Question": "What does the official station (SWOB) support?",
             "Answer": self.format_temp(swob_max),
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 4. Weather.com hourly forecast
         fc_max = self.max_row_temp(weather_forecast.get("rows"))
-        if fc_max is not None and self.spec.c_to_native(fc_max) >= kb:
+        if fc_max is not None and fc_max >= kb:
             impact = f"Bullish. Hourly forecast projects high will reach {self.format_temp(fc_max)}."
         elif fc_max is not None:
             impact = f"Bearish forecast. Peak forecast is {self.format_temp(fc_max)}, suggesting {kb} {u} will not be reached."
@@ -228,35 +233,35 @@ class PresentationMixin:
         rows.append({
             "Question": "What does Weather.com forecast for remaining hours?",
             "Answer": self.format_temp(fc_max),
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 5. Open-Meteo & ECCC Citypage
         om_max = self.max_row_temp(open_meteo.get("rows"))
         ec_high = eccc_city.get("forecast_high_c")
         alt_max = max([val for val in [om_max, ec_high] if val is not None], default=None)
-        if alt_max is not None and self.spec.c_to_native(alt_max) >= kb:
+        if alt_max is not None and alt_max >= kb:
             impact = f"Bullish alternative forecast. Alt models project a high of {self.format_temp(alt_max)}."
         elif alt_max is not None:
             impact = f"Bearish. Alternative models peak at {self.format_temp(alt_max)}."
         else:
             impact = "No alternative forecast data."
         rows.append({
-            "Question": "What says {kb} {u} or higher is live?",
+            "Question": f"What says {kb} {u} or higher is live?",
             "Answer": f"Open-Meteo max {self.format_temp(om_max)}, ECCC forecast high {self.format_temp(ec_high)}",
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 6. Local WU History
-        prob_25 = local_history.get("prob_25")
-        if prob_25 is not None:
-            impact = f"Historical seasonal base rate for {kb} {u} is {prob_25*100:.1f}%."
+        prob_key = local_history.get("prob_key")
+        if prob_key is not None:
+            impact = f"Historical seasonal base rate for {kb} {u} is {prob_key*100:.1f}%."
         else:
             impact = "No local history available."
         rows.append({
             "Question": "What does local WU history say?",
             "Answer": self.local_history_answer(local_history),
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 7. Intraday Analogs
@@ -283,15 +288,15 @@ class PresentationMixin:
         rows.append({
             "Question": "What do historical analogs say?",
             "Answer": f"{analog_n} analogs found",
-            "Impact on {kb} {u}": impact,
+            impact_key: impact,
         })
 
         # 8. Model probability
         prob_exact = distribution.get(kb, 0.0)
         rows.append({
-            "Question": "Model probability for exact {kb} {u}",
+            "Question": f"Model probability for exact {kb} {u}",
             "Answer": self.format_pct(prob_exact),
-            "Impact on {kb} {u}": f"Final model assigns {prob_exact*100:.1f}% probability to the exact {kb} {u} bucket.",
+            impact_key: f"Final model assigns {prob_exact*100:.1f}% probability to the exact {kb} {u} bucket.",
         })
 
         return rows
@@ -338,7 +343,7 @@ class PresentationMixin:
             "cloud_regime": cloud_group,
             "top_buckets": [
                 {
-                    "bucket": f"{temp} C",
+                    "bucket": f"{temp} {self.spec.display_unit}",
                     "probability": self.format_pct(prob),
                     "status": "Floor constraint" if observed_bucket is not None and temp < observed_bucket else (
                         "Cap constraint" if plausible_cap is not None and temp > plausible_cap + 1 else "Primary projection"
@@ -384,7 +389,7 @@ class PresentationMixin:
 
         notes = [
             (
-                "Resolution is modeled as the highest whole-degree C value "
+                f"Resolution is modeled as the highest whole-degree {self.spec.display_unit} value "
                 f"that Wunderground history prints for {self.spec.icao} on {self.config.display_date}."
             ),
             (
@@ -503,9 +508,9 @@ class PresentationMixin:
         kb_plus_4 = self.spec.key_bucket + 4
         
         return (
-            f"{count} days; {kb} {u} base rate {self.format_pct(local_history.get('prob_25'))}, "
-            f">={kb} {u} {self.format_pct(local_history.get('prob_25_plus'))}, "
-            f">={kb_plus_4} {u} {self.format_pct(local_history.get('prob_29_plus'))}"
+            f"{count} days; {kb} {u} base rate {self.format_pct(local_history.get('prob_key'))}, "
+            f">={kb} {u} {self.format_pct(local_history.get('prob_key_plus'))}, "
+            f">={kb_plus_4} {u} {self.format_pct(local_history.get('prob_key_plus_4'))}"
         )
 
     def clean_label(self, label):
@@ -517,9 +522,13 @@ class PresentationMixin:
         )
 
     def format_temp(self, value):
+        """Format a temperature that is ALREADY in the market's native unit.
+        Every source/value in this layer is fetched natively (C markets in C,
+        F markets in F), so no conversion here -- converting again turned
+        75 F into 167 F on the F-market dashboards."""
         if value is None:
             return "-"
-        val_native = self.spec.c_to_native(float(value))
+        val_native = float(value)
         if val_native.is_integer():
             return f"{int(val_native)} {self.spec.display_unit}"
         return f"{val_native:.1f} {self.spec.display_unit}"
