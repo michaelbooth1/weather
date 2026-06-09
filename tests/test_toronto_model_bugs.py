@@ -38,6 +38,42 @@ class TestParseWeatherComTime(unittest.TestCase):
         self.assertIsNone(self.model.parse_weather_com_time(None))
 
 
+class TestLiveSourcesPreserveWuHistory(unittest.TestCase):
+    """Regression (v0.5.1 -> v0.5.2): fetch_live_sources briefly injected a
+    fabricated wu_current row into wu_history rows, backdated to the top of
+    the hour. wu_history rows are settlement-source evidence and must be
+    returned exactly as fetched."""
+
+    def test_fetch_live_sources_does_not_append_to_wu_history_rows(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        printed_rows = [
+            {"time": "13:00", "temp_c": 19.0},
+            {"time": "14:00", "temp_c": 19.5},
+        ]
+        fetched = {
+            "wu_history": {
+                "ok": True,
+                "data": {"rows": list(printed_rows), "max_c": 19.5, "max_times": ["14:00"]},
+                "fetched_at": "2026-05-28T14:40:00-04:00",
+            },
+            "wu_current": {
+                "ok": True,
+                "data": {"temp_c": 21.0, "time": "2026-05-28T14:40:00-0400"},
+                "fetched_at": "2026-05-28T14:40:00-04:00",
+            },
+        }
+        model.fetch_source_group = lambda fetchers: fetched
+        model.blend_with_last_good = lambda sources: sources
+
+        result = model.fetch_live_sources()
+
+        self.assertEqual(result["wu_history"]["data"]["rows"], printed_rows)
+        self.assertEqual(
+            [row["time"] for row in result["wu_history"]["data"]["rows"]],
+            ["13:00", "14:00"],
+        )
+
+
 class TestFindAnalogDaysReturnShape(unittest.TestCase):
     """Bug 3: find_analog_days returned [] on early exits but a dict on
     success. It must always return the dict shape."""

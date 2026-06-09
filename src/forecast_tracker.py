@@ -50,7 +50,8 @@ from backtest import (
     settlement_for_tape,
 )
 from market_config import date_from_event_slug
-from settled_days import discover_settled_folders
+from market_registry import REGISTRY, spec_for_id
+from settled_days import discover_settled_folders, validate_folders_market
 
 DEFAULT_CUTOFFS = (7, 9, 11, 13)
 DEFAULT_VERDICT_CUTOFF = 9
@@ -390,30 +391,47 @@ def parse_overrides(items):
 def main():
     parser = argparse.ArgumentParser(description="Track morning forecast accuracy vs realized settlement.")
     parser.add_argument("folders", nargs="*", help="Snapshot folders (default: auto-discovered settled days).")
+    parser.add_argument("--market", default="toronto", choices=sorted(REGISTRY),
+                        help="Market whose settled tapes this tracker scores.")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    parser.add_argument("--daily-summary", default=str(DEFAULT_DAILY_SUMMARY))
+    parser.add_argument("--daily-summary", default=None,
+                        help="Daily summary CSV (default: the market's own data root).")
     parser.add_argument("--cutoffs", default=",".join(str(c) for c in DEFAULT_CUTOFFS))
     parser.add_argument("--verdict-cutoff", type=int, default=DEFAULT_VERDICT_CUTOFF)
     parser.add_argument("--settle", action="append", default=[], help="Force settlement: YYYY-MM-DD=BUCKET")
-    parser.add_argument("--out", default=str(DEFAULT_OUT))
-    parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
+    parser.add_argument("--out", default=None,
+                        help="Report path (default: per-market report under data/backtest).")
+    parser.add_argument("--json-out", default=None,
+                        help="JSON path (default: per-market file under data/backtest).")
     args = parser.parse_args()
 
     cutoffs = [int(c.strip()) for c in args.cutoffs.split(",") if c.strip()]
     overrides = parse_overrides(args.settle)
-    folders = args.folders or [str(f) for f in discover_settled_folders(args.snapshots_root)]
+    # One market's tapes per verdict: data/snapshots holds all 12 markets.
+    spec = spec_for_id(args.market)
+    if args.folders:
+        folders = args.folders
+        validate_folders_market(folders, spec.id)
+    else:
+        folders = [
+            str(f) for f in
+            discover_settled_folders(args.snapshots_root, market_id=spec.id)
+        ]
+    daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
+    out_path = args.out or Path("data") / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.md"
+    json_out_path = args.json_out or Path("data") / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.json"
     if not folders:
         print("No settled market days found.")
         return
 
-    results = run(folders, cutoffs, args.daily_summary, overrides, args.verdict_cutoff)
-    write_report(results, args.out)
-    write_json(results, args.json_out)
+    results = run(folders, cutoffs, daily_summary, overrides, args.verdict_cutoff)
+    write_report(results, out_path)
+    write_json(results, json_out_path)
 
     v = results.get("verdict") or {}
     print(f"Settled days: {results['n_days_total']}  (verdict at {args.verdict_cutoff:02d}:00)")
     print(f"VERDICT: {v.get('headline', 'INSUFFICIENT DATA')} -- {v.get('detail', '')}")
-    print(f"Report: {args.out}  |  JSON: {args.json_out}")
+    print(f"Report: {out_path}  |  JSON: {json_out_path}")
 
 
 if __name__ == "__main__":

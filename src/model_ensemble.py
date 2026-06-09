@@ -30,7 +30,8 @@ from backtest import (  # noqa: E402
     settlement_for_tape,
 )
 from market_config import date_from_event_slug  # noqa: E402
-from settled_days import discover_settled_folders  # noqa: E402
+from market_registry import REGISTRY, spec_for_id  # noqa: E402
+from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
 
 
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "model_ensemble_report.md"
@@ -90,8 +91,10 @@ def load_component_probabilities(folder):
     return out
 
 
-def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    return discover_settled_folders(root, required_file="snapshots_long.csv")
+def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT, market_id=None):
+    return discover_settled_folders(
+        root, required_file="snapshots_long.csv", market_id=market_id
+    )
 
 
 def load_scored_rows(
@@ -423,24 +426,36 @@ def run_ensemble(
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Score model components and simple ensembles.")
-    parser.add_argument("folders", nargs="*", help="Snapshot folders. Defaults to settled Toronto tapes.")
+    parser.add_argument("folders", nargs="*", help="Snapshot folders. Defaults to the market's settled tapes.")
+    parser.add_argument("--market", default="toronto", choices=sorted(REGISTRY),
+                        help="Market whose tapes this research run scores.")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    parser.add_argument("--daily-summary", default=str(DEFAULT_DAILY_SUMMARY))
+    parser.add_argument("--daily-summary", default=None,
+                        help="Daily summary CSV (default: the market's own data root).")
     parser.add_argument("--quality-grades", default="complete,manual_override")
-    parser.add_argument("--report", default=str(DEFAULT_REPORT_PATH))
+    parser.add_argument("--report", default=None,
+                        help="Report path (default: per-market report under data/backtest).")
     parser.add_argument("--max-rows", type=int, default=None, help="Deterministic row cap for fast research runs.")
     args = parser.parse_args(argv)
 
-    folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
+    # One market's tapes per research run: data/snapshots holds all 12 markets.
+    spec = spec_for_id(args.market)
+    if args.folders:
+        folders = [Path(folder) for folder in args.folders]
+        validate_folders_market(folders, spec.id)
+    else:
+        folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
+    daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
+    report_arg = args.report or Path("data") / "backtest" / f"model_ensemble_report{spec.artifact_suffix}.md"
     quality_grades = [
         item.strip() for item in str(args.quality_grades).split(",")
         if item.strip()
     ]
     result = run_ensemble(
         folders,
-        daily_summary_path=args.daily_summary,
+        daily_summary_path=daily_summary,
         quality_grades=quality_grades,
-        report_path=args.report,
+        report_path=report_arg,
         max_rows=args.max_rows,
     )
     print(f"Wrote ensemble report to {result['report_path']}")

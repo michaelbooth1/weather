@@ -19,7 +19,8 @@ SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from market_config import date_from_event_slug
+from market_config import date_from_event_slug, market_id_from_slug
+from market_registry import DEFAULT_MARKET_ID
 from model_constants import TORONTO_TZ
 
 # Captured records (real inputs, byte-faithfully replayable) are committed.
@@ -225,10 +226,13 @@ def reconstruct_sources(snapshot, target_date):
     Uses the live feature vector (the exact features fed to the model) and the
     source-value scalars to fabricate just enough of each source that
     ``estimate_distribution`` reproduces the feature-model path and the floor
-    pipeline. ``local_history`` is read fresh from the local daily summary (a
-    deterministic, network-free file read), so the climatology prior is exact.
+    pipeline. ``local_history`` is read fresh from the snapshot's own market's
+    daily summary (a deterministic, network-free file read), so the climatology
+    prior is exact -- and not Toronto's for the 11 US markets.
     """
     from toronto_model import TorontoHighTempModel  # lazy: avoids any import cycle
+
+    market_id = market_id_from_slug(snapshot.get("event_slug")) or DEFAULT_MARKET_ID
 
     features = snapshot.get("feature_vector") or {}
     values = snapshot.get("source_values") or {}
@@ -287,7 +291,7 @@ def reconstruct_sources(snapshot, target_date):
         "max_times": [],
     }
 
-    model = TorontoHighTempModel(target_date=target_date)
+    model = TorontoHighTempModel(target_date=target_date, market_id=market_id)
     try:
         local_history = model.fetch_local_history()
     except Exception:  # noqa: BLE001 - local read; degrade to unavailable prior

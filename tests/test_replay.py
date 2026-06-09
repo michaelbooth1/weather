@@ -248,6 +248,29 @@ class TestReconstruction(unittest.TestCase):
         self.assertEqual(feats["forecast_high"], 26.0)
         self.assertAlmostEqual(feats["forecast_gap"], 2.0)
 
+    def test_reconstruction_uses_snapshot_market(self):
+        # An Austin snapshot must reconstruct with the Austin model (its own
+        # climatology/data root), not Toronto's.
+        import toronto_model as tm
+
+        captured = {}
+        real_model = tm.TorontoHighTempModel
+
+        class RecordingModel(real_model):
+            def __init__(self, *args, **kwargs):
+                captured["market_id"] = kwargs.get("market_id")
+                super().__init__(*args, **kwargs)
+
+        snap = self._snapshot()
+        snap["event_slug"] = "highest-temperature-in-austin-on-june-3-2026"
+        tm.TorontoHighTempModel = RecordingModel
+        try:
+            reconstruct_sources(snap, NOW.date())
+        finally:
+            tm.TorontoHighTempModel = real_model
+
+        self.assertEqual(captured["market_id"], "austin")
+
     def test_reconstruct_corpus_writes_labelled_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / SLUG

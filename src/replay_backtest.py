@@ -40,7 +40,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from backtest import (
-    DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     bin_type,
     capture_minute,
@@ -59,6 +58,7 @@ from backtest import (
     settlement_for_tape,
 )
 from market_config import date_from_event_slug
+from market_registry import REGISTRY, spec_for_slug
 from replay import (
     band_model_probability,
     distribution_l1,
@@ -68,6 +68,7 @@ from replay import (
     replay_distribution,
     replay_model_version,
 )
+from settled_days import folder_market_id
 from toronto_model import TorontoHighTempModel
 
 DEFAULT_OUT = Path("data") / "backtest" / "replay_report.md"
@@ -168,8 +169,31 @@ def fidelity_summary(fidelity_rows):
 
 def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                         include_reconstructed=False, write=True):
-    daily_index = load_daily_summary(daily_summary_path)
-    model = TorontoHighTempModel()
+    # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
+    # climatology) and settles against its own market's daily summary; one
+    # Toronto model for every folder silently mis-replayed the 11 F markets.
+    # An explicit daily_summary_path stays a global override for all folders.
+    models = {}
+
+    def model_for_market(market_id):
+        if market_id not in models:
+            models[market_id] = TorontoHighTempModel(market_id=market_id)
+        return models[market_id]
+
+    daily_indexes = {}
+
+    def daily_index_for_market(market_id):
+        if daily_summary_path is not None:
+            key = "__override__"
+            if key not in daily_indexes:
+                daily_indexes[key] = load_daily_summary(daily_summary_path)
+            return daily_indexes[key]
+        if market_id not in daily_indexes:
+            spec = REGISTRY[market_id]
+            daily_indexes[market_id] = load_daily_summary(
+                spec.data_root / "daily" / "daily_summary.csv"
+            )
+        return daily_indexes[market_id]
 
     all_rows = []
     days = []
@@ -182,10 +206,16 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         if not tape_path.exists():
             print(f"  skip {folder}: no snapshots_long.csv")
             continue
+        market_id = folder_market_id(folder)
+        if market_id is None:
+            print(f"  skip {Path(folder).name}: not a registered market slug")
+            continue
         records = index_records_by_snapshot(load_replay_records(folder))
         if not records:
             print(f"  skip {Path(folder).name}: no replay_inputs.jsonl (capture not yet seeded)")
             continue
+        model = model_for_market(market_id)
+        daily_index = daily_index_for_market(market_id)
         df = pd.read_csv(tape_path)
         if "snapshot_id" not in df:
             continue
@@ -263,7 +293,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
             "reconstructed": any(r["reconstructed"] for r in day_rows),
             "comparison": comparison(day_rows),
         })
-        print(f"  {slug}: settlement {bucket} C ({source}); "
+        print(f"  {slug}: settlement {bucket} {REGISTRY[market_id].display_unit} ({source}); "
               f"{len({r['snapshot_id'] for r in day_rows})} snapshots replayed, {len(day_rows)} band-rows")
 
     last_rows = last_pre_close_rows(all_rows)
@@ -488,8 +518,13 @@ def gate(baseline_path, results, tol):
 def main():
     parser = argparse.ArgumentParser(description="Replay the model over captured inputs and score it.")
     parser.add_argument("folders", nargs="*", help="Snapshot folders (default: all under snapshots root).")
+    parser.add_argument("--market", default=None, choices=sorted(REGISTRY),
+                        help="Only replay this market's folders (default: all, each "
+                             "replayed with its own market's model).")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    parser.add_argument("--daily-summary", default=str(DEFAULT_DAILY_SUMMARY))
+    parser.add_argument("--daily-summary", default=None,
+                        help="Daily summary CSV override for ALL folders "
+                             "(default: each market's own data root).")
     parser.add_argument("--settle", action="append", default=[],
                         help="Force settlement: YYYY-MM-DD=BUCKET (repeatable).")
     parser.add_argument("--include-reconstructed", action="store_true",
@@ -511,6 +546,8 @@ def main():
     if not folders:
         root = Path(args.snapshots_root)
         folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
+    if args.market:
+        folders = [f for f in folders if folder_market_id(f) == args.market]
     if not folders:
         print("No snapshot tapes found.")
         return

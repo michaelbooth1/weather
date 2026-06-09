@@ -427,7 +427,61 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
 
         model.estimate_distribution(sources)
 
-        self.assertEqual(seen_cutoffs, [13])
+        # The invariant: serve the latest cutoff whose WU-history row has
+        # actually printed, never the wall cutoff ahead of it. With rows
+        # printed through 14:00 that is 14 (a real cutoff hour since the grid
+        # expanded to 7-20; under the old 9/10/12/13/15... grid it was 13),
+        # and never the stubbed wall cutoff of 15.
+        self.assertEqual(seen_cutoffs, [14])
+
+    def test_feature_model_never_serves_unprinted_wall_cutoff(self):
+        # Rows printed through 14:30: the 15:00 row has not printed, so the
+        # model must stay on the 14:00 cutoff even though the wall clock has
+        # reached 15:00 (the v0.4.9 stale-state bug, and the v0.5.1 mock-row
+        # injection regression, both served a cutoff ahead of printed data).
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        model.calibrated_weights = None
+        model.intraday_cutoff_hour = lambda _now: 15
+        seen_cutoffs = []
+
+        def capture_cutoff(_sources, cutoff_hour, _now):
+            seen_cutoffs.append(cutoff_hour)
+            return {19: 0.80, 20: 0.20}, "hgb"
+
+        model.predict_feature_distribution = capture_cutoff
+        sources = {
+            "local_history": {
+                "ok": True,
+                "data": {
+                    "available": True,
+                    "analysis": {
+                        "target_window_count": 100,
+                        "bucket_probabilities": {"19": 0.25, "20": 0.25},
+                    },
+                },
+            },
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "max_c": 19.0,
+                    "rows": [
+                        {"time": "13:00", "temp_c": 19.0},
+                        {"time": "14:00", "temp_c": 19.0},
+                        {"time": "14:30", "temp_c": 19.0},
+                    ],
+                },
+            },
+            "wu_current": {"ok": True, "data": {"temp_c": 19.0}},
+            "eccc_swob": {"ok": True, "data": {}},
+            "eccc_citypage": {"ok": True, "data": {}},
+            "metar": {"ok": True, "data": {}},
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "open_meteo": {"ok": True, "data": {"rows": []}},
+        }
+
+        model.estimate_distribution(sources)
+
+        self.assertEqual(seen_cutoffs, [14])
 
     def test_feature_model_collapses_correlated_peak_signals(self):
         model = TorontoHighTempModel(target_date="2026-05-28")

@@ -25,8 +25,10 @@ from backtest import (  # noqa: E402
     safe_float,
     settlement_for_tape,
 )
+from forecast_history import daily_path_for  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
-from settled_days import discover_settled_folders  # noqa: E402
+from market_registry import REGISTRY, spec_for_id  # noqa: E402
+from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
 
 
 DEFAULT_FORECAST_DAILY = Path("data") / "forecast_history" / "cyyz" / "forecast_daily.csv"
@@ -437,8 +439,10 @@ def build_artifact(rows, folders):
     return artifact
 
 
-def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    return discover_settled_folders(root, required_file="forecasts_long.csv")
+def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT, market_id=None):
+    return discover_settled_folders(
+        root, required_file="forecasts_long.csv", market_id=market_id
+    )
 
 
 def read_training_rows(
@@ -530,18 +534,29 @@ def write_report(path, artifact):
 
 
 def cmd_train(args):
-    folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
-    rows = read_training_rows(args.forecast_daily, args.daily_summary, folders)
+    # One market's tapes, archive, summary, and artifact per train run:
+    # data/snapshots holds all 12 markets' folders.
+    spec = spec_for_id(args.market)
+    if args.folders:
+        folders = [Path(folder) for folder in args.folders]
+        validate_folders_market(folders, spec.id)
+    else:
+        folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
+    daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
+    forecast_daily = args.forecast_daily or daily_path_for(spec)
+    artifact_arg = args.artifact or Path("src") / f"forecast_error_model{spec.artifact_suffix}.json"
+    report_arg = args.report or Path("data") / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md"
+    rows = read_training_rows(forecast_daily, daily_summary, folders)
     if not rows:
         raise SystemExit("No forecast error training rows found.")
     artifact = build_artifact(rows, folders)
-    artifact_path = Path(args.artifact)
+    artifact_path = Path(artifact_arg)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True), encoding="utf-8")
-    write_report(args.report, artifact)
+    write_report(report_arg, artifact)
     replay = artifact["evaluation"]["artifact_replay"]
     print(f"Wrote forecast error artifact to {artifact_path}")
-    print(f"Wrote forecast error report to {args.report}")
+    print(f"Wrote forecast error report to {report_arg}")
     print(
         "Learned forecast component Brier "
         f"{replay['cap_brier']:.4f} -> {replay['learned_brier']:.4f}; "
@@ -554,11 +569,17 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     train = sub.add_parser("train")
     train.add_argument("folders", nargs="*", help="Settled snapshot folders to add to the forecast-error training set.")
+    train.add_argument("--market", default="toronto", choices=sorted(REGISTRY),
+                       help="Market whose tapes and artifact this train run targets.")
     train.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    train.add_argument("--daily-summary", default=str(DEFAULT_DAILY_SUMMARY))
-    train.add_argument("--forecast-daily", default=str(DEFAULT_FORECAST_DAILY))
-    train.add_argument("--artifact", default=str(DEFAULT_ARTIFACT_PATH))
-    train.add_argument("--report", default=str(DEFAULT_REPORT_PATH))
+    train.add_argument("--daily-summary", default=None,
+                       help="Daily summary CSV (default: the market's own data root).")
+    train.add_argument("--forecast-daily", default=None,
+                       help="Historical forecast daily CSV (default: the market's archive).")
+    train.add_argument("--artifact", default=None,
+                       help="Artifact path (default: src/forecast_error_model<suffix>.json).")
+    train.add_argument("--report", default=None,
+                       help="Report path (default: per-market report under data/backtest).")
     train.set_defaults(func=cmd_train)
     return parser
 

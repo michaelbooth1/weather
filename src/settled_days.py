@@ -7,7 +7,10 @@ That duplication silently went stale once -- the list named three days while six
 had settled, so the whole stack trained on half the data before anyone noticed.
 
 A day is included when:
-  * its slug parses to a target date (it is a Toronto temp-market folder), and
+  * its slug parses to a target date for a REGISTERED market (any market unless
+    ``market_id`` narrows it -- data/snapshots now holds all 12 markets' tapes,
+    so single-market trainers must pass their market or they will silently
+    train on other cities' tapes), and
   * that date is strictly before ``as_of`` (the market has SETTLED -- the day is
     fully in the past; today's market is still resolving), and
   * the required tape file is present (collection produced something).
@@ -25,9 +28,33 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from market_config import date_from_event_slug
+from market_registry import spec_for_slug
 from model_constants import TORONTO_TZ
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+
+
+def folder_market_id(folder):
+    """The registered market a snapshot folder belongs to, or None."""
+    spec = spec_for_slug(Path(folder).name)
+    return spec.id if spec else None
+
+
+def validate_folders_market(folders, market_id):
+    """Fail loud when an explicitly passed folder belongs to another market.
+
+    Single-market trainers write one market's artifact; mixing another city's
+    tape into training must stop the run, not silently shrink or skew it.
+    """
+    mismatched = [
+        str(folder) for folder in folders
+        if folder_market_id(folder) != market_id
+    ]
+    if mismatched:
+        raise SystemExit(
+            f"Folders do not belong to market '{market_id}': "
+            + ", ".join(mismatched)
+        )
 
 
 def _as_of_date(as_of):
@@ -45,9 +72,12 @@ def discover_settled_folders(
     root=DEFAULT_SNAPSHOTS_ROOT,
     as_of=None,
     required_file="snapshots_long.csv",
+    market_id=None,
 ):
     """Settled market-day folders under ``root`` with ``required_file`` present,
-    in chronological order."""
+    in chronological order. ``market_id`` keeps only that market's folders;
+    None means all registered markets (only correct for callers that resolve
+    each folder's market themselves, like market_day_labels)."""
     root = Path(root)
     if not root.exists():
         return []
@@ -58,6 +88,8 @@ def discover_settled_folders(
             continue
         target_date = date_from_event_slug(child.name)
         if target_date is None:
+            continue
+        if market_id is not None and folder_market_id(child) != market_id:
             continue
         if target_date >= cutoff:          # today or future: not settled yet
             continue
@@ -71,5 +103,9 @@ def discover_settled_slugs(
     root=DEFAULT_SNAPSHOTS_ROOT,
     as_of=None,
     required_file="snapshots_long.csv",
+    market_id=None,
 ):
-    return [folder.name for folder in discover_settled_folders(root, as_of, required_file)]
+    return [
+        folder.name
+        for folder in discover_settled_folders(root, as_of, required_file, market_id)
+    ]

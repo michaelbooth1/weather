@@ -1231,6 +1231,81 @@ lacks.
 Acceptance: each new feature family earns its place via settlement-scored
 validation, not importance charts (extends item 27 to all markets).
 
+### 39. Data Layer Audit Findings (2026-06-09) [NEW - OPEN]
+
+Full data-layer audit across all 12 markets. Verdict: broad and well-organized
+(per-station roots, manifests, raw->hourly->daily tiers, coverage tool), but with
+one latent correctness landmine, ~3.6 GB collected-but-unused, ~3.3 GB of
+regenerable artifacts in git, and a deep-history asymmetry (Toronto 44 yrs WU vs
+US cities 11 yrs). Measured footprint: WU 3.5 GB, GHCNh 2.7 GB, ERA5 961 MB,
+snapshots 708 MB. Items below are scoped here and cross-linked to the broader
+Track A/B items they sharpen.
+
+Short-term (correctness + cleanup):
+
+- [ ] **P0 - `_c` daily columns hold Fahrenheit for the 11 F markets.** Post
+  native-unit refactor the daily writer wrote native values into `max_temp_c` /
+  `min_temp_c` / `avg_temp_c` / `max_temp_bucket_c` without converting (verified:
+  Miami `max_temp_c`=88, LA=71 are degF). Works today only because every consumer
+  operates in native unit (e.g. `backtest.py:102` reads `max_temp_bucket_c` and
+  native bucket == settlement bucket). **Blocks pooled/canonical-C training
+  (item 33 / 35).** Fix = convert F->C properly, or rename columns to `_native`
+  and make any pooling convert explicitly. Audit every `_c` consumer.
+- [ ] **P1 - `data_auditor.py` only validates Toronto.** Hardcoded to CYYZ,
+  months 5-6, Celsius bounds (`>45C impossible`) -> flags ~all F rows as
+  impossible. 11/12 markets have no working validation. Make it fleet-aware +
+  unit-aware (`all_specs()`, native bounds per `display_unit`). Sharpens items
+  14 and 31.
+- [ ] Delete orphaned pre-per-city `_f` model artifacts: `src/feature_model_hgb_f.pkl`
+  (7.4 MB), `src/feature_model_coefs_f.json`, `src/late_day_model_coefs_f.json`
+  (superseded by per-city `_<city>` artifacts; verified no code loads them).
+- [ ] Backfill `forecast_history` for Atlanta (katl) + Miami (kmia) - currently
+  10/12 stations; their forecast-archive features are starving.
+- [ ] Fix the fleet-wide ERA5 normalize lag: normalized stops at 2026-06-02 while
+  raw is fetched to 06-07 (normalize step ~5 days behind fetch).
+- [ ] Backfill Toronto may-29 snapshot gap (if recoverable) and re-collect
+  Denver (kbkf) WU sparse/missing days (10 calendar-missing + 17 sparse vs ~1/5
+  for peers).
+
+Medium-term (integration + storage hygiene):
+
+- [ ] **Decide GHCNh + ERA5: integrate or stop committing.** Both are on disk
+  (3.6 GB) but wired into NO feature/model/climatology code - only the coverage
+  /backfill tooling references them. Either use them (settlement cross-check,
+  deeper climatology priors, WU-stale redundancy) or stop collecting/committing.
+  Resolves the "gated" status of item 32; model history is effectively WU-only.
+- [ ] **Stop committing derived hourly partitions (~3.3 GB in git):** WU 1.3 GB /
+  GHCNh 1.2 GB / ERA5 0.8 GB ~ 5,376 JSONL files tracked. Raw is gitignored but
+  the rebuildable hourly tier is not. Gitignore `data/**/hourly/` (or move to
+  LFS/external); keep only `daily_summary.csv` + manifests tracked.
+- [ ] Deepen US history below 2015: GHCNh -> station start, ERA5 -> 1940; gives
+  the 11 US cities Toronto-class priors (same adapters, no new integration).
+  Extends item 29.
+- [ ] Add historical METAR for the 11 US cities -> per-city settlement-lag models
+  (today only Toronto has one via SWOB). Extends items 5 and 30.
+- [ ] Move model artifacts out of `src/` (13 `.pkl` + weight JSONs mixed into the
+  code tree) into an `artifacts/` (or `models/`) dir.
+
+Long-term (the production data layer):
+
+- [ ] Unified per-market daily "truth" table joining WU / METAR / SWOB / GHCNh /
+  ERA5 with provenance + a consensus high (today sources are siloed; foundation
+  for honest settlement modeling + source-disagreement signal). Extends item 30.
+- [ ] Automated ingest quality gate in the loop/CI - block writes failing
+  range/gap/dup/schema checks; surface in collection-health (closes item 14,
+  feeds item 31).
+- [ ] Central schema registry + migration tooling (replace scattered
+  `schema_version` strings). Part of item 31.
+- [ ] Parquet + per-source freshness SLAs + a coverage/gap dashboard (extend the
+  existing `historical_coverage.py`).
+- [ ] Evaluate new sources: NWS/NOAA CF6 daily climate reports (official
+  daily-max-of-record, settlement-adjacent truth), Meteostat (free long daily
+  history), ASOS 1-min/ISD (exact intraday peak timing). Feeds items 29-30.
+
+Acceptance: the `_c` lie is resolved (pooled training unblocked), every market
+has working validation, idle sources are either integrated or dropped, and the
+repo no longer carries multi-GB regenerable artifacts.
+
 ## Track B — From Bootstrap To Full Production Model
 
 Principle: one shared learning pipeline, split only at the unit/band I/O edges,
@@ -1326,6 +1401,10 @@ P&L value over independent per-market models.
 
 ## Sequencing The Two Tracks
 
+0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
+   canonical-Celsius pooling, so it gates item 33/35. Plus the item 39 cleanup
+   tasks (orphan artifacts, forecast_history gaps, ERA5 normalize lag) are quick
+   and unblock clean validation.
 1. **Item 28 (settlement ledger)** and **item 33 (pooled F + city features)** in
    parallel — the foundation labels and the immediate model win, both unblocked
    now.

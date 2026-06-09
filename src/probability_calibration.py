@@ -38,7 +38,8 @@ from backtest import (  # noqa: E402
     backtest_tape,
 )
 from market_config import date_from_event_slug  # noqa: E402
-from settled_days import discover_settled_folders  # noqa: E402
+from market_registry import REGISTRY, spec_for_id  # noqa: E402
+from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
 
 
 DEFAULT_ARTIFACT_PATH = Path("src") / "probability_calibration.json"
@@ -733,22 +734,34 @@ def write_report(path, artifact):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):
-    return discover_settled_folders(root, required_file="snapshots_long.csv")
+def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT, market_id=None):
+    return discover_settled_folders(
+        root, required_file="snapshots_long.csv", market_id=market_id
+    )
 
 
 def cmd_train(args):
-    folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
-    rows = read_scored_rows(folders, daily_summary_path=args.daily_summary)
+    # This trainer writes ONE market's artifact, so its training tapes must all
+    # belong to that market: data/snapshots holds all 12 markets' folders.
+    spec = spec_for_id(args.market)
+    if args.folders:
+        folders = [Path(folder) for folder in args.folders]
+        validate_folders_market(folders, spec.id)
+    else:
+        folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
+    daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
+    artifact_arg = args.artifact or Path("src") / f"probability_calibration{spec.artifact_suffix}.json"
+    report_arg = args.report or Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md"
+    rows = read_scored_rows(folders, daily_summary_path=daily_summary)
     if not rows:
         raise SystemExit("No scored rows found for calibration training.")
     artifact = build_artifact(rows, folders)
-    artifact_path = Path(args.artifact)
+    artifact_path = Path(artifact_arg)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True), encoding="utf-8")
-    write_report(args.report, artifact)
+    write_report(report_arg, artifact)
     print(f"Wrote calibration artifact to {artifact_path}")
-    print(f"Wrote calibration report to {args.report}")
+    print(f"Wrote calibration report to {report_arg}")
     selected = artifact["selected_deployable_candidate"]
     baseline = artifact["training"]
     print(
@@ -762,11 +775,16 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Train probability calibration artifacts.")
     sub = parser.add_subparsers(dest="command", required=True)
     train = sub.add_parser("train")
-    train.add_argument("folders", nargs="*", help="Snapshot folders. Defaults to settled Toronto tapes.")
+    train.add_argument("folders", nargs="*", help="Snapshot folders. Defaults to the market's settled tapes.")
+    train.add_argument("--market", default="toronto", choices=sorted(REGISTRY),
+                       help="Market whose tapes and artifact this train run targets.")
     train.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    train.add_argument("--daily-summary", default=str(DEFAULT_DAILY_SUMMARY))
-    train.add_argument("--artifact", default=str(DEFAULT_ARTIFACT_PATH))
-    train.add_argument("--report", default=str(DEFAULT_REPORT_PATH))
+    train.add_argument("--daily-summary", default=None,
+                       help="Daily summary CSV (default: the market's own data root).")
+    train.add_argument("--artifact", default=None,
+                       help="Artifact path (default: src/probability_calibration<suffix>.json).")
+    train.add_argument("--report", default=None,
+                       help="Report path (default: per-market report under data/backtest).")
     train.set_defaults(func=cmd_train)
     return parser
 

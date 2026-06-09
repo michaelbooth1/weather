@@ -36,7 +36,12 @@ LIVE_CACHE_MAX_AGE_MINUTES = 90
 # calibration tapers to identity as the high locks in (resolution_weight), so
 # the evening distribution concentrates onto the observed high instead of
 # hedging the buckets it can no longer reach.
-ML_MODEL_VERSION = "v0.5.1"
+# v0.5.2: reverted v0.5.1's wu_current->wu_history mock-row injection. It
+# backdated live readings to the top of the hour, advanced the effective
+# cutoff past what WU history had printed (the v0.4.9 invariant), and masked
+# live wind fields. wu_history rows are settlement-source evidence again;
+# the cutoff-hour grid stays at the full 7-20 range.
+ML_MODEL_VERSION = "v0.5.2"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"
