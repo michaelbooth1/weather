@@ -41,15 +41,17 @@ FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (sof
 # saturates ~1 C below agreeing hot morning forecasts (it under-calls the high),
 # yet the forecast-vs-realized tracker (src/forecast_tracker.py) measured the
 # morning consensus actually being reached ~70% of the time while the model gave
-# it only ~45%. So early in the day, when independent forecasts agree on a high
-# the model has not yet reached, raise P(high >= forecast) toward that measured
-# reach-rate. One-directional (never lowers an already-confident model),
-# time-decayed (the observed high takes over by mid-afternoon), and capped at the
-# reach-rate so it trusts the forecast's track record, not blindly the top bucket.
-FORECAST_PULL_TARGET_REACH = 0.85   # the morning forecast is reached ~78-88% of the
-                                    # time (forecast_tracker + reach probe); the model
-                                    # was under-calling at ~72%, so target the measured
-                                    # reach-rate (the pull weight still hedges below it).
+# it only ~45%. So early in the day, blend the distribution toward a SMOOTH
+# forecast density: a Gaussian of width ~RMSE around each source's CONTINUOUS
+# forecast value, averaged over sources. Spreading the forecast over its real
+# uncertainty -- instead of rounding it to one bucket and forcing 85% of the mass
+# above it -- keeps the result stable across the x.5 rounding boundary (a 0.5C
+# Open-Meteo wiggle no longer swings a bucket 40+ points) and caps how much any
+# single source concentrates one bucket. Time-decayed (the observed high takes
+# over by mid-afternoon); the downstream observed floors own the low side.
+FORECAST_SOFT_SIGMA = 1.5           # C; the forecast's real 1-sigma width (~Open-Meteo
+                                    # RMSE 1.68). The mixture widens further on disagreement.
+FORECAST_PULL_BLEND_MAX = 0.6       # cap on the morning blend toward the forecast density
 FORECAST_PULL_START_HOUR = 12       # full strength through noon (the high usually is
                                     # not reached until mid-afternoon)
 FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
@@ -258,30 +260,62 @@ class DistributionMixin:
         spread_weight = max(0.5, 1.0 - spread / (2 * agreement))
         return self.round_half_up(anchor), spread_weight
 
-    def apply_forecast_pull(self, scores, forecasts, hour, observed_bucket, current_observed_bucket):
-        """Raise P(high >= agreed forecast) toward the measured reach-rate early
-        in the day, when the model has under-called a high the forecasts agree on.
+    def forecast_soft_density(self, forecasts, support):
+        """A smooth forecast distribution over the bucket ``support``: a Gaussian
+        of width ~RMSE (``FORECAST_SOFT_SIGMA``) around each source's CONTINUOUS
+        forecast value, averaged over sources.
 
-        One-directional: only ever increases that tail. No-op when forecasts
-        disagree, it is past mid-afternoon, the observed high has already reached
-        the forecast, or the model is already at/above the reach-rate.
+        Unlike rounding the forecast to one bucket, this (1) stays stable across
+        the x.5 rounding boundary (27.8 and 27.3 give near-identical densities),
+        (2) spreads the forecast over its real uncertainty, and (3) caps how much
+        any single source concentrates one bucket -- a sigma>=1.5 Gaussian puts at
+        most ~27% of its mass on the centre bucket, and a multi-source mixture that
+        disagrees spreads wider still. Returns ``{bucket: prob}`` or None.
         """
+        vals = [float(v) for v in forecasts if v is not None]
+        if not vals:
+            return None
+        sigma = max(0.5, self.spec.scale_delta(FORECAST_SOFT_SIGMA))
+        density = {
+            bucket: sum(math.exp(-0.5 * ((bucket - v) / sigma) ** 2) for v in vals)
+            for bucket in support
+        }
+        total = sum(density.values())
+        if total <= 0:
+            return None
+        return {bucket: value / total for bucket, value in density.items()}
+
+    def apply_forecast_pull(self, scores, forecasts, hour, observed_bucket, current_observed_bucket):
+        """Blend the distribution toward the SMOOTH forecast density early in the
+        day, instead of forcing mass above a rounded point-anchor. This raises an
+        under-called forecast region AND deflates a single-bucket over-call toward
+        the forecast's honest uncertainty, without the 0.5C-wiggle swings.
+
+        Time-decayed to zero by mid-afternoon (the observed high then owns the
+        call), and the downstream observed floors handle the low side. No-op when
+        forecasts disagree (>spread), it is past mid-afternoon, or the observed
+        high has already reached the forecast.
+        """
+        scores = self.normalize_scores(scores)
         anchor = self.forecast_anchor_bucket(forecasts)
         if anchor is None:
-            return self.normalize_scores(scores)
+            return scores                            # too few sources or they disagree
         anchor_bucket, spread_weight = anchor
         reached = self.max_value(observed_bucket, current_observed_bucket)
         if reached is not None and anchor_bucket <= reached:
-            return self.normalize_scores(scores)   # already there: nothing to pull
+            return scores                            # observed high owns it now
         weight = self.forecast_pull_time_weight(hour) * spread_weight
         if weight <= 0:
-            return self.normalize_scores(scores)
-        scores = self.normalize_scores(scores)
-        threshold = anchor_bucket - 1               # tail = P(temp >= anchor_bucket)
-        current_tail = sum(score for temp, score in scores.items() if temp > threshold)
-        if current_tail >= FORECAST_PULL_TARGET_REACH:
-            return scores                            # already confident enough
-        return self.apply_tail_target(scores, threshold, FORECAST_PULL_TARGET_REACH, weight)
+            return scores
+        density = self.forecast_soft_density(forecasts, list(scores.keys()))
+        if not density:
+            return scores
+        blend = min(FORECAST_PULL_BLEND_MAX, weight)
+        blended = {
+            bucket: (1.0 - blend) * scores.get(bucket, 0.0) + blend * density.get(bucket, 0.0)
+            for bucket in scores
+        }
+        return self.normalize_scores(blended)
 
     def forecast_error_component_distribution(
         self,

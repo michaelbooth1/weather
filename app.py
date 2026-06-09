@@ -89,7 +89,7 @@ if MARKET_ID == "overview":
             # Use column configuration to render links
             st.dataframe(
                 df_edges[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Action"]],
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={
                     "Action": st.column_config.LinkColumn(
@@ -105,7 +105,7 @@ if MARKET_ID == "overview":
         st.markdown('<div class="section-title">📊 Capture-Tape Health</div>', unsafe_allow_html=True)
         status = check_snapshot_status()
         df_status = format_status_table(status)
-        st.dataframe(df_status, use_container_width=True, hide_index=True)
+        st.dataframe(df_status, width='stretch', hide_index=True)
 
     render_overview()
     st.stop()
@@ -358,7 +358,7 @@ def live_dashboard(static_sources):
         )
 
     if rows:
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width='stretch', hide_index=True)
     else:
         st.warning("No child markets were returned for this event.")
 
@@ -372,7 +372,7 @@ def live_dashboard(static_sources):
     model_col2.metric("Top bucket probability", fmt_price(top_prob))
     model_col3.metric("Model version", model.get("model_version", "v0.3 empirical intraday"))
 
-    st.dataframe(model["model_rows"], use_container_width=True, hide_index=True)
+    st.dataframe(model["model_rows"], width='stretch', hide_index=True)
 
     # Render Model Explanation Panel
     explanation = model.get("model_explanation")
@@ -393,10 +393,10 @@ def live_dashboard(static_sources):
             st.write(f"- **Engine Type:** {explanation.get('model_type')}")
             
         st.markdown("**Top Bucket Drivers Breakdown**")
-        st.dataframe(explanation["top_buckets"], use_container_width=True, hide_index=True)
+        st.dataframe(explanation["top_buckets"], width='stretch', hide_index=True)
 
     st.subheader("25 C Deep Dive")
-    st.dataframe(model["deep_dive_rows"], use_container_width=True, hide_index=True)
+    st.dataframe(model["deep_dive_rows"], width='stretch', hide_index=True)
 
     # Render Bucket Boundary Transition Risk Panel
     boundary = model.get("boundary_transitions")
@@ -414,7 +414,7 @@ def live_dashboard(static_sources):
         )
         
         if boundary.get("transitions"):
-            st.dataframe(boundary["transitions"], use_container_width=True, hide_index=True)
+            st.dataframe(boundary["transitions"], width='stretch', hide_index=True)
         else:
             st.warning("Insufficient historical sample size for transition analysis.")
             
@@ -483,7 +483,7 @@ def live_dashboard(static_sources):
                 "Wind Regime": d["wind_group"],
                 "Cloud Regime": d["cloud_group"]
             })
-        st.dataframe(comparison_rows, use_container_width=True, hide_index=True)
+        st.dataframe(comparison_rows, width='stretch', hide_index=True)
 
         # Temp progress line chart
         hours = [f"{h:02d}:00" for h in range(7, 21)]
@@ -501,18 +501,18 @@ def live_dashboard(static_sources):
         chart_df = pd.DataFrame(chart_data, index=hours)
         
         st.markdown("**Temperature Progression Comparison (7 AM to 8 PM)**")
-        st.line_chart(chart_df, use_container_width=True)
+        st.line_chart(chart_df, width='stretch')
 
     # Render Source Freshness Status Panel
     st.subheader("Source Freshness Status")
-    st.dataframe(live_sources_status, use_container_width=True, hide_index=True)
+    st.dataframe(live_sources_status, width='stretch', hide_index=True)
 
     st.subheader("Source Signals")
-    st.dataframe(model["source_rows"], use_container_width=True, hide_index=True)
+    st.dataframe(model["source_rows"], width='stretch', hide_index=True)
 
     if model["forecast_rows"]:
         st.subheader("Remaining Forecast")
-        st.dataframe(model["forecast_rows"], use_container_width=True, hide_index=True)
+        st.dataframe(model["forecast_rows"], width='stretch', hide_index=True)
 
     # Render Odds Timeline View Panel
     st.subheader("Odds Timeline View")
@@ -551,13 +551,13 @@ def live_dashboard(static_sources):
         with edge_col1:
             st.markdown("**Top Positive Edges (Model > Market)**")
             if pos_edges:
-                st.dataframe(pos_edges, use_container_width=True, hide_index=True)
+                st.dataframe(pos_edges, width='stretch', hide_index=True)
             else:
                 st.caption("No positive edges.")
         with edge_col2:
             st.markdown("**Top Negative Edges (Model < Market)**")
             if neg_edges:
-                st.dataframe(neg_edges, use_container_width=True, hide_index=True)
+                st.dataframe(neg_edges, width='stretch', hide_index=True)
             else:
                 st.caption("No negative edges.")
 
@@ -588,7 +588,7 @@ def live_dashboard(static_sources):
                     plot_df.columns = ["Time", "Model Probability", "Market Price", "Edge"]
                     plot_df.set_index("Time", inplace=True)
                     
-                    st.line_chart(plot_df, use_container_width=True)
+                    st.line_chart(plot_df, width='stretch')
                     
                     # Highlight/flag snapshots crossing threshold
                     flagged = band_df[band_df["edge"].abs() >= edge_threshold].copy()
@@ -601,7 +601,7 @@ def live_dashboard(static_sources):
                         
                         st.dataframe(
                             flagged[["Time", "Model Prob", "Market Price", "Edge Value"]],
-                            use_container_width=True,
+                            width='stretch',
                             hide_index=True
                         )
                     else:
@@ -684,7 +684,7 @@ def live_dashboard(static_sources):
                 last_snapshot_df = hist_df[hist_df["snapshot_id"] == last_id].copy()
                 st.dataframe(
                     last_snapshot_df[["range_label", "model_probability", "market_yes", "edge"]],
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True
                 )
                 
@@ -700,7 +700,7 @@ def live_dashboard(static_sources):
             
             st.dataframe(
                 unique_snapshots[["Time", "snapshot_id", "Top Projected Temp", "Top Probability"]],
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
 
