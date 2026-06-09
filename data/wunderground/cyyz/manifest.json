@@ -1,11 +1,11 @@
 {
-  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
-  "daily_record_count": 16167,
+  "code_version": "git:ec48b2ea05e2d801bde863bc19a5bf32c7cee9cc",
+  "daily_record_count": 16168,
   "first_date": "1982-01-01",
-  "generated_at": "2026-06-07T01:14:48.459470+00:00",
+  "generated_at": "2026-06-08T00:50:38.155456+00:00",
   "history_id": "CYYZ:9:CA",
-  "hourly_record_count": 466582,
-  "last_date": "2026-06-06",
+  "hourly_record_count": 466603,
+  "last_date": "2026-06-07",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
@@ -2679,8 +2679,8 @@
     },
     {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 159,
-      "sha256": "3f272e06fe23ad5e31aac79f450d4e6426271b584d3e4be5bd07c2a2ae715158"
+      "row_count": 180,
+      "sha256": "0901abd06fde8d4aff1cc93e501d621d92396a3a478e0ef45f3a489d8e3cbffd"
     }
   ],
   "source_details": {

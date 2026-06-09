@@ -1,0 +1,153 @@
+{
+  "band_count": 11,
+  "capture_ratio": 0.9790209790209791,
+  "city": "Miami",
+  "coverage_clean": true,
+  "coverage_reason": "ok",
+  "daily_max_window": "00:00:00-23:59:59 local",
+  "daily_summary_path": "data\\wunderground\\kmia\\daily\\daily_summary.csv",
+  "event_slug": "highest-temperature-in-miami-on-june-7-2026",
+  "evidence": {
+    "daily_summary_path": "data\\wunderground\\kmia\\daily\\daily_summary.csv",
+    "polymarket_reconciliation": {
+      "event_closed": true,
+      "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-miami-on-june-7-2026",
+      "local_winning_band": {
+        "kind": "eq",
+        "label": "88-89\u00b0F",
+        "value": 88,
+        "value_hi": 89
+      },
+      "matching_winning_markets": [
+        {
+          "closed": true,
+          "condition_id": "0xf44ea9cf25ad478362e7f30a3106f44315c56696b36aabd9a66ed822ed0c1760",
+          "kind": "eq",
+          "label": "88-89 F",
+          "no_price": 0.0,
+          "question": "Will the highest temperature in Miami be between 88-89\u00b0F on June 7?",
+          "resolved": true,
+          "value": 88,
+          "value_hi": 89,
+          "yes_price": 1.0
+        }
+      ],
+      "status": "match",
+      "winning_markets": [
+        {
+          "closed": true,
+          "condition_id": "0xf44ea9cf25ad478362e7f30a3106f44315c56696b36aabd9a66ed822ed0c1760",
+          "kind": "eq",
+          "label": "88-89 F",
+          "no_price": 0.0,
+          "question": "Will the highest temperature in Miami be between 88-89\u00b0F on June 7?",
+          "resolved": true,
+          "value": 88,
+          "value_hi": 89,
+          "yes_price": 1.0
+        }
+      ]
+    },
+    "resolution_spec": {
+      "city": "Miami",
+      "daily_max_window": {
+        "date_basis": "market local target date",
+        "end_local": "23:59:59",
+        "start_local": "00:00:00",
+        "timezone": "America/New_York"
+      },
+      "data_root": "data\\wunderground\\kmia",
+      "event_slug_prefix": "highest-temperature-in-miami-on",
+      "market_id": "miami",
+      "market_unit": "F",
+      "resolution_source_name": "Weather.com/Wunderground historical observations",
+      "resolution_source_type": "wunderground_history",
+      "rounding": {
+        "method": "round_half_up",
+        "precision": "whole degree",
+        "unit": "F"
+      },
+      "schema_version": "resolution_spec_v1",
+      "station_icao": "KMIA",
+      "timezone": "America/New_York",
+      "wu_history_id": "KMIA:9:US"
+    },
+    "snapshot_high_column": "wu_history_high_c",
+    "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-miami-on-june-7-2026\\snapshots_long.csv",
+    "summary": {
+      "bucket": 88,
+      "high": 88.0,
+      "max_temp_times": "12:53|13:53|16:53",
+      "path": "data\\wunderground\\kmia\\daily\\daily_summary.csv",
+      "row_count": 20
+    }
+  },
+  "finalized_at_utc": "2026-06-08T13:10:34.352474+00:00",
+  "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-miami-on-june-7-2026",
+  "ledger_path": "data\\settlements\\miami\\ledger.jsonl",
+  "market_id": "miami",
+  "max_gap_minutes": 10.0,
+  "note": "",
+  "polymarket_reconciliation": {
+    "event_closed": true,
+    "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-miami-on-june-7-2026",
+    "local_winning_band": {
+      "kind": "eq",
+      "label": "88-89\u00b0F",
+      "value": 88,
+      "value_hi": 89
+    },
+    "matching_winning_markets": [
+      {
+        "closed": true,
+        "condition_id": "0xf44ea9cf25ad478362e7f30a3106f44315c56696b36aabd9a66ed822ed0c1760",
+        "kind": "eq",
+        "label": "88-89 F",
+        "no_price": 0.0,
+        "question": "Will the highest temperature in Miami be between 88-89\u00b0F on June 7?",
+        "resolved": true,
+        "value": 88,
+        "value_hi": 89,
+        "yes_price": 1.0
+      }
+    ],
+    "status": "match",
+    "winning_markets": [
+      {
+        "closed": true,
+        "condition_id": "0xf44ea9cf25ad478362e7f30a3106f44315c56696b36aabd9a66ed822ed0c1760",
+        "kind": "eq",
+        "label": "88-89 F",
+        "no_price": 0.0,
+        "question": "Will the highest temperature in Miami be between 88-89\u00b0F on June 7?",
+        "resolved": true,
+        "value": 88,
+        "value_hi": 89,
+        "yes_price": 1.0
+      }
+    ]
+  },
+  "polymarket_url": "https://polymarket.com/event/highest-temperature-in-miami-on-june-7-2026",
+  "polymarket_winning_band": "88-89 F",
+  "quality_grade": "complete",
+  "quality_reason": "complete enough for headline scoring",
+  "reconciliation_status": "match",
+  "resolution_source_type": "wunderground_history",
+  "resolution_station": "KMIA",
+  "resolution_timezone": "America/New_York",
+  "resolution_wu_history_id": "KMIA:9:US",
+  "rounding": "round_half_up whole degree",
+  "row_count": 1540,
+  "schema_version": "settlement_ledger_v1",
+  "settlement_bucket": 88,
+  "settlement_high": 88.0,
+  "settlement_source": "daily_summary",
+  "settlement_unit": "F",
+  "snapshot_count": 140,
+  "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-miami-on-june-7-2026\\snapshots_long.csv",
+  "target_date": "2026-06-07",
+  "winning_band": "88-89\u00b0F",
+  "winning_band_kind": "eq",
+  "winning_band_value": 88,
+  "winning_band_value_hi": 89
+}

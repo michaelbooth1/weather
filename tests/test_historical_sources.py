@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
@@ -41,9 +42,35 @@ class TestHistoricalSources(unittest.TestCase):
         )
 
         self.assertEqual(plan["schema_version"], "historical_backfill_plan_v1")
+        self.assertEqual(plan["queue_mode"], "market_source")
         self.assertEqual(plan["market_count"], 1)
         self.assertEqual(plan["sources"], ["wu"])
         self.assertIn("queue", plan)
+
+    def test_market_source_plan_coalesces_missing_ranges(self):
+        class FakeStore:
+            def missing_ranges(self, start_date, end_date, chunk_days=14):
+                return [
+                    (date(2026, 1, 1), date(2026, 1, 2)),
+                    (date(2026, 1, 5), date(2026, 1, 5)),
+                ]
+
+        with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+            plan = build_plan(
+                market_ids=["nyc"],
+                sources=["wu"],
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 5),
+                python="python",
+            )
+
+        self.assertEqual(plan["queue_count"], 1)
+        item = plan["queue"][0]
+        self.assertEqual(item["detail"]["kind"], "market_source_date_window")
+        self.assertEqual(item["detail"]["missing_ranges"], 2)
+        self.assertEqual(item["detail"]["missing_days"], 3)
+        self.assertEqual(item["command"][item["command"].index("--start") + 1], "2026-01-01")
+        self.assertEqual(item["command"][item["command"].index("--end") + 1], "2026-01-05")
 
     def test_split_ranges_chunks_contiguous_missing_days(self):
         ranges = split_ranges(

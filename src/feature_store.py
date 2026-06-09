@@ -1,11 +1,13 @@
 """Versioned feature schema for live, training, and snapshot audits."""
 
-FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.1"
+FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.2"
 
 FEATURE_COLUMNS = [
     "high_so_far",
     "current_temp",
     "rise_from_7am",
+    "warming_rate_2h",
+    "hours_at_peak",
     "dewpoint_c",
     "humidity",
     "pressure",
@@ -116,6 +118,27 @@ def build_historical_feature_record(
         if current_temp is not None and temp_7am is not None
         else 0.0
     )
+    
+    # warming_rate_2h
+    temp_2h_ago = closest_value(rows, cutoff_minutes - 120, 60, "temp_c")
+    warming_rate_2h = (
+        current_temp - temp_2h_ago
+        if current_temp is not None and temp_2h_ago is not None
+        else 0.0
+    )
+    
+    # hours_at_peak
+    first_reached_min = None
+    for row in obs_before:
+        if row.get("temp_c") == high_so_far and row.get("minute_of_day") is not None:
+            first_reached_min = int(row["minute_of_day"])
+            break
+    hours_at_peak = (
+        (cutoff_minutes - first_reached_min) / 60.0
+        if first_reached_min is not None
+        else 0.0
+    )
+
     pressure = current_obs.get("pressure")
     pressure_window = []
     for row in rows:
@@ -157,6 +180,8 @@ def build_historical_feature_record(
         "high_so_far": high_so_far,
         "current_temp": current_temp,
         "rise_from_7am": rise_from_7am,
+        "warming_rate_2h": warming_rate_2h,
+        "hours_at_peak": hours_at_peak,
         "dewpoint_c": current_obs.get("dewpoint_c"),
         "humidity": current_obs.get("humidity"),
         "pressure": pressure,

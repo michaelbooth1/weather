@@ -245,7 +245,10 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         distribution = model.estimate_distribution(sources, now=now)
 
         self.assertLess(distribution[18], 0.01)
-        self.assertGreater(distribution[19] + distribution[20], 0.75)
+        # The current-observed floor moves the bulk off the lagging WU bucket onto
+        # 19-20 (vs climatology's 0.22). Threshold 0.70 (was 0.75): the hour-aware
+        # calibration softens slightly more at the genuinely-overconfident 16:00.
+        self.assertGreater(distribution[19] + distribution[20], 0.70)
 
     def test_feature_model_uses_current_max_since_7am_as_soft_signal_only(self):
         model = TorontoHighTempModel(target_date="2026-05-28")

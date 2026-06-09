@@ -1,0 +1,3786 @@
+{
+  "cutoffs": [
+    7,
+    9,
+    11,
+    13
+  ],
+  "n_days_total": 12,
+  "per_cutoff": {
+    "7": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T08:55:13.165168-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.5269999999999999,
+          "model_median": 19,
+          "model_reach": 0.39979065893138116,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-30T10:41:53.935163-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7755,
+          "model_median": 19,
+          "model_reach": 0.36577143639534504,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-31T08:41:15.548812-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 24.0,
+            "open_meteo": 22.8,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.68,
+          "model_median": 23,
+          "model_reach": 0.1928744397165871,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-01T09:46:19.175838-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.8704999999999999,
+          "model_median": 20,
+          "model_reach": 0.7485718420874021,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-02T07:07:02.960603-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 25.0,
+            "open_meteo": 24.8,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.6715,
+          "model_median": 24,
+          "model_reach": 0.4262659287027787,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-03T07:01:24.055846-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 28.5,
+            "eccc": 29.0,
+            "open_meteo": 28.5,
+            "weather_com": 28.0
+          },
+          "market_median": 28,
+          "market_reach": 0.855,
+          "model_median": 27,
+          "model_reach": 0.3709323456519043,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-04T07:03:00.431680-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-04",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 30.0,
+            "open_meteo": 28.8,
+            "weather_com": 29.0
+          },
+          "market_median": 29,
+          "market_reach": 0.865,
+          "model_median": 27,
+          "model_reach": 0.3386958786938895,
+          "reached": true,
+          "settlement": 30,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-05T07:09:45.697068-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-05",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.2,
+            "eccc": 31.0,
+            "open_meteo": 30.2,
+            "weather_com": 29.0
+          },
+          "market_median": 30,
+          "market_reach": 0.765,
+          "model_median": 30,
+          "model_reach": 0.5784915007333249,
+          "reached": true,
+          "settlement": 31,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T15:42:36.058920-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 86.55,
+            "eccc": null,
+            "open_meteo": 87.1,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.058,
+          "model_median": 88,
+          "model_reach": 0.676364336626497,
+          "reached": false,
+          "settlement": 86,
+          "settlement_note": "daily_summary=85 (rows=15) disagrees with snapshot high=86; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:52.153845-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 86.0
+          },
+          "market_median": 90,
+          "market_reach": 1.0,
+          "model_median": 90,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:53.109292-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.45,
+            "eccc": null,
+            "open_meteo": 74.9,
+            "weather_com": 76.0
+          },
+          "market_median": 84,
+          "market_reach": 1.0,
+          "model_median": 84,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:54.062080-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.1,
+            "eccc": null,
+            "open_meteo": 73.2,
+            "weather_com": 77.0
+          },
+          "market_median": 88,
+          "market_reach": null,
+          "model_median": 88,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.021425-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 84.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 84.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 92,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.902657-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 79.9,
+            "eccc": null,
+            "open_meteo": 76.8,
+            "weather_com": 83.0
+          },
+          "market_median": 88,
+          "market_reach": 1.0,
+          "model_median": 88,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:56.791353-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 67,
+          "forecasts": {
+            "consensus": 67.45,
+            "eccc": null,
+            "open_meteo": 66.9,
+            "weather_com": 68.0
+          },
+          "market_median": 70,
+          "market_reach": 1.0,
+          "model_median": 70,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:57.587016-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 79,
+          "forecasts": {
+            "consensus": 78.85,
+            "eccc": null,
+            "open_meteo": 77.7,
+            "weather_com": 80.0
+          },
+          "market_median": 86,
+          "market_reach": 1.0,
+          "model_median": 86,
+          "model_reach": 1.0,
+          "reached": true,
+          "settlement": 86,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete); polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T14:32:26.289499-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 91,
+          "forecasts": {
+            "consensus": 91.0,
+            "eccc": null,
+            "open_meteo": 92.0,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.4895,
+          "model_median": 90,
+          "model_reach": 0.13201392137406692,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:58.477248-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 60,
+          "forecasts": {
+            "consensus": 60.1,
+            "eccc": null,
+            "open_meteo": 59.2,
+            "weather_com": 61.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 64,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 63,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:59.426604-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 54,
+          "forecasts": {
+            "consensus": 54.3,
+            "eccc": null,
+            "open_meteo": 55.6,
+            "weather_com": 53.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 62,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 62,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T07:08:50.143093-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-06",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 28.0,
+            "open_meteo": 23.9,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": null,
+          "model_median": 25,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 26,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:04.247242-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 84,
+          "forecasts": {
+            "consensus": 83.6,
+            "eccc": null,
+            "open_meteo": 86.2,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.20350000000000001,
+          "model_median": 84,
+          "model_reach": 0.7990524271018101,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:07.516832-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.8554999999999998,
+          "model_median": 88,
+          "model_reach": 0.7470826860306647,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:11.981776-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 82.4,
+            "eccc": null,
+            "open_meteo": 84.8,
+            "weather_com": 80.0
+          },
+          "market_median": 80,
+          "market_reach": 0.429,
+          "model_median": 82,
+          "model_reach": 0.7857989750539575,
+          "reached": true,
+          "settlement": 83,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:13.804096-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 87.85,
+            "eccc": null,
+            "open_meteo": 85.7,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.9214999999999999,
+          "model_median": 88,
+          "model_reach": 0.718360291825263,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:15.673132-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 91,
+          "forecasts": {
+            "consensus": 91.25,
+            "eccc": null,
+            "open_meteo": 91.5,
+            "weather_com": 91.0
+          },
+          "market_median": 92,
+          "market_reach": 0.6754999999999999,
+          "model_median": 92,
+          "model_reach": 0.6080713135095764,
+          "reached": true,
+          "settlement": 93,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:17.112309-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 85.0,
+            "eccc": null,
+            "open_meteo": 84.0,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.8574999999999998,
+          "model_median": 86,
+          "model_reach": 0.5742100045498667,
+          "reached": true,
+          "settlement": 85,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:18.456014-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 70,
+          "forecasts": {
+            "consensus": 70.2,
+            "eccc": null,
+            "open_meteo": 70.4,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.7944999999999999,
+          "model_median": 70,
+          "model_reach": 0.8350179910420943,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:19.620452-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.1,
+            "eccc": null,
+            "open_meteo": 87.2,
+            "weather_com": 87.0
+          },
+          "market_median": 88,
+          "market_reach": 0.563,
+          "model_median": 88,
+          "model_reach": 0.6398485186986722,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:09:59.284139-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 84,
+          "forecasts": {
+            "consensus": 83.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 82.0
+          },
+          "market_median": 84,
+          "market_reach": 0.6254999999999997,
+          "model_median": 84,
+          "model_reach": 0.6813611705051643,
+          "reached": false,
+          "settlement": 81,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:20.769960-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 67,
+          "forecasts": {
+            "consensus": 66.6,
+            "eccc": null,
+            "open_meteo": 69.2,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.1755,
+          "model_median": 68,
+          "model_reach": 0.7290289372591731,
+          "reached": true,
+          "settlement": 67,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:10:21.798279-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 63,
+          "forecasts": {
+            "consensus": 63.1,
+            "eccc": null,
+            "open_meteo": 63.2,
+            "weather_com": 63.0
+          },
+          "market_median": 64,
+          "market_reach": 0.7054999999999999,
+          "model_median": 62,
+          "model_reach": 0.44441735280142647,
+          "reached": true,
+          "settlement": 65,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T07:09:58.520047-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-07",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.1,
+            "eccc": 26.0,
+            "open_meteo": 25.1,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.769,
+          "model_median": 25,
+          "model_reach": 0.7632059949115767,
+          "reached": false,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:17.116847-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 80.1,
+            "eccc": null,
+            "open_meteo": 80.2,
+            "weather_com": 80.0
+          },
+          "market_median": 80,
+          "market_reach": 0.7055,
+          "model_median": 80,
+          "model_reach": 0.8483172503914448,
+          "reached": true,
+          "settlement": 81,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:18.168989-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 87.85,
+            "eccc": null,
+            "open_meteo": 88.7,
+            "weather_com": 87.0
+          },
+          "market_median": 88,
+          "market_reach": 0.8084999999999998,
+          "model_median": 88,
+          "model_reach": 0.8092516975335637,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:19.270952-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 84,
+          "forecasts": {
+            "consensus": 83.85,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.34500000000000003,
+          "model_median": 82,
+          "model_reach": 0.3568683368642837,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:20.383622-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 90.05,
+            "eccc": null,
+            "open_meteo": 87.1,
+            "weather_com": 93.0
+          },
+          "market_median": 92,
+          "market_reach": 0.9524999999999999,
+          "model_median": 88,
+          "model_reach": 0.4357813120210348,
+          "reached": true,
+          "settlement": 94,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:21.496820-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 82.7,
+            "eccc": null,
+            "open_meteo": 85.4,
+            "weather_com": 80.0
+          },
+          "market_median": 82,
+          "market_reach": 0.437,
+          "model_median": 80,
+          "model_reach": 0.334543125101041,
+          "reached": false,
+          "settlement": 82,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:22.514550-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.4,
+            "eccc": null,
+            "open_meteo": 87.8,
+            "weather_com": 85.0
+          },
+          "market_median": 86,
+          "market_reach": 0.7849999999999998,
+          "model_median": 88,
+          "model_reach": 0.7544695077740103,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:23.546530-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 70,
+          "forecasts": {
+            "consensus": 70.4,
+            "eccc": null,
+            "open_meteo": 70.8,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.9504999999999998,
+          "model_median": 70,
+          "model_reach": 0.8286823384868892,
+          "reached": true,
+          "settlement": 72,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:24.551038-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 89,
+          "forecasts": {
+            "consensus": 89.05,
+            "eccc": null,
+            "open_meteo": 90.1,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.38100000000000006,
+          "model_median": 90,
+          "model_reach": 0.6442306193040096,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:15.971252-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.4,
+            "eccc": null,
+            "open_meteo": 76.8,
+            "weather_com": 74.0
+          },
+          "market_median": 74,
+          "market_reach": 0.5074999999999997,
+          "model_median": 76,
+          "model_reach": 0.719275008915059,
+          "reached": false,
+          "settlement": 74,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:25.599424-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 63,
+          "forecasts": {
+            "consensus": 63.0,
+            "eccc": null,
+            "open_meteo": 63.0,
+            "weather_com": 63.0
+          },
+          "market_median": 64,
+          "market_reach": 0.7919999999999999,
+          "model_median": 64,
+          "model_reach": 0.8065345222608732,
+          "reached": true,
+          "settlement": 64,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:26.582860-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 61,
+          "forecasts": {
+            "consensus": 60.95,
+            "eccc": null,
+            "open_meteo": 63.9,
+            "weather_com": 58.0
+          },
+          "market_median": 60,
+          "market_reach": 0.3635,
+          "model_median": 64,
+          "model_reach": 0.8322145049024366,
+          "reached": true,
+          "settlement": 61,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T07:02:14.817240-04:00",
+          "cutoff_hour": 7,
+          "date": "2026-06-08",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 27.0,
+            "open_meteo": 25.0,
+            "weather_com": 23.0
+          },
+          "market_median": 24,
+          "market_reach": 0.324,
+          "model_median": 24,
+          "model_reach": 0.4812950803557447,
+          "reached": false,
+          "settlement": 23,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 1.0,
+        "model_point_mae": 1.2666666666666666,
+        "n_days": 45,
+        "reach": {
+          "market_reach": 0.6908720930232556,
+          "model_reach": 0.6688102394017615,
+          "n": 43,
+          "reach_rate": 0.813953488372093
+        },
+        "sources": {
+          "consensus": {
+            "bias": 1.7988888888888892,
+            "hit_rate": 0.26666666666666666,
+            "mae": 2.281111111111112,
+            "n": 45
+          },
+          "eccc": {
+            "bias": -1.0833333333333333,
+            "hit_rate": 0.4166666666666667,
+            "mae": 1.0833333333333333,
+            "n": 12
+          },
+          "open_meteo": {
+            "bias": 1.573333333333333,
+            "hit_rate": 0.1111111111111111,
+            "mae": 2.95111111111111,
+            "n": 45
+          },
+          "weather_com": {
+            "bias": 2.2444444444444445,
+            "hit_rate": 0.13333333333333333,
+            "mae": 2.422222222222222,
+            "n": 45
+          }
+        }
+      }
+    },
+    "9": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T09:05:17.858906-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.49400000000000005,
+          "model_median": 19,
+          "model_reach": 0.39979065893138116,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-30T10:41:53.935163-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7755,
+          "model_median": 19,
+          "model_reach": 0.36577143639534504,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-31T09:12:58.178171-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 24.0,
+            "open_meteo": 23.6,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.7095,
+          "model_median": 23,
+          "model_reach": 0.1982760168471917,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-01T09:46:19.175838-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.2,
+            "eccc": 21.0,
+            "open_meteo": 20.2,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.8704999999999999,
+          "model_median": 20,
+          "model_reach": 0.7485718420874021,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-02T09:07:27.409623-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 25.0,
+            "open_meteo": 25.2,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.6779999999999999,
+          "model_median": 24,
+          "model_reach": 0.3451454229560417,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-03T09:01:43.193747-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.9,
+            "weather_com": 29.0
+          },
+          "market_median": 28,
+          "market_reach": 0.84,
+          "model_median": 28,
+          "model_reach": 0.7658897721705101,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-04T09:05:14.049994-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-04",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 29.5,
+            "eccc": 30.0,
+            "open_meteo": null,
+            "weather_com": 29.0
+          },
+          "market_median": 29,
+          "market_reach": 0.415,
+          "model_median": 29,
+          "model_reach": 0.1107200503758782,
+          "reached": true,
+          "settlement": 30,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-05T09:00:47.357125-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-05",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.1,
+            "eccc": 31.0,
+            "open_meteo": 30.1,
+            "weather_com": 30.0
+          },
+          "market_median": 30,
+          "market_reach": 0.765,
+          "model_median": 30,
+          "model_reach": 0.6146755823941354,
+          "reached": true,
+          "settlement": 31,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T15:42:36.058920-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 86.55,
+            "eccc": null,
+            "open_meteo": 87.1,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.058,
+          "model_median": 88,
+          "model_reach": 0.676364336626497,
+          "reached": false,
+          "settlement": 86,
+          "settlement_note": "daily_summary=85 (rows=15) disagrees with snapshot high=86; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:52.153845-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 86.0
+          },
+          "market_median": 90,
+          "market_reach": 1.0,
+          "model_median": 90,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:53.109292-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.45,
+            "eccc": null,
+            "open_meteo": 74.9,
+            "weather_com": 76.0
+          },
+          "market_median": 84,
+          "market_reach": 1.0,
+          "model_median": 84,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:54.062080-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.1,
+            "eccc": null,
+            "open_meteo": 73.2,
+            "weather_com": 77.0
+          },
+          "market_median": 88,
+          "market_reach": null,
+          "model_median": 88,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.021425-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 84.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 84.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 92,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.902657-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 79.9,
+            "eccc": null,
+            "open_meteo": 76.8,
+            "weather_com": 83.0
+          },
+          "market_median": 88,
+          "market_reach": 1.0,
+          "model_median": 88,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:56.791353-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 67,
+          "forecasts": {
+            "consensus": 67.45,
+            "eccc": null,
+            "open_meteo": 66.9,
+            "weather_com": 68.0
+          },
+          "market_median": 70,
+          "market_reach": 1.0,
+          "model_median": 70,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:57.587016-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 79,
+          "forecasts": {
+            "consensus": 78.85,
+            "eccc": null,
+            "open_meteo": 77.7,
+            "weather_com": 80.0
+          },
+          "market_median": 86,
+          "market_reach": 1.0,
+          "model_median": 86,
+          "model_reach": 1.0,
+          "reached": true,
+          "settlement": 86,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete); polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T14:32:26.289499-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 91,
+          "forecasts": {
+            "consensus": 91.0,
+            "eccc": null,
+            "open_meteo": 92.0,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.4895,
+          "model_median": 90,
+          "model_reach": 0.13201392137406692,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:58.477248-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 60,
+          "forecasts": {
+            "consensus": 60.1,
+            "eccc": null,
+            "open_meteo": 59.2,
+            "weather_com": 61.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 64,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 63,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:59.426604-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 54,
+          "forecasts": {
+            "consensus": 54.3,
+            "eccc": null,
+            "open_meteo": 55.6,
+            "weather_com": 53.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 62,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 62,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T09:09:19.413039-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-06",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 27.0,
+            "open_meteo": 24.0,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": null,
+          "model_median": 25,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 26,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:31.876342-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 81.95,
+            "eccc": null,
+            "open_meteo": 83.9,
+            "weather_com": 80.0
+          },
+          "market_median": 82,
+          "market_reach": 0.6199999999999999,
+          "model_median": 82,
+          "model_reach": 0.8615101030523986,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:32.663625-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.0,
+            "eccc": null,
+            "open_meteo": 86.0,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.7739999999999999,
+          "model_median": 88,
+          "model_reach": 0.7057999553458243,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:33.406320-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.05,
+            "eccc": null,
+            "open_meteo": 85.1,
+            "weather_com": 81.0
+          },
+          "market_median": 80,
+          "market_reach": 0.128,
+          "model_median": 84,
+          "model_reach": 0.5963906606627869,
+          "reached": true,
+          "settlement": 83,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:34.186367-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 87.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.8994999999999997,
+          "model_median": 88,
+          "model_reach": 0.7049413057927503,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:36.926436-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 92,
+          "forecasts": {
+            "consensus": 92.05,
+            "eccc": null,
+            "open_meteo": 93.1,
+            "weather_com": 91.0
+          },
+          "market_median": 92,
+          "market_reach": 0.6814999999999999,
+          "model_median": 92,
+          "model_reach": 0.7510258374479194,
+          "reached": true,
+          "settlement": 93,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:37.718155-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 85.45,
+            "eccc": null,
+            "open_meteo": 84.9,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.8839999999999999,
+          "model_median": 84,
+          "model_reach": 0.39283327749500047,
+          "reached": true,
+          "settlement": 85,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:38.465252-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 71,
+          "forecasts": {
+            "consensus": 70.6,
+            "eccc": null,
+            "open_meteo": 70.2,
+            "weather_com": 71.0
+          },
+          "market_median": 70,
+          "market_reach": 0.2305,
+          "model_median": 70,
+          "model_reach": 0.34988922489131274,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:39.180174-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.1,
+            "eccc": null,
+            "open_meteo": 87.2,
+            "weather_com": 87.0
+          },
+          "market_median": 88,
+          "market_reach": 0.6304999999999998,
+          "model_median": 88,
+          "model_reach": 0.6484766709072143,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:31.095283-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.4,
+            "eccc": null,
+            "open_meteo": 84.8,
+            "weather_com": 82.0
+          },
+          "market_median": 84,
+          "market_reach": 0.5749999999999998,
+          "model_median": 84,
+          "model_reach": 0.6692363628639393,
+          "reached": false,
+          "settlement": 81,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:39.967288-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 66,
+          "forecasts": {
+            "consensus": 65.95,
+            "eccc": null,
+            "open_meteo": 67.9,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.45000000000000007,
+          "model_median": 68,
+          "model_reach": 0.9002203395871805,
+          "reached": true,
+          "settlement": 67,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:40.695491-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 64,
+          "forecasts": {
+            "consensus": 63.75,
+            "eccc": null,
+            "open_meteo": 63.5,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.6705,
+          "model_median": 64,
+          "model_reach": 0.8396156146220495,
+          "reached": true,
+          "settlement": 65,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T09:02:30.326123-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-07",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 25.0,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.7725,
+          "model_median": 25,
+          "model_reach": 0.7488432527671842,
+          "reached": false,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:44.466986-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 81,
+          "forecasts": {
+            "consensus": 80.5,
+            "eccc": null,
+            "open_meteo": 81.0,
+            "weather_com": 80.0
+          },
+          "market_median": 80,
+          "market_reach": 0.161,
+          "model_median": 82,
+          "model_reach": 0.6453658713340804,
+          "reached": true,
+          "settlement": 81,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:45.407157-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.3,
+            "eccc": null,
+            "open_meteo": 85.6,
+            "weather_com": 87.0
+          },
+          "market_median": 88,
+          "market_reach": 0.9675,
+          "model_median": 86,
+          "model_reach": 0.7870520426593879,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:46.193874-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 82.95,
+            "eccc": null,
+            "open_meteo": 84.9,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.36900000000000005,
+          "model_median": 84,
+          "model_reach": 0.6329095760087592,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:47.040879-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 90.4,
+            "eccc": null,
+            "open_meteo": 87.8,
+            "weather_com": 93.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 92,
+          "model_reach": 0.7278056608777413,
+          "reached": true,
+          "settlement": 94,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:47.824490-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.3,
+            "eccc": null,
+            "open_meteo": 85.6,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.44500000000000006,
+          "model_median": 84,
+          "model_reach": 0.6173124449736491,
+          "reached": false,
+          "settlement": 82,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:48.667675-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.2,
+            "eccc": null,
+            "open_meteo": 88.4,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.34950000000000003,
+          "model_median": 88,
+          "model_reach": 0.7012298797177609,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:49.534862-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 71,
+          "forecasts": {
+            "consensus": 70.65,
+            "eccc": null,
+            "open_meteo": 71.3,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.34,
+          "model_median": 70,
+          "model_reach": 0.3450539718434621,
+          "reached": true,
+          "settlement": 72,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:50.310583-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 89,
+          "forecasts": {
+            "consensus": 88.7,
+            "eccc": null,
+            "open_meteo": 89.4,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.4655,
+          "model_median": 88,
+          "model_reach": 0.4212081420943874,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:43.618095-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.45,
+            "eccc": null,
+            "open_meteo": 76.9,
+            "weather_com": 74.0
+          },
+          "market_median": 74,
+          "market_reach": 0.49450000000000005,
+          "model_median": 76,
+          "model_reach": 0.6404640366385724,
+          "reached": false,
+          "settlement": 74,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:51.274145-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 63,
+          "forecasts": {
+            "consensus": 63.1,
+            "eccc": null,
+            "open_meteo": 63.2,
+            "weather_com": 63.0
+          },
+          "market_median": 64,
+          "market_reach": 0.7514999999999998,
+          "model_median": 64,
+          "model_reach": 0.819720666502918,
+          "reached": true,
+          "settlement": 64,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:52.060920-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 61,
+          "forecasts": {
+            "consensus": 61.35,
+            "eccc": null,
+            "open_meteo": 64.7,
+            "weather_com": 58.0
+          },
+          "market_median": 60,
+          "market_reach": 0.29400000000000004,
+          "model_median": 64,
+          "model_reach": 0.8812389210544079,
+          "reached": true,
+          "settlement": 61,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T09:05:42.809246-04:00",
+          "cutoff_hour": 9,
+          "date": "2026-06-08",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.1,
+            "eccc": 27.0,
+            "open_meteo": 25.1,
+            "weather_com": 23.0
+          },
+          "market_median": 24,
+          "market_reach": 0.2725,
+          "model_median": 26,
+          "model_reach": 0.8319939977827298,
+          "reached": false,
+          "settlement": 23,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 1.0,
+        "model_point_mae": 1.2,
+        "n_days": 45,
+        "reach": {
+          "market_reach": 0.6405581395348836,
+          "model_reach": 0.6727792068661582,
+          "n": 43,
+          "reach_rate": 0.813953488372093
+        },
+        "sources": {
+          "consensus": {
+            "bias": 1.7788888888888892,
+            "hit_rate": 0.26666666666666666,
+            "mae": 2.305555555555555,
+            "n": 45
+          },
+          "eccc": {
+            "bias": -1.0,
+            "hit_rate": 0.4166666666666667,
+            "mae": 1.0,
+            "n": 12
+          },
+          "open_meteo": {
+            "bias": 1.6363636363636358,
+            "hit_rate": 0.20454545454545456,
+            "mae": 2.799999999999999,
+            "n": 44
+          },
+          "weather_com": {
+            "bias": 2.111111111111111,
+            "hit_rate": 0.17777777777777778,
+            "mae": 2.2888888888888888,
+            "n": 45
+          }
+        }
+      }
+    },
+    "11": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T11:09:25.106787-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 19.7,
+            "eccc": 22.0,
+            "open_meteo": 19.7,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.4615,
+          "model_median": 20,
+          "model_reach": 0.5165577303451314,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-30T11:02:18.060988-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 22.0,
+            "open_meteo": 19.8,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7904999999999999,
+          "model_median": 19,
+          "model_reach": 0.3691813893986285,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-31T11:09:25.075331-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 25.0,
+            "open_meteo": 23.6,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.819,
+          "model_median": 24,
+          "model_reach": 0.6590451958631771,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-01T11:08:41.978681-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.1,
+            "eccc": 21.0,
+            "open_meteo": 20.1,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.9359999999999999,
+          "model_median": 21,
+          "model_reach": 0.800460533700137,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-02T11:07:44.507386-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 24.9,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.7529999999999999,
+          "model_median": 24,
+          "model_reach": 0.32447946571492503,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-03T11:02:08.898744-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.5,
+            "weather_com": 29.0
+          },
+          "market_median": 28,
+          "market_reach": 0.83,
+          "model_median": 28,
+          "model_reach": 0.7658690360874565,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-04T11:06:47.192281-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-04",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.0,
+            "eccc": 31.0,
+            "open_meteo": 29.0,
+            "weather_com": 30.0
+          },
+          "market_median": 29,
+          "market_reach": 0.47,
+          "model_median": 29,
+          "model_reach": 0.4602152859734651,
+          "reached": true,
+          "settlement": 30,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-05T11:01:26.193218-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-05",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.0,
+            "eccc": 31.0,
+            "open_meteo": 30.0,
+            "weather_com": 30.0
+          },
+          "market_median": 30,
+          "market_reach": 0.735,
+          "model_median": 30,
+          "model_reach": 0.7242223116501122,
+          "reached": true,
+          "settlement": 31,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T15:42:36.058920-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 86.55,
+            "eccc": null,
+            "open_meteo": 87.1,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.058,
+          "model_median": 88,
+          "model_reach": 0.676364336626497,
+          "reached": false,
+          "settlement": 86,
+          "settlement_note": "daily_summary=85 (rows=15) disagrees with snapshot high=86; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:52.153845-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 86.0
+          },
+          "market_median": 90,
+          "market_reach": 1.0,
+          "model_median": 90,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:53.109292-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.45,
+            "eccc": null,
+            "open_meteo": 74.9,
+            "weather_com": 76.0
+          },
+          "market_median": 84,
+          "market_reach": 1.0,
+          "model_median": 84,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:54.062080-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.1,
+            "eccc": null,
+            "open_meteo": 73.2,
+            "weather_com": 77.0
+          },
+          "market_median": 88,
+          "market_reach": null,
+          "model_median": 88,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.021425-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 84.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 84.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 92,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.902657-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 79.9,
+            "eccc": null,
+            "open_meteo": 76.8,
+            "weather_com": 83.0
+          },
+          "market_median": 88,
+          "market_reach": 1.0,
+          "model_median": 88,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:56.791353-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 67,
+          "forecasts": {
+            "consensus": 67.45,
+            "eccc": null,
+            "open_meteo": 66.9,
+            "weather_com": 68.0
+          },
+          "market_median": 70,
+          "market_reach": 1.0,
+          "model_median": 70,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:57.587016-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 79,
+          "forecasts": {
+            "consensus": 78.85,
+            "eccc": null,
+            "open_meteo": 77.7,
+            "weather_com": 80.0
+          },
+          "market_median": 86,
+          "market_reach": 1.0,
+          "model_median": 86,
+          "model_reach": 1.0,
+          "reached": true,
+          "settlement": 86,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete); polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T14:32:26.289499-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 91,
+          "forecasts": {
+            "consensus": 91.0,
+            "eccc": null,
+            "open_meteo": 92.0,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.4895,
+          "model_median": 90,
+          "model_reach": 0.13201392137406692,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:58.477248-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 60,
+          "forecasts": {
+            "consensus": 60.1,
+            "eccc": null,
+            "open_meteo": 59.2,
+            "weather_com": 61.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 64,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 63,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:59.426604-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 54,
+          "forecasts": {
+            "consensus": 54.3,
+            "eccc": null,
+            "open_meteo": 55.6,
+            "weather_com": 53.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 62,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 62,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T11:00:18.263153-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-06",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 23.7,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": null,
+          "model_median": 25,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 26,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:55.045897-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 82.4,
+            "eccc": null,
+            "open_meteo": 84.8,
+            "weather_com": 80.0
+          },
+          "market_median": 80,
+          "market_reach": 0.34600000000000003,
+          "model_median": 84,
+          "model_reach": 0.9093072674628871,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:56.103164-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 89.9,
+            "eccc": null,
+            "open_meteo": 90.8,
+            "weather_com": 89.0
+          },
+          "market_median": 88,
+          "market_reach": 0.4505,
+          "model_median": 90,
+          "model_reach": 0.8360395527502704,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:57.474127-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.45,
+            "eccc": null,
+            "open_meteo": 84.9,
+            "weather_com": 82.0
+          },
+          "market_median": 82,
+          "market_reach": 0.14200000000000002,
+          "model_median": 84,
+          "model_reach": 0.6811295940906045,
+          "reached": true,
+          "settlement": 83,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:58.714669-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 88.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.8539999999999998,
+          "model_median": 88,
+          "model_reach": 0.7620116525813913,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:59.925942-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 92,
+          "forecasts": {
+            "consensus": 92.2,
+            "eccc": null,
+            "open_meteo": 93.4,
+            "weather_com": 91.0
+          },
+          "market_median": 92,
+          "market_reach": 0.7549999999999999,
+          "model_median": 92,
+          "model_reach": 0.7594299059693064,
+          "reached": true,
+          "settlement": 93,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:05:01.087874-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 85.95,
+            "eccc": null,
+            "open_meteo": 85.9,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.8109999999999997,
+          "model_median": 86,
+          "model_reach": 0.8448019359107334,
+          "reached": false,
+          "settlement": 85,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:05:02.200106-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 71,
+          "forecasts": {
+            "consensus": 70.85,
+            "eccc": null,
+            "open_meteo": 70.7,
+            "weather_com": 71.0
+          },
+          "market_median": 70,
+          "market_reach": 0.22,
+          "model_median": 70,
+          "model_reach": 0.3726775656157249,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:05:03.215514-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 87.6,
+            "eccc": null,
+            "open_meteo": 87.2,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.6669999999999998,
+          "model_median": 88,
+          "model_reach": 0.9688099689973088,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:53.969041-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.3,
+            "eccc": null,
+            "open_meteo": 84.6,
+            "weather_com": 82.0
+          },
+          "market_median": 82,
+          "market_reach": 0.4115,
+          "model_median": 84,
+          "model_reach": 0.6516549484970968,
+          "reached": false,
+          "settlement": 81,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:05:04.531105-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 66,
+          "forecasts": {
+            "consensus": 66.05,
+            "eccc": null,
+            "open_meteo": 68.1,
+            "weather_com": 64.0
+          },
+          "market_median": 66,
+          "market_reach": 0.5269999999999998,
+          "model_median": 68,
+          "model_reach": 0.8393988294852842,
+          "reached": true,
+          "settlement": 67,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:05:05.679801-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 64,
+          "forecasts": {
+            "consensus": 63.85,
+            "eccc": null,
+            "open_meteo": 63.7,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.6099999999999999,
+          "model_median": 64,
+          "model_reach": 0.8448008729828097,
+          "reached": true,
+          "settlement": 65,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T11:04:52.580743-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-07",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 27.0,
+            "open_meteo": 23.7,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.763,
+          "model_median": 24,
+          "model_reach": 0.33972713257907194,
+          "reached": false,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:24.902551-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 80.05,
+            "eccc": null,
+            "open_meteo": 79.1,
+            "weather_com": 81.0
+          },
+          "market_median": 80,
+          "market_reach": 0.7905000000000001,
+          "model_median": 80,
+          "model_reach": 0.8126420798402347,
+          "reached": true,
+          "settlement": 81,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:25.965588-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 89,
+          "forecasts": {
+            "consensus": 88.95,
+            "eccc": null,
+            "open_meteo": 89.9,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.41000000000000003,
+          "model_median": 90,
+          "model_reach": 0.6783464891668245,
+          "reached": false,
+          "settlement": 88,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:27.012773-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 84,
+          "forecasts": {
+            "consensus": 83.6,
+            "eccc": null,
+            "open_meteo": 86.2,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.393,
+          "model_median": 84,
+          "model_reach": 0.6256423717731765,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:28.025699-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 90.1,
+            "eccc": null,
+            "open_meteo": 87.2,
+            "weather_com": 93.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 90,
+          "model_reach": 0.5865467825821276,
+          "reached": true,
+          "settlement": 94,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:29.141583-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 81.85,
+            "eccc": null,
+            "open_meteo": 83.7,
+            "weather_com": 80.0
+          },
+          "market_median": 82,
+          "market_reach": 0.7219999999999999,
+          "model_median": 82,
+          "model_reach": 0.7429688344116521,
+          "reached": true,
+          "settlement": 82,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:30.191827-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 87.35,
+            "eccc": null,
+            "open_meteo": 88.7,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.346,
+          "model_median": 88,
+          "model_reach": 0.7395737304323285,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:31.275403-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 70,
+          "forecasts": {
+            "consensus": 70.25,
+            "eccc": null,
+            "open_meteo": 70.5,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.9089999999999998,
+          "model_median": 70,
+          "model_reach": 0.8364601987336169,
+          "reached": true,
+          "settlement": 72,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:32.345797-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 89,
+          "forecasts": {
+            "consensus": 89.4,
+            "eccc": null,
+            "open_meteo": 89.8,
+            "weather_com": 89.0
+          },
+          "market_median": 90,
+          "market_reach": 0.6424999999999998,
+          "model_median": 90,
+          "model_reach": 0.6569487866378559,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:23.609131-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 76,
+          "forecasts": {
+            "consensus": 75.9,
+            "eccc": null,
+            "open_meteo": 77.8,
+            "weather_com": 74.0
+          },
+          "market_median": 74,
+          "market_reach": 0.4525,
+          "model_median": 76,
+          "model_reach": 0.7896114006837841,
+          "reached": false,
+          "settlement": 74,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:33.448795-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 64,
+          "forecasts": {
+            "consensus": 63.6,
+            "eccc": null,
+            "open_meteo": 63.2,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.7819999999999999,
+          "model_median": 64,
+          "model_reach": 0.8928319370356117,
+          "reached": true,
+          "settlement": 64,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:34.436846-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 62,
+          "forecasts": {
+            "consensus": 62.05,
+            "eccc": null,
+            "open_meteo": 65.1,
+            "weather_com": 59.0
+          },
+          "market_median": 60,
+          "market_reach": 0.275,
+          "model_median": 64,
+          "model_reach": 0.8803853370821156,
+          "reached": false,
+          "settlement": 61,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T11:09:22.456131-04:00",
+          "cutoff_hour": 11,
+          "date": "2026-06-08",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 24.9,
+            "eccc": 27.0,
+            "open_meteo": 24.9,
+            "weather_com": 23.0
+          },
+          "market_median": 24,
+          "market_reach": 0.306,
+          "model_median": 25,
+          "model_reach": 0.7955080437998452,
+          "reached": false,
+          "settlement": 23,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.8666666666666667,
+        "model_point_mae": 1.0,
+        "n_days": 45,
+        "reach": {
+          "market_reach": 0.6546744186046513,
+          "model_reach": 0.7355305456743767,
+          "n": 43,
+          "reach_rate": 0.7674418604651163
+        },
+        "sources": {
+          "consensus": {
+            "bias": 1.590000000000001,
+            "hit_rate": 0.3111111111111111,
+            "mae": 2.165555555555556,
+            "n": 45
+          },
+          "eccc": {
+            "bias": -1.4166666666666667,
+            "hit_rate": 0.25,
+            "mae": 1.4166666666666667,
+            "n": 12
+          },
+          "open_meteo": {
+            "bias": 1.453333333333333,
+            "hit_rate": 0.2,
+            "mae": 2.7466666666666657,
+            "n": 45
+          },
+          "weather_com": {
+            "bias": 1.9333333333333333,
+            "hit_rate": 0.28888888888888886,
+            "mae": 2.111111111111111,
+            "n": 45
+          }
+        }
+      }
+    },
+    "13": {
+      "records": [
+        {
+          "captured_at_local": "2026-05-27T14:35:23.228914-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-27",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 25.8,
+            "eccc": 26.0,
+            "open_meteo": 25.8,
+            "weather_com": 24.0
+          },
+          "market_median": 25,
+          "market_reach": 0.22300000000000003,
+          "model_median": 25,
+          "model_reach": 0.3521490381629344,
+          "reached": false,
+          "settlement": 25,
+          "settlement_note": "daily_summary=22 (rows=12) disagrees with snapshot high=25; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-05-28T13:03:30.446937-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-28",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 19.7,
+            "eccc": 22.0,
+            "open_meteo": 19.7,
+            "weather_com": 19.0
+          },
+          "market_median": 19,
+          "market_reach": 0.5375,
+          "model_median": 19,
+          "model_reach": 0.4425865969847222,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-30T13:50:26.518724-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-30",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 22.0,
+            "open_meteo": 18.7,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.6065,
+          "model_median": 19,
+          "model_reach": 0.22587701310030212,
+          "reached": true,
+          "settlement": 20,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-05-31T13:08:21.416471-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-05-31",
+          "forecast_bucket": 24,
+          "forecasts": {
+            "consensus": 24.0,
+            "eccc": 25.0,
+            "open_meteo": 23.5,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.7480000000000001,
+          "model_median": 23,
+          "model_reach": 0.20928114985284163,
+          "reached": true,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-01T13:02:26.668469-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-01",
+          "forecast_bucket": 20,
+          "forecasts": {
+            "consensus": 20.0,
+            "eccc": 21.0,
+            "open_meteo": 19.4,
+            "weather_com": 20.0
+          },
+          "market_median": 20,
+          "market_reach": 0.7784999999999999,
+          "model_median": 20,
+          "model_reach": 0.7134963547985743,
+          "reached": false,
+          "settlement": 19,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-02T13:08:04.395343-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-02",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 26.0,
+            "open_meteo": 24.8,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.8584999999999999,
+          "model_median": 25,
+          "model_reach": 0.9992133069220734,
+          "reached": true,
+          "settlement": 25,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-03T13:02:30.325635-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-03",
+          "forecast_bucket": 29,
+          "forecasts": {
+            "consensus": 29.0,
+            "eccc": 29.0,
+            "open_meteo": 28.6,
+            "weather_com": 30.0
+          },
+          "market_median": 28,
+          "market_reach": 0.963,
+          "model_median": 28,
+          "model_reach": 0.9994944214901214,
+          "reached": true,
+          "settlement": 29,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-04T13:07:02.619468-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-04",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.0,
+            "eccc": 31.0,
+            "open_meteo": 29.4,
+            "weather_com": 30.0
+          },
+          "market_median": 30,
+          "market_reach": 0.63,
+          "model_median": 30,
+          "model_reach": 0.8925135245808314,
+          "reached": true,
+          "settlement": 30,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-05T13:01:58.878001-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-05",
+          "forecast_bucket": 30,
+          "forecasts": {
+            "consensus": 30.2,
+            "eccc": 31.0,
+            "open_meteo": 30.2,
+            "weather_com": 29.0
+          },
+          "market_median": 30,
+          "market_reach": 0.865,
+          "model_median": 30,
+          "model_reach": 0.977274095191996,
+          "reached": true,
+          "settlement": 31,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T15:42:36.058920-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 87,
+          "forecasts": {
+            "consensus": 86.55,
+            "eccc": null,
+            "open_meteo": 87.1,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.058,
+          "model_median": 88,
+          "model_reach": 0.676364336626497,
+          "reached": false,
+          "settlement": 86,
+          "settlement_note": "daily_summary=85 (rows=15) disagrees with snapshot high=86; polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:52.153845-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 86.35,
+            "eccc": null,
+            "open_meteo": 86.7,
+            "weather_com": 86.0
+          },
+          "market_median": 90,
+          "market_reach": 1.0,
+          "model_median": 90,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:53.109292-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.45,
+            "eccc": null,
+            "open_meteo": 74.9,
+            "weather_com": 76.0
+          },
+          "market_median": 84,
+          "market_reach": 1.0,
+          "model_median": 84,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:54.062080-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.1,
+            "eccc": null,
+            "open_meteo": 73.2,
+            "weather_com": 77.0
+          },
+          "market_median": 88,
+          "market_reach": null,
+          "model_median": 88,
+          "model_reach": null,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.021425-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 85,
+          "forecasts": {
+            "consensus": 84.9,
+            "eccc": null,
+            "open_meteo": 85.8,
+            "weather_com": 84.0
+          },
+          "market_median": 92,
+          "market_reach": 1.0,
+          "model_median": 92,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:55.902657-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 80,
+          "forecasts": {
+            "consensus": 79.9,
+            "eccc": null,
+            "open_meteo": 76.8,
+            "weather_com": 83.0
+          },
+          "market_median": 88,
+          "market_reach": 1.0,
+          "model_median": 88,
+          "model_reach": 0.9999999999999999,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:56.791353-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 67,
+          "forecasts": {
+            "consensus": 67.45,
+            "eccc": null,
+            "open_meteo": 66.9,
+            "weather_com": 68.0
+          },
+          "market_median": 70,
+          "market_reach": 1.0,
+          "model_median": 70,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:57.587016-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 79,
+          "forecasts": {
+            "consensus": 78.85,
+            "eccc": null,
+            "open_meteo": 77.7,
+            "weather_com": 80.0
+          },
+          "market_median": 86,
+          "market_reach": 1.0,
+          "model_median": 86,
+          "model_reach": 1.0,
+          "reached": true,
+          "settlement": 86,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete); polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-06T14:32:26.289499-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 91,
+          "forecasts": {
+            "consensus": 91.0,
+            "eccc": null,
+            "open_meteo": 92.0,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.4895,
+          "model_median": 90,
+          "model_reach": 0.13201392137406692,
+          "reached": true,
+          "settlement": 91,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:58.477248-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 60,
+          "forecasts": {
+            "consensus": 60.1,
+            "eccc": null,
+            "open_meteo": 59.2,
+            "weather_com": 61.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 64,
+          "model_reach": 0.9999999999999996,
+          "reached": true,
+          "settlement": 63,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T20:04:59.426604-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 54,
+          "forecasts": {
+            "consensus": 54.3,
+            "eccc": null,
+            "open_meteo": 55.6,
+            "weather_com": 53.0
+          },
+          "market_median": 62,
+          "market_reach": 1.0,
+          "model_median": 62,
+          "model_reach": 0.9999999999999997,
+          "reached": true,
+          "settlement": 62,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-06T13:01:10.968487-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-06",
+          "forecast_bucket": 26,
+          "forecasts": {
+            "consensus": 26.0,
+            "eccc": 26.0,
+            "open_meteo": 24.0,
+            "weather_com": 26.0
+          },
+          "market_median": 25,
+          "market_reach": 0.41100000000000003,
+          "model_median": 25,
+          "model_reach": 0.2677591578547406,
+          "reached": true,
+          "settlement": 26,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:14.169975-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.3,
+            "eccc": null,
+            "open_meteo": 84.6,
+            "weather_com": 82.0
+          },
+          "market_median": 82,
+          "market_reach": 0.36100000000000004,
+          "model_median": 84,
+          "model_reach": 0.5777297929797434,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:15.348940-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 88.15,
+            "eccc": null,
+            "open_meteo": 86.3,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.8434999999999999,
+          "model_median": 90,
+          "model_reach": 0.9623568039826071,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:16.466471-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 84,
+          "forecasts": {
+            "consensus": 83.5,
+            "eccc": null,
+            "open_meteo": 85.0,
+            "weather_com": 82.0
+          },
+          "market_median": 82,
+          "market_reach": 0.436,
+          "model_median": 84,
+          "model_reach": 0.7738513161406303,
+          "reached": false,
+          "settlement": 83,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:17.557761-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 89,
+          "forecasts": {
+            "consensus": 88.65,
+            "eccc": null,
+            "open_meteo": 87.3,
+            "weather_com": 90.0
+          },
+          "market_median": 90,
+          "market_reach": 0.6319999999999998,
+          "model_median": 90,
+          "model_reach": 0.6127148889756571,
+          "reached": true,
+          "settlement": 92,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:18.753496-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 93,
+          "forecasts": {
+            "consensus": 92.55,
+            "eccc": null,
+            "open_meteo": 93.1,
+            "weather_com": 92.0
+          },
+          "market_median": 92,
+          "market_reach": 0.20550000000000002,
+          "model_median": 92,
+          "model_reach": 0.3926221021607844,
+          "reached": true,
+          "settlement": 93,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:19.851491-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 86,
+          "forecasts": {
+            "consensus": 85.85,
+            "eccc": null,
+            "open_meteo": 85.7,
+            "weather_com": 86.0
+          },
+          "market_median": 86,
+          "market_reach": 0.872,
+          "model_median": 86,
+          "model_reach": 0.9180143099159278,
+          "reached": false,
+          "settlement": 85,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:21.005294-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 70,
+          "forecasts": {
+            "consensus": 70.25,
+            "eccc": null,
+            "open_meteo": 70.5,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.8824999999999998,
+          "model_median": 70,
+          "model_reach": 0.8360587283619257,
+          "reached": true,
+          "settlement": 71,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:22.305983-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 87.9,
+            "eccc": null,
+            "open_meteo": 87.8,
+            "weather_com": 88.0
+          },
+          "market_median": 88,
+          "market_reach": 0.9799999999999999,
+          "model_median": 88,
+          "model_reach": 0.9999096939588208,
+          "reached": true,
+          "settlement": 88,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:12.656683-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 83,
+          "forecasts": {
+            "consensus": 83.35,
+            "eccc": null,
+            "open_meteo": 84.7,
+            "weather_com": 82.0
+          },
+          "market_median": 82,
+          "market_reach": 0.2575,
+          "model_median": 84,
+          "model_reach": 0.6475791629019872,
+          "reached": false,
+          "settlement": 81,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:23.406056-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 66,
+          "forecasts": {
+            "consensus": 66.4,
+            "eccc": null,
+            "open_meteo": 68.8,
+            "weather_com": 64.0
+          },
+          "market_median": 66,
+          "market_reach": 0.5964999999999999,
+          "model_median": 68,
+          "model_reach": 0.8447128549620239,
+          "reached": true,
+          "settlement": 67,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:24.477724-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 64,
+          "forecasts": {
+            "consensus": 63.75,
+            "eccc": null,
+            "open_meteo": 63.5,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.628,
+          "model_median": 64,
+          "model_reach": 0.8398699826531015,
+          "reached": true,
+          "settlement": 65,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-07T13:09:11.371592-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-07",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 25.0,
+            "eccc": 27.0,
+            "open_meteo": 23.7,
+            "weather_com": 25.0
+          },
+          "market_median": 25,
+          "market_reach": 0.7269999999999999,
+          "model_median": 24,
+          "model_reach": 0.27366446179332377,
+          "reached": false,
+          "settlement": 24,
+          "settlement_note": "polymarket_reconciliation=match",
+          "settlement_source": "settlement_ledger:daily_summary"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:00.770516-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 82.15,
+            "eccc": null,
+            "open_meteo": 81.3,
+            "weather_com": 83.0
+          },
+          "market_median": 82,
+          "market_reach": 0.716,
+          "model_median": 82,
+          "model_reach": 0.9121816848665062,
+          "reached": false,
+          "settlement": 81,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:01.907412-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 89.75,
+            "eccc": null,
+            "open_meteo": 90.5,
+            "weather_com": 89.0
+          },
+          "market_median": 88,
+          "market_reach": 0.4915,
+          "model_median": 90,
+          "model_reach": 0.8713786522239572,
+          "reached": false,
+          "settlement": 88,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:03.150121-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 82,
+          "forecasts": {
+            "consensus": 81.7,
+            "eccc": null,
+            "open_meteo": 82.4,
+            "weather_com": 81.0
+          },
+          "market_median": 82,
+          "market_reach": 0.7669999999999999,
+          "model_median": 82,
+          "model_reach": 0.8557955835063195,
+          "reached": true,
+          "settlement": 84,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:12.651309-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 90,
+          "forecasts": {
+            "consensus": 89.95,
+            "eccc": null,
+            "open_meteo": 87.9,
+            "weather_com": 92.0
+          },
+          "market_median": 92,
+          "market_reach": 0.9344999999999999,
+          "model_median": 92,
+          "model_reach": 0.8745880689865996,
+          "reached": true,
+          "settlement": 94,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:13.771868-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 81,
+          "forecasts": {
+            "consensus": 80.95,
+            "eccc": null,
+            "open_meteo": 81.9,
+            "weather_com": 80.0
+          },
+          "market_median": 82,
+          "market_reach": 0.5804999999999999,
+          "model_median": 82,
+          "model_reach": 0.553111097689313,
+          "reached": true,
+          "settlement": 82,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:14.786942-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 88.25,
+            "eccc": null,
+            "open_meteo": 89.5,
+            "weather_com": 87.0
+          },
+          "market_median": 88,
+          "market_reach": 0.5619999999999998,
+          "model_median": 90,
+          "model_reach": 0.9845310811576433,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:15.790668-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 71,
+          "forecasts": {
+            "consensus": 70.65,
+            "eccc": null,
+            "open_meteo": 71.3,
+            "weather_com": 70.0
+          },
+          "market_median": 70,
+          "market_reach": 0.33749999999999997,
+          "model_median": 70,
+          "model_reach": 0.29853151348753515,
+          "reached": true,
+          "settlement": 72,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:16.894129-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 88,
+          "forecasts": {
+            "consensus": 88.2,
+            "eccc": null,
+            "open_meteo": 88.4,
+            "weather_com": 88.0
+          },
+          "market_median": 90,
+          "market_reach": 0.9974999999999998,
+          "model_median": 88,
+          "model_reach": 0.9999999999999998,
+          "reached": true,
+          "settlement": 90,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:02:59.389465-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 75,
+          "forecasts": {
+            "consensus": 75.2,
+            "eccc": null,
+            "open_meteo": 78.4,
+            "weather_com": 72.0
+          },
+          "market_median": 74,
+          "market_reach": 0.2195,
+          "model_median": 78,
+          "model_reach": 0.8384261157394374,
+          "reached": false,
+          "settlement": 74,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:17.949658-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 64,
+          "forecasts": {
+            "consensus": 64.05,
+            "eccc": null,
+            "open_meteo": 64.1,
+            "weather_com": 64.0
+          },
+          "market_median": 64,
+          "market_reach": 0.6409999999999999,
+          "model_median": 64,
+          "model_reach": 0.8537791787961686,
+          "reached": true,
+          "settlement": 64,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:03:19.111964-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 62,
+          "forecasts": {
+            "consensus": 61.85,
+            "eccc": null,
+            "open_meteo": 65.7,
+            "weather_com": 58.0
+          },
+          "market_median": 60,
+          "market_reach": 0.21750000000000003,
+          "model_median": 66,
+          "model_reach": 0.9248094812237284,
+          "reached": false,
+          "settlement": 61,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        },
+        {
+          "captured_at_local": "2026-06-08T13:02:58.182900-04:00",
+          "cutoff_hour": 13,
+          "date": "2026-06-08",
+          "forecast_bucket": 25,
+          "forecasts": {
+            "consensus": 24.9,
+            "eccc": 27.0,
+            "open_meteo": 24.9,
+            "weather_com": 24.0
+          },
+          "market_median": 24,
+          "market_reach": 0.2795,
+          "model_median": 25,
+          "model_reach": 0.7279926982821671,
+          "reached": false,
+          "settlement": 23,
+          "settlement_note": "snapshot wu_history_high (daily summary missing/incomplete)",
+          "settlement_source": "snapshot_high"
+        }
+      ],
+      "summary": {
+        "market_point_mae": 0.7111111111111111,
+        "model_point_mae": 1.0222222222222221,
+        "n_days": 45,
+        "reach": {
+          "market_reach": 0.6666818181818182,
+          "model_reach": 0.7559598220837639,
+          "n": 44,
+          "reach_rate": 0.7272727272727273
+        },
+        "sources": {
+          "consensus": {
+            "bias": 1.5799999999999992,
+            "hit_rate": 0.24444444444444444,
+            "mae": 2.1999999999999993,
+            "n": 45
+          },
+          "eccc": {
+            "bias": -1.4166666666666667,
+            "hit_rate": 0.25,
+            "mae": 1.4166666666666667,
+            "n": 12
+          },
+          "open_meteo": {
+            "bias": 1.5488888888888885,
+            "hit_rate": 0.28888888888888886,
+            "mae": 2.708888888888888,
+            "n": 45
+          },
+          "weather_com": {
+            "bias": 1.8444444444444446,
+            "hit_rate": 0.2,
+            "mae": 2.2444444444444445,
+            "n": 45
+          }
+        }
+      }
+    }
+  },
+  "verdict": {
+    "consensus_bias": 1.7788888888888892,
+    "detail": "reach-rate 81% ~ model's 67%: the model's morning confidence already matches how often the forecast is reached.",
+    "gap": 0.1411742815059348,
+    "headline": "MODEL CALIBRATED",
+    "market_reach": 0.6405581395348836,
+    "model_reach": 0.6727792068661582,
+    "n": 43,
+    "reach_rate": 0.813953488372093
+  },
+  "verdict_cutoff": 9
+}

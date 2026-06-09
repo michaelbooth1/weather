@@ -1,0 +1,39 @@
+name: Nightly Retrain
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # 8 AM UTC daily
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build Historical Backfill Plan
+        run: python src/historical_backfill_plan.py --out data/backtest/historical_backfill_plan.json
+
+      - name: Run Historical Backfill Runner
+        run: python src/historical_backfill_runner.py run --plan data/backtest/historical_backfill_plan.json
+
+      - name: Train Feature Models for All Markets
+        run: python -m src.feature_model --all
+
+      - name: Commit and Push Updated Artifacts
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/*_coefs*.json src/*_hgb*.pkl data/wunderground/*
+          git commit -m "chore: nightly model retrain and data backfill [skip ci]" || echo "No changes to commit"
+          git push

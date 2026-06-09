@@ -1041,7 +1041,7 @@ Validation results:
   clean ledger days and reports 38/100 Low; US markets remain Unproven until
   their first post-ledger days settle.
 
-### 29. Deepen And Widen The Historical Record [PARTIAL - CURRENT WINDOW MULTI-SOURCE]
+### 29. Deepen And Widen The Historical Record [PARTIAL - GHCNH COMPLETE, WU WIDENING]
 
 Goal: give each market the deepest faithful history its sources allow (currently
 7 years × a narrow May-June window).
@@ -1101,30 +1101,45 @@ What changed:
   `data/backtest/historical_coverage.json`.
 - `backfill_all.py` now supports `--sources wu,ghcnh,reanalysis`, so the same
   fleet command can drive all item-29 historical sources.
-- `src.historical_backfill_plan` writes the remaining resumable queue to
-  `data/backtest/historical_backfill_plan.json`; WU queue items include
+- `src.historical_backfill_plan` writes a compact market/source execution queue
+  to `data/backtest/historical_backfill_plan.json`; WU queue items include
   `--continue-on-error` so Weather.com source-unavailable dates are logged
-  rather than killing the whole fleet run.
+  rather than killing the whole fleet run. Chunk-level accounting remains
+  available with `--queue-mode chunk` and is written to
+  `data/backtest/historical_backfill_plan_chunks.json` for audit detail.
+- `src.historical_backfill_runner` adds the durable execution layer for item 29:
+  append-only run ledger, stable item keys, status summaries, source/market
+  filters, dry-run support, bounded `--max-items` batches, and skip-success
+  resume behavior.
+- `src.historical_schema` now uses retrying deletes and atomic temp-file
+  replacement for normalized historical partitions. This fixed the Windows
+  file-lock failure that interrupted the first GHCNh fleet run.
 
 Current WU depth snapshot from the audit:
 
 - Toronto/CYYZ: 1982-01-01 through 2026-06-06, all months except
   Weather.com 2020-11-08, which returned HTTP 400 and is now logged in
   `data/wunderground/cyyz/backfill_errors.jsonl` as source-unavailable.
-- Atlanta/KATL: 2015-01-01 through 2026-06-06, all months.
-- NYC/KLGA, Austin/KAUS, Chicago/KORD, Dallas/KDAL, Denver/KBKF, Houston/KHOU,
-  Los Angeles/KLAX, San Francisco/KSFO, Seattle/KSEA: 2019-05-01 through
-  2025-06-30, May-June only, plus 2026-06-01 through 2026-06-02 now fetched
-  and normalized.
+- Atlanta/KATL: 2015-01-01 through 2026-06-06, all months except
+  Weather.com 2020-11-08, now logged as source-unavailable.
+- NYC/KLGA, Austin/KAUS, Chicago/KORD: 2015-01-01 through 2026-06-06,
+  all months except Weather.com 2020-11-08, now logged per station as
+  source-unavailable. Manifest audits passed after the wide rebuilds.
+- Dallas/KDAL, Denver/KBKF, Houston/KHOU, Los Angeles/KLAX, San Francisco/KSFO,
+  Seattle/KSEA: 2019-05-01 through 2025-06-30, May-June only, plus
+  2026-06-01 through 2026-06-02 now fetched and normalized.
 - Miami/KMIA: 2026-05-01 through 2026-06-06 only.
 - Current two-day source-coverage check (`2026-06-01` through `2026-06-02`):
   WU missing=0 and GHCNh missing=0 for all 12 markets. Reanalysis has raw
   files covering both days for all 12, but only one normalized daily row per
   market because June 2 returned all-null weather variables; coverage now
   reports reanalysis missing=1 per market instead of hiding the source lag.
-- Minimum-window queue (`2015-01-01` through `2026-06-06`) still has 4,491
-  remaining resumable items: WU=2,727, GHCNh=132, reanalysis=1,632. This is why
-  the item remains partial.
+- Minimum-window GHCNh is now populated for all 12 registered markets
+  (`2015-2026`, missing years=0 in `data/backtest/historical_coverage_minimum.json`).
+- Minimum-window runnable queue (`2015-01-01` through `2026-06-06`) now has 19
+  compact market/source items: WU=7 and reanalysis=12. The chunk diagnostic
+  queue is down to 3,548 underlying chunks: WU=1,916 and reanalysis=1,632.
+  This is why the item remains partial.
 
 Validation results for this increment:
 
@@ -1132,16 +1147,26 @@ Validation results for this increment:
 - `.\venv\Scripts\python.exe -m pytest tests\test_historical_sources.py tests\test_backfill_markets.py -q`: 11 passed.
 - `.\venv\Scripts\python.exe -m pytest tests\test_historical_sources.py tests\test_backfill_markets.py tests\test_validation.py -q`: 27 passed after tightening
   reanalysis coverage to actual normalized daily dates.
+- `.\venv\Scripts\python.exe -m pytest tests\test_historical_backfill_runner.py tests\test_historical_sources.py tests\test_backfill_markets.py -q`: 20 passed after adding the durable runner, compact market/source queue mode, and historical partition write retries.
 - `.\venv\Scripts\python.exe -m src.wu_history --market toronto rebuild`: rebuilt
   Toronto normalized WU history from raw after the interrupted Windows file-lock
   run; wrote 466,582 hourly rows and 16,167 daily rows, and restored manifest
   audit consistency.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources ghcnh --max-items 132 --fail-fast`: recorded 30 GHCNh successes, exposed a Windows file-lock rebuild failure, then after the shared writer retry fix the resumed runner recorded the remaining 102 successes; regenerated plan has GHCNh queue=0.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets atlanta --max-items 1 --fail-fast`: classified Atlanta/KATL 2020-11-08 as Weather.com HTTP 400 source-unavailable.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets nyc --max-items 1 --fail-fast`: widened NYC/KLGA WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market nyc audit` passed across 138 partitions.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets austin --max-items 1 --fail-fast`: widened Austin/KAUS WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market austin audit` passed across 138 partitions.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets chicago --max-items 1 --fail-fast`: widened Chicago/KORD WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market chicago audit` passed across 138 partitions.
 - `.\venv\Scripts\python.exe -m src.wu_history --market nyc coverage --start 2019-05-01 --end 2019-05-05`: reported 5 expected days, 0 missing, unit F.
 - `.\venv\Scripts\python.exe backfill_all.py --markets nyc --sources wu,ghcnh,reanalysis --start 2026-06-01 --end 2026-06-02 --dry-run`: printed resumable commands for all three sources.
 - `.\venv\Scripts\python.exe backfill_all.py --markets nyc,austin,chicago,dallas,denver,houston,los-angeles,san-francisco,seattle --sources wu --start 2026-06-01 --end 2026-06-02 --between-markets-sleep 0 --sleep 0.1`: fetched and rebuilt the current-window WU gaps for the 9 US markets missing those days.
 - `.\venv\Scripts\python.exe backfill_all.py --sources ghcnh,reanalysis --start 2026-06-01 --end 2026-06-02 --between-markets-sleep 0 --sleep 0.1`: fetched 2026 GHCNh raw PSV files for all 12 markets and reanalysis raw JSON for the same current window.
-- `.\venv\Scripts\python.exe -m src.historical_coverage report --start 2026-06-01 --end 2026-06-02 --out data\backtest\historical_coverage.json`: wrote fleet coverage across all 12 markets and all three sources.
-- `.\venv\Scripts\python.exe -m src.historical_backfill_plan --sources wu,ghcnh,reanalysis --start 2015-01-01 --end 2026-06-06 --out data\backtest\historical_backfill_plan.json`: wrote 4,491 remaining queue items (`ghcnh=132`, `reanalysis=1632`, `wu=2727`).
+- `.\venv\Scripts\python.exe -m src.historical_coverage report --start 2026-06-01 --end 2026-06-02 --out data\backtest\historical_coverage.json`: wrote current-window fleet coverage across all 12 markets and all three sources.
+- `.\venv\Scripts\python.exe -m src.historical_coverage report --start 2015-01-01 --end 2026-06-06 --out data\backtest\historical_coverage_minimum.json`: wrote minimum-window coverage; GHCNh missing=0 for all markets, WU missing=0 for Toronto/NYC/Atlanta/Austin/Chicago after source-unavailable classification, and reanalysis missing=4174 per market.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_plan --sources wu,ghcnh,reanalysis --start 2015-01-01 --end 2026-06-06 --out data\backtest\historical_backfill_plan.json`: wrote 19 remaining compact market/source queue items (`wu=7`, `reanalysis=12`).
+- `.\venv\Scripts\python.exe -m src.historical_backfill_plan --sources wu,ghcnh,reanalysis --start 2015-01-01 --end 2026-06-06 --queue-mode chunk --out data\backtest\historical_backfill_plan_chunks.json`: wrote 3,548 underlying chunk items (`wu=1916`, `reanalysis=1632`).
+- `.\venv\Scripts\python.exe -m compileall src tests`: passed.
+- `.\venv\Scripts\python.exe -m pytest -q`: 232 passed, 12 subtests passed.
 - `.\venv\Scripts\python.exe -m src.noaa_ghcnh_history --market nyc --data-root scratch\ghcnh_smoke station`: resolved KLGA to GHCNh station `USW00014732`.
 - One-pass GHCNh station resolution over all registered markets: resolved
   Toronto `CAN06158731`, NYC `USW00014732`, Atlanta `USW00013874`, Austin
@@ -1153,10 +1178,11 @@ Validation results for this increment:
 Remaining work before item 29 can close:
 
 - Run or schedule the resumable WU widener so each registered market reaches
-  the deepest WU window available, not only the current mixed coverage.
-- Run the GHCNh and reanalysis backfills across every registered market and the
-  chosen training window, then keep the raw files/checksum manifests as the
-  offline rebuild source.
+  the deepest WU window available, not only the current mixed coverage. Dallas,
+  Denver, Houston, Los Angeles, Miami, San Francisco, and Seattle are still open.
+- Run the reanalysis backfills across every registered market and the chosen
+  training window, then keep the raw files/checksum manifests as the offline
+  rebuild source. GHCNh is complete for the current minimum window.
 - Decide the production training window bounds per source and market
   (`historical_coverage.json` currently shows what is missing, not a completed
   source-limited archive).

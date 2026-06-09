@@ -64,8 +64,14 @@ class MarketSpec:
 
     @property
     def artifact_suffix(self):
-        """Model-artifact filename suffix per unit family ('' for C, '_f' for F)."""
-        return "_f" if self.is_fahrenheit else ""
+        """Model-artifact filename suffix per market ('' for toronto for backward compat)."""
+        return "" if self.id == "toronto" else f"_{self.id}"
+
+    @property
+    def key_bucket(self):
+        """The critical threshold bucket for deep-dive analysis (e.g. 25C for Toronto, 80F for F-markets)."""
+        return 25 if self.unit == "C" else 80
+
 
     def c_to_native(self, celsius):
         """Convert an absolute Celsius temperature/bucket to the market's unit."""

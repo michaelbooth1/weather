@@ -25,13 +25,18 @@ PEARSON_LAT = 43.6767
 PEARSON_LON = -79.6306
 HISTORY_MIN_ROW_COUNT = 20
 HISTORY_WINDOW_DAYS = 7
-INTRADAY_CUTOFF_HOURS = (9, 10, 12, 13, 15, 16, 17, 18, 20)
+INTRADAY_CUTOFF_HOURS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 LIVE_CACHE_MAX_AGE_MINUTES = 90
 
 # Model-version labels — the single source of truth shared with snapshot_tracker.
 # v0.5.0: multi-source forecast fallback (resolve_forecast_high) + forecast pull
 # (apply_forecast_pull) — the morning forecast-trust upgrade.
-ML_MODEL_VERSION = "v0.5.0"
+# v0.5.1: resolution-aware late-day collapse — stronger/earlier lock-in
+# (LATE_LOCKIN_FULL_HOUR 20->17, HEDGE 0.20->0.05) + the overconfidence
+# calibration tapers to identity as the high locks in (resolution_weight), so
+# the evening distribution concentrates onto the observed high instead of
+# hedging the buckets it can no longer reach.
+ML_MODEL_VERSION = "v0.5.1"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

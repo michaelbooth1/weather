@@ -108,7 +108,7 @@ class PresentationMixin:
             "Model role": "Confirms table trend",
         })
         rows.append({
-            "Source": "Weather.com current CYYZ",
+            "Source": f"Weather.com current {self.spec.icao}",
             "Signal": "Current / max since 7 AM",
             "Value": (
                 f"{self.format_temp(current.get('temp_c'))} / "
@@ -122,19 +122,19 @@ class PresentationMixin:
             "Source": "Local WU history",
             "Signal": "+/-7 day prior + intraday analogs",
             "Value": (
-                f"25 C {self.format_pct(local_history.get('prob_25'))}"
+                f"{self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_25'))}"
                 if local_history.get("prob_25") is not None else "-"
             ),
             "Detail": (
                 f"{local_analysis.get('target_window_count', 0)} days; "
-                f">=25 C {self.format_pct(local_history.get('prob_25_plus'))}"
+                f">={self.spec.key_bucket} {self.spec.display_unit} {self.format_pct(local_history.get('prob_25_plus'))}"
                 if local_history.get("available") else local_history.get("reason", "-")
             ),
             "Model role": "Empirical prior, catch-up, and late-day tail",
         })
         eccc_latest = eccc.get("latest") or {}
         rows.append({
-            "Source": "ECCC SWOB CYYZ",
+            "Source": f"ECCC SWOB {self.spec.icao}",
             "Signal": "Air / same-day max",
             "Value": (
                 f"{self.format_temp(eccc_latest.get('air_temp_c'))} / "
@@ -151,7 +151,7 @@ class PresentationMixin:
             "Model role": "Official forecast, non-resolution",
         })
         rows.append({
-            "Source": "METAR CYYZ",
+            "Source": f"METAR {self.spec.icao}",
             "Signal": "Hourly airport report",
             "Value": self.format_temp(metar.get("temp_c")),
             "Detail": metar.get("report_time", "-"),
@@ -160,6 +160,8 @@ class PresentationMixin:
         return rows
 
     def deep_dive_rows(self, sources, distribution, analogs_data=None, now=None):
+        kb = self.spec.key_bucket
+        u = self.spec.display_unit
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
         local_history = self.source_data(sources, "local_history")
@@ -173,88 +175,88 @@ class PresentationMixin:
         # 1. Wunderground History
         hist_max = history.get("max_c")
         if hist_max is None:
-            impact = "No historical printed observations yet. 25 C is wide open."
-        elif hist_max >= 25:
-            impact = f"Guaranteed floor. Printed high is already {hist_max} C (>= 25 C)."
-        elif hist_max == 24:
-            impact = "Extremely close. Needs only +1 C to reach 25 C."
+            impact = f"No historical printed observations yet. {kb} {u} is wide open."
+        elif self.spec.c_to_native(hist_max) >= kb:
+            impact = f"Guaranteed floor. Printed high is already {self.format_temp(hist_max)} (>= {kb} {u})."
+        elif self.spec.c_to_native(hist_max) >= kb - self.spec.scale_delta(1.0):
+            impact = f"Extremely close. Needs only +{self.spec.scale_delta(1.0):.1f} {u} to reach {kb} {u}."
         else:
-            impact = f"Printed high is {hist_max} C. Needs {25 - hist_max} C rise."
+            impact = f"Printed high is {self.format_temp(hist_max)}. Needs {kb - self.spec.c_to_native(hist_max):.1f} {u} rise."
         rows.append({
             "Question": "What has Wunderground history printed?",
             "Answer": self.format_temp(hist_max),
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 2. Weather.com Current
         curr_temp = current.get("temp_c")
         max_7am = current.get("max_since_7am_c")
-        if max_7am is not None and max_7am >= 25:
-            impact = f"Strong indicator. Max since 7 AM is {max_7am} C, which matches or exceeds 25 C."
-        elif curr_temp is not None and curr_temp >= 25:
-            impact = f"Very bullish. Live temperature is already {curr_temp} C."
+        if max_7am is not None and self.spec.c_to_native(max_7am) >= kb:
+            impact = f"Strong indicator. Max since 7 AM is {self.format_temp(max_7am)}, which matches or exceeds {kb} {u}."
+        elif curr_temp is not None and self.spec.c_to_native(curr_temp) >= kb:
+            impact = f"Very bullish. Live temperature is already {self.format_temp(curr_temp)}."
         else:
-            impact = f"Current temp is {curr_temp or '-'} C; max since 7 AM is {max_7am or '-'} C."
+            impact = f"Current temp is {self.format_temp(curr_temp)}; max since 7 AM is {self.format_temp(max_7am)}."
         rows.append({
             "Question": "What does Weather.com current say?",
             "Answer": f"current {self.format_temp(curr_temp)}, max since 7 AM {self.format_temp(max_7am)}",
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 3. ECCC SWOB
         swob_max = eccc.get("same_day_max_c")
-        if swob_max is not None and swob_max >= 25.0:
-            impact = f"Floor validator. SWOB same-day max is {swob_max} C, guaranteeing settlement >= 25 C."
+        if swob_max is not None and self.spec.c_to_native(swob_max) >= kb:
+            impact = f"Floor validator. SWOB same-day max is {self.format_temp(swob_max)}, guaranteeing settlement >= {kb} {u}."
         elif swob_max is not None:
-            impact = f"Pearson SWOB max is {swob_max} C, trailing 25 C by {25.0 - swob_max:.1f} C."
+            impact = f"Pearson SWOB max is {self.format_temp(swob_max)}, trailing {kb} {u} by {kb - self.spec.c_to_native(swob_max):.1f} {u}."
         else:
             impact = "No live SWOB observations yet."
         rows.append({
             "Question": "What does the official station (SWOB) support?",
             "Answer": self.format_temp(swob_max),
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 4. Weather.com hourly forecast
         fc_max = self.max_row_temp(weather_forecast.get("rows"))
-        if fc_max is not None and fc_max >= 25:
-            impact = f"Bullish. Hourly forecast projects high will reach {fc_max} C."
+        if fc_max is not None and self.spec.c_to_native(fc_max) >= kb:
+            impact = f"Bullish. Hourly forecast projects high will reach {self.format_temp(fc_max)}."
         elif fc_max is not None:
-            impact = f"Bearish forecast. Peak forecast is {fc_max} C, suggesting 25 C will not be reached."
+            impact = f"Bearish forecast. Peak forecast is {self.format_temp(fc_max)}, suggesting {kb} {u} will not be reached."
         else:
             impact = "No forecast data available."
         rows.append({
             "Question": "What does Weather.com forecast for remaining hours?",
             "Answer": self.format_temp(fc_max),
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 5. Open-Meteo & ECCC Citypage
         om_max = self.max_row_temp(open_meteo.get("rows"))
         ec_high = eccc_city.get("forecast_high_c")
         alt_max = max([val for val in [om_max, ec_high] if val is not None], default=None)
-        if alt_max is not None and alt_max >= 25:
-            impact = f"Bullish alternative forecast. Alt models project a high of {alt_max} C."
+        if alt_max is not None and self.spec.c_to_native(alt_max) >= kb:
+            impact = f"Bullish alternative forecast. Alt models project a high of {self.format_temp(alt_max)}."
         elif alt_max is not None:
-            impact = f"Bearish. Alternative models peak at {alt_max} C."
+            impact = f"Bearish. Alternative models peak at {self.format_temp(alt_max)}."
         else:
             impact = "No alternative forecast data."
         rows.append({
-            "Question": "What says 25 C or higher is live?",
+            "Question": "What says {kb} {u} or higher is live?",
             "Answer": f"Open-Meteo max {self.format_temp(om_max)}, ECCC forecast high {self.format_temp(ec_high)}",
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 6. Local WU History
         prob_25 = local_history.get("prob_25")
         if prob_25 is not None:
-            impact = f"Historical seasonal base rate for 25 C is {prob_25*100:.1f}%."
+            impact = f"Historical seasonal base rate for {kb} {u} is {prob_25*100:.1f}%."
         else:
             impact = "No local history available."
         rows.append({
             "Question": "What does local WU history say?",
             "Answer": self.local_history_answer(local_history),
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 7. Intraday Analogs
@@ -272,24 +274,24 @@ class PresentationMixin:
             analogs = analogs_data.get("analogs", [])
             analog_n = len(analogs)
             if analog_n > 0:
-                count_25 = sum(1 for d in analogs if d["final_bucket"] == 25)
+                count_25 = sum(1 for d in analogs if d["final_bucket"] == kb)
                 analog_prob_25 = count_25 / analog_n
         if analog_n > 0:
-            impact = f"Of the closest {analog_n} historical analogs, {analog_prob_25*100:.0f}% resolved to exactly 25 C."
+            impact = f"Of the closest {analog_n} historical analogs, {analog_prob_25*100:.0f}% resolved to exactly {kb} {u}."
         else:
             impact = "Insufficient analog days to evaluate."
         rows.append({
             "Question": "What do historical analogs say?",
             "Answer": f"{analog_n} analogs found",
-            "Impact on 25 C": impact,
+            "Impact on {kb} {u}": impact,
         })
 
         # 8. Model probability
-        prob_exact = distribution.get(25, 0.0)
+        prob_exact = distribution.get(kb, 0.0)
         rows.append({
-            "Question": "Model probability for exact 25 C",
+            "Question": "Model probability for exact {kb} {u}",
             "Answer": self.format_pct(prob_exact),
-            "Impact on 25 C": f"Final model assigns {prob_exact*100:.1f}% probability to the exact 25 C bucket.",
+            "Impact on {kb} {u}": f"Final model assigns {prob_exact*100:.1f}% probability to the exact {kb} {u} bucket.",
         })
 
         return rows
@@ -383,7 +385,7 @@ class PresentationMixin:
         notes = [
             (
                 "Resolution is modeled as the highest whole-degree C value "
-                f"that Wunderground history prints for CYYZ on {self.config.display_date}."
+                f"that Wunderground history prints for {self.spec.icao} on {self.config.display_date}."
             ),
             (
                 "Wunderground/Weather.com history rows are the strongest input; "
@@ -495,10 +497,15 @@ class PresentationMixin:
             return local_history.get("reason", "-")
         analysis = local_history.get("analysis") or {}
         count = analysis.get("target_window_count", 0)
+        
+        kb = self.spec.key_bucket
+        u = self.spec.display_unit
+        kb_plus_4 = self.spec.key_bucket + 4
+        
         return (
-            f"{count} days; 25 C base rate {self.format_pct(local_history.get('prob_25'))}, "
-            f">=25 C {self.format_pct(local_history.get('prob_25_plus'))}, "
-            f">=29 C {self.format_pct(local_history.get('prob_29_plus'))}"
+            f"{count} days; {kb} {u} base rate {self.format_pct(local_history.get('prob_25'))}, "
+            f">={kb} {u} {self.format_pct(local_history.get('prob_25_plus'))}, "
+            f">={kb_plus_4} {u} {self.format_pct(local_history.get('prob_29_plus'))}"
         )
 
     def clean_label(self, label):
@@ -512,9 +519,10 @@ class PresentationMixin:
     def format_temp(self, value):
         if value is None:
             return "-"
-        if float(value).is_integer():
-            return f"{int(value)} C"
-        return f"{float(value):.1f} C"
+        val_native = self.spec.c_to_native(float(value))
+        if val_native.is_integer():
+            return f"{int(val_native)} {self.spec.display_unit}"
+        return f"{val_native:.1f} {self.spec.display_unit}"
 
     def format_pct(self, value):
         if value is None:

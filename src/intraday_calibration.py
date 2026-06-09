@@ -538,11 +538,16 @@ def normalized_weight_map(weights):
     }
 
 
-def calibrate():
-    model = TorontoHighTempModel()
-    print("Loading historical data cache...")
+def calibrate(model):
+    print(f"Loading historical data cache for market '{model.spec.id}'...")
     records_by_hour, support = extract_hourly_records(model)
-    print(f"Loaded {sum(len(records) for records in records_by_hour.values())} hour-day rows.")
+    total_records = sum(len(records) for records in records_by_hour.values())
+    print(f"Loaded {total_records} hour-day rows.")
+    
+    if total_records == 0:
+        print("Not enough data to calibrate. Returning empty calibration.")
+        return None
+        
     print(f"Unique target-season days: {len({record['date'] for records in records_by_hour.values() for record in records})}")
 
     print("Building leave-one-year-out component evaluations...")
@@ -606,28 +611,38 @@ def build_parser():
         description="Calibrate empirical intraday model weights by cutoff hour."
     )
     parser.add_argument(
+        "--market",
+        default="toronto",
+        help="The market ID to train the model for.",
+    )
+    parser.add_argument(
         "--weights-path",
-        default=str(Path("src") / "calibrated_weights.json"),
-        help="Where to write learned weights JSON.",
+        default=None,
+        help="Where to write learned weights JSON (defaults based on market).",
     )
     parser.add_argument(
         "--report-path",
-        default=str(Path("data") / "wunderground" / "cyyz" / "analysis" / "calibration_report.md"),
-        help="Where to write Markdown calibration report.",
+        default=None,
+        help="Where to write Markdown calibration report (defaults based on market).",
     )
     return parser
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    calibrated = calibrate()
+    model = TorontoHighTempModel(market_id=args.market)
+    calibrated = calibrate(model)
 
-    weights_path = Path(args.weights_path)
+    if not calibrated:
+        print(f"Skipping calibration output for market {args.market} due to missing data.")
+        return 0
+
+    weights_path = Path(args.weights_path) if args.weights_path else Path("src") / f"calibrated_weights{model.spec.artifact_suffix}.json"
     weights_path.parent.mkdir(parents=True, exist_ok=True)
     weights_path.write_text(json.dumps(calibrated, indent=2, sort_keys=True), encoding="utf-8")
     print(f"Saved calibrated weights to {weights_path}")
 
-    report_path = Path(args.report_path)
+    report_path = Path(args.report_path) if args.report_path else Path("data") / "wunderground" / model.spec.icao.lower() / "analysis" / "calibration_report.md"
     write_report(report_path, calibrated, calibrated["metadata"]["support"])
     print(f"Saved calibration report to {report_path}")
     return 0

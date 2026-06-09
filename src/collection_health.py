@@ -51,7 +51,7 @@ def detect_gaps(times, interval_minutes, tolerance=1.5):
     return gaps
 
 
-def coverage_summary(times, interval_minutes, tolerance=1.5):
+def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None):
     times = sorted(times)
     n = len(times)
     if n == 0:
@@ -61,7 +61,12 @@ def coverage_summary(times, interval_minutes, tolerance=1.5):
     gaps = detect_gaps(times, interval_minutes, tolerance)
     max_gap = max((g["gap_minutes"] for g in gaps), default=interval_minutes if n > 1 else 0.0)
     first, last = times[0], times[-1]
-    covers_afternoon = first.hour <= AFTERNOON_START_HOUR and last.hour >= AFTERNOON_END_HOUR
+    
+    if target_date is not None:
+        window_start, window_end = local_window(target_date, first.tzinfo)
+        covers_afternoon = first <= window_start and last >= window_end
+    else:
+        covers_afternoon = first.hour <= AFTERNOON_START_HOUR and (last.hour >= AFTERNOON_END_HOUR or last.date() > first.date())
     clean = n >= 2 and not gaps and covers_afternoon
     reasons = []
     if n < 2:
@@ -138,7 +143,7 @@ def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, ta
             "window_end": window_end,
         }
 
-    final_summary = coverage_summary(times, interval_minutes, tolerance)
+    final_summary = coverage_summary(times, interval_minutes, tolerance, target_date=target_date)
     final_summary.update({
         "window_start": window_start,
         "window_end": window_end,
@@ -185,7 +190,7 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     summary = (
         live_coverage_summary(times, interval_minutes, tolerance, as_of=as_of, target_date=target_date)
         if live
-        else coverage_summary(times, interval_minutes, tolerance)
+        else coverage_summary(times, interval_minutes, tolerance, target_date=target_date)
     )
     summary["event_slug"] = folder.name
     summary["folder"] = str(folder)

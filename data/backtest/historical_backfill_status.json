@@ -1,0 +1,72 @@
+{
+  "event_count": 140,
+  "failed_count": 0,
+  "plan_path": "data\\backtest\\historical_backfill_plan.json",
+  "queue_count": 19,
+  "queue_counts": {
+    "by_market_source": {
+      "reanalysis:atlanta": 1,
+      "reanalysis:austin": 1,
+      "reanalysis:chicago": 1,
+      "reanalysis:dallas": 1,
+      "reanalysis:denver": 1,
+      "reanalysis:houston": 1,
+      "reanalysis:los-angeles": 1,
+      "reanalysis:miami": 1,
+      "reanalysis:nyc": 1,
+      "reanalysis:san-francisco": 1,
+      "reanalysis:seattle": 1,
+      "reanalysis:toronto": 1,
+      "wu:dallas": 1,
+      "wu:denver": 1,
+      "wu:houston": 1,
+      "wu:los-angeles": 1,
+      "wu:miami": 1,
+      "wu:san-francisco": 1,
+      "wu:seattle": 1
+    },
+    "by_source": {
+      "reanalysis": 12,
+      "wu": 7
+    }
+  },
+  "remaining_count": 19,
+  "remaining_counts": {
+    "by_market_source": {
+      "reanalysis:atlanta": 1,
+      "reanalysis:austin": 1,
+      "reanalysis:chicago": 1,
+      "reanalysis:dallas": 1,
+      "reanalysis:denver": 1,
+      "reanalysis:houston": 1,
+      "reanalysis:los-angeles": 1,
+      "reanalysis:miami": 1,
+      "reanalysis:nyc": 1,
+      "reanalysis:san-francisco": 1,
+      "reanalysis:seattle": 1,
+      "reanalysis:toronto": 1,
+      "wu:dallas": 1,
+      "wu:denver": 1,
+      "wu:houston": 1,
+      "wu:los-angeles": 1,
+      "wu:miami": 1,
+      "wu:san-francisco": 1,
+      "wu:seattle": 1
+    },
+    "by_source": {
+      "reanalysis": 12,
+      "wu": 7
+    }
+  },
+  "schema_version": "historical_backfill_status_v1",
+  "state_path": "data\\backtest\\historical_backfill_runs.jsonl",
+  "status_by_source": {
+    "reanalysis": {
+      "not_started": 12
+    },
+    "wu": {
+      "not_started": 7
+    }
+  },
+  "success_count": 0
+}

@@ -165,12 +165,22 @@ def select_context_base_rate(artifact, bin_kind, cutoff_hour, distance_bucket):
     )
 
 
-def apply_exact_distribution_calibration(distribution, artifact, floor_bucket=None):
+def apply_exact_distribution_calibration(distribution, artifact, floor_bucket=None,
+                                         resolution_weight=0.0, cutoff_hour=None):
+    """``cutoff_hour`` selects the hour-aware temperature (``temperature_by_hour``,
+    falling back to the global ``temperature``) so softening lands on the hours
+    where the model is genuinely overconfident (mid-day) and not the ones where it
+    is already calibrated. ``resolution_weight`` in [0,1] then tapers that toward
+    identity as the day's high locks in (late + past peak): once the high is
+    observed and falling there is no overconfidence to correct, so softening it
+    only re-inflates the upper tail. resolution_weight 0 = full calibration
+    (default, back-compatible); 1 = identity."""
     if not distribution:
         return {}
     cfg = (artifact or {}).get("exact_distribution") or {}
     if not cfg.get("enabled", True):
         return normalize(distribution)
+    resolution_weight = max(0.0, min(1.0, float(resolution_weight or 0.0)))
 
     floor_bucket = int(floor_bucket) if floor_bucket is not None else None
     kept = {}
@@ -184,7 +194,13 @@ def apply_exact_distribution_calibration(distribution, artifact, floor_bucket=No
     if not kept:
         return {}
 
-    temperature = max(0.05, float(cfg.get("temperature", 1.0)))
+    base_temperature = float(cfg.get("temperature", 1.0))
+    by_hour = cfg.get("temperature_by_hour") or {}
+    if cutoff_hour is not None and str(int(cutoff_hour)) in by_hour:
+        base_temperature = float(by_hour[str(int(cutoff_hour))])
+    temperature = max(0.05, base_temperature)
+    if resolution_weight > 0:
+        temperature = 1.0 + (temperature - 1.0) * (1.0 - resolution_weight)
     if abs(temperature - 1.0) > 1e-9:
         transformed = {
             bucket: (probability ** (1.0 / temperature)) if probability > 0 else 0.0
@@ -193,6 +209,7 @@ def apply_exact_distribution_calibration(distribution, artifact, floor_bucket=No
         kept = normalize(transformed)
 
     prior_weight = max(0.0, min(1.0, float(cfg.get("prior_weight", 0.0))))
+    prior_weight *= (1.0 - resolution_weight)
     if prior_weight > 0:
         eligible = [
             bucket for bucket in kept
@@ -508,32 +525,69 @@ def build_context_summaries(rows):
     return dict(sorted(contexts.items()))
 
 
+EXACT_TEMPERATURE_GRID = (1.0, 1.2, 1.5, 2.0, 3.0, 4.0)
+# Per-hour temperatures are shrunk toward identity by how many INDEPENDENT days
+# the hour has. With few clean days a per-hour fit is noisy, so a thin hour stays
+# near no-op and sharpens as days accrue.
+EXACT_HOUR_SHRINK_DAYS = 4.0
+
+
+def _fit_temperature(group):
+    """Grid-search the deployable + unconstrained best temperature for one group."""
+    candidates = []
+    for temperature in EXACT_TEMPERATURE_GRID:
+        probabilities = [
+            sigmoid(logit(row["model_probability"]) / temperature)
+            for row in group
+        ]
+        candidates.append({"temperature": temperature, **score_predictions(group, probabilities)})
+    unconstrained = min(candidates, key=lambda row: (row["brier"], row["logloss"]))
+    deployable = [c for c in candidates if c["temperature"] <= MAX_EXACT_DEPLOYMENT_TEMPERATURE]
+    best = min(deployable, key=lambda row: (row["brier"], row["logloss"]))
+    return best, unconstrained, candidates
+
+
 def fit_exact_distribution_config(rows):
     exact_rows = [row for row in rows if row["bin_kind"] not in {"lte", "gte"}]
     if not exact_rows:
-        return {"enabled": True, "method": "temperature", "temperature": 1.0, "prior_weight": 0.0}
-    candidates = []
-    for temperature in (1.0, 1.2, 1.5, 2.0, 3.0, 4.0):
-        probabilities = [
-            sigmoid(logit(row["model_probability"]) / temperature)
-            for row in exact_rows
-        ]
-        score = score_predictions(exact_rows, probabilities)
-        candidates.append({"temperature": temperature, **score})
-    unconstrained_best = min(candidates, key=lambda row: (row["brier"], row["logloss"]))
-    deployable = [
-        row for row in candidates
-        if row["temperature"] <= MAX_EXACT_DEPLOYMENT_TEMPERATURE
-    ]
-    best = min(deployable, key=lambda row: (row["brier"], row["logloss"]))
+        return {"enabled": True, "method": "temperature", "temperature": 1.0,
+                "temperature_by_hour": {}, "prior_weight": 0.0}
+
+    best, unconstrained_best, candidates = _fit_temperature(exact_rows)
+
+    # Hour-aware temperature: soften only where overconfidence is actually
+    # evidenced (mid-day HGB saturation), and leave the well-calibrated /
+    # under-confident hours (13:00, evening) near identity. Shrink each hour's
+    # fitted temperature toward 1.0 by its independent-day count. The v0.5.1
+    # resolution_weight taper further pulls the locked-in evening to identity.
+    by_hour = defaultdict(list)
+    for row in exact_rows:
+        hour = row.get("cutoff_hour")
+        if hour is not None:
+            by_hour[int(hour)].append(row)
+    temperature_by_hour = {}
+    hour_detail = {}
+    for hour, group in sorted(by_hour.items()):
+        hour_best, _, _ = _fit_temperature(group)
+        n_days = len({row.get("target_date") for row in group})
+        shrink = n_days / (n_days + EXACT_HOUR_SHRINK_DAYS)
+        shrunk = min(round(1.0 + (hour_best["temperature"] - 1.0) * shrink, 3),
+                     MAX_EXACT_DEPLOYMENT_TEMPERATURE)
+        temperature_by_hour[str(hour)] = shrunk
+        hour_detail[str(hour)] = {
+            "n_rows": len(group), "n_days": n_days,
+            "raw_best_temperature": hour_best["temperature"], "shrunk_temperature": shrunk,
+        }
     return {
         "enabled": True,
         "method": "temperature",
-        "temperature": best["temperature"],
+        "temperature": best["temperature"],          # all-hours fallback
+        "temperature_by_hour": temperature_by_hour,
         "max_deployment_temperature": MAX_EXACT_DEPLOYMENT_TEMPERATURE,
         "unconstrained_best_temperature": unconstrained_best["temperature"],
         "prior_weight": 0.0,
         "exact_row_count": len(exact_rows),
+        "hour_detail": hour_detail,
         "candidate_metrics": candidates,
     }
 
@@ -659,7 +713,8 @@ def write_report(path, artifact):
         "## Exact Distribution Calibration",
         "",
         f"- Method: `{artifact['exact_distribution']['method']}`",
-        f"- Temperature: `{artifact['exact_distribution']['temperature']}`",
+        f"- Temperature (global fallback): `{artifact['exact_distribution']['temperature']}`",
+        f"- Temperature by cutoff hour: `{artifact['exact_distribution'].get('temperature_by_hour', {})}`",
         f"- Max deployment temperature: `{artifact['exact_distribution']['max_deployment_temperature']}`",
         f"- Unconstrained best temperature: `{artifact['exact_distribution']['unconstrained_best_temperature']}`",
         f"- Exact-row count: {artifact['exact_distribution']['exact_row_count']}",

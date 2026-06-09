@@ -25,9 +25,91 @@ LIVE_CACHE_TTL_SECONDS = 55
 
 st.set_page_config(page_title="Weather Markets", layout="wide")
 
-_MARKET_LABELS = {spec.city_label: spec.id for spec in all_specs()}
-_selected_label = st.sidebar.selectbox("Market", list(_MARKET_LABELS.keys()))
+_MARKET_LABELS = {"Overview": "overview"}
+_MARKET_LABELS.update({spec.city_label: spec.id for spec in all_specs()})
+
+# Allow query params to dictate default selection
+query_params = st.query_params
+default_market = query_params.get("market", "overview")
+
+keys_list = list(_MARKET_LABELS.keys())
+default_index = 0
+for i, label in enumerate(keys_list):
+    if _MARKET_LABELS[label] == default_market:
+        default_index = i
+        break
+
+_selected_label = st.sidebar.selectbox("Market", keys_list, index=default_index)
 MARKET_ID = _MARKET_LABELS[_selected_label]
+
+# Update query param so the URL reflects the choice
+st.query_params["market"] = MARKET_ID
+
+if MARKET_ID == "overview":
+    from overview_helpers import (
+        compute_biggest_edges,
+        check_snapshot_status,
+        format_edge_table,
+        format_status_table,
+    )
+
+    @st.fragment(run_every=f"{LIVE_REFRESH_SECONDS}s")
+    def render_overview():
+        st.markdown("""
+        <style>
+        .gradient-header {
+            background: linear-gradient(90deg, #ff7e5f, #feb47b);
+            -webkit-background-clip: text;
+            color: transparent;
+            font-size: 2.4rem;
+            font-weight: bold;
+        }
+        .section-title {
+            border-bottom: 2px solid #444;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="gradient-header">🗺️ Market Overview</div>', unsafe_allow_html=True)
+        st.caption("High-level view of all active markets, biggest model edges, and data-capture health.")
+        
+        # 1. Biggest Edges
+        st.markdown('<div class="section-title">🏆 Biggest Edges (Top 10)</div>', unsafe_allow_html=True)
+        edges = compute_biggest_edges(n=10)
+        df_edges = format_edge_table(edges)
+        
+        if not df_edges.empty:
+            # Create the link target column
+            df_edges["Action"] = df_edges["market_id"].apply(lambda m: f"/?market={m}")
+            
+            # Use column configuration to render links
+            st.dataframe(
+                df_edges[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Action"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Action": st.column_config.LinkColumn(
+                        "Action",
+                        display_text="Open Market"
+                    )
+                }
+            )
+        else:
+            st.info("No active edge data found. Ensure snapshot loops are running.")
+            
+        # 2. Capture-Tape Health
+        st.markdown('<div class="section-title">📊 Capture-Tape Health</div>', unsafe_allow_html=True)
+        status = check_snapshot_status()
+        df_status = format_status_table(status)
+        st.dataframe(df_status, use_container_width=True, hide_index=True)
+
+    render_overview()
+    st.stop()
+
 SPEC = spec_for_id(MARKET_ID)
 
 APP_MARKET_CONFIG = config_for_date(market_id=MARKET_ID)
@@ -219,10 +301,10 @@ def live_dashboard(static_sources):
             
         source_display_names = {
             "wu_history": "Wunderground History",
-            "wu_current": "Weather.com Current CYYZ",
+            "wu_current": f"Weather.com Current {spec_for_id(MARKET_ID).icao}",
             "eccc_citypage": "ECCC Citypage Forecast",
-            "eccc_swob": "ECCC SWOB Live CYYZ",
-            "metar": "METAR Aviation CYYZ",
+            "eccc_swob": f"ECCC SWOB Live {spec_for_id(MARKET_ID).icao}",
+            "metar": f"METAR Aviation {spec_for_id(MARKET_ID).icao}",
             "weather_forecast": "Weather.com Hourly Forecast",
             "open_meteo": "Open-Meteo Hourly Forecast"
         }
@@ -337,7 +419,7 @@ def live_dashboard(static_sources):
             st.warning("Insufficient historical sample size for transition analysis.")
             
         st.caption(
-            f"**Boundary Skip Risk:** Historically, CYYZ hourly history skipped at least one whole-degree integer temperature bucket "
+            f"**Boundary Skip Risk:** Historically, {spec_for_id(MARKET_ID).icao} hourly history skipped at least one whole-degree integer temperature bucket "
             f"during afternoon warming (10 AM to 6 PM) on **{skip_pct:.1f}%** of days. "
             f"Traders should monitor live METAR or SWOB updates for intra-hour jumps that may not print in the final settlement source."
         )

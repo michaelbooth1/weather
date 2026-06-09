@@ -74,14 +74,20 @@
     },
     "snapshot_high_column": "wu_history_high_c",
     "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-toronto-on-june-5-2026\\snapshots_long.csv",
-    "summary": null
+    "summary": {
+      "bucket": 31,
+      "high": 31.0,
+      "max_temp_times": "14:00",
+      "path": "data\\wunderground\\cyyz\\daily\\daily_summary.csv",
+      "row_count": 27
+    }
   },
-  "finalized_at_utc": "2026-06-07T00:39:28.291283+00:00",
+  "finalized_at_utc": "2026-06-08T13:10:34.352474+00:00",
   "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-toronto-on-june-5-2026",
   "ledger_path": "data\\settlements\\toronto\\ledger.jsonl",
   "market_id": "toronto",
   "max_gap_minutes": 41.13332881666667,
-  "note": "snapshot wu_history_high (daily summary missing/incomplete)",
+  "note": "",
   "polymarket_reconciliation": {
     "event_closed": true,
     "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-toronto-on-june-5-2026",
@@ -135,7 +141,7 @@
   "schema_version": "settlement_ledger_v1",
   "settlement_bucket": 31,
   "settlement_high": 31.0,
-  "settlement_source": "snapshot_high",
+  "settlement_source": "daily_summary",
   "settlement_unit": "C",
   "snapshot_count": 138,
   "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-toronto-on-june-5-2026\\snapshots_long.csv",

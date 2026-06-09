@@ -63,9 +63,12 @@ class ModelUtilsMixin:
         if not value:
             return None
         try:
-            hour, minute = str(value).split(":")[:2]
+            v = str(value)
+            if "T" in v:
+                v = v.split("T")[1]
+            hour, minute = v.split(":")[:2]
             return int(hour) * 60 + int(minute)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, IndexError):
             return None
 
     def mode(self, values):

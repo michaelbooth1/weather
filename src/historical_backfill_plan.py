@@ -27,6 +27,7 @@ DEFAULT_DEEP_START = date(1940, 1, 1)
 DEFAULT_WU_CHUNK_DAYS = 14
 DEFAULT_REANALYSIS_CHUNK_DAYS = 31
 DEFAULT_SOURCES = ("wu", "ghcnh", "reanalysis")
+DEFAULT_QUEUE_MODE = "market_source"
 
 
 def iter_dates(start_date, end_date):
@@ -96,7 +97,17 @@ def queue_item(source, spec, command, detail):
     }
 
 
-def wu_queue(spec, start_date, end_date, python, chunk_days):
+def days_in_ranges(ranges):
+    return sum((end - start).days + 1 for start, end in ranges)
+
+
+def window_from_ranges(ranges):
+    if not ranges:
+        return None, None
+    return min(start for start, _end in ranges), max(end for _start, end in ranges)
+
+
+def wu_chunk_queue(spec, start_date, end_date, python, chunk_days):
     items = []
     for start, end in wu_store(spec).missing_ranges(start_date, end_date, chunk_days=chunk_days):
         items.append(queue_item(
@@ -123,7 +134,48 @@ def wu_queue(spec, start_date, end_date, python, chunk_days):
     return items
 
 
-def ghcnh_queue(spec, start_date, end_date, python):
+def wu_market_source_queue(spec, start_date, end_date, python, chunk_days):
+    ranges = wu_store(spec).missing_ranges(start_date, end_date, chunk_days=chunk_days)
+    if not ranges:
+        return []
+    first_missing, last_missing = window_from_ranges(ranges)
+    return [queue_item(
+        "wu",
+        spec,
+        [
+            python,
+            "-m",
+            "src.wu_history",
+            "--market",
+            spec.id,
+            "backfill",
+            "--start",
+            first_missing.isoformat(),
+            "--end",
+            last_missing.isoformat(),
+            "--chunk-days",
+            str(chunk_days),
+            "--skip-existing",
+            "--continue-on-error",
+        ],
+        {
+            "start": first_missing.isoformat(),
+            "end": last_missing.isoformat(),
+            "kind": "market_source_date_window",
+            "missing_ranges": len(ranges),
+            "missing_days": days_in_ranges(ranges),
+            "chunk_days": chunk_days,
+        },
+    )]
+
+
+def wu_queue(spec, start_date, end_date, python, chunk_days, queue_mode=DEFAULT_QUEUE_MODE):
+    if queue_mode == "chunk":
+        return wu_chunk_queue(spec, start_date, end_date, python, chunk_days)
+    return wu_market_source_queue(spec, start_date, end_date, python, chunk_days)
+
+
+def ghcnh_chunk_queue(spec, start_date, end_date, python):
     store = GHCNHStore(spec)
     items = []
     if not store.read_station():
@@ -155,7 +207,51 @@ def ghcnh_queue(spec, start_date, end_date, python):
     return items
 
 
-def reanalysis_queue(spec, start_date, end_date, python, chunk_days):
+def ghcnh_market_source_queue(spec, start_date, end_date, python):
+    store = GHCNHStore(spec)
+    missing_years = store.missing_years(start_date.year, end_date.year)
+    if missing_years:
+        return [queue_item(
+            "ghcnh",
+            spec,
+            [
+                python,
+                "-m",
+                "src.noaa_ghcnh_history",
+                "--market",
+                spec.id,
+                "backfill",
+                "--start-year",
+                str(min(missing_years)),
+                "--end-year",
+                str(max(missing_years)),
+                "--skip-existing",
+            ],
+            {
+                "kind": "market_source_year_window",
+                "start_year": min(missing_years),
+                "end_year": max(missing_years),
+                "missing_years": missing_years,
+                "missing_year_count": len(missing_years),
+            },
+        )]
+    if not store.read_station():
+        return [queue_item(
+            "ghcnh",
+            spec,
+            [python, "-m", "src.noaa_ghcnh_history", "--market", spec.id, "station"],
+            {"kind": "station_resolution"},
+        )]
+    return []
+
+
+def ghcnh_queue(spec, start_date, end_date, python, queue_mode=DEFAULT_QUEUE_MODE):
+    if queue_mode == "chunk":
+        return ghcnh_chunk_queue(spec, start_date, end_date, python)
+    return ghcnh_market_source_queue(spec, start_date, end_date, python)
+
+
+def reanalysis_chunk_queue(spec, start_date, end_date, python, chunk_days):
     store = ReanalysisStore(spec)
     items = []
     for start, end in store.missing_ranges(start_date, end_date, chunk_days=chunk_days):
@@ -182,13 +278,54 @@ def reanalysis_queue(spec, start_date, end_date, python, chunk_days):
     return items
 
 
-def queue_for_source(source, spec, start_date, end_date, python, wu_chunk_days, reanalysis_chunk_days):
+def reanalysis_market_source_queue(spec, start_date, end_date, python, chunk_days):
+    store = ReanalysisStore(spec)
+    ranges = store.missing_ranges(start_date, end_date, chunk_days=chunk_days)
+    if not ranges:
+        return []
+    first_missing, last_missing = window_from_ranges(ranges)
+    return [queue_item(
+        "reanalysis",
+        spec,
+        [
+            python,
+            "-m",
+            "src.reanalysis_history",
+            "--market",
+            spec.id,
+            "backfill",
+            "--start",
+            first_missing.isoformat(),
+            "--end",
+            last_missing.isoformat(),
+            "--chunk-days",
+            str(chunk_days),
+            "--skip-existing",
+        ],
+        {
+            "start": first_missing.isoformat(),
+            "end": last_missing.isoformat(),
+            "kind": "market_source_date_window",
+            "missing_ranges": len(ranges),
+            "missing_days": days_in_ranges(ranges),
+            "chunk_days": chunk_days,
+        },
+    )]
+
+
+def reanalysis_queue(spec, start_date, end_date, python, chunk_days, queue_mode=DEFAULT_QUEUE_MODE):
+    if queue_mode == "chunk":
+        return reanalysis_chunk_queue(spec, start_date, end_date, python, chunk_days)
+    return reanalysis_market_source_queue(spec, start_date, end_date, python, chunk_days)
+
+
+def queue_for_source(source, spec, start_date, end_date, python, wu_chunk_days, reanalysis_chunk_days, queue_mode):
     if source == "wu":
-        return wu_queue(spec, start_date, end_date, python, wu_chunk_days)
+        return wu_queue(spec, start_date, end_date, python, wu_chunk_days, queue_mode)
     if source == "ghcnh":
-        return ghcnh_queue(spec, start_date, end_date, python)
+        return ghcnh_queue(spec, start_date, end_date, python, queue_mode)
     if source == "reanalysis":
-        return reanalysis_queue(spec, start_date, end_date, python, reanalysis_chunk_days)
+        return reanalysis_queue(spec, start_date, end_date, python, reanalysis_chunk_days, queue_mode)
     raise ValueError(f"unknown historical source: {source}")
 
 
@@ -201,6 +338,7 @@ def build_plan(
     python=None,
     wu_chunk_days=DEFAULT_WU_CHUNK_DAYS,
     reanalysis_chunk_days=DEFAULT_REANALYSIS_CHUNK_DAYS,
+    queue_mode=DEFAULT_QUEUE_MODE,
 ):
     end_date = end_date or date.today()
     if scope == "deep" and start_date == DEFAULT_MINIMUM_START:
@@ -217,6 +355,7 @@ def build_plan(
                 py,
                 wu_chunk_days,
                 reanalysis_chunk_days,
+                queue_mode,
             ))
     counts = {}
     for item in items:
@@ -225,6 +364,7 @@ def build_plan(
     return {
         "schema_version": "historical_backfill_plan_v1",
         "scope": scope,
+        "queue_mode": queue_mode,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "sources": list(sources),
@@ -262,6 +402,7 @@ def cmd_plan(args):
         python=args.python,
         wu_chunk_days=args.wu_chunk_days,
         reanalysis_chunk_days=args.reanalysis_chunk_days,
+        queue_mode=args.queue_mode,
     )
     write_plan(plan, args.out)
     print(f"Wrote historical backfill plan to {args.out}")
@@ -281,6 +422,7 @@ def build_parser():
     parser.add_argument("--python", default=python_path())
     parser.add_argument("--wu-chunk-days", type=int, default=DEFAULT_WU_CHUNK_DAYS)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=DEFAULT_REANALYSIS_CHUNK_DAYS)
+    parser.add_argument("--queue-mode", choices=("market_source", "chunk"), default=DEFAULT_QUEUE_MODE)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--limit-items", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")

@@ -1,0 +1,1217 @@
+{
+  "markets": [
+    {
+      "city": "Toronto",
+      "market_id": "toronto",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\cyyz",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "toronto",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "CYYZ",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\cyyz",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "toronto",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:43.6767,-79.6306"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\cyyz",
+          "expected_days": 4175,
+          "first_raw_date": "1982-01-01",
+          "history_id": "CYYZ:9:CA",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 0,
+          "missing_ranges": [],
+          "raw_days": 16167,
+          "source_unavailable_days": 1,
+          "source_unavailable_ranges": [
+            {
+              "end": "2020-11-08",
+              "start": "2020-11-08"
+            }
+          ],
+          "station": "CYYZ",
+          "temperature_unit": "C"
+        }
+      },
+      "station": "CYYZ",
+      "unit": "C"
+    },
+    {
+      "city": "NYC",
+      "market_id": "nyc",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\klga",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "nyc",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KLGA",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\klga",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "nyc",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:40.7769,-73.8740"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\klga",
+          "expected_days": 4175,
+          "first_raw_date": "2015-01-01",
+          "history_id": "KLGA:9:US",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 0,
+          "missing_ranges": [],
+          "raw_days": 4174,
+          "source_unavailable_days": 1,
+          "source_unavailable_ranges": [
+            {
+              "end": "2020-11-08",
+              "start": "2020-11-08"
+            }
+          ],
+          "station": "KLGA",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KLGA",
+      "unit": "F"
+    },
+    {
+      "city": "Atlanta",
+      "market_id": "atlanta",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\katl",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "atlanta",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KATL",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\katl",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "atlanta",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:33.6297,-84.4422"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\katl",
+          "expected_days": 4175,
+          "first_raw_date": "2015-01-01",
+          "history_id": "KATL:9:US",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 0,
+          "missing_ranges": [],
+          "raw_days": 4174,
+          "source_unavailable_days": 1,
+          "source_unavailable_ranges": [
+            {
+              "end": "2020-11-08",
+              "start": "2020-11-08"
+            }
+          ],
+          "station": "KATL",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KATL",
+      "unit": "F"
+    },
+    {
+      "city": "Austin",
+      "market_id": "austin",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\kaus",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "austin",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KAUS",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\kaus",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "austin",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:30.1831,-97.6806"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\kaus",
+          "expected_days": 4175,
+          "first_raw_date": "2015-01-01",
+          "history_id": "KAUS:9:US",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 0,
+          "missing_ranges": [],
+          "raw_days": 4174,
+          "source_unavailable_days": 1,
+          "source_unavailable_ranges": [
+            {
+              "end": "2020-11-08",
+              "start": "2020-11-08"
+            }
+          ],
+          "station": "KAUS",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KAUS",
+      "unit": "F"
+    },
+    {
+      "city": "Chicago",
+      "market_id": "chicago",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\kord",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "chicago",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KORD",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\kord",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "chicago",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:41.9602,-87.9316"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\kord",
+          "expected_days": 4175,
+          "first_raw_date": "2015-01-01",
+          "history_id": "KORD:9:US",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 0,
+          "missing_ranges": [],
+          "raw_days": 4174,
+          "source_unavailable_days": 1,
+          "source_unavailable_ranges": [
+            {
+              "end": "2020-11-08",
+              "start": "2020-11-08"
+            }
+          ],
+          "station": "KORD",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KORD",
+      "unit": "F"
+    },
+    {
+      "city": "Dallas",
+      "market_id": "dallas",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\kdal",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "dallas",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KDAL",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\kdal",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "dallas",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:32.8384,-96.8358"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\kdal",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KDAL:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KDAL",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KDAL",
+      "unit": "F"
+    },
+    {
+      "city": "Denver",
+      "market_id": "denver",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\kbkf",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "denver",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KBKF",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\kbkf",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "denver",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:39.7130,-104.7580"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\kbkf",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KBKF:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KBKF",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KBKF",
+      "unit": "F"
+    },
+    {
+      "city": "Houston",
+      "market_id": "houston",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\khou",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "houston",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KHOU",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\khou",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "houston",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:29.6458,-95.2821"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\khou",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KHOU:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KHOU",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KHOU",
+      "unit": "F"
+    },
+    {
+      "city": "Los Angeles",
+      "market_id": "los-angeles",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\klax",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "los-angeles",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KLAX",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\klax",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "los-angeles",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:33.9382,-118.3866"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\klax",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KLAX:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KLAX",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KLAX",
+      "unit": "F"
+    },
+    {
+      "city": "Miami",
+      "market_id": "miami",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\kmia",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "miami",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KMIA",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\kmia",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "miami",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:25.7881,-80.3169"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\kmia",
+          "expected_days": 4175,
+          "first_raw_date": "2026-05-01",
+          "history_id": "KMIA:9:US",
+          "last_raw_date": "2026-06-06",
+          "manifest_exists": true,
+          "missing_days": 4138,
+          "missing_ranges": [
+            {
+              "end": "2026-04-30",
+              "start": "2015-01-01"
+            }
+          ],
+          "raw_days": 37,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KMIA",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KMIA",
+      "unit": "F"
+    },
+    {
+      "city": "San Francisco",
+      "market_id": "san-francisco",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\ksfo",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "san-francisco",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KSFO",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\ksfo",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "san-francisco",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:37.6196,-122.3656"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\ksfo",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KSFO:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KSFO",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KSFO",
+      "unit": "F"
+    },
+    {
+      "city": "Seattle",
+      "market_id": "seattle",
+      "sources": {
+        "ghcnh": {
+          "daily_summary_exists": true,
+          "data_root": "data\\noaa_ghcnh\\ksea",
+          "expected_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "manifest_exists": true,
+          "market_id": "seattle",
+          "missing_years": [],
+          "raw_years": [
+            2015,
+            2016,
+            2017,
+            2018,
+            2019,
+            2020,
+            2021,
+            2022,
+            2023,
+            2024,
+            2025,
+            2026
+          ],
+          "source": "noaa_ghcnh",
+          "station": "KSEA",
+          "station_resolved": true
+        },
+        "reanalysis": {
+          "covered_days": 1,
+          "daily_summary_exists": true,
+          "data_root": "data\\reanalysis\\ksea",
+          "expected_days": 4175,
+          "first_normalized_date": "2026-06-01",
+          "first_raw_date": "2026-06-01",
+          "last_normalized_date": "2026-06-01",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "market_id": "seattle",
+          "missing_days": 4174,
+          "normalized_daily_days": 1,
+          "raw_covered_days": 2,
+          "raw_missing_days": 4173,
+          "source": "open_meteo_era5_reanalysis",
+          "station": "era5:47.4447,-122.3144"
+        },
+        "wu": {
+          "daily_summary_exists": true,
+          "data_root": "data\\wunderground\\ksea",
+          "expected_days": 4175,
+          "first_raw_date": "2019-05-01",
+          "history_id": "KSEA:9:US",
+          "last_raw_date": "2026-06-02",
+          "manifest_exists": true,
+          "missing_days": 3746,
+          "missing_ranges": [
+            {
+              "end": "2019-04-30",
+              "start": "2015-01-01"
+            },
+            {
+              "end": "2020-04-30",
+              "start": "2019-07-01"
+            },
+            {
+              "end": "2021-04-30",
+              "start": "2020-07-01"
+            },
+            {
+              "end": "2022-04-30",
+              "start": "2021-07-01"
+            },
+            {
+              "end": "2023-04-30",
+              "start": "2022-07-01"
+            },
+            {
+              "end": "2024-04-30",
+              "start": "2023-07-01"
+            },
+            {
+              "end": "2025-04-30",
+              "start": "2024-07-01"
+            },
+            {
+              "end": "2026-05-31",
+              "start": "2025-07-01"
+            },
+            {
+              "end": "2026-06-06",
+              "start": "2026-06-03"
+            }
+          ],
+          "raw_days": 429,
+          "source_unavailable_days": 0,
+          "source_unavailable_ranges": [],
+          "station": "KSEA",
+          "temperature_unit": "F"
+        }
+      },
+      "station": "KSEA",
+      "unit": "F"
+    }
+  ],
+  "schema_version": "historical_coverage_v1"
+}

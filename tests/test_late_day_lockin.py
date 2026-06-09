@@ -22,8 +22,8 @@ class TestLateDayLockinStrength(unittest.TestCase):
         self.assertEqual(self.m.late_day_lockin_strength(23, 18.0, 25.0), 1.0)
 
     def test_ramps_with_time_and_drop(self):
-        # hour 17 -> time (17-15)/(20-15)=0.4; drop 1 -> peak 0.5; strength 0.2
-        self.assertAlmostEqual(self.m.late_day_lockin_strength(17, 24.0, 25.0), 0.4 * 0.5)
+        # hour 16 -> time (16-15)/(17-15)=0.5; drop 1 -> peak 0.5; strength 0.25
+        self.assertAlmostEqual(self.m.late_day_lockin_strength(16, 24.0, 25.0), 0.5 * 0.5)
 
 
 class TestApplyLateDayLockin(unittest.TestCase):

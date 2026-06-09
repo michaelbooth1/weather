@@ -1,17 +1,277 @@
 {
-  "code_version": "git:32a80010bf1379b7fe49b34952fbb0a2e0cd643c",
-  "daily_record_count": 429,
-  "first_date": "2019-05-01",
-  "generated_at": "2026-06-07T01:16:34.559750+00:00",
+  "code_version": "git:ec48b2ea05e2d801bde863bc19a5bf32c7cee9cc",
+  "daily_record_count": 4175,
+  "first_date": "2015-01-01",
+  "generated_at": "2026-06-08T01:53:09.035225+00:00",
   "history_id": "KSEA:9:US",
-  "hourly_record_count": 12009,
-  "last_date": "2026-06-02",
+  "hourly_record_count": 122602,
+  "last_date": "2026-06-07",
   "layout": {
     "daily": "daily/daily_summary.csv",
     "hourly": "hourly/year=YYYY/month=MM/observations.jsonl",
     "raw": "raw/year=YYYY/month=MM/YYYY-MM-DD.json"
   },
   "partitions": [
+    {
+      "path": "hourly/year=2015/month=01/observations.jsonl",
+      "row_count": 1081,
+      "sha256": "32597cdd42b74f33a62a8ce95d72760fbd36150d4c167d5502f6f766b41ea6ba"
+    },
+    {
+      "path": "hourly/year=2015/month=02/observations.jsonl",
+      "row_count": 852,
+      "sha256": "614689845d754c072af852655f4b8d116ce943c0c9a95506c573eb6a73cc66df"
+    },
+    {
+      "path": "hourly/year=2015/month=03/observations.jsonl",
+      "row_count": 842,
+      "sha256": "c0cd9e822fa483110b9377535f2784f879406a6863aab778665cb2d560ac62c1"
+    },
+    {
+      "path": "hourly/year=2015/month=04/observations.jsonl",
+      "row_count": 821,
+      "sha256": "02a3a0ea90e23ab6761e6b2ab39559a1d1826a3e495a1194ca25816d22dcb1dc"
+    },
+    {
+      "path": "hourly/year=2015/month=05/observations.jsonl",
+      "row_count": 844,
+      "sha256": "82c16b843dc8e8bd4868bacd19f807f9368a7869ee2f973877b3f03c0dc493e2"
+    },
+    {
+      "path": "hourly/year=2015/month=06/observations.jsonl",
+      "row_count": 763,
+      "sha256": "fc054347ece8daf37713d16cb48d983f3e9a555f26713c1d6d0912eceb036904"
+    },
+    {
+      "path": "hourly/year=2015/month=07/observations.jsonl",
+      "row_count": 800,
+      "sha256": "d922a5d343e62d5529facf42b40f408cb8857e72224905a578319272cb2cc340"
+    },
+    {
+      "path": "hourly/year=2015/month=08/observations.jsonl",
+      "row_count": 835,
+      "sha256": "a57cfcd17725b65a20e2643549f8b434e1c1051362030bc09deef1fc6ea9f43f"
+    },
+    {
+      "path": "hourly/year=2015/month=09/observations.jsonl",
+      "row_count": 828,
+      "sha256": "38a7a5c80b906d4124b88b849e1c8d4dab28ca9dd56a25ff687e20b971c71953"
+    },
+    {
+      "path": "hourly/year=2015/month=10/observations.jsonl",
+      "row_count": 956,
+      "sha256": "5d9ee4b74e7b8c56762b519a5a9261451776fd758a0f2c80eb0f0757ba0466c2"
+    },
+    {
+      "path": "hourly/year=2015/month=11/observations.jsonl",
+      "row_count": 972,
+      "sha256": "fb119a0526edc5e2ba32bd47d084b53b1f03fa4c8610eafb8ea80b4a2f3ea348"
+    },
+    {
+      "path": "hourly/year=2015/month=12/observations.jsonl",
+      "row_count": 961,
+      "sha256": "112c6f9b3bc2589180b65b797dbc148c729a217ed154bd3e12160bbe78e57fd6"
+    },
+    {
+      "path": "hourly/year=2016/month=01/observations.jsonl",
+      "row_count": 907,
+      "sha256": "43f31369944113554ba439f7ab7fbaece6777f56e27ac4152625d61f0663f6f6"
+    },
+    {
+      "path": "hourly/year=2016/month=02/observations.jsonl",
+      "row_count": 854,
+      "sha256": "000d227cf56e1dedf84b0ff65d503ae2ff4208c5c949caeadbbdf689647c6dab"
+    },
+    {
+      "path": "hourly/year=2016/month=03/observations.jsonl",
+      "row_count": 897,
+      "sha256": "66e218b68ea42015b6cb340e886f0de02e4db87d7f4319c56a4d1c164d229c88"
+    },
+    {
+      "path": "hourly/year=2016/month=04/observations.jsonl",
+      "row_count": 797,
+      "sha256": "cea824fe4f72393f8f3faafc3fdffb798684d40bc187800a313e4080e18a5904"
+    },
+    {
+      "path": "hourly/year=2016/month=05/observations.jsonl",
+      "row_count": 840,
+      "sha256": "c2bd1f9d1e114abf83d5b5a02282e70f620f8dc21552863bf465dadca92a6ce0"
+    },
+    {
+      "path": "hourly/year=2016/month=06/observations.jsonl",
+      "row_count": 805,
+      "sha256": "95a11ddb8e610be0ec6ed8439929376f11460349907a95ad1129ed7c96daeab5"
+    },
+    {
+      "path": "hourly/year=2016/month=07/observations.jsonl",
+      "row_count": 833,
+      "sha256": "4f9ce6b8df89df9d7ff9bd6bef62bb13265063af0c9752803e17dcaec652dc0e"
+    },
+    {
+      "path": "hourly/year=2016/month=08/observations.jsonl",
+      "row_count": 823,
+      "sha256": "7628548647e1e5bd4b6591bcf7b980bc6210f0aad223c0a595e2d9cb9d24c4ed"
+    },
+    {
+      "path": "hourly/year=2016/month=09/observations.jsonl",
+      "row_count": 838,
+      "sha256": "3aa4575b3f57b2c72e2b879ee4f748b233aac337bcec32a8890dcf91670465db"
+    },
+    {
+      "path": "hourly/year=2016/month=10/observations.jsonl",
+      "row_count": 904,
+      "sha256": "5221604da9387053bedd35c89744b1e86952d762dad8112e8f2439274df4adbb"
+    },
+    {
+      "path": "hourly/year=2016/month=11/observations.jsonl",
+      "row_count": 907,
+      "sha256": "74ed4b4afcb1181a0b4471bbe936f113212b47da31b832813ac24135f5e538ba"
+    },
+    {
+      "path": "hourly/year=2016/month=12/observations.jsonl",
+      "row_count": 1001,
+      "sha256": "77f1de8175c82506afb546700ea29e69611804c2b05a104f7e11163e74122b09"
+    },
+    {
+      "path": "hourly/year=2017/month=01/observations.jsonl",
+      "row_count": 859,
+      "sha256": "cf953335f224f3bef2c6299f2947d1e1cd929072cbe5a459da59d8eb86962c06"
+    },
+    {
+      "path": "hourly/year=2017/month=02/observations.jsonl",
+      "row_count": 911,
+      "sha256": "8f031d51361df28c97d83ded49a326b15a2d325f620278779c0ea8bb6e1cf500"
+    },
+    {
+      "path": "hourly/year=2017/month=03/observations.jsonl",
+      "row_count": 1004,
+      "sha256": "51e314ab716e670a5f35a4dfdf63a4b4d79c2bb9dcb2b91985659202a7eee118"
+    },
+    {
+      "path": "hourly/year=2017/month=04/observations.jsonl",
+      "row_count": 827,
+      "sha256": "db991434130571476b7550dfa7f6fc0f78a9c32d7dfca82c1cf048d61907983a"
+    },
+    {
+      "path": "hourly/year=2017/month=05/observations.jsonl",
+      "row_count": 897,
+      "sha256": "d54bb411cec063938da9df2d95ade4d295bdc47e8de9059f9150dace858d467f"
+    },
+    {
+      "path": "hourly/year=2017/month=06/observations.jsonl",
+      "row_count": 845,
+      "sha256": "a24b8c1614ac90a07771bd9c1eec51a9376c97e010d1a72a7793a75ea791af56"
+    },
+    {
+      "path": "hourly/year=2017/month=07/observations.jsonl",
+      "row_count": 793,
+      "sha256": "af33dde974619b9f9e232e17970d942c3c3cb4e0a47e63da7a88ec5d4db5e959"
+    },
+    {
+      "path": "hourly/year=2017/month=08/observations.jsonl",
+      "row_count": 786,
+      "sha256": "e7de3c917467a1cfdea862f02035233dc2b4681a7d7e6428b60e0248c8ce843a"
+    },
+    {
+      "path": "hourly/year=2017/month=09/observations.jsonl",
+      "row_count": 820,
+      "sha256": "d557e85b077687140ce368ccb658844953a862ba2ffa6fb88971d820259280bb"
+    },
+    {
+      "path": "hourly/year=2017/month=10/observations.jsonl",
+      "row_count": 910,
+      "sha256": "92f4c3c12c9f8708614076640a9fb98171c511ea17e0587dcd420320f59a2e9f"
+    },
+    {
+      "path": "hourly/year=2017/month=11/observations.jsonl",
+      "row_count": 907,
+      "sha256": "41219ba183f50fb6570fd9a59bf12f077484a25ce4d1ea764f43a527e7cf65ef"
+    },
+    {
+      "path": "hourly/year=2017/month=12/observations.jsonl",
+      "row_count": 1055,
+      "sha256": "b60e7d42202a2edcbaa9984e6470dacaa525e054076eef63e9683020c7eb27c2"
+    },
+    {
+      "path": "hourly/year=2018/month=01/observations.jsonl",
+      "row_count": 983,
+      "sha256": "fe76aff1f1440d527dd1daf6f3fff958bc83ba196ce9c53762f8d67cb502cff6"
+    },
+    {
+      "path": "hourly/year=2018/month=02/observations.jsonl",
+      "row_count": 909,
+      "sha256": "d05df1f0e747405123a5e506fe00cafec6312467006233dda16b8c9343b2581d"
+    },
+    {
+      "path": "hourly/year=2018/month=03/observations.jsonl",
+      "row_count": 877,
+      "sha256": "54c865fb94dec1c225cc18fea4296711aebc8a99ffd0d26854178ddc5c8fb03b"
+    },
+    {
+      "path": "hourly/year=2018/month=04/observations.jsonl",
+      "row_count": 915,
+      "sha256": "0d4cdf112763ac787fab029883fdc35a2fae24bb1f8000c3de402aa92ee0b657"
+    },
+    {
+      "path": "hourly/year=2018/month=05/observations.jsonl",
+      "row_count": 847,
+      "sha256": "43e13b6c4ebcbd618616bf96fe4dbc079924b3b390bbcb0118a3d488b9adb998"
+    },
+    {
+      "path": "hourly/year=2018/month=06/observations.jsonl",
+      "row_count": 843,
+      "sha256": "07f6393f98adbc46f29487cee3c468ac5d0784ec67c2e129f054dbb12ec0daf0"
+    },
+    {
+      "path": "hourly/year=2018/month=07/observations.jsonl",
+      "row_count": 805,
+      "sha256": "085abc3d064e73698b1b371ebccec6d4f46e72f48e4f8498a21bc2477a5edb22"
+    },
+    {
+      "path": "hourly/year=2018/month=08/observations.jsonl",
+      "row_count": 827,
+      "sha256": "79f6916e6951468b213bddff25e775b23089704605c178c35f91a2ddcddfcdcd"
+    },
+    {
+      "path": "hourly/year=2018/month=09/observations.jsonl",
+      "row_count": 818,
+      "sha256": "78975169d497c61843be753dd56617eafcc6dd39121db926432447ec6ffd9c44"
+    },
+    {
+      "path": "hourly/year=2018/month=10/observations.jsonl",
+      "row_count": 982,
+      "sha256": "42d8618a3feb8c1458f9a39decc0efdbcfb8136d189e3a785dba142a82d3a249"
+    },
+    {
+      "path": "hourly/year=2018/month=11/observations.jsonl",
+      "row_count": 976,
+      "sha256": "c6d019453018530e52555e0b014f98c50885f0410f84c697daed93a9cb167d34"
+    },
+    {
+      "path": "hourly/year=2018/month=12/observations.jsonl",
+      "row_count": 918,
+      "sha256": "fe14116b6e6d87bfb584ab2426f0ed4eece6723cf0f893755b4d26fbf49af1ca"
+    },
+    {
+      "path": "hourly/year=2019/month=01/observations.jsonl",
+      "row_count": 887,
+      "sha256": "1b2f360c27ff5f8db859ba77c16f43c1ecbc2ffac23cd83dc08d1aef379a825d"
+    },
+    {
+      "path": "hourly/year=2019/month=02/observations.jsonl",
+      "row_count": 909,
+      "sha256": "e2b01bbfaf51267527aeca91300e0093ce8c87f4100b7794cfd8dff1ea7c6edc"
+    },
+    {
+      "path": "hourly/year=2019/month=03/observations.jsonl",
+      "row_count": 831,
+      "sha256": "5d7a61cd2bfa6b19c9c1b0844eeeb9e5594b4066f65f256ac38f910c481ae560"
+    },
+    {
+      "path": "hourly/year=2019/month=04/observations.jsonl",
+      "row_count": 884,
+      "sha256": "2f51cafd9ed5dea3e178f125ace8e0e24b500c3baa71840aa987b4283f1b782a"
+    },
     {
       "path": "hourly/year=2019/month=05/observations.jsonl",
       "row_count": 861,
@@ -21,6 +281,56 @@
       "path": "hourly/year=2019/month=06/observations.jsonl",
       "row_count": 812,
       "sha256": "9b5bf05f1b4cfba32593ab99b7e37235846457940e39ea25fc7bbdbde38e256a"
+    },
+    {
+      "path": "hourly/year=2019/month=07/observations.jsonl",
+      "row_count": 876,
+      "sha256": "cf058afc825aa374b2f2de31ab7da6414762d232b649f1ae432d0bb5fb8ba02e"
+    },
+    {
+      "path": "hourly/year=2019/month=08/observations.jsonl",
+      "row_count": 847,
+      "sha256": "bc43a411ede96bc5d4a81d2de31c63467c3628c47d7919b6ff5527a5df027ab3"
+    },
+    {
+      "path": "hourly/year=2019/month=09/observations.jsonl",
+      "row_count": 900,
+      "sha256": "f390ea900f93b63c6f7b9cac44b43f9b1cd0ad7110116dce1de2a68726c5b9e8"
+    },
+    {
+      "path": "hourly/year=2019/month=10/observations.jsonl",
+      "row_count": 890,
+      "sha256": "6f0d5545f92423d2d0b578adb076c9c92e1e0e07fbca24e1f1da1e25432a685c"
+    },
+    {
+      "path": "hourly/year=2019/month=11/observations.jsonl",
+      "row_count": 1012,
+      "sha256": "298d1ab1b345467ca02b7f80e4cf544ea24b44f49217ee83542799c149d887ec"
+    },
+    {
+      "path": "hourly/year=2019/month=12/observations.jsonl",
+      "row_count": 1014,
+      "sha256": "8abc5ca7c40ee73ee2c896dcba02159744e289f1aecbd9fc6f9d4b946aa39aa7"
+    },
+    {
+      "path": "hourly/year=2020/month=01/observations.jsonl",
+      "row_count": 1008,
+      "sha256": "90c6d9c66731bf3371b7198f670d51cee8251064689c6b2e7574c456fd605c41"
+    },
+    {
+      "path": "hourly/year=2020/month=02/observations.jsonl",
+      "row_count": 904,
+      "sha256": "b0ea5c0633177c259a77a28b2fe7790e22586a2954c9e4b518055cef9a76b008"
+    },
+    {
+      "path": "hourly/year=2020/month=03/observations.jsonl",
+      "row_count": 923,
+      "sha256": "638a1b181482271a75b696620ca2b640b54eef2f92caaf8f4831fb4624ff442f"
+    },
+    {
+      "path": "hourly/year=2020/month=04/observations.jsonl",
+      "row_count": 822,
+      "sha256": "bd69221ac0549a427a2c3bda4ead89ccbedc8d4126cbf69b3dd40cc8541c46e0"
     },
     {
       "path": "hourly/year=2020/month=05/observations.jsonl",
@@ -33,6 +343,56 @@
       "sha256": "5a180abc30740c57f0796e3790b145b16ba559126450310987414797e6a19e50"
     },
     {
+      "path": "hourly/year=2020/month=07/observations.jsonl",
+      "row_count": 838,
+      "sha256": "6f0b94fe634e8135367719e8fbc0979448c67b214267e41df2486185671843f4"
+    },
+    {
+      "path": "hourly/year=2020/month=08/observations.jsonl",
+      "row_count": 814,
+      "sha256": "2d5f36a4a9025d9eaf62609050cb8aed3b6183993ec15f3d7984651662e198f2"
+    },
+    {
+      "path": "hourly/year=2020/month=09/observations.jsonl",
+      "row_count": 807,
+      "sha256": "06d0e6c445d98c13d668adb0afee812e6610a8112afbc46a45db9f06e3d74094"
+    },
+    {
+      "path": "hourly/year=2020/month=10/observations.jsonl",
+      "row_count": 969,
+      "sha256": "601cbfad41877b0e467389a242904e96b1d8ece0d805cae1b50db34af2ae5c06"
+    },
+    {
+      "path": "hourly/year=2020/month=11/observations.jsonl",
+      "row_count": 938,
+      "sha256": "eaa3b064924d066aafc1996ed8e2b6afe16fe2c48fdc76a2ccf2ec21513f7bc0"
+    },
+    {
+      "path": "hourly/year=2020/month=12/observations.jsonl",
+      "row_count": 992,
+      "sha256": "d91972d2a2838e8ea0a6df886bc677774229abf3dcc04ba86c598c28ccb09c5f"
+    },
+    {
+      "path": "hourly/year=2021/month=01/observations.jsonl",
+      "row_count": 984,
+      "sha256": "2439287cd3aac3525bb953b1bbe0d7422731270267e409d2fb5bcb9b90d45ec7"
+    },
+    {
+      "path": "hourly/year=2021/month=02/observations.jsonl",
+      "row_count": 950,
+      "sha256": "73dc59e766da4a1374fe4c2c80aa86fb81e34438590d5d5718090bf3a6bd59ab"
+    },
+    {
+      "path": "hourly/year=2021/month=03/observations.jsonl",
+      "row_count": 838,
+      "sha256": "2f31403cd1e5ea8aba7447878e1106fe04d7ee72eed1bdce46532aef5d1fc55c"
+    },
+    {
+      "path": "hourly/year=2021/month=04/observations.jsonl",
+      "row_count": 801,
+      "sha256": "685ae310d4e4d63d83a745906ff0a8b7156befcea539fff46d4545902121df41"
+    },
+    {
       "path": "hourly/year=2021/month=05/observations.jsonl",
       "row_count": 892,
       "sha256": "be6a9b73a6ba48bdfb38db3a20fd124bd0af18be504c1441a0286f6ddb477a07"
@@ -41,6 +401,56 @@
       "path": "hourly/year=2021/month=06/observations.jsonl",
       "row_count": 813,
       "sha256": "6d794513495420b9e4418dd0324b2f59fc2819bd2664669541bca2040900e3dd"
+    },
+    {
+      "path": "hourly/year=2021/month=07/observations.jsonl",
+      "row_count": 825,
+      "sha256": "af40b2b79f557c89984b5113a651fc093908368797e5490c8b502af81fdfef80"
+    },
+    {
+      "path": "hourly/year=2021/month=08/observations.jsonl",
+      "row_count": 866,
+      "sha256": "8c2c73d9d585f3ea5d12ce6c8057015232366e798c7ca82f6796ef72b21f6a0c"
+    },
+    {
+      "path": "hourly/year=2021/month=09/observations.jsonl",
+      "row_count": 871,
+      "sha256": "d961989f1424c077d675b47824d0024887088d34b640ac89e178e92f4b06c304"
+    },
+    {
+      "path": "hourly/year=2021/month=10/observations.jsonl",
+      "row_count": 975,
+      "sha256": "feb0ef75db1db7bffd62691f923c735f9fad59e1a2e547c4374e84db3ccddb5c"
+    },
+    {
+      "path": "hourly/year=2021/month=11/observations.jsonl",
+      "row_count": 1049,
+      "sha256": "4016910d6b1da98e01c7234c997812c85eeb6645850a599137d751fac7e56f68"
+    },
+    {
+      "path": "hourly/year=2021/month=12/observations.jsonl",
+      "row_count": 1147,
+      "sha256": "d2fa51ef1d52a669ce7c800a75f9470e3bf592917ae1bd949e0d6f87b6bb91d0"
+    },
+    {
+      "path": "hourly/year=2022/month=01/observations.jsonl",
+      "row_count": 1190,
+      "sha256": "48f33ce7f27b7a55639d77b0884f0d95f469a2d1efc7e68bd943e75614d1e09d"
+    },
+    {
+      "path": "hourly/year=2022/month=02/observations.jsonl",
+      "row_count": 963,
+      "sha256": "bb4f4d97b83165543cc55d4c711897c552cec134263158c660c8815bb09b3333"
+    },
+    {
+      "path": "hourly/year=2022/month=03/observations.jsonl",
+      "row_count": 967,
+      "sha256": "9cbe1e748849cb9dda6ea3e35f79be849561577bf17ff790dfa52e3ec1e9c571"
+    },
+    {
+      "path": "hourly/year=2022/month=04/observations.jsonl",
+      "row_count": 913,
+      "sha256": "6da9fe66a62536ee479937dd11c0ed986ebe619fe85844010726bf065646a838"
     },
     {
       "path": "hourly/year=2022/month=05/observations.jsonl",
@@ -53,6 +463,56 @@
       "sha256": "2c98822907ce497825cda99cec9fbf730700fb84e4e7fffa316292fcc573fc6e"
     },
     {
+      "path": "hourly/year=2022/month=07/observations.jsonl",
+      "row_count": 798,
+      "sha256": "513689f3962531a2f5f7cbf8dfa6a7a91c7b37b82fc18eea143f69d720123ecd"
+    },
+    {
+      "path": "hourly/year=2022/month=08/observations.jsonl",
+      "row_count": 827,
+      "sha256": "c97f0af831c26e006bdb99d6495a1a2b06d3a278f73500129b81b7ea0ce344fe"
+    },
+    {
+      "path": "hourly/year=2022/month=09/observations.jsonl",
+      "row_count": 794,
+      "sha256": "56cf4a2159e069c4481266a8b80617f039a83d9fb3acce7b8f315b775705005c"
+    },
+    {
+      "path": "hourly/year=2022/month=10/observations.jsonl",
+      "row_count": 919,
+      "sha256": "0a09c42207e24843684bbf194c86243c072d45c51d5f0e65150b9838515adef1"
+    },
+    {
+      "path": "hourly/year=2022/month=11/observations.jsonl",
+      "row_count": 957,
+      "sha256": "04231418f3fdf3f63c796d7607d6704747b6cd93183395b047419adf01d9bafb"
+    },
+    {
+      "path": "hourly/year=2022/month=12/observations.jsonl",
+      "row_count": 1121,
+      "sha256": "d6fea19e9820c9e418151d94a0db1ab3cbbd5a6289231670d8bb793c7d52e942"
+    },
+    {
+      "path": "hourly/year=2023/month=01/observations.jsonl",
+      "row_count": 952,
+      "sha256": "bd27e706481df69cfec48393c504d5a663f9a8ff8917480fee2949b03eca055a"
+    },
+    {
+      "path": "hourly/year=2023/month=02/observations.jsonl",
+      "row_count": 884,
+      "sha256": "f2282d76d64a4312f13c7dac2e12711d9ae64182dceb408f652a0795518bc399"
+    },
+    {
+      "path": "hourly/year=2023/month=03/observations.jsonl",
+      "row_count": 895,
+      "sha256": "ddd3a09688f21e68aab1c08335a0ff6ef8242dd2f55793d7890c9f1edeb35ab1"
+    },
+    {
+      "path": "hourly/year=2023/month=04/observations.jsonl",
+      "row_count": 913,
+      "sha256": "948b39a4e7328b62b3aa4b0f1ae9bcefcfc750c7c31215a4634f1b9fd5714d68"
+    },
+    {
       "path": "hourly/year=2023/month=05/observations.jsonl",
       "row_count": 863,
       "sha256": "cbdf794249eddd92b228e1353dd2e1fcf1a0a2099fe84f991d15cd9f2a95e2c3"
@@ -61,6 +521,56 @@
       "path": "hourly/year=2023/month=06/observations.jsonl",
       "row_count": 860,
       "sha256": "9e46ab75c295fae87a104b1cf1dbe94230f7aec78b5d7333d65d0ea84f2ec975"
+    },
+    {
+      "path": "hourly/year=2023/month=07/observations.jsonl",
+      "row_count": 805,
+      "sha256": "97f7a1adc9f2ad403a96bdd74b63eba4c672cece75dd91ec7c06827be34cd7c6"
+    },
+    {
+      "path": "hourly/year=2023/month=08/observations.jsonl",
+      "row_count": 830,
+      "sha256": "1eed7b61db07c40ab58816ad04288c22b391a4de6a9d830deb1a504c5e7e97e3"
+    },
+    {
+      "path": "hourly/year=2023/month=09/observations.jsonl",
+      "row_count": 816,
+      "sha256": "779898a1883acb7f8fcab960f445be2dfaa0077a79c0aab9b3a9d62a8f63fb4b"
+    },
+    {
+      "path": "hourly/year=2023/month=10/observations.jsonl",
+      "row_count": 940,
+      "sha256": "74845429c29ae3a06de85635c1ae0bb8eddff165857ca5217a76ce5b1fc87837"
+    },
+    {
+      "path": "hourly/year=2023/month=11/observations.jsonl",
+      "row_count": 989,
+      "sha256": "745f6ea540409ceca70dc1853e058287796bb9c7b5536343caaceac39b1d0d80"
+    },
+    {
+      "path": "hourly/year=2023/month=12/observations.jsonl",
+      "row_count": 1117,
+      "sha256": "20ef06496be34ad94e664773db8fbb89f0aeb5bad1272ef0658c35ae608a9755"
+    },
+    {
+      "path": "hourly/year=2024/month=01/observations.jsonl",
+      "row_count": 977,
+      "sha256": "b2d08728731fc863c7a0d178d7b26cf5e5874eb6c1ccb128790be73e5e3cf2dc"
+    },
+    {
+      "path": "hourly/year=2024/month=02/observations.jsonl",
+      "row_count": 942,
+      "sha256": "5201bcdf82d9ac88eb9ba80ff6477c1995d1de78d9542a612e28d47045d3a813"
+    },
+    {
+      "path": "hourly/year=2024/month=03/observations.jsonl",
+      "row_count": 887,
+      "sha256": "ece81aebaf8dbcbba38cd1053e98fc462fc707be68406fe6931bc2f771237a7e"
+    },
+    {
+      "path": "hourly/year=2024/month=04/observations.jsonl",
+      "row_count": 862,
+      "sha256": "db28fe62421202c31230c45e20a3b578da5180d93cdd8db734403bfe6235a638"
     },
     {
       "path": "hourly/year=2024/month=05/observations.jsonl",
@@ -73,6 +583,56 @@
       "sha256": "6a59e8f0af609fc7b2884c5355712b91ce740c7c3742baecbe0dbb19a8f5361c"
     },
     {
+      "path": "hourly/year=2024/month=07/observations.jsonl",
+      "row_count": 812,
+      "sha256": "637255b5d5ee1e1ff6b3b975c0093bd573ccb16e260358a8b5ab9b3c402786ac"
+    },
+    {
+      "path": "hourly/year=2024/month=08/observations.jsonl",
+      "row_count": 859,
+      "sha256": "69b09ba28fd91067a9b85101694d20860719e76cf7ce14e430dcd402657ea125"
+    },
+    {
+      "path": "hourly/year=2024/month=09/observations.jsonl",
+      "row_count": 879,
+      "sha256": "eab43933a218ae957887b679ca7ad552c909337697249d0ec0e33c2bae604349"
+    },
+    {
+      "path": "hourly/year=2024/month=10/observations.jsonl",
+      "row_count": 945,
+      "sha256": "e6f1809f0dd13a120c7a4f9f2270c1f4e3925f515e0ec07573ad064ecbde1eaa"
+    },
+    {
+      "path": "hourly/year=2024/month=11/observations.jsonl",
+      "row_count": 928,
+      "sha256": "e3321173942d7f54ee8394ec730a61ea03cc4f78269f832ec66fb220a7123ef0"
+    },
+    {
+      "path": "hourly/year=2024/month=12/observations.jsonl",
+      "row_count": 975,
+      "sha256": "8f617a9ff2d64953fc03eb01574fa73c2dad8859d898e92361b7bd19741038dd"
+    },
+    {
+      "path": "hourly/year=2025/month=01/observations.jsonl",
+      "row_count": 960,
+      "sha256": "695406fbf122fb5724daebdbb9b40d5d14f74d0c642184605990c44adf15a25a"
+    },
+    {
+      "path": "hourly/year=2025/month=02/observations.jsonl",
+      "row_count": 942,
+      "sha256": "89d3720f160e44787cea3dcf5ea0735171c44df3aa4b360e2ef9d17e4945f16e"
+    },
+    {
+      "path": "hourly/year=2025/month=03/observations.jsonl",
+      "row_count": 922,
+      "sha256": "92a7ab48460b5dd5b929d91088abe28e07f4affbcaa93d23590787c89725322f"
+    },
+    {
+      "path": "hourly/year=2025/month=04/observations.jsonl",
+      "row_count": 830,
+      "sha256": "18961bbc247ec5f50983b013124ea1129706887e7615957b46c6c3afc445c360"
+    },
+    {
       "path": "hourly/year=2025/month=05/observations.jsonl",
       "row_count": 859,
       "sha256": "4132acb12f6f8069540aeebf2ae88730908e8ac01a4b64698d0753a8a664c4cc"
@@ -83,9 +643,64 @@
       "sha256": "fbd4dbbb4abbb909a809654c422b8bdc59e59f841c6813b10e6668c5438dddfc"
     },
     {
+      "path": "hourly/year=2025/month=07/observations.jsonl",
+      "row_count": 795,
+      "sha256": "fd1cd3df623401f5d76cc9d6a9a38dc7772f3dd554872cc0b5b21029c1cdded9"
+    },
+    {
+      "path": "hourly/year=2025/month=08/observations.jsonl",
+      "row_count": 842,
+      "sha256": "97fa9483f542ac9d591d8f9488310c033190962914541542458d1c90ea56365b"
+    },
+    {
+      "path": "hourly/year=2025/month=09/observations.jsonl",
+      "row_count": 834,
+      "sha256": "4dc90245d2893ce5b6efe4d569b67d1b36db09abf0c23b08fcce49ea15fc27f3"
+    },
+    {
+      "path": "hourly/year=2025/month=10/observations.jsonl",
+      "row_count": 888,
+      "sha256": "4c4e22b2f35a51185929c860fd66f2292200e4fad63267934c530434ff3c78c6"
+    },
+    {
+      "path": "hourly/year=2025/month=11/observations.jsonl",
+      "row_count": 948,
+      "sha256": "368abb7e3e463ed4fa0b355e239fc0e30d31d48565c995fdd3c5ba2ada4ad77b"
+    },
+    {
+      "path": "hourly/year=2025/month=12/observations.jsonl",
+      "row_count": 1010,
+      "sha256": "422abeb798d2d671ad31cfe957f4a552d5965e0012627c46e44bef883e0f17d0"
+    },
+    {
+      "path": "hourly/year=2026/month=01/observations.jsonl",
+      "row_count": 980,
+      "sha256": "85346ce81d471eac77f46ec7d7b07d2aaf23f55b15171b6a9642cbcdf24454ed"
+    },
+    {
+      "path": "hourly/year=2026/month=02/observations.jsonl",
+      "row_count": 829,
+      "sha256": "a59ba5764c2a3f08244345f22657673741c06e03160ddf9d0d1d4497c2b14a6e"
+    },
+    {
+      "path": "hourly/year=2026/month=03/observations.jsonl",
+      "row_count": 991,
+      "sha256": "8d76ac2f1ab196e3ecc9f40065e36efd0b3fcc21037e33e4d94ac3ae2c45887b"
+    },
+    {
+      "path": "hourly/year=2026/month=04/observations.jsonl",
+      "row_count": 685,
+      "sha256": "6f76538dc0ff7f3aedad702237fb6116284e45d6c3863c4a5db701bfc9b409fa"
+    },
+    {
+      "path": "hourly/year=2026/month=05/observations.jsonl",
+      "row_count": 716,
+      "sha256": "01cd0e35f26580d2479f83b2b52118a0214dc1f44186fd6c370e60e2ade65662"
+    },
+    {
       "path": "hourly/year=2026/month=06/observations.jsonl",
-      "row_count": 49,
-      "sha256": "0bc10b16e598fd6e2ea88114e573cf151c8d68e4c52086149a601d93c0759201"
+      "row_count": 168,
+      "sha256": "d568ef2ab6b2a96abfe15df4a9fcbd259cadf5a7cc7d3c348ca39fabea9c0298"
     }
   ],
   "source_details": {

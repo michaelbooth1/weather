@@ -32,7 +32,7 @@ from settlement_lag_model import settlement_catchup_probability
 # to zero by late afternoon, when a low high-so-far falsifies the forecast.
 FORECAST_FLOOR_MARGIN = 2            # "almost certainly reaches forecast minus this"
                                      # (2 for same-day forecasts, which rarely miss low by >2)
-FORECAST_AGREEMENT_SPREAD = 3.0      # forecasts must agree within this many degrees
+FORECAST_AGREEMENT_SPREAD = 5.0      # forecasts must agree within this many degrees
 FORECAST_FLOOR_MIN_SOURCES = 2       # and come from at least this many sources
 FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (softer than the cap)
 
@@ -75,9 +75,9 @@ CURRENT_OBSERVED_FLOOR_BASE = 0.05
 # concentrate mass onto the observed high by suppressing buckets above it. Soft
 # one bucket up (WU history can still revise up a degree), strong further up.
 LATE_LOCKIN_START_HOUR = 15    # no lock-in before this (peak is usually 15-16h)
-LATE_LOCKIN_FULL_HOUR = 20     # full strength by this hour
+LATE_LOCKIN_FULL_HOUR = 17     # full strength by this hour (the high is locked by ~17-18h)
 LATE_LOCKIN_PEAK_DROP = 2.0    # degrees the temp must fall below the high for full past-peak
-LATE_LOCKIN_HEDGE = 0.20       # retained fraction one bucket above the high at full strength
+LATE_LOCKIN_HEDGE = 0.05       # retained fraction one bucket above the high at full strength
 LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 
@@ -166,11 +166,14 @@ class DistributionMixin:
             peak_factor = drop / peak_drop
         return time_factor * peak_factor
 
-    def apply_late_day_lockin(self, scores, history_max, current_reading, hour):
+    def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):
         """Suppress buckets above the observed high as the day locks in. Soft one
         bucket up (WU history can still revise up a degree), strong further up.
-        Never zero, and a no-op until the day is both late and past peak."""
-        strength = self.late_day_lockin_strength(hour, current_reading, history_max)
+        Never zero, and a no-op until the day is both late and past peak.
+        ``strength`` may be passed in so the calibration taper reuses the exact
+        same lock-in strength (single source of truth)."""
+        if strength is None:
+            strength = self.late_day_lockin_strength(hour, current_reading, history_max)
         if strength <= 0:
             return self.normalize_scores(scores)
         observed_bucket = self.round_half_up(history_max)
@@ -639,15 +642,24 @@ class DistributionMixin:
         # falling, concentrate onto the observed high (suppress the upper tail
         # the high will no longer reach). Current reading prefers live temps.
         current_reading = current_temp if current_temp is not None else metar_temp
-        scores = self.apply_late_day_lockin(scores, history_max, current_reading, now.hour)
+        lockin_strength = self.late_day_lockin_strength(now.hour, current_reading, history_max)
+        scores = self.apply_late_day_lockin(
+            scores, history_max, current_reading, now.hour, strength=lockin_strength
+        )
         distribution_components["late_day_lockin"] = dict(self.normalize_scores(scores))
 
         scores = self.normalize_scores(scores)
         distribution_components["pre_calibration_model"] = dict(scores)
+        # Taper the overconfidence-calibration toward identity as the day locks
+        # in: once it is past peak and falling, the concentration is earned, so
+        # softening it back toward uniform only re-inflates buckets the high can
+        # no longer reach. resolution_weight == the late-day lock-in strength.
         calibrated_scores = apply_exact_distribution_calibration(
             scores,
             getattr(self, "probability_calibration", None),
             floor_bucket=observed_bucket,
+            resolution_weight=lockin_strength,
+            cutoff_hour=cutoff_hour,
         )
         distribution_components["final_model"] = dict(calibrated_scores)
         self._last_distribution_components = {

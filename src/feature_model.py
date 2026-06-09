@@ -18,7 +18,7 @@ from feature_store import (
     build_historical_feature_record,
 )
 
-RUN_LOO = True
+RUN_LOO = False
 
 # We will use scikit-learn models
 from sklearn.linear_model import LogisticRegression
@@ -272,7 +272,7 @@ def main(market_id="toronto"):
         # Impute missing values (forecast features are median-filled where absent;
         # pre-archive that degenerates to a constant high / a redundant gap, so it
         # is benign, while post-archive rows carry the real forecast signal).
-        imputer = SimpleImputer(strategy="median")
+        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
         X_imputed = imputer.fit_transform(X)
 
         # Standardize the numeric columns (the leading n_numeric columns).
@@ -501,7 +501,7 @@ def main(market_id="toronto"):
 
         # Train final models on 100% of data to export coefficients
         # Impute and scale on 100% data
-        final_imputer = SimpleImputer(strategy="median")
+        final_imputer = SimpleImputer(strategy="median", keep_empty_features=True)
         X_final_imputed = final_imputer.fit_transform(X)
         final_scaler = StandardScaler()
         X_final_scaled = X_final_imputed.copy()
@@ -654,14 +654,21 @@ def main(market_id="toronto"):
         ld_X = ld_df[ld_feature_cols].copy()
         ld_y = ld_df["is_extended"].copy()
         
-        ld_imputer = SimpleImputer(strategy="median")
+        ld_imputer = SimpleImputer(strategy="median", keep_empty_features=True)
         ld_X_imputed = ld_imputer.fit_transform(ld_X)
         ld_scaler = StandardScaler()
         ld_X_scaled = ld_X_imputed.copy()
         ld_X_scaled[:, :9] = ld_scaler.fit_transform(ld_X_imputed[:, :9])
         
         ld_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
-        ld_lr.fit(ld_X_scaled, ld_y)
+        if len(np.unique(ld_y)) > 1:
+            ld_lr.fit(ld_X_scaled, ld_y)
+            coefs = ld_lr.coef_[0].tolist()
+            intercept = float(ld_lr.intercept_[0])
+        else:
+            # Only one class (no continuation or always continuation), zero out coefs
+            coefs = [0.0] * len(ld_feature_cols)
+            intercept = -10.0 if ld_y.mean() == 0 else 10.0
         
         prior_p = ld_y.mean()
         
@@ -669,8 +676,8 @@ def main(market_id="toronto"):
         late_day_info[str(H)] = {
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": ld_feature_cols,
-            "coef": ld_lr.coef_[0].tolist(),
-            "intercept": float(ld_lr.intercept_[0]),
+            "coef": coefs,
+            "intercept": intercept,
             "scaler_mean": ld_scaler.mean_[:9].tolist(),
             "scaler_scale": ld_scaler.scale_[:9].tolist(),
             "imputer_median": ld_imputer.statistics_.tolist(),

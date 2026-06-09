@@ -84,7 +84,42 @@ class SourceFetchMixin:
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
         fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
-        return self.blend_with_last_good(self.fetch_source_group(fetchers))
+        
+        sources = self.blend_with_last_good(self.fetch_source_group(fetchers))
+        
+        # Inject wu_current into wu_history rows so that the model doesn't lag 
+        # behind wall-clock time due to delayed history endpoints.
+        current_data = self.source_data(sources, "wu_current")
+        history_data = sources.get("wu_history", {}).get("data", {})
+        if history_data is not None and "rows" in history_data:
+            history_rows = history_data["rows"]
+            if current_data and current_data.get("time") and history_rows is not None:
+                current_time = current_data.get("time")
+                current_min = self.minute_of_day(current_time)
+                mock_time = current_time
+                if current_min is not None:
+                    # Alias the time to exactly the hour mark so that 
+                    # `source_rows_until_cutoff` (which filters strictly <= cutoff_hour * 60)
+                    # will include this live observation when running the current hour's model.
+                    hour = current_min // 60
+                    mock_time = f"{hour:02d}:00"
+
+                mock_row = {
+                    "time": mock_time,
+                    "datetime": current_data.get("datetime") or current_time,
+                    "temp_c": current_data.get("temp_c"),
+                    "dewpoint_c": current_data.get("dewpoint_c"),
+                    "humidity": current_data.get("humidity"),
+                    "pressure": current_data.get("pressure"),
+                    "clouds": current_data.get("cloud_cover"),
+                    "condition": current_data.get("condition"),
+                }
+                # Check if it's strictly newer than the last row to avoid duplicates on rebuilds
+                last_time = history_rows[-1].get("time") if history_rows else None
+                if not last_time or (current_min is not None and self.minute_of_day(last_time) is not None and current_min > self.minute_of_day(last_time)):
+                    history_rows.append(mock_row)
+
+        return sources
 
     def fetch_source_group(self, fetchers):
         fetchers = {
@@ -305,14 +340,14 @@ class SourceFetchMixin:
             "analysis": analysis,
             "top_bucket": int(top_bucket) if top_bucket is not None else None,
             "top_probability": probabilities.get(top_bucket) if top_bucket is not None else None,
-            "prob_25": probabilities.get(25),
-            "prob_25_plus": sum(
+            "prob_key": probabilities.get(self.spec.key_bucket),
+            "prob_key_plus": sum(
                 probability for bucket, probability in probabilities.items()
-                if bucket >= 25
+                if bucket >= self.spec.key_bucket
             ),
-            "prob_29_plus": sum(
+            "prob_key_plus_4": sum(
                 probability for bucket, probability in probabilities.items()
-                if bucket >= 29
+                if bucket >= self.spec.key_bucket + 4
             ),
         }
 
@@ -362,7 +397,7 @@ class SourceFetchMixin:
 
         latest = rows[-1] if rows else None
         same_day_max = self.max_value(*[
-            self.max_value(row.get("air_temp_c"), row.get("max_1h_c"))
+            row.get("air_temp_c")
             for row in rows
         ])
         return {

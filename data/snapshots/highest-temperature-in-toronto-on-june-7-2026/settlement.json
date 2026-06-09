@@ -1,0 +1,153 @@
+{
+  "band_count": 11,
+  "capture_ratio": 0.9790209790209791,
+  "city": "Toronto",
+  "coverage_clean": true,
+  "coverage_reason": "ok",
+  "daily_max_window": "00:00:00-23:59:59 local",
+  "daily_summary_path": "data\\wunderground\\cyyz\\daily\\daily_summary.csv",
+  "event_slug": "highest-temperature-in-toronto-on-june-7-2026",
+  "evidence": {
+    "daily_summary_path": "data\\wunderground\\cyyz\\daily\\daily_summary.csv",
+    "polymarket_reconciliation": {
+      "event_closed": true,
+      "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-toronto-on-june-7-2026",
+      "local_winning_band": {
+        "kind": "eq",
+        "label": "24 C",
+        "value": 24,
+        "value_hi": 24
+      },
+      "matching_winning_markets": [
+        {
+          "closed": true,
+          "condition_id": "0x00a045c96d8a121f206cb9915f0b62b26c9606b28efd4780cd773f2a017db1fd",
+          "kind": "eq",
+          "label": "24 C",
+          "no_price": 0.0,
+          "question": "Will the highest temperature in Toronto be 24\u00b0C on June 7?",
+          "resolved": true,
+          "value": 24,
+          "value_hi": 24,
+          "yes_price": 1.0
+        }
+      ],
+      "status": "match",
+      "winning_markets": [
+        {
+          "closed": true,
+          "condition_id": "0x00a045c96d8a121f206cb9915f0b62b26c9606b28efd4780cd773f2a017db1fd",
+          "kind": "eq",
+          "label": "24 C",
+          "no_price": 0.0,
+          "question": "Will the highest temperature in Toronto be 24\u00b0C on June 7?",
+          "resolved": true,
+          "value": 24,
+          "value_hi": 24,
+          "yes_price": 1.0
+        }
+      ]
+    },
+    "resolution_spec": {
+      "city": "Toronto",
+      "daily_max_window": {
+        "date_basis": "market local target date",
+        "end_local": "23:59:59",
+        "start_local": "00:00:00",
+        "timezone": "America/Toronto"
+      },
+      "data_root": "data\\wunderground\\cyyz",
+      "event_slug_prefix": "highest-temperature-in-toronto-on",
+      "market_id": "toronto",
+      "market_unit": "C",
+      "resolution_source_name": "Weather.com/Wunderground historical observations",
+      "resolution_source_type": "wunderground_history",
+      "rounding": {
+        "method": "round_half_up",
+        "precision": "whole degree",
+        "unit": "C"
+      },
+      "schema_version": "resolution_spec_v1",
+      "station_icao": "CYYZ",
+      "timezone": "America/Toronto",
+      "wu_history_id": "CYYZ:9:CA"
+    },
+    "snapshot_high_column": "wu_history_high_c",
+    "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-toronto-on-june-7-2026\\snapshots_long.csv",
+    "summary": {
+      "bucket": 24,
+      "high": 24.0,
+      "max_temp_times": "17:00",
+      "path": "data\\wunderground\\cyyz\\daily\\daily_summary.csv",
+      "row_count": 21
+    }
+  },
+  "finalized_at_utc": "2026-06-08T13:10:34.352474+00:00",
+  "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-toronto-on-june-7-2026",
+  "ledger_path": "data\\settlements\\toronto\\ledger.jsonl",
+  "market_id": "toronto",
+  "max_gap_minutes": 10.0,
+  "note": "",
+  "polymarket_reconciliation": {
+    "event_closed": true,
+    "gamma_event_url": "https://gamma-api.polymarket.com/events/slug/highest-temperature-in-toronto-on-june-7-2026",
+    "local_winning_band": {
+      "kind": "eq",
+      "label": "24 C",
+      "value": 24,
+      "value_hi": 24
+    },
+    "matching_winning_markets": [
+      {
+        "closed": true,
+        "condition_id": "0x00a045c96d8a121f206cb9915f0b62b26c9606b28efd4780cd773f2a017db1fd",
+        "kind": "eq",
+        "label": "24 C",
+        "no_price": 0.0,
+        "question": "Will the highest temperature in Toronto be 24\u00b0C on June 7?",
+        "resolved": true,
+        "value": 24,
+        "value_hi": 24,
+        "yes_price": 1.0
+      }
+    ],
+    "status": "match",
+    "winning_markets": [
+      {
+        "closed": true,
+        "condition_id": "0x00a045c96d8a121f206cb9915f0b62b26c9606b28efd4780cd773f2a017db1fd",
+        "kind": "eq",
+        "label": "24 C",
+        "no_price": 0.0,
+        "question": "Will the highest temperature in Toronto be 24\u00b0C on June 7?",
+        "resolved": true,
+        "value": 24,
+        "value_hi": 24,
+        "yes_price": 1.0
+      }
+    ]
+  },
+  "polymarket_url": "https://polymarket.com/event/highest-temperature-in-toronto-on-june-7-2026",
+  "polymarket_winning_band": "24 C",
+  "quality_grade": "complete",
+  "quality_reason": "complete enough for headline scoring",
+  "reconciliation_status": "match",
+  "resolution_source_type": "wunderground_history",
+  "resolution_station": "CYYZ",
+  "resolution_timezone": "America/Toronto",
+  "resolution_wu_history_id": "CYYZ:9:CA",
+  "rounding": "round_half_up whole degree",
+  "row_count": 1540,
+  "schema_version": "settlement_ledger_v1",
+  "settlement_bucket": 24,
+  "settlement_high": 24.0,
+  "settlement_source": "daily_summary",
+  "settlement_unit": "C",
+  "snapshot_count": 140,
+  "snapshot_tape_path": "data\\snapshots\\highest-temperature-in-toronto-on-june-7-2026\\snapshots_long.csv",
+  "target_date": "2026-06-07",
+  "winning_band": "24 C",
+  "winning_band_kind": "eq",
+  "winning_band_value": 24,
+  "winning_band_value_hi": 24
+}

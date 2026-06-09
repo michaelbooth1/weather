@@ -676,7 +676,7 @@ def build_label(
     high_column = next((column for column in SNAPSHOT_HIGH_COLUMNS if column in frame), None)
     core_columns.append(high_column or SNAPSHOT_HIGH_COLUMNS[-1])
     missing_core = missing_fraction(frame, core_columns)
-    coverage = coverage_summary(captured_times(frame), interval_minutes, gap_tolerance)
+    coverage = coverage_summary(captured_times(frame), interval_minutes, gap_tolerance, target_date=target_date)
     coverage_clean = bool(coverage.get("clean"))
     grade = quality_grade(
         snapshot_count,

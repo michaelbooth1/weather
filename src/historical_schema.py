@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import math
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -67,6 +68,33 @@ def sha256_file(path):
         for chunk in iter(lambda: handle.read(65536), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def replace_with_retry(src, dst, attempts=8, delay=0.5):
+    src = Path(src)
+    dst = Path(dst)
+    for attempt in range(attempts):
+        try:
+            src.replace(dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+def unlink_with_retry(path, attempts=8, delay=0.5):
+    path = Path(path)
+    for attempt in range(attempts):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
 
 
 def round_half_up(value):
@@ -210,7 +238,7 @@ def write_jsonl_partitions(root, records):
     root = Path(root)
     if root.exists():
         for old_file in root.glob("year=*/month=*/observations.jsonl"):
-            old_file.unlink()
+            unlink_with_retry(old_file)
     grouped = defaultdict(list)
     for row in records:
         local_date = date.fromisoformat(row["local_date"])
@@ -218,9 +246,11 @@ def write_jsonl_partitions(root, records):
     for (year, month), rows in grouped.items():
         path = root / f"year={year:04d}" / f"month={month:02d}" / "observations.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8", newline="\n") as handle:
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8", newline="\n") as handle:
             for row in rows:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
+        replace_with_retry(tmp_path, path)
 
 
 def write_daily_csv(path, rows):

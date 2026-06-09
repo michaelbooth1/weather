@@ -1,0 +1,1182 @@
+{
+  "hours": {
+    "10": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.36,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 161,
+          "rate": 0.9757575757575757
+        },
+        "current_bucket": {
+          "count": 120,
+          "rate": 0.7272727272727273
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 125,
+          "rate": 0.7575757575757576
+        },
+        "wind_regime": {
+          "count": 113,
+          "rate": 0.6848484848484848
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 96.0,
+        "min_cap_bucket": 85
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9411294842600395,
+          "exact_log_loss": 3.0966973305850156,
+          "market_group_brier": 1.6359899454867576e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.12121212121212122
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.940607358977259,
+          "exact_log_loss": 2.7285346251818994,
+          "market_group_brier": 1.396941186328875e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.09090909090909091
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.35213754346149106,
+        "forecast_cap": 0.4044554067074036,
+        "intraday_high": 0.15532558060988177,
+        "wind_regime": 0.08808146922122365
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.7285346251818994,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 1.6993444524427108,
+        "forecast_cap": 1.951819862467602,
+        "intraday_high": 0.7495697878085267,
+        "wind_regime": 0.42506332784836537
+      }
+    },
+    "11": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.36,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 160,
+          "rate": 0.9696969696969697
+        },
+        "current_bucket": {
+          "count": 119,
+          "rate": 0.7212121212121212
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 133,
+          "rate": 0.806060606060606
+        },
+        "wind_regime": {
+          "count": 117,
+          "rate": 0.7090909090909091
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 95.0,
+        "min_cap_bucket": 81
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9366911088074513,
+          "exact_log_loss": 3.0689473724390197,
+          "market_group_brier": 1.7928656936841178e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.10909090909090909
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.934381549731097,
+          "exact_log_loss": 2.604859589389241,
+          "market_group_brier": 9.039031205657426e-33,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.07878787878787878
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.4840642088788013,
+        "forecast_cap": 0.5159357911211987,
+        "intraday_high": 0.0,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.604859589389241,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 1.876451361619491,
+        "forecast_cap": 2.0,
+        "intraday_high": 0.0,
+        "wind_regime": 0.0
+      }
+    },
+    "12": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.48,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 161,
+          "rate": 0.9757575757575757
+        },
+        "current_bucket": {
+          "count": 105,
+          "rate": 0.6363636363636364
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 102,
+          "rate": 0.6181818181818182
+        },
+        "wind_regime": {
+          "count": 109,
+          "rate": 0.6606060606060606
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 94.0,
+        "min_cap_bucket": 79
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9399662334647643,
+          "exact_log_loss": 3.0910689242206257,
+          "market_group_brier": 1.561287208249919e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.12121212121212122
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9339259688030566,
+          "exact_log_loss": 2.489605317940273,
+          "market_group_brier": 1.0981302373815221e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.08484848484848485
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.02307563726246503,
+        "cloud_regime": 0.004794910264301412,
+        "current_bucket": 0.2819353874931273,
+        "forecast_cap": 0.6901940649801062,
+        "intraday_high": 0.0,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.489605317940273,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0666003721275958,
+        "cloud_regime": 0.013838959431051021,
+        "current_bucket": 0.8137154137677047,
+        "forecast_cap": 1.9920221940177403,
+        "intraday_high": 0.0,
+        "wind_regime": 0.0
+      }
+    },
+    "13": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.58,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 160,
+          "rate": 0.9696969696969697
+        },
+        "current_bucket": {
+          "count": 93,
+          "rate": 0.5636363636363636
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 100,
+          "rate": 0.6060606060606061
+        },
+        "wind_regime": {
+          "count": 115,
+          "rate": 0.696969696969697
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 94.0,
+        "min_cap_bucket": 77
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9200934452342604,
+          "exact_log_loss": 2.979557996720522,
+          "market_group_brier": 2.1514388324209412e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.1696969696969697
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.888508308760136,
+          "exact_log_loss": 2.179105844151912,
+          "market_group_brier": 1.449233102394662e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.16363636363636364
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.5406773640416367,
+        "forecast_cap": 0.39812213000831825,
+        "intraday_high": 0.061200505950045093,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.179105844151912,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 1.9969712149810908,
+        "forecast_cap": 1.470448897158466,
+        "intraday_high": 0.22604173367078004,
+        "wind_regime": 0.0
+      }
+    },
+    "14": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.58,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 159,
+          "rate": 0.9636363636363636
+        },
+        "current_bucket": {
+          "count": 92,
+          "rate": 0.5575757575757576
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 107,
+          "rate": 0.6484848484848484
+        },
+        "wind_regime": {
+          "count": 122,
+          "rate": 0.7393939393939394
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 93.0,
+        "min_cap_bucket": 75
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9109194154406692,
+          "exact_log_loss": 2.9154715536433473,
+          "market_group_brier": 1.815276514855169e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.17575757575757575
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.8639692800993596,
+          "exact_log_loss": 1.994368977016031,
+          "market_group_brier": 1.1205410585525735e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.15151515151515152
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.043427598694709545,
+        "forecast_cap": 0.5522034840496541,
+        "intraday_high": 0.4043689172556364,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 1.994368977016031,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.15532963373424163,
+        "forecast_cap": 1.9750934314186257,
+        "intraday_high": 1.446326246412551,
+        "wind_regime": 0.0
+      }
+    },
+    "15": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.7,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 160,
+          "rate": 0.9696969696969697
+        },
+        "current_bucket": {
+          "count": 93,
+          "rate": 0.5636363636363636
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 106,
+          "rate": 0.6424242424242425
+        },
+        "wind_regime": {
+          "count": 145,
+          "rate": 0.8787878787878788
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 93.0,
+        "min_cap_bucket": 73
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.8804044514164586,
+          "exact_log_loss": 2.779023778458539,
+          "market_group_brier": 1.7256332301709632e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.26666666666666666
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.8055456415681165,
+          "exact_log_loss": 1.6664193070869011,
+          "market_group_brier": 9.188436680131104e-33,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.2787878787878788
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.29220856582898197,
+        "intraday_high": 0.707791434171018,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 1.6664193070869011,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.8256911618921288,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "16": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.7,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 156,
+          "rate": 0.9454545454545454
+        },
+        "current_bucket": {
+          "count": 95,
+          "rate": 0.5757575757575758
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 92,
+          "rate": 0.5575757575757576
+        },
+        "wind_regime": {
+          "count": 140,
+          "rate": 0.8484848484848485
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 103,
+        "median_cap_bucket": 93.0,
+        "min_cap_bucket": 72
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.8285860195538335,
+          "exact_log_loss": 2.6308857733414914,
+          "market_group_brier": 1.352119543986772e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.3090909090909091
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.6917457425680051,
+          "exact_log_loss": 1.3040804472739658,
+          "market_group_brier": 1.2550059855788823e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.36363636363636365
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.17605196582430377,
+        "intraday_high": 0.8239480341756963,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 1.3040804472739658,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.4273375468403945,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "17": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.82,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 154,
+          "rate": 0.9333333333333333
+        },
+        "current_bucket": {
+          "count": 87,
+          "rate": 0.5272727272727272
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 91,
+          "rate": 0.5515151515151515
+        },
+        "wind_regime": {
+          "count": 131,
+          "rate": 0.793939393939394
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 93.0,
+        "min_cap_bucket": 70
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.6942353519112894,
+          "exact_log_loss": 2.3457857853318695,
+          "market_group_brier": 1.5015250184604487e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.5151515151515151
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.1884593796171418,
+          "exact_log_loss": 0.43220377832505463,
+          "market_group_brier": 5.976218978947059e-33,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.9151515151515152
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0917818416554097,
+        "intraday_high": 0.9082181583445904,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 0.43220377832505463,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.20211408638360745,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "18": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.82,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 159,
+          "rate": 0.9636363636363636
+        },
+        "current_bucket": {
+          "count": 84,
+          "rate": 0.509090909090909
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 96,
+          "rate": 0.5818181818181818
+        },
+        "wind_regime": {
+          "count": 128,
+          "rate": 0.7757575757575758
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 92.0,
+        "min_cap_bucket": 70
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.6384343876423407,
+          "exact_log_loss": 2.2243205254121077,
+          "market_group_brier": 1.2624762593025662e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.5818181818181818
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.06284456429904002,
+          "exact_log_loss": 0.2012235530918982,
+          "market_group_brier": 1.2251248906841471e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.9939393939393939
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 8.970063568598754e-07,
+        "intraday_high": 0.9999991029936431,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 0.2012235530918982,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 1.7940143229620026e-06,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "19": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.82,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 161,
+          "rate": 0.9757575757575757
+        },
+        "current_bucket": {
+          "count": 93,
+          "rate": 0.5636363636363636
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 96,
+          "rate": 0.5818181818181818
+        },
+        "wind_regime": {
+          "count": 143,
+          "rate": 0.8666666666666667
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 92.0,
+        "min_cap_bucket": 70
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.6401026352398267,
+          "exact_log_loss": 2.2265899161714855,
+          "market_group_brier": 1.3745303651578237e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.5818181818181818
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.05659001844072952,
+          "exact_log_loss": 0.19359574860063417,
+          "market_group_brier": 5.378597081052353e-33,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 1.0
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 4.74246354883965e-06,
+        "intraday_high": 0.9999952575364512,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 0.19359574860063417,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 9.48497207981365e-06,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "20": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.82,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 160,
+          "rate": 0.9696969696969697
+        },
+        "current_bucket": {
+          "count": 101,
+          "rate": 0.6121212121212121
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 96,
+          "rate": 0.5818181818181818
+        },
+        "wind_regime": {
+          "count": 142,
+          "rate": 0.8606060606060606
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 92.0,
+        "min_cap_bucket": 70
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.640569278220651,
+          "exact_log_loss": 2.233854096684241,
+          "market_group_brier": 2.0916766426314708e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.5818181818181818
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.05658992986358763,
+          "exact_log_loss": 0.19359521791344675,
+          "market_group_brier": 1.942271168157794e-33,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 1.0
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 5.663375353043626e-07,
+        "intraday_high": 0.9999994336624648,
+        "wind_regime": 0.0
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 0.19359521791344675,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 1.1326757120854963e-06,
+        "intraday_high": 2.0,
+        "wind_regime": 0.0
+      }
+    },
+    "7": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.36,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 136,
+          "rate": 0.8242424242424242
+        },
+        "current_bucket": {
+          "count": 111,
+          "rate": 0.6727272727272727
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 117,
+          "rate": 0.7090909090909091
+        },
+        "wind_regime": {
+          "count": 111,
+          "rate": 0.6727272727272727
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 104,
+        "median_cap_bucket": 97.0,
+        "min_cap_bucket": 85
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9452473617155085,
+          "exact_log_loss": 3.1588478791500556,
+          "market_group_brier": 2.674357993078809e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.12121212121212122
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9455619871358253,
+          "exact_log_loss": 2.9491681789693525,
+          "market_group_brier": 1.8526278834735882e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.05454545454545454
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.30133919989220925,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.39550275730683726,
+        "intraday_high": 0.08435758897081472,
+        "wind_regime": 0.21880045383013882
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.9491681789693525,
+        "success": true
+      },
+      "weights": {
+        "climatology": 1.3193197980511784,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.0,
+        "forecast_cap": 1.731585595519566,
+        "intraday_high": 0.3693334198964831,
+        "wind_regime": 0.9579496151311977
+      }
+    },
+    "8": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.36,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 131,
+          "rate": 0.793939393939394
+        },
+        "current_bucket": {
+          "count": 131,
+          "rate": 0.793939393939394
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 119,
+          "rate": 0.7212121212121212
+        },
+        "wind_regime": {
+          "count": 115,
+          "rate": 0.696969696969697
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 96.0,
+        "min_cap_bucket": 88
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9395576506526748,
+          "exact_log_loss": 3.0985081096471614,
+          "market_group_brier": 1.8451576097499046e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.11515151515151516
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.940893924893556,
+          "exact_log_loss": 2.8671942049217543,
+          "market_group_brier": 1.5911683031446546e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.09696969696969697
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.022133454120534277,
+        "cloud_regime": 0.010578871484535535,
+        "current_bucket": 0.07567468929427826,
+        "forecast_cap": 0.3099453414141183,
+        "intraday_high": 0.3572778047523384,
+        "wind_regime": 0.2243898389341952
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.8671942049217543,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.10533638356421945,
+        "cloud_regime": 0.0503464149022177,
+        "current_bucket": 0.3601470450204095,
+        "forecast_cap": 1.4750757468465305,
+        "intraday_high": 1.700337944336461,
+        "wind_regime": 1.0679044496700207
+      }
+    },
+    "9": {
+      "baseline_weights": {
+        "climatology": 1.0,
+        "cloud_regime": 0.12,
+        "current_bucket": 0.0,
+        "forecast_cap": 0.0,
+        "intraday_high": 0.36,
+        "wind_regime": 0.14
+      },
+      "component_availability": {
+        "climatology": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "cloud_regime": {
+          "count": 136,
+          "rate": 0.8242424242424242
+        },
+        "current_bucket": {
+          "count": 117,
+          "rate": 0.7090909090909091
+        },
+        "forecast_cap": {
+          "count": 165,
+          "rate": 1.0
+        },
+        "intraday_high": {
+          "count": 121,
+          "rate": 0.7333333333333333
+        },
+        "wind_regime": {
+          "count": 130,
+          "rate": 0.7878787878787878
+        }
+      },
+      "forecast_cap_proxy": {
+        "max_cap_bucket": 102,
+        "median_cap_bucket": 97.0,
+        "min_cap_bucket": 87
+      },
+      "metrics": {
+        "baseline": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9441183312478099,
+          "exact_log_loss": 3.1320755538141998,
+          "market_group_brier": 2.039384726565684e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.1393939393939394
+        },
+        "optimized": {
+          "bucket_group_accuracy": 1.0,
+          "exact_brier": 0.9564688002533103,
+          "exact_log_loss": 2.8947798180122355,
+          "market_group_brier": 1.4641736498420296e-32,
+          "market_group_log_loss": 9.992007221626413e-16,
+          "top_bucket_accuracy": 0.06060606060606061
+        }
+      },
+      "n_days": 165,
+      "normalized_weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 0.43424300625365636,
+        "forecast_cap": 0.3742361630190759,
+        "intraday_high": 0.09020720031135743,
+        "wind_regime": 0.10131363041591032
+      },
+      "optimizer": {
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+        "objective": 2.8947798180122355,
+        "success": true
+      },
+      "weights": {
+        "climatology": 0.0,
+        "cloud_regime": 0.0,
+        "current_bucket": 1.6345233262736127,
+        "forecast_cap": 1.4086530564236655,
+        "intraday_high": 0.3395466846520076,
+        "wind_regime": 0.38135212265810636
+      }
+    }
+  },
+  "metadata": {
+    "components": [
+      "climatology",
+      "intraday_high",
+      "current_bucket",
+      "wind_regime",
+      "cloud_regime",
+      "forecast_cap"
+    ],
+    "generated_at": "2026-06-07T22:09:31",
+    "market_groups": {
+      "lower_cumulative": "lte_19",
+      "upper_cumulative": "gte_29"
+    },
+    "note": "forecast_cap is calibrated with a non-leaky historical cap proxy until a multi-day forecast archive is available.",
+    "support": [
+      70,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102
+    ],
+    "validation": "leave-one-year-out"
+  }
+}

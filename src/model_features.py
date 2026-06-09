@@ -9,7 +9,7 @@ from feature_store import (
     build_live_feature_record,
 )
 from forecast_history import load_forecast_daily, daily_path_for
-from model_constants import _UNLOADED
+from model_constants import _UNLOADED, INTRADAY_CUTOFF_HOURS
 
 
 class FeatureModelMixin:
@@ -64,17 +64,16 @@ class FeatureModelMixin:
             return default
 
     def resolve_forecast_high(self, open_meteo, weather_forecast, eccc_city):
-        """Forecasted daily max for the feature model, robust to a missing
-        Open-Meteo.
+        """Forecasted daily max for the feature model, using Open-Meteo as the
+        canonical source to match training data (no train-serve skew).
 
         Open-Meteo is the canonical source -- the model is trained on its
-        historical archive, and across the captured corpus it tracks the other
-        forecasts (median gap 0 C) -- so it is used whenever present, leaving the
-        served feature identical to today in the common case. Only when it is
-        absent (a fetch outage, or a day before the feature existed) do we
-        substitute the consensus (median) of the other live forecasts, rather
-        than leaving the model forecast-blind and anchored to the morning's
-        high-so-far. Returns (value, source_label) for auditability.
+        historical archive, so using it at inference keeps the feature
+        distribution identical to training. Only when Open-Meteo is unavailable
+        (fetch outage) do we fall back to the median of the other live forecasts,
+        rather than leaving the model forecast-blind. The post-processing
+        forecast floor/pull in model_distribution.py separately uses all three
+        sources as a consensus check, so outlier-robustness is handled there.
         """
         day_max = self.to_number(open_meteo.get("day_max_c"))
         if day_max is not None:
@@ -138,6 +137,25 @@ class FeatureModelMixin:
             temp_7am = 17.0 # default seasonal fallback
         rise_from_7am = current_temp - temp_7am
 
+        # warming_rate_2h
+        cutoff_minutes = cutoff_hour * 60
+        obs_2h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and r.get("temp_c") is not None]
+        temp_2h_ago = None
+        if obs_2h_candidates:
+            closest_2h = min(obs_2h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 120)))
+            temp_2h_ago = closest_2h["temp_c"]
+        if temp_2h_ago is None:
+            temp_2h_ago = current_temp # fallback if no recent data
+        warming_rate_2h = current_temp - temp_2h_ago
+
+        # hours_at_peak
+        first_reached_min = None
+        for r in feature_rows:
+            if r.get("temp_c") == high_so_far and r.get("time"):
+                first_reached_min = self.minute_of_day(r["time"])
+                break
+        hours_at_peak = ((cutoff_minutes - first_reached_min) / 60.0) if first_reached_min is not None else 0.0
+
         # dewpoint_c, humidity, pressure
         dewpoint = feature_latest.get("dewpoint_c") if feature_latest else current.get("dewpoint_c")
         if dewpoint is None:
@@ -151,7 +169,6 @@ class FeatureModelMixin:
             pressure = pressures[-1] if pressures else None
 
         # pressure_trend_3h
-        cutoff_minutes = cutoff_hour * 60
         obs_3h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 240) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 120) and r.get("pressure") is not None]
         pressure_trend_3h = 0.0
         if pressure is not None and obs_3h_candidates:
@@ -190,6 +207,8 @@ class FeatureModelMixin:
             "high_so_far": high_so_far,
             "current_temp": current_temp,
             "rise_from_7am": rise_from_7am,
+            "warming_rate_2h": warming_rate_2h,
+            "hours_at_peak": hours_at_peak,
             "dewpoint_c": dewpoint,
             "humidity": humidity,
             "pressure": pressure,
@@ -211,13 +230,7 @@ class FeatureModelMixin:
             self.extract_live_features(sources, cutoff_hour),
         )
 
-    def predict_feature_distribution(self, sources, cutoff_hour, now):
-        hgb_bundle = self.load_feature_model_hgb()
-        lr_coefs = self.load_feature_model_coefs()
-
-        if not hgb_bundle and not lr_coefs:
-            return None, "empirical"
-
+    def _evaluate_feature_model_for_cutoff(self, sources, cutoff_hour, hgb_bundle, lr_coefs):
         feats = self.extract_live_features(sources, cutoff_hour)
         high_so_far = feats["high_so_far"]
         current_temp = feats["current_temp"]
@@ -231,6 +244,8 @@ class FeatureModelMixin:
         cloud_group = feats["cloud_group"]
         forecast_high = feats["forecast_high"]
         forecast_gap = feats["forecast_gap"]
+        warming_rate_2h = feats["warming_rate_2h"]
+        hours_at_peak = feats["hours_at_peak"]
 
         # Check if HGBC is available (preferred)
         if hgb_bundle and str(cutoff_hour) in hgb_bundle:
@@ -246,6 +261,8 @@ class FeatureModelMixin:
                     "high_so_far": high_so_far,
                     "current_temp": current_temp,
                     "rise_from_7am": rise_from_7am,
+                    "warming_rate_2h": warming_rate_2h,
+                    "hours_at_peak": hours_at_peak,
                     "dewpoint_c": dewpoint,
                     "humidity": humidity,
                     "pressure": pressure,
@@ -298,9 +315,9 @@ class FeatureModelMixin:
                 # Build raw numeric feature vector (count comes from the scaler so
                 # it tracks the trained feature set, e.g. with forecast features).
                 raw_vec = [
-                    high_so_far, current_temp, rise_from_7am, dewpoint,
-                    humidity, pressure, pressure_trend_3h, wind_speed,
-                    forecast_high, forecast_gap
+                    high_so_far, current_temp, rise_from_7am, warming_rate_2h,
+                    hours_at_peak, dewpoint, humidity, pressure,
+                    pressure_trend_3h, wind_speed, forecast_high, forecast_gap
                 ]
                 n_num = len(scaler_mean)
                 # Impute then scale the numeric elements.
@@ -321,6 +338,7 @@ class FeatureModelMixin:
                         scaled_vec.append(0.0)
                         
                 # Compute logits: z_c = sum_j coef_{c, j} * x_j + intercept_c
+                import math
                 logits = []
                 for c_idx in range(len(classes)):
                     z = sum(coef[c_idx][j] * scaled_vec[j] for j in range(len(scaled_vec))) + intercept[c_idx]
@@ -338,6 +356,48 @@ class FeatureModelMixin:
                 print(f"Error predicting with LR coefficients: {e}. Falling back to empirical prior...")
                 
         return None, "empirical"
+
+    def predict_feature_distribution(self, sources, cutoff_hour, now):
+        hgb_bundle = self.load_feature_model_hgb()
+        lr_coefs = self.load_feature_model_coefs()
+
+        if not hgb_bundle and not lr_coefs:
+            return None, "empirical"
+
+        # 1. Base evaluation at the primary cutoff
+        dist, kind = self._evaluate_feature_model_for_cutoff(sources, cutoff_hour, hgb_bundle, lr_coefs)
+        if not dist:
+            return dist, kind
+
+        # 2. Check if we can interpolate with the next cutoff
+        minute_of_day = self.minute_of_day(now)
+        cutoff_min = cutoff_hour * 60
+        
+        # Only interpolate if we are actually past the cutoff time
+        if minute_of_day is not None and minute_of_day > cutoff_min:
+            next_cutoff = next((c for c in INTRADAY_CUTOFF_HOURS if c > cutoff_hour), None)
+            if next_cutoff is not None:
+                dist_next, kind_next = self._evaluate_feature_model_for_cutoff(sources, next_cutoff, hgb_bundle, lr_coefs)
+                
+                # Only blend if both predictions succeeded and are of the same type
+                if dist_next and kind_next == kind:
+                    next_min = next_cutoff * 60
+                    
+                    # Prevent extrapolation past the next cutoff (e.g., if we are somehow past next_min)
+                    current_min = min(minute_of_day, next_min)
+                    
+                    weight_next = (current_min - cutoff_min) / (next_min - cutoff_min)
+                    weight_prev = 1.0 - weight_next
+                    
+                    blended = {}
+                    all_keys = set(dist.keys()) | set(dist_next.keys())
+                    for k in all_keys:
+                        blended[k] = dist.get(k, 0.0) * weight_prev + dist_next.get(k, 0.0) * weight_next
+                        
+                    return blended, kind
+
+        return dist, kind
+
 
     def get_bucket_transitions(self, sources, now):
         history = self.source_data(sources, "wu_history")
@@ -621,7 +681,7 @@ class FeatureModelMixin:
             self.cloud_group(feature_latest.get("condition"), feature_latest.get("clouds"))
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
-        today_forecast_high = open_meteo.get("day_max_c") or self.max_row_temp(open_meteo.get("rows"))
+        today_forecast_high, _ = self.resolve_forecast_high(open_meteo, weather_forecast, eccc_city)
         today_forecast_gap = (
             today_forecast_high - today_high
             if today_forecast_high is not None and today_high is not None
