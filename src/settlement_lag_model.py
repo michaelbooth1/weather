@@ -307,6 +307,23 @@ def summarize_revisions(rows):
     return dict(sorted(contexts.items()))
 
 
+def revision_up_probability(artifact, cutoff_hour):
+    """Learned P(WU final bucket > the bucket printed through ``cutoff_hour``),
+    unconditional over historical days. The live late-day lock-in uses
+    ``1 - rate`` as an hour-anchored strength floor. Hours are clamped to the
+    trained CUTOFF_HOURS range so late-evening queries reuse the 20:00 rate."""
+    if not artifact or cutoff_hour is None:
+        return None
+    contexts = artifact.get("revision_contexts") or {}
+    cfg = artifact.get("component") or {}
+    min_n = int(cfg.get("min_context_n", 20))
+    hour = max(CUTOFF_HOURS[0], min(CUTOFF_HOURS[-1], int(cutoff_hour)))
+    row = contexts.get(f"hour={hour}")
+    if row and int(row.get("n", 0)) >= min_n:
+        return float(row["revision_up_rate"])
+    return None
+
+
 def settlement_catchup_probability(
     artifact,
     source,

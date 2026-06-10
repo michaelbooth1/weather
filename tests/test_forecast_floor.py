@@ -21,6 +21,68 @@ class TestForecastFloorTimeWeight(unittest.TestCase):
         self.assertEqual(self.m.forecast_floor_time_weight(18), 0.0)
 
 
+class TestUnfalsifiedForecasts(unittest.TestCase):
+    """The stale-forecast bench (v0.5.5): a source still claiming >=1C above a
+    WU high that has stood unimproved 90+ minutes (past 13:00) loses its
+    floor/pull vote. The 2026-06-09 shape: high 24 printed 12:35, Open-Meteo
+    27.6 all afternoon."""
+
+    def setUp(self):
+        self.m = TorontoHighTempModel()
+
+    def _now(self, hour, minute=0):
+        from datetime import datetime
+        return datetime(2026, 6, 9, hour, minute)
+
+    def test_benches_stale_sources_past_peak(self):
+        history = {"max_c": 24.0, "max_times": ["12:35"]}
+        votes = self.m.unfalsified_forecasts(
+            [24.0, 27.6, 26.0], history, self._now(14, 30)
+        )
+        # OM 27.6 and ECCC 26 are benched (> 24 + 1); Weather.com 24 survives.
+        self.assertEqual(votes, [24.0])
+
+    def test_no_bench_in_the_morning(self):
+        # Mornings plateau before the ramp; benching at 09:00 would recreate
+        # the measured morning-skepticism failure.
+        history = {"max_c": 18.0, "max_times": ["07:10"]}
+        votes = self.m.unfalsified_forecasts(
+            [27.0, 26.0], history, self._now(9, 0)
+        )
+        self.assertEqual(votes, [27.0, 26.0])
+
+    def test_no_bench_while_high_is_fresh(self):
+        # High reached 40 minutes ago: the day may still be ramping.
+        history = {"max_c": 24.0, "max_times": ["13:50"]}
+        votes = self.m.unfalsified_forecasts(
+            [27.6, 26.0], history, self._now(14, 30)
+        )
+        self.assertEqual(votes, [27.6, 26.0])
+
+    def test_rising_high_resets_the_clock(self):
+        # The high improved to 25 at 14:20 (max_times resets to the new max):
+        # sources above it get a fresh window.
+        history = {"max_c": 25.0, "max_times": ["14:20"]}
+        votes = self.m.unfalsified_forecasts(
+            [27.6, 26.0], history, self._now(15, 0)
+        )
+        self.assertEqual(votes, [27.6, 26.0])
+
+    def test_claims_near_the_high_keep_their_vote(self):
+        history = {"max_c": 24.0, "max_times": ["12:35"]}
+        votes = self.m.unfalsified_forecasts(
+            [24.8, 25.0, None], history, self._now(15, 0)
+        )
+        # Within high + 1: both keep voting; None passes through untouched.
+        self.assertEqual(votes, [24.8, 25.0, None])
+
+    def test_no_history_high_means_no_bench(self):
+        votes = self.m.unfalsified_forecasts(
+            [27.0], {"max_c": None, "max_times": []}, self._now(15, 0)
+        )
+        self.assertEqual(votes, [27.0])
+
+
 class TestForecastFloorPlan(unittest.TestCase):
     def setUp(self):
         self.m = TorontoHighTempModel()

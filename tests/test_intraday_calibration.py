@@ -200,7 +200,11 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             model._last_probability_calibration_context["observed_support_bucket"],
             18,
         )
-        self.assertLess(distribution[17], 0.001)
+        # One below the stacked SWOB+current hedged floors: suppressed but
+        # never near-hard (v0.5.4 doctrine; margin robust to the per-hour
+        # tuned blend weights from the v0.5.5 LOO retrain).
+        self.assertLess(distribution[17], 0.05)
+        self.assertGreater(distribution[17], 0.0005)
         self.assertGreater(distribution[18], 0.05)
 
     def test_current_temperature_moves_probability_off_lagging_wu_bucket(self):
@@ -244,11 +248,13 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         now = datetime(2026, 6, 1, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
         distribution = model.estimate_distribution(sources, now=now)
 
-        self.assertLess(distribution[18], 0.01)
-        # The current-observed floor moves the bulk off the lagging WU bucket onto
-        # 19-20 (vs climatology's 0.22). Threshold 0.70 (was 0.75): the hour-aware
-        # calibration softens slightly more at the genuinely-overconfident 16:00.
-        self.assertGreater(distribution[19] + distribution[20], 0.70)
+        # SWOB (19.2), wu_current (19), and METAR (19) all lead the stuck WU
+        # bucket, so the corroborated catch-up floors move the bulk onto 19-20.
+        # v0.5.4: suppressed through hedged floors, no longer the near-hard
+        # 0.001 hedge -- 18 keeps a small but real residual.
+        self.assertLess(distribution[18], 0.10)
+        self.assertGreater(distribution[18], 0.005)
+        self.assertGreater(distribution[19] + distribution[20], 0.60)
 
     def test_feature_model_uses_current_max_since_7am_as_soft_signal_only(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
@@ -291,12 +297,18 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         without_soft_max = model.estimate_distribution(sources_with_current_max(18.0))
         with_soft_max = model.estimate_distribution(sources_with_current_max(19.0))
 
-        self.assertLess(with_soft_max[17], 0.001)
+        # Below the hedged observation floors: suppressed, never near-hard.
+        self.assertLess(with_soft_max[17], 0.05)
         self.assertGreater(with_soft_max[18], 0.05)
         self.assertGreater(with_soft_max[19], without_soft_max[19])
         self.assertLess(with_soft_max[18], without_soft_max[18])
 
-    def test_current_temperature_is_near_hard_resolution_floor(self):
+    def test_current_temperature_is_hedged_floor_not_near_hard(self):
+        # v0.5.4 doctrine: a lone live current reading above the printed WU
+        # bucket is a HEDGED floor sized by its learned catch-up rate (~41%
+        # for wu_current), never the old near-hard 0.001 hedge that priced a
+        # non-resolution reading like settlement proof (audit finding #5; the
+        # stage analysis measured that sizing net-negative for Toronto).
         model = TorontoHighTempModel(target_date="2026-05-28")
         model.calibrated_weights = None
         model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
@@ -339,8 +351,11 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         explanation = model.get_model_explanation(sources, distribution)
 
         self.assertEqual(explanation["observed_floor"], 18)
-        self.assertGreater(distribution[18], 0.001)
-        self.assertLess(distribution[18], 0.01)
+        # Suppressed below the reading, but with real residual mass: at ~41%
+        # measured catch-up, "WU never prints 19" is the more likely branch.
+        self.assertGreater(distribution[18], 0.10)
+        self.assertLess(distribution[18], 0.45)
+        self.assertGreater(distribution[19], distribution[18])
         self.assertGreater(distribution[19], 0.10)
 
     def test_eccc_swob_is_not_hard_resolution_floor(self):

@@ -18,7 +18,11 @@ from feature_store import (
     build_historical_feature_record,
 )
 
-RUN_LOO = False
+# LOO must stay ON: without it the retrain exports artifacts with no
+# validation report AND flat 0.80 blend weights (the per-hour tuning only runs
+# inside the LOO loop). The 2026-06-08 retrain ran with this False and shipped
+# the 45-year model unvalidated -- the 2026-06-09 audit's finding #6.
+RUN_LOO = True
 
 # We will use scikit-learn models
 from sklearn.linear_model import LogisticRegression

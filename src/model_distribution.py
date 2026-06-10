@@ -22,7 +22,7 @@ from model_constants import (
 )
 from forecast_error_model import forecast_error_distribution
 from probability_calibration import apply_exact_distribution_calibration
-from settlement_lag_model import settlement_catchup_probability
+from settlement_lag_model import revision_up_probability, settlement_catchup_probability
 
 # --- Forecast floor ---------------------------------------------------------
 # The cap bounds the distribution from above (the high won't exceed the
@@ -33,8 +33,26 @@ from settlement_lag_model import settlement_catchup_probability
 FORECAST_FLOOR_MARGIN = 2            # "almost certainly reaches forecast minus this"
                                      # (2 for same-day forecasts, which rarely miss low by >2)
 FORECAST_AGREEMENT_SPREAD = 5.0      # forecasts must agree within this many degrees
+                                     # (v0.5.1 widened from 3.0; the 2026-06-09 replay
+                                     # regate measured 3.0 worse by ~0.0003 once the
+                                     # falsification bench guards the stale-source case)
 FORECAST_FLOOR_MIN_SOURCES = 2       # and come from at least this many sources
 FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (softer than the cap)
+
+# --- Forecast falsification bench -------------------------------------------
+# A forecast the observed day has already falsified must not keep propping up
+# the FLOOR (2026-06-09: Open-Meteo said 27.6 C all afternoon while the WU
+# high of 24 printed at 12:35 and never rose). A source loses its floor vote
+# when it is past the peak window, the printed high has stood unimproved for
+# the falsification window, and the source still claims a degree or more above
+# it. The PULL deliberately keeps every source: it is a two-way blend toward
+# forecast uncertainty, and replays measured that benching it backfires (it
+# was softening the over-sharp feature model on the bust day). Serving-side
+# only: the trained forecast FEATURE (resolve_forecast_high) is not benched,
+# so no train/serve skew is introduced.
+FALSIFICATION_EARLIEST_HOUR = 13   # mornings plateau before the ramp; never bench early
+FALSIFICATION_STAND_MINUTES = 90   # the high must have stood unimproved this long
+FALSIFICATION_MARGIN = 1.0         # C above the standing high a claim must exceed
 
 # --- Forecast pull (upper-tail mirror of the forecast floor) ----------------
 # The floor lifts the BOTTOM; the pull lifts the TOP. The HGB feature model
@@ -56,17 +74,20 @@ FORECAST_PULL_START_HOUR = 12       # full strength through noon (the high usual
                                     # not reached until mid-afternoon)
 FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 
-# --- Live-observed floor ----------------------------------------------------
+# --- Live-observed floors ---------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall
-# for hours. SWOB station observations lead it by ~1 hour and match the WU final
-# high within ~0.3 C. So when SWOB has already observed a higher bucket than WU
-# history has printed, the high has physically reached there: suppress mass below
-# it. Soft one bucket down (SWOB's +0.3 bias can round it up — the v0.4.8 case),
-# strong further down. This is observed data, not a forecast, so no time decay.
-LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below the SWOB bucket
+# for hours. Non-resolution observations (SWOB, Weather.com current, METAR) can
+# lead it, so a higher observed bucket suppresses mass below it -- but ONLY as a
+# hedged floor sized by the learned WU catch-up rate for that source
+# (settlement_lag_model), clamped so it can never become a hard settlement
+# floor. WU history itself stays the only hard floor: v0.4.8 made SWOB hard and
+# was wrong; the 2026-06-09 audit found the current/METAR floor near-hard
+# (0.001) the same way, and the stage/ablation analyses measured both floors
+# net-negative for Toronto at that sizing.
+LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below, when no learned rate
 LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
-CURRENT_OBSERVED_FLOOR_HEDGE = 0.001
-CURRENT_OBSERVED_FLOOR_BASE = 0.05
+LIVE_FLOOR_HEDGE_MIN = 0.30   # hedge clamp: never harder than this...
+LIVE_FLOOR_HEDGE_MAX = 0.80   # ...and never weaker than this when a rate exists
 
 # --- Late-day lock-in (upper-tail mirror of the floors) ---------------------
 # The biggest model-vs-market gap is end-of-day under-confidence: once the day
@@ -81,6 +102,16 @@ LATE_LOCKIN_FULL_HOUR = 17     # full strength by this hour (the high is locked 
 LATE_LOCKIN_PEAK_DROP = 2.0    # degrees the temp must fall below the high for full past-peak
 LATE_LOCKIN_HEDGE = 0.05       # retained fraction one bucket above the high at full strength
 LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
+# The heuristic above needs the temperature to FALL off the peak; an evening
+# plateau (current == high) left strength at 0 all night on 2026-06-09 while
+# the market sat at 92% -- "it could still rise" priced at 20%+ against a
+# learned ~2-5% revision-up rate. The learned floor below uses the lag
+# artifact's measured P(WU final > printed high | hour) curve (91.9% at 10:00
+# -> 16.3% at 16:00 -> 0.3% at 20:00) as 1 - rate, gated to late hours and a
+# high that has already stood, where conditioning on the day's shape no longer
+# dominates the unconditional rate.
+LEARNED_LOCKIN_START_HOUR = 17   # the unconditional rate is trustworthy from here
+LEARNED_LOCKIN_STAND_MINUTES = 90  # a just-reached high keeps the heuristic only
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 
 
@@ -97,19 +128,7 @@ class DistributionMixin:
         wu_bucket = self.round_half_up(history_max)
         if wu_bucket is not None and swob_bucket <= wu_bucket:
             return self.normalize_scores(scores)  # WU floor already covers it
-        catchup_probability = settlement_catchup_probability(
-            getattr(self, "settlement_lag_model", None),
-            "eccc_swob",
-            swob_bucket,
-            wu_bucket,
-            cutoff_hour=hour,
-        )
-        one_bucket_hedge = LIVE_FLOOR_HEDGE
-        if catchup_probability is not None:
-            # SWOB is not the settlement source. Even when historical catch-up
-            # rates are high, keep a meaningful one-bucket hedge to avoid
-            # recreating a hard non-resolution floor.
-            one_bucket_hedge = max(0.30, min(0.80, 1.0 - catchup_probability))
+        one_bucket_hedge = self.catchup_floor_hedge("eccc_swob", swob_bucket, wu_bucket, hour)
         adjusted = {}
         for temp, score in scores.items():
             if temp >= swob_bucket:
@@ -119,29 +138,53 @@ class DistributionMixin:
                 adjusted[temp] = score * one_bucket_hedge * (LIVE_FLOOR_BASE ** (below - 1))
         return self.normalize_scores(adjusted)
 
-    def apply_current_observed_floor(self, scores, current_observed_max, history_max):
-        """Strongly suppress buckets below current observed temperature readings.
+    def catchup_floor_hedge(self, source, source_bucket, wu_bucket, hour):
+        """One-bucket-below retained fraction for a non-resolution observed
+        floor, sized by the source's learned WU catch-up rate and clamped so no
+        non-resolution source becomes a hard settlement floor."""
+        catchup_probability = settlement_catchup_probability(
+            getattr(self, "settlement_lag_model", None),
+            source,
+            source_bucket,
+            wu_bucket,
+            cutoff_hour=hour,
+        )
+        if catchup_probability is None:
+            return LIVE_FLOOR_HEDGE
+        return max(LIVE_FLOOR_HEDGE_MIN, min(LIVE_FLOOR_HEDGE_MAX, 1.0 - catchup_probability))
 
-        This uses live current-temperature readings, not max-since-7am, because
-        max-since can overstate the eventual WU settlement bucket by rounding.
+    def apply_current_observed_floor(self, scores, current_temp, metar_temp, history_max, hour=None):
+        """Suppress buckets below the highest live current-temperature reading,
+        hedged by that source's learned WU catch-up rate (same machinery as the
+        SWOB floor -- these are non-resolution readings and must never act as a
+        hard floor; the measured Toronto wu_current catch-up is only ~41%).
+
+        Uses live current readings, not max-since-7am, because max-since can
+        overstate the eventual WU settlement bucket by rounding.
         """
-        support_bucket = self.round_half_up(current_observed_max)
-        if support_bucket is None:
+        candidates = []
+        for source, value in (("weather_current", current_temp), ("metar", metar_temp)):
+            bucket = self.round_half_up(value)
+            if bucket is not None:
+                candidates.append((bucket, source))
+        if not candidates:
             return self.normalize_scores(scores)
+        support_bucket = max(bucket for bucket, _ in candidates)
+        leaders = [source for bucket, source in candidates if bucket == support_bucket]
+        # On a tie, METAR's measured catch-up (~66%) outranks weather_current's
+        # (~41%); sizing by the stronger-evidence source is the sharper hedge.
+        source = "metar" if "metar" in leaders else leaders[0]
         history_bucket = self.round_half_up(history_max)
         if history_bucket is not None and support_bucket <= history_bucket:
             return self.normalize_scores(scores)
+        one_bucket_hedge = self.catchup_floor_hedge(source, support_bucket, history_bucket, hour)
         adjusted = {}
         for temp, score in scores.items():
             if temp >= support_bucket:
                 adjusted[temp] = score
             else:
                 below = support_bucket - temp
-                adjusted[temp] = (
-                    score
-                    * CURRENT_OBSERVED_FLOOR_HEDGE
-                    * (CURRENT_OBSERVED_FLOOR_BASE ** (below - 1))
-                )
+                adjusted[temp] = score * one_bucket_hedge * (LIVE_FLOOR_BASE ** (below - 1))
         return self.normalize_scores(adjusted)
 
     def late_day_lockin_strength(self, hour, current_reading, history_max):
@@ -168,6 +211,28 @@ class DistributionMixin:
             peak_factor = drop / peak_drop
         return time_factor * peak_factor
 
+    def learned_lockin_strength(self, hour, history, now):
+        """Lock-in floor from the learned WU revision-up curve: ``1 - rate``
+        once it is late (>= LEARNED_LOCKIN_START_HOUR) and the printed high has
+        stood unimproved for LEARNED_LOCKIN_STAND_MINUTES. Covers the evening
+        plateau the past-peak heuristic misses (current == high => drop 0)."""
+        if hour < LEARNED_LOCKIN_START_HOUR:
+            return 0.0
+        history_max = self.to_number(history.get("max_c"))
+        max_times = history.get("max_times") or []
+        if history_max is None or not max_times:
+            return 0.0
+        first_at_max = self.minute_of_day(max_times[0])
+        if first_at_max is None:
+            return 0.0
+        stood_minutes = (now.hour * 60 + now.minute) - first_at_max
+        if stood_minutes < LEARNED_LOCKIN_STAND_MINUTES:
+            return 0.0
+        rate = revision_up_probability(getattr(self, "settlement_lag_model", None), hour)
+        if rate is None:
+            return 0.0
+        return max(0.0, min(1.0, 1.0 - rate))
+
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):
         """Suppress buckets above the observed high as the day locks in. Soft one
         bucket up (WU history can still revise up a degree), strong further up.
@@ -191,6 +256,31 @@ class DistributionMixin:
                 factor = (1.0 - strength) + strength * full_retained
                 adjusted[temp] = score * factor
         return self.normalize_scores(adjusted)
+
+    def unfalsified_forecasts(self, forecasts, history, now):
+        """Drop forecast values the observed day has falsified, for the
+        floor/pull votes only. Falsified = past the peak window, the printed
+        WU high has stood unimproved for FALSIFICATION_STAND_MINUTES, and the
+        source still claims more than FALSIFICATION_MARGIN above it. If the
+        high later rises, max_times resets and benched sources are readmitted.
+        """
+        if now.hour < FALSIFICATION_EARLIEST_HOUR:
+            return forecasts
+        history_max = self.to_number(history.get("max_c"))
+        max_times = history.get("max_times") or []
+        if history_max is None or not max_times:
+            return forecasts
+        first_at_max = self.minute_of_day(max_times[0])
+        if first_at_max is None:
+            return forecasts
+        stood_minutes = (now.hour * 60 + now.minute) - first_at_max
+        if stood_minutes < FALSIFICATION_STAND_MINUTES:
+            return forecasts
+        threshold = history_max + self.spec.scale_delta(FALSIFICATION_MARGIN)
+        return [
+            value for value in forecasts
+            if value is None or value <= threshold
+        ]
 
     def forecast_floor_time_weight(self, hour):
         """Strong in the morning (plenty of time to warm up), zero by late
@@ -642,11 +732,21 @@ class DistributionMixin:
 
         # Symmetric to the cap: when forecasts agree, the high will very likely
         # reach near them, so suppress mass far below the forecast (soft, and
-        # only while there's still daytime to warm up).
+        # only while there's still daytime to warm up). Sources the observed
+        # day has falsified lose their FLOOR vote: a stale forecast must not
+        # keep propping up the bottom. The pull keeps every source -- it is a
+        # two-way blend toward the forecast's uncertainty (it softens an
+        # over-sharp model as much as it lifts an under-called one), and
+        # benching it was measured to backfire on the 2026-06-09 bust day.
         if not using_calibrated_empirical:
+            floor_votes = self.unfalsified_forecasts(
+                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                history,
+                now,
+            )
             scores = self.apply_forecast_floor(
                 scores,
-                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                floor_votes,
                 now.hour,
                 observed_bucket,
             )
@@ -667,16 +767,23 @@ class DistributionMixin:
         distribution_components["settlement_lag_adjusted"] = dict(self.normalize_scores(scores))
         scores = self.apply_current_observed_floor(
             scores,
-            self.max_value(history_max, current_temp, metar_temp),
+            current_temp,
+            metar_temp,
             history_max,
+            hour=now.hour,
         )
         distribution_components["current_observed_floor"] = dict(self.normalize_scores(scores))
 
         # Late-day lock-in: once the day is past peak and the temperature is
         # falling, concentrate onto the observed high (suppress the upper tail
         # the high will no longer reach). Current reading prefers live temps.
+        # The learned revision curve floors the strength late, covering the
+        # evening-plateau case the past-peak heuristic cannot see.
         current_reading = current_temp if current_temp is not None else metar_temp
-        lockin_strength = self.late_day_lockin_strength(now.hour, current_reading, history_max)
+        lockin_strength = max(
+            self.late_day_lockin_strength(now.hour, current_reading, history_max),
+            self.learned_lockin_strength(now.hour, history, now),
+        )
         scores = self.apply_late_day_lockin(
             scores, history_max, current_reading, now.hour, strength=lockin_strength
         )

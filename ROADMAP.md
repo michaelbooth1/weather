@@ -1399,6 +1399,51 @@ Goal: squeeze the last edge once per-market models are solid.
 Acceptance: cross-market structure or microstructure adds settlement-scored or
 P&L value over independent per-market models.
 
+### 40. Intra-Hour Feature Freshness [DESIGNED 2026-06-10 - NOT STARTED]
+
+Goal: close the structural lag between WU prints without breaking train/serve
+parity. Between hourly prints the feature path is frozen at the last printed
+cutoff while the market trades continuously: the 2026-06-09 Toronto trace
+collapsed in staircase steps keyed to the 16:00/17:00 row prints, 52-62
+minutes behind the market. Two prior attempts failed for the same reason:
+the v0.5.1 mock-row injection fabricated settlement-source rows (reverted in
+v0.5.2), and the cutoff-interpolation path fed hour-H+1 models state that had
+not printed (dead code, and wrong if revived). The honest fix is to MODEL the
+live reading explicitly.
+
+Design (feature schema v0.3):
+
+- [ ] New features: `minutes_since_cutoff` (wall minus effective printed
+  cutoff), `live_reading_temp` (the current wu_current reading, kept separate
+  from the printed path), and `live_reading_minus_high` (reading minus printed
+  high; positive means the high is being exceeded right now). `high_so_far`
+  stays printed-only -- no live contamination of the settlement-source state.
+- [ ] Training extraction: for each historical day and cutoff hour H, emit
+  records at sampled wall offsets (H:10 / H:30 / H:50). The simulated live
+  reading is the latest observation at or before the sampled minute from the
+  same WU obs stream (wu_current and WU history are the same data family);
+  printed-path features use obs <= H:00 only. Strictly enforce minute <= t to
+  avoid leakage. Roughly 3x training rows per hour-model; expect a ~3x LOO
+  retrain (run overnight).
+- [ ] Serving: extract at the effective printed cutoff exactly as today, then
+  attach the live reading and elapsed minutes. No fabricated rows; the model
+  LEARNS how much a 15:38 reading 1.2 above the printed high moves the final
+  distribution.
+- [ ] Apply the same treatment to the late-day continuation model -- this also
+  fixes the audited time_since_reached wall-vs-cutoff training skew.
+- [ ] Parity: extend the feature-skew test with a live-reading scenario; bump
+  schema to v0.3 and stamp artifacts.
+- [ ] Gate: pinned-corpus replay A/B (frozen folders, finalized labels, both
+  runs back-to-back). Measure specifically by minutes-past-print buckets
+  (0-19 / 20-39 / 40-59): the gain should concentrate in the 20-59 windows
+  where the staircase flats live.
+- [ ] After promotion: re-run the per-source ablation for wu_current and the
+  current-observed floor -- once the model learns live readings as features,
+  the floor heuristic is likely redundant and should be retired by evidence.
+
+Acceptance: pinned replay improves in the 20-59 minutes-past-print windows
+without regressing the 0-19 window, and the feature-skew parity suite passes.
+
 ## Sequencing The Two Tracks
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any

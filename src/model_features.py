@@ -64,30 +64,38 @@ class FeatureModelMixin:
             return default
 
     def resolve_forecast_high(self, open_meteo, weather_forecast, eccc_city):
-        """Forecasted daily max for the feature model, using Open-Meteo as the
-        canonical source to match training data (no train-serve skew).
+        """Forecasted daily max for the feature model: the MEDIAN of the
+        available forecast sources' daily-max values.
 
-        Open-Meteo is the canonical source -- the model is trained on its
-        historical archive, so using it at inference keeps the feature
-        distribution identical to training. Only when Open-Meteo is unavailable
-        (fetch outage) do we fall back to the median of the other live forecasts,
-        rather than leaving the model forecast-blind. The post-processing
-        forecast floor/pull in model_distribution.py separately uses all three
-        sources as a consensus check, so outlier-robustness is handled there.
+        The feature's definition is "median of available sources". The
+        historical training archive contains exactly one source (Open-Meteo),
+        and the median of one value is that value -- so the training-side
+        construction is unchanged and the checked-in artifacts already match
+        this definition. Live, the median spans Open-Meteo, Weather.com, and
+        ECCC, so no single busted source can own the feature: the 2026-06-09
+        ablation replays measured Open-Meteo-first at ~zero net value (hurt 22
+        of 51 days) because its stale-forecast tail (NYC 6/8, Seattle and
+        Toronto 6/9) cancelled its good days, while the median is robust to
+        exactly that failure.
         """
+        values = []
         day_max = self.to_number(open_meteo.get("day_max_c"))
         if day_max is not None:
-            return day_max, "open_meteo"
-        others = []
+            values.append(("open_meteo", day_max))
         weather_com = self.max_row_temp(weather_forecast.get("rows"))
         if weather_com is not None:
-            others.append(weather_com)
+            values.append(("weather_forecast", weather_com))
         eccc_high = self.to_number(eccc_city.get("forecast_high_c"))
         if eccc_high is not None:
-            others.append(eccc_high)
-        if not others:
+            values.append(("eccc_citypage", eccc_high))
+        if not values:
             return None, "none"
-        return statistics.median(others), "fallback_consensus"
+        if len(values) == 1:
+            return values[0][1], values[0][0]
+        return (
+            statistics.median(value for _, value in values),
+            f"median_of_{len(values)}",
+        )
 
     def extract_live_features(self, sources, cutoff_hour):
         """Build the cutoff-aligned feature vector shared by the feature model

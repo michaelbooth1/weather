@@ -26,6 +26,62 @@ class TestLateDayLockinStrength(unittest.TestCase):
         self.assertAlmostEqual(self.m.late_day_lockin_strength(16, 24.0, 25.0), 0.5 * 0.5)
 
 
+class TestLearnedLockinStrength(unittest.TestCase):
+    """v0.5.6: the lag artifact's revision-up curve floors the lock-in late,
+    covering the evening plateau (current == high -> heuristic drop 0) where
+    the 2026-06-09 model held 20%+ above the high against a learned ~2-5%
+    revision rate."""
+
+    def setUp(self):
+        from datetime import datetime
+        self.datetime = datetime
+        self.m = TorontoHighTempModel()
+        self.m.settlement_lag_model = {
+            "component": {"min_context_n": 20},
+            "revision_contexts": {
+                "hour=17": {"n": 600, "revision_up_rate": 0.08},
+                "hour=19": {"n": 600, "revision_up_rate": 0.02},
+                "hour=20": {"n": 600, "revision_up_rate": 0.003},
+            },
+        }
+        self.history = {"max_c": 24.0, "max_times": ["12:35"]}
+
+    def _now(self, hour, minute=0):
+        return self.datetime(2026, 6, 9, hour, minute)
+
+    def test_plateau_evening_gets_learned_lock(self):
+        strength = self.m.learned_lockin_strength(19, self.history, self._now(19, 10))
+        self.assertAlmostEqual(strength, 0.98)
+
+    def test_zero_before_learned_start_hour(self):
+        self.assertEqual(
+            self.m.learned_lockin_strength(16, self.history, self._now(16, 30)), 0.0
+        )
+
+    def test_zero_while_high_is_fresh(self):
+        fresh = {"max_c": 24.0, "max_times": ["18:40"]}
+        self.assertEqual(
+            self.m.learned_lockin_strength(19, fresh, self._now(19, 30)), 0.0
+        )
+
+    def test_zero_without_artifact(self):
+        self.m.settlement_lag_model = None
+        self.assertEqual(
+            self.m.learned_lockin_strength(19, self.history, self._now(19, 10)), 0.0
+        )
+
+    def test_late_evening_clamps_to_last_trained_hour(self):
+        # hour 22 reuses the 20:00 context.
+        strength = self.m.learned_lockin_strength(22, self.history, self._now(22, 0))
+        self.assertAlmostEqual(strength, 0.997)
+
+    def test_thin_context_is_ignored(self):
+        self.m.settlement_lag_model["revision_contexts"]["hour=19"]["n"] = 5
+        self.assertEqual(
+            self.m.learned_lockin_strength(19, self.history, self._now(19, 10)), 0.0
+        )
+
+
 class TestApplyLateDayLockin(unittest.TestCase):
     def setUp(self):
         self.m = TorontoHighTempModel()
