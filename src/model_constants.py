@@ -67,7 +67,13 @@ LIVE_CACHE_MAX_AGE_MINUTES = 90
 # the 2026-06-09 bust day). Serving-side only; the trained HGB forecast
 # feature is untouched. The replay regate also confirmed the v0.5.1
 # FORECAST_AGREEMENT_SPREAD widening (5.0) beats reverting to 3.0.
-ML_MODEL_VERSION = "v0.5.6"
+# v0.5.7: intra-hour freshness (ROADMAP item 40, feature schema v0.3). The
+# minutes elapsed past the printed cutoff and the live wu_current reading are
+# TRAINED features (trained at sampled wall offsets with interpolated
+# readings), replacing the reverted v0.5.1 injection and the deleted
+# cutoff-interpolation path. June-9 staircase probe: the 50% crossing on the
+# winning band moved ~40-50 minutes earlier.
+ML_MODEL_VERSION = "v0.5.7"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

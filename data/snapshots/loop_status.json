@@ -1,12 +1,13 @@
 {
   "consecutive_errors": 0,
   "interval_minutes": 10.0,
-  "iterations": 8,
+  "iterations": 0,
   "last_error": null,
-  "last_heartbeat": "2026-06-10T12:24:23.307052-04:00",
-  "last_snapshot_id": "20260610T122424-0400",
-  "last_snapshot_written_at": "2026-06-10T12:24:23.307052-04:00",
+  "last_heartbeat": "2026-06-10T14:02:14.720946-04:00",
+  "last_snapshot_id": null,
+  "last_snapshot_written_at": null,
   "paused": false,
-  "pid": 4420,
-  "started_at": "2026-06-10T11:12:44.459481-04:00"
+  "pid": 13820,
+  "started_at": "2026-06-10T14:02:14.720946-04:00",
+  "started_by": "supervisor"
 }

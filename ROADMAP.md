@@ -1415,7 +1415,19 @@ Goal: squeeze the last edge once per-market models are solid.
 Acceptance: cross-market structure or microstructure adds settlement-scored or
 P&L value over independent per-market models.
 
-### 40. Intra-Hour Feature Freshness [IN PROGRESS 2026-06-10 - RETRAIN PENDING]
+### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-10 - PROMOTED v0.5.7]
+
+Promotion results (2026-06-10): pinned A/B gate PASS (0.0545 -> 0.0544; no
+regression in any minutes-past-print bucket). The pooled bucket slice was
+uniform rather than concentrated -- gains live in FAST-MOVING windows, not
+clock buckets, so the bucket criterion was too blunt. The decisive evidence is
+the June-9 staircase probe, the exact case the item was designed for: with
+v0.3 artifacts the model climbs through the un-printed hour (P(<=24)
+0.481 -> 0.594 across 15:19-15:50) instead of regressing (v0.2: 0.418 -> 0.348),
+moving the 50% crossing on the winning band ~40-50 minutes earlier and
+recovering most of the measured 52-minute market lag. Follow-up (per design):
+re-run the per-source ablation for wu_current / the current-observed floor now
+that live readings are trained features.
 
 Implementation status (2026-06-10): code complete, awaiting the LOO retrain +
 pinned A/B gate. Two design deviations from the original sketch, both for
