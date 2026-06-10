@@ -61,6 +61,9 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m src.snapshot_tracker --force
 .\venv\Scripts\python.exe -m src.snapshot_tracker --loop --interval-minutes 10
 .\venv\Scripts\python.exe -m src.snapshot_tracker --status   # is the loop alive?
+.\venv\Scripts\python.exe -m src.snapshot_tracker --restart  # deploy new code to the loop
+.\venv\Scripts\python.exe -m src.snapshot_tracker --stop     # terminate the managed loop
+.\venv\Scripts\python.exe -m src.snapshot_tracker --ensure   # supervisor check (Task Scheduler runs this)
 
 # Collection health: which captured days are clean (gap/coverage check)
 .\venv\Scripts\python.exe -m src.collection_health
@@ -81,10 +84,21 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe src\data_auditor.py
 ```
 
-For resilient collection, run `--loop` under an OS supervisor that restarts it
-(Windows Task Scheduler with "restart on failure", or run at logon). The loop
-survives transient capture errors itself; `--status` (heartbeat-based) tells you
-if the process is alive, and `diagnostics.jsonl` records every iteration.
+For resilient collection, register the supervisor scheduled task once:
+
+```powershell
+.\scripts\register_snapshot_supervisor.ps1
+```
+
+Task Scheduler then runs `snapshot_tracker --ensure` every 10 minutes and at
+logon. `--ensure` keeps exactly one healthy detached loop alive: it no-ops on a
+fresh heartbeat, starts the loop after a silent death or reboot, and
+kills-and-restarts a hung process (live PID, stale heartbeat). To deploy new
+code to the loop use `--restart`; to stop collection on purpose, disable the
+task and run `--stop` (the pause flag alone keeps the process alive). The loop
+survives transient capture errors itself; `--status` (heartbeat-based) shows
+its health, `diagnostics.jsonl` records every iteration and supervisor action,
+and the loop's console output goes to `data/snapshots/loop_console.log`.
 
 ## Data layout
 

@@ -2,6 +2,8 @@ import argparse
 import csv
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -424,9 +426,20 @@ class SnapshotStore:
         return f"eq_{value}c"
 
     def append_csv(self, path, columns, rows):
+        """Append rows; an EXISTING file keeps its own header (schema drift
+        guard: appending wider-schema rows under an older header would
+        misalign every subsequent column). New files get the current schema."""
         write_header = not path.exists()
+        if not write_header:
+            try:
+                with path.open("r", encoding="utf-8", newline="") as handle:
+                    existing_header = next(csv.reader(handle), None)
+                if existing_header:
+                    columns = existing_header
+            except (OSError, csv.Error):
+                pass
         with path.open("a", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
             if write_header:
                 writer.writeheader()
             for row in rows:
@@ -524,6 +537,8 @@ SNAPSHOT_DATA_ROOT = Path("data") / "snapshots"
 PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
+LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def read_loop_status():
@@ -602,6 +617,107 @@ def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
         as_of=now,
     )
     return serialize_summary(summary)
+
+
+def pid_is_python(pid):
+    """True when ``pid`` exists AND is a python process. Guards against PID
+    reuse by unrelated processes before --stop terminates anything."""
+    if not pid:
+        return False
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout
+        return "python" in out.lower()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
+def stop_loop(now=None):
+    """Terminate the managed loop recorded in the status file, if it is alive.
+    Returns a result dict; never raises for an already-dead loop."""
+    now = now or datetime.now(TORONTO_TZ)
+    status = read_loop_status()
+    pid = (status or {}).get("pid")
+    if not pid_is_python(pid):
+        return {"stopped": False, "reason": f"no live loop process (pid={pid})"}
+    os.kill(int(pid), signal.SIGTERM)
+    if status is not None:
+        status["last_stop_requested_at"] = now.isoformat()
+        write_loop_status(status)
+    append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid})
+    return {"stopped": True, "pid": pid}
+
+
+def start_loop_detached(interval_minutes=10.0, now=None):
+    """Spawn the loop as a detached process (survives this process exiting),
+    console output appended to ``loop_console.log``. Writes a provisional
+    status immediately so a racing --ensure does not double-start."""
+    now = now or datetime.now(TORONTO_TZ)
+    LOOP_CONSOLE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = LOOP_CONSOLE_LOG_PATH.open("a", encoding="utf-8")
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    child = subprocess.Popen(
+        [sys.executable, "-m", "src.snapshot_tracker", "--loop",
+         "--interval-minutes", str(interval_minutes)],
+        cwd=str(REPO_ROOT),
+        stdout=log_handle,
+        stderr=log_handle,
+        creationflags=creationflags,
+    )
+    log_handle.close()
+    write_loop_status({
+        "pid": child.pid,
+        "started_at": now.isoformat(),
+        "last_heartbeat": now.isoformat(),
+        "interval_minutes": interval_minutes,
+        "iterations": 0,
+        "consecutive_errors": 0,
+        "last_error": None,
+        "last_snapshot_id": None,
+        "last_snapshot_written_at": None,
+        "paused": PAUSE_FLAG_PATH.exists(),
+        "started_by": "supervisor",
+    })
+    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid})
+    return {"started": True, "pid": child.pid}
+
+
+def ensure_decision(health_state, pid_alive):
+    """Pure supervisor decision: what --ensure should do given loop health.
+
+    RUNNING/PAUSED are healthy (paused is operator intent); ERRORING is alive
+    and already logging failures, so leave it visible rather than masking it
+    with restarts. A stale heartbeat with a live PID is a HUNG process: kill
+    and start fresh. Dead or never-started: start.
+    """
+    if health_state in ("RUNNING", "PAUSED", "ERRORING"):
+        return "noop"
+    if pid_alive:
+        return "restart"
+    return "start"
+
+
+def ensure_loop(interval_minutes=10.0, now=None):
+    """The supervisor verb Task Scheduler runs every few minutes: keep exactly
+    one healthy loop alive across silent deaths, hangs, and reboots."""
+    now = now or datetime.now(TORONTO_TZ)
+    status = read_loop_status()
+    health = loop_health(status, now, interval_minutes)
+    alive = pid_is_python((status or {}).get("pid"))
+    action = ensure_decision(health["state"], alive)
+    result = {"action": action, "state": health["state"], "pid": health.get("pid")}
+    if action == "restart":
+        result["stop"] = stop_loop(now=now)
+        result["start"] = start_loop_detached(interval_minutes, now=now)
+    elif action == "start":
+        result["start"] = start_loop_detached(interval_minutes, now=now)
+    if action != "noop":
+        append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+    return result
 
 
 def run_loop(force=False, interval_minutes=10.0):
@@ -694,6 +810,27 @@ def main():
         default=1.5,
         help="Collection gap tolerance multiplier used by --status.",
     )
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Terminate the managed loop process recorded in loop_status.json.",
+    )
+    parser.add_argument(
+        "--start-detached",
+        action="store_true",
+        help="Start the loop as a detached background process (refuses if one is healthy).",
+    )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Stop the managed loop (if alive) and start a fresh detached one with current code.",
+    )
+    parser.add_argument(
+        "--ensure",
+        action="store_true",
+        help="Supervisor check: start/restart the loop only if it is dead or hung. "
+             "Run this from Task Scheduler every few minutes.",
+    )
     args = parser.parse_args()
 
     if args.status:
@@ -703,6 +840,23 @@ def main():
             tolerance=args.status_tolerance,
         )
         print(json.dumps(health, indent=2, sort_keys=True, default=str))
+        return
+    if args.stop:
+        print(json.dumps(stop_loop(), indent=2, sort_keys=True))
+        return
+    if args.restart:
+        result = {"stop": stop_loop(), "start": start_loop_detached(args.interval_minutes)}
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+    if args.start_detached:
+        health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
+        if health["state"] in ("RUNNING", "PAUSED", "ERRORING") and pid_is_python(health.get("pid")):
+            print(json.dumps({"started": False, "reason": f"loop already {health['state']}"}, indent=2))
+            return
+        print(json.dumps(start_loop_detached(args.interval_minutes), indent=2, sort_keys=True))
+        return
+    if args.ensure:
+        print(json.dumps(ensure_loop(args.interval_minutes), indent=2, sort_keys=True, default=str))
         return
     if not args.loop:
         print(json.dumps(capture_snapshot(force=args.force), indent=2, sort_keys=True))

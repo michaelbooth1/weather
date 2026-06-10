@@ -9,7 +9,7 @@ from feature_store import (
     build_live_feature_record,
 )
 from forecast_history import load_forecast_daily, daily_path_for
-from model_constants import _UNLOADED, INTRADAY_CUTOFF_HOURS
+from model_constants import _UNLOADED
 
 
 class FeatureModelMixin:
@@ -97,7 +97,7 @@ class FeatureModelMixin:
             f"median_of_{len(values)}",
         )
 
-    def extract_live_features(self, sources, cutoff_hour):
+    def extract_live_features(self, sources, cutoff_hour, now=None):
         """Build the cutoff-aligned feature vector shared by the feature model
         (HGB/LR) and the late-day continuation model.
 
@@ -105,6 +105,11 @@ class FeatureModelMixin:
         identically at inference time to avoid train/serve skew. This is the
         single source of truth for that extraction; callers add any model-
         specific features (e.g. late-day ``time_since_reached``) on top.
+
+        ``now`` powers the v0.3 intra-hour freshness features (item 40):
+        minutes elapsed past the printed cutoff plus the live wu_current
+        reading, modeled explicitly instead of fabricated into history rows.
+        Without ``now`` they degrade to the at-print state (0 elapsed).
 
         Note: ``find_analog_days`` deliberately keeps its own extraction because
         it bails out on missing data instead of substituting seasonal defaults.
@@ -209,6 +214,25 @@ class FeatureModelMixin:
         )
         forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
 
+        # Intra-hour freshness (schema v0.3): the live wu_current reading and
+        # the minutes elapsed since the printed cutoff, as explicit features.
+        # The printed path above stays <= the cutoff; a missing reading stays
+        # None (native NaN for the HGB).
+        minutes_since_cutoff = 0.0
+        if now is not None:
+            try:
+                minutes_since_cutoff = float(
+                    max(0, now.hour * 60 + now.minute - cutoff_hour * 60)
+                )
+            except (AttributeError, TypeError):
+                minutes_since_cutoff = 0.0
+        live_reading = self.to_number(current.get("temp_c"))
+        live_reading_minus_high = (
+            live_reading - high_so_far
+            if live_reading is not None and high_so_far is not None
+            else None
+        )
+
         return {
             "feature_rows": feature_rows,
             "feature_latest": feature_latest,
@@ -226,6 +250,9 @@ class FeatureModelMixin:
             "cloud_group": cloud_group,
             "forecast_high": forecast_high,
             "forecast_gap": forecast_gap,
+            "minutes_since_cutoff": minutes_since_cutoff,
+            "live_reading_temp": live_reading,
+            "live_reading_minus_high": live_reading_minus_high,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
         }
 
@@ -235,11 +262,11 @@ class FeatureModelMixin:
             cutoff_hour,
             captured_at,
             model_version,
-            self.extract_live_features(sources, cutoff_hour),
+            self.extract_live_features(sources, cutoff_hour, now=captured_at),
         )
 
-    def _evaluate_feature_model_for_cutoff(self, sources, cutoff_hour, hgb_bundle, lr_coefs):
-        feats = self.extract_live_features(sources, cutoff_hour)
+    def _evaluate_feature_model_for_cutoff(self, sources, cutoff_hour, hgb_bundle, lr_coefs, now=None):
+        feats = self.extract_live_features(sources, cutoff_hour, now=now)
         high_so_far = feats["high_so_far"]
         current_temp = feats["current_temp"]
         rise_from_7am = feats["rise_from_7am"]
@@ -264,7 +291,10 @@ class FeatureModelMixin:
                 all_wind = bundle["all_wind_groups"]
                 all_cloud = bundle["all_cloud_groups"]
                 
-                # Build feature dictionary
+                # Build feature dictionary. Keys absent from the bundle's
+                # feature_names (e.g. v0.3 freshness features against a v0.2
+                # artifact) are simply not selected, so old artifacts keep
+                # serving unchanged.
                 feat_dict = {
                     "high_so_far": high_so_far,
                     "current_temp": current_temp,
@@ -277,13 +307,16 @@ class FeatureModelMixin:
                     "pressure_trend_3h": pressure_trend_3h,
                     "wind_speed_kmh": wind_speed,
                     "forecast_high": forecast_high,
-                    "forecast_gap": forecast_gap
+                    "forecast_gap": forecast_gap,
+                    "minutes_since_cutoff": feats["minutes_since_cutoff"],
+                    "live_reading_temp": feats["live_reading_temp"],
+                    "live_reading_minus_high": feats["live_reading_minus_high"],
                 }
                 for g in all_wind:
                     feat_dict[f"wind_{g}"] = 1.0 if wind_group == g else 0.0
                 for g in all_cloud:
                     feat_dict[f"cloud_{g}"] = 1.0 if cloud_group == g else 0.0
-                    
+
                 # Format as pandas DataFrame to avoid feature name warnings
                 import pandas as pd
                 X_feat = pd.DataFrame([feat_dict], columns=bundle["feature_names"])
@@ -291,12 +324,13 @@ class FeatureModelMixin:
                 # Impute
                 X_imputed = imputer_obj.transform(X_feat)
 
-                # Restore native NaN for the forecast columns (the model was
-                # trained with them un-imputed): a present forecast is used, a
-                # missing one stays NaN for the tree to handle.
+                # Restore native NaN for the forecast and live-reading columns
+                # (the model was trained with them un-imputed): a present value
+                # is used, a missing one stays NaN for the tree to handle.
                 fnames = list(bundle["feature_names"])
-                if "forecast_high" in fnames:
-                    for col in ("forecast_high", "forecast_gap"):
+                for col in ("forecast_high", "forecast_gap",
+                            "live_reading_temp", "live_reading_minus_high"):
+                    if col in fnames:
                         X_imputed[0, fnames.index(col)] = float(feat_dict[col]) if feat_dict[col] is not None else float("nan")
 
                 # Predict probability distribution
@@ -321,11 +355,14 @@ class FeatureModelMixin:
                 imputer_median = coef_data["imputer_median"]
                 
                 # Build raw numeric feature vector (count comes from the scaler so
-                # it tracks the trained feature set, e.g. with forecast features).
+                # it tracks the trained feature set: a v0.2 artifact's 12-wide
+                # scaler ignores the appended v0.3 freshness entries).
                 raw_vec = [
                     high_so_far, current_temp, rise_from_7am, warming_rate_2h,
                     hours_at_peak, dewpoint, humidity, pressure,
-                    pressure_trend_3h, wind_speed, forecast_high, forecast_gap
+                    pressure_trend_3h, wind_speed, forecast_high, forecast_gap,
+                    feats["minutes_since_cutoff"], feats["live_reading_temp"],
+                    feats["live_reading_minus_high"],
                 ]
                 n_num = len(scaler_mean)
                 # Impute then scale the numeric elements.
@@ -366,45 +403,21 @@ class FeatureModelMixin:
         return None, "empirical"
 
     def predict_feature_distribution(self, sources, cutoff_hour, now):
+        """Evaluate the feature model at the printed cutoff. Intra-hour
+        freshness is handled by the v0.3 trained features (minutes since the
+        cutoff + the live reading) threaded through ``now`` -- NOT by
+        evaluating the next hour's model on unprinted state (the removed
+        interpolation path) or by fabricating history rows (the reverted
+        v0.5.1 injection)."""
         hgb_bundle = self.load_feature_model_hgb()
         lr_coefs = self.load_feature_model_coefs()
 
         if not hgb_bundle and not lr_coefs:
             return None, "empirical"
 
-        # 1. Base evaluation at the primary cutoff
-        dist, kind = self._evaluate_feature_model_for_cutoff(sources, cutoff_hour, hgb_bundle, lr_coefs)
-        if not dist:
-            return dist, kind
-
-        # 2. Check if we can interpolate with the next cutoff
-        minute_of_day = self.minute_of_day(now)
-        cutoff_min = cutoff_hour * 60
-        
-        # Only interpolate if we are actually past the cutoff time
-        if minute_of_day is not None and minute_of_day > cutoff_min:
-            next_cutoff = next((c for c in INTRADAY_CUTOFF_HOURS if c > cutoff_hour), None)
-            if next_cutoff is not None:
-                dist_next, kind_next = self._evaluate_feature_model_for_cutoff(sources, next_cutoff, hgb_bundle, lr_coefs)
-                
-                # Only blend if both predictions succeeded and are of the same type
-                if dist_next and kind_next == kind:
-                    next_min = next_cutoff * 60
-                    
-                    # Prevent extrapolation past the next cutoff (e.g., if we are somehow past next_min)
-                    current_min = min(minute_of_day, next_min)
-                    
-                    weight_next = (current_min - cutoff_min) / (next_min - cutoff_min)
-                    weight_prev = 1.0 - weight_next
-                    
-                    blended = {}
-                    all_keys = set(dist.keys()) | set(dist_next.keys())
-                    for k in all_keys:
-                        blended[k] = dist.get(k, 0.0) * weight_prev + dist_next.get(k, 0.0) * weight_next
-                        
-                    return blended, kind
-
-        return dist, kind
+        return self._evaluate_feature_model_for_cutoff(
+            sources, cutoff_hour, hgb_bundle, lr_coefs, now=now
+        )
 
 
     def get_bucket_transitions(self, sources, now):
@@ -524,7 +537,7 @@ class FeatureModelMixin:
             return None
 
         # 1. Extract the shared cutoff-aligned features (same as the feature model).
-        feats = self.extract_live_features(sources, cutoff_hour)
+        feats = self.extract_live_features(sources, cutoff_hour, now=now)
         high_so_far = feats["high_so_far"]
         current_temp = feats["current_temp"]
         rise_from_7am = feats["rise_from_7am"]

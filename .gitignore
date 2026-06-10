@@ -30,3 +30,4 @@ data/snapshots/**/replay_inputs_reconstructed.jsonl
 Thumbs.db
 .idea/
 .vscode/
+data/snapshots/loop_console.log

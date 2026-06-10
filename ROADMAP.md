@@ -477,19 +477,35 @@ Codex audit (2026-05-28): passes. `src/wu_history.py` provides `backfill`,
 params, generated timestamp, code version, row counts, and SHA-256 checksums.
 The partition audit passed for 533 WU hourly partitions.
 
-### 16. Background Process Management [PARTIAL]
+### 16. Background Process Management [COMPLETE]
 
 - [x] Replace ad hoc background loops with a small managed runner.
 - [x] Track process PID, start time, last heartbeat, last snapshot, and errors.
 - [x] Add a heartbeat-based status command.
 - [x] Add pause/resume via dashboard flag.
-- [ ] Add a command to stop/restart the snapshot loop cleanly.
-- [ ] Document the recommended OS supervisor setup for always-on capture.
+- [x] Add a command to stop/restart the snapshot loop cleanly.
+- [x] Document the recommended OS supervisor setup for always-on capture.
 
 Codex update (2026-05-31): `src.snapshot_tracker` now has `--loop`,
 `--status`, `loop_status.json`, `diagnostics.jsonl`, pause flag support, and
 health tests. The missing piece is process lifecycle control: stop/restart
 without relying on manual process management.
+
+Implementation status (2026-06-10): complete. Motivated by the 2026-06-10
+02:24 incident: the loop died silently and the fleet lost ~7 hours of tapes.
+`snapshot_tracker` gained `--stop` (PID-verified terminate), `--start-detached`
+(detached spawn with console log + provisional status so a racing ensure
+cannot double-start), `--restart` (the deploy-new-code one-liner), and
+`--ensure` (the supervisor verb: noop on fresh heartbeat or pause, start after
+death/reboot, kill-and-restart a hung process with a live PID and stale
+heartbeat; ERRORING loops are left visible rather than masked by restarts).
+`scripts/register_snapshot_supervisor.ps1` registers the Windows Task
+Scheduler task that runs `--ensure` every 10 minutes and at logon (current
+user, no stored credentials). Supervisor actions are appended to
+`diagnostics.jsonl`. Verified live: task registered and returned result 0,
+`--restart` swapped the running loop, ensure no-ops on the healthy loop, and
+the first post-restart capture wrote v0.5.6 snapshots. Decision logic is
+unit-tested in `tests/test_loop_supervisor.py` (7 tests).
 
 ### 17. Error Handling And Caching [PARTIAL]
 
@@ -1399,7 +1415,26 @@ Goal: squeeze the last edge once per-market models are solid.
 Acceptance: cross-market structure or microstructure adds settlement-scored or
 P&L value over independent per-market models.
 
-### 40. Intra-Hour Feature Freshness [DESIGNED 2026-06-10 - NOT STARTED]
+### 40. Intra-Hour Feature Freshness [IN PROGRESS 2026-06-10 - RETRAIN PENDING]
+
+Implementation status (2026-06-10): code complete, awaiting the LOO retrain +
+pinned A/B gate. Two design deviations from the original sketch, both for
+cause: (1) the simulated live reading INTERPOLATES between bracketing
+observations (with a real intra-hour special obs winning inside a 10-minute
+window) instead of latest-at-or-before -- on hourly-only history the
+at-or-before reading equals the cutoff print, which would train the feature
+dead; interpolation simulates the contemporaneous physical reading the live
+wu_current feed genuinely reports, and only ever feeds the live-reading
+features, never the printed path. (2) Each (day, hour) trains at ONE
+deterministic wall offset from {0, 15, 30, 45} instead of emitting all
+offsets -- the LOO loop is O(n^2), so 4x rows would have been 16x compute;
+sampling across days covers the offset range at unchanged cost. Also shipped:
+schema v0.3 artifacts are backward-compatible by construction (new numerics
+appended; HGB selects by feature_names, LR slices by scaler width), the dead
+cutoff-interpolation path was deleted, the late-day trainer now measures
+time_since_reached from the sampled wall minute (closing the audited
+wall-vs-cutoff skew), and snapshot CSV appends became schema-drift-safe
+(existing files keep their own header).
 
 Goal: close the structural lag between WU prints without breaking train/serve
 parity. Between hourly prints the feature path is frozen at the last printed

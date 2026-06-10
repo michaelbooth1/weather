@@ -193,16 +193,21 @@ def main(market_id="toronto"):
     print(f"Loaded {len(forecast_index)} historical forecast-days "
           f"(forecast feature present for those, NaN otherwise).")
 
-    # Pre-extract features for all days and hours
-    print("Extracting features at each cutoff hour...")
+    # Pre-extract features for all days and hours. Each (day, hour) trains at
+    # ONE deterministic intra-hour wall offset (item 40): offsets are covered
+    # across days without multiplying the row count, so the O(n^2) LOO cost
+    # stays identical to the at-print-only training.
+    print("Extracting features at each cutoff hour (sampled intra-hour offsets)...")
     raw_data = defaultdict(list)
-    
+    wall_offsets = (0, 15, 30, 45)
+
     for local_date in sorted(daily.keys()):
         rows = by_date.get(local_date, [])
         if not rows:
             continue
-            
+
         for hour in INTRADAY_CUTOFF_HOURS:
+            offset = wall_offsets[(local_date.toordinal() + hour) % len(wall_offsets)]
             record = build_historical_feature_record(
                 local_date,
                 rows,
@@ -211,6 +216,7 @@ def main(market_id="toronto"):
                 forecast_high=forecast_index.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
+                wall_minute=hour * 60 + offset,
             )
             if record:
                 raw_data[hour].append(record)
@@ -598,8 +604,12 @@ def main(market_id="toronto"):
                     break
             if first_obs is None:
                 continue
-                
-            time_since_reached = cutoff_minutes - first_obs["minute_of_day"]
+
+            # Measure from the sampled intra-hour WALL minute, matching how
+            # serving computes it from the wall clock (the audited
+            # wall-vs-cutoff training skew, fixed with item 40).
+            wall_minute = cutoff_minutes + wall_offsets[(local_date.toordinal() + H) % len(wall_offsets)]
+            time_since_reached = wall_minute - first_obs["minute_of_day"]
             
             # Rise from 7 AM
             rise_from_7am = 0.0

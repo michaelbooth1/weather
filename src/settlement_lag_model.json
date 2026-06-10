@@ -1,48 +1,55 @@
 {
   "catchup_contexts": {
     "global": {
-      "catchup_rate": 0.5780429594272076,
+      "catchup_rate": 0.624,
       "mean_lag_minutes": 132.0,
       "median_lag_minutes": 60,
-      "n": 836,
-      "raw_catchup_rate": 0.5777511961722488
+      "n": 1973,
+      "raw_catchup_rate": 0.6239229599594526
     },
     "source=eccc_swob": {
-      "catchup_rate": 0.8077464788732395,
+      "catchup_rate": 0.8848571428571428,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 282,
-      "raw_catchup_rate": 0.8085106382978723
+      "n": 698,
+      "raw_catchup_rate": 0.8853868194842407
     },
     "source=eccc_swob|gap=1": {
-      "catchup_rate": 0.7686440677966102,
+      "catchup_rate": 0.8591397849462366,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 234,
-      "raw_catchup_rate": 0.7692307692307693
+      "n": 556,
+      "raw_catchup_rate": 0.8597122302158273
     },
     "source=eccc_swob|gap=2": {
-      "catchup_rate": 0.9874999999999999,
+      "catchup_rate": 0.9792000000000001,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 46,
-      "raw_catchup_rate": 1.0
+      "n": 123,
+      "raw_catchup_rate": 0.983739837398374
     },
     "source=eccc_swob|gap=3_plus": {
-      "catchup_rate": 0.85,
+      "catchup_rate": 0.9714285714285713,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 2,
+      "n": 19,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=0": {
-      "catchup_rate": 0.9142857142857144,
+      "catchup_rate": 0.9777777777777777,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 5,
+      "n": 25,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=0|gap=1": {
+      "catchup_rate": 0.9727272727272727,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 20,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=0|gap=2": {
       "catchup_rate": 0.9142857142857144,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -50,172 +57,186 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=1": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=10": {
-      "catchup_rate": 0.975,
+      "catchup_rate": 0.9877551020408163,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 22,
+      "n": 47,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=10|gap=1": {
+      "catchup_rate": 0.9727272727272727,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 20,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=10|gap=2": {
+      "catchup_rate": 0.9739130434782608,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 21,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=10|gap=3_plus": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 6,
       "raw_catchup_rate": 1.0
     },
-    "source=eccc_swob|hour=10|gap=2": {
-      "catchup_rate": 0.9666666666666666,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 16,
-      "raw_catchup_rate": 1.0
-    },
     "source=eccc_swob|hour=11": {
-      "catchup_rate": 0.9793103448275862,
+      "catchup_rate": 0.990625,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 27,
+      "n": 62,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=11|gap=1": {
-      "catchup_rate": 0.9647058823529411,
+      "catchup_rate": 0.985,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 15,
+      "n": 38,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=11|gap=2": {
-      "catchup_rate": 0.9538461538461539,
+      "catchup_rate": 0.9739130434782608,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 11,
+      "n": 21,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=11|gap=3_plus": {
-      "catchup_rate": 0.7999999999999999,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 1,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=12": {
-      "catchup_rate": 0.9769230769230769,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 24,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=12|gap=1": {
-      "catchup_rate": 0.9647058823529411,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 15,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=12|gap=2": {
-      "catchup_rate": 0.9454545454545454,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 9,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=13": {
-      "catchup_rate": 0.976,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 23,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=13|gap=1": {
-      "catchup_rate": 0.976,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 23,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=14": {
-      "catchup_rate": 0.9684210526315788,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 17,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=14|gap=1": {
-      "catchup_rate": 0.9625,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 14,
-      "raw_catchup_rate": 1.0
-    },
-    "source=eccc_swob|hour=14|gap=2": {
       "catchup_rate": 0.8800000000000001,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 3,
       "raw_catchup_rate": 1.0
     },
-    "source=eccc_swob|hour=15": {
-      "catchup_rate": 0.736,
+    "source=eccc_swob|hour=12": {
+      "catchup_rate": 0.9866666666666666,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 23,
-      "raw_catchup_rate": 0.7391304347826086
+      "n": 43,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=12|gap=1": {
+      "catchup_rate": 0.9785714285714285,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 26,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=12|gap=2": {
+      "catchup_rate": 0.9684210526315788,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 17,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=13": {
+      "catchup_rate": 0.9892857142857142,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 54,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=13|gap=1": {
+      "catchup_rate": 0.988235294117647,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 49,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=13|gap=3_plus": {
+      "catchup_rate": 0.9142857142857144,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 5,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=14": {
+      "catchup_rate": 0.8533333333333333,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 43,
+      "raw_catchup_rate": 0.8604651162790697
+    },
+    "source=eccc_swob|hour=14|gap=1": {
+      "catchup_rate": 0.885,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 38,
+      "raw_catchup_rate": 0.8947368421052632
+    },
+    "source=eccc_swob|hour=14|gap=2": {
+      "catchup_rate": 0.6285714285714287,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 5,
+      "raw_catchup_rate": 0.6
+    },
+    "source=eccc_swob|hour=15": {
+      "catchup_rate": 0.7,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 40,
+      "raw_catchup_rate": 0.7
     },
     "source=eccc_swob|hour=15|gap=1": {
-      "catchup_rate": 0.736,
+      "catchup_rate": 0.7,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 23,
-      "raw_catchup_rate": 0.7391304347826086
+      "n": 40,
+      "raw_catchup_rate": 0.7
     },
     "source=eccc_swob|hour=16": {
-      "catchup_rate": 0.7000000000000001,
+      "catchup_rate": 0.7170731707317073,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 20,
-      "raw_catchup_rate": 0.7
+      "n": 39,
+      "raw_catchup_rate": 0.717948717948718
     },
     "source=eccc_swob|hour=16|gap=1": {
-      "catchup_rate": 0.7000000000000001,
+      "catchup_rate": 0.7170731707317073,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 20,
-      "raw_catchup_rate": 0.7
+      "n": 39,
+      "raw_catchup_rate": 0.717948717948718
     },
     "source=eccc_swob|hour=17": {
-      "catchup_rate": 0.5875,
+      "catchup_rate": 0.5655172413793103,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 14,
-      "raw_catchup_rate": 0.5714285714285714
+      "n": 27,
+      "raw_catchup_rate": 0.5555555555555556
     },
     "source=eccc_swob|hour=17|gap=1": {
-      "catchup_rate": 0.5875,
+      "catchup_rate": 0.5655172413793103,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 27,
+      "raw_catchup_rate": 0.5555555555555556
+    },
+    "source=eccc_swob|hour=18": {
+      "catchup_rate": 0.4,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 14,
-      "raw_catchup_rate": 0.5714285714285714
-    },
-    "source=eccc_swob|hour=18": {
-      "catchup_rate": 0.49230769230769234,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 11,
-      "raw_catchup_rate": 0.45454545454545453
+      "raw_catchup_rate": 0.35714285714285715
     },
     "source=eccc_swob|hour=18|gap=1": {
-      "catchup_rate": 0.49230769230769234,
+      "catchup_rate": 0.4,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 11,
-      "raw_catchup_rate": 0.45454545454545453
+      "n": 14,
+      "raw_catchup_rate": 0.35714285714285715
     },
     "source=eccc_swob|hour=19": {
       "catchup_rate": 0.5285714285714286,
@@ -239,6 +260,13 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=1|gap=1": {
+      "catchup_rate": 0.9769230769230769,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=1|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -246,10 +274,10 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=2": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=20": {
@@ -316,6 +344,13 @@
       "raw_catchup_rate": 0.0
     },
     "source=eccc_swob|hour=2|gap=1": {
+      "catchup_rate": 0.9769230769230769,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=2|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -323,13 +358,20 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=3": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=3|gap=1": {
+      "catchup_rate": 0.9769230769230769,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=3|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -337,13 +379,20 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=4": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=4|gap=1": {
+      "catchup_rate": 0.9769230769230769,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=4|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -351,27 +400,41 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=5": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.9806451612903225,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 29,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=5|gap=1": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.9769230769230769,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=5|gap=2": {
+      "catchup_rate": 0.9142857142857144,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 5,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=6": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=6|gap=1": {
+      "catchup_rate": 0.9769230769230769,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 24,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=6|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -379,13 +442,20 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=7": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.9806451612903225,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 29,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=7|gap=1": {
+      "catchup_rate": 0.976,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 23,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=7|gap=2": {
       "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -393,31 +463,38 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=8": {
-      "catchup_rate": 0.9333333333333333,
+      "catchup_rate": 0.9806451612903225,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 7,
+      "n": 29,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=8|gap=1": {
-      "catchup_rate": 0.9333333333333333,
+      "catchup_rate": 0.976,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 7,
+      "n": 23,
+      "raw_catchup_rate": 1.0
+    },
+    "source=eccc_swob|hour=8|gap=2": {
+      "catchup_rate": 0.925,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 6,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=9": {
-      "catchup_rate": 0.9500000000000001,
+      "catchup_rate": 0.98125,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 10,
+      "n": 30,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=9|gap=1": {
-      "catchup_rate": 0.9400000000000001,
+      "catchup_rate": 0.9769230769230769,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 8,
+      "n": 24,
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=9|gap=2": {
@@ -428,10 +505,10 @@
       "raw_catchup_rate": 1.0
     },
     "source=eccc_swob|hour=9|gap=3_plus": {
-      "catchup_rate": 0.7999999999999999,
+      "catchup_rate": 0.9142857142857144,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 1,
+      "n": 5,
       "raw_catchup_rate": 1.0
     },
     "source=metar": {
@@ -645,214 +722,228 @@
       "raw_catchup_rate": 1.0
     },
     "source=weather_current": {
-      "catchup_rate": 0.4004672897196262,
+      "catchup_rate": 0.4607484769364665,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 426,
-      "raw_catchup_rate": 0.39906103286384975
+      "n": 1147,
+      "raw_catchup_rate": 0.46033129904097647
     },
     "source=weather_current|gap=1": {
-      "catchup_rate": 0.25921787709497207,
+      "catchup_rate": 0.33348017621145376,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 177,
-      "raw_catchup_rate": 0.2542372881355932
+      "n": 452,
+      "raw_catchup_rate": 0.33185840707964603
     },
     "source=weather_current|gap=2": {
-      "catchup_rate": 0.3842424242424242,
+      "catchup_rate": 0.4552380952380953,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 163,
-      "raw_catchup_rate": 0.3803680981595092
+      "n": 313,
+      "raw_catchup_rate": 0.4536741214057508
     },
     "source=weather_current|gap=3_plus": {
-      "catchup_rate": 0.7318181818181819,
+      "catchup_rate": 0.6182291666666667,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 86,
-      "raw_catchup_rate": 0.7325581395348837
+      "n": 382,
+      "raw_catchup_rate": 0.6178010471204188
     },
     "source=weather_current|hour=0": {
-      "catchup_rate": 0.9142857142857144,
+      "catchup_rate": 0.6285714285714286,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 5,
-      "raw_catchup_rate": 1.0
+      "n": 40,
+      "raw_catchup_rate": 0.625
     },
     "source=weather_current|hour=0|gap=3_plus": {
-      "catchup_rate": 0.9142857142857144,
+      "catchup_rate": 0.6285714285714286,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 5,
-      "raw_catchup_rate": 1.0
+      "n": 40,
+      "raw_catchup_rate": 0.625
     },
     "source=weather_current|hour=1": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.628,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 48,
+      "raw_catchup_rate": 0.625
     },
     "source=weather_current|hour=10": {
-      "catchup_rate": 0.9333333333333332,
+      "catchup_rate": 0.969811320754717,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 22,
-      "raw_catchup_rate": 0.9545454545454546
+      "n": 51,
+      "raw_catchup_rate": 0.9803921568627451
     },
     "source=weather_current|hour=10|gap=1": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.9571428571428572,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 12,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=10|gap=2": {
+      "catchup_rate": 0.9714285714285713,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 19,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=10|gap=3_plus": {
+      "catchup_rate": 0.9272727272727272,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 20,
+      "raw_catchup_rate": 0.95
+    },
+    "source=weather_current|hour=11": {
+      "catchup_rate": 0.9151515151515152,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 64,
+      "raw_catchup_rate": 0.921875
+    },
+    "source=weather_current|hour=11|gap=1": {
+      "catchup_rate": 0.9400000000000001,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 8,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=11|gap=2": {
+      "catchup_rate": 0.8526315789473684,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 36,
+      "raw_catchup_rate": 0.8611111111111112
+    },
+    "source=weather_current|hour=11|gap=3_plus": {
+      "catchup_rate": 0.9727272727272727,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 20,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=12": {
+      "catchup_rate": 0.8426229508196721,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 59,
+      "raw_catchup_rate": 0.847457627118644
+    },
+    "source=weather_current|hour=12|gap=1": {
+      "catchup_rate": 0.9625,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 14,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=12|gap=2": {
+      "catchup_rate": 0.7767441860465116,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 41,
+      "raw_catchup_rate": 0.7804878048780488
+    },
+    "source=weather_current|hour=12|gap=3_plus": {
+      "catchup_rate": 0.9,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 4,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=13": {
+      "catchup_rate": 0.775,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 54,
+      "raw_catchup_rate": 0.7777777777777778
+    },
+    "source=weather_current|hour=13|gap=1": {
+      "catchup_rate": 0.98,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 28,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=13|gap=2": {
+      "catchup_rate": 0.45217391304347826,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 21,
+      "raw_catchup_rate": 0.42857142857142855
+    },
+    "source=weather_current|hour=13|gap=3_plus": {
       "catchup_rate": 0.9142857142857144,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 5,
       "raw_catchup_rate": 1.0
     },
-    "source=weather_current|hour=10|gap=3_plus": {
-      "catchup_rate": 0.8769230769230769,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 11,
-      "raw_catchup_rate": 0.9090909090909091
-    },
-    "source=weather_current|hour=11": {
-      "catchup_rate": 0.8133333333333332,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 28,
-      "raw_catchup_rate": 0.8214285714285714
-    },
-    "source=weather_current|hour=11|gap=1": {
-      "catchup_rate": 0.7999999999999999,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 1,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=11|gap=2": {
-      "catchup_rate": 0.72,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 18,
-      "raw_catchup_rate": 0.7222222222222222
-    },
-    "source=weather_current|hour=11|gap=3_plus": {
-      "catchup_rate": 0.9454545454545454,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 9,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=12": {
-      "catchup_rate": 0.7642857142857142,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 26,
-      "raw_catchup_rate": 0.7692307692307693
-    },
-    "source=weather_current|hour=12|gap=1": {
-      "catchup_rate": 0.85,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 2,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=12|gap=2": {
-      "catchup_rate": 0.7461538461538461,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 24,
-      "raw_catchup_rate": 0.75
-    },
-    "source=weather_current|hour=13": {
-      "catchup_rate": 0.7555555555555555,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 25,
-      "raw_catchup_rate": 0.76
-    },
-    "source=weather_current|hour=13|gap=1": {
-      "catchup_rate": 0.97,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 18,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=13|gap=2": {
-      "catchup_rate": 0.26666666666666666,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 7,
-      "raw_catchup_rate": 0.14285714285714285
-    },
     "source=weather_current|hour=14": {
-      "catchup_rate": 0.575,
+      "catchup_rate": 0.6233333333333333,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 58,
+      "raw_catchup_rate": 0.6206896551724138
+    },
+    "source=weather_current|hour=14|gap=1": {
+      "catchup_rate": 0.79375,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 30,
-      "raw_catchup_rate": 0.5666666666666667
-    },
-    "source=weather_current|hour=14|gap=1": {
-      "catchup_rate": 0.8,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 11,
-      "raw_catchup_rate": 0.8181818181818182
+      "raw_catchup_rate": 0.8
     },
     "source=weather_current|hour=14|gap=2": {
-      "catchup_rate": 0.44761904761904764,
+      "catchup_rate": 0.44666666666666666,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 19,
-      "raw_catchup_rate": 0.42105263157894735
+      "n": 28,
+      "raw_catchup_rate": 0.42857142857142855
     },
     "source=weather_current|hour=15": {
-      "catchup_rate": 0.32571428571428573,
+      "catchup_rate": 0.4349206349206349,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 33,
-      "raw_catchup_rate": 0.30303030303030304
+      "n": 61,
+      "raw_catchup_rate": 0.4262295081967213
     },
     "source=weather_current|hour=15|gap=1": {
-      "catchup_rate": 0.3375,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 14,
-      "raw_catchup_rate": 0.2857142857142857
-    },
-    "source=weather_current|hour=15|gap=2": {
-      "catchup_rate": 0.3523809523809524,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 19,
-      "raw_catchup_rate": 0.3157894736842105
-    },
-    "source=weather_current|hour=16": {
-      "catchup_rate": 0.08947368421052632,
+      "catchup_rate": 0.5631578947368421,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 36,
-      "raw_catchup_rate": 0.05555555555555555
+      "raw_catchup_rate": 0.5555555555555556
+    },
+    "source=weather_current|hour=15|gap=2": {
+      "catchup_rate": 0.2740740740740741,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 25,
+      "raw_catchup_rate": 0.24
+    },
+    "source=weather_current|hour=16": {
+      "catchup_rate": 0.25588235294117645,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 66,
+      "raw_catchup_rate": 0.24242424242424243
     },
     "source=weather_current|hour=16|gap=1": {
-      "catchup_rate": 0.07777777777777778,
+      "catchup_rate": 0.385,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 16,
-      "raw_catchup_rate": 0.0
+      "n": 38,
+      "raw_catchup_rate": 0.3684210526315789
     },
     "source=weather_current|hour=16|gap=2": {
-      "catchup_rate": 0.18888888888888888,
+      "catchup_rate": 0.13076923076923078,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 16,
-      "raw_catchup_rate": 0.125
+      "n": 24,
+      "raw_catchup_rate": 0.08333333333333333
     },
     "source=weather_current|hour=16|gap=3_plus": {
       "catchup_rate": 0.2333333333333333,
@@ -862,24 +953,24 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=17": {
-      "catchup_rate": 0.03783783783783783,
+      "catchup_rate": 0.1,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 35,
-      "raw_catchup_rate": 0.0
+      "n": 62,
+      "raw_catchup_rate": 0.08064516129032258
     },
     "source=weather_current|hour=17|gap=1": {
-      "catchup_rate": 0.0608695652173913,
+      "catchup_rate": 0.1523809523809524,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 21,
-      "raw_catchup_rate": 0.0
+      "n": 40,
+      "raw_catchup_rate": 0.125
     },
     "source=weather_current|hour=17|gap=2": {
-      "catchup_rate": 0.13999999999999999,
+      "catchup_rate": 0.07777777777777778,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 8,
+      "n": 16,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=17|gap=3_plus": {
@@ -890,24 +981,24 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=18": {
-      "catchup_rate": 0.03783783783783783,
+      "catchup_rate": 0.021538461538461538,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 35,
+      "n": 63,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=18|gap=1": {
-      "catchup_rate": 0.05384615384615384,
+      "catchup_rate": 0.029166666666666664,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 24,
+      "n": 46,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=18|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.09999999999999999,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 12,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=18|gap=3_plus": {
@@ -918,24 +1009,24 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=19": {
-      "catchup_rate": 0.03783783783783783,
+      "catchup_rate": 0.021538461538461538,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 35,
+      "n": 63,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=19|gap=1": {
-      "catchup_rate": 0.055999999999999994,
+      "catchup_rate": 0.029166666666666664,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 23,
+      "n": 46,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=19|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.10769230769230768,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 11,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=19|gap=3_plus": {
@@ -946,38 +1037,38 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=1|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.628,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 48,
+      "raw_catchup_rate": 0.625
     },
     "source=weather_current|hour=2": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5956521739130435,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 44,
+      "raw_catchup_rate": 0.5909090909090909
     },
     "source=weather_current|hour=20": {
-      "catchup_rate": 0.0608695652173913,
+      "catchup_rate": 0.02692307692307692,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 21,
+      "n": 50,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=20|gap=1": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.03783783783783783,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
+      "n": 35,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=20|gap=2": {
-      "catchup_rate": 0.13999999999999999,
+      "catchup_rate": 0.0875,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 8,
+      "n": 14,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=20|gap=3_plus": {
@@ -988,192 +1079,199 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=21": {
-      "catchup_rate": 0.06999999999999999,
+      "catchup_rate": 0.027999999999999997,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 18,
+      "n": 48,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=21|gap=1": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.03684210526315789,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
+      "n": 36,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=21|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.09999999999999999,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 12,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.03333333333333333,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
+      "n": 40,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22|gap=1": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.04516129032258064,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 29,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.10769230769230768,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
+      "n": 11,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=23": {
+      "catchup_rate": 0.03255813953488372,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 41,
+      "raw_catchup_rate": 0.0
+    },
+    "source=weather_current|hour=23|gap=1": {
+      "catchup_rate": 0.04516129032258064,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 29,
+      "raw_catchup_rate": 0.0
+    },
+    "source=weather_current|hour=23|gap=2": {
       "catchup_rate": 0.09999999999999999,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 12,
       "raw_catchup_rate": 0.0
     },
-    "source=weather_current|hour=23|gap=1": {
-      "catchup_rate": 0.175,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
-    },
-    "source=weather_current|hour=23|gap=2": {
-      "catchup_rate": 0.175,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
-    },
     "source=weather_current|hour=2|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5956521739130435,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 44,
+      "raw_catchup_rate": 0.5909090909090909
     },
     "source=weather_current|hour=3": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=3|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=4": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=4|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=5": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5906976744186047,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 41,
+      "raw_catchup_rate": 0.5853658536585366
     },
     "source=weather_current|hour=5|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5906976744186047,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 41,
+      "raw_catchup_rate": 0.5853658536585366
     },
     "source=weather_current|hour=6": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=6|gap=3_plus": {
-      "catchup_rate": 0.925,
+      "catchup_rate": 0.5772727272727273,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 1.0
+      "n": 42,
+      "raw_catchup_rate": 0.5714285714285714
     },
     "source=weather_current|hour=7": {
-      "catchup_rate": 0.7999999999999999,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 1,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=7|gap=3_plus": {
-      "catchup_rate": 0.7999999999999999,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 1,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=8": {
-      "catchup_rate": 0.9400000000000001,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 8,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=8|gap=1": {
-      "catchup_rate": 0.8800000000000001,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 3,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=8|gap=2": {
-      "catchup_rate": 0.9142857142857144,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 5,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=9": {
-      "catchup_rate": 0.9400000000000001,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 8,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=9|gap=1": {
-      "catchup_rate": 0.85,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 2,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=9|gap=2": {
-      "catchup_rate": 0.9,
+      "catchup_rate": 0.7333333333333334,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 4,
+      "raw_catchup_rate": 0.75
+    },
+    "source=weather_current|hour=7|gap=3_plus": {
+      "catchup_rate": 0.7333333333333334,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 4,
+      "raw_catchup_rate": 0.75
+    },
+    "source=weather_current|hour=8": {
+      "catchup_rate": 0.9793103448275862,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 27,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=8|gap=1": {
+      "catchup_rate": 0.9571428571428572,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 12,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=8|gap=2": {
+      "catchup_rate": 0.9625,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 14,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=8|gap=3_plus": {
+      "catchup_rate": 0.7999999999999999,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 1,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=9": {
+      "catchup_rate": 0.9846153846153846,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 37,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=9|gap=1": {
+      "catchup_rate": 0.9600000000000001,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 13,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=9|gap=2": {
+      "catchup_rate": 0.9684210526315788,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 17,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=9|gap=3_plus": {
-      "catchup_rate": 0.85,
+      "catchup_rate": 0.9333333333333333,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 2,
+      "n": 7,
       "raw_catchup_rate": 1.0
     }
   },
@@ -1182,164 +1280,171 @@
     "enabled": true,
     "min_context_n": 20
   },
-  "generated_at_utc": "2026-06-03T20:54:23.962283+00:00",
+  "generated_at_utc": "2026-06-10T15:33:12.379123+00:00",
   "revision_contexts": {
     "hour=0": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 5,
+      "mean_positive_revision_gap": 7.390243902439025,
+      "n": 41,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.8571428571428571
+      "revision_up_rate": 0.9767441860465116
     },
     "hour=1": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.375,
+      "n": 48,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.98
     },
     "hour=10": {
-      "mean_positive_revision_gap": 4.139423076923077,
-      "n": 677,
-      "raw_revision_up_rate": 0.9217134416543574,
-      "revision_up_rate": 0.9204712812960235
+      "mean_positive_revision_gap": 4.1834586466165415,
+      "n": 718,
+      "raw_revision_up_rate": 0.9261838440111421,
+      "revision_up_rate": 0.925
     },
     "hour=11": {
-      "mean_positive_revision_gap": 3.2148760330578514,
-      "n": 683,
-      "raw_revision_up_rate": 0.8857979502196194,
-      "revision_up_rate": 0.8846715328467153
+      "mean_positive_revision_gap": 3.2663551401869158,
+      "n": 720,
+      "raw_revision_up_rate": 0.8916666666666667,
+      "revision_up_rate": 0.8905817174515236
     },
     "hour=12": {
-      "mean_positive_revision_gap": 2.4452296819787986,
-      "n": 682,
-      "raw_revision_up_rate": 0.8299120234604106,
-      "revision_up_rate": 0.8289473684210527
+      "mean_positive_revision_gap": 2.452892561983471,
+      "n": 724,
+      "raw_revision_up_rate": 0.835635359116022,
+      "revision_up_rate": 0.8347107438016529
     },
     "hour=13": {
-      "mean_positive_revision_gap": 1.9646569646569647,
-      "n": 680,
-      "raw_revision_up_rate": 0.7073529411764706,
-      "revision_up_rate": 0.7067448680351907
+      "mean_positive_revision_gap": 1.9767441860465116,
+      "n": 721,
+      "raw_revision_up_rate": 0.7156726768377254,
+      "revision_up_rate": 0.715076071922545
     },
     "hour=14": {
-      "mean_positive_revision_gap": 1.6476683937823835,
-      "n": 687,
-      "raw_revision_up_rate": 0.5618631732168851,
-      "revision_up_rate": 0.5616835994194485
+      "mean_positive_revision_gap": 1.6258992805755397,
+      "n": 730,
+      "raw_revision_up_rate": 0.5712328767123288,
+      "revision_up_rate": 0.5710382513661202
     },
     "hour=15": {
-      "mean_positive_revision_gap": 1.4112903225806452,
-      "n": 691,
-      "raw_revision_up_rate": 0.3589001447178003,
-      "revision_up_rate": 0.3593073593073593
+      "mean_positive_revision_gap": 1.3948339483394834,
+      "n": 731,
+      "raw_revision_up_rate": 0.3707250341997264,
+      "revision_up_rate": 0.3710777626193724
     },
     "hour=16": {
-      "mean_positive_revision_gap": 1.348623853211009,
-      "n": 691,
-      "raw_revision_up_rate": 0.1577424023154848,
-      "revision_up_rate": 0.15873015873015872
+      "mean_positive_revision_gap": 1.310077519379845,
+      "n": 728,
+      "raw_revision_up_rate": 0.1771978021978022,
+      "revision_up_rate": 0.1780821917808219
     },
     "hour=17": {
-      "mean_positive_revision_gap": 1.3695652173913044,
-      "n": 690,
-      "raw_revision_up_rate": 0.06666666666666667,
-      "revision_up_rate": 0.06791907514450866
+      "mean_positive_revision_gap": 1.320754716981132,
+      "n": 726,
+      "raw_revision_up_rate": 0.07300275482093664,
+      "revision_up_rate": 0.07417582417582418
     },
     "hour=18": {
       "mean_positive_revision_gap": 1.411764705882353,
-      "n": 690,
-      "raw_revision_up_rate": 0.02463768115942029,
-      "revision_up_rate": 0.02601156069364162
+      "n": 724,
+      "raw_revision_up_rate": 0.023480662983425413,
+      "revision_up_rate": 0.024793388429752067
     },
     "hour=19": {
       "mean_positive_revision_gap": 1.7,
-      "n": 690,
-      "raw_revision_up_rate": 0.014492753623188406,
-      "revision_up_rate": 0.015895953757225433
+      "n": 724,
+      "raw_revision_up_rate": 0.013812154696132596,
+      "revision_up_rate": 0.015151515151515152
     },
     "hour=2": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.5,
+      "n": 44,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9782608695652174
     },
     "hour=20": {
       "mean_positive_revision_gap": 2.0,
-      "n": 677,
-      "raw_revision_up_rate": 0.0014771048744460858,
-      "revision_up_rate": 0.0029455081001472753
+      "n": 716,
+      "raw_revision_up_rate": 0.0013966480446927375,
+      "revision_up_rate": 0.002785515320334262
     },
     "hour=21": {
       "mean_positive_revision_gap": 0.0,
-      "n": 18,
+      "n": 57,
       "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.05
+      "revision_up_rate": 0.01694915254237288
     },
     "hour=22": {
       "mean_positive_revision_gap": 0.0,
-      "n": 12,
+      "n": 52,
       "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.07142857142857142
+      "revision_up_rate": 0.018518518518518517
     },
     "hour=23": {
       "mean_positive_revision_gap": 0.0,
-      "n": 12,
+      "n": 52,
       "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.07142857142857142
+      "revision_up_rate": 0.018518518518518517
     },
     "hour=3": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.571428571428571,
+      "n": 42,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9772727272727273
     },
     "hour=4": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.571428571428571,
+      "n": 42,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9772727272727273
     },
     "hour=5": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.634146341463414,
+      "n": 41,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9767441860465116
     },
     "hour=6": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.571428571428571,
+      "n": 42,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9772727272727273
     },
     "hour=7": {
-      "mean_positive_revision_gap": 10.0,
-      "n": 6,
+      "mean_positive_revision_gap": 7.65,
+      "n": 40,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.875
+      "revision_up_rate": 0.9761904761904762
     },
     "hour=8": {
-      "mean_positive_revision_gap": 6.680645161290323,
-      "n": 664,
-      "raw_revision_up_rate": 0.9337349397590361,
-      "revision_up_rate": 0.9324324324324325
+      "mean_positive_revision_gap": 6.694992412746585,
+      "n": 703,
+      "raw_revision_up_rate": 0.9374110953058321,
+      "revision_up_rate": 0.9361702127659575
     },
     "hour=9": {
-      "mean_positive_revision_gap": 5.364951768488746,
-      "n": 670,
-      "raw_revision_up_rate": 0.9283582089552239,
-      "revision_up_rate": 0.9270833333333334
+      "mean_positive_revision_gap": 5.393072289156627,
+      "n": 712,
+      "raw_revision_up_rate": 0.9325842696629213,
+      "revision_up_rate": 0.9313725490196079
     }
   },
   "training": {
-    "lead_rows": 836,
-    "revision_rows": 8961,
-    "rows": 9797,
+    "lead_rows": 1973,
+    "revision_rows": 9878,
+    "rows": 11851,
     "snapshot_folders": [
       "data\\snapshots\\highest-temperature-in-toronto-on-may-27-2026",
       "data\\snapshots\\highest-temperature-in-toronto-on-may-28-2026",
       "data\\snapshots\\highest-temperature-in-toronto-on-may-30-2026",
       "data\\snapshots\\highest-temperature-in-toronto-on-may-31-2026",
       "data\\snapshots\\highest-temperature-in-toronto-on-june-1-2026",
-      "data\\snapshots\\highest-temperature-in-toronto-on-june-2-2026"
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-2-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-3-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-4-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-5-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-6-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-7-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-8-2026",
+      "data\\snapshots\\highest-temperature-in-toronto-on-june-9-2026"
     ],
     "sources": [
       "eccc_swob",

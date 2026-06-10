@@ -32,6 +32,7 @@ from backtest import (  # noqa: E402
     DEFAULT_SNAPSHOTS_ROOT,
     binary_log_loss,
     brier,
+    load_market_day_label,
     parse_snapshot_time,
     safe_float,
     settlement_for_tape,
@@ -740,6 +741,24 @@ def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT, market_id=None):
     )
 
 
+def filter_folders_by_quality(folders, quality_grades):
+    """Keep only folders whose finalized label grade is accepted. Calibration
+    fits hour-conditioned probabilities, so partial-coverage tapes
+    underrepresent the hours they missed; train on clean days (the original
+    May artifact predates coverage labels and used 2 later-partial tapes)."""
+    if not quality_grades:
+        return list(folders), []
+    accepted, skipped = [], []
+    for folder in folders:
+        label = load_market_day_label(folder)
+        grade = (label or {}).get("quality_grade")
+        if grade in quality_grades:
+            accepted.append(folder)
+        else:
+            skipped.append((str(folder), grade))
+    return accepted, skipped
+
+
 def cmd_train(args):
     # This trainer writes ONE market's artifact, so its training tapes must all
     # belong to that market: data/snapshots holds all 12 markets' folders.
@@ -749,6 +768,15 @@ def cmd_train(args):
         validate_folders_market(folders, spec.id)
     else:
         folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
+    quality_grades = [
+        grade.strip() for grade in str(args.quality_grades).split(",") if grade.strip()
+    ]
+    if quality_grades != ["all"]:
+        folders, skipped = filter_folders_by_quality(folders, quality_grades)
+        for folder, grade in skipped:
+            print(f"  skip {Path(folder).name}: quality={grade}")
+    if not folders:
+        raise SystemExit("No folders left after the quality filter.")
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     artifact_arg = args.artifact or Path("src") / f"probability_calibration{spec.artifact_suffix}.json"
     report_arg = args.report or Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md"
@@ -756,6 +784,7 @@ def cmd_train(args):
     if not rows:
         raise SystemExit("No scored rows found for calibration training.")
     artifact = build_artifact(rows, folders)
+    artifact["training"]["quality_grades"] = quality_grades
     artifact_path = Path(artifact_arg)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True), encoding="utf-8")
@@ -779,6 +808,8 @@ def build_parser():
     train.add_argument("--market", default="toronto", choices=sorted(REGISTRY),
                        help="Market whose tapes and artifact this train run targets.")
     train.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    train.add_argument("--quality-grades", default="complete,manual_override",
+                       help="Comma list of accepted label grades; 'all' disables the filter.")
     train.add_argument("--daily-summary", default=None,
                        help="Daily summary CSV (default: the market's own data root).")
     train.add_argument("--artifact", default=None,

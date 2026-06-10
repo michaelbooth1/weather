@@ -416,7 +416,7 @@
     },
     "unconstrained_best_temperature": 1.0
   },
-  "generated_at_utc": "2026-06-09T13:18:45.480093+00:00",
+  "generated_at_utc": "2026-06-10T15:32:27.094504+00:00",
   "market_bin": {
     "allow_exact_lift": false,
     "base_rate": 0.09125235997482693,
@@ -1527,6 +1527,10 @@
     "baseline_logloss": 0.1748257824767969,
     "market_brier": 0.04013667719924363,
     "market_logloss": 0.12454408728842321,
+    "quality_grades": [
+      "complete",
+      "manual_override"
+    ],
     "rows": 4763,
     "selected_brier_skill_vs_market": -0.33552790688497836,
     "snapshot_folders": [
