@@ -1,10 +1,10 @@
 {
-  "code_version": "git:12ab1c4453323e850d75d5e9b73d121f0c9a6e51",
-  "daily_record_count": 4509,
+  "code_version": "git:6cca9230f5392ba5b206f4f9a867518fe95a63f1",
+  "daily_record_count": 4724,
   "first_date": "1995-05-20",
-  "generated_at": "2026-06-10T23:09:12.331036+00:00",
+  "generated_at": "2026-06-10T23:09:51.593340+00:00",
   "history_id": "KATL:9:US",
-  "hourly_record_count": 127669,
+  "hourly_record_count": 133305,
   "last_date": "2026-06-07",
   "layout": {
     "daily": "daily/daily_summary.csv",
@@ -91,6 +91,56 @@
       "path": "hourly/year=2002/month=06/observations.jsonl",
       "row_count": 793,
       "sha256": "f706b4d9ed4f61f1b83c1b8273f221f6ba0f9ed62c7840f07e6f94c61d7862a0"
+    },
+    {
+      "path": "hourly/year=2003/month=05/observations.jsonl",
+      "row_count": 359,
+      "sha256": "f2337a6c5d53b233150bfb534431840da51c62ad7d9a39a5763b8f326cbdde7e"
+    },
+    {
+      "path": "hourly/year=2003/month=06/observations.jsonl",
+      "row_count": 840,
+      "sha256": "22f4518a71c5140a74be04f365b468e48214b9bed57a8d6cc3c8b7e0f979c0cc"
+    },
+    {
+      "path": "hourly/year=2004/month=05/observations.jsonl",
+      "row_count": 289,
+      "sha256": "270ba1885ce8698d87bf00badf2f7a6e62e073ca73e620d517b6b8a73d2e437a"
+    },
+    {
+      "path": "hourly/year=2004/month=06/observations.jsonl",
+      "row_count": 732,
+      "sha256": "ae9bdee2cd8791e52173a8e40383d70aa22b1405f9c1541b6989e4b3d3f1ba93"
+    },
+    {
+      "path": "hourly/year=2005/month=05/observations.jsonl",
+      "row_count": 362,
+      "sha256": "8c9655653ddab6f25c482aa42ee2020596eaa531f855429679da2aab06bd629e"
+    },
+    {
+      "path": "hourly/year=2005/month=06/observations.jsonl",
+      "row_count": 874,
+      "sha256": "88ff1aa6207698a97f68457fdc4f813db8ccad4476e68ae2e1e67cbcc3dbdc76"
+    },
+    {
+      "path": "hourly/year=2006/month=05/observations.jsonl",
+      "row_count": 296,
+      "sha256": "1e94e3bf062b544e7cc8e934ebee272c492220ac6736ea9606211515b64202d7"
+    },
+    {
+      "path": "hourly/year=2006/month=06/observations.jsonl",
+      "row_count": 804,
+      "sha256": "8e0ab2979238351e5419083d2f7787f4c77235e3a479211a244b330a5b6212ac"
+    },
+    {
+      "path": "hourly/year=2007/month=05/observations.jsonl",
+      "row_count": 300,
+      "sha256": "ac480f57e311fc8dfabb1bb6a3e05c2dd0033bdc9ab57453617d8d3e5e06ac57"
+    },
+    {
+      "path": "hourly/year=2007/month=06/observations.jsonl",
+      "row_count": 780,
+      "sha256": "ed562b8945f7ad9c714f942600af35a5bc97f343e6ddcc00af645ac7ac725f34"
     },
     {
       "path": "hourly/year=2015/month=01/observations.jsonl",
