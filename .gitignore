@@ -13,7 +13,7 @@ env/
 # ~600 MB+ of provider JSON/XML/CSV. Rebuildable from the network via the
 # collector CLIs (e.g. `python -m src.wu_history backfill`), and normalized
 # hourly/daily artifacts are derived from these.
-data/**
+data/
 
 # --- Runtime / transient state (not source of truth) ---
 data/wunderground/*/last_good_sources.json
