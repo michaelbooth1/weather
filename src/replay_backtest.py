@@ -266,6 +266,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                 minute = capture_minute(band.get("captured_at_local"))
                 day_rows.append({
                     "snapshot_id": str(snapshot_id),
+                    "market_id": market_id,
                     "target_date": date_label,
                     "captured_at_local": band.get("captured_at_local"),
                     "capture_minute": minute,
@@ -279,6 +280,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                     "recorded_p": recorded_p,
                     "replayed_p": replayed_p,
                     "reconstructed": reconstructed,
+                    "settlement_bucket": bucket,
                 })
 
         all_rows.extend(day_rows)

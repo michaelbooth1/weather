@@ -101,6 +101,18 @@ class TestReplayRoundTrip(unittest.TestCase):
         dist2 = replay_distribution(self.model, record)
         self.assertLess(distribution_l1(dist1, dist2), 1e-9)
 
+    def test_range_band_counts_both_buckets(self):
+        # F tapes store only the band's lower value; value_hi must be parsed
+        # from the label or a model locked on the band's UPPER bucket scores
+        # ~0 on its own winning band (the bug that inflated every replayed
+        # US-market Brier before 2026-06-10).
+        model = TorontoHighTempModel(target_date=NOW.date())
+        dist = {90: 0.10, 91: 0.85, 92: 0.05}
+        band = {"bin_kind": "eq", "bin_value_c": 90, "range_label": "90-91°F",
+                "market_yes": 0.9, "market_no": 0.1}
+        p = band_model_probability(model, dist, band)
+        self.assertGreater(p, 0.90)   # 0.10 + 0.85, not just 0.10
+
     def test_band_probabilities_are_valid(self):
         dist = self.model.estimate_distribution(make_sources(), now=NOW)
         p_all = band_model_probability(self.model, dist, {"bin_kind": "lte", "bin_value_c": 40})

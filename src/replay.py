@@ -11,6 +11,7 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 ``replay_backtest`` drives it and scores the output.
 """
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -151,11 +152,20 @@ def replay_distribution(model, record):
 
 def band_bin_data(band):
     """Translate a recorded ``snapshots_long`` row into the ``bin_data`` shape
-    that ``bin_probability`` consumes."""
+    that ``bin_probability`` consumes. ``value_hi`` must be recovered from the
+    range label: tapes store only the band's lower value, and without it
+    bin_probability scores an F range band ("90-91") as its lower bucket
+    alone -- which silently zeroed the replayed probability whenever the model
+    correctly concentrated on the band's UPPER bucket."""
+    value = band.get("bin_value_c")
+    label = band.get("range_label")
+    numbers = re.findall(r"\d+", str(label or ""))
+    value_hi = int(numbers[-1]) if len(numbers) >= 2 else value
     return {
         "kind": band.get("bin_kind"),
-        "value": band.get("bin_value_c"),
-        "label": band.get("range_label"),
+        "value": value,
+        "value_hi": value_hi,
+        "label": label,
         "market_yes": band.get("market_yes"),
         "market_no": band.get("market_no"),
     }
