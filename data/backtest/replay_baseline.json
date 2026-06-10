@@ -1,10 +1,10 @@
 {
   "aggregate_market_brier": 0.03254941110056712,
-  "aggregate_replayed_brier": 0.05450354008195133,
-  "daily_first_replayed_brier": 0.04944546184549879,
-  "generated": "2026-06-10T11:51:47.754878",
+  "aggregate_replayed_brier": 0.03861243911393617,
+  "daily_first_replayed_brier": 0.03135140732526687,
+  "generated": "2026-06-10T15:07:48.910027",
   "replayed_versions": [
-    "v0.5.6 HGBC feature-based ML model"
+    "v0.5.7 HGBC feature-based ML model"
   ],
   "snaps_scored": 5304
 }

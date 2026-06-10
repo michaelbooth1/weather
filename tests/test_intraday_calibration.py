@@ -194,7 +194,10 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 20.0}]}},
         }
 
-        distribution = model.estimate_distribution(sources)
+        # Fixed afternoon time: deterministic across wall-clock hours (the
+        # hour drives signal weights, lock-in, and the calibration taper).
+        now = datetime(2026, 5, 28, 14, 0, tzinfo=toronto_model.TORONTO_TZ)
+        distribution = model.estimate_distribution(sources, now=now)
 
         self.assertEqual(
             model._last_probability_calibration_context["observed_support_bucket"],
