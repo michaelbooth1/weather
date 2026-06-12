@@ -19,9 +19,11 @@ param(
     [int]$EnsureEveryMinutes = 10
 )
 
-$python = Join-Path $RepoRoot "venv\Scripts\python.exe"
+# pythonw.exe: the windowless interpreter. With python.exe an interactive
+# scheduled task flashes a console window on every 10-minute ensure tick.
+$python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 if (-not (Test-Path $python)) {
-    throw "venv python not found at $python -- run from the repo with its venv created."
+    throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
 $action = New-ScheduledTaskAction `

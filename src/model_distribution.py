@@ -415,6 +415,8 @@ class DistributionMixin:
         open_meteo_max,
         eccc_forecast_high,
         hour,
+        nws_forecast_max=None,
+        global_ensemble_max=None,
     ):
         values = []
         if weather_forecast_max is not None:
@@ -423,6 +425,10 @@ class DistributionMixin:
             values.append({"source": "open_meteo", "forecast_high_c": open_meteo_max})
         if eccc_forecast_high is not None:
             values.append({"source": "eccc_citypage", "forecast_high_c": eccc_forecast_high})
+        if nws_forecast_max is not None:
+            values.append({"source": "nws_hourly", "forecast_high_c": nws_forecast_max})
+        if global_ensemble_max is not None:
+            values.append({"source": "global_ensemble", "forecast_high_c": global_ensemble_max})
         return forecast_error_distribution(
             support,
             values,
@@ -441,6 +447,8 @@ class DistributionMixin:
         metar = self.source_data(sources, "metar")
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
+        nws_hourly = self.source_data(sources, "nws_hourly")
+        global_ensemble = self.source_data(sources, "global_ensemble")
 
         now = now or datetime.now(self.spec.tz)
         history_max = history.get("max_c")
@@ -450,7 +458,16 @@ class DistributionMixin:
         metar_temp = metar.get("temp_c")
         weather_forecast_max = self.max_row_temp(weather_forecast.get("rows"))
         open_meteo_max = self.max_row_temp(open_meteo.get("rows"))
+        nws_forecast_max = self.max_row_temp(nws_hourly.get("rows"))
+        global_ensemble_max = self.max_row_temp(global_ensemble.get("rows"))
         eccc_forecast_high = eccc_city.get("forecast_high_c")
+        forecast_values = [
+            weather_forecast_max,
+            open_meteo_max,
+            nws_forecast_max,
+            global_ensemble_max,
+            eccc_forecast_high,
+        ]
 
         local_analysis = local_history.get("analysis") or {}
         probabilities = local_analysis.get("bucket_probabilities") or {}
@@ -472,6 +489,8 @@ class DistributionMixin:
             metar_temp,
             weather_forecast_max,
             self.round_half_up(open_meteo_max) if open_meteo_max is not None else None,
+            self.round_half_up(nws_forecast_max) if nws_forecast_max is not None else None,
+            self.round_half_up(global_ensemble_max) if global_ensemble_max is not None else None,
             eccc_forecast_high,
         ]
         observed_bucket = self.round_half_up(history_max)
@@ -569,6 +588,8 @@ class DistributionMixin:
                 observed_bucket,
                 weather_forecast_max,
                 open_meteo_max,
+                nws_forecast_max,
+                global_ensemble_max,
                 eccc_forecast_high,
             ))
             forecast_component = self.forecast_error_component_distribution(
@@ -578,6 +599,8 @@ class DistributionMixin:
                 open_meteo_max,
                 eccc_forecast_high,
                 now.hour,
+                nws_forecast_max=nws_forecast_max,
+                global_ensemble_max=global_ensemble_max,
             )
             cap_distribution = forecast_component or self.cap_prior_distribution(
                 scores.keys(),
@@ -645,6 +668,10 @@ class DistributionMixin:
                 weather_forecast_max,
                 self.round_half_up(open_meteo_max)
                 if open_meteo_max is not None else None,
+                self.round_half_up(nws_forecast_max)
+                if nws_forecast_max is not None else None,
+                self.round_half_up(global_ensemble_max)
+                if global_ensemble_max is not None else None,
             ]
             peak_cluster_signal = self.max_value(*peak_cluster_values)
             peak_cluster_count = sum(
@@ -689,6 +716,18 @@ class DistributionMixin:
                     0.8,
                     1.1,
                 ),
+                (
+                    self.round_half_up(nws_forecast_max)
+                    if nws_forecast_max is not None else None,
+                    0.7,
+                    1.1,
+                ),
+                (
+                    self.round_half_up(global_ensemble_max)
+                    if global_ensemble_max is not None else None,
+                    0.7,
+                    1.1,
+                ),
                 (eccc_forecast_high, 0.5, 1.2),
             ]
         scores = self.apply_live_signals(scores, live_signals)
@@ -708,8 +747,8 @@ class DistributionMixin:
             )
             if weather_forecast_max is not None and self.round_half_up(weather_forecast_max) <= observed_bucket:
                 tail_target *= 0.70
-            if self.max_value(open_meteo_max, eccc_forecast_high) is not None:
-                if self.round_half_up(self.max_value(open_meteo_max, eccc_forecast_high)) > observed_bucket:
+            if self.max_value(open_meteo_max, nws_forecast_max, global_ensemble_max, eccc_forecast_high) is not None:
+                if self.round_half_up(self.max_value(open_meteo_max, nws_forecast_max, global_ensemble_max, eccc_forecast_high)) > observed_bucket:
                     tail_target *= 1.12
             tail_target = max(0.01, min(0.95, tail_target))
             scores = self.apply_tail_target(
@@ -723,6 +762,8 @@ class DistributionMixin:
             observed_bucket,
             weather_forecast_max,
             open_meteo_max,
+            nws_forecast_max,
+            global_ensemble_max,
             eccc_forecast_high,
         ))
         if plausible_cap is not None and not using_calibrated_empirical:
@@ -740,7 +781,7 @@ class DistributionMixin:
         # benching it was measured to backfire on the 2026-06-09 bust day.
         if not using_calibrated_empirical:
             floor_votes = self.unfalsified_forecasts(
-                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                forecast_values,
                 history,
                 now,
             )
@@ -754,7 +795,7 @@ class DistributionMixin:
             # forecast the model has under-called (the measured reach-rate gap).
             scores = self.apply_forecast_pull(
                 scores,
-                [weather_forecast_max, open_meteo_max, eccc_forecast_high],
+                forecast_values,
                 now.hour,
                 observed_bucket,
                 current_observed_bucket,
@@ -807,6 +848,7 @@ class DistributionMixin:
             "schema_version": COMPONENT_SCHEMA_VERSION,
             "cutoff_hour": cutoff_hour,
             "active_model_kind": getattr(self, "active_model_kind", "empirical"),
+            "family_secondary_gate": getattr(self, "_last_family_secondary_gate", {}),
             "observed_floor_bucket": observed_bucket,
             "current_observed_bucket": current_observed_bucket,
             "observed_support_bucket": observed_support_bucket,

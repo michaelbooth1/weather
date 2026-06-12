@@ -45,6 +45,8 @@ SHARED_FEATURES = [
     "wind_speed_kmh",
     "forecast_high",
     "forecast_gap",
+    "forecast_source_count",
+    "forecast_disagreement",
     "minutes_since_cutoff",
     "live_reading_temp",
     "live_reading_minus_high",
@@ -159,6 +161,8 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["rise_from_7am"], 8.0)          # 24 - 16
         self.assertEqual(serve["pressure_trend_3h"], -1.0)     # 1014 - 1015
         self.assertEqual(serve["forecast_gap"], 2.0)           # 26 - 24
+        self.assertEqual(serve["forecast_source_count"], 1)
+        self.assertEqual(serve["forecast_disagreement"], 0.0)
         self.assertEqual(serve["wind_group"], "S-SW")
         self.assertEqual(serve["cloud_group"], "Fair/clear")
 

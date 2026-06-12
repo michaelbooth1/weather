@@ -128,6 +128,43 @@ class TestFeatureStore(unittest.TestCase):
         for column in FEATURE_COLUMNS:
             self.assertEqual(historical[column], live[column], column)
 
+    def test_live_features_measure_forecast_source_disagreement(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        features = model.extract_live_features({
+            "wu_history": {"ok": True, "data": {"rows": [
+                {"time": "12:00", "temp_c": 20.0, "dewpoint_c": 11.0, "humidity": 55.0, "pressure": 1014.0},
+            ]}},
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 23.0}},
+            "weather_forecast": {"ok": True, "data": {"rows": [
+                {"time": "13:00", "temp_c": 25.0},
+                {"time": "14:00", "temp_c": 24.0},
+            ]}},
+            "eccc_citypage": {"ok": True, "data": {}},
+        }, cutoff_hour=12)
+
+        self.assertEqual(features["forecast_high"], 24.0)
+        self.assertEqual(features["forecast_source_count"], 2)
+        self.assertEqual(features["forecast_disagreement"], 2.0)
+
+    def test_live_features_include_nws_and_global_ensemble_forecasts(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        features = model.extract_live_features({
+            "wu_history": {"ok": True, "data": {"rows": [
+                {"time": "12:00", "temp_c": 20.0, "dewpoint_c": 11.0, "humidity": 55.0, "pressure": 1014.0},
+            ]}},
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 23.0}},
+            "weather_forecast": {"ok": True, "data": {"rows": [{"time": "13:00", "temp_c": 25.0}]}},
+            "nws_hourly": {"ok": True, "data": {"rows": [], "day_max_c": 26.0}},
+            "global_ensemble": {"ok": True, "data": {"rows": [], "day_max_c": 24.0}},
+            "eccc_citypage": {"ok": True, "data": {}},
+        }, cutoff_hour=12)
+
+        self.assertEqual(features["forecast_high"], 24.5)
+        self.assertEqual(features["forecast_source_count"], 4)
+        self.assertEqual(features["forecast_disagreement"], 3.0)
+
     def test_snapshot_store_persists_feature_vector(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

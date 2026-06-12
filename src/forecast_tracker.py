@@ -62,6 +62,8 @@ CALIBRATION_MARGIN = 0.15  # |reach_rate - model_reach| under this = "calibrated
 FORECAST_SOURCES = {
     "open_meteo": "open_meteo_max_c",
     "weather_com": "weather_forecast_max_c",
+    "nws": "nws_forecast_max_c",
+    "global_ensemble": "global_ensemble_max_c",
     "eccc": "eccc_forecast_high_c",
 }
 

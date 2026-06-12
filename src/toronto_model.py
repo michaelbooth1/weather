@@ -41,6 +41,7 @@ from model_distribution import DistributionMixin
 from model_features import FeatureModelMixin
 from model_presentation import PresentationMixin
 from forecast_error_model import load_forecast_error_model
+from family_secondary_artifacts import load_family_secondary_manifest
 from probability_calibration import load_probability_calibration
 from settlement_lag_model import load_settlement_lag_model
 
@@ -63,6 +64,8 @@ class TorontoHighTempModel(
         self.forecast_error_model = self.load_forecast_error_model()
         self.settlement_lag_model = self.load_settlement_lag_model()
         self.probability_calibration = self.load_probability_calibration()
+        self.family_secondary_artifacts = self.load_family_secondary_artifacts()
+        self._last_family_secondary_gate = {}
         self._last_probability_calibration_context = {}
         self.active_model_kind = "empirical"
         self._feature_model_hgb = _UNLOADED
@@ -103,6 +106,10 @@ class TorontoHighTempModel(
     def load_settlement_lag_model(self):
         path = Path(__file__).parent / f"settlement_lag_model{self.spec.artifact_suffix}.json"
         return load_settlement_lag_model(path)
+
+    def load_family_secondary_artifacts(self):
+        path = Path(__file__).parent / "f_family_secondary_artifacts.json"
+        return load_family_secondary_manifest(path)
 
     def calibrated_hour_config(self, cutoff_hour):
         if not self.calibrated_weights:

@@ -1,41 +1,48 @@
 {
   "catchup_contexts": {
     "global": {
-      "catchup_rate": 0.9938144329896907,
+      "catchup_rate": 0.9943396226415094,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 95,
+      "n": 104,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current": {
-      "catchup_rate": 0.9938144329896907,
+      "catchup_rate": 0.9943396226415094,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 95,
+      "n": 104,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|gap=1": {
-      "catchup_rate": 0.9600000000000001,
+      "catchup_rate": 0.97,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 13,
+      "n": 18,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|gap=2": {
-      "catchup_rate": 0.7999999999999999,
+      "catchup_rate": 0.85,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 1,
+      "n": 2,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|gap=3_plus": {
-      "catchup_rate": 0.9927710843373495,
+      "catchup_rate": 0.9930232558139536,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 81,
+      "n": 84,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=10": {
+      "catchup_rate": 0.85,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 2,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=10|gap=1": {
       "catchup_rate": 0.7999999999999999,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
@@ -50,38 +57,38 @@
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=11": {
-      "catchup_rate": 0.85,
+      "catchup_rate": 0.9,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 2,
+      "n": 4,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=11|gap=1": {
-      "catchup_rate": 0.85,
+      "catchup_rate": 0.9,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 2,
+      "n": 4,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=12": {
-      "catchup_rate": 0.8800000000000001,
+      "catchup_rate": 0.925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 3,
+      "n": 6,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=12|gap=1": {
+      "catchup_rate": 0.9,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 4,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=12|gap=2": {
       "catchup_rate": 0.85,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 2,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=12|gap=2": {
-      "catchup_rate": 0.7999999999999999,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 1,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=14": {
@@ -197,17 +204,17 @@
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=9": {
-      "catchup_rate": 0.97,
+      "catchup_rate": 0.9739130434782608,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 18,
+      "n": 21,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=9|gap=3_plus": {
-      "catchup_rate": 0.97,
+      "catchup_rate": 0.9739130434782608,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 18,
+      "n": 21,
       "raw_catchup_rate": 1.0
     }
   },
@@ -216,7 +223,7 @@
     "enabled": true,
     "min_context_n": 20
   },
-  "generated_at_utc": "2026-06-10T15:34:32.279106+00:00",
+  "generated_at_utc": "2026-06-12T00:26:32.819909+00:00",
   "revision_contexts": {
     "hour=0": {
       "mean_positive_revision_gap": 0.0,
@@ -231,64 +238,64 @@
       "revision_up_rate": 0.038461538461538464
     },
     "hour=10": {
-      "mean_positive_revision_gap": 7.222222222222222,
-      "n": 18,
+      "mean_positive_revision_gap": 7.416666666666667,
+      "n": 24,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.95
+      "revision_up_rate": 0.9615384615384616
     },
     "hour=11": {
-      "mean_positive_revision_gap": 5.923076923076923,
-      "n": 13,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9333333333333333
-    },
-    "hour=12": {
-      "mean_positive_revision_gap": 5.176470588235294,
-      "n": 17,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9473684210526315
-    },
-    "hour=13": {
-      "mean_positive_revision_gap": 3.3529411764705883,
-      "n": 17,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9473684210526315
-    },
-    "hour=14": {
-      "mean_positive_revision_gap": 2.6666666666666665,
+      "mean_positive_revision_gap": 6.055555555555555,
       "n": 18,
       "raw_revision_up_rate": 1.0,
       "revision_up_rate": 0.95
     },
+    "hour=12": {
+      "mean_positive_revision_gap": 4.739130434782608,
+      "n": 23,
+      "raw_revision_up_rate": 1.0,
+      "revision_up_rate": 0.96
+    },
+    "hour=13": {
+      "mean_positive_revision_gap": 3.0,
+      "n": 23,
+      "raw_revision_up_rate": 1.0,
+      "revision_up_rate": 0.96
+    },
+    "hour=14": {
+      "mean_positive_revision_gap": 2.5238095238095237,
+      "n": 21,
+      "raw_revision_up_rate": 1.0,
+      "revision_up_rate": 0.9565217391304348
+    },
     "hour=15": {
-      "mean_positive_revision_gap": 1.5294117647058822,
-      "n": 18,
-      "raw_revision_up_rate": 0.9444444444444444,
-      "revision_up_rate": 0.9
+      "mean_positive_revision_gap": 1.391304347826087,
+      "n": 24,
+      "raw_revision_up_rate": 0.9583333333333334,
+      "revision_up_rate": 0.9230769230769231
     },
     "hour=16": {
       "mean_positive_revision_gap": 1.0,
-      "n": 16,
-      "raw_revision_up_rate": 0.5,
-      "revision_up_rate": 0.5
+      "n": 22,
+      "raw_revision_up_rate": 0.6363636363636364,
+      "revision_up_rate": 0.625
     },
     "hour=17": {
       "mean_positive_revision_gap": 1.0,
-      "n": 18,
-      "raw_revision_up_rate": 0.3333333333333333,
-      "revision_up_rate": 0.35
+      "n": 23,
+      "raw_revision_up_rate": 0.4782608695652174,
+      "revision_up_rate": 0.48
     },
     "hour=18": {
       "mean_positive_revision_gap": 1.0,
-      "n": 16,
-      "raw_revision_up_rate": 0.1875,
-      "revision_up_rate": 0.2222222222222222
+      "n": 22,
+      "raw_revision_up_rate": 0.2727272727272727,
+      "revision_up_rate": 0.2916666666666667
     },
     "hour=19": {
       "mean_positive_revision_gap": 0.0,
-      "n": 17,
+      "n": 23,
       "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.05263157894736842
+      "revision_up_rate": 0.04
     },
     "hour=2": {
       "mean_positive_revision_gap": 0.0,
@@ -298,9 +305,9 @@
     },
     "hour=20": {
       "mean_positive_revision_gap": 0.0,
-      "n": 24,
+      "n": 27,
       "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.038461538461538464
+      "revision_up_rate": 0.034482758620689655
     },
     "hour=21": {
       "mean_positive_revision_gap": 0.0,
@@ -357,21 +364,22 @@
       "revision_up_rate": 0.9411764705882353
     },
     "hour=9": {
-      "mean_positive_revision_gap": 7.833333333333333,
-      "n": 18,
+      "mean_positive_revision_gap": 7.857142857142857,
+      "n": 21,
       "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.95
+      "revision_up_rate": 0.9565217391304348
     }
   },
   "training": {
-    "lead_rows": 95,
-    "revision_rows": 405,
-    "rows": 500,
+    "lead_rows": 104,
+    "revision_rows": 466,
+    "rows": 570,
     "snapshot_folders": [
       "data\\snapshots\\highest-temperature-in-los-angeles-on-june-6-2026",
       "data\\snapshots\\highest-temperature-in-los-angeles-on-june-7-2026",
       "data\\snapshots\\highest-temperature-in-los-angeles-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-9-2026"
+      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-9-2026",
+      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-10-2026"
     ],
     "sources": [
       "weather_current"

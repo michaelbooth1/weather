@@ -97,7 +97,7 @@ TORONTO = MarketSpec(
     lat=43.6767,
     lon=-79.6306,
     sources=("wu_history", "wu_current", "eccc_citypage", "eccc_swob",
-             "metar", "weather_forecast", "open_meteo"),
+             "metar", "weather_forecast", "open_meteo", "global_ensemble"),
     leading_obs="eccc_swob",
     coastal=False,
 )
@@ -114,7 +114,8 @@ NYC = MarketSpec(
     lon=-73.8740,
     # No ECCC/SWOB (Canadian); Open-Meteo + Weather.com cover NYC forecasts and
     # METAR/WU-current KLGA cover the leading-observation role SWOB plays up north.
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )
@@ -131,7 +132,8 @@ ATLANTA = MarketSpec(
     icao="KATL",
     lat=33.62972,
     lon=-84.44223,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=False,
 )
@@ -146,7 +148,8 @@ AUSTIN = MarketSpec(
     icao="KAUS",
     lat=30.1831,
     lon=-97.68063,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=False,
 )
@@ -161,7 +164,8 @@ CHICAGO = MarketSpec(
     icao="KORD",
     lat=41.96017,
     lon=-87.93161,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=False,
 )
@@ -176,7 +180,8 @@ DALLAS = MarketSpec(
     icao="KDAL",
     lat=32.83836,
     lon=-96.83584,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=False,
 )
@@ -191,7 +196,8 @@ DENVER = MarketSpec(
     icao="KBKF",
     lat=39.713,
     lon=-104.758,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=False,
 )
@@ -206,7 +212,8 @@ HOUSTON = MarketSpec(
     icao="KHOU",
     lat=29.64582,
     lon=-95.28214,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )
@@ -221,7 +228,8 @@ LOS_ANGELES = MarketSpec(
     icao="KLAX",
     lat=33.93817,
     lon=-118.3866,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )
@@ -236,7 +244,8 @@ MIAMI = MarketSpec(
     icao="KMIA",
     lat=25.78806,
     lon=-80.31692,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )
@@ -251,7 +260,8 @@ SAN_FRANCISCO = MarketSpec(
     icao="KSFO",
     lat=37.61961,
     lon=-122.36561,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )
@@ -266,7 +276,8 @@ SEATTLE = MarketSpec(
     icao="KSEA",
     lat=47.44467,
     lon=-122.31442,
-    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
+    sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
+             "nws_hourly", "global_ensemble"),
     leading_obs="metar",
     coastal=True,
 )

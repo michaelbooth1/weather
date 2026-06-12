@@ -81,6 +81,8 @@ class SourceFetchMixin:
             "metar": self.fetch_metar,
             "weather_forecast": self.fetch_weather_com_forecast,
             "open_meteo": self.fetch_open_meteo,
+            "nws_hourly": self.fetch_nws_hourly_forecast,
+            "global_ensemble": self.fetch_global_ensemble,
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
         fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
@@ -520,6 +522,148 @@ class SourceFetchMixin:
         day_max_c = max(day_temps) if day_temps else None
         return {"url": url, "rows": rows[:12], "day_max_c": day_max_c}
 
+    def fetch_nws_hourly_forecast(self):
+        """US National Weather Service hourly grid forecast.
+
+        The /points lookup maps lat/lon to the NWS grid; the forecastHourly URL
+        then returns hourly periods. US markets trade in Fahrenheit, but this
+        converter still honors the market display unit for safety.
+        """
+        if ":US" not in str(self.spec.wu_history_id):
+            return {"available": False, "reason": "NWS hourly forecast is US-only.", "rows": [], "day_max_c": None}
+        points_url = f"https://api.weather.gov/points/{self.spec.lat:.4f},{self.spec.lon:.4f}"
+        headers = {
+            "User-Agent": "weather-market-research/1.0 (local)",
+            "Accept": "application/geo+json, application/json",
+        }
+        points = self.cached_nws_points(points_url, headers)
+        forecast_url = ((points.get("properties") or {}).get("forecastHourly"))
+        if not forecast_url:
+            raise RuntimeError("NWS points response did not include forecastHourly")
+        payload = self.get_json(forecast_url, {}, headers=headers)
+        rows = []
+        day_temps = []
+        now = datetime.now(self.spec.tz)
+        for period in ((payload.get("properties") or {}).get("periods") or []):
+            dt = self.parse_weather_com_time(period.get("startTime"))
+            if not dt or dt.date() != self.target_date:
+                continue
+            temp = self.forecast_temp_to_native(period.get("temperature"), period.get("temperatureUnit"))
+            if temp is not None:
+                day_temps.append(temp)
+            if dt < now:
+                continue
+            rows.append({
+                "time": dt.strftime("%H:%M"),
+                "valid_time": dt.isoformat(),
+                "temp_c": temp,
+                "condition": period.get("shortForecast"),
+                "wind": period.get("windDirection"),
+                "wind_kmh": self.wind_speed_text_to_kmh(period.get("windSpeed")),
+            })
+        return {"url": forecast_url, "rows": rows[:12], "day_max_c": max(day_temps) if day_temps else None}
+
+    def cached_nws_points(self, points_url, headers):
+        cache_path = self.spec.data_root / "nws_points.json"
+        if cache_path.exists():
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("points_url") == points_url and cached.get("payload"):
+                    return cached["payload"]
+            except (OSError, json.JSONDecodeError):
+                pass
+        payload = self.get_json(points_url, {}, headers=headers)
+        try:
+            self.spec.data_root.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps({"points_url": points_url, "payload": payload}, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        return payload
+
+    def fetch_global_ensemble(self):
+        """Open-Meteo GFS ensemble mean/member forecast.
+
+        ``temperature_2m`` is the ensemble mean in the response; member columns
+        are used to expose an hourly spread for diagnostics while day_max_c
+        stays comparable to the other daily-max forecast sources.
+        """
+        url = "https://ensemble-api.open-meteo.com/v1/ensemble"
+        payload = self.get_json(url, {
+            "latitude": self.spec.lat,
+            "longitude": self.spec.lon,
+            "hourly": "temperature_2m",
+            "temperature_unit": self.spec.om_temperature_unit,
+            "timezone": self.spec.timezone,
+            "forecast_days": 2,
+            "models": "gfs_seamless",
+        })
+        hourly = payload.get("hourly", {}) or {}
+        member_keys = [
+            key for key in hourly
+            if key.startswith("temperature_2m_member")
+        ]
+        rows = []
+        day_temps = []
+        day_spreads = []
+        now = datetime.now(self.spec.tz).replace(tzinfo=None)
+        for index, raw_time in enumerate(hourly.get("time", []) or []):
+            dt = datetime.fromisoformat(raw_time)
+            if dt.date() != self.target_date:
+                continue
+            temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
+            members = [
+                self.to_number(self.array_get(hourly, key, index))
+                for key in member_keys
+            ]
+            members = [value for value in members if value is not None]
+            spread = max(members) - min(members) if len(members) >= 2 else None
+            if temp is not None:
+                day_temps.append(temp)
+            if spread is not None:
+                day_spreads.append(spread)
+            if dt < now:
+                continue
+            local_dt = dt.replace(tzinfo=self.spec.tz)
+            rows.append({
+                "time": dt.strftime("%H:%M"),
+                "valid_time": local_dt.isoformat(),
+                "temp_c": temp,
+                "ensemble_member_spread": spread,
+                "condition": "GFS ensemble mean",
+            })
+        return {
+            "url": url,
+            "rows": rows[:12],
+            "day_max_c": max(day_temps) if day_temps else None,
+            "day_mean_member_spread": sum(day_spreads) / len(day_spreads) if day_spreads else None,
+        }
+
+    def forecast_temp_to_native(self, value, unit):
+        temp = self.to_number(value)
+        if temp is None:
+            return None
+        unit = str(unit or self.spec.display_unit).upper()
+        if unit == self.spec.display_unit:
+            return temp
+        if unit == "F" and self.spec.display_unit == "C":
+            return (temp - 32.0) * 5.0 / 9.0
+        if unit == "C" and self.spec.display_unit == "F":
+            return temp * 9.0 / 5.0 + 32.0
+        return temp
+
+    def wind_speed_text_to_kmh(self, value):
+        if not value:
+            return None
+        numbers = [self.to_number(part) for part in re.findall(r"\d+(?:\.\d+)?", str(value))]
+        numbers = [number for number in numbers if number is not None]
+        if not numbers:
+            return None
+        mph = max(numbers)
+        return round(mph * 1.609344, 2)
+
     def parse_swob_xml(self, xml_text):
         root = ET.fromstring(xml_text)
 
@@ -543,9 +687,9 @@ class SourceFetchMixin:
             "max_24h_c": self.to_number(element_value("max_air_temp_pst24hrs")),
         }
 
-    def get_json(self, url, params):
+    def get_json(self, url, params, headers=None):
         def _once():
-            response = requests.get(url, params=params, timeout=self.timeout)
+            response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             return response.json()
         return request_with_retries(_once)

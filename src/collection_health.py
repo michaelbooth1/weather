@@ -17,10 +17,16 @@ import sys
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
+SRC_ROOT = Path(__file__).resolve().parent
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 try:
     from market_config import date_from_event_slug
+    from market_registry import all_specs, spec_for_slug
 except ImportError:  # pragma: no cover - package/module execution fallback
     from .market_config import date_from_event_slug
+    from .market_registry import all_specs, spec_for_slug
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.
@@ -198,6 +204,82 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     return summary
 
 
+def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
+    root = Path(snapshots_root)
+    candidates = []
+    for tape in root.glob("*/snapshots_long.csv"):
+        folder = tape.parent
+        folder_spec = spec_for_slug(folder.name)
+        if folder_spec and folder_spec.id == spec.id:
+            candidates.append(folder)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda folder: folder_target_date(folder))
+
+
+def fleet_collection_health(
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    interval_minutes=10.0,
+    tolerance=1.5,
+    live=True,
+    as_of=None,
+):
+    freshness_sla = float(interval_minutes) * float(tolerance)
+    markets = []
+    for spec in all_specs():
+        folder = latest_market_folder(spec, snapshots_root=snapshots_root)
+        if folder is None:
+            markets.append({
+                "market_id": spec.id,
+                "city": spec.city_label,
+                "unit": spec.display_unit,
+                "state": "MISSING",
+                "action_required": True,
+                "freshness_sla_minutes": freshness_sla,
+                "reason": "no snapshot tape found",
+            })
+            continue
+        summary = summarize_folder(
+            folder,
+            interval_minutes=interval_minutes,
+            tolerance=tolerance,
+            live=live,
+            as_of=as_of,
+        )
+        markets.append({
+            "market_id": spec.id,
+            "city": spec.city_label,
+            "unit": spec.display_unit,
+            "state": summary.get("state") or ("CLEAN" if summary.get("clean") else "CHECK"),
+            "action_required": bool(summary.get("action_required", not summary.get("clean"))),
+            "freshness_sla_minutes": freshness_sla,
+            "latest_age_minutes": summary.get("latest_age_minutes"),
+            "event_slug": summary.get("event_slug"),
+            "folder": summary.get("folder"),
+            "target_date": folder_target_date(folder).isoformat(),
+            "snapshots": summary.get("n", 0),
+            "capture_ratio": summary.get("capture_ratio"),
+            "max_gap_minutes": summary.get("max_gap_minutes"),
+            "reason": summary.get("reason"),
+        })
+    return {
+        "schema_version": "fleet_collection_health_v0.1",
+        "snapshots_root": str(snapshots_root),
+        "interval_minutes": float(interval_minutes),
+        "tolerance": float(tolerance),
+        "freshness_sla_minutes": freshness_sla,
+        "markets": markets,
+        "summary": {
+            "market_count": len(markets),
+            "action_required": sum(1 for row in markets if row.get("action_required")),
+            "states": {
+                state: sum(1 for row in markets if row.get("state") == state)
+                for state in sorted({row.get("state") for row in markets})
+            },
+        },
+    }
+
+
 def serialize_summary(summary):
     out = {}
     for key, value in summary.items():
@@ -237,9 +319,35 @@ def main():
     parser.add_argument("--interval-minutes", type=float, default=10.0)
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--live", action="store_true", help="Evaluate as an in-progress live market day.")
+    parser.add_argument("--fleet", action="store_true", help="Report one latest collection-health row per market.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when any tape needs attention.")
     args = parser.parse_args()
+
+    if args.fleet:
+        payload = fleet_collection_health(
+            snapshots_root=args.snapshots_root,
+            interval_minutes=args.interval_minutes,
+            tolerance=args.tolerance,
+            live=args.live,
+        )
+        any_attention = any(row.get("action_required") for row in payload["markets"])
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(
+                f"Fleet collection health: {payload['summary']['market_count']} markets, "
+                f"{payload['summary']['action_required']} need attention"
+            )
+            for row in payload["markets"]:
+                print(
+                    f"[{row['state']}] {row['market_id']}: "
+                    f"{row.get('event_slug') or '-'}; "
+                    f"{row.get('snapshots', 0)} snapshots -> {row.get('reason')}"
+                )
+        if args.strict and any_attention:
+            sys.exit(2)
+        return
 
     folders = args.folders
     if not folders:

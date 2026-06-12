@@ -69,7 +69,9 @@ def load_jsonl_hourly(root):
                 except json.JSONDecodeError:
                     continue
                 local_date = row.get("local_date")
-                temp = safe_float(row.get("temp_c"))
+                temp = safe_float(row.get("temp_native"))
+                if temp is None:
+                    temp = safe_float(row.get("temp_c"))
                 minute = row.get("minute_of_day")
                 if minute is None:
                     minute = minute_of_day(row.get("local_time") or row.get("time"))

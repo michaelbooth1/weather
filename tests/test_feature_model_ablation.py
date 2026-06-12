@@ -20,13 +20,18 @@ class TestFeatureModelAblation(unittest.TestCase):
             "current_temp",
             "forecast_high",
             "forecast_gap",
+            "forecast_source_count",
+            "forecast_disagreement",
             "wind_W-NW",
             "cloud_Fair/clear",
         ]
 
         families = feature_family_columns(feature_cols)
 
-        self.assertEqual(families["forecast"], ["forecast_high", "forecast_gap"])
+        self.assertEqual(
+            families["forecast"],
+            ["forecast_high", "forecast_gap", "forecast_source_count", "forecast_disagreement"],
+        )
         self.assertEqual(families["wind_regime"], ["wind_W-NW"])
         self.assertEqual(families["cloud_regime"], ["cloud_Fair/clear"])
 

@@ -1,10 +1,15 @@
 """Versioned feature schema for live, training, and snapshot audits."""
 
+# v0.4 (ROADMAP item 30): source redundancy. Forecast source count and
+# disagreement are explicit features/audit fields. Existing artifacts keep
+# serving because HGB bundles select by feature_names and the LR path slices the
+# trained scaler width.
+#
 # v0.3 (ROADMAP item 40): intra-hour freshness. Between WU prints the printed
 # state is frozen; the live wu_current reading and the elapsed minutes are now
 # explicit TRAINED features instead of fabricated rows (the reverted v0.5.1
 # injection) or heuristic floors. high_so_far stays printed-only.
-FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.3"
+FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.4"
 
 FEATURE_COLUMNS = [
     "high_so_far",
@@ -19,6 +24,8 @@ FEATURE_COLUMNS = [
     "wind_speed_kmh",
     "forecast_high",
     "forecast_gap",
+    "forecast_source_count",
+    "forecast_disagreement",
     # Appended after forecast_gap so v0.2 artifacts (12 numerics) keep working:
     # HGB bundles select by feature_names, the LR path slices len(scaler_mean).
     "minutes_since_cutoff",
@@ -138,6 +145,8 @@ def build_historical_feature_record(
     daily,
     cutoff_hour,
     forecast_high=None,
+    forecast_source_count=None,
+    forecast_disagreement=None,
     wind_group_fn=None,
     cloud_group_fn=None,
     wall_minute=None,
@@ -250,6 +259,12 @@ def build_historical_feature_record(
         "wind_speed_kmh": current_obs.get("wind_kmh"),
         "forecast_high": forecast_high,
         "forecast_gap": forecast_gap,
+        "forecast_source_count": (
+            forecast_source_count
+            if forecast_source_count is not None
+            else (1 if forecast_high is not None else 0)
+        ),
+        "forecast_disagreement": forecast_disagreement if forecast_disagreement is not None else 0.0,
         "minutes_since_cutoff": float(minutes_since_cutoff),
         "live_reading_temp": live_reading,
         "live_reading_minus_high": live_reading_minus_high,

@@ -1,0 +1,716 @@
+{
+  "family_artifacts": {
+    "forecast_error": {
+      "artifact": "src/forecast_error_model_f_family.json",
+      "cap_brier": 0.9817431079874277,
+      "folder_count": 55,
+      "learned_brier": 0.9249830029365105,
+      "market_rows": {
+        "atlanta": 912,
+        "austin": 1231,
+        "chicago": 1231,
+        "dallas": 1231,
+        "denver": 1231,
+        "houston": 1231,
+        "los-angeles": 1245,
+        "miami": 910,
+        "nyc": 1257,
+        "san-francisco": 1245,
+        "seattle": 1245
+      },
+      "report": "data/backtest/forecast_error_report_f_family.md",
+      "row_count": 12969,
+      "status": "ok"
+    },
+    "probability_calibration": {
+      "artifact": "src/probability_calibration_f_family.json",
+      "artifact_replay_brier": 0.06706327913076854,
+      "baseline_brier": 0.04991129935178745,
+      "folder_count": 11,
+      "market_rows": {
+        "atlanta": 1540,
+        "austin": 1540,
+        "chicago": 1540,
+        "dallas": 1540,
+        "denver": 1540,
+        "houston": 1540,
+        "los-angeles": 1540,
+        "miami": 1540,
+        "nyc": 1540,
+        "san-francisco": 1540,
+        "seattle": 1540
+      },
+      "report": "data/backtest/probability_calibration_report_f_family.md",
+      "row_count": 16940,
+      "selected_method": "prior_shrink",
+      "selected_param": 0.1,
+      "skipped_count": 44,
+      "status": "ok"
+    },
+    "settlement_lag": {
+      "artifact": "src/settlement_lag_model_f_family.json",
+      "folder_count": 55,
+      "global_catchup_rate": 0.6731062124248497,
+      "lead_rows": 2493,
+      "market_rows": {
+        "atlanta": 762,
+        "austin": 694,
+        "chicago": 729,
+        "dallas": 696,
+        "denver": 609,
+        "houston": 727,
+        "los-angeles": 570,
+        "miami": 619,
+        "nyc": 668,
+        "san-francisco": 760,
+        "seattle": 679
+      },
+      "report": "data/backtest/settlement_lag_report_f_family.md",
+      "revision_rows": 5020,
+      "status": "ok"
+    }
+  },
+  "family_unit": "F",
+  "gate": {
+    "default_mode": "empirical",
+    "min_settled_days": 2,
+    "min_trust_score": 25,
+    "policy": "serve feature ML only when trust and all secondary artifacts clear"
+  },
+  "generated_at_utc": "2026-06-12T00:26:41.680590+00:00",
+  "markets": {
+    "atlanta": {
+      "artifact_suffix": "_atlanta",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_atlanta.json",
+          "cap_brier": 0.9843698873406955,
+          "folder_count": 5,
+          "learned_brier": 0.9240663069928924,
+          "report": "data/backtest/forecast_error_report_atlanta.md",
+          "row_count": 912,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_atlanta.json",
+          "artifact_replay_brier": 0.029051727136938068,
+          "baseline_brier": 0.029089915989795035,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_atlanta.md",
+          "row_count": 1540,
+          "selected_method": "identity",
+          "selected_param": null,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_atlanta.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.3876623376623377,
+          "lead_rows": 306,
+          "report": "data/backtest/settlement_lag_report_atlanta.md",
+          "revision_rows": 456,
+          "status": "ok"
+        }
+      },
+      "city": "Atlanta",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": 0.465,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "atlanta",
+        "market_brier": 0.0543,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0291,
+        "model_ece": 0.0214,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "austin": {
+      "artifact_suffix": "_austin",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_austin.json",
+          "cap_brier": 0.9742904392428265,
+          "folder_count": 5,
+          "learned_brier": 0.9005924726320059,
+          "report": "data/backtest/forecast_error_report_austin.md",
+          "row_count": 1231,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_austin.json",
+          "artifact_replay_brier": 0.039344675593130186,
+          "baseline_brier": 0.04014357164200532,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_austin.md",
+          "row_count": 1540,
+          "selected_method": "temperature",
+          "selected_param": 1.2,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_austin.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.5553719008264463,
+          "lead_rows": 240,
+          "report": "data/backtest/settlement_lag_report_austin.md",
+          "revision_rows": 454,
+          "status": "ok"
+        }
+      },
+      "city": "Austin",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.156,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "austin",
+        "market_brier": 0.0347,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0401,
+        "model_ece": 0.015,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "chicago": {
+      "artifact_suffix": "_chicago",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_chicago.json",
+          "cap_brier": 0.9681773559531716,
+          "folder_count": 5,
+          "learned_brier": 0.9427037918725568,
+          "report": "data/backtest/forecast_error_report_chicago.md",
+          "row_count": 1231,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_chicago.json",
+          "artifact_replay_brier": 0.08456678139016158,
+          "baseline_brier": 0.04782354723836241,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_chicago.md",
+          "row_count": 1540,
+          "selected_method": "temperature",
+          "selected_param": 1.2,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_chicago.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.5562043795620438,
+          "lead_rows": 272,
+          "report": "data/backtest/settlement_lag_report_chicago.md",
+          "revision_rows": 457,
+          "status": "ok"
+        }
+      },
+      "city": "Chicago",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.521,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "chicago",
+        "market_brier": 0.0314,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0478,
+        "model_ece": 0.0316,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "dallas": {
+      "artifact_suffix": "_dallas",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_dallas.json",
+          "cap_brier": 1.072248795650813,
+          "folder_count": 5,
+          "learned_brier": 0.9222468869974578,
+          "report": "data/backtest/forecast_error_report_dallas.md",
+          "row_count": 1231,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_dallas.json",
+          "artifact_replay_brier": 0.0842344974255727,
+          "baseline_brier": 0.08479844542571242,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_dallas.md",
+          "row_count": 1540,
+          "selected_method": "prior_shrink",
+          "selected_param": 0.5,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_dallas.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.8688796680497926,
+          "lead_rows": 239,
+          "report": "data/backtest/settlement_lag_report_dallas.md",
+          "revision_rows": 457,
+          "status": "ok"
+        }
+      },
+      "city": "Dallas",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.416,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "dallas",
+        "market_brier": 0.0599,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0848,
+        "model_ece": 0.0887,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "denver": {
+      "artifact_suffix": "_denver",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_denver.json",
+          "cap_brier": 0.9860648942014715,
+          "folder_count": 5,
+          "learned_brier": 0.9685154117080272,
+          "report": "data/backtest/forecast_error_report_denver.md",
+          "row_count": 1231,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_denver.json",
+          "artifact_replay_brier": 0.045602001611324876,
+          "baseline_brier": 0.024694317700813314,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_denver.md",
+          "row_count": 1540,
+          "selected_method": "identity",
+          "selected_param": null,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_denver.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.8593406593406594,
+          "lead_rows": 180,
+          "report": "data/backtest/settlement_lag_report_denver.md",
+          "revision_rows": 429,
+          "status": "ok"
+        }
+      },
+      "city": "Denver",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": 0.241,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "denver",
+        "market_brier": 0.0325,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0247,
+        "model_ece": 0.0473,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "houston": {
+      "artifact_suffix": "_houston",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_houston.json",
+          "cap_brier": 0.9414245938478787,
+          "folder_count": 5,
+          "learned_brier": 0.8983138721231781,
+          "report": "data/backtest/forecast_error_report_houston.md",
+          "row_count": 1231,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_houston.json",
+          "artifact_replay_brier": 0.09475717923563921,
+          "baseline_brier": 0.059611526540464976,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_houston.md",
+          "row_count": 1540,
+          "selected_method": "temperature",
+          "selected_param": 1.5,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_houston.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.6318840579710145,
+          "lead_rows": 274,
+          "report": "data/backtest/settlement_lag_report_houston.md",
+          "revision_rows": 453,
+          "status": "ok"
+        }
+      },
+      "city": "Houston",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.057,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "houston",
+        "market_brier": 0.0564,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0596,
+        "model_ece": 0.0361,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "los-angeles": {
+      "artifact_suffix": "_los-angeles",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_los-angeles.json",
+          "cap_brier": 0.9471310548404348,
+          "folder_count": 5,
+          "learned_brier": 0.9044875245637017,
+          "report": "data/backtest/forecast_error_report_los-angeles.md",
+          "row_count": 1245,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_los-angeles.json",
+          "artifact_replay_brier": 0.057928002941441424,
+          "baseline_brier": 0.019537809751442134,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_los-angeles.md",
+          "row_count": 1540,
+          "selected_method": "identity",
+          "selected_param": null,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_los-angeles.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.9943396226415094,
+          "lead_rows": 104,
+          "report": "data/backtest/settlement_lag_report_los-angeles.md",
+          "revision_rows": 466,
+          "status": "ok"
+        }
+      },
+      "city": "Los Angeles",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.544,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "los-angeles",
+        "market_brier": 0.0127,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0195,
+        "model_ece": 0.0533,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "miami": {
+      "artifact_suffix": "_miami",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_miami.json",
+          "cap_brier": 0.999081930966085,
+          "folder_count": 5,
+          "learned_brier": 0.8994818550897807,
+          "report": "data/backtest/forecast_error_report_miami.md",
+          "row_count": 910,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_miami.json",
+          "artifact_replay_brier": 0.026280929061014046,
+          "baseline_brier": 0.026321678443009318,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_miami.md",
+          "row_count": 1540,
+          "selected_method": "identity",
+          "selected_param": null,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_miami.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.9488095238095239,
+          "lead_rows": 166,
+          "report": "data/backtest/settlement_lag_report_miami.md",
+          "revision_rows": 453,
+          "status": "ok"
+        }
+      },
+      "city": "Miami",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.309,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "miami",
+        "market_brier": 0.0201,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0263,
+        "model_ece": 0.0149,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "nyc": {
+      "artifact_suffix": "_nyc",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_nyc.json",
+          "cap_brier": 0.9412065495703611,
+          "folder_count": 5,
+          "learned_brier": 0.9225170089605408,
+          "report": "data/backtest/forecast_error_report_nyc.md",
+          "row_count": 1257,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_nyc.json",
+          "artifact_replay_brier": 0.11457252917269438,
+          "baseline_brier": 0.09034785239796224,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_nyc.md",
+          "row_count": 1540,
+          "selected_method": "prior_shrink",
+          "selected_param": 0.6,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_nyc.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.6524271844660194,
+          "lead_rows": 204,
+          "report": "data/backtest/settlement_lag_report_nyc.md",
+          "revision_rows": 464,
+          "status": "ok"
+        }
+      },
+      "city": "NYC",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -0.275,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "nyc",
+        "market_brier": 0.0709,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0903,
+        "model_ece": 0.0969,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "san-francisco": {
+      "artifact_suffix": "_san-francisco",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_san-francisco.json",
+          "cap_brier": 0.968248554647588,
+          "folder_count": 5,
+          "learned_brier": 0.9145152951167654,
+          "report": "data/backtest/forecast_error_report_san-francisco.md",
+          "row_count": 1245,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_san-francisco.json",
+          "artifact_replay_brier": 0.09438907790399732,
+          "baseline_brier": 0.0691752577231884,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_san-francisco.md",
+          "row_count": 1540,
+          "selected_method": "temperature",
+          "selected_param": 1.5,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_san-francisco.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.5703703703703704,
+          "lead_rows": 295,
+          "report": "data/backtest/settlement_lag_report_san-francisco.md",
+          "revision_rows": 465,
+          "status": "ok"
+        }
+      },
+      "city": "San Francisco",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -1.376,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "san-francisco",
+        "market_brier": 0.0291,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0692,
+        "model_ece": 0.0544,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    },
+    "seattle": {
+      "artifact_suffix": "_seattle",
+      "artifacts": {
+        "forecast_error": {
+          "artifact": "src/forecast_error_model_seattle.json",
+          "cap_brier": 1.0230654966360035,
+          "folder_count": 5,
+          "learned_brier": 0.9071576577709543,
+          "report": "data/backtest/forecast_error_report_seattle.md",
+          "row_count": 1245,
+          "status": "ok"
+        },
+        "probability_calibration": {
+          "artifact": "src/probability_calibration_seattle.json",
+          "artifact_replay_brier": 0.0669686689665394,
+          "baseline_brier": 0.05748037001683839,
+          "folder_count": 1,
+          "report": "data/backtest/probability_calibration_report_seattle.md",
+          "row_count": 1540,
+          "selected_method": "prior_shrink",
+          "selected_param": 0.2,
+          "skipped_count": 4,
+          "status": "ok"
+        },
+        "settlement_lag": {
+          "artifact": "src/settlement_lag_model_seattle.json",
+          "folder_count": 5,
+          "global_catchup_rate": 0.8297674418604651,
+          "lead_rows": 213,
+          "report": "data/backtest/settlement_lag_report_seattle.md",
+          "revision_rows": 466,
+          "status": "ok"
+        }
+      },
+      "city": "Seattle",
+      "serving_gate": {
+        "min_settled_days": 2,
+        "min_trust_score": 25,
+        "mode": "empirical",
+        "reason": "trust 15 < 25; settled_days 1 < 2"
+      },
+      "trust": {
+        "band_rows": 1540,
+        "brier_skill_vs_market": -1.896,
+        "calibration_subscore": null,
+        "grade": "Unproven",
+        "market": "seattle",
+        "market_brier": 0.0198,
+        "maturity_subscore": 0.111,
+        "model_brier": 0.0575,
+        "model_ece": 0.0234,
+        "rationale": "1 settled day(s) -- not yet validated; bootstrap model. Score rises as clean settled days accumulate.",
+        "settled_days": 1,
+        "trust_score": 15
+      },
+      "unit": "F"
+    }
+  },
+  "quality_grades": [
+    "complete",
+    "manual_override"
+  ],
+  "schema_version": "family_secondary_artifacts_v0.1",
+  "snapshots_root": "data\\snapshots"
+}

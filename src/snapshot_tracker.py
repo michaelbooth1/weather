@@ -18,10 +18,11 @@ from forecast_archive import (  # noqa: E402
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
-from collection_health import serialize_summary, summarize_folder  # noqa: E402
+from collection_health import fleet_collection_health, serialize_summary, summarize_folder  # noqa: E402
 from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from market_config import config_for_date, config_from_event
 from market_registry import DEFAULT_MARKET_ID, all_specs
+from model_identity import model_replay_identity
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
 
@@ -66,6 +67,10 @@ LONG_COLUMNS = [
     "eccc_swob_max_c",
     "weather_forecast_max_c",
     "open_meteo_max_c",
+    "nws_forecast_max_c",
+    "global_ensemble_max_c",
+    "forecast_source_count",
+    "forecast_disagreement",
     "eccc_forecast_high_c",
 ]
 
@@ -140,6 +145,7 @@ class SnapshotStore:
         snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
         distribution = model.get("distribution", {}) or {}
         model_version = model.get("model_version") or MODEL_VERSION
+        model_identity = model.get("model_identity") or self.model_identity(model_client)
         top_temp = model.get("top_temp")
         top_probability = distribution.get(top_temp) if top_temp is not None else None
         sources = model.get("sources", {}) or {}
@@ -193,6 +199,7 @@ class SnapshotStore:
             "event_slug": self.event_slug,
             "event_updated_at": event.get("updatedAt"),
             "model_version": model_version,
+            "model_identity": model_identity,
             "top_temp_c": top_temp,
             "top_probability": top_probability,
             "distribution": distribution,
@@ -248,7 +255,14 @@ class SnapshotStore:
                 "forecasts": forecast_rows,
             })
 
-        self.write_replay_input(snapshot_id, captured_at, model, model_client, model_version)
+        self.write_replay_input(
+            snapshot_id,
+            captured_at,
+            model,
+            model_client,
+            model_version,
+            model_identity,
+        )
 
         return {
             "written": True,
@@ -292,7 +306,16 @@ class SnapshotStore:
         eccc = model_client.source_data(sources, "eccc_swob")
         weather_forecast = model_client.source_data(sources, "weather_forecast")
         open_meteo = model_client.source_data(sources, "open_meteo")
+        nws_hourly = model_client.source_data(sources, "nws_hourly")
+        global_ensemble = model_client.source_data(sources, "global_ensemble")
         eccc_city = model_client.source_data(sources, "eccc_citypage")
+        forecast_ensemble = model_client.forecast_ensemble_metrics(
+            open_meteo,
+            weather_forecast,
+            eccc_city,
+            nws_hourly=nws_hourly,
+            global_ensemble=global_ensemble,
+        )
         return {
             "wu_history_high_c": history.get("max_c"),
             "wu_current_c": current.get("temp_c"),
@@ -302,6 +325,10 @@ class SnapshotStore:
                 weather_forecast.get("rows")
             ),
             "open_meteo_max_c": model_client.max_row_temp(open_meteo.get("rows")),
+            "nws_forecast_max_c": model_client.max_row_temp(nws_hourly.get("rows")),
+            "global_ensemble_max_c": model_client.max_row_temp(global_ensemble.get("rows")),
+            "forecast_source_count": forecast_ensemble.get("forecast_source_count"),
+            "forecast_disagreement": forecast_ensemble.get("forecast_disagreement"),
             "eccc_forecast_high_c": eccc_city.get("forecast_high_c"),
         }
 
@@ -449,7 +476,21 @@ class SnapshotStore:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
 
-    def write_replay_input(self, snapshot_id, captured_at, model, model_client, model_version):
+    def model_identity(self, model_client):
+        try:
+            return model_replay_identity(model_client)
+        except Exception:  # noqa: BLE001 - capture must continue without identity
+            return None
+
+    def write_replay_input(
+        self,
+        snapshot_id,
+        captured_at,
+        model,
+        model_client,
+        model_version,
+        model_identity=None,
+    ):
         """Persist the full model inputs for this snapshot so it can be replayed.
 
         The merged ``sources`` dict is exactly what ``estimate_distribution`` consumes
@@ -469,6 +510,7 @@ class SnapshotStore:
             "event_slug": self.event_slug,
             "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
             "model_version": model_version,
+            "model_identity": model_identity if model_identity is not None else self.model_identity(model_client),
             # The timestamp the build actually used (falls back to the write time).
             "built_at": model.get("built_at") or captured_at.isoformat(),
             "recorded_distribution": model.get("distribution") or {},
@@ -619,15 +661,33 @@ def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
     return serialize_summary(summary)
 
 
+def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
+    now = now or datetime.now(TORONTO_TZ)
+    return fleet_collection_health(
+        snapshots_root=SNAPSHOT_DATA_ROOT,
+        interval_minutes=interval_minutes,
+        tolerance=tolerance,
+        live=True,
+        as_of=now,
+    )
+
+
 def pid_is_python(pid):
     """True when ``pid`` exists AND is a python process. Guards against PID
-    reuse by unrelated processes before --stop terminates anything."""
+    reuse by unrelated processes before --stop terminates anything.
+
+    CREATE_NO_WINDOW is load-bearing: the supervisor task runs under
+    pythonw.exe (no console), and a console child like tasklist spawned from
+    a console-less parent makes Windows allocate a NEW VISIBLE console -- a
+    cmd window flashing on the user's screen every 10-minute ensure tick."""
     if not pid:
         return False
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     try:
         out = subprocess.run(
             ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
             capture_output=True, text=True, timeout=15,
+            creationflags=creationflags,
         ).stdout
         return "python" in out.lower()
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -764,6 +824,24 @@ def run_loop(force=False, interval_minutes=10.0):
             if written:
                 status["last_snapshot_id"] = next(iter(written.values()))
                 status["last_snapshot_written_at"] = now.isoformat()
+            try:
+                fleet_health = current_fleet_collection_health(
+                    now=now,
+                    interval_minutes=interval_minutes,
+                )
+                status["fleet_collection"] = {
+                    "schema_version": fleet_health.get("schema_version"),
+                    "summary": fleet_health.get("summary"),
+                    "attention_markets": [
+                        row["market_id"]
+                        for row in fleet_health.get("markets", [])
+                        if row.get("action_required")
+                    ],
+                }
+            except Exception as exc:  # noqa: BLE001 - observability must not kill collection
+                status["fleet_collection"] = {
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
             write_loop_status(status)
             append_diagnostic({
                 "time": now.isoformat(),
@@ -780,6 +858,14 @@ def run_loop(force=False, interval_minutes=10.0):
 
 
 def main():
+    # Under pythonw.exe (the windowless interpreter the supervisor task uses so
+    # no console flashes every 10 minutes) sys.stdout/stderr are None and any
+    # print would crash. Route them to devnull; file/JSONL logging is unaffected.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
     parser = argparse.ArgumentParser(
         description="Capture Toronto weather-market model/market odds snapshots."
     )
@@ -836,6 +922,10 @@ def main():
     if args.status:
         health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
         health["collection"] = current_collection_health(
+            interval_minutes=args.interval_minutes,
+            tolerance=args.status_tolerance,
+        )
+        health["fleet_collection"] = current_fleet_collection_health(
             interval_minutes=args.interval_minutes,
             tolerance=args.status_tolerance,
         )

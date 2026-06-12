@@ -444,7 +444,7 @@ changelog. Full PID/heartbeat/error process management remains item 16.
 
 ## Data Quality And Operations
 
-### 14. Data Validation Suite [PARTIAL]
+### 14. Data Validation Suite [COMPLETE - FLEET-AWARE]
 
 - [x] Add tests for:
   WU history parsing, daily summary generation, market-bin parsing,
@@ -463,6 +463,14 @@ Codex update (2026-05-31): unit coverage has expanded to 103 passing tests,
 including forecast features, live observed floors, collection health, retries,
 and backtest settlement behavior. This item remains partial until data audits
 and snapshot append/schema checks are part of routine verification.
+
+Codex update (2026-06-11): closed by item 31. `tests/test_data_auditor.py`
+covers the auditor as a regression guard, `tests/test_fleet_observability.py`
+covers fleet collection/provenance/status helpers, and the command
+`src\data_auditor.py --fleet --json --strict` gives automation a unit-aware data audit.
+`src.fleet_observability report --strict` combines audits, collection health,
+artifact provenance, and trust readiness into a fail-closed report. The running
+snapshot loop also exposes fleet collection state in `loop_status.json`.
 
 ### 15. Reproducible Backfills [COMPLETE]
 
@@ -1157,6 +1165,21 @@ Current WU depth snapshot from the audit:
   queue is down to 3,548 underlying chunks: WU=1,916 and reanalysis=1,632.
   This is why the item remains partial.
 
+2026-06-11 US seasonal WU widener update:
+
+- The May 20 through June 30 seasonal window is now widened for 1995-2014
+  across all 11 US markets. Expected target-season days per market: 840.
+- NYC, Atlanta, Chicago, Dallas, Denver, Houston, Los Angeles, Miami,
+  San Francisco, and Seattle each have 832 covered days plus 8
+  source-unavailable Weather.com days (`2000-06-01` through `2000-06-08`),
+  with seasonal `missing=0`.
+- Austin has 748 covered days plus 92 source-unavailable Weather.com days
+  (`1995-05-20` through `1995-06-30`, `1996-05-20` through `1996-06-30`,
+  and `2000-06-01` through `2000-06-08`), with seasonal `missing=0`.
+- WU manifest audits passed after the widened rebuilds: 178 partitions for
+  every US market except Austin, which has 174 partitions because the two early
+  source-unavailable seasonal windows produce no raw partitions.
+
 Validation results for this increment:
 
 - `.\venv\Scripts\python.exe -m pytest tests\test_validation.py tests\test_backfill_markets.py -q`: 15 passed.
@@ -1193,9 +1216,11 @@ Validation results for this increment:
 
 Remaining work before item 29 can close:
 
-- Run or schedule the resumable WU widener so each registered market reaches
-  the deepest WU window available, not only the current mixed coverage. Dallas,
-  Denver, Houston, Los Angeles, Miami, San Francisco, and Seattle are still open.
+- Decide whether production training should stay seasonal-first or require
+  full-year continuous WU raw history. The 1995-2014 US May 20-June 30
+  widener is now source-limited; full off-season/full-year WU depth is still a
+  policy and storage decision, not a blocker for the current high-temperature
+  seasonal retrains.
 - Run the reanalysis backfills across every registered market and the chosen
   training window, then keep the raw files/checksum manifests as the offline
   rebuild source. GHCNh is complete for the current minimum window.
@@ -1203,34 +1228,95 @@ Remaining work before item 29 can close:
   (`historical_coverage.json` currently shows what is missing, not a completed
   source-limited archive).
 
-### 30. Source Redundancy And Gap-Filling [NEW]
+### 30. Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]
 
 Goal: no single feed is a single point of failure or bias.
 
-- [ ] >=2 observation streams per city (WU + METAR/ASOS + ISD), cross-validated;
+- [x] >=2 observation streams per city (WU + METAR/ASOS + ISD), cross-validated;
   learn each one's lead/bias versus settlement (generalize items 4-5 to all
   markets).
-- [ ] Multiple forecast sources (Open-Meteo + NWS/NDFD + a global ensemble) into
+- [x] Multiple forecast sources (Open-Meteo + NWS/NDFD + a global ensemble) into
   an ensemble-forecast feature plus a disagreement signal (extends item 22).
-- [ ] Automated gap detection and targeted re-fetch; fill observation gaps from
+- [x] Automated gap detection and targeted re-fetch; fill observation gaps from
   the redundant stream.
 
 Acceptance: a single source outage degrades gracefully, and forecast
 disagreement is a measured feature, not an assumption.
 
-### 31. Data Integrity And Observability At Scale [NEW]
+Implementation result (2026-06-12): added `src.source_redundancy`, which builds
+`data/backtest/source_redundancy.json`,
+`data/backtest/source_redundancy_report.md`,
+`data/backtest/source_truth_daily.csv`, and
+`data/backtest/forecast_ensemble_features.csv`. It keeps WU as the
+settlement-aligned primary, compares it with NOAA GHCNh and ERA5-style
+reanalysis for every registered market, learns each redundant source's daily
+high bias and peak-time lead versus WU, and emits provenance-safe daily truth
+rows. When WU is missing but a redundant source exists, the truth row becomes a
+`filled_from_redundant` candidate instead of pretending the day is clean WU.
+
+Gap-fill result: the same report groups missing-source days into targeted
+commands for `src.wu_history`, `src.noaa_ghcnh_history`, and
+`src.reanalysis_history`. A single source outage now degrades into either a
+primary-WU row with missing redundant-source refetch commands or a
+provenance-labelled redundant fill candidate; only all-source gaps remain
+unfillable.
+
+Forecast result: feature schema `toronto_feature_store_v0.4` adds
+`forecast_source_count` and `forecast_disagreement`. Live extraction computes
+them from Weather.com, Open-Meteo, ECCC, NWS hourly (US markets), and the
+Open-Meteo GFS global ensemble where available; `src.forecast_archive`,
+`src.snapshot_tracker`, `src.forecast_tracker`, and the forecast-error
+component now carry those sources forward. The new forecast ensemble CSV
+backfills the same source-count/median/spread signal from archived forecast
+tapes. Existing model artifacts keep serving because they select their trained
+feature names.
+
+Current report (2026-06-12 12:20 UTC, window 2026-06-01..2026-06-12):
+12 markets / 144 market-days, 84 WU primary days, 60 two-plus-source days, 0
+redundant fill days, 60 all-source missing days, and 17 disagreement alerts.
+Forecast ensemble extraction covered 8,169 snapshots; almost every F-market
+snapshot has two forecast sources, while Toronto averages 2.13 sources because
+ECCC joins Weather.com/Open-Meteo.
+
+### 31. Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]
 
 Goal: answer "is every market complete and fresh right now?" at a glance.
 
-- [ ] Extend `collection_health` to all 12 markets plus a fleet view; per-market
+- [x] Extend `collection_health` to all 12 markets plus a fleet view; per-market
   freshness SLAs.
-- [ ] Wire data audits (missing/sparse/duplicate/impossible) into CI and the loop
+- [x] Wire data audits (missing/sparse/duplicate/impossible) into CI and the loop
   (closes item 14).
-- [ ] Provenance manifests and schema versions on every artifact; drift/outlier
+- [x] Provenance manifests and schema versions on every artifact; drift/outlier
   alerts.
 
 Acceptance: data problems surface as alerts before they corrupt training or
 serving — the way the timezone bug should have.
+
+Implementation result (2026-06-11): `src.collection_health` now has
+`--fleet` mode over all 12 registered markets with per-market freshness SLAs,
+and `src.snapshot_tracker --status` includes both the active-day collection
+state and the full fleet collection state. The running loop also writes a
+compact `fleet_collection` summary into `data/snapshots/loop_status.json`, so
+collection gaps are visible from the operator heartbeat.
+
+Fleet observability result: `src.fleet_observability report --strict` writes
+`data/backtest/fleet_observability.json`,
+`data/backtest/fleet_observability_report.md`, and
+`data/backtest/artifact_provenance_manifest.json`. It combines fleet collection
+health, fleet historical audits, artifact provenance/schema status, location
+trust readiness, and alert severity into one CI/loop-friendly payload. The
+standalone `src\data_auditor.py --fleet --json --strict` path is now
+registry-aware and unit-aware, so F-market rows no longer trigger false Celsius
+impossible-value alerts.
+
+Current fleet report (2026-06-12 01:20 UTC): status is `CRITICAL`, which is the
+desired fail-closed behavior. It found 12 collection-gap criticals on the June
+11 tapes (Toronto 93 snapshots, max gap 21 min; US markets 92 snapshots, max
+gap 31 min), plus one true
+Miami historical outlier (`171 F` on 2005-06-11). It also warns on
+target-window missing/sparse historical days and legacy core artifacts whose
+schema is only represented in the external provenance manifest. Those are now
+surfaced before training/serving can treat the data as clean.
 
 ### 32. Reanalysis And Synoptic Feature Layer [NEW - GATED]
 
@@ -1259,7 +1345,7 @@ Track A/B items they sharpen.
 
 Short-term (correctness + cleanup):
 
-- [ ] **P0 - `_c` daily columns hold Fahrenheit for the 11 F markets.** Post
+- [x] **P0 - `_c` daily columns hold Fahrenheit for the 11 F markets.** Post
   native-unit refactor the daily writer wrote native values into `max_temp_c` /
   `min_temp_c` / `avg_temp_c` / `max_temp_bucket_c` without converting (verified:
   Miami `max_temp_c`=88, LA=71 are degF). Works today only because every consumer
@@ -1267,7 +1353,7 @@ Short-term (correctness + cleanup):
   native bucket == settlement bucket). **Blocks pooled/canonical-C training
   (item 33 / 35).** Fix = convert F->C properly, or rename columns to `_native`
   and make any pooling convert explicitly. Audit every `_c` consumer.
-- [ ] **P1 - `data_auditor.py` only validates Toronto.** Hardcoded to CYYZ,
+- [x] **P1 - `data_auditor.py` only validates Toronto.** Hardcoded to CYYZ,
   months 5-6, Celsius bounds (`>45C impossible`) -> flags ~all F rows as
   impossible. 11/12 markets have no working validation. Make it fleet-aware +
   unit-aware (`all_specs()`, native bounds per `display_unit`). Sharpens items
@@ -1322,41 +1408,142 @@ Acceptance: the `_c` lie is resolved (pooled training unblocked), every market
 has working validation, idle sources are either integrated or dropped, and the
 repo no longer carries multi-GB regenerable artifacts.
 
+P0 unit-contract fix (2026-06-11): `src.daily_summary` now centralizes
+native-vs-Celsius daily-summary reads, `src.wu_history` writes
+`wu_daily_native_v2` with explicit `*_native` columns and true Celsius `*_c`
+columns, and all 12 WU normalized stores were rebuilt from local raw payloads.
+Spot check: NYC June 7 is native `81 F` with `max_temp_c=27.2222`; Toronto June
+7 remains `24 C`. Native settlement/model readers now prefer
+`max_temp_bucket_native` / `max_temp`, while the storage layer is safe for
+canonical-C pooling. The pooled trainer also filters implausible native buckets
+(found and excluded Miami 2005-06-11 at impossible `171 F`).
+
+P1 fleet-aware auditor fix (2026-06-11): `src.data_auditor` now uses
+`all_specs()`, per-market `data_root`, daily-summary native/C helpers, and
+native temperature bounds (`F` and `C`) instead of hardcoded CYYZ/Celsius
+assumptions. It exposes `--fleet --json --strict` for automation and feeds the
+fleet observability report. Spot checks cleared the false NYC/Denver F-market
+pressure/temperature alerts while preserving the true Miami 2005-06-11
+`171 F` critical.
+
 ## Track B — From Bootstrap To Full Production Model
 
 Principle: one shared learning pipeline, split only at the unit/band I/O edges,
 validated by the improvement engine before anything ships, with per-market gating
 and automated retraining.
 
-### 33. Family-Pooled Model + City Features [NEXT - UNBLOCKED]
+### 33. Family-Pooled Model + City Features [OPEN - v0.2 REPLAY CLEARED, SHADOW]
 
 Goal: train on all cities in a unit family, not one (audit Option A).
 
-- [ ] Add city features to `feature_store` (city one-hot, climate-normal, lat,
-  coastal, continentality).
-- [ ] Add a pooled training mode to `feature_model` (iterate a family's specs,
-  concatenate records, train one HGB).
-- [ ] Train the F family on all 11 US cities (~1,150 window-days); keep Toronto/C
-  as its own family.
-- [ ] Validate per-market on replay + trust before cutover; per-market
+- [x] Add city features to the pooled training path (market one-hot,
+  climate-normal, latitude/longitude, coastal flag, high-so-far anomaly, and
+  forecast anomaly).
+- [x] Add a pooled training mode (`src.pooled_feature_model`) that iterates a
+  unit family's specs, concatenates records, and trains one HGB bundle per
+  cutoff hour.
+- [x] Train the F family on all 11 US cities; keep Toronto/C as its own family.
+- [x] Validate per-market on replay + trust before cutover; per-market
   HGB-vs-empirical gate.
+- [x] Train a v0.2 pooled/F candidate with direct market-band objective,
+  hard/support floor calibration, late-day lock-in, and snapshot partition
+  normalization.
+- [x] Clear `src.pooled_candidate_replay` per market before any serving hook.
 
 Acceptance: the pooled F model beats the NYC-only HGB on per-market replay/trust
 without regressing NYC.
 
-### 34. Per-Market Calibration And F-Family Secondary Artifacts [NEW]
+Pooled F starter (2026-06-11): built `src.feature_model_hgb_f_pooled.pkl` as a
+non-serving research artifact plus
+`data/backtest/f_family_pooled_model_report.md`. Dataset: 66,669 rows across
+the 11 F markets using `toronto_feature_store_v0.3` and 14 cutoff models.
+Holdout-year 2025 validation is intentionally not promotion-grade yet: some
+hours remain weak even after support-wide smoothing, so this artifact should
+feed the next model iteration and gauntlet comparison, not live serving.
+
+Pooled candidate replay (2026-06-11): added `src.pooled_candidate_replay`
+plus `tests/test_pooled_candidate_replay.py`, then ran the pinned promotion
+corpus against `src.feature_model_hgb_f_pooled.pkl`. Coverage was complete:
+16,940 F-family band rows, 1,540 F snapshots, and zero missing candidate rows.
+The verdict was **BLOCK / DO_NOT_CUT_OVER** in
+`data/backtest/pooled_candidate_replay_report.md`: aggregate candidate Brier
+`0.1370` versus current replay `0.0429` and market `0.0384`; all 11 F markets
+blocked by candidate-vs-current regression. The gate worked and the artifact
+is confirmed as research-only. The next Item 33 work is a v0.2 candidate whose
+training objective/calibration is aligned to replayed market-band probability,
+especially exact settlement-distance-0 buckets and late-day lock-in.
+
+Pooled band v0.2 (2026-06-11): trained
+`src.feature_model_hgb_f_pooled_v0_2.pkl` with schema
+`pooled_feature_band_hgb_v0.2`, prediction mode `band_binary`, and objective
+`binary_market_band_brier`. Unlike v0.1, this model trains directly on
+synthetic market-band outcomes (`eq`/ranges, `lte`, `gte`) from historical WU
+feature rows, then applies deterministic WU hard floors, soft live-support
+floors from replay inputs, late-day lock-in, and per-snapshot partition
+normalization. Holdout exact-winner mean probability now reaches `0.56-1.00`
+by hour and late-hour holdout Brier collapses near zero in
+`data/backtest/f_family_pooled_band_model_report.md`.
+
+Adjacent calibration + bridge result (2026-06-11): v0.2 now carries a
+holdout-trained above-floor adjacent/range calibration table with `262`
+market/hour/floor-gap contexts, and `src.pooled_candidate_replay` applies the
+artifact's configured incumbent bridge after partition normalization. The five
+markets that previously blocked on adjacent/range leakage (Denver, Houston, Los
+Angeles, NYC, Seattle) run at `0.20` pooled alpha until more settled days prove
+the raw pooled probabilities; other F markets remain at full pooled alpha.
+
+Pinned replay result: `data/backtest/pooled_candidate_replay_v0_2_report.md`
+now scores the v0.2 artifact at aggregate Brier `0.0413` versus current replay
+`0.0429`, recorded `0.0499`, and market `0.0384`. The verdict improved from
+**BLOCK / DO_NOT_CUT_OVER** to **SHADOW_ONLY / DO_NOT_CUT_OVER**: all 11 F
+markets clear the per-market regression gate, with no blocked markets and zero
+missing candidate rows. No market is cutover-ready yet because every F market
+still has only one pinned settled day and `15/100` trust, and several markets
+remain behind the market-price Brier. The next Item 33/34 work is to collect
+more F-family settled days, relax the incumbent bridge only when per-market
+replay proves it, and move the secondary calibration/forecast/lag artifacts
+from Toronto-only to F-family.
+
+### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
 
 Goal: generalize the Toronto calibration/forecast/lag work (items 21-23) to the
 F family as data accrues.
 
-- [ ] Build F-family probability-calibration, forecast-error, and settlement-lag
+- [x] Build F-family probability-calibration, forecast-error, and settlement-lag
   artifacts once F days settle.
-- [ ] Per-market trust gating: serve the ML model only where trust > threshold,
+- [x] Per-market trust gating: serve the ML model only where trust > threshold,
   else empirical fallback.
-- [ ] Calibrate by cutoff hour and floor distance per family.
+- [x] Calibrate by cutoff hour and floor distance per family.
 
 Acceptance: each F market is either calibrated-and-promoted or honestly
 empirical, never overconfident.
+
+Implementation result (2026-06-11): added `src.family_secondary_artifacts`,
+which trains the whole F family, writes pooled family artifacts plus per-market
+secondary artifacts, and emits `src/f_family_secondary_artifacts.json` as the
+serving gate manifest. The family-level artifacts are now:
+`src/probability_calibration_f_family.json` (`16,940` rows),
+`src/forecast_error_model_f_family.json` (`12,969` rows), and
+`src/settlement_lag_model_f_family.json` (`2,493` lead rows). Per-market
+probability-calibration, forecast-error, and settlement-lag artifacts were also
+written for all 11 F markets, with all artifact statuses `ok` in
+`data/backtest/f_family_secondary_artifacts_report.md`.
+
+Serving gate result: `TorontoHighTempModel` now loads the family manifest and
+`FeatureModelMixin` suppresses feature-model serving for governed F markets
+whose `serving_gate.mode` is `empirical`; `model_identity` includes the family
+manifest for F replay hashes. With the current trust scores (`15/100`) and one
+settled F day per market, all 11 F markets are honestly empirical:
+`trust 15 < 25; settled_days 1 < 2`. Toronto is not governed by the F manifest.
+
+Replay evidence: `data/backtest/f_family_secondary_replay_report.md` reran the
+pinned promotion corpus after the gate landed. The safety gate is intentionally
+conservative and worsens one-day aggregate replay (`0.0668` replayed Brier vs
+`0.0500` recorded and `0.0396` market) because the unproven F ML models are
+withheld. This is the expected Item 34 tradeoff: no F market is promoted until
+trust/day-count evidence supports it. The next accuracy path is accumulating
+more F-family settled days, then flipping individual markets from empirical to
+ML only when the manifest gate and promotion gauntlet both clear.
 
 ### 35. Unified Continuous-Density Model [NEW - ENDGAME]
 
@@ -1379,15 +1566,70 @@ lifts the data-poor side.
 
 Goal: a model change ships only if it provably beats the incumbent, per market.
 
-- [ ] One promotion gauntlet across markets: replay fidelity + settlement
-  Brier-skill-vs-market + trust + forecast tracker.
-- [ ] Per-market promotion (a build can be production in NYC and shadow in
-  Seattle).
-- [ ] Record model cards + data snapshot + gate results for every promotion
-  (extends item 20).
+- [x] Replay fidelity identity canary: captured replay inputs now store a
+  deterministic model identity (model version, market, active kind,
+  distribution-code hash, and per-market artifact hash). The replay report no
+  longer treats same-label artifact changes as "same version"; those legacy
+  rows are reported separately and excluded from the exact canary.
+- [x] Pinned promotion corpora: `src.promotion_corpus` freezes settled
+  market-day folders, accepted settlement labels, exact snapshot IDs, replay
+  input hashes, tape-row hashes, and a corpus hash so promotion gates never
+  compare against a silently changed corpus.
+- [x] One promotion gauntlet across markets:
+  `src.promotion_gauntlet` runs pinned-corpus replay, corpus-pin verification,
+  exact replay-identity fidelity, regression gating, settlement
+  Brier-skill-vs-market, trust context, and forecast-tracker presence in one
+  report.
+- [x] Per-market promotion status: the gauntlet classifies each corpus market
+  as `PASS`, `SHADOW`, or `BLOCK`, so a build can be production for one market
+  while remaining shadow-only elsewhere.
+- [x] Failure decomposition: promotion reports now slice code-effect by market,
+  capture hour, bin type, forecast-gap bucket, live-reading-gap bucket, and
+  settlement-distance bucket, with blocker-market drilldowns.
+- [x] Partial per-market promotion semantics: global corpus/fidelity/regression
+  failures still block all markets, but a market-level block no longer erases a
+  separate market's `PASS`; the gauntlet can return `PARTIAL_PASS`.
+- [x] Record model cards + data snapshot + gate results for every promotion:
+  replay baselines now carry corpus hash/count metadata, replay reports include
+  the pinned corpus section, and the gauntlet writes a durable promotion report.
 
 Acceptance: no model reaches a market's live serving without passing that
 market's gate.
+
+Replay fidelity increment (2026-06-11): `src.model_identity` fingerprints the
+distribution-affecting code and artifacts, `snapshot_tracker` writes that
+identity into `snapshots.jsonl` and `replay_inputs.jsonl`, and
+`replay_backtest` gates only exact identity matches as the fidelity canary. A
+forced all-market capture on the patched writer seeded exact-identity replay
+records, and the next loop tick confirmed the path stayed deterministic; the
+live-corpus replay report now shows Same replay identity `24`, mean L1
+`0.0000`, max L1 `0.0000`, verdict `FAITHFUL`. The old June-10
+same-label rows are now correctly labelled as unversioned legacy diagnostics
+(mean L1 `0.0815`, max `1.0711`) instead of failing the canary. The saved
+baseline-era 69-folder gate still passes at replayed Brier `0.0386` versus
+baseline `0.0386`; the full 81-folder live corpus includes unfinished June 11
+snapshot-high settlements and should not be compared to the older baseline
+without a corpus pin.
+
+Promotion-corpus increment (2026-06-11): `src.promotion_corpus` now builds an
+auditable manifest over settled folders only, pinning accepted quality labels,
+snapshot IDs, replay-input hashes, tape-row hashes, and the corpus hash.
+`src.replay_backtest --corpus ...` replays only those pinned rows and uses the
+manifest settlement label rather than recalculating from mutable current files.
+`src.promotion_gauntlet` consumes the manifest and produces the promotion
+decision: corpus pin, replay fidelity, regression gate, model-vs-market skill,
+location trust, forecast tracker, and per-market `PASS` / `SHADOW` / `BLOCK`.
+After June 11 settles and exact-identity rows are no longer current-day-only,
+run the gauntlet with `--require-exact-identity` to make the canary mandatory
+for every promotion corpus.
+
+Decomposition increment (2026-06-11): `src.replay_backtest` now attaches
+feature vectors and settlement-distance buckets to replay rows; the regenerated
+promotion gauntlet report keeps the current decision at `BLOCK` but explains
+why. Current promote list is empty; shadow markets are Austin, Chicago, Dallas,
+Houston, NYC, San Francisco, Seattle, and Toronto; blocked markets are Atlanta,
+Denver, Los Angeles, and Miami. The largest positive code-effect slice is still
+market-specific rather than a corpus-pin issue.
 
 ### 37. MLOps And Always-On Production Hardening [NEW]
 
@@ -1415,7 +1657,7 @@ Goal: squeeze the last edge once per-market models are solid.
 Acceptance: cross-market structure or microstructure adds settlement-scored or
 P&L value over independent per-market models.
 
-### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-10 - PROMOTED v0.5.7]
+### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]
 
 Promotion results (2026-06-10): pinned A/B gate PASS (0.0545 -> 0.0544; no
 regression in any minutes-past-print bucket). The pooled bucket slice was
@@ -1429,9 +1671,20 @@ recovering most of the measured 52-minute market lag. Follow-up (per design):
 re-run the per-source ablation for wu_current / the current-observed floor now
 that live readings are trained features.
 
-Implementation status (2026-06-10): code complete, awaiting the LOO retrain +
-pinned A/B gate. Two design deviations from the original sketch, both for
-cause: (1) the simulated live reading INTERPOLATES between bracketing
+Fleet refresh results (2026-06-11): after the deepened US WU seasonal caches,
+the five reverted cities (Austin, Chicago, Houston, Los Angeles, Seattle) were
+re-run through full LOO v0.3 retraining. A fleet artifact audit now shows all
+12 registered markets on `toronto_feature_store_v0.3` with 27 features across
+14 cutoff models. The pinned replay gate passed on 69 market days, 6,135
+snapshots, and 67,485 rows: replayed Brier 0.0386 versus saved baseline
+0.0386 (delta -0.0000, tolerance 0.003). Trust was refreshed after the gate:
+Toronto is 43/100 on 4 settled days; US markets remain Unproven at 15/100
+until more clean settlements accumulate.
+
+Implementation status (2026-06-11): code, full LOO retrain, fleet artifact
+refresh, and pinned replay gate complete. Two design deviations from the
+original sketch, both for cause: (1) the simulated live reading INTERPOLATES
+between bracketing
 observations (with a real intra-hour special obs winning inside a 10-minute
 window) instead of latest-at-or-before -- on hourly-only history the
 at-or-before reading equals the cutoff print, which would train the feature
@@ -1460,27 +1713,27 @@ live reading explicitly.
 
 Design (feature schema v0.3):
 
-- [ ] New features: `minutes_since_cutoff` (wall minus effective printed
+- [x] New features: `minutes_since_cutoff` (wall minus effective printed
   cutoff), `live_reading_temp` (the current wu_current reading, kept separate
   from the printed path), and `live_reading_minus_high` (reading minus printed
   high; positive means the high is being exceeded right now). `high_so_far`
   stays printed-only -- no live contamination of the settlement-source state.
-- [ ] Training extraction: for each historical day and cutoff hour H, emit
+- [x] Training extraction: for each historical day and cutoff hour H, emit
   records at sampled wall offsets (H:10 / H:30 / H:50). The simulated live
   reading is the latest observation at or before the sampled minute from the
   same WU obs stream (wu_current and WU history are the same data family);
   printed-path features use obs <= H:00 only. Strictly enforce minute <= t to
   avoid leakage. Roughly 3x training rows per hour-model; expect a ~3x LOO
   retrain (run overnight).
-- [ ] Serving: extract at the effective printed cutoff exactly as today, then
+- [x] Serving: extract at the effective printed cutoff exactly as today, then
   attach the live reading and elapsed minutes. No fabricated rows; the model
   LEARNS how much a 15:38 reading 1.2 above the printed high moves the final
   distribution.
-- [ ] Apply the same treatment to the late-day continuation model -- this also
+- [x] Apply the same treatment to the late-day continuation model -- this also
   fixes the audited time_since_reached wall-vs-cutoff training skew.
-- [ ] Parity: extend the feature-skew test with a live-reading scenario; bump
+- [x] Parity: extend the feature-skew test with a live-reading scenario; bump
   schema to v0.3 and stamp artifacts.
-- [ ] Gate: pinned-corpus replay A/B (frozen folders, finalized labels, both
+- [x] Gate: pinned-corpus replay A/B (frozen folders, finalized labels, both
   runs back-to-back). Measure specifically by minutes-past-print buckets
   (0-19 / 20-39 / 40-59): the gain should concentrate in the 20-59 windows
   where the staircase flats live.

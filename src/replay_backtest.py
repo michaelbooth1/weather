@@ -43,12 +43,14 @@ from backtest import (
     DEFAULT_SNAPSHOTS_ROOT,
     bin_type,
     capture_minute,
+    attach_feature_vector,
     fmt_num,
     fmt_pct,
     fmt_signed,
     group_sort_key,
     last_pre_close_rows,
     load_daily_summary,
+    load_feature_vectors,
     band_value_hi,
     markdown_table,
     reliability,
@@ -59,13 +61,21 @@ from backtest import (
 )
 from market_config import date_from_event_slug
 from market_registry import REGISTRY, spec_for_slug
+from promotion_corpus import (
+    entry_for_folder,
+    folders_from_manifest,
+    load_manifest,
+    verify_entry_inputs,
+)
 from replay import (
     band_model_probability,
     distribution_l1,
+    identity_hash,
     index_records_by_snapshot,
     is_reconstructed,
     load_replay_records,
     replay_distribution,
+    replay_model_identity,
     replay_model_version,
 )
 from settled_days import folder_market_id
@@ -143,32 +153,141 @@ def grouped_comparison(rows, group_key):
 
 
 def fidelity_summary(fidelity_rows):
-    """Split the fidelity canary into same-version (must be ~0) and changed-
-    version (the magnitude of the code change) cohorts."""
-    same = [f for f in fidelity_rows if f["recorded_version"] == f["replayed_version"]
-            and not f["reconstructed"]]
-    changed = [f for f in fidelity_rows if f["recorded_version"] != f["replayed_version"]
-               and not f["reconstructed"]]
+    """Split replay fidelity into exact-identity canary and legacy cohorts.
+
+    ``model_version`` alone is not a replay identity: artifacts can be retrained
+    without changing the human label. New records carry ``model_identity`` and
+    only matching identity hashes are admitted to the canary. Older same-label
+    rows are reported separately as legacy/ambiguous instead of failing the
+    canary for a change we cannot fingerprint after the fact.
+    """
+    captured = [f for f in fidelity_rows if not f["reconstructed"]]
+    same_identity = []
+    legacy_same_label = []
+    changed = []
+    for f in captured:
+        if (
+            f.get("recorded_identity_hash")
+            and f.get("recorded_identity_hash") == f.get("replayed_identity_hash")
+        ):
+            same_identity.append(f)
+        elif (
+            not f.get("recorded_identity_hash")
+            and f.get("recorded_version") == f.get("replayed_version")
+        ):
+            legacy_same_label.append(f)
+        else:
+            changed.append(f)
     reconstructed = [f for f in fidelity_rows if f["reconstructed"]]
 
     def mean_l1(rows):
         return sum(r["l1"] for r in rows) / len(rows) if rows else None
 
-    same_mean = mean_l1(same)
+    same_mean = mean_l1(same_identity)
+    legacy_mean = mean_l1(legacy_same_label)
+    changed_mean = mean_l1(changed)
     return {
-        "same_version_n": len(same),
+        "same_identity_n": len(same_identity),
+        "same_identity_mean_l1": same_mean,
+        "same_identity_max_l1": max((r["l1"] for r in same_identity), default=None),
+        "same_identity_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
+        # Back-compat aliases for older tests/callers; these now mean exact
+        # replay identity, not the human version string.
+        "same_version_n": len(same_identity),
         "same_version_mean_l1": same_mean,
-        "same_version_max_l1": max((r["l1"] for r in same), default=None),
+        "same_version_max_l1": max((r["l1"] for r in same_identity), default=None),
         "same_version_faithful": (same_mean is not None and same_mean <= FIDELITY_FAITHFUL_L1),
+        "legacy_same_version_n": len(legacy_same_label),
+        "legacy_same_version_mean_l1": legacy_mean,
+        "legacy_same_version_max_l1": max((r["l1"] for r in legacy_same_label), default=None),
         "changed_version_n": len(changed),
-        "changed_version_mean_l1": mean_l1(changed),
+        "changed_version_mean_l1": changed_mean,
+        "changed_version_max_l1": max((r["l1"] for r in changed), default=None),
         "reconstructed_n": len(reconstructed),
         "reconstructed_mean_l1": mean_l1(reconstructed),
     }
 
 
+def _manifest_summary(manifest):
+    if not manifest:
+        return None
+    summary = manifest.get("summary") or {}
+    return {
+        "path": manifest.get("_path"),
+        "schema_version": manifest.get("schema_version"),
+        "corpus_hash": manifest.get("corpus_hash"),
+        "as_of": manifest.get("as_of"),
+        "quality_grades": manifest.get("quality_grades"),
+        "include_reconstructed": manifest.get("include_reconstructed"),
+        "market_day_count": summary.get("market_day_count"),
+        "snapshot_count": summary.get("snapshot_count"),
+        "band_row_count": summary.get("band_row_count"),
+        "identity_record_count": summary.get("identity_record_count"),
+        "by_market": summary.get("by_market"),
+    }
+
+
+def _override_applies(overrides, slug, target_date, market_id):
+    if not overrides:
+        return False
+    iso = target_date.isoformat() if target_date else None
+    return any(
+        key in overrides
+        for key in (slug, iso, f"{market_id}:{iso}" if market_id and iso else None)
+        if key
+    )
+
+
+def _pinned_settlement(entry):
+    if not entry:
+        return None
+    bucket = entry.get("settlement_bucket")
+    if bucket is None:
+        return None
+    return (
+        int(bucket),
+        f"promotion_corpus:{entry.get('settlement_source') or 'unknown'}",
+        entry.get("quality_reason") or "",
+    )
+
+
+def settlement_distance(kind, value, value_hi, settlement_bucket):
+    if settlement_bucket is None or value is None:
+        return None
+    try:
+        settlement = int(float(settlement_bucket))
+        lo = int(float(value))
+        hi = int(float(value_hi)) if value_hi is not None else lo
+    except (TypeError, ValueError):
+        return None
+    if kind == "lte":
+        return max(0, settlement - lo)
+    if kind == "gte":
+        return max(0, lo - settlement)
+    if lo <= settlement <= hi:
+        return 0
+    return min(abs(settlement - lo), abs(settlement - hi))
+
+
+def settlement_distance_bucket(value):
+    if value is None:
+        return "missing"
+    try:
+        value = int(float(value))
+    except (TypeError, ValueError):
+        return "missing"
+    if value <= 0:
+        return "0"
+    if value == 1:
+        return "1"
+    if value == 2:
+        return "2"
+    return "3+"
+
+
 def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
-                        include_reconstructed=False, write=True):
+                        include_reconstructed=False, write=True,
+                        corpus_manifest=None):
     # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
     # climatology) and settles against its own market's daily summary; one
     # Toronto model for every folder silently mis-replayed the 11 F markets.
@@ -198,6 +317,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
     all_rows = []
     days = []
     fidelity_rows = []
+    corpus_warnings = []
     snaps_in_corpus = 0
     snaps_scored = 0
 
@@ -222,7 +342,21 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         slug = Path(folder).name
         target_date = date_from_event_slug(slug)
         date_label = target_date.isoformat() if target_date else slug
-        bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
+        corpus_entry = entry_for_folder(corpus_manifest, folder) if corpus_manifest else None
+        if corpus_entry:
+            pinned_ids = {str(item) for item in corpus_entry.get("snapshot_ids") or []}
+            corpus_warnings.extend(verify_entry_inputs(corpus_entry, folder, df, records))
+            df = df[df["snapshot_id"].astype(str).isin(pinned_ids)].copy()
+            records = {
+                snapshot_id: record for snapshot_id, record in records.items()
+                if str(snapshot_id) in pinned_ids
+            }
+        pinned_settlement = None if _override_applies(overrides, slug, target_date, market_id) else _pinned_settlement(corpus_entry)
+        if pinned_settlement:
+            bucket, source, note = pinned_settlement
+        else:
+            bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
+        feature_index = load_feature_vectors(folder)
 
         day_rows = []
         for snapshot_id, group in df.groupby("snapshot_id"):
@@ -240,20 +374,26 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
 
             recorded_distribution = record.get("recorded_distribution")
             if recorded_distribution:
+                replayed_identity = replay_model_identity(model)
+                recorded_identity = record.get("model_identity")
                 fidelity_rows.append({
                     "snapshot_id": str(snapshot_id),
                     "date": date_label,
+                    "market_id": market_id,
                     "recorded_version": record.get("model_version"),
                     "replayed_version": replay_model_version(model),
+                    "recorded_identity_hash": identity_hash(recorded_identity),
+                    "replayed_identity_hash": identity_hash(replayed_identity),
                     "l1": distribution_l1(distribution, recorded_distribution),
                     "reconstructed": reconstructed,
                 })
 
             for _, band_series in group.iterrows():
                 band = band_series.to_dict()
+                value_hi = band_value_hi(band.get("range_label"), band.get("bin_value_c"))
                 outcome = resolve_outcome(
                     band.get("bin_kind"), band.get("bin_value_c"), bucket,
-                    value_hi=band_value_hi(band.get("range_label"), band.get("bin_value_c")))
+                    value_hi=value_hi)
                 if outcome is None:
                     continue
                 market_yes = safe_float(band.get("market_yes"))
@@ -264,7 +404,13 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                 if replayed_p is None:
                     continue
                 minute = capture_minute(band.get("captured_at_local"))
-                day_rows.append({
+                distance = settlement_distance(
+                    band.get("bin_kind"),
+                    band.get("bin_value_c"),
+                    value_hi,
+                    bucket,
+                )
+                scoring_row = {
                     "snapshot_id": str(snapshot_id),
                     "market_id": market_id,
                     "target_date": date_label,
@@ -274,6 +420,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                     "band": band.get("range_label"),
                     "bin_type": bin_type(band.get("bin_kind")),
                     "bin_value_c": safe_float(band.get("bin_value_c")),
+                    "bin_value_hi": safe_float(value_hi),
                     "market_yes": market_yes,
                     "market_no": safe_float(band.get("market_no")),
                     "outcome": int(outcome),
@@ -281,12 +428,18 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                     "replayed_p": replayed_p,
                     "reconstructed": reconstructed,
                     "settlement_bucket": bucket,
-                })
+                    "settlement_distance": distance,
+                    "settlement_distance_bucket": settlement_distance_bucket(distance),
+                }
+                attach_feature_vector(scoring_row, feature_index.get(str(snapshot_id)))
+                day_rows.append(scoring_row)
 
         all_rows.extend(day_rows)
         days.append({
             "date": date_label,
             "event_slug": slug,
+            "market_id": market_id,
+            "unit": REGISTRY[market_id].display_unit,
             "settlement": bucket,
             "source": source,
             "note": note,
@@ -314,7 +467,10 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         "by_hour": grouped_comparison(all_rows, "cutoff_hour"),
         "by_bin_type": grouped_comparison(all_rows, "bin_type"),
         "fidelity": fidelity_summary(fidelity_rows),
+        "fidelity_rows": fidelity_rows,
         "include_reconstructed": include_reconstructed,
+        "promotion_corpus": _manifest_summary(corpus_manifest),
+        "corpus_warnings": corpus_warnings,
     }
     if write:
         write_report(results, out_path)
@@ -371,6 +527,7 @@ GROUPED_HEADERS = [
 def write_report(results, out_path):
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     fid = results.get("fidelity") or {}
+    corpus = results.get("promotion_corpus") or {}
     lines = [
         "# Replay Backtest (model re-run over captured inputs)",
         "",
@@ -389,29 +546,67 @@ def write_report(results, out_path):
         "> Recorded/market are the frozen tape values; replayed is today's code re-run",
         "> over the identical stored inputs. Lower Brier is better.",
         "",
+    ]
+    if corpus:
+        lines += [
+            "## Promotion Corpus",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Corpus hash", corpus.get("corpus_hash") or "-"],
+                ["Path", corpus.get("path") or "-"],
+                ["As of", corpus.get("as_of") or "-"],
+                ["Market days", corpus.get("market_day_count") or 0],
+                ["Pinned snapshots", corpus.get("snapshot_count") or 0],
+                ["Pinned band rows", corpus.get("band_row_count") or 0],
+                ["Identity-bearing records", corpus.get("identity_record_count") or 0],
+                ["Quality grades", ", ".join(corpus.get("quality_grades") or []) or "-"],
+            ],
+        )
+        warnings = results.get("corpus_warnings") or []
+        if warnings:
+            lines += ["", "### Corpus Pin Warnings", ""]
+            lines += [f"- {warning}" for warning in warnings[:50]]
+            if len(warnings) > 50:
+                lines.append(f"- ... {len(warnings) - 50} more")
+        lines.append("")
+
+    lines += [
         "## Replay Fidelity Canary",
         "",
-        "Replaying a snapshot with the *same* code version that produced it must",
-        "reproduce its recorded distribution (L1 ~ 0). A large same-version L1 means",
-        "the corpus is not faithfully replayable -- investigate before trusting scores.",
+        "Replaying a snapshot with the *same replay identity* that produced it",
+        "must reproduce its recorded distribution (L1 ~ 0). Replay identity is",
+        "stricter than the human model version: it includes model kind, market,",
+        "distribution-code fingerprints, and per-market artifact fingerprints.",
+        "Older same-label records without identity are shown as legacy diagnostics",
+        "and are excluded from the canary.",
         "",
     ]
     lines += markdown_table(
         ["Cohort", "Snapshots", "Mean L1", "Max L1", "Verdict"],
         [
             [
-                "Same code version (canary)",
-                fid.get("same_version_n", 0),
-                fmt_num(fid.get("same_version_mean_l1")),
-                fmt_num(fid.get("same_version_max_l1")),
-                "FAITHFUL" if fid.get("same_version_faithful") else
-                ("-" if fid.get("same_version_n", 0) == 0 else "CHECK"),
+                "Same replay identity (canary)",
+                fid.get("same_identity_n", 0),
+                fmt_num(fid.get("same_identity_mean_l1")),
+                fmt_num(fid.get("same_identity_max_l1")),
+                "FAITHFUL" if fid.get("same_identity_faithful") else
+                ("-" if fid.get("same_identity_n", 0) == 0 else "CHECK"),
             ],
             [
-                "Changed code version (effect size)",
+                "Unversioned same-label legacy",
+                fid.get("legacy_same_version_n", 0),
+                fmt_num(fid.get("legacy_same_version_mean_l1")),
+                fmt_num(fid.get("legacy_same_version_max_l1")),
+                "excluded from canary",
+            ],
+            [
+                "Changed version/identity (effect size)",
                 fid.get("changed_version_n", 0),
                 fmt_num(fid.get("changed_version_mean_l1")),
-                "-",
+                fmt_num(fid.get("changed_version_max_l1")),
                 "code change moved the distribution",
             ],
             [
@@ -441,7 +636,7 @@ def write_report(results, out_path):
         [
             [
                 day["date"],
-                f"{day['settlement']} C" if day["settlement"] is not None else "-",
+                f"{day['settlement']} {day.get('unit', 'C')}" if day["settlement"] is not None else "-",
                 day["source"],
                 day["snapshots_scored"],
                 fmt_num((day.get("comparison") or {}).get("replayed_brier")),
@@ -478,6 +673,7 @@ def write_report(results, out_path):
 def baseline_payload(results):
     aggregate = results.get("aggregate") or {}
     daily = results.get("daily_first") or {}
+    corpus = results.get("promotion_corpus") or {}
     return {
         "generated": datetime.now().isoformat(),
         "replayed_versions": results.get("replayed_versions"),
@@ -485,6 +681,10 @@ def baseline_payload(results):
         "aggregate_replayed_brier": aggregate.get("replayed_brier"),
         "aggregate_market_brier": aggregate.get("market_brier"),
         "daily_first_replayed_brier": daily.get("replayed_brier"),
+        "corpus_hash": corpus.get("corpus_hash"),
+        "corpus_schema_version": corpus.get("schema_version"),
+        "corpus_market_day_count": corpus.get("market_day_count"),
+        "corpus_snapshot_count": corpus.get("snapshot_count"),
     }
 
 
@@ -506,6 +706,12 @@ def gate(baseline_path, results, tol):
     aggregate = results.get("aggregate") or {}
     current = aggregate.get("replayed_brier")
     base = baseline.get("aggregate_replayed_brier")
+    base_corpus = baseline.get("corpus_hash")
+    current_corpus = (results.get("promotion_corpus") or {}).get("corpus_hash")
+    if base_corpus and current_corpus != base_corpus:
+        return False, (
+            f"corpus mismatch: baseline {base_corpus} vs current {current_corpus or '-'}"
+        )
     if current is None or base is None:
         return False, "missing aggregate Brier in baseline or current run"
     delta = current - base
@@ -524,6 +730,9 @@ def main():
                         help="Only replay this market's folders (default: all, each "
                              "replayed with its own market's model).")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--corpus", default=None,
+                        help="Pinned promotion corpus manifest. When set, replay only the "
+                             "manifest's snapshot IDs and settlement labels.")
     parser.add_argument("--daily-summary", default=None,
                         help="Daily summary CSV override for ALL folders "
                              "(default: each market's own data root).")
@@ -544,7 +753,18 @@ def main():
         date_str, _, value = item.partition("=")
         overrides[date_str.strip()] = int(value)
 
+    corpus_manifest = load_manifest(args.corpus) if args.corpus else None
     folders = args.folders
+    if corpus_manifest and not folders:
+        folders = [str(folder) for folder in folders_from_manifest(corpus_manifest, args.snapshots_root)]
+    elif corpus_manifest:
+        corpus_slugs = {entry.get("event_slug") for entry in corpus_manifest.get("entries") or []}
+        outside = [folder for folder in folders if Path(folder).name not in corpus_slugs]
+        if outside:
+            raise SystemExit(
+                "--corpus was provided, but these folders are not in the manifest: "
+                + ", ".join(outside)
+            )
     if not folders:
         root = Path(args.snapshots_root)
         folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
@@ -558,6 +778,7 @@ def main():
     results = run_replay_backtest(
         folders, args.daily_summary, overrides, args.out,
         include_reconstructed=args.include_reconstructed,
+        corpus_manifest=corpus_manifest,
     )
 
     if results["snaps_scored"] == 0:
@@ -573,10 +794,14 @@ def main():
             f"recorded {aggregate['recorded_brier']:.4f} vs market {aggregate['market_brier']:.4f} "
             f"(code effect {aggregate['code_effect']:+.4f})"
         )
-    if fid.get("same_version_n"):
-        verdict = "faithful" if fid.get("same_version_faithful") else "CHECK CORPUS"
-        print(f"Fidelity canary: {fid['same_version_n']} same-version snapshots, "
-              f"mean L1 {fid['same_version_mean_l1']:.5f} ({verdict})")
+    if fid.get("same_identity_n"):
+        verdict = "faithful" if fid.get("same_identity_faithful") else "CHECK CORPUS"
+        print(f"Fidelity canary: {fid['same_identity_n']} same-identity snapshots, "
+              f"mean L1 {fid['same_identity_mean_l1']:.5f} ({verdict})")
+    elif fid.get("legacy_same_version_n"):
+        print("Fidelity canary: no exact-identity snapshots yet; "
+              f"{fid['legacy_same_version_n']} legacy same-label snapshot(s) excluded "
+              f"(mean L1 {fid['legacy_same_version_mean_l1']:.5f})")
     print(f"Report written to {args.out}")
 
     if args.save_baseline:

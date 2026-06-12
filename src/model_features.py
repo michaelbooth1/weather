@@ -97,6 +97,48 @@ class FeatureModelMixin:
             f"median_of_{len(values)}",
         )
 
+    def forecast_ensemble_metrics(
+        self,
+        open_meteo,
+        weather_forecast,
+        eccc_city,
+        nws_hourly=None,
+        global_ensemble=None,
+    ):
+        values = []
+        day_max = self.to_number(open_meteo.get("day_max_c"))
+        if day_max is not None:
+            values.append(("open_meteo", day_max))
+        weather_com = self.max_row_temp(weather_forecast.get("rows"))
+        if weather_com is not None:
+            values.append(("weather_forecast", weather_com))
+        eccc_high = self.to_number(eccc_city.get("forecast_high_c"))
+        if eccc_high is not None:
+            values.append(("eccc_citypage", eccc_high))
+        nws_high = self.to_number((nws_hourly or {}).get("day_max_c"))
+        if nws_high is not None:
+            values.append(("nws_hourly", nws_high))
+        global_high = self.to_number((global_ensemble or {}).get("day_max_c"))
+        if global_high is not None:
+            values.append(("global_ensemble", global_high))
+        if not values:
+            return {
+                "forecast_high": None,
+                "forecast_source": "none",
+                "forecast_source_count": 0,
+                "forecast_disagreement": None,
+                "forecast_source_values": {},
+            }
+        highs = [value for _, value in values]
+        source = values[0][0] if len(values) == 1 else f"median_of_{len(values)}"
+        return {
+            "forecast_high": statistics.median(highs),
+            "forecast_source": source,
+            "forecast_source_count": len(values),
+            "forecast_disagreement": max(highs) - min(highs) if len(highs) >= 2 else 0.0,
+            "forecast_source_values": {name: value for name, value in values},
+        }
+
     def extract_live_features(self, sources, cutoff_hour, now=None):
         """Build the cutoff-aligned feature vector shared by the feature model
         (HGB/LR) and the late-day continuation model.
@@ -209,9 +251,16 @@ class FeatureModelMixin:
         # live forecasts instead of going forecast-blind (which leaves the model
         # anchored to a modest morning high-so-far). See resolve_forecast_high.
         open_meteo = self.source_data(sources, "open_meteo")
-        forecast_high, _forecast_source = self.resolve_forecast_high(
-            open_meteo, weather_forecast, eccc_city
+        nws_hourly = self.source_data(sources, "nws_hourly")
+        global_ensemble = self.source_data(sources, "global_ensemble")
+        forecast_ensemble = self.forecast_ensemble_metrics(
+            open_meteo,
+            weather_forecast,
+            eccc_city,
+            nws_hourly=nws_hourly,
+            global_ensemble=global_ensemble,
         )
+        forecast_high = forecast_ensemble["forecast_high"]
         forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
 
         # Intra-hour freshness (schema v0.3): the live wu_current reading and
@@ -250,6 +299,9 @@ class FeatureModelMixin:
             "cloud_group": cloud_group,
             "forecast_high": forecast_high,
             "forecast_gap": forecast_gap,
+            "forecast_source_count": forecast_ensemble["forecast_source_count"],
+            "forecast_disagreement": forecast_ensemble["forecast_disagreement"],
+            "forecast_source_values": forecast_ensemble["forecast_source_values"],
             "minutes_since_cutoff": minutes_since_cutoff,
             "live_reading_temp": live_reading,
             "live_reading_minus_high": live_reading_minus_high,
@@ -279,6 +331,8 @@ class FeatureModelMixin:
         cloud_group = feats["cloud_group"]
         forecast_high = feats["forecast_high"]
         forecast_gap = feats["forecast_gap"]
+        forecast_source_count = feats["forecast_source_count"]
+        forecast_disagreement = feats["forecast_disagreement"]
         warming_rate_2h = feats["warming_rate_2h"]
         hours_at_peak = feats["hours_at_peak"]
 
@@ -308,6 +362,8 @@ class FeatureModelMixin:
                     "wind_speed_kmh": wind_speed,
                     "forecast_high": forecast_high,
                     "forecast_gap": forecast_gap,
+                    "forecast_source_count": forecast_source_count,
+                    "forecast_disagreement": forecast_disagreement,
                     "minutes_since_cutoff": feats["minutes_since_cutoff"],
                     "live_reading_temp": feats["live_reading_temp"],
                     "live_reading_minus_high": feats["live_reading_minus_high"],
@@ -361,6 +417,7 @@ class FeatureModelMixin:
                     high_so_far, current_temp, rise_from_7am, warming_rate_2h,
                     hours_at_peak, dewpoint, humidity, pressure,
                     pressure_trend_3h, wind_speed, forecast_high, forecast_gap,
+                    forecast_source_count, forecast_disagreement,
                     feats["minutes_since_cutoff"], feats["live_reading_temp"],
                     feats["live_reading_minus_high"],
                 ]
@@ -409,6 +466,8 @@ class FeatureModelMixin:
         evaluating the next hour's model on unprinted state (the removed
         interpolation path) or by fabricating history rows (the reverted
         v0.5.1 injection)."""
+        if not self.family_secondary_feature_model_allowed():
+            return None, "empirical"
         hgb_bundle = self.load_feature_model_hgb()
         lr_coefs = self.load_feature_model_coefs()
 
@@ -418,6 +477,33 @@ class FeatureModelMixin:
         return self._evaluate_feature_model_for_cutoff(
             sources, cutoff_hour, hgb_bundle, lr_coefs, now=now
         )
+
+    def family_secondary_feature_model_allowed(self):
+        manifest = getattr(self, "family_secondary_artifacts", None)
+        if not manifest:
+            self._last_family_secondary_gate = {
+                "mode": "ml",
+                "reason": "no family secondary manifest",
+            }
+            return True
+        if getattr(self.spec, "display_unit", None) != manifest.get("family_unit"):
+            self._last_family_secondary_gate = {
+                "mode": "ml",
+                "reason": "market unit not governed by family secondary manifest",
+            }
+            return True
+        market = (manifest.get("markets") or {}).get(self.market_id)
+        if not market:
+            self._last_family_secondary_gate = {
+                "mode": (manifest.get("gate") or {}).get("default_mode", "empirical"),
+                "reason": "market missing from family secondary manifest",
+            }
+        else:
+            self._last_family_secondary_gate = market.get("serving_gate") or {
+                "mode": "empirical",
+                "reason": "missing serving gate",
+            }
+        return self._last_family_secondary_gate.get("mode") == "ml"
 
 
     def get_bucket_transitions(self, sources, now):
@@ -772,7 +858,7 @@ class FeatureModelMixin:
                 "cloud_group": h_cloud,
                 "forecast_high": h_forecast_high,
                 "forecast_gap": h_forecast_gap,
-                "final_high": daily["max_temp_c"],
+                "final_high": daily.get("max_temp_native"),
                 "final_bucket": daily["bucket"],
                 "observations": day_obs
             })

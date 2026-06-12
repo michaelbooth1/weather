@@ -65,8 +65,11 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m src.snapshot_tracker --stop     # terminate the managed loop
 .\venv\Scripts\python.exe -m src.snapshot_tracker --ensure   # supervisor check (Task Scheduler runs this)
 
-# Collection health: which captured days are clean (gap/coverage check)
+# Collection health and fleet observability
 .\venv\Scripts\python.exe -m src.collection_health
+.\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
+.\venv\Scripts\python.exe -m src.fleet_observability report --strict
+.\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
 
 # Settlement-scored backtest: model vs market edge on captured days
 .\venv\Scripts\python.exe -m src.backtest
@@ -82,6 +85,7 @@ All run from the repo root with the venv interpreter:
 
 # Data-quality audit (missing/sparse days, duplicates, impossible values)
 .\venv\Scripts\python.exe src\data_auditor.py
+.\venv\Scripts\python.exe src\data_auditor.py --fleet --json --strict
 ```
 
 For resilient collection, register the supervisor scheduled task once:

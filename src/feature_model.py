@@ -107,7 +107,12 @@ FEATURE_FAMILIES = {
         "pressure_trend_3h",
         "wind_speed_kmh",
     ],
-    "forecast": ["forecast_high", "forecast_gap"],
+    "forecast": [
+        "forecast_high",
+        "forecast_gap",
+        "forecast_source_count",
+        "forecast_disagreement",
+    ],
     "wind_regime": "wind_",
     "cloud_regime": "cloud_",
 }
@@ -574,7 +579,7 @@ def main(market_id="toronto"):
             rows = by_date.get(local_date, [])
             if not rows:
                 continue
-            final_high = daily[local_date]["max_temp_c"]
+            final_high = daily[local_date].get("max_temp_native")
             if final_high is None:
                 continue
                 

@@ -22,6 +22,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from market_config import date_from_event_slug, market_id_from_slug
 from market_registry import DEFAULT_MARKET_ID
+from model_identity import identity_hash, model_replay_identity
 from model_constants import TORONTO_TZ
 
 # Captured records (real inputs, byte-faithfully replayable) are committed.
@@ -186,6 +187,23 @@ def replay_model_version(model):
         return model.get_model_version_string()
     except Exception:  # noqa: BLE001 - defensive; version string is cosmetic
         return None
+
+
+def replay_model_identity(model):
+    """The replay identity the freshly computed distribution used.
+
+    This is stricter than the human version label: it includes active model
+    kind, market id, distribution-code fingerprints, and per-market artifact
+    fingerprints.
+    """
+    try:
+        return model_replay_identity(model)
+    except Exception:  # noqa: BLE001 - defensive; fidelity can fall back
+        return None
+
+
+def replay_identity_hash(model):
+    return identity_hash(replay_model_identity(model))
 
 
 # --- Reconstruction bootstrap ----------------------------------------------

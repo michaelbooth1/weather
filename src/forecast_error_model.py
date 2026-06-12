@@ -28,6 +28,7 @@ from backtest import (  # noqa: E402
 from forecast_history import daily_path_for  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
 from market_registry import REGISTRY, spec_for_id  # noqa: E402
+from daily_summary import native_bucket, native_high  # noqa: E402
 from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
 
 
@@ -76,8 +77,8 @@ def load_daily_summary(path=DEFAULT_DAILY_SUMMARY):
         return rows
     with path.open("r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
-            high = safe_float(row.get("max_temp_c"))
-            bucket = round_half_up(row.get("max_temp_bucket_c") or high)
+            high = native_high(row)
+            bucket = native_bucket(row)
             if high is None or bucket is None:
                 continue
             rows[row["local_date"]] = {

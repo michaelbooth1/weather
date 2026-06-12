@@ -137,7 +137,9 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.snapshot_tracker --force
 .\venv\Scripts\python.exe -m src.snapshot_tracker --loop --interval-minutes 10
 .\venv\Scripts\python.exe -m src.snapshot_tracker --status
-.\venv\Scripts\python.exe -m src.collection_health --live --strict --json
+.\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
+.\venv\Scripts\python.exe -m src.fleet_observability report --strict
+.\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
 .\venv\Scripts\python.exe -m src.backtest
 .\venv\Scripts\python.exe -m src.model_ensemble
 .\venv\Scripts\python.exe -m src.probability_calibration train
@@ -148,6 +150,7 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.collection_health
 .\venv\Scripts\python.exe -m src.wu_history audit
 .\venv\Scripts\python.exe src\data_auditor.py
+.\venv\Scripts\python.exe src\data_auditor.py --fleet --json --strict
 .\venv\Scripts\python.exe src\feature_model.py
 .\venv\Scripts\python.exe -m src.intraday_calibration
 ```
@@ -178,10 +181,29 @@ ad-hoc live scripts that may hit the network.
   `data/backtest/market_day_labels.csv`; labels include settlement, quality,
   capture ratio, max gap, and coverage reason. `src.backtest` displays quality
   grades when those labels exist and can filter scoring with `--quality-grades`.
-- `src.collection_health --live --strict --json` is the operator-friendly
-  collection watchdog. It reports `COLLECTING`, `AT_RISK`, `CLEAN`, or
-  `PARTIAL`; `src.snapshot_tracker --status` embeds the active day's collection
-  state next to the loop heartbeat.
+- `src.collection_health --fleet --live --strict --json` is the
+  operator-friendly fleet collection watchdog. It reports `COLLECTING`,
+  `AT_RISK`, `CLEAN`, `PARTIAL`, or `MISSING` for each registered market;
+  `src.snapshot_tracker --status` embeds both the active day's collection state
+  and the full fleet collection state next to the loop heartbeat. The running
+  loop also writes a compact `fleet_collection` summary into
+  `data/snapshots/loop_status.json`.
+- `src.fleet_observability report --strict` writes
+  `data/backtest/fleet_observability.json`,
+  `data/backtest/fleet_observability_report.md`, and
+  `data/backtest/artifact_provenance_manifest.json`. It combines fleet
+  collection health, fleet historical audits, artifact provenance/schema
+  status, and location-trust readiness into one red/yellow/green payload.
+- `src.source_redundancy report` writes
+  `data/backtest/source_redundancy.json`,
+  `data/backtest/source_redundancy_report.md`,
+  `data/backtest/source_truth_daily.csv`, and
+  `data/backtest/forecast_ensemble_features.csv`. It compares WU against GHCNh
+  and ERA5-style reanalysis, learns source bias/peak-time lead versus WU,
+  emits provenance-safe gap-fill candidates/refetch commands, and records
+  forecast ensemble/disagreement features from archived forecast tapes. Live
+  forecast extraction now includes Weather.com, Open-Meteo, ECCC where
+  available, NWS hourly for US markets, and Open-Meteo GFS global ensemble.
 - `src/model_ensemble.py` is the item-26 research harness. It reads strict
   quality-filtered settled tapes, joins future `components_long.csv` rows,
   reports standalone candidate performance by cutoff/bin type, and keeps
@@ -228,8 +250,13 @@ skew is one of the easiest ways to create fake edge.
   `src.probability_calibration`, not just model-only validation reports.
 - Analog search now includes Open-Meteo forecast gap, but it still does not use
   a full hourly forecast-profile distance.
+- Feature schema `toronto_feature_store_v0.4` adds
+  `forecast_source_count` and `forecast_disagreement`; existing artifacts keep
+  serving because they select trained feature names.
 - `data_auditor.py` currently audits years 2000-2025 and follows the configured
-  target month/day. Adjust intentionally if the historical window changes.
+  target month/day. It is registry-aware and unit-aware; use
+  `src\data_auditor.py --fleet --json --strict` for automation. Adjust
+  intentionally if the historical window changes.
 - Network source fetchers use last-good caching for live sources with a
   90-minute max age. Keep stale-source behavior visible in the dashboard and
   avoid silently using old live data.

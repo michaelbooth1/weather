@@ -21,7 +21,8 @@ from replay import (
     record_target_date,
     replay_distribution,
 )
-from replay_backtest import gate, run_replay_backtest, save_baseline
+from model_identity import model_replay_identity
+from replay_backtest import fidelity_summary, gate, run_replay_backtest, save_baseline
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"
@@ -129,6 +130,7 @@ def _build_corpus_day(folder):
     sources = make_sources()
     dist = model.estimate_distribution(sources, now=NOW)
     version = model.get_model_version_string()
+    identity = model_replay_identity(model)
 
     bands = [
         {"range_label": "24 C or below", "bin_kind": "lte", "bin_value_c": 24, "market_yes": 0.10},
@@ -167,6 +169,7 @@ def _build_corpus_day(folder):
         "event_slug": SLUG,
         "target_date": "2026-06-03",
         "model_version": version,
+        "model_identity": identity,
         "built_at": NOW.isoformat(),
         "recorded_distribution": dist,
         "sources": sources,
@@ -194,8 +197,10 @@ class TestReplayBacktest(unittest.TestCase):
 
         fidelity = results["fidelity"]
         self.assertEqual(fidelity["same_version_n"], 1)
+        self.assertEqual(fidelity["same_identity_n"], 1)
         self.assertTrue(fidelity["same_version_faithful"])
         self.assertLess(fidelity["same_version_mean_l1"], 1e-9)
+        self.assertEqual(fidelity["legacy_same_version_n"], 0)
 
         aggregate = results["aggregate"]
         # Recorded probs were produced by this code, so replay reproduces them.
@@ -214,7 +219,44 @@ class TestReplayBacktest(unittest.TestCase):
             self.assertTrue(out.exists())
             text = out.read_text(encoding="utf-8")
             self.assertIn("Replay Fidelity Canary", text)
+            self.assertIn("Same replay identity", text)
             self.assertIn("Code Effect", text)
+
+    def test_same_label_without_identity_is_legacy_not_canary(self):
+        rows = [
+            {
+                "recorded_version": "vX",
+                "replayed_version": "vX",
+                "recorded_identity_hash": None,
+                "replayed_identity_hash": "current",
+                "l1": 0.42,
+                "reconstructed": False,
+            },
+            {
+                "recorded_version": "vX",
+                "replayed_version": "vX",
+                "recorded_identity_hash": "exact",
+                "replayed_identity_hash": "exact",
+                "l1": 0.0,
+                "reconstructed": False,
+            },
+            {
+                "recorded_version": "vX",
+                "replayed_version": "vX",
+                "recorded_identity_hash": "old-artifact",
+                "replayed_identity_hash": "new-artifact",
+                "l1": 0.25,
+                "reconstructed": False,
+            },
+        ]
+
+        summary = fidelity_summary(rows)
+
+        self.assertEqual(summary["same_identity_n"], 1)
+        self.assertTrue(summary["same_identity_faithful"])
+        self.assertEqual(summary["legacy_same_version_n"], 1)
+        self.assertAlmostEqual(summary["legacy_same_version_mean_l1"], 0.42)
+        self.assertEqual(summary["changed_version_n"], 1)
 
 
 class TestReconstruction(unittest.TestCase):
@@ -327,6 +369,26 @@ class TestRegressionGate(unittest.TestCase):
             regressed = {"aggregate": {"replayed_brier": 0.1100}}
             passed, message = gate(baseline_path, regressed, tol=0.003)
             self.assertFalse(passed, message)
+
+    def test_gate_fails_when_pinned_corpus_hash_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_path = Path(tmp) / "baseline.json"
+            base_results = {
+                "aggregate": {"replayed_brier": 0.1000, "market_brier": 0.12},
+                "daily_first": {"replayed_brier": 0.1000},
+                "replayed_versions": ["v1"],
+                "snaps_scored": 10,
+                "promotion_corpus": {"corpus_hash": "abc123"},
+            }
+            save_baseline(baseline_path, base_results)
+
+            current = {
+                "aggregate": {"replayed_brier": 0.1000},
+                "promotion_corpus": {"corpus_hash": "different"},
+            }
+            passed, message = gate(baseline_path, current, tol=0.003)
+            self.assertFalse(passed)
+            self.assertIn("corpus mismatch", message)
 
 
 if __name__ == "__main__":

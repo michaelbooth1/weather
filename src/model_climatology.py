@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
+from daily_summary import native_bucket, native_high
 from wu_history import DEFAULT_DATA_ROOT
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
@@ -58,14 +59,15 @@ class ClimatologyMixin:
                     continue
                 if int(row.get("row_count") or 0) < HISTORY_MIN_ROW_COUNT:
                     continue
-                if not row.get("max_temp_bucket_c"):
+                bucket = native_bucket(row)
+                if bucket is None:
                     continue
                 reference_date = local_date.replace(year=reference_year)
                 if abs((reference_date - target_reference).days) > HISTORY_WINDOW_DAYS:
                     continue
                 daily[local_date] = {
-                    "bucket": self.round_half_up(row.get("max_temp_bucket_c")),
-                    "max_temp_c": self.to_number(row.get("max_temp_c")),
+                    "bucket": bucket,
+                    "max_temp_native": native_high(row),
                     "condition_mode": row.get("condition_mode"),
                     "cloud_mode": row.get("cloud_mode"),
                 }
@@ -96,8 +98,15 @@ class ClimatologyMixin:
                     by_date[date.fromisoformat(row["local_date"])].append({
                         "minute_of_day": minute_of_day,
                         "minute": int(row.get("minute") or 0),
-                        "temp_c": self.to_number(row.get("temp_c")),
-                        "dewpoint_c": self.to_number(row.get("dewpoint_c")),
+                        # The serving/model stack is native-unit internally.
+                        # Storage keeps true Celsius in ``*_c``; map native
+                        # hourly values into the historical feature shape.
+                        "temp_c": self.to_number(row.get("temp_native"))
+                                  if row.get("temp_native") not in (None, "")
+                                  else self.to_number(row.get("temp_c")),
+                        "dewpoint_c": self.to_number(row.get("dewpoint_native"))
+                                      if row.get("dewpoint_native") not in (None, "")
+                                      else self.to_number(row.get("dewpoint_c")),
                         "humidity": self.to_number(row.get("humidity")),
                         "pressure": self.to_number(row.get("pressure")),
                         "wind": row.get("wind_cardinal"),

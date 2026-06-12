@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from market_config import date_from_event_slug
+from daily_summary import native_high
 from toronto_model import TARGET_DATE, TORONTO_TZ
 from wu_history import DEFAULT_DATA_ROOT
 
@@ -102,6 +103,56 @@ def build_forecast_rows(
             wind_speed_kmh=raw.get("wind_kmh"),
             condition=f"solar {raw.get('solar', '-')} W/m2",
             source_url=open_meteo.get("url"),
+        )
+        rows.append(row)
+
+    nws = model_client.source_data(sources, "nws_hourly")
+    for raw in nws.get("rows", []) or []:
+        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
+        row = forecast_row(
+            snapshot_id=snapshot_id,
+            captured_at_utc=captured_utc,
+            captured_at_local=captured_local,
+            event_slug=event_slug,
+            source="nws_hourly",
+            forecast_kind="hourly",
+            issue_time=captured_local,
+            issue_time_basis="capture_fallback",
+            valid_time=valid_time,
+            captured_at=captured_at,
+            target_temp_c=raw.get("temp_c"),
+            forecast_high_c=None,
+            cloud_cover=None,
+            wind_speed_kmh=raw.get("wind_kmh"),
+            condition=raw.get("condition"),
+            source_url=nws.get("url"),
+        )
+        rows.append(row)
+
+    global_ensemble = model_client.source_data(sources, "global_ensemble")
+    for raw in global_ensemble.get("rows", []) or []:
+        valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
+        row = forecast_row(
+            snapshot_id=snapshot_id,
+            captured_at_utc=captured_utc,
+            captured_at_local=captured_local,
+            event_slug=event_slug,
+            source="global_ensemble",
+            forecast_kind="hourly",
+            issue_time=captured_local,
+            issue_time_basis="capture_fallback",
+            valid_time=valid_time,
+            captured_at=captured_at,
+            target_temp_c=raw.get("temp_c"),
+            forecast_high_c=None,
+            cloud_cover=None,
+            wind_speed_kmh=None,
+            condition=(
+                f"GFS ensemble; member spread {raw.get('ensemble_member_spread')}"
+                if raw.get("ensemble_member_spread") is not None
+                else raw.get("condition")
+            ),
+            source_url=global_ensemble.get("url"),
         )
         rows.append(row)
 
@@ -455,8 +506,9 @@ def load_final_highs(data_root, snapshot_folder):
     if summary_path.exists():
         with summary_path.open("r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
-                if row.get("max_temp_c"):
-                    final_highs[row["local_date"]] = to_float(row["max_temp_c"])
+                high = native_high(row)
+                if high is not None:
+                    final_highs[row["local_date"]] = high
                     basis[row["local_date"]] = "wu_daily_summary"
 
     snapshots_path = Path(snapshot_folder) / "snapshots_long.csv"

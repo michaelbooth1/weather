@@ -15,6 +15,7 @@ from wu_history import (
     calculate_sha256,
     WundergroundHistoryStore
 )
+from daily_summary import celsius_high, native_high
 from toronto_model import TorontoHighTempModel
 
 class TestWundergroundHistoryParsing(unittest.TestCase):
@@ -76,7 +77,7 @@ class TestWundergroundHistoryParsing(unittest.TestCase):
         summary_list = summarize_daily(records)
         self.assertEqual(len(summary_list), 1)
         summary = summary_list[0]
-        self.assertEqual(summary["schema_version"], "wu_daily_native_v1")
+        self.assertEqual(summary["schema_version"], "wu_daily_native_v2")
         self.assertEqual(summary["temperature_unit"], "C")
         self.assertEqual(summary["row_count"], 5)
         self.assertEqual(summary["max_temp"], 22.0)
@@ -86,6 +87,52 @@ class TestWundergroundHistoryParsing(unittest.TestCase):
         self.assertEqual(summary["min_temp_c"], 12.0)
         self.assertEqual(summary["condition_mode"], "Fair")
         self.assertEqual(summary["cloud_mode"], "CLR")
+
+    def test_fahrenheit_observation_keeps_native_and_true_celsius(self):
+        obs = {
+            "valid_time_gmt": 1779930000,
+            "temp": 86.0,
+            "dewPt": 68.0,
+        }
+        res = normalize_observation(obs, unit="F")
+        self.assertEqual(res["temperature_unit"], "F")
+        self.assertEqual(res["temp_native"], 86.0)
+        self.assertAlmostEqual(res["temp_c"], 30.0)
+        self.assertEqual(res["dewpoint_native"], 68.0)
+        self.assertAlmostEqual(res["dewpoint_c"], 20.0)
+
+    def test_fahrenheit_daily_summary_has_native_and_celsius_columns(self):
+        records = [
+            {
+                "local_date": "2026-06-01",
+                "valid_time_local": "2026-06-01T12:00:00",
+                "local_time": "12:00",
+                "minute": 0,
+                "temperature_unit": "F",
+                "temp_native": 84.0,
+                "dewpoint_native": 65.0,
+            },
+            {
+                "local_date": "2026-06-01",
+                "valid_time_local": "2026-06-01T13:00:00",
+                "local_time": "13:00",
+                "minute": 0,
+                "temperature_unit": "F",
+                "temp_native": 86.0,
+                "dewpoint_native": 68.0,
+            },
+        ]
+        summary = summarize_daily(records)[0]
+        self.assertEqual(summary["schema_version"], "wu_daily_native_v2")
+        self.assertEqual(summary["temperature_unit"], "F")
+        self.assertEqual(summary["max_temp"], 86.0)
+        self.assertEqual(summary["max_temp_native"], 86.0)
+        self.assertEqual(summary["max_temp_bucket"], 86)
+        self.assertEqual(summary["max_temp_bucket_native"], 86)
+        self.assertAlmostEqual(summary["max_temp_c"], 30.0)
+        self.assertEqual(summary["max_temp_bucket_c"], 30)
+        self.assertEqual(native_high(summary), 86.0)
+        self.assertAlmostEqual(celsius_high(summary), 30.0)
 
 
 class TestTorontoModelCore(unittest.TestCase):

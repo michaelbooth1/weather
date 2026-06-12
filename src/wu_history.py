@@ -16,13 +16,19 @@ SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 from market_registry import spec_for_id  # noqa: E402
+from daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c  # noqa: E402
 
 
 def get_code_version():
     try:
+        import os
         import subprocess
+        # CREATE_NO_WINDOW: a console child spawned from a console-less parent
+        # (pythonw / detached background jobs) pops a visible cmd window.
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         git_sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
         ).decode().strip()
         return f"git:{git_sha}"
     except Exception:
@@ -213,10 +219,15 @@ class WundergroundHistoryStore:
             "first_time",
             "last_time",
             "max_temp",
+            "max_temp_native",
             "max_temp_bucket",
+            "max_temp_bucket_native",
             "min_temp",
+            "min_temp_native",
             "avg_temp",
+            "avg_temp_native",
             "max_dewpoint",
+            "max_dewpoint_native",
             "max_temp_c",
             "max_temp_times",
             "min_temp_c",
@@ -396,6 +407,10 @@ def normalize_observation(obs, tz=TORONTO_TZ, unit="C"):
     dewpoint = to_number(obs.get("dewPt"))
     heat_index = to_number(obs.get("heat_index"))
     wind_chill = to_number(obs.get("wc"))
+    temp_c = native_to_c(temp, unit)
+    dewpoint_c = native_to_c(dewpoint, unit)
+    heat_index_c = native_to_c(heat_index, unit)
+    wind_chill_c = native_to_c(wind_chill, unit)
 
     return {
         "schema_version": "wu_hourly_native_v1",
@@ -412,10 +427,10 @@ def normalize_observation(obs, tz=TORONTO_TZ, unit="C"):
         "dewpoint_native": dewpoint,
         "heat_index_native": heat_index,
         "wind_chill_native": wind_chill,
-        "temp_c": temp,
-        "dewpoint_c": dewpoint,
-        "heat_index_c": heat_index,
-        "wind_chill_c": wind_chill,
+        "temp_c": temp_c,
+        "dewpoint_c": dewpoint_c,
+        "heat_index_c": heat_index_c,
+        "wind_chill_c": wind_chill_c,
         "humidity": to_number(obs.get("rh")),
         "pressure": to_number(obs.get("pressure")),
         "visibility": to_number(obs.get("vis")),
@@ -442,48 +457,67 @@ def summarize_daily(records):
         rows = sorted(rows, key=lambda row: row["valid_time_local"])
         unit = next((row.get("temperature_unit") for row in rows if row.get("temperature_unit")), "C")
         temps = [row_temp(row) for row in rows if row_temp(row) is not None]
+        temps_c = [native_to_c(value, unit) for value in temps if native_to_c(value, unit) is not None]
+        dewpoints = [row_dewpoint(row) for row in rows if row_dewpoint(row) is not None]
+        dewpoints_c = [
+            native_to_c(value, unit)
+            for value in dewpoints
+            if native_to_c(value, unit) is not None
+        ]
         if temps:
             max_temp = max(temps)
             min_temp = min(temps)
             avg_temp = round(sum(temps) / len(temps), 2)
+            max_temp_c = max(temps_c) if temps_c else None
+            min_temp_c = min(temps_c) if temps_c else None
+            avg_temp_c = round(sum(temps_c) / len(temps_c), 2) if temps_c else None
             max_times = [
                 row["local_time"] for row in rows
                 if row_temp(row) == max_temp
             ]
             max_temp_bucket = round_half_up(max_temp)
+            max_temp_bucket_c = round_half_up(max_temp_c)
             max_on_hour_mark = any(
                 row_temp(row) == max_temp and row.get("minute") == 0
                 for row in rows
             )
         else:
             max_temp = min_temp = avg_temp = max_temp_bucket = None
+            max_temp_c = min_temp_c = avg_temp_c = max_temp_bucket_c = None
             max_times = []
             max_on_hour_mark = False
+        max_dewpoint = max_value(dewpoints)
+        max_dewpoint_c = max_value(dewpoints_c)
 
         non_hourly_rows = [
             row for row in rows
             if row.get("minute") not in (None, 0)
         ]
         daily_rows.append({
-            "schema_version": "wu_daily_native_v1",
+            "schema_version": WU_DAILY_SCHEMA_VERSION,
             "local_date": local_date,
             "temperature_unit": unit,
             "row_count": len(rows),
             "first_time": rows[0].get("local_time"),
             "last_time": rows[-1].get("local_time"),
             "max_temp": max_temp,
+            "max_temp_native": max_temp,
             "max_temp_bucket": max_temp_bucket,
+            "max_temp_bucket_native": max_temp_bucket,
             "min_temp": min_temp,
+            "min_temp_native": min_temp,
             "avg_temp": avg_temp,
-            "max_dewpoint": max_value(row_dewpoint(row) for row in rows),
-            "max_temp_c": max_temp,
+            "avg_temp_native": avg_temp,
+            "max_dewpoint": max_dewpoint,
+            "max_dewpoint_native": max_dewpoint,
+            "max_temp_c": max_temp_c,
             "max_temp_times": "|".join(max_times),
-            "min_temp_c": min_temp,
-            "avg_temp_c": avg_temp,
-            "max_dewpoint_c": max_value(row_dewpoint(row) for row in rows),
+            "min_temp_c": min_temp_c,
+            "avg_temp_c": avg_temp_c,
+            "max_dewpoint_c": max_dewpoint_c,
             "max_wind_kmh": max_value(row.get("wind_speed_kmh") for row in rows),
             "max_gust_kmh": max_value(row.get("wind_gust_kmh") for row in rows),
-            "max_temp_bucket_c": max_temp_bucket,
+            "max_temp_bucket_c": max_temp_bucket_c,
             "has_non_hourly_rows": bool(non_hourly_rows),
             "non_hourly_count": len(non_hourly_rows),
             "max_on_hour_mark": max_on_hour_mark,
@@ -563,9 +597,9 @@ def analyze_daily_summary(
                 quality_filtered_target_days += 1
                 continue
             target_window.append(row)
-            bucket = row.get("max_temp_bucket_c")
-            if bucket:
-                bucket_counts[int(float(bucket))] += 1
+            bucket = native_bucket(row)
+            if bucket is not None:
+                bucket_counts[int(bucket)] += 1
             if row.get("max_on_hour_mark") == "False":
                 non_hourly_high_days += 1
 

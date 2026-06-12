@@ -39,6 +39,7 @@ if str(SRC_ROOT) not in sys.path:
 from feature_store import FEATURE_COLUMNS
 from market_config import date_from_event_slug
 from market_registry import spec_for_slug
+from daily_summary import native_bucket
 from settlement_ledger import (
     ledger_label_for_slug,
     settlement_from_sources as ledger_settlement_from_sources,
@@ -92,18 +93,18 @@ def binary_log_loss(p, y):
 
 
 def load_daily_summary(path):
-    """date -> (bucket, row_count) from the WU daily summary, if present."""
+    """date -> (native settlement bucket, row_count) from WU daily summary."""
     index = {}
     if not Path(path).exists():
         return index
     with open(path, encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             d = row.get("local_date")
-            bucket = row.get("max_temp_bucket_c")
-            if not d or not bucket:
+            bucket = native_bucket(row)
+            if not d or bucket is None:
                 continue
             try:
-                index[d] = (int(float(bucket)), int(row.get("row_count") or 0))
+                index[d] = (int(bucket), int(row.get("row_count") or 0))
             except (TypeError, ValueError):
                 continue
     return index
@@ -387,13 +388,13 @@ def grouped_scores(rows, group_key):
 
 def group_sort_key(value):
     if value is None:
-        return (1, "")
+        return (3, "")
     if isinstance(value, (int, float)):
-        return (0, value)
+        return (0, float(value))
     try:
         return (0, float(value))
     except (TypeError, ValueError):
-        return (0, str(value))
+        return (1, str(value))
 
 
 def daily_first_score(day_results):
@@ -438,6 +439,32 @@ def feature_gap_bucket(value):
     return ">2C"
 
 
+def live_reading_gap_bucket(value):
+    value = safe_float(value)
+    if value is None:
+        return "missing"
+    if value <= 0:
+        return "<=0"
+    if value <= 1:
+        return "0-1"
+    if value <= 2:
+        return "1-2"
+    return ">2"
+
+
+def minutes_since_cutoff_bucket(value):
+    value = safe_float(value)
+    if value is None:
+        return "missing"
+    if value < 20:
+        return "00-19"
+    if value < 40:
+        return "20-39"
+    if value < 60:
+        return "40-59"
+    return "60+"
+
+
 def load_feature_vectors(folder):
     path = Path(folder) / "features_long.csv"
     if not path.exists():
@@ -466,6 +493,12 @@ def attach_feature_vector(scoring_row, feature_row):
     for column in FEATURE_COLUMNS:
         scoring_row[f"feature_{column}"] = feature_row.get(column)
     scoring_row["feature_forecast_gap_bucket"] = feature_gap_bucket(feature_row.get("forecast_gap"))
+    scoring_row["feature_live_reading_gap_bucket"] = live_reading_gap_bucket(
+        feature_row.get("live_reading_minus_high")
+    )
+    scoring_row["feature_minutes_since_cutoff_bucket"] = minutes_since_cutoff_bucket(
+        feature_row.get("minutes_since_cutoff")
+    )
     return scoring_row
 
 

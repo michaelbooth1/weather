@@ -1,0 +1,581 @@
+{
+  "component": {
+    "disagreement_sigma_per_c": 0.2,
+    "enabled": true,
+    "max_sigma": 3.0,
+    "min_sigma": 0.75,
+    "source_weight_shrink_k": 20.0
+  },
+  "evaluation": {
+    "artifact_replay": {
+      "brier_delta_vs_cap": 0.09960007587630426,
+      "cap_brier": 0.999081930966085,
+      "cap_logloss": 4.575848680916701,
+      "learned_brier": 0.8994818550897807,
+      "learned_logloss": 2.4530890930778635,
+      "logloss_delta_vs_cap": 2.122759587838838,
+      "n": 910
+    },
+    "leave_one_year_daily_archive": null
+  },
+  "generated_at_utc": "2026-06-12T00:26:33.524624+00:00",
+  "global_stats": {
+    "bias_observed_minus_forecast": 2.530879120879119,
+    "mae": 2.7543956043956057,
+    "n": 910,
+    "overforecast_ge_1c_rate": 0.07032967032967033,
+    "rmse": 3.795501964804541,
+    "tail_abs_error_ge_2c_rate": 0.4824175824175824,
+    "underforecast_ge_1c_rate": 0.721978021978022,
+    "within_1c_rate": 0.389010989010989,
+    "within_rounded_bucket_rate": 0.12527472527472527
+  },
+  "hour_stats": {
+    "open_meteo|hour=0": {
+      "bias_observed_minus_forecast": 1.8,
+      "mae": 2.258333333333331,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.20833333333333334,
+      "rmse": 2.5911709064951025,
+      "tail_abs_error_ge_2c_rate": 0.5416666666666666,
+      "underforecast_ge_1c_rate": 0.5833333333333334,
+      "within_1c_rate": 0.25,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=1": {
+      "bias_observed_minus_forecast": 1.6666666666666672,
+      "mae": 1.7250000000000008,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.03674577042235,
+      "tail_abs_error_ge_2c_rate": 0.3333333333333333,
+      "underforecast_ge_1c_rate": 0.6666666666666666,
+      "within_1c_rate": 0.3333333333333333,
+      "within_rounded_bucket_rate": 0.125
+    },
+    "open_meteo|hour=10": {
+      "bias_observed_minus_forecast": -0.30416666666666475,
+      "mae": 1.0874999999999997,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.4583333333333333,
+      "rmse": 1.221849690701219,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.16666666666666666,
+      "within_1c_rate": 0.5416666666666666,
+      "within_rounded_bucket_rate": 0.16666666666666666
+    },
+    "open_meteo|hour=11": {
+      "bias_observed_minus_forecast": -0.18888888888888763,
+      "mae": 0.8333333333333317,
+      "n": 18,
+      "overforecast_ge_1c_rate": 0.2777777777777778,
+      "rmse": 1.060922030855968,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.0,
+      "within_1c_rate": 0.7222222222222222,
+      "within_rounded_bucket_rate": 0.3888888888888889
+    },
+    "open_meteo|hour=12": {
+      "bias_observed_minus_forecast": -0.5695652173913041,
+      "mae": 1.108695652173913,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.4782608695652174,
+      "rmse": 1.3070045407592181,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.043478260869565216,
+      "within_1c_rate": 0.4782608695652174,
+      "within_rounded_bucket_rate": 0.30434782608695654
+    },
+    "open_meteo|hour=13": {
+      "bias_observed_minus_forecast": -0.32608695652174036,
+      "mae": 1.2826086956521738,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.4782608695652174,
+      "rmse": 1.4001552708927294,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.2608695652173913,
+      "within_1c_rate": 0.2608695652173913,
+      "within_rounded_bucket_rate": 0.17391304347826086
+    },
+    "open_meteo|hour=14": {
+      "bias_observed_minus_forecast": 0.5809523809523804,
+      "mae": 0.7904761904761902,
+      "n": 21,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 0.8804760617064474,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.19047619047619047,
+      "within_1c_rate": 0.8095238095238095,
+      "within_rounded_bucket_rate": 0.19047619047619047
+    },
+    "open_meteo|hour=15": {
+      "bias_observed_minus_forecast": 0.7499999999999994,
+      "mae": 0.7999999999999966,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.0653637876331254,
+      "tail_abs_error_ge_2c_rate": 0.041666666666666664,
+      "underforecast_ge_1c_rate": 0.25,
+      "within_1c_rate": 0.75,
+      "within_rounded_bucket_rate": 0.25
+    },
+    "open_meteo|hour=16": {
+      "bias_observed_minus_forecast": 2.109090909090909,
+      "mae": 2.109090909090909,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.299802363050118,
+      "tail_abs_error_ge_2c_rate": 0.6363636363636364,
+      "underforecast_ge_1c_rate": 0.8181818181818182,
+      "within_1c_rate": 0.18181818181818182,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=17": {
+      "bias_observed_minus_forecast": 2.8391304347826116,
+      "mae": 2.8391304347826116,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.9540686754255474,
+      "tail_abs_error_ge_2c_rate": 0.782608695652174,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=18": {
+      "bias_observed_minus_forecast": 4.149999999999999,
+      "mae": 4.149999999999999,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 4.229818392834806,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=19": {
+      "bias_observed_minus_forecast": 6.082608695652176,
+      "mae": 6.082608695652176,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 6.150609725872715,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=2": {
+      "bias_observed_minus_forecast": 1.3000000000000014,
+      "mae": 1.7588235294117633,
+      "n": 17,
+      "overforecast_ge_1c_rate": 0.17647058823529413,
+      "rmse": 2.095232683975698,
+      "tail_abs_error_ge_2c_rate": 0.35294117647058826,
+      "underforecast_ge_1c_rate": 0.7058823529411765,
+      "within_1c_rate": 0.11764705882352941,
+      "within_rounded_bucket_rate": 0.11764705882352941
+    },
+    "open_meteo|hour=20": {
+      "bias_observed_minus_forecast": 8.185185185185183,
+      "mae": 8.185185185185183,
+      "n": 27,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 8.227730887404835,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=21": {
+      "bias_observed_minus_forecast": 9.050000000000004,
+      "mae": 9.050000000000004,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 9.110159164361514,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=22": {
+      "bias_observed_minus_forecast": 9.363636363636363,
+      "mae": 9.363636363636363,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 9.392163077413386,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=3": {
+      "bias_observed_minus_forecast": 1.5,
+      "mae": 1.5,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.5524174696260038,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=4": {
+      "bias_observed_minus_forecast": 2.8916666666666657,
+      "mae": 2.8916666666666657,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 3.025309901481168,
+      "tail_abs_error_ge_2c_rate": 0.8333333333333334,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=5": {
+      "bias_observed_minus_forecast": 2.7999999999999985,
+      "mae": 2.7999999999999985,
+      "n": 11,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.974436539459653,
+      "tail_abs_error_ge_2c_rate": 0.9090909090909091,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "open_meteo|hour=6": {
+      "bias_observed_minus_forecast": 1.7250000000000003,
+      "mae": 1.741666666666666,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.8763883748662844,
+      "tail_abs_error_ge_2c_rate": 0.4166666666666667,
+      "underforecast_ge_1c_rate": 0.8333333333333334,
+      "within_1c_rate": 0.16666666666666666,
+      "within_rounded_bucket_rate": 0.08333333333333333
+    },
+    "open_meteo|hour=7": {
+      "bias_observed_minus_forecast": 0.3727272727272748,
+      "mae": 0.4636363636363605,
+      "n": 11,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 0.5854291355298872,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.09090909090909091,
+      "within_1c_rate": 1.0,
+      "within_rounded_bucket_rate": 0.5454545454545454
+    },
+    "open_meteo|hour=8": {
+      "bias_observed_minus_forecast": 0.22666666666666704,
+      "mae": 0.7866666666666693,
+      "n": 15,
+      "overforecast_ge_1c_rate": 0.2,
+      "rmse": 0.8778762251403502,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.26666666666666666,
+      "within_1c_rate": 0.8,
+      "within_rounded_bucket_rate": 0.4
+    },
+    "open_meteo|hour=9": {
+      "bias_observed_minus_forecast": -0.28095238095238256,
+      "mae": 1.0809523809523778,
+      "n": 21,
+      "overforecast_ge_1c_rate": 0.42857142857142855,
+      "rmse": 1.1797901346869941,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.0,
+      "within_1c_rate": 0.5714285714285714,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=0": {
+      "bias_observed_minus_forecast": 2.25,
+      "mae": 2.25,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.3979157616563596,
+      "tail_abs_error_ge_2c_rate": 0.75,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.25,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=1": {
+      "bias_observed_minus_forecast": 1.375,
+      "mae": 1.375,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.541103500742244,
+      "tail_abs_error_ge_2c_rate": 0.5,
+      "underforecast_ge_1c_rate": 0.875,
+      "within_1c_rate": 0.5,
+      "within_rounded_bucket_rate": 0.125
+    },
+    "weather_forecast|hour=10": {
+      "bias_observed_minus_forecast": 0.3333333333333333,
+      "mae": 0.3333333333333333,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 0.5773502691896257,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.3333333333333333,
+      "within_1c_rate": 1.0,
+      "within_rounded_bucket_rate": 0.6666666666666666
+    },
+    "weather_forecast|hour=11": {
+      "bias_observed_minus_forecast": 0.2222222222222222,
+      "mae": 0.6666666666666666,
+      "n": 18,
+      "overforecast_ge_1c_rate": 0.2222222222222222,
+      "rmse": 0.816496580927726,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.4444444444444444,
+      "within_1c_rate": 1.0,
+      "within_rounded_bucket_rate": 0.3333333333333333
+    },
+    "weather_forecast|hour=12": {
+      "bias_observed_minus_forecast": 0.43478260869565216,
+      "mae": 0.43478260869565216,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 0.659380473395787,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 0.43478260869565216,
+      "within_1c_rate": 1.0,
+      "within_rounded_bucket_rate": 0.5652173913043478
+    },
+    "weather_forecast|hour=13": {
+      "bias_observed_minus_forecast": 0.5217391304347826,
+      "mae": 0.6956521739130435,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.08695652173913043,
+      "rmse": 0.9780192938436515,
+      "tail_abs_error_ge_2c_rate": 0.13043478260869565,
+      "underforecast_ge_1c_rate": 0.4782608695652174,
+      "within_1c_rate": 0.8695652173913043,
+      "within_rounded_bucket_rate": 0.43478260869565216
+    },
+    "weather_forecast|hour=14": {
+      "bias_observed_minus_forecast": 0.9523809523809523,
+      "mae": 0.9523809523809523,
+      "n": 21,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.1126972805283737,
+      "tail_abs_error_ge_2c_rate": 0.14285714285714285,
+      "underforecast_ge_1c_rate": 0.8095238095238095,
+      "within_1c_rate": 0.8571428571428571,
+      "within_rounded_bucket_rate": 0.19047619047619047
+    },
+    "weather_forecast|hour=15": {
+      "bias_observed_minus_forecast": 1.4583333333333333,
+      "mae": 1.4583333333333333,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.567907310185565,
+      "tail_abs_error_ge_2c_rate": 0.5,
+      "underforecast_ge_1c_rate": 0.9583333333333334,
+      "within_1c_rate": 0.5,
+      "within_rounded_bucket_rate": 0.041666666666666664
+    },
+    "weather_forecast|hour=16": {
+      "bias_observed_minus_forecast": 1.9090909090909092,
+      "mae": 1.9090909090909092,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.0670576365276494,
+      "tail_abs_error_ge_2c_rate": 0.6363636363636364,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.36363636363636365,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=17": {
+      "bias_observed_minus_forecast": 2.782608695652174,
+      "mae": 2.782608695652174,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 2.8892604740584606,
+      "tail_abs_error_ge_2c_rate": 0.9130434782608695,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.08695652173913043,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=18": {
+      "bias_observed_minus_forecast": 5.136363636363637,
+      "mae": 5.136363636363637,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 5.1478150704935,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=19": {
+      "bias_observed_minus_forecast": 5.434782608695652,
+      "mae": 5.434782608695652,
+      "n": 23,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 5.48119314208773,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=2": {
+      "bias_observed_minus_forecast": 1.2352941176470589,
+      "mae": 1.2352941176470589,
+      "n": 17,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.3932610920384718,
+      "tail_abs_error_ge_2c_rate": 0.35294117647058826,
+      "underforecast_ge_1c_rate": 0.8823529411764706,
+      "within_1c_rate": 0.6470588235294118,
+      "within_rounded_bucket_rate": 0.11764705882352941
+    },
+    "weather_forecast|hour=20": {
+      "bias_observed_minus_forecast": 6.185185185185185,
+      "mae": 6.185185185185185,
+      "n": 27,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 6.2033443787590485,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=21": {
+      "bias_observed_minus_forecast": 6.125,
+      "mae": 6.125,
+      "n": 24,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 6.1677926899877775,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=22": {
+      "bias_observed_minus_forecast": 6.2272727272727275,
+      "mae": 6.2272727272727275,
+      "n": 22,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 6.313765624699444,
+      "tail_abs_error_ge_2c_rate": 1.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=3": {
+      "bias_observed_minus_forecast": 1.25,
+      "mae": 1.25,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.3228756555322954,
+      "tail_abs_error_ge_2c_rate": 0.25,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.75,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=4": {
+      "bias_observed_minus_forecast": 1.0,
+      "mae": 1.0,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.0,
+      "tail_abs_error_ge_2c_rate": 0.0,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 1.0,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=5": {
+      "bias_observed_minus_forecast": 1.1818181818181819,
+      "mae": 1.1818181818181819,
+      "n": 11,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.243163121016122,
+      "tail_abs_error_ge_2c_rate": 0.18181818181818182,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.8181818181818182,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=6": {
+      "bias_observed_minus_forecast": 1.5,
+      "mae": 1.5,
+      "n": 12,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.5811388300841898,
+      "tail_abs_error_ge_2c_rate": 0.5,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.5,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=7": {
+      "bias_observed_minus_forecast": 1.5454545454545454,
+      "mae": 1.5454545454545454,
+      "n": 11,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.6236882817719773,
+      "tail_abs_error_ge_2c_rate": 0.5454545454545454,
+      "underforecast_ge_1c_rate": 1.0,
+      "within_1c_rate": 0.45454545454545453,
+      "within_rounded_bucket_rate": 0.0
+    },
+    "weather_forecast|hour=8": {
+      "bias_observed_minus_forecast": 1.2,
+      "mae": 1.2,
+      "n": 15,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.4142135623730951,
+      "tail_abs_error_ge_2c_rate": 0.4,
+      "underforecast_ge_1c_rate": 0.8,
+      "within_1c_rate": 0.6,
+      "within_rounded_bucket_rate": 0.2
+    },
+    "weather_forecast|hour=9": {
+      "bias_observed_minus_forecast": 1.0,
+      "mae": 1.0,
+      "n": 21,
+      "overforecast_ge_1c_rate": 0.0,
+      "rmse": 1.2535663410560174,
+      "tail_abs_error_ge_2c_rate": 0.2857142857142857,
+      "underforecast_ge_1c_rate": 0.7142857142857143,
+      "within_1c_rate": 0.7142857142857143,
+      "within_rounded_bucket_rate": 0.2857142857142857
+    }
+  },
+  "source_stats": {
+    "open_meteo": {
+      "bias_observed_minus_forecast": 2.630989010989018,
+      "mae": 3.051648351648346,
+      "n": 455,
+      "overforecast_ge_1c_rate": 0.12747252747252746,
+      "rmse": 4.240907532981204,
+      "tail_abs_error_ge_2c_rate": 0.4461538461538462,
+      "underforecast_ge_1c_rate": 0.5978021978021978,
+      "within_1c_rate": 0.2967032967032967,
+      "within_rounded_bucket_rate": 0.10989010989010989
+    },
+    "weather_forecast": {
+      "bias_observed_minus_forecast": 2.4307692307692306,
+      "mae": 2.4571428571428573,
+      "n": 455,
+      "overforecast_ge_1c_rate": 0.013186813186813187,
+      "rmse": 3.290345517779801,
+      "tail_abs_error_ge_2c_rate": 0.5186813186813187,
+      "underforecast_ge_1c_rate": 0.8461538461538461,
+      "within_1c_rate": 0.48131868131868133,
+      "within_rounded_bucket_rate": 0.14065934065934066
+    }
+  },
+  "training": {
+    "daily_archive_rows": 0,
+    "rows": 910,
+    "snapshot_folders": [
+      "data\\snapshots\\highest-temperature-in-miami-on-june-6-2026",
+      "data\\snapshots\\highest-temperature-in-miami-on-june-7-2026",
+      "data\\snapshots\\highest-temperature-in-miami-on-june-8-2026",
+      "data\\snapshots\\highest-temperature-in-miami-on-june-9-2026",
+      "data\\snapshots\\highest-temperature-in-miami-on-june-10-2026"
+    ],
+    "snapshot_rows": 910,
+    "target_date_count": 5,
+    "target_date_max": "2026-06-10",
+    "target_date_min": "2026-06-06"
+  },
+  "version": "v0.1"
+}
