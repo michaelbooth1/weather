@@ -1793,6 +1793,20 @@ microstructure signals against settlement/P&L, not merely to collect them.
 The loop is now supervised through item 37's `market_microstructure ensure`
 path, so the next item-38 step can assume durable book tapes are available.
 
+Cadence-audit update (2026-06-12 late evening): the book tape now has its own
+acceptance instrument. `src.market_microstructure audit [--strict]` audits the
+active market day's tape per registered market (captures, median/max gap,
+gaps over a 120-second threshold, trailing freshness) and exits non-zero in
+strict mode on any gap or stale/missing tape. `src.fleet_observability` now
+includes a `clob` payload section, a "CLOB Book Capture" report table, and
+fail-closed alerts: a DEAD/UNKNOWN/ERRORING book loop or an active-day tape
+gap is critical, while PAUSED/DEGRADED warns. Validation: live fleet audit
+passed with all 12 markets OK (median gap 15.0s in fast mode, max gap 90.9s,
+trailing freshness under 15s); `pytest -q` passed 349 tests + 34 subtests;
+`compileall src tests` passed. The MARKET_MAKING_PLAN.md Stage-0 acceptance
+clock (7 consecutive gap-free days) starts with the first full capture day,
+2026-06-13.
+
 ### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]
 
 Promotion results (2026-06-10): pinned A/B gate PASS (0.0545 -> 0.0544; no

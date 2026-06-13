@@ -140,6 +140,7 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.market_microstructure capture --market toronto --price-history
 .\venv\Scripts\python.exe -m src.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure status
+.\venv\Scripts\python.exe -m src.market_microstructure audit --strict
 .\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure websocket --market toronto --seconds 300
@@ -224,6 +225,11 @@ ad-hoc live scripts that may hit the network.
   5-10 minutes and run the supervised CLOB book loop separately at 30-60
   seconds, with 10-15 second fast cadence near the thermal/market close or
   after large top-of-book midpoint moves.
+  `src.market_microstructure audit --strict` is the book-tape acceptance
+  check: per-market active-day cadence (median/max gap, 120s threshold,
+  trailing freshness), non-zero exit on any gap. `src.fleet_observability`
+  includes the CLOB loop and book-gap state as fail-closed alerts, so a dead
+  recorder or tape gap surfaces like a snapshot-collection failure.
 - `src.source_redundancy report` writes
   `data/backtest/source_redundancy.json`,
   `data/backtest/source_redundancy_report.md`,

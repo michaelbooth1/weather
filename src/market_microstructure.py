@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -281,6 +282,106 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "fast_interval_seconds": status.get("fast_interval_seconds"),
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
+    }
+
+
+BOOK_AUDIT_MAX_GAP_SECONDS = 120.0
+
+
+def book_capture_times(folder):
+    """Distinct book capture timestamps recorded in a folder's summary tape."""
+    path = Path(folder) / "order_books_summary.csv"
+    if not path.exists():
+        return []
+    times = set()
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                value = row.get("captured_at_utc")
+                if not value:
+                    continue
+                try:
+                    parsed = datetime.fromisoformat(value)
+                except ValueError:
+                    continue
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                times.add(parsed)
+    except (OSError, csv.Error):
+        return []
+    return sorted(times)
+
+
+def audit_book_tape(folder, now=None, max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS):
+    """Cadence audit for one event folder's book tape.
+
+    `ok` means the tape has captures, no internal gap above the threshold, and
+    a fresh trailing capture. Trailing age only matters while the folder is the
+    active market day, which is how the fleet audit calls this.
+    """
+    folder = Path(folder)
+    now = now or utc_now()
+    times = book_capture_times(folder)
+    result = {
+        "folder": str(folder),
+        "captures": len(times),
+        "first_capture_utc": times[0].isoformat() if times else None,
+        "last_capture_utc": times[-1].isoformat() if times else None,
+        "median_gap_seconds": None,
+        "max_gap_seconds": None,
+        "gaps_over_threshold": 0,
+        "trailing_age_seconds": None,
+        "max_gap_seconds_threshold": float(max_gap_seconds),
+        "ok": False,
+        "reason": None,
+    }
+    if not times:
+        result["reason"] = "no book captures"
+        return result
+    gaps = [(later - earlier).total_seconds() for earlier, later in zip(times, times[1:])]
+    if gaps:
+        result["median_gap_seconds"] = round(statistics.median(gaps), 1)
+        result["max_gap_seconds"] = round(max(gaps), 1)
+        result["gaps_over_threshold"] = sum(1 for gap in gaps if gap > float(max_gap_seconds))
+    trailing = (now - times[-1]).total_seconds()
+    result["trailing_age_seconds"] = round(trailing, 1)
+    if result["gaps_over_threshold"]:
+        result["reason"] = (
+            f"{result['gaps_over_threshold']} gaps over {float(max_gap_seconds):.0f}s "
+            f"(max {result['max_gap_seconds']}s)"
+        )
+    elif trailing > float(max_gap_seconds):
+        result["reason"] = f"last book capture is {trailing:.0f}s old"
+    else:
+        result["ok"] = True
+    return result
+
+
+def fleet_book_audit(
+    market_id="all",
+    snapshots_root=None,
+    now=None,
+    max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS,
+):
+    """Audit every registered market's active-day book tape cadence."""
+    now = now or utc_now()
+    root = Path(snapshots_root) if snapshots_root is not None else SNAPSHOT_DATA_ROOT
+    market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
+    rows = []
+    for item in market_ids:
+        spec = spec_for_id(item)
+        config = config_for_date(now.astimezone(spec.tz).date(), item)
+        audit = audit_book_tape(
+            root / config.event_slug,
+            now=now,
+            max_gap_seconds=max_gap_seconds,
+        )
+        rows.append({"market_id": item, "event_slug": config.event_slug, **audit})
+    return {
+        "generated_at_utc": now.isoformat(),
+        "max_gap_seconds_threshold": float(max_gap_seconds),
+        "markets": rows,
+        "ok": all(row["ok"] for row in rows) if rows else False,
     }
 
 
@@ -1442,6 +1543,18 @@ def main():
     )
     add_loop_options(ensure)
 
+    audit = subparsers.add_parser(
+        "audit",
+        help="Audit the active market day's book-tape cadence per market.",
+    )
+    audit.add_argument("--market", choices=_market_choices(), default="all")
+    audit.add_argument("--max-gap-seconds", type=float, default=BOOK_AUDIT_MAX_GAP_SECONDS)
+    audit.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 2 when any market has a gap over the threshold or a stale/missing tape.",
+    )
+
     ws = subparsers.add_parser("websocket", help="Record the public CLOB market WebSocket.")
     ws.add_argument("--market", choices=[spec.id for spec in all_specs()], default="toronto")
     ws.add_argument("--outcomes", default="all")
@@ -1485,6 +1598,15 @@ def main():
             interval_seconds=args.interval_seconds,
         )
         print(json.dumps(health, indent=2, sort_keys=True, default=str))
+        return
+    if command == "audit":
+        result = fleet_book_audit(
+            market_id=args.market,
+            max_gap_seconds=args.max_gap_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        if args.strict and not result["ok"]:
+            sys.exit(2)
         return
     if command == "stop":
         print(json.dumps(stop_clob_loop(), indent=2, sort_keys=True, default=str))

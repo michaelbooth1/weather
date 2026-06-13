@@ -479,6 +479,17 @@ are ready for real testing*.
 
 ### Stage 0: Capture (build days 1-3, then runs unattended)
 
+**STATUS: SHIPPED 2026-06-12.** Implemented as `src.market_microstructure`
+(name differs from the sketch below; scope matches and exceeds it): token
+maps + batched REST `/books` + raw/summary/level tapes + optional
+price-history + on-demand WebSocket recorder, supervised loop verbs, the
+`WeatherClobBookLoopSupervisor` scheduled task (ensure every minute), CLOB
+token ids persisted into snapshot rows, `audit --strict` as the cadence
+acceptance check, and fail-closed CLOB alerts in `src.fleet_observability`.
+First live fleet audit: all 12 markets OK, median gap 15s (fast mode), max
+gap 90.9s. The 7-day acceptance clock starts 2026-06-13; the competitor
+recon report (Stage 1) is the next build.
+
 New module `src/market_book_recorder.py`:
 
 - Discovers tokens from the Gamma payload the snapshot loop already fetches

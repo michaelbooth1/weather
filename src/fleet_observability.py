@@ -21,6 +21,12 @@ from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
 from collection_health import fleet_collection_health  # noqa: E402
 from data_auditor import audit_fleet_historical_data, jsonable_result  # noqa: E402
 from location_trust import score_all_markets  # noqa: E402
+from market_microstructure import (  # noqa: E402
+    BOOK_AUDIT_MAX_GAP_SECONDS,
+    clob_loop_health,
+    fleet_book_audit,
+    read_clob_loop_status,
+)
 from market_registry import all_specs  # noqa: E402
 
 
@@ -254,6 +260,59 @@ def provenance_alerts(provenance):
     return alerts
 
 
+def clob_summary(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, now=None, max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS):
+    """CLOB book-loop health plus the active-day book-tape cadence audit."""
+    loop = clob_loop_health(read_clob_loop_status(), now=now)
+    books = fleet_book_audit(
+        snapshots_root=snapshots_root,
+        now=now,
+        max_gap_seconds=max_gap_seconds,
+    )
+    return {"loop": loop, "books": books}
+
+
+def clob_alerts(clob):
+    """Book capture is unbackfillable evidence, so failures alert like
+    snapshot-collection failures: a dead recorder or a tape gap is critical."""
+    alerts = []
+    clob = clob or {}
+    loop = clob.get("loop") or {}
+    state = loop.get("state")
+    loop_detail = {
+        "state": state,
+        "pid": loop.get("pid"),
+        "heartbeat_age_seconds": loop.get("heartbeat_age_seconds"),
+        "last_error": loop.get("last_error"),
+    }
+    if state in ("DEAD", "UNKNOWN", "ERRORING"):
+        add_alert(alerts, "critical", "fleet", "clob", f"CLOB book loop is {state}", loop_detail)
+    elif state in ("PAUSED", "DEGRADED"):
+        add_alert(alerts, "warning", "fleet", "clob", f"CLOB book loop is {state}", loop_detail)
+    loop_down = state not in ("RUNNING", "DEGRADED")
+    for row in (clob.get("books") or {}).get("markets") or []:
+        if row.get("ok"):
+            continue
+        detail = {
+            "event_slug": row.get("event_slug"),
+            "captures": row.get("captures"),
+            "max_gap_seconds": row.get("max_gap_seconds"),
+            "gaps_over_threshold": row.get("gaps_over_threshold"),
+            "trailing_age_seconds": row.get("trailing_age_seconds"),
+        }
+        if loop_down and not row.get("captures"):
+            # The loop-level critical already covers a fully missing tape.
+            continue
+        add_alert(
+            alerts,
+            "critical",
+            row.get("market_id"),
+            "clob",
+            row.get("reason") or "book tape needs attention",
+            detail,
+        )
+    return alerts
+
+
 def trust_readiness(trust_rows, min_trust=DEFAULT_MIN_TRUST, min_days=DEFAULT_MIN_SETTLED_DAYS):
     rows = {}
     for row in trust_rows:
@@ -305,10 +364,12 @@ def build_observability_payload(
     }
     provenance = artifact_inventory()
     trust = trust_readiness(score_all_markets(root=snapshots_root))
+    clob = clob_summary(snapshots_root=snapshots_root)
     alerts = []
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json))
     alerts.extend(provenance_alerts(provenance))
+    alerts.extend(clob_alerts(clob))
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -318,6 +379,7 @@ def build_observability_payload(
         "historical_audits": audits_json,
         "artifact_provenance": provenance,
         "trust_readiness": trust,
+        "clob": clob,
         "alerts": alerts,
         "summary": {
             "market_count": len(collection.get("markets") or []),
@@ -403,6 +465,33 @@ def write_markdown(path, payload):
     lines += markdown_table(
         ["Market", "Artifacts", "Internal Schema OK", "Needs Schema/Manifest Attention"],
         artifact_rows,
+    )
+    clob = payload.get("clob") or {}
+    clob_loop = clob.get("loop") or {}
+    clob_rows = [
+        [
+            row.get("market_id"),
+            "OK" if row.get("ok") else "GAP",
+            row.get("captures"),
+            row.get("median_gap_seconds"),
+            row.get("max_gap_seconds"),
+            row.get("trailing_age_seconds"),
+            row.get("reason") or "-",
+        ]
+        for row in (clob.get("books") or {}).get("markets") or []
+    ]
+    lines += [
+        "",
+        "## CLOB Book Capture",
+        "",
+        f"Loop state: **{clob_loop.get('state')}** "
+        f"(heartbeat age {clob_loop.get('heartbeat_age_seconds')}s, "
+        f"last books age {clob_loop.get('last_books_age_seconds')}s)",
+        "",
+    ]
+    lines += markdown_table(
+        ["Market", "Tape", "Captures", "Median Gap s", "Max Gap s", "Trailing s", "Reason"],
+        clob_rows,
     )
     lines += ["", "## Alerts", ""]
     lines += markdown_table(

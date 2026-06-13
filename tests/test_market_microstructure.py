@@ -12,9 +12,11 @@ sys.path.insert(0, os.path.abspath("src"))
 
 import market_microstructure as mm  # noqa: E402
 from market_microstructure import (  # noqa: E402
+    audit_book_tape,
     clob_ensure_decision,
     clob_loop_health,
     capture_event_books,
+    fleet_book_audit,
     price_history_rows,
     record_market_websocket,
     run_book_loop,
@@ -296,6 +298,79 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(len(diagnostics), 1)
+
+    def _write_summary_tape(self, root, times):
+        path = Path(root) / "order_books_summary.csv"
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["captured_at_utc", "clob_token_id"])
+            writer.writeheader()
+            for stamp in times:
+                # Two tokens per capture: distinct timestamps must dedupe.
+                writer.writerow({"captured_at_utc": stamp.isoformat(), "clob_token_id": "yes"})
+                writer.writerow({"captured_at_utc": stamp.isoformat(), "clob_token_id": "no"})
+        return path
+
+    def test_audit_book_tape_clean_cadence_is_ok(self):
+        base = datetime(2026, 6, 13, 1, 0, tzinfo=timezone.utc)
+        times = [base + timedelta(seconds=60 * index) for index in range(10)]
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_summary_tape(tmp, times)
+            result = audit_book_tape(tmp, now=times[-1] + timedelta(seconds=30))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["captures"], 10)
+        self.assertEqual(result["median_gap_seconds"], 60.0)
+        self.assertEqual(result["max_gap_seconds"], 60.0)
+        self.assertEqual(result["gaps_over_threshold"], 0)
+        self.assertEqual(result["trailing_age_seconds"], 30.0)
+
+    def test_audit_book_tape_flags_internal_gap_and_stale_tail(self):
+        base = datetime(2026, 6, 13, 1, 0, tzinfo=timezone.utc)
+        times = [base, base + timedelta(seconds=60), base + timedelta(seconds=400)]
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_summary_tape(tmp, times)
+            gappy = audit_book_tape(tmp, now=times[-1] + timedelta(seconds=10))
+            stale = audit_book_tape(tmp, now=times[-1] + timedelta(seconds=500), max_gap_seconds=400)
+
+        self.assertFalse(gappy["ok"])
+        self.assertEqual(gappy["gaps_over_threshold"], 1)
+        self.assertEqual(gappy["max_gap_seconds"], 340.0)
+        self.assertIn("gaps over", gappy["reason"])
+        self.assertFalse(stale["ok"])
+        self.assertIn("old", stale["reason"])
+
+    def test_audit_book_tape_missing_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = audit_book_tape(tmp)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["captures"], 0)
+        self.assertEqual(result["reason"], "no book captures")
+
+    def test_fleet_book_audit_resolves_active_day_folders(self):
+        now = datetime(2026, 6, 12, 18, 0, tzinfo=timezone.utc)
+        times = [now - timedelta(seconds=90), now - timedelta(seconds=30)]
+        with tempfile.TemporaryDirectory() as tmp:
+            config = config_for_date(now.astimezone(mm.spec_for_id("toronto").tz).date(), "toronto")
+            folder = Path(tmp) / config.event_slug
+            folder.mkdir(parents=True)
+            self._write_summary_tape(folder, times)
+            result = fleet_book_audit(market_id="toronto", snapshots_root=tmp, now=now)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["markets"]), 1)
+        row = result["markets"][0]
+        self.assertEqual(row["market_id"], "toronto")
+        self.assertEqual(row["event_slug"], config.event_slug)
+        self.assertTrue(row["ok"])
+
+    def test_fleet_book_audit_missing_folder_not_ok(self):
+        now = datetime(2026, 6, 12, 18, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = fleet_book_audit(market_id="toronto", snapshots_root=tmp, now=now)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["markets"][0]["reason"], "no book captures")
 
     def test_start_clob_loop_detached_writes_provisional_status(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from collection_health import fleet_collection_health  # noqa: E402
 from fleet_observability import (  # noqa: E402
     artifact_metadata,
+    clob_alerts,
     overall_status,
     trust_readiness,
 )
@@ -69,6 +70,60 @@ class TestFleetObservability(unittest.TestCase):
 
         self.assertEqual(rows["nyc"]["trust_gap"], 10)
         self.assertEqual(rows["nyc"]["settled_day_gap"], 1)
+
+    def test_clob_alerts_healthy_fleet_is_quiet(self):
+        alerts = clob_alerts({
+            "loop": {"state": "RUNNING", "heartbeat_age_seconds": 12.0},
+            "books": {"markets": [
+                {"market_id": "toronto", "ok": True, "captures": 500},
+                {"market_id": "nyc", "ok": True, "captures": 480},
+            ]},
+        })
+
+        self.assertEqual(alerts, [])
+
+    def test_clob_alerts_dead_loop_is_critical_without_per_market_noise(self):
+        alerts = clob_alerts({
+            "loop": {"state": "DEAD", "pid": 123, "heartbeat_age_seconds": 999.0},
+            "books": {"markets": [
+                {"market_id": "toronto", "ok": False, "captures": 0, "reason": "no book captures"},
+            ]},
+        })
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["severity"], "critical")
+        self.assertEqual(alerts[0]["category"], "clob")
+        self.assertIn("DEAD", alerts[0]["message"])
+
+    def test_clob_alerts_tape_gap_is_critical_while_loop_runs(self):
+        alerts = clob_alerts({
+            "loop": {"state": "RUNNING"},
+            "books": {"markets": [
+                {
+                    "market_id": "denver",
+                    "ok": False,
+                    "captures": 200,
+                    "max_gap_seconds": 432.0,
+                    "gaps_over_threshold": 2,
+                    "reason": "2 gaps over 120s (max 432.0s)",
+                },
+                {"market_id": "toronto", "ok": True, "captures": 500},
+            ]},
+        })
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["severity"], "critical")
+        self.assertEqual(alerts[0]["market_id"], "denver")
+        self.assertIn("gaps over", alerts[0]["message"])
+
+    def test_clob_alerts_paused_loop_warns(self):
+        alerts = clob_alerts({
+            "loop": {"state": "PAUSED"},
+            "books": {"markets": []},
+        })
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["severity"], "warning")
 
 
 if __name__ == "__main__":

@@ -69,6 +69,7 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m src.market_microstructure capture --market toronto --price-history
 .\venv\Scripts\python.exe -m src.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure status
+.\venv\Scripts\python.exe -m src.market_microstructure audit --strict   # book-tape cadence acceptance check
 .\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure stop
 .\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
