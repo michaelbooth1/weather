@@ -10,6 +10,7 @@ from pooled_candidate_replay import (
     candidate_comparison,
     market_verdict,
     normalize_partition_probabilities,
+    replay_gate_status,
 )
 
 
@@ -127,6 +128,30 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.35)
         self.assertAlmostEqual(rows[1]["candidate_p"], 0.80)
+
+    def test_replay_gate_blocks_corpus_pin_warnings(self):
+        status = replay_gate_status(
+            {
+                "corpus_warnings": ["changed row"],
+                "fidelity": {"same_identity_n": 1, "same_identity_max_l1": 0.0},
+            }
+        )
+
+        self.assertFalse(status["global_ok"])
+        self.assertFalse(status["corpus_ok"])
+
+    def test_replay_gate_can_require_exact_identity_rows(self):
+        status = replay_gate_status(
+            {
+                "corpus_warnings": [],
+                "fidelity": {"same_identity_n": 0},
+            },
+            require_exact_identity=True,
+        )
+
+        self.assertFalse(status["global_ok"])
+        self.assertFalse(status["fidelity_ok"])
+        self.assertIn("no exact-identity", status["fidelity_message"])
 
 
 if __name__ == "__main__":

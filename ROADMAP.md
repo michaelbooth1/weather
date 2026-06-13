@@ -67,6 +67,13 @@ market days before claiming the model beats Polymarket.
 2. Increase clean market-day capture. Better models need more settled market
    tapes, not just more historical weather rows. This depends on items 16, 17,
    20, and 25.
+2a. Capture market microstructure now, not later. The 2026-06-12 data-layer
+   audit found that the weather/model loop is healthy, but the market data tape
+   was shallow: Gamma best bid was only 48.0% filled and no CLOB token ids,
+   order-book depth, or trade stream were persisted. `src.market_microstructure`
+   now provides the fast capture path, but historical order-book depth from
+   before this ship cannot be recreated, so keeping the new loop running is a
+   data-retention priority before final trading-model work.
 3. Calibrate before adding complexity. The HGB model has useful signal, but
    the live model can be overconfident versus market prices. Add a market-bin
    calibration layer and shrink high-confidence exact buckets unless history
@@ -287,6 +294,13 @@ signal rather than a calibrated role learned from this layer.
 Codex update (2026-05-31): still partial. This item should stay open because
 METAR can be valuable as an independent airport observation stream, but only if
 its miss/lead behavior is learned by cutoff hour and market bucket.
+
+Codex update (2026-06-12): `src.metar_history` is now registry-driven instead
+of CYYZ-only. It backfills any registered market station from IEM ASOS,
+normalizes to the shared native-unit hourly/daily schema, writes manifests, and
+feeds item 30's source-redundancy truth table. This still does not close item 5:
+the remaining work is the cutoff-hour miss/lead calibration and serving-role
+retirement/retuning.
 
 ## Model Improvements
 
@@ -1065,7 +1079,7 @@ Validation results:
   clean ledger days and reports 38/100 Low; US markets remain Unproven until
   their first post-ledger days settle.
 
-### 29. Deepen And Widen The Historical Record [PARTIAL - GHCNH COMPLETE, WU WIDENING]
+### 29. Deepen And Widen The Historical Record [PARTIAL - WU SEASONAL STRONG, REDUNDANT SOURCES SHALLOW]
 
 Goal: give each market the deepest faithful history its sources allow (currently
 7 years × a narrow May-June window).
@@ -1180,6 +1194,20 @@ Current WU depth snapshot from the audit:
   every US market except Austin, which has 174 partitions because the two early
   source-unavailable seasonal windows produce no raw partitions.
 
+Data-layer audit update (2026-06-12): added `src.data_layer_audit`, which
+measures actual snapshot cadence, artifact completeness, and historical source
+coverage into `data/backtest/data_layer_audit.json` and
+`data/backtest/data_layer_audit_report.md`. The audit confirms WU is now strong
+for the target season: Toronto has `1312/1326` May-20-through-June-30 days
+covered from 1995-2026, most F markets have `1313/1326`, and Austin has
+`1229/1326` because early Weather.com days are source-unavailable. The
+remaining historical gap is redundant-source depth, not primary WU: normalized
+METAR daily coverage is only `13/1326` target-season days per market, while
+GHCNh and reanalysis are about `36%` target-season coverage. Next Item 29 work
+should therefore deep-fill METAR/ASOS, GHCNh, and reanalysis for at least
+May 20-June 30 across all markets from 1995 forward, then widen to
+April-September.
+
 Validation results for this increment:
 
 - `.\venv\Scripts\python.exe -m pytest tests\test_validation.py tests\test_backfill_markets.py -q`: 15 passed.
@@ -1248,18 +1276,20 @@ Implementation result (2026-06-12): added `src.source_redundancy`, which builds
 `data/backtest/source_redundancy_report.md`,
 `data/backtest/source_truth_daily.csv`, and
 `data/backtest/forecast_ensemble_features.csv`. It keeps WU as the
-settlement-aligned primary, compares it with NOAA GHCNh and ERA5-style
-reanalysis for every registered market, learns each redundant source's daily
-high bias and peak-time lead versus WU, and emits provenance-safe daily truth
-rows. When WU is missing but a redundant source exists, the truth row becomes a
-`filled_from_redundant` candidate instead of pretending the day is clean WU.
+settlement-aligned primary, compares it with registry-driven METAR/ASOS, NOAA
+GHCNh, and ERA5-style reanalysis for every registered market, learns each
+redundant source's daily high bias and peak-time lead versus WU, and emits
+provenance-safe daily truth rows. When WU is missing but a redundant source
+exists, the truth row becomes a `filled_from_redundant` candidate instead of
+pretending the day is clean WU. `src.metar_history` now backfills all registered
+market stations from IEM ASOS into the shared native-unit hourly/daily schema.
 
 Gap-fill result: the same report groups missing-source days into targeted
-commands for `src.wu_history`, `src.noaa_ghcnh_history`, and
-`src.reanalysis_history`. A single source outage now degrades into either a
-primary-WU row with missing redundant-source refetch commands or a
-provenance-labelled redundant fill candidate; only all-source gaps remain
-unfillable.
+commands for `src.wu_history`, `src.metar_history`,
+`src.noaa_ghcnh_history`, and `src.reanalysis_history`. A single source outage
+now degrades into either a primary-WU row with missing redundant-source refetch
+commands or a provenance-labelled redundant fill candidate; only all-source
+gaps remain unfillable.
 
 Forecast result: feature schema `toronto_feature_store_v0.4` adds
 `forecast_source_count` and `forecast_disagreement`. Live extraction computes
@@ -1271,10 +1301,12 @@ backfills the same source-count/median/spread signal from archived forecast
 tapes. Existing model artifacts keep serving because they select their trained
 feature names.
 
-Current report (2026-06-12 12:20 UTC, window 2026-06-01..2026-06-12):
-12 markets / 144 market-days, 84 WU primary days, 60 two-plus-source days, 0
-redundant fill days, 60 all-source missing days, and 17 disagreement alerts.
-Forecast ensemble extraction covered 8,169 snapshots; almost every F-market
+Current report (2026-06-12 12:31 UTC, window 2026-06-01..2026-06-12):
+12 markets / 144 market-days, 84 WU primary days, 84 two-plus-source days, 60
+redundant fill days, 0 all-source missing days, and 17 disagreement alerts. The
+60 fill rows are provenance-labelled METAR/ASOS candidates for days where WU
+history has not printed yet; they are not promoted to clean WU settlements.
+Forecast ensemble extraction covered 8,193 snapshots; almost every F-market
 snapshot has two forecast sources, while Toronto averages 2.13 sources because
 ECCC joins Weather.com/Open-Meteo.
 
@@ -1432,7 +1464,7 @@ Principle: one shared learning pipeline, split only at the unit/band I/O edges,
 validated by the improvement engine before anything ships, with per-market gating
 and automated retraining.
 
-### 33. Family-Pooled Model + City Features [OPEN - v0.2 REPLAY CLEARED, SHADOW]
+### 33. Family-Pooled Model + City Features [OPEN - v0.3 SHADOW, REFRESH AUTOMATED]
 
 Goal: train on all cities in a unit family, not one (audit Option A).
 
@@ -1503,6 +1535,49 @@ remain behind the market-price Brier. The next Item 33/34 work is to collect
 more F-family settled days, relax the incumbent bridge only when per-market
 replay proves it, and move the secondary calibration/forecast/lag artifacts
 from Toronto-only to F-family.
+
+Pooled band v0.3 (2026-06-12): trained
+`src.feature_model_hgb_f_pooled_v0_3.pkl` with schema
+`pooled_feature_band_hgb_v0.3` and feature schema
+`toronto_feature_store_v0.4`. v0.3 keeps the direct market-band objective and
+adds static per-market source-reliability priors learned from WU-vs-METAR/ASOS,
+GHCNh, and ERA5-style reanalysis overlaps. These are source trust features, not
+same-day final redundant highs, so they do not leak the settlement into
+intraday training rows. Fresh replay also showed that the old v0.2 artifact now
+blocks Dallas under the current code path (`0.0703` candidate Brier versus
+`0.0483` current replay), so v0.3 adds a Dallas incumbent bridge at alpha `0.0`
+until more settled days justify relaxing it.
+
+v0.3 pinned replay result:
+`data/backtest/pooled_candidate_replay_v0_3_report.md` scores the new artifact
+at aggregate Brier `0.0515` versus current replay `0.0686`, recorded `0.0499`,
+and market `0.0384`, improving the refreshed v0.2 replay (`0.0538`) while
+clearing all per-market regression gates. Verdict remains
+**SHADOW_ONLY / DO_NOT_CUT_OVER**: all 11 F markets are shadow, none are blocked,
+but every F market still has only one settled pinned day and `15/100` trust, and
+several markets remain behind market-price Brier. Item 33 therefore remains open
+until additional settled F days and the promotion gate can prove market-level
+cutover.
+
+Promotion-refresh automation (2026-06-12): added `src.promotion_refresh`, the
+Item 33/37 path that turns newly finalized settled days into a fresh pinned
+promotion corpus, refreshed `location_trust.json`, pooled-F candidate replay,
+current-serving gauntlet, and machine-readable per-market actions. The pooled
+candidate replay now also carries a global replay gate over corpus-pin warnings
+and exact replay-identity fidelity, so candidate promotion fails closed when
+the input pin or replay canary is bad.
+
+Real refresh run:
+`.\venv\Scripts\python.exe -m src.promotion_refresh` wrote
+`data/backtest/f_family_promotion_refresh.json` and
+`data/backtest/f_family_promotion_refresh_report.md` using corpus hash
+`b69ba9f3ccf9b2cba46c278d5a63b6a1f8b2de11df419b354ceec7d4b8b9937e`
+(`12` market-days, `1,680` snapshots, `18,480` band rows). The pooled v0.3
+candidate stayed **SHADOW_ONLY / DO_NOT_CUT_OVER** with aggregate Brier
+`0.0515` versus current replay `0.0686` and market `0.0384`; per-market
+actions were `0` promote, `11` shadow, `0` blocked. Corpus pin passed, but
+`identity_record_count` is still `0`, so the strict exact-identity canary
+cannot be required until future settled captures include replay identities.
 
 ### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
 
@@ -1631,31 +1706,92 @@ Houston, NYC, San Francisco, Seattle, and Toronto; blocked markets are Atlanta,
 Denver, Los Angeles, and Miami. The largest positive code-effect slice is still
 market-specific rather than a corpus-pin issue.
 
-### 37. MLOps And Always-On Production Hardening [NEW]
+### 37. MLOps And Always-On Production Hardening [OPEN - CLOB LOOP SUPERVISED]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
+- [x] Settlement-to-promotion refresh runner: `src.promotion_refresh` rebuilds
+  the pinned corpus, refreshes trust, runs pooled replay, runs the current
+  serving gauntlet, and emits per-market actions for automation.
+- [x] Data-layer audit runner: `src.data_layer_audit` reports loop health,
+  snapshot cadence/completeness, low-fill fields, historical source coverage,
+  and prioritized data-retention recommendations.
+- [x] Split capture cadences: keep full weather/model snapshots at 5-10 minutes,
+  but capture market-book data every 30-60 seconds or via WebSocket without
+  refetching every weather source.
+- [x] Production-harden the CLOB book loop: heartbeat/status, diagnostics,
+  detached start, stop, restart, ensure, and a Windows Task Scheduler
+  registration script separate from the weather/model loop.
 - [ ] Model/artifact registry + versioning; scheduled nightly
   retrain -> validate -> promote.
 - [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
   market.
-- [ ] Clean supervised always-on capture (closes item 16); one market's failure
+- [x] Clean supervised always-on capture (closes item 16); one market's failure
   cannot stall the loop.
 
 Acceptance: a new market or a model update flows through the pipeline with no
 manual surgery.
 
-### 38. Cross-Market And Market-Microstructure Signal [NEW - FURTHEST OUT]
+CLOB hardening update (2026-06-12): `src.market_microstructure` now mirrors the
+snapshot supervisor pattern for the irreplaceable fast book tape. The managed
+loop writes `data/snapshots/clob_loop_status.json`, appends
+`clob_diagnostics.jsonl`, keeps console output in `clob_loop_console.log`, and
+exposes `status`, `start-detached`, `stop`, `restart`, and `ensure` commands.
+`scripts/register_clob_supervisor.ps1` installs a separate Task Scheduler job
+that runs `market_microstructure ensure` every minute and at logon. Health is
+heartbeat-based with `RUNNING`, `DEGRADED`, `ERRORING`, `DEAD`, and `PAUSED`
+states; per-market CLOB failures are isolated and surfaced without stopping the
+rest of the fleet. A supervisor lock guards `ensure`, `start-detached`, and
+`restart` against duplicate loop starts when a manual command lands on the same
+minute as Task Scheduler. `src.data_layer_audit` schema `v0.2` now reports the
+CLOB loop next to the weather/model loop and raises P0 when book capture is not
+managed or fresh. Item 37 remains open only for the broader model/artifact
+registry and shadow/A-B drift-monitoring work.
+
+### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-12 - CLOB CAPTURE SHIPPED]
 
 Goal: squeeze the last edge once per-market models are solid.
 
 - [ ] Borrow strength across correlated cities (regional heat waves / shared
   synoptics).
-- [ ] Model Polymarket price dynamics (stickiness, liquidity) toward edge/P&L,
-  not just calibration.
+- [x] Persist CLOB token ids/condition ids into the market snapshot artifacts.
+- [x] Capture full CLOB order-book depth per weather-market token:
+  timestamp/hash, top levels, cumulative depth, spread, midpoint, imbalance,
+  executable price for fixed trade sizes, and last trade metadata.
+- [x] Add a market-book loop or WebSocket recorder with 30-60 second baseline
+  cadence and 10-15 second near-close/large-edge-change cadence.
+- [ ] Model Polymarket price dynamics (stickiness, liquidity, book depth,
+  spread, trade flow) toward edge/P&L, not just calibration.
 
 Acceptance: cross-market structure or microstructure adds settlement-scored or
 P&L value over independent per-market models.
+
+Data-layer audit result (2026-06-12): `src.data_layer_audit` confirmed the
+project currently captures Gamma yes/no prices, best ask, last trade, volume,
+liquidity, and status, but it does **not** persist CLOB token ids, order-book
+levels, book hashes, book imbalance, executable depth, or a trade stream.
+Gamma `best_bid` is only `48.0%` filled across existing snapshot rows. The
+Gamma event payload already exposes `clobTokenIds` and `enableOrderBook`, and
+Polymarket's public CLOB docs expose `/book`, `/books`, `/prices-history`, and
+the public market WebSocket, so this is an implementation gap rather than a
+market-discovery blocker. Because historical order-book depth cannot be
+reconstructed reliably later, this item is now an immediate data-capture
+priority, not merely a future modeling flourish.
+
+Implementation update (2026-06-12): `src.market_microstructure` adds the fast
+CLOB capture path. It discovers tokens from Gamma `clobTokenIds`, writes
+`clob_tokens.csv/jsonl`, batches REST order books through `/books` with `/book`
+fallback, persists raw books plus `order_books_summary.csv` and
+`order_books_long.csv`, optionally captures `/prices-history`, and records the
+public market WebSocket to `market_ws.jsonl` / `market_ws_events.csv`.
+`src.snapshot_tracker` now persists `condition_id`, `polymarket_market_id`,
+`clob_token_ids`, and yes/no token IDs in new slow snapshot rows. The model loop
+should remain at 5-10 minutes; run the book loop separately at 30-60 seconds
+baseline and 10-15 seconds after local 15:00, near close, or after large
+top-of-book midpoint moves. Remaining item-38 work is to learn and validate
+microstructure signals against settlement/P&L, not merely to collect them.
+The loop is now supervised through item 37's `market_microstructure ensure`
+path, so the next item-38 step can assume durable book tapes are available.
 
 ### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]
 

@@ -48,10 +48,16 @@ class TestPooledFeatureModel(unittest.TestCase):
         left = add_city_features(self._base_record(), NYC, {
             "climate_normal": 82.0,
             "climate_std": 5.0,
+        }, source_reliability={
+            "source_redundant_streams": 2.0,
+            "source_best_bucket_match": 0.75,
         })
         right = add_city_features(self._base_record(), SEATTLE, {
             "climate_normal": 75.0,
             "climate_std": 4.0,
+        }, source_reliability={
+            "source_redundant_streams": 3.0,
+            "source_best_bucket_match": 0.90,
         })
 
         frame = feature_frame([left, right])
@@ -59,10 +65,14 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertIn("latitude", frame.columns)
         self.assertIn("coastal", frame.columns)
         self.assertIn("high_so_far_anomaly", frame.columns)
+        self.assertIn("source_redundant_streams", frame.columns)
+        self.assertIn("source_best_bucket_match", frame.columns)
         self.assertIn("market_id_nyc", frame.columns)
         self.assertIn("market_id_seattle", frame.columns)
         self.assertAlmostEqual(frame.loc[0, "high_so_far_anomaly"], -2.0)
         self.assertAlmostEqual(frame.loc[1, "high_so_far_anomaly"], 5.0)
+        self.assertAlmostEqual(frame.loc[0, "source_redundant_streams"], 2.0)
+        self.assertAlmostEqual(frame.loc[1, "source_best_bucket_match"], 0.90)
 
     def test_band_prediction_record_adds_floor_and_band_context(self):
         record = add_city_features(self._base_record(), NYC, {

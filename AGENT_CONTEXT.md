@@ -1,6 +1,6 @@
 # Agent Context
 
-Last audited: 2026-05-31
+Last audited: 2026-06-12
 
 ## Mission
 
@@ -137,9 +137,20 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.snapshot_tracker --force
 .\venv\Scripts\python.exe -m src.snapshot_tracker --loop --interval-minutes 10
 .\venv\Scripts\python.exe -m src.snapshot_tracker --status
+.\venv\Scripts\python.exe -m src.market_microstructure capture --market toronto --price-history
+.\venv\Scripts\python.exe -m src.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure status
+.\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure websocket --market toronto --seconds 300
 .\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
 .\venv\Scripts\python.exe -m src.fleet_observability report --strict
+.\venv\Scripts\python.exe -m src.data_layer_audit
 .\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
+.\venv\Scripts\python.exe -m src.metar_history --market nyc backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
+.\venv\Scripts\python.exe -m src.pooled_feature_model --objective band --artifact src\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
+.\venv\Scripts\python.exe -m src.pooled_candidate_replay --artifact src\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
+.\venv\Scripts\python.exe -m src.promotion_refresh
 .\venv\Scripts\python.exe -m src.backtest
 .\venv\Scripts\python.exe -m src.model_ensemble
 .\venv\Scripts\python.exe -m src.probability_calibration train
@@ -175,7 +186,7 @@ ad-hoc live scripts that may hit the network.
   when SWOB leads WU history. WU remains the only hard floor; SWOB suppression
   is capped so it cannot become a hard non-resolution floor.
 - `src/feature_store.py` defines the live feature schema
-  `toronto_feature_store_v0.1` and the audit columns for snapshot feature
+  `toronto_feature_store_v0.4` and the audit columns for snapshot feature
   vectors.
 - `src/market_day_labels.py` finalizes per-market `settlement.json` files and
   `data/backtest/market_day_labels.csv`; labels include settlement, quality,
@@ -194,22 +205,62 @@ ad-hoc live scripts that may hit the network.
   `data/backtest/artifact_provenance_manifest.json`. It combines fleet
   collection health, fleet historical audits, artifact provenance/schema
   status, and location-trust readiness into one red/yellow/green payload.
+- `src.data_layer_audit` writes `data/backtest/data_layer_audit.json` and
+  `data/backtest/data_layer_audit_report.md`. The 2026-06-12 audit found the
+  weather/model loop healthy at a 10-minute cadence (`93` snapshot folders,
+  `9,368` snapshots, `103,048` band rows) but identified the market data layer
+  as too shallow: no persisted CLOB token ids/order-book depth/trade stream,
+  Gamma `best_bid` filled only `48.0%`, and redundant historical sources are
+  shallow for the May 20-June 30 target season (METAR `13/1326` days per
+  market; GHCNh/reanalysis about `36%`). `src.market_microstructure` is now the
+  fast CLOB capture path: it writes token maps, raw/order-book summary and level
+  tapes, optional price history, and public market WebSocket events under
+  `data/snapshots/<event-slug>/`. `src.market_microstructure` now has
+  production loop verbs (`status`, `start-detached`, `restart`, `stop`,
+  `ensure`) and writes `data/snapshots/clob_loop_status.json`,
+  `clob_diagnostics.jsonl`, and `clob_loop_console.log`. Register
+  `scripts/register_clob_supervisor.ps1` so Task Scheduler runs the CLOB
+  `ensure` check every minute. Keep the weather/model snapshot loop at
+  5-10 minutes and run the supervised CLOB book loop separately at 30-60
+  seconds, with 10-15 second fast cadence near the thermal/market close or
+  after large top-of-book midpoint moves.
 - `src.source_redundancy report` writes
   `data/backtest/source_redundancy.json`,
   `data/backtest/source_redundancy_report.md`,
   `data/backtest/source_truth_daily.csv`, and
-  `data/backtest/forecast_ensemble_features.csv`. It compares WU against GHCNh
-  and ERA5-style reanalysis, learns source bias/peak-time lead versus WU,
-  emits provenance-safe gap-fill candidates/refetch commands, and records
-  forecast ensemble/disagreement features from archived forecast tapes. Live
-  forecast extraction now includes Weather.com, Open-Meteo, ECCC where
-  available, NWS hourly for US markets, and Open-Meteo GFS global ensemble.
+  `data/backtest/forecast_ensemble_features.csv`. It compares WU against
+  METAR/ASOS, GHCNh, and ERA5-style reanalysis, learns source bias/peak-time
+  lead versus WU, emits provenance-safe gap-fill candidates/refetch commands,
+  and records forecast ensemble/disagreement features from archived forecast
+  tapes. `src.metar_history` backfills registered market stations from IEM ASOS
+  into the same native-unit hourly/daily schema. Live forecast extraction now
+  includes Weather.com, Open-Meteo, ECCC where available, NWS hourly for US
+  markets, and Open-Meteo GFS global ensemble.
 - `src/model_ensemble.py` is the item-26 research harness. It reads strict
   quality-filtered settled tapes, joins future `components_long.csv` rows,
   reports standalone candidate performance by cutoff/bin type, and keeps
   no-market and market-informed leave-one-day ensembles separate. The current
   strict sample has only one clean day, so it writes a report but correctly
   refuses ensemble promotion.
+- `src.pooled_feature_model --objective band` is the Item 33 F-family shadow
+  path. Current candidate:
+  `src/feature_model_hgb_f_pooled_v0_3.pkl` with
+  `pooled_feature_band_hgb_v0.3` / `toronto_feature_store_v0.4`. It trains a
+  direct market-band objective with city features and static source-reliability
+  priors from WU-vs-METAR/ASOS/GHCNh/reanalysis overlaps. Current pinned replay:
+  `data/backtest/pooled_candidate_replay_v0_3_report.md`, verdict
+  `SHADOW_ONLY / DO_NOT_CUT_OVER`, aggregate Brier `0.0515` versus current
+  replay `0.0686` and market `0.0384`, no blocked F markets. It remains
+  non-serving until more settled F days and trust clear the promotion gate.
+- `src.promotion_refresh` is the Item 33/37 settlement-to-promotion runner.
+  It rebuilds the pinned promotion corpus, refreshes `location_trust.json`,
+  reruns the pooled-F candidate replay, runs the current-serving gauntlet, and
+  writes machine-readable per-market actions to
+  `data/backtest/f_family_promotion_refresh.json` plus
+  `data/backtest/f_family_promotion_refresh_report.md`. The 2026-06-12 run
+  kept all 11 F markets in `KEEP_SHADOW`: zero promote, zero blocked, corpus
+  pin passed, no exact-identity settled rows yet, and every F market still has
+  one clean settled day with `15/100` trust.
 - `requirements.txt` pins `scikit-learn==1.8.0` because the HGB artifact is a
   pickle. Do not casually bump sklearn without regenerating and verifying the
   model artifact.

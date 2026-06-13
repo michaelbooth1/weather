@@ -45,6 +45,7 @@ class TestSourceRedundancy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             wu_root = root / "wu"
+            metar_root = root / "metar"
             ghcnh_root = root / "ghcnh"
             reanalysis_root = root / "reanalysis"
             snapshots_root = root / "snapshots"
@@ -57,6 +58,9 @@ class TestSourceRedundancy(unittest.TestCase):
                 {"local_date": "2026-06-01", "max_temp": 21.0, "max_temp_bucket": 21, "max_temp_times": "14:00"},
                 {"local_date": "2026-06-02", "max_temp": 22.0, "max_temp_bucket": 22, "max_temp_times": "16:00"},
             ])
+            write_daily(metar_root, "cyyz", [
+                {"local_date": "2026-06-02", "max_temp": 23.0, "max_temp_bucket": 23, "max_temp_times": "15:30"},
+            ])
             write_daily(reanalysis_root, "cyyz", [
                 {"local_date": "2026-06-02", "max_temp": 21.5, "max_temp_bucket": 22, "max_temp_times": "17:00"},
             ])
@@ -67,6 +71,7 @@ class TestSourceRedundancy(unittest.TestCase):
                 end_date=date(2026, 6, 2),
                 source_roots={
                     "wu": wu_root,
+                    "metar": metar_root,
                     "ghcnh": ghcnh_root,
                     "reanalysis": reanalysis_root,
                 },
@@ -79,8 +84,8 @@ class TestSourceRedundancy(unittest.TestCase):
         self.assertEqual(market["summary"]["disagreement_alert_days"], 1)
         filled = [row for row in market["daily_truth"] if row["fill_candidate"]]
         self.assertEqual(filled[0]["local_date"], "2026-06-02")
-        self.assertEqual(filled[0]["selected_source"], "ghcnh")
-        self.assertEqual(filled[0]["selected_bucket"], 22)
+        self.assertEqual(filled[0]["selected_source"], "metar")
+        self.assertEqual(filled[0]["selected_bucket"], 23)
         self.assertAlmostEqual(market["source_bias_vs_wu"]["ghcnh"]["bias_source_minus_wu"], 1.0)
         self.assertAlmostEqual(market["source_bias_vs_wu"]["ghcnh"]["mean_peak_time_lead_minutes"], -60.0)
         commands = market["gap_fill"]["refetch_commands"]

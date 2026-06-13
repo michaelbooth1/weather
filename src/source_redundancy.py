@@ -36,16 +36,18 @@ DEFAULT_REPORT = Path("data") / "backtest" / "source_redundancy_report.md"
 DEFAULT_TRUTH_OUT = Path("data") / "backtest" / "source_truth_daily.csv"
 DEFAULT_FORECAST_OUT = Path("data") / "backtest" / "forecast_ensemble_features.csv"
 
-OBS_SOURCES = ("wu", "ghcnh", "reanalysis")
+OBS_SOURCES = ("wu", "metar", "ghcnh", "reanalysis")
 PRIMARY_SOURCE = "wu"
-FALLBACK_ORDER = ("ghcnh", "reanalysis")
+FALLBACK_ORDER = ("metar", "ghcnh", "reanalysis")
 SOURCE_ROOTS = {
     "wu": Path("data") / "wunderground",
+    "metar": Path("data") / "metar",
     "ghcnh": Path("data") / "noaa_ghcnh",
     "reanalysis": Path("data") / "reanalysis",
 }
 SOURCE_LABELS = {
     "wu": "Weather.com/WU primary",
+    "metar": "METAR/ASOS station",
     "ghcnh": "NOAA GHCNh station",
     "reanalysis": "Open-Meteo ERA5 reanalysis",
 }
@@ -318,6 +320,11 @@ def command_for_source(source, market_id, start_date, end_date):
         return (
             f".\\venv\\Scripts\\python.exe -m src.noaa_ghcnh_history --market {market_id} "
             f"backfill --start-year {start_date.year} --end-year {end_date.year} --skip-existing"
+        )
+    if source == "metar":
+        return (
+            f".\\venv\\Scripts\\python.exe -m src.metar_history --market {market_id} "
+            f"backfill --start {start_text} --end {end_text} --skip-existing"
         )
     if source == "reanalysis":
         return (
@@ -756,6 +763,8 @@ def _source_roots(args):
     roots = {}
     if args.wu_root:
         roots["wu"] = args.wu_root
+    if args.metar_root:
+        roots["metar"] = args.metar_root
     if args.ghcnh_root:
         roots["ghcnh"] = args.ghcnh_root
     if args.reanalysis_root:
@@ -805,6 +814,7 @@ def build_parser():
     report.add_argument("--end", default="", help="YYYY-MM-DD; default current target +/- 7 days.")
     report.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     report.add_argument("--wu-root", default="")
+    report.add_argument("--metar-root", default="")
     report.add_argument("--ghcnh-root", default="")
     report.add_argument("--reanalysis-root", default="")
     report.add_argument("--disagreement-threshold", type=float, default=DISAGREEMENT_THRESHOLD)

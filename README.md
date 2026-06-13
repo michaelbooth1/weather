@@ -65,11 +65,26 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m src.snapshot_tracker --stop     # terminate the managed loop
 .\venv\Scripts\python.exe -m src.snapshot_tracker --ensure   # supervisor check (Task Scheduler runs this)
 
+# Fast Polymarket CLOB capture: keep this separate from the weather/model loop
+.\venv\Scripts\python.exe -m src.market_microstructure capture --market toronto --price-history
+.\venv\Scripts\python.exe -m src.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure status
+.\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure stop
+.\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m src.market_microstructure websocket --market toronto --seconds 300
+
 # Collection health and fleet observability
 .\venv\Scripts\python.exe -m src.collection_health
 .\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
 .\venv\Scripts\python.exe -m src.fleet_observability report --strict
+.\venv\Scripts\python.exe -m src.data_layer_audit
 .\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
+.\venv\Scripts\python.exe -m src.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
+
+# Settlement labels and promotion refresh
+.\venv\Scripts\python.exe -m src.market_day_labels finalize
+.\venv\Scripts\python.exe -m src.promotion_refresh
 
 # Settlement-scored backtest: model vs market edge on captured days
 .\venv\Scripts\python.exe -m src.backtest
@@ -88,10 +103,11 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe src\data_auditor.py --fleet --json --strict
 ```
 
-For resilient collection, register the supervisor scheduled task once:
+For resilient collection, register the supervisor scheduled tasks once:
 
 ```powershell
 .\scripts\register_snapshot_supervisor.ps1
+.\scripts\register_clob_supervisor.ps1
 ```
 
 Task Scheduler then runs `snapshot_tracker --ensure` every 10 minutes and at
@@ -103,6 +119,10 @@ task and run `--stop` (the pause flag alone keeps the process alive). The loop
 survives transient capture errors itself; `--status` (heartbeat-based) shows
 its health, `diagnostics.jsonl` records every iteration and supervisor action,
 and the loop's console output goes to `data/snapshots/loop_console.log`.
+The CLOB task runs `src.market_microstructure ensure` every minute, supervises a
+separate fast book loop, writes `clob_loop_status.json` and
+`clob_diagnostics.jsonl`, and keeps missing order-book history from becoming a
+silent data-loss event.
 
 ## Data layout
 
@@ -110,8 +130,18 @@ and the loop's console output goes to `data/snapshots/loop_console.log`.
 data/
   wunderground/cyyz/   # settlement-proxy history (raw/, hourly/, daily/, manifest)
   eccc_swob/cyyz/      # official station observations (non-resolution)
-  metar/cyyz/          # aviation reports (sanity check)
+  metar/<icao>/        # METAR/ASOS redundant observations (raw/, hourly/, daily/, manifest)
+  snapshots/clob_loop_status.json
+  snapshots/clob_diagnostics.jsonl
+  snapshots/clob_loop_console.log
   snapshots/<slug>/    # per-market odds + forecast tapes and analytics
+    clob_tokens.csv/jsonl
+    order_books_summary.csv
+    order_books_long.csv
+    order_books.jsonl
+    price_history.csv/jsonl
+    market_ws_events.csv
+    market_ws.jsonl
 ```
 
 Raw provider payloads (`data/**/raw/`) are regenerable and git-ignored; the

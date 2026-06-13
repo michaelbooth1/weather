@@ -28,12 +28,13 @@ from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_histori
 from forecast_history import daily_path_for, load_forecast_daily
 from market_registry import all_specs
 from model_constants import INTRADAY_CUTOFF_HOURS
+from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, bias_stats_for_source, source_daily_indexes
 from toronto_model import TorontoHighTempModel
 
 DEFAULT_REPORT = Path("data") / "backtest" / "f_family_pooled_model_report.md"
 DEFAULT_ARTIFACT = Path("src") / "feature_model_hgb_f_pooled.pkl"
-DEFAULT_BAND_REPORT = Path("data") / "backtest" / "f_family_pooled_band_model_report.md"
-DEFAULT_BAND_ARTIFACT = Path("src") / "feature_model_hgb_f_pooled_v0_2.pkl"
+DEFAULT_BAND_REPORT = Path("data") / "backtest" / "f_family_pooled_band_model_v0_3_report.md"
+DEFAULT_BAND_ARTIFACT = Path("src") / "feature_model_hgb_f_pooled_v0_3.pkl"
 
 WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
 CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
@@ -53,6 +54,21 @@ BAND_NUMERIC_COLUMNS = [
     "band_contains_floor",
     "band_above_floor",
     "late_lockin_strength",
+]
+SOURCE_RELIABILITY_COLUMNS = [
+    "source_redundant_streams",
+    "source_overlap_days",
+    "source_best_bucket_match",
+    "source_best_mae",
+    "source_metar_bias",
+    "source_metar_mae",
+    "source_metar_bucket_match",
+    "source_ghcnh_bias",
+    "source_ghcnh_mae",
+    "source_ghcnh_bucket_match",
+    "source_reanalysis_bias",
+    "source_reanalysis_mae",
+    "source_reanalysis_bucket_match",
 ]
 
 
@@ -210,7 +226,69 @@ def market_climate_stats(cache):
     return {"climate_normal": mean, "climate_std": std}
 
 
-def add_city_features(record, spec, climate):
+def market_source_reliability(spec):
+    """Static per-market source-quality priors for pooled training.
+
+    These are learned from available daily-source overlaps versus WU, not from
+    the same intraday record being scored. They give the pooled model a compact
+    city/source trust context without using final redundant-source highs as
+    same-day features.
+    """
+    try:
+        indexes = source_daily_indexes(spec)
+    except Exception:  # noqa: BLE001 - pooled training should survive missing optional stores
+        indexes = {}
+    primary_rows = indexes.get(PRIMARY_SOURCE) or {}
+    reliability = {column: None for column in SOURCE_RELIABILITY_COLUMNS}
+    if not primary_rows:
+        reliability["source_redundant_streams"] = 0.0
+        reliability["source_overlap_days"] = 0.0
+        return reliability
+
+    overlap_days = 0
+    streams = 0
+    best_match = None
+    best_mae = None
+    for source in FALLBACK_ORDER:
+        source_rows = indexes.get(source) or {}
+        days = sorted(set(primary_rows) & set(source_rows))
+        if not days:
+            continue
+        streams += 1
+        overlap_days += len(days)
+        truth_rows = []
+        for local_date in days:
+            truth_rows.append({
+                "source_values": {
+                    PRIMARY_SOURCE: primary_rows[local_date],
+                    source: source_rows[local_date],
+                },
+            })
+        stats = bias_stats_for_source(truth_rows, source)
+        prefix = {
+            "metar": "source_metar",
+            "ghcnh": "source_ghcnh",
+            "reanalysis": "source_reanalysis",
+        }.get(source)
+        if not prefix:
+            continue
+        match = stats.get("exact_bucket_match_rate")
+        mae = stats.get("mae_vs_wu")
+        reliability[f"{prefix}_bias"] = stats.get("bias_source_minus_wu")
+        reliability[f"{prefix}_mae"] = mae
+        reliability[f"{prefix}_bucket_match"] = match
+        if match is not None:
+            best_match = match if best_match is None else max(best_match, match)
+        if mae is not None:
+            best_mae = mae if best_mae is None else min(best_mae, mae)
+    reliability["source_redundant_streams"] = float(streams)
+    reliability["source_overlap_days"] = float(overlap_days)
+    reliability["source_best_bucket_match"] = best_match
+    reliability["source_best_mae"] = best_mae
+    return reliability
+
+
+def add_city_features(record, spec, climate, source_reliability=None):
     normal = climate.get("climate_normal")
     high_so_far = record.get("high_so_far")
     forecast_high = record.get("forecast_high")
@@ -227,6 +305,8 @@ def add_city_features(record, spec, climate):
         "forecast_anomaly": forecast_high - normal
         if forecast_high is not None and normal is not None else None,
     })
+    for column in SOURCE_RELIABILITY_COLUMNS:
+        record[column] = (source_reliability or {}).get(column)
     return record
 
 
@@ -249,6 +329,7 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
     by_date = cache.get("by_date") or {}
     forecast_index = load_forecast_daily(daily_path_for(spec))
     climate = market_climate_stats(cache)
+    source_reliability = market_source_reliability(spec)
     dates = sorted(daily.keys())
     if max_days and max_days > 0:
         dates = dates[-int(max_days):]
@@ -275,7 +356,7 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
                 continue
             if not plausible_native_bucket(record.get("final_bucket"), spec.display_unit):
                 continue
-            add_city_features(record, spec, climate)
+            add_city_features(record, spec, climate, source_reliability=source_reliability)
             record["cutoff_hour"] = int(hour)
             record["year"] = int(local_date.year)
             records.append(record)
@@ -311,8 +392,12 @@ def feature_frame(records, feature_names=None):
         "climate_std",
         "high_so_far_anomaly",
         "forecast_anomaly",
+        *SOURCE_RELIABILITY_COLUMNS,
     ]
     use = base_numeric + city_numeric + ["wind_group", "cloud_group", "market_id"]
+    for column in use:
+        if column not in frame:
+            frame[column] = None
     features = pd.get_dummies(frame[use], columns=["wind_group", "cloud_group", "market_id"], dtype=float)
     if feature_names is not None:
         features = features.reindex(columns=feature_names, fill_value=0.0)
@@ -399,6 +484,7 @@ def band_feature_frame(records, feature_names=None):
         "climate_std",
         "high_so_far_anomaly",
         "forecast_anomaly",
+        *SOURCE_RELIABILITY_COLUMNS,
     ]
     use = (
         base_numeric
@@ -907,11 +993,11 @@ def train_pooled_band_models(records, holdout_year=None):
 
     support = sorted({int(row["final_bucket"]) for row in records})
     artifact = {
-        "schema_version": "pooled_feature_band_hgb_v0.2",
+        "schema_version": "pooled_feature_band_hgb_v0.3",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "family_unit": "F",
         "prediction_mode": "band_binary",
-        "objective": "binary_market_band_brier",
+        "objective": "binary_market_band_brier_source_reliability",
         "trained_at": datetime.now().isoformat(),
         "support": support,
         "models": {},
@@ -929,6 +1015,7 @@ def train_pooled_band_models(records, holdout_year=None):
             "current_blend_enabled": True,
             "current_blend_default_alpha": 1.0,
             "current_blend_market_alpha": {
+                "dallas": 0.0,
                 "denver": 0.20,
                 "houston": 0.20,
                 "los-angeles": 0.20,
@@ -1129,7 +1216,7 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "# F-Family Pooled Band Model v0.2",
+        "# F-Family Pooled Band Model v0.3",
         "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"Feature schema: `{FEATURE_SCHEMA_VERSION}`",
@@ -1147,6 +1234,11 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
         "Hard WU-floor rules are applied deterministically, and a late-day",
         "lock-in blend concentrates probabilities toward the printed high when",
         "the day is late and cooling.",
+        "",
+        "v0.3 adds static per-market source-reliability priors learned from",
+        "WU-vs-METAR/ASOS/GHCNh/reanalysis daily overlaps. These are source",
+        "trust features, not same-day final redundant highs, so the candidate",
+        "does not leak settlement information into intraday training rows.",
         "",
         "## Dataset",
         "",

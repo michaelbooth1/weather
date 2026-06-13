@@ -31,16 +31,17 @@ from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
 from location_trust import score_all_markets
 from market_registry import REGISTRY
 from pooled_feature_model import (
-    DEFAULT_ARTIFACT,
+    DEFAULT_BAND_ARTIFACT,
     add_city_features,
     band_prediction_record,
     market_climate_stats,
+    market_source_reliability,
     predict_band_rows_for_bundle,
     predict_rows,
 )
 from promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS, entry_for_folder, folders_from_manifest, load_manifest
 from replay import index_records_by_snapshot, is_reconstructed, load_replay_records, parse_built_at, record_target_date
-from replay_backtest import run_replay_backtest
+from replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
 from settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
 from toronto_model import TorontoHighTempModel
 
@@ -194,7 +195,13 @@ def _climate_for_market(climates, model, market_id):
     return climates[market_id]
 
 
-def _record_feature_row(model, spec, climate, record):
+def _source_reliability_for_market(source_reliability, spec):
+    if spec.id not in source_reliability:
+        source_reliability[spec.id] = market_source_reliability(spec)
+    return source_reliability[spec.id]
+
+
+def _record_feature_row(model, spec, climate, record, source_reliability=None):
     now = parse_built_at(record)
     if now is None:
         raise ValueError("replay record is missing a parseable built_at/captured_at_local timestamp")
@@ -217,7 +224,7 @@ def _record_feature_row(model, spec, climate, record):
     row["cutoff_hour"] = int(cutoff_hour)
     row["target_date"] = target_date.isoformat() if target_date else record.get("target_date")
     row["observed_support_bucket"] = model.round_half_up(observed_support)
-    add_city_features(row, spec, climate)
+    add_city_features(row, spec, climate, source_reliability=source_reliability)
     return row
 
 
@@ -225,6 +232,7 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
     """Return (market_id, snapshot_id) -> feature row for candidate scoring."""
     models = {}
     climates = {}
+    source_reliability = {}
     diagnostics = {
         "family_unit": family_unit,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -254,6 +262,7 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
 
         model = _model_for_market(models, market_id)
         climate = _climate_for_market(climates, model, market_id)
+        reliability = _source_reliability_for_market(source_reliability, spec)
         records = index_records_by_snapshot(load_replay_records(folder))
         for snapshot_id in pinned_ids:
             record = records.get(snapshot_id)
@@ -265,7 +274,7 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
                 continue
             diagnostics["candidate_snapshots"] += 1
             try:
-                feature_row = _record_feature_row(model, spec, climate, record)
+                feature_row = _record_feature_row(model, spec, climate, record, source_reliability=reliability)
             except Exception as exc:  # noqa: BLE001 - diagnostics should survive bad rows
                 if len(diagnostics["feature_errors"]) < 20:
                     diagnostics["feature_errors"].append({
@@ -566,6 +575,47 @@ def cutover_decision(verdict):
     return "DO_NOT_CUT_OVER"
 
 
+def replay_gate_status(replay_results, max_fidelity_l1=FIDELITY_FAITHFUL_L1, require_exact_identity=False):
+    """Global replay safety gate for a candidate promotion run."""
+    warnings = replay_results.get("corpus_warnings") or []
+    fidelity = replay_results.get("fidelity") or {}
+    same_n = fidelity.get("same_identity_n") or 0
+    max_l1 = fidelity.get("same_identity_max_l1")
+
+    corpus_ok = not warnings
+    if corpus_ok:
+        corpus_message = "PASS: all pinned tape/replay hashes matched"
+    else:
+        corpus_message = f"FAIL: {len(warnings)} corpus pin warning(s)"
+
+    if same_n:
+        fidelity_ok = max_l1 is not None and max_l1 <= max_fidelity_l1
+        verdict = "PASS" if fidelity_ok else "FAIL"
+        fidelity_message = (
+            f"{verdict}: {same_n} exact-identity snapshot(s), "
+            f"max L1 {max_l1:.5f} vs limit {max_fidelity_l1:.5f}"
+        )
+    elif require_exact_identity:
+        fidelity_ok = False
+        fidelity_message = "FAIL: no exact-identity snapshots in corpus"
+    else:
+        fidelity_ok = True
+        fidelity_message = "WARN: no exact-identity snapshots yet; strict canary not required"
+
+    return {
+        "global_ok": bool(corpus_ok and fidelity_ok),
+        "corpus_ok": bool(corpus_ok),
+        "corpus_message": corpus_message,
+        "corpus_warning_count": len(warnings),
+        "fidelity_ok": bool(fidelity_ok),
+        "fidelity_message": fidelity_message,
+        "same_identity_n": same_n,
+        "same_identity_max_l1": max_l1,
+        "max_fidelity_l1": max_fidelity_l1,
+        "require_exact_identity": bool(require_exact_identity),
+    }
+
+
 def _manifest_summary(manifest):
     summary = manifest.get("summary") or {}
     return {
@@ -594,6 +644,11 @@ def run_pooled_candidate_replay(args):
         write=bool(args.replay_report),
         corpus_manifest=manifest,
     )
+    replay_gate = replay_gate_status(
+        replay_results,
+        max_fidelity_l1=getattr(args, "max_fidelity_l1", FIDELITY_FAITHFUL_L1),
+        require_exact_identity=getattr(args, "require_exact_identity", False),
+    )
     if artifact.get("prediction_mode") == "band_binary":
         feature_rows, diagnostics = build_candidate_features(manifest, args.snapshots_root, family_unit)
         candidate_rows, coverage = attach_band_candidate_probabilities(
@@ -618,13 +673,15 @@ def run_pooled_candidate_replay(args):
     by_hour = grouped_candidate_comparison(candidate_rows, "candidate_cutoff_hour")
     by_bin_type = grouped_candidate_comparison(candidate_rows, "bin_type")
     by_settlement_distance = grouped_candidate_comparison(candidate_rows, "settlement_distance_bucket")
-    verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
+    market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
+    verdict = market_verdict if replay_gate["global_ok"] else "BLOCK"
     postprocess = artifact.get("postprocess") or {}
     adjacent_calibration = postprocess.get("adjacent_calibration") or {}
 
     report = {
         "generated_at": datetime.now().isoformat(),
         "verdict": verdict,
+        "candidate_market_verdict": market_verdict,
         "cutover_decision": cutover_decision(verdict),
         "artifact": {
             "path": str(args.artifact),
@@ -644,6 +701,7 @@ def run_pooled_candidate_replay(args):
         "corpus": _manifest_summary(manifest),
         "coverage": coverage,
         "diagnostics": diagnostics,
+        "replay_gate": replay_gate,
         "aggregate": aggregate,
         "daily_first": daily_first,
         "market_rows": market_rows,
@@ -654,6 +712,7 @@ def run_pooled_candidate_replay(args):
         "replay_summary": {
             "snaps_scored": replay_results.get("snaps_scored"),
             "total_rows": replay_results.get("total_rows"),
+            "fidelity": replay_results.get("fidelity") or {},
             "corpus_warnings": replay_results.get("corpus_warnings") or [],
         },
     }
@@ -756,6 +815,7 @@ def write_report(report, out_path):
         "",
         f"Generated: {report['generated_at']}",
         f"Validation verdict: **{report['verdict']}**",
+        f"Market-only verdict: **{report.get('candidate_market_verdict')}**",
         f"Cutover decision: **{report['cutover_decision']}**",
         "",
         "> Candidate features are rebuilt from pinned `replay_inputs.jsonl` with",
@@ -802,6 +862,15 @@ def write_report(report, out_path):
             ["Missing candidate rows", coverage.get("missing_candidate_rows", 0)],
             ["Candidate snapshots", diagnostics.get("candidate_snapshots", 0)],
             ["Predicted snapshots", diagnostics.get("predicted_snapshots", 0)],
+        ],
+    )
+    gate = report.get("replay_gate") or {}
+    lines += ["", "## Global Replay Gate", ""]
+    lines += markdown_table(
+        ["Gate", "Status", "Detail"],
+        [
+            ["Corpus pin", "PASS" if gate.get("corpus_ok") else "FAIL", gate.get("corpus_message") or "-"],
+            ["Replay fidelity", "PASS" if gate.get("fidelity_ok") else "FAIL", gate.get("fidelity_message") or "-"],
         ],
     )
     lines += ["", "## Aggregate Replay", ""]
@@ -860,7 +929,7 @@ def main():
     parser = argparse.ArgumentParser(description="Replay-score the pooled F-family candidate as a shadow model.")
     parser.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
-    parser.add_argument("--artifact", default=str(DEFAULT_ARTIFACT))
+    parser.add_argument("--artifact", default=str(DEFAULT_BAND_ARTIFACT))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--replay-report", default=str(DEFAULT_REPLAY_REPORT),
@@ -871,6 +940,9 @@ def main():
                         help="Shadow threshold for candidate Brier gap versus Polymarket.")
     parser.add_argument("--min-days", type=int, default=2)
     parser.add_argument("--min-trust", type=int, default=25)
+    parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
+    parser.add_argument("--require-exact-identity", action="store_true",
+                        help="Fail the candidate promotion gate if the corpus has no exact replay-identity canary rows.")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true",
                         help="Exit nonzero when the candidate is blocked.")

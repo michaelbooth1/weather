@@ -50,8 +50,13 @@ class PresentationMixin:
             )
             outcomes = self.parse_json_list(market.get("outcomes"))
             prices = self.parse_json_list(market.get("outcomePrices"))
+            token_ids = self.parse_json_list(
+                market.get("clobTokenIds") or market.get("clob_token_ids")
+            )
             market_yes = self.price_for_outcome("Yes", outcomes, prices)
             market_no = self.price_for_outcome("No", outcomes, prices)
+            clob_yes_token_id = self.token_for_outcome("Yes", outcomes, token_ids)
+            clob_no_token_id = self.token_for_outcome("No", outcomes, token_ids)
             digits = [int(value) for value in re.findall(r"\d+", label)]
             if not digits:
                 continue
@@ -69,6 +74,12 @@ class PresentationMixin:
                 "label": label,
                 "question": market.get("question"),
                 "market_id": market.get("id") or market.get("conditionId"),
+                "polymarket_market_id": market.get("id"),
+                "condition_id": market.get("conditionId") or market.get("condition_id"),
+                "clob_token_ids": json.dumps(token_ids),
+                "clob_yes_token_id": clob_yes_token_id,
+                "clob_no_token_id": clob_no_token_id,
+                "enable_order_book": market.get("enableOrderBook"),
                 "market_yes": market_yes,
                 "market_no": market_no,
                 "best_bid": self.to_number(market.get("bestBid")),
@@ -495,6 +506,12 @@ class PresentationMixin:
         for index, outcome in enumerate(outcomes):
             if str(outcome).lower() == outcome_name.lower() and index < len(prices):
                 return self.to_number(prices[index])
+        return None
+
+    def token_for_outcome(self, outcome_name, outcomes, token_ids):
+        for index, outcome in enumerate(outcomes):
+            if str(outcome).lower() == outcome_name.lower() and index < len(token_ids):
+                return str(token_ids[index])
         return None
 
     def local_history_answer(self, local_history):
