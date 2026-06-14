@@ -1,0 +1,246 @@
+import csv
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.abspath("src"))
+
+from mm_policy import decide_quote, run_policy_snapshot
+
+
+NOW = "2026-06-14T16:00:00+00:00"
+
+
+def fresh_row(**overrides):
+    row = {
+        "market_id": "atlanta",
+        "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+        "snapshot_id": "s1",
+        "captured_at_utc": "2026-06-14T15:59:30+00:00",
+        "model_version": "candidate",
+        "promotion_state": "SHADOW",
+        "range_label": "80-81 F",
+        "bin_kind": "eq",
+        "bin_value": "80",
+        "bin_value_hi": "81",
+        "clob_token_id": "token-1",
+        "condition_id": "condition-1",
+        "fair_probability": 0.51,
+        "market_mid": 0.50,
+        "market_yes": 0.50,
+        "clob_spread": 0.02,
+        "clob_best_bid": 0.49,
+        "clob_best_ask": 0.51,
+        "clob_depth_1pct_total": 100.0,
+        "clob_book_age_seconds": 20.0,
+        "watcher_age_seconds": 10.0,
+        "source_fresh": True,
+        "heartbeat_ok": True,
+        "market_status": "active",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestMmPolicy(unittest.TestCase):
+    def test_blocked_promotion_fails_closed(self):
+        quote = decide_quote(fresh_row(promotion_state="BLOCK"), now=NOW)
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertFalse(quote["live_trade_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_BLOCKED_PROMOTION")
+
+    def test_shadow_harvest_quotes_when_fresh_and_small_edge(self):
+        quote = decide_quote(fresh_row(), now=NOW)
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertFalse(quote["live_trade_permission"])
+        self.assertEqual(quote["regime"], "harvest")
+        self.assertEqual(quote["reason_code"], "QUOTE_HARVEST_MID")
+        self.assertLess(quote["bid_price"], quote["ask_price"])
+
+    def test_shadow_large_disagreement_stands_down(self):
+        quote = decide_quote(fresh_row(fair_probability=0.70, market_mid=0.50), now=NOW)
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_DISAGREEMENT_SHADOW")
+
+    def test_pass_known_edge_can_emit_model_skewed_quote(self):
+        quote = decide_quote(
+            fresh_row(
+                promotion_state="PASS",
+                known_edge_allowed=True,
+                known_edge_taxonomy="book_liquidity_artifact",
+                fair_probability=0.60,
+                market_mid=0.50,
+                clob_best_bid=0.49,
+                clob_best_ask=0.56,
+            ),
+            now=NOW,
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["regime"], "edge")
+        self.assertEqual(quote["side"], "YES_BID")
+        self.assertEqual(quote["reason_code"], "QUOTE_EDGE_MODEL")
+
+    def test_stale_watcher_fails_closed_before_quote_logic(self):
+        quote = decide_quote(fresh_row(heartbeat_ok=False, watcher_age_seconds=999), now=NOW)
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_STALE_WATCHER")
+
+    def test_zero_probability_is_valid_fair_value(self):
+        quote = decide_quote(
+            fresh_row(
+                fair_probability=0.0,
+                market_mid=0.0005,
+                market_yes=0.0005,
+                clob_best_bid=0.0,
+                clob_best_ask=0.001,
+            ),
+            now=NOW,
+        )
+
+        self.assertNotEqual(quote["reason_code"], "NO_QUOTE_MISSING_FAIR")
+        self.assertEqual(quote["fair_probability"], 0.0)
+
+    def test_policy_snapshot_writes_reason_for_each_latest_band(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "model_version",
+                    "range_label",
+                    "condition_id",
+                    "clob_yes_token_id",
+                    "bin_kind",
+                    "bin_value_c",
+                    "model_probability",
+                    "market_yes",
+                    "best_bid",
+                    "best_ask",
+                    "market_status",
+                ])
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-14T15:59:30+00:00",
+                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                    "model_version": "candidate",
+                    "range_label": "80-81 F",
+                    "condition_id": "c1",
+                    "clob_yes_token_id": "t1",
+                    "bin_kind": "eq",
+                    "bin_value_c": "80",
+                    "model_probability": "0.51",
+                    "market_yes": "0.50",
+                    "best_bid": "0.49",
+                    "best_ask": "0.51",
+                    "market_status": "active",
+                })
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-14T15:59:30+00:00",
+                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                    "model_version": "candidate",
+                    "range_label": "82-83 F",
+                    "condition_id": "c2",
+                    "clob_yes_token_id": "t2",
+                    "bin_kind": "eq",
+                    "bin_value_c": "82",
+                    "model_probability": "0.70",
+                    "market_yes": "0.50",
+                    "best_bid": "0.49",
+                    "best_ask": "0.51",
+                    "market_status": "active",
+                })
+            with (folder / "clob_features_long.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "market_id",
+                    "range_label",
+                    "bin_kind",
+                    "bin_value",
+                    "bin_value_hi",
+                    "clob_token_id",
+                    "clob_book_captured_at_utc",
+                    "clob_feature_available",
+                    "clob_book_age_seconds",
+                    "clob_midpoint",
+                    "clob_spread",
+                    "clob_best_bid",
+                    "clob_best_ask",
+                    "clob_depth_1pct_total",
+                ])
+                writer.writeheader()
+                for token, label, value, model_mid in [
+                    ("t1", "80-81 F", "80", "0.50"),
+                    ("t2", "82-83 F", "82", "0.50"),
+                ]:
+                    writer.writerow({
+                        "snapshot_id": "s1",
+                        "captured_at_utc": "2026-06-14T15:59:30+00:00",
+                        "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                        "market_id": "atlanta",
+                        "range_label": label,
+                        "bin_kind": "eq",
+                        "bin_value": value,
+                        "bin_value_hi": str(int(value) + 1),
+                        "clob_token_id": token,
+                        "clob_book_captured_at_utc": "2026-06-14T15:59:20+00:00",
+                        "clob_feature_available": "1.0",
+                        "clob_book_age_seconds": "10.0",
+                        "clob_midpoint": model_mid,
+                        "clob_spread": "0.02",
+                        "clob_best_bid": "0.49",
+                        "clob_best_ask": "0.51",
+                        "clob_depth_1pct_total": "100.0",
+                    })
+            promotion = root / "promotion.json"
+            promotion.write_text(json.dumps({
+                "decisions": {
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "action": "KEEP_SHADOW",
+                            "verdict": "SHADOW",
+                        }
+                    ]
+                }
+            }), encoding="utf-8")
+            status = root / "observation_status.json"
+            status.write_text(json.dumps({
+                "last_heartbeat": "2026-06-14T15:59:50+00:00",
+                "consecutive_errors": 0,
+            }), encoding="utf-8")
+
+            payload = run_policy_snapshot(
+                promotion_refresh=promotion,
+                snapshots_root=snapshots_root,
+                observation_status_path=status,
+                out=root / "quotes_long.csv",
+                json_out=root / "quotes.json",
+                markets=["atlanta"],
+                now=NOW,
+            )
+            self.assertEqual(payload["row_count"], 2)
+            self.assertEqual(payload["live_trade_permission_rows"], 0)
+            self.assertTrue(Path(payload["csv_out"]).exists())
+            self.assertEqual(payload["reason_counts"]["QUOTE_HARVEST_MID"], 1)
+            self.assertEqual(payload["reason_counts"]["NO_QUOTE_DISAGREEMENT_SHADOW"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

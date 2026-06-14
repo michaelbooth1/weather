@@ -1,16 +1,26 @@
 import os
+import json
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from pooled_candidate_replay import (
     attach_band_candidate_probabilities,
+    annotate_casebook_rows,
     apply_current_blend_guardrail,
     band_probability_from_distribution,
+    build_microstructure_gate,
     candidate_comparison,
+    apply_microstructure_gate,
+    load_casebook_index,
     market_verdict,
+    microstructure_comparison,
+    microstructure_feature_frame,
+    out_of_fold_microstructure_predictions,
     normalize_partition_probabilities,
     replay_gate_status,
 )
@@ -213,6 +223,182 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(band_rows[0]["band_value_hi"], 83.0)
         self.assertEqual(band_rows[0]["clob_feature_available"], 1.0)
         self.assertAlmostEqual(band_rows[0]["clob_liquidity_score"], 2.5)
+
+    def test_microstructure_feature_frame_includes_clob_and_context_columns(self):
+        frame = microstructure_feature_frame([
+            {
+                "candidate_p": 0.60,
+                "replayed_p": 0.55,
+                "market_yes": 0.40,
+                "candidate_cutoff_hour": 14,
+                "candidate_cutoff_hour_bucket": "14-16",
+                "clob_feature_available": 1.0,
+                "clob_midpoint": 0.39,
+                "clob_liquidity_score": 2.5,
+                "market_id": "nyc",
+                "bin_type": "eq",
+            }
+        ])
+
+        self.assertIn("candidate_minus_market", frame.columns)
+        self.assertIn("clob_midpoint", frame.columns)
+        self.assertIn("market_id_nyc", frame.columns)
+        self.assertIn("bin_type_eq", frame.columns)
+        self.assertAlmostEqual(frame.loc[0, "clob_liquidity_score"], 2.5)
+
+    def test_microstructure_oof_scores_only_clob_available_rows(self):
+        rows = []
+        for target_date in ["2026-06-11", "2026-06-12"]:
+            for idx, outcome in enumerate([0, 1, 0, 1]):
+                rows.append({
+                    "market_id": "nyc",
+                    "target_date": target_date,
+                    "snapshot_id": f"{target_date}-{idx}",
+                    "range_label": "82-83 F",
+                    "bin_type": "eq",
+                    "bin_value_c": "82",
+                    "bin_value_hi": "83",
+                    "candidate_cutoff_hour": 14,
+                    "candidate_p": 0.20 if outcome == 0 else 0.80,
+                    "replayed_p": 0.25 if outcome == 0 else 0.75,
+                    "recorded_p": 0.30 if outcome == 0 else 0.70,
+                    "market_yes": 0.35 if outcome == 0 else 0.65,
+                    "outcome": outcome,
+                    "clob_feature_available": 1.0,
+                    "clob_midpoint": 0.30 if outcome == 0 else 0.70,
+                    "clob_spread": 0.02,
+                    "clob_liquidity_score": 2.0,
+                })
+        rows.append({
+            "market_id": "nyc",
+            "target_date": "2026-06-12",
+            "snapshot_id": "missing-book",
+            "candidate_p": 0.5,
+            "replayed_p": 0.5,
+            "recorded_p": 0.5,
+            "market_yes": 0.5,
+            "outcome": 0,
+            "clob_feature_available": 0.0,
+        })
+
+        diagnostics = out_of_fold_microstructure_predictions(rows, min_train_rows=2)
+        comp = microstructure_comparison(rows)
+
+        self.assertEqual(diagnostics["eligible_rows"], 8)
+        self.assertEqual(diagnostics["predicted_rows"], 8)
+        self.assertEqual(diagnostics["fold_count"], 2)
+        self.assertIsNone(rows[-1]["micro_candidate_p"])
+        self.assertEqual(comp["n"], 8)
+        self.assertIn("delta_vs_candidate", comp)
+
+    def test_casebook_annotation_matches_snapshot_and_band_key(self):
+        payload = {
+            "cases": [
+                {
+                    "case_id": "case-1",
+                    "market_id": "nyc",
+                    "band_key": "eq:82-83",
+                    "taxonomy": "market_overreaction",
+                    "model_result": "model_win",
+                    "peak_abs_edge": 0.4,
+                    "snapshot_ids": ["s1"],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "casebook.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            index, diagnostics = load_casebook_index(path)
+
+        rows = [
+            {
+                "market_id": "nyc",
+                "snapshot_id": "s1",
+                "range_label": "82-83 F",
+                "bin_type": "eq",
+                "bin_value_c": "82",
+                "bin_value_hi": "83",
+            }
+        ]
+        matched = annotate_casebook_rows(rows, index)
+
+        self.assertTrue(diagnostics["exists"])
+        self.assertEqual(matched, 1)
+        self.assertEqual(rows[0]["casebook_taxonomy"], "market_overreaction")
+        self.assertEqual(rows[0]["casebook_case_id"], "case-1")
+
+    def test_microstructure_gate_allows_only_replay_proven_target_taxonomies(self):
+        taxonomy_scores = [
+            {
+                "group": "book_liquidity_artifact",
+                "n": 40,
+                "micro_brier": 0.08,
+                "candidate_brier": 0.14,
+                "market_brier": 0.09,
+                "delta_vs_candidate": -0.06,
+                "delta_vs_market": -0.01,
+            },
+            {
+                "group": "market_lead",
+                "n": 30,
+                "micro_brier": 0.01,
+                "candidate_brier": 0.03,
+                "market_brier": 0.02,
+                "delta_vs_candidate": -0.02,
+                "delta_vs_market": -0.01,
+            },
+            {
+                "group": "market_overreaction",
+                "n": 80,
+                "micro_brier": 0.17,
+                "candidate_brier": 0.10,
+                "market_brier": 0.19,
+                "delta_vs_candidate": 0.07,
+                "delta_vs_market": -0.02,
+            },
+        ]
+
+        gate = build_microstructure_gate(taxonomy_scores)
+
+        self.assertEqual(
+            gate["allowed_taxonomies"],
+            ["market_lead", "book_liquidity_artifact"],
+        )
+        overreaction = [row for row in gate["decisions"] if row["taxonomy"] == "market_overreaction"][0]
+        self.assertFalse(overreaction["allowed"])
+        self.assertIn("delta_vs_candidate", overreaction["reason"])
+
+    def test_apply_microstructure_gate_falls_back_to_base_for_blocked_taxonomy(self):
+        gate = {
+            "allowed_taxonomies": ["book_liquidity_artifact"],
+        }
+        rows = [
+            {
+                "candidate_p": 0.60,
+                "micro_candidate_p": 0.80,
+                "casebook_taxonomy": "book_liquidity_artifact",
+            },
+            {
+                "candidate_p": 0.30,
+                "micro_candidate_p": 0.10,
+                "casebook_taxonomy": "market_overreaction",
+            },
+            {
+                "candidate_p": 0.45,
+                "micro_candidate_p": 0.90,
+                "casebook_taxonomy": None,
+            },
+        ]
+
+        counts = apply_microstructure_gate(rows, gate)
+
+        self.assertEqual(counts["overlay_rows"], 1)
+        self.assertEqual(counts["base_rows"], 2)
+        self.assertAlmostEqual(rows[0]["micro_gated_candidate_p"], 0.80)
+        self.assertAlmostEqual(rows[1]["micro_gated_candidate_p"], 0.30)
+        self.assertAlmostEqual(rows[2]["micro_gated_candidate_p"], 0.45)
+        self.assertEqual(rows[0]["micro_gate_action"], "overlay")
+        self.assertEqual(rows[1]["micro_gate_action"], "base")
 
 
 if __name__ == "__main__":

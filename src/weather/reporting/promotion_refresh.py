@@ -22,7 +22,11 @@ from backtest import fmt_num, fmt_signed, markdown_table
 from location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
 from location_trust import score_all_markets
 from market_registry import all_specs
-from pooled_candidate_replay import run_pooled_candidate_replay
+from pooled_candidate_replay import (
+    DEFAULT_CASEBOOK,
+    DEFAULT_MICROSTRUCTURE_ARTIFACT,
+    run_pooled_candidate_replay,
+)
 from pooled_feature_model import DEFAULT_BAND_ARTIFACT
 from promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
@@ -106,6 +110,11 @@ def _trust_summary(trust_rows, trust_path, family_ids):
 
 def _candidate_summary(candidate_report, candidate_json_path, candidate_report_path):
     aggregate = candidate_report.get("aggregate") or {}
+    microstructure = candidate_report.get("microstructure") or {}
+    micro_diag = microstructure.get("diagnostics") or {}
+    micro_agg = microstructure.get("aggregate") or {}
+    micro_gated = microstructure.get("gated") or {}
+    micro_gated_agg = micro_gated.get("aggregate") or {}
     return {
         "json_path": _as_path(candidate_json_path),
         "report_path": _as_path(candidate_report_path),
@@ -125,6 +134,41 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             "delta_vs_current": aggregate.get("delta_vs_current"),
             "delta_vs_market": aggregate.get("delta_vs_market"),
             "candidate_skill": aggregate.get("candidate_skill"),
+        },
+        "microstructure": {
+            "schema_version": microstructure.get("schema_version"),
+            "eligible_rows": micro_diag.get("eligible_rows", 0),
+            "predicted_rows": micro_diag.get("predicted_rows", 0),
+            "fold_count": micro_diag.get("fold_count", 0),
+            "casebook_matched_rows": micro_diag.get("casebook_matched_rows", 0),
+            "gated_overlay_rows": micro_diag.get("gated_overlay_rows", 0),
+            "gated_base_rows": micro_diag.get("gated_base_rows", 0),
+            "artifact_path": micro_diag.get("artifact_path"),
+            "gate": microstructure.get("gate") or {},
+            "aggregate": {
+                "rows": micro_agg.get("n", 0),
+                "micro_brier": micro_agg.get("micro_brier"),
+                "candidate_brier": micro_agg.get("candidate_brier"),
+                "current_brier": micro_agg.get("current_brier"),
+                "market_brier": micro_agg.get("market_brier"),
+                "delta_vs_candidate": micro_agg.get("delta_vs_candidate"),
+                "delta_vs_current": micro_agg.get("delta_vs_current"),
+                "delta_vs_market": micro_agg.get("delta_vs_market"),
+                "micro_skill": micro_agg.get("micro_skill"),
+            },
+            "gated_aggregate": {
+                "rows": micro_gated_agg.get("n", 0),
+                "micro_brier": micro_gated_agg.get("micro_brier"),
+                "candidate_brier": micro_gated_agg.get("candidate_brier"),
+                "current_brier": micro_gated_agg.get("current_brier"),
+                "market_brier": micro_gated_agg.get("market_brier"),
+                "delta_vs_candidate": micro_gated_agg.get("delta_vs_candidate"),
+                "delta_vs_current": micro_gated_agg.get("delta_vs_current"),
+                "delta_vs_market": micro_gated_agg.get("delta_vs_market"),
+                "micro_skill": micro_gated_agg.get("micro_skill"),
+            },
+            "target_slices": microstructure.get("target_slices") or [],
+            "gated_target_slices": micro_gated.get("target_slices") or [],
         },
     }
 
@@ -341,6 +385,103 @@ def write_report(path, payload):
             ["Delta vs market", fmt_signed(candidate_agg.get("delta_vs_market"), 4)],
         ],
     )
+    micro = candidate.get("microstructure") or {}
+    micro_agg = micro.get("aggregate") or {}
+    micro_gated_agg = micro.get("gated_aggregate") or {}
+    micro_gate = micro.get("gate") or {}
+    if micro:
+        lines += [
+            "",
+            "## Item 38 Microstructure Shadow Score",
+            "",
+        ]
+        lines += markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Eligible CLOB rows", micro.get("eligible_rows", 0)],
+                ["OOF predicted rows", micro.get("predicted_rows", 0)],
+                ["OOF folds", micro.get("fold_count", 0)],
+                ["Casebook-matched rows", micro.get("casebook_matched_rows", 0)],
+                ["Gate allowed taxonomies", ", ".join(micro_gate.get("allowed_taxonomies") or []) or "-"],
+                ["Gated overlay rows", micro.get("gated_overlay_rows", 0)],
+                ["Gated base-fallback rows", micro.get("gated_base_rows", 0)],
+                ["Artifact", micro.get("artifact_path") or "-"],
+            ],
+        )
+        lines += ["", "### Aggregate", ""]
+        lines += markdown_table(
+            ["Scope", "Rows", "Micro Brier", "Base Brier", "Market Brier", "Delta Base", "Delta Market"],
+            [
+                [
+                    "Raw overlay",
+                    micro_agg.get("rows", 0),
+                    fmt_num(micro_agg.get("micro_brier")),
+                    fmt_num(micro_agg.get("candidate_brier")),
+                    fmt_num(micro_agg.get("market_brier")),
+                    fmt_signed(micro_agg.get("delta_vs_candidate"), 4),
+                    fmt_signed(micro_agg.get("delta_vs_market"), 4),
+                ],
+                [
+                    "Taxonomy-gated overlay",
+                    micro_gated_agg.get("rows", 0),
+                    fmt_num(micro_gated_agg.get("micro_brier")),
+                    fmt_num(micro_gated_agg.get("candidate_brier")),
+                    fmt_num(micro_gated_agg.get("market_brier")),
+                    fmt_signed(micro_gated_agg.get("delta_vs_candidate"), 4),
+                    fmt_signed(micro_gated_agg.get("delta_vs_market"), 4),
+                ],
+            ],
+        )
+        lines += ["", "### Taxonomy Gate", ""]
+        lines += markdown_table(
+            ["Taxonomy", "Action", "Rows", "Micro Brier", "Base Brier", "Market Brier", "Delta Base", "Delta Market", "Reason"],
+            [
+                [
+                    row.get("taxonomy") or "-",
+                    "ALLOW" if row.get("allowed") else "BASE",
+                    row.get("rows", 0),
+                    fmt_num(row.get("micro_brier")),
+                    fmt_num(row.get("candidate_brier")),
+                    fmt_num(row.get("market_brier")),
+                    fmt_signed(row.get("delta_vs_candidate"), 4),
+                    fmt_signed(row.get("delta_vs_market"), 4),
+                    row.get("reason") or "-",
+                ]
+                for row in micro_gate.get("decisions") or []
+            ],
+        )
+        lines += ["", "### Raw Target Slices", ""]
+        lines += markdown_table(
+            ["Taxonomy", "Rows", "Micro Brier", "Base Brier", "Market Brier", "Delta Base", "Delta Market"],
+            [
+                [
+                    row.get("group") or "-",
+                    row.get("n", 0),
+                    fmt_num(row.get("micro_brier")),
+                    fmt_num(row.get("candidate_brier")),
+                    fmt_num(row.get("market_brier")),
+                    fmt_signed(row.get("delta_vs_candidate"), 4),
+                    fmt_signed(row.get("delta_vs_market"), 4),
+                ]
+                for row in micro.get("target_slices") or []
+            ],
+        )
+        lines += ["", "### Gated Target Slices", ""]
+        lines += markdown_table(
+            ["Taxonomy", "Rows", "Micro Brier", "Base Brier", "Market Brier", "Delta Base", "Delta Market"],
+            [
+                [
+                    row.get("group") or "-",
+                    row.get("n", 0),
+                    fmt_num(row.get("micro_brier")),
+                    fmt_num(row.get("candidate_brier")),
+                    fmt_num(row.get("market_brier")),
+                    fmt_signed(row.get("delta_vs_candidate"), 4),
+                    fmt_signed(row.get("delta_vs_market"), 4),
+                ]
+                for row in micro.get("gated_target_slices") or []
+            ],
+        )
     lines += [
         "",
         "## Global Replay Gate",
@@ -420,6 +561,10 @@ def _candidate_args(args, corpus_path):
         min_trust=args.min_trust,
         max_fidelity_l1=args.max_fidelity_l1,
         clob_max_age_seconds=args.clob_max_age_seconds,
+        casebook=args.casebook,
+        microstructure_artifact=args.microstructure_artifact or None,
+        microstructure_min_train_rows=args.microstructure_min_train_rows,
+        skip_microstructure_overlay=args.skip_microstructure_overlay,
         require_exact_identity=args.require_exact_identity,
         require_all_markets=args.require_all_markets,
         fail_on_block=False,
@@ -510,6 +655,10 @@ def build_parser():
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
+    parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK))
+    parser.add_argument("--microstructure-artifact", default=str(DEFAULT_MICROSTRUCTURE_ARTIFACT))
+    parser.add_argument("--microstructure-min-train-rows", type=int, default=500)
+    parser.add_argument("--skip-microstructure-overlay", action="store_true")
     parser.add_argument("--require-exact-identity", action="store_true")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true")

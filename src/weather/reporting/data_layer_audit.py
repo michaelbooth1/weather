@@ -25,22 +25,48 @@ from collection_health import summarize_folder
 from market_config import date_from_event_slug
 from market_registry import all_specs, spec_for_slug
 from market_microstructure import CLOB_LOOP_STATUS_PATH, clob_loop_health
+from reanalysis_history import ReanalysisStore
 from snapshot_tracker import LOOP_STATUS_PATH, loop_health
 from toronto_model import TORONTO_TZ
 
 
-SCHEMA_VERSION = "data_layer_audit_v0.2"
+SCHEMA_VERSION = "data_layer_audit_v0.3"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_OUT = Path("data") / "backtest" / "data_layer_audit.json"
 DEFAULT_REPORT = Path("data") / "backtest" / "data_layer_audit_report.md"
+DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
 
 SNAPSHOT_LONG = "snapshots_long.csv"
 SNAPSHOT_OPTIONAL_ARTIFACTS = {
     "replay_inputs": "replay_inputs.jsonl",
+    "replay_input_status": "replay_input_status_long.csv",
+    "source_status": "source_status_long.csv",
     "features": "features_long.csv",
     "components": "components_long.csv",
     "forecasts": "forecasts_long.csv",
+    "forecast_payloads": "forecast_payloads_long.csv",
+    "clob_features": "clob_features_long.csv",
     "settlement": "settlement.json",
+}
+REQUIRED_SNAPSHOT_ARTIFACTS = (
+    "replay_input_status",
+    "forecasts",
+    "clob_features",
+)
+WARN_SNAPSHOT_ARTIFACTS = (
+    "replay_inputs",
+    "source_status",
+    "features",
+    "components",
+)
+FORECAST_PAYLOAD_ARTIFACT = "forecast_payloads"
+DEFAULT_AUDIT_THRESHOLDS = {
+    "min_snapshot_field_fill_rate": 0.90,
+    "required_artifact_rate": 1.0,
+    "forecast_payload_artifact_rate": 1.0,
+    "max_source_stale_or_failed_rate": 0.05,
+    "max_reanalysis_raw_only_days": 0,
+    "max_quarantined_impossible_observations": 0,
 }
 
 HISTORICAL_SOURCE_ROOTS = {
@@ -217,6 +243,98 @@ def scan_snapshot_csv(path):
     }
 
 
+def read_csv_dicts(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except (OSError, csv.Error):
+        return []
+
+
+def read_json_dict(path):
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def source_status_summary_for_folder(folder):
+    rows = read_csv_dicts(Path(folder) / "source_status_long.csv")
+    stale_or_failed = [
+        row for row in rows
+        if truthy(row.get("stale"))
+        or str(row.get("status") or "").lower() in {"failed", "error", "stale_cache"}
+        or str(row.get("ok") or "").lower() == "false"
+    ]
+    by_status = Counter(row.get("status") or "unknown" for row in rows)
+    return {
+        "row_count": len(rows),
+        "source_count": len({row.get("source") for row in rows if row.get("source")}),
+        "stale_or_failed_rows": len(stale_or_failed),
+        "status_counts": dict(sorted(by_status.items())),
+    }
+
+
+def forecast_payload_summary_for_folder(folder):
+    rows = read_csv_dicts(Path(folder) / "forecast_payloads_long.csv")
+    return {
+        "row_count": len(rows),
+        "source_count": len({row.get("source") for row in rows if row.get("source")}),
+        "payload_bytes": sum(int(safe_float(row.get("payload_bytes")) or 0) for row in rows),
+    }
+
+
+def clob_feature_summary_for_folder(folder):
+    rows = read_csv_dicts(Path(folder) / "clob_features_long.csv")
+    available = 0
+    price_available = 0
+    ws_rows = 0
+    for row in rows:
+        if safe_float(row.get("clob_feature_available")):
+            available += 1
+        if safe_float(row.get("clob_price_history_available")):
+            price_available += 1
+        if (safe_float(row.get("clob_ws_event_count_300s")) or 0.0) > 0:
+            ws_rows += 1
+    return {
+        "row_count": len(rows),
+        "book_available_rows": available,
+        "price_history_available_rows": price_available,
+        "ws_event_window_rows": ws_rows,
+    }
+
+
+def replay_status_summary_for_folder(folder):
+    summary = read_json_dict(Path(folder) / "replay_input_status.json")
+    rows = read_csv_dicts(Path(folder) / "replay_input_status_long.csv")
+    status = summary.get("status_counts") if isinstance(summary.get("status_counts"), dict) else None
+    if status is None and isinstance(summary.get("counts"), dict):
+        status = summary.get("counts")
+    if status is None and rows:
+        status = dict(sorted(Counter(
+            row.get("replay_input_status") or row.get("status") or "unknown"
+            for row in rows
+        ).items()))
+    return {
+        "row_count": len(rows),
+        "status_counts": status or {},
+    }
+
+
 def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
     folder = Path(folder)
     path = folder / SNAPSHOT_LONG
@@ -237,6 +355,10 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         name: (folder / filename).exists()
         for name, filename in SNAPSHOT_OPTIONAL_ARTIFACTS.items()
     }
+    source_status = source_status_summary_for_folder(folder)
+    forecast_payloads = forecast_payload_summary_for_folder(folder)
+    clob_features = clob_feature_summary_for_folder(folder)
+    replay_status = replay_status_summary_for_folder(folder)
     return {
         "folder": str(folder),
         "event_slug": folder.name,
@@ -253,6 +375,10 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         "coverage_reason": coverage.get("reason"),
         "capture_ratio": coverage.get("capture_ratio"),
         "artifact_presence": artifact_presence,
+        "source_status": source_status,
+        "forecast_payloads": forecast_payloads,
+        "clob_features": clob_features,
+        "replay_input_status": replay_status,
         "fields": scanned["fields"],
         "field_totals": scanned["field_totals"],
         "nonempty": scanned["nonempty"],
@@ -270,6 +396,16 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     field_nonempty = Counter()
     field_totals = Counter()
     artifact_totals = Counter()
+    source_status_rows = 0
+    source_status_stale_or_failed_rows = 0
+    source_status_counts = Counter()
+    forecast_payload_rows = 0
+    forecast_payload_bytes = 0
+    clob_feature_rows = 0
+    clob_book_available_rows = 0
+    clob_price_history_available_rows = 0
+    clob_ws_event_window_rows = 0
+    replay_status_counts = Counter()
     for row in folder_rows:
         by_market[row.get("market_id")].append(row)
         field_nonempty.update(row.get("nonempty") or {})
@@ -277,6 +413,20 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         for name, present in (row.get("artifact_presence") or {}).items():
             if present:
                 artifact_totals[name] += 1
+        status = row.get("source_status") or {}
+        source_status_rows += int(status.get("row_count") or 0)
+        source_status_stale_or_failed_rows += int(status.get("stale_or_failed_rows") or 0)
+        source_status_counts.update(status.get("status_counts") or {})
+        payloads = row.get("forecast_payloads") or {}
+        forecast_payload_rows += int(payloads.get("row_count") or 0)
+        forecast_payload_bytes += int(payloads.get("payload_bytes") or 0)
+        clob = row.get("clob_features") or {}
+        clob_feature_rows += int(clob.get("row_count") or 0)
+        clob_book_available_rows += int(clob.get("book_available_rows") or 0)
+        clob_price_history_available_rows += int(clob.get("price_history_available_rows") or 0)
+        clob_ws_event_window_rows += int(clob.get("ws_event_window_rows") or 0)
+        replay = row.get("replay_input_status") or {}
+        replay_status_counts.update(replay.get("status_counts") or {})
     low_fill = []
     for field, total in sorted(field_totals.items()):
         filled = field_nonempty[field]
@@ -299,9 +449,13 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "settled_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("settlement")),
             "clean_days": sum(1 for row in rows if row.get("coverage_clean")),
             "replay_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("replay_inputs")),
+            "replay_status_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("replay_input_status")),
+            "source_status_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("source_status")),
             "feature_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("features")),
             "component_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("components")),
             "forecast_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("forecasts")),
+            "forecast_payload_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("forecast_payloads")),
+            "clob_feature_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("clob_features")),
             "median_snapshots_per_day": safe_median([row.get("snapshot_count") for row in rows]),
             "median_gap_minutes": safe_median([row.get("median_gap_minutes") for row in rows]),
             "max_gap_minutes": safe_max([row.get("max_gap_minutes") for row in rows]),
@@ -317,6 +471,28 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         "median_capture_gap_minutes": safe_median([row.get("median_gap_minutes") for row in folder_rows]),
         "max_capture_gap_minutes": safe_max([row.get("max_gap_minutes") for row in folder_rows]),
         "artifact_day_counts": dict(sorted(artifact_totals.items())),
+        "source_status": {
+            "row_count": source_status_rows,
+            "stale_or_failed_rows": source_status_stale_or_failed_rows,
+            "stale_or_failed_rate": pct(source_status_stale_or_failed_rows, source_status_rows),
+            "status_counts": dict(sorted(source_status_counts.items())),
+        },
+        "forecast_payloads": {
+            "row_count": forecast_payload_rows,
+            "payload_bytes": forecast_payload_bytes,
+        },
+        "clob_features": {
+            "row_count": clob_feature_rows,
+            "book_available_rows": clob_book_available_rows,
+            "book_available_rate": pct(clob_book_available_rows, clob_feature_rows),
+            "price_history_available_rows": clob_price_history_available_rows,
+            "price_history_available_rate": pct(clob_price_history_available_rows, clob_feature_rows),
+            "ws_event_window_rows": clob_ws_event_window_rows,
+            "ws_event_window_rate": pct(clob_ws_event_window_rows, clob_feature_rows),
+        },
+        "replay_input_status": {
+            "status_counts": dict(sorted(replay_status_counts.items())),
+        },
         "low_fill_fields": low_fill[:25],
         "has_market_token_ids": any(row.get("rows_with_market_token_ids", 0) > 0 for row in folder_rows),
         "by_market": market_rows,
@@ -354,6 +530,32 @@ def source_daily_summary_path(source, spec):
     raise KeyError(source)
 
 
+def source_root_path(source, spec):
+    station = spec.icao.lower()
+    if source == "wu":
+        return Path("data") / "wunderground" / station
+    if source == "metar":
+        return Path("data") / "metar" / station
+    if source == "ghcnh":
+        return Path("data") / "noaa_ghcnh" / station
+    if source == "reanalysis":
+        return Path("data") / "reanalysis" / station
+    raise KeyError(source)
+
+
+def manifest_quality(source, spec):
+    manifest = read_json_dict(source_root_path(source, spec) / "manifest.json")
+    if not manifest:
+        return {
+            "manifest_exists": False,
+            "quarantined_raw_observations": 0,
+        }
+    return {
+        "manifest_exists": True,
+        "quarantined_raw_observations": int(manifest.get("quarantined_raw_observations") or 0),
+    }
+
+
 def coverage_for_dates(covered, expected):
     expected_set = set(expected)
     covered_expected = covered & expected_set
@@ -372,14 +574,20 @@ def coverage_for_dates(covered, expected):
 def historical_source_audit(spec, source, expected_period, expected_season):
     path = source_daily_summary_path(source, spec)
     covered = daily_dates_from_csv(path)
-    return {
+    row = {
         "source": source,
         "path": str(path),
         "exists": path.exists(),
         "daily_days": len(covered),
         "period": coverage_for_dates(covered, expected_period),
         "target_season": coverage_for_dates(covered, expected_season),
+        "quality": manifest_quality(source, spec),
     }
+    if source == "reanalysis":
+        start = min(expected_period) if expected_period else None
+        end = max(expected_period) if expected_period else None
+        row["archive_coverage"] = ReanalysisStore(spec).coverage(start, end)
+    return row
 
 
 def historical_audit(start, end):
@@ -462,6 +670,195 @@ def source_inventory():
     }
 
 
+def latest_source_alternate_probe(backtest_root=DEFAULT_BACKTEST_ROOT):
+    root = Path(backtest_root)
+    probes = sorted(root.glob("source_alternate_probe_*.json"))
+    bias_reports = sorted(root.glob("toronto_alt_ghcnh_*_bias_*.json"))
+    toronto_bias = {}
+    if bias_reports:
+        bias_payload = read_json_dict(bias_reports[-1])
+        comparisons = {}
+        for item in bias_payload.get("comparisons") or []:
+            comparisons[item.get("source")] = {
+                "all": item.get("all") or {},
+                "target_season": item.get("target_season") or {},
+            }
+        toronto_bias = {
+            "path": str(bias_reports[-1]),
+            "generated_at_utc": bias_payload.get("generated_at_utc"),
+            "alternate_station": bias_payload.get("alternate_station"),
+            "alternate_days": bias_payload.get("alternate_days"),
+            "comparisons": comparisons,
+        }
+    if not probes:
+        return {
+            "exists": False,
+            "path": None,
+            "toronto_available_ghcnh_candidates": [],
+            "us_available_wu_candidates": [],
+            "toronto_alt_ghcnh_bias": toronto_bias,
+        }
+    path = probes[-1]
+    payload = read_json_dict(path)
+    toronto_candidates = []
+    for item in payload.get("toronto_ghcnh_candidates") or []:
+        available_years = [
+            row.get("year")
+            for row in item.get("probe_years") or []
+            if row.get("available")
+        ]
+        if available_years:
+            toronto_candidates.append({
+                "station": item.get("station") or {},
+                "available_years": available_years,
+                "distance2": item.get("distance2"),
+            })
+    wu_candidates = []
+    for market in payload.get("us_wu_candidates") or []:
+        for item in market.get("candidates") or []:
+            if item.get("available"):
+                wu_candidates.append({
+                    "market_id": market.get("market_id"),
+                    "history_id": item.get("history_id"),
+                    "observation_count": item.get("observation_count"),
+                    "date": item.get("date"),
+                    "distance2": item.get("distance2"),
+                })
+    return {
+        "exists": True,
+        "path": str(path),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "toronto_available_ghcnh_candidates": toronto_candidates,
+        "us_available_wu_candidates": wu_candidates,
+        "toronto_candidate_count": len(payload.get("toronto_ghcnh_candidates") or []),
+        "us_market_count": len(payload.get("us_wu_candidates") or []),
+        "toronto_alt_ghcnh_bias": toronto_bias,
+    }
+
+
+def gate(name, severity, ok, evidence, threshold=None, action=None):
+    return {
+        "name": name,
+        "severity": severity,
+        "status": "PASS" if ok else severity.upper(),
+        "ok": bool(ok),
+        "threshold": threshold,
+        "evidence": evidence,
+        "action": action,
+    }
+
+
+def artifact_gate(snapshot, name, expected_count=None, thresholds=None, severity="fail"):
+    thresholds = thresholds or DEFAULT_AUDIT_THRESHOLDS
+    expected = snapshot.get("folder_count", 0) if expected_count is None else expected_count
+    present = snapshot.get("artifact_day_counts", {}).get(name, 0)
+    rate = pct(present, expected)
+    required_rate = thresholds["required_artifact_rate"]
+    return gate(
+        f"snapshot_artifact_{name}",
+        severity,
+        rate is not None and rate >= required_rate,
+        f"{present}/{expected} folders have {SNAPSHOT_OPTIONAL_ARTIFACTS.get(name, name)}.",
+        threshold=f">= {required_rate:.1%}",
+        action="Backfill or regenerate the missing snapshot artifact before using the folder for training.",
+    )
+
+
+def build_gates(snapshot, historical, thresholds=None):
+    thresholds = {**DEFAULT_AUDIT_THRESHOLDS, **(thresholds or {})}
+    gates = []
+    low_fill = snapshot.get("low_fill_fields") or []
+    below_fill = [
+        row for row in low_fill
+        if row.get("fill_rate") is not None
+        and float(row.get("fill_rate")) < float(thresholds["min_snapshot_field_fill_rate"])
+    ]
+    gates.append(gate(
+        "snapshot_low_fill_fields",
+        "warn",
+        not below_fill,
+        f"{len(below_fill)} fields are below {thresholds['min_snapshot_field_fill_rate']:.0%} fill.",
+        threshold=f">= {thresholds['min_snapshot_field_fill_rate']:.1%}",
+        action="Inspect low-fill fields and either backfill, replace with canonical artifacts, or remove them from model inputs.",
+    ))
+
+    for name in REQUIRED_SNAPSHOT_ARTIFACTS:
+        gates.append(artifact_gate(snapshot, name, thresholds=thresholds, severity="fail"))
+    for name in WARN_SNAPSHOT_ARTIFACTS:
+        gates.append(artifact_gate(snapshot, name, thresholds=thresholds, severity="warn"))
+
+    forecast_days = snapshot.get("artifact_day_counts", {}).get("forecasts", 0)
+    if forecast_days:
+        forecast_payload_days = snapshot.get("artifact_day_counts", {}).get(FORECAST_PAYLOAD_ARTIFACT, 0)
+        rate = pct(forecast_payload_days, forecast_days)
+        required_rate = thresholds["forecast_payload_artifact_rate"]
+        gates.append(gate(
+            "forecast_payload_artifact_rate",
+            "warn",
+            rate is not None and rate >= required_rate,
+            f"{forecast_payload_days}/{forecast_days} forecast folders have raw payload manifests.",
+            threshold=f">= {required_rate:.1%}",
+            action="Regenerate forecast payload manifests or rerun captures with raw payload persistence enabled.",
+        ))
+
+    source_status = snapshot.get("source_status") or {}
+    stale_rate = source_status.get("stale_or_failed_rate")
+    max_stale_rate = thresholds["max_source_stale_or_failed_rate"]
+    gates.append(gate(
+        "source_status_stale_or_failed_rate",
+        "warn",
+        stale_rate is not None and float(stale_rate) <= float(max_stale_rate),
+        (
+            f"{source_status.get('stale_or_failed_rows', 0)}/"
+            f"{source_status.get('row_count', 0)} source-status rows are stale or failed."
+        ),
+        threshold=f"<= {max_stale_rate:.1%}",
+        action="Use source-status rows to isolate persistent stale sources before training on the affected captures.",
+    ))
+
+    reanalysis_raw_only = 0
+    for market in historical.get("markets") or []:
+        item = ((market.get("sources") or {}).get("reanalysis") or {}).get("archive_coverage") or {}
+        reanalysis_raw_only += int(item.get("raw_only_day_count") or 0)
+    gates.append(gate(
+        "reanalysis_raw_only_days",
+        "warn",
+        reanalysis_raw_only <= int(thresholds["max_reanalysis_raw_only_days"]),
+        f"{reanalysis_raw_only} reanalysis days have raw payloads but no normalized daily row.",
+        threshold=f"<= {thresholds['max_reanalysis_raw_only_days']}",
+        action="Keep the delayed reanalysis refresh enabled until raw-only archive-lag days normalize.",
+    ))
+
+    quarantined = 0
+    for market in historical.get("markets") or []:
+        for source_row in (market.get("sources") or {}).values():
+            quality = source_row.get("quality") or {}
+            quarantined += int(quality.get("quarantined_raw_observations") or 0)
+    gates.append(gate(
+        "quarantined_impossible_observations",
+        "warn",
+        quarantined <= int(thresholds["max_quarantined_impossible_observations"]),
+        f"{quarantined} raw observations are quarantined by source manifests.",
+        threshold=f"<= {thresholds['max_quarantined_impossible_observations']}",
+        action="Review quarantines and data-auditor output; do not train on impossible raw rows.",
+    ))
+    return gates
+
+
+def gate_summary(gates):
+    status = "PASS"
+    if any(row.get("status") == "FAIL" for row in gates):
+        status = "FAIL"
+    elif any(row.get("status") == "WARN" for row in gates):
+        status = "WARN"
+    return {
+        "status": status,
+        "fail_count": sum(1 for row in gates if row.get("status") == "FAIL"),
+        "warn_count": sum(1 for row in gates if row.get("status") == "WARN"),
+        "pass_count": sum(1 for row in gates if row.get("status") == "PASS"),
+    }
+
+
 def recommendation(priority, title, evidence, action, roadmap_item=None):
     return {
         "priority": priority,
@@ -472,8 +869,10 @@ def recommendation(priority, title, evidence, action, roadmap_item=None):
     }
 
 
-def build_recommendations(snapshot, historical, loop, clob_loop=None):
+def build_recommendations(snapshot, historical, loop, clob_loop=None, historical_gap_investigation=None):
     recs = []
+    historical_gap_investigation = historical_gap_investigation or {}
+    clob_summary = snapshot.get("clob_features") or {}
     if not snapshot.get("has_market_token_ids"):
         recs.append(recommendation(
             "P0",
@@ -487,7 +886,7 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None):
             "Item 38 / data layer",
         ))
     best_bid = next((row for row in snapshot.get("low_fill_fields") or [] if row.get("field") == "best_bid"), None)
-    if best_bid:
+    if best_bid and not clob_summary.get("row_count"):
         recs.append(recommendation(
             "P0",
             "Stop relying on Gamma best bid as the bid-side market signal",
@@ -561,35 +960,97 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None):
             "Item 36",
         ))
 
-    recs.append(recommendation(
-        "P1",
-        "Archive forecast raw payloads and issue-time metadata",
-        "Forecast rows are useful, but Weather.com/Open-Meteo/NWS issue time usually falls back to capture time.",
-        (
-            "Persist raw forecast payload hashes/files for each source and capture provider issue/update time when available. "
-            "This lets future models distinguish source update lag from true forecast changes."
-        ),
-        "Items 3, 22, 30",
-    ))
-    recs.append(recommendation(
-        "P2",
-        "Add source-status and latency rows per capture",
-        "Replay inputs include merged sources, but source health is not a first-class long table.",
-        (
-            "Write source_status_long.csv with source id, ok/stale/error, fetched_at, age, latency, payload hash, "
-            "and row counts. This makes stale-source behavior trainable and alertable."
-        ),
-        "Item 17 / Item 37",
-    ))
+    forecast_days = snapshot.get("artifact_day_counts", {}).get("forecasts", 0)
+    forecast_payload_days = snapshot.get("artifact_day_counts", {}).get("forecast_payloads", 0)
+    if forecast_days and forecast_payload_days < forecast_days:
+        recs.append(recommendation(
+            "P1",
+            "Archive forecast raw payloads and issue-time metadata",
+            f"{forecast_payload_days}/{forecast_days} forecast folders have forecast_payloads_long.csv.",
+            (
+                "Persist raw forecast payload hashes/files for each source and capture provider issue/update time when available. "
+                "This lets future models distinguish source update lag from true forecast changes."
+            ),
+            "Items 3, 22, 30",
+        ))
+    source_status_days = snapshot.get("artifact_day_counts", {}).get("source_status", 0)
+    if source_status_days < snapshot.get("folder_count", 0):
+        recs.append(recommendation(
+            "P2",
+            "Add source-status and latency rows per capture",
+            f"{source_status_days}/{snapshot.get('folder_count', 0)} snapshot folders have source_status_long.csv.",
+            (
+                "Write source_status_long.csv with source id, ok/stale/error, fetched_at, age, latency, payload hash, "
+                "and row counts. This makes stale-source behavior trainable and alertable."
+            ),
+            "Item 17 / Item 37",
+        ))
+    toronto_candidates = historical_gap_investigation.get("toronto_available_ghcnh_candidates") or []
+    if toronto_candidates:
+        station = (toronto_candidates[0].get("station") or {}).get("GHCN_ID")
+        years = ",".join(str(year) for year in toronto_candidates[0].get("available_years") or [])
+        bias = historical_gap_investigation.get("toronto_alt_ghcnh_bias") or {}
+        wu_target = (((bias.get("comparisons") or {}).get("wu") or {}).get("target_season") or {})
+        if bias and wu_target.get("days"):
+            recs.append(recommendation(
+                "P1",
+                "Promote validated Toronto alternate GHCNh station as redundant history",
+                (
+                    f"{station} has {bias.get('alternate_days')} daily rows; target-season WU overlap "
+                    f"{wu_target.get('days')} days, MAE {wu_target.get('mae_c')} C, "
+                    f"bucket match {float(wu_target.get('bucket_match_rate')):.1%}."
+                ),
+                (
+                    "Wire the alternate station in as a provenance-labelled redundant source for Toronto 2000-2012, "
+                    "rather than overwriting the canonical station root."
+                ),
+                "Items 7, 29",
+            ))
+        else:
+            recs.append(recommendation(
+                "P1",
+                "Backfill validated Toronto alternate GHCNh station",
+                f"Alternate station {station} has available probe years {years}.",
+                (
+                    "Backfill the alternate station under a separate root, compare daily high bias against overlapping WU/SWOB/METAR, "
+                    "then adopt it only as a provenance-labelled redundant source if the bias is acceptable."
+                ),
+                "Items 7, 29",
+            ))
+    us_wu_candidates = historical_gap_investigation.get("us_available_wu_candidates") or []
+    us_wu_low = []
+    for market in historical.get("markets") or []:
+        if market.get("market_id") == "toronto":
+            continue
+        period = (((market.get("sources") or {}).get("wu") or {}).get("period") or {})
+        rate = period.get("coverage_rate")
+        if rate is not None and float(rate) < 0.95:
+            us_wu_low.append(market)
+    if us_wu_low and not us_wu_candidates and historical_gap_investigation.get("exists"):
+        recs.append(recommendation(
+            "P2",
+            "Treat pre-2015 US Weather.com history as provider-unavailable",
+            (
+                f"{len(us_wu_low)} US markets have long-period WU coverage below 95%, and the latest alternate-ID probe "
+                "found no available ICAO:9:US candidates."
+            ),
+            (
+                "Keep WU as the settlement-style primary where available, but train older US years from METAR/GHCNh/reanalysis "
+                "with explicit source provenance instead of retrying known-unavailable Weather.com IDs."
+            ),
+            "Items 6, 29",
+        ))
     return recs
 
 
 def build_audit(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    backtest_root=DEFAULT_BACKTEST_ROOT,
     interval_minutes=10.0,
     tolerance=1.5,
     historical_start=None,
     historical_end=None,
+    thresholds=None,
 ):
     historical_start = historical_start or date(1995, 5, 20)
     historical_end = historical_end or datetime.now(TORONTO_TZ).date()
@@ -597,6 +1058,8 @@ def build_audit(
     clob_loop = clob_loop_summary(interval_seconds=60.0)
     snapshot = snapshot_audit(snapshots_root, interval_minutes=interval_minutes, tolerance=tolerance)
     historical = historical_audit(historical_start, historical_end)
+    historical_gap_investigation = latest_source_alternate_probe(backtest_root)
+    gates = build_gates(snapshot, historical, thresholds=thresholds)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -605,9 +1068,19 @@ def build_audit(
         "clob_loop": clob_loop,
         "snapshots": snapshot,
         "historical": historical,
+        "historical_gap_investigation": historical_gap_investigation,
+        "gates": gates,
+        "gate_summary": gate_summary(gates),
+        "gate_thresholds": {**DEFAULT_AUDIT_THRESHOLDS, **(thresholds or {})},
         "microstructure_reference": MICROSTRUCTURE_DOCS,
     }
-    payload["recommendations"] = build_recommendations(snapshot, historical, loop, clob_loop)
+    payload["recommendations"] = build_recommendations(
+        snapshot,
+        historical,
+        loop,
+        clob_loop,
+        historical_gap_investigation=historical_gap_investigation,
+    )
     return payload
 
 
@@ -651,9 +1124,13 @@ def _snapshot_market_rows(snapshot):
             row.get("settled_days"),
             row.get("clean_days"),
             row.get("replay_days"),
+            row.get("replay_status_days"),
+            row.get("source_status_days"),
             row.get("feature_days"),
             row.get("component_days"),
             row.get("forecast_days"),
+            row.get("forecast_payload_days"),
+            row.get("clob_feature_days"),
             fmt_num(row.get("median_snapshots_per_day"), 1),
             fmt_num(row.get("median_gap_minutes"), 2),
             fmt_num(row.get("max_gap_minutes"), 1),
@@ -668,11 +1145,15 @@ def write_report(path, payload):
     loop = payload.get("loop") or {}
     clob_loop = payload.get("clob_loop") or {}
     historical = payload.get("historical") or {}
+    gates = payload.get("gates") or []
+    gate_counts = payload.get("gate_summary") or {}
+    gap_investigation = payload.get("historical_gap_investigation") or {}
     lines = [
         "# Data Layer Audit",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Schema: `{payload.get('schema_version')}`",
+        f"Gate status: `{gate_counts.get('status')}`",
         "",
         "## Executive Summary",
         "",
@@ -706,6 +1187,30 @@ def write_report(path, payload):
             ["Median capture gap", f"{fmt_num(snapshot.get('median_capture_gap_minutes'), 2)} min"],
             ["Max capture gap", f"{fmt_num(snapshot.get('max_capture_gap_minutes'), 1)} min"],
             ["Market token IDs persisted", snapshot.get("has_market_token_ids")],
+            ["Source-status rows", (snapshot.get("source_status") or {}).get("row_count")],
+            ["Source stale/failed rate", _fmt_pct((snapshot.get("source_status") or {}).get("stale_or_failed_rate"))],
+            ["CLOB feature rows", (snapshot.get("clob_features") or {}).get("row_count")],
+            ["CLOB book available rate", _fmt_pct((snapshot.get("clob_features") or {}).get("book_available_rate"))],
+            ["Forecast payload rows", (snapshot.get("forecast_payloads") or {}).get("row_count")],
+        ],
+    )
+    lines += [
+        "",
+        "## Audit Gates",
+        "",
+    ]
+    lines += markdown_table(
+        ["Gate", "Status", "Severity", "Threshold", "Evidence", "Action"],
+        [
+            [
+                row.get("name"),
+                row.get("status"),
+                row.get("severity"),
+                row.get("threshold") or "-",
+                row.get("evidence"),
+                row.get("action") or "-",
+            ]
+            for row in gates
         ],
     )
     lines += [
@@ -715,8 +1220,9 @@ def write_report(path, payload):
     ]
     lines += markdown_table(
         [
-            "Market", "Days", "Settled", "Clean", "Replay", "Features",
-            "Components", "Forecasts", "Median Snaps", "Median Gap", "Max Gap",
+            "Market", "Days", "Settled", "Clean", "Replay", "Replay Status",
+            "Source Status", "Features", "Components", "Forecasts",
+            "Payloads", "CLOB Feat", "Median Snaps", "Median Gap", "Max Gap",
         ],
         _snapshot_market_rows(snapshot),
     )
@@ -752,6 +1258,42 @@ def write_report(path, payload):
         ],
         _historical_table_rows(historical),
     )
+    lines += [
+        "",
+        "## Historical Gap Investigation",
+        "",
+    ]
+    toronto_candidates = gap_investigation.get("toronto_available_ghcnh_candidates") or []
+    wu_candidates = gap_investigation.get("us_available_wu_candidates") or []
+    toronto_bias = gap_investigation.get("toronto_alt_ghcnh_bias") or {}
+    wu_bias = (((toronto_bias.get("comparisons") or {}).get("wu") or {}).get("target_season") or {})
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Probe path", gap_investigation.get("path") or "-"],
+            ["Probe generated", gap_investigation.get("generated_at_utc") or "-"],
+            ["Toronto available GHCNh candidates", len(toronto_candidates)],
+            ["US available WU candidates", len(wu_candidates)],
+            ["Toronto alternate bias path", toronto_bias.get("path") or "-"],
+            ["Toronto alternate target-season WU days", wu_bias.get("days") or "-"],
+            ["Toronto alternate target-season WU MAE C", wu_bias.get("mae_c") or "-"],
+            ["Toronto alternate target-season bucket match", _fmt_pct(wu_bias.get("bucket_match_rate"))],
+        ],
+    )
+    if toronto_candidates:
+        lines += ["", "### Toronto GHCNh Candidates", ""]
+        lines += markdown_table(
+            ["GHCN ID", "Name", "Available Probe Years", "Distance2"],
+            [
+                [
+                    (item.get("station") or {}).get("GHCN_ID"),
+                    (item.get("station") or {}).get("NAME"),
+                    ",".join(str(year) for year in item.get("available_years") or []),
+                    fmt_num(item.get("distance2"), 4),
+                ]
+                for item in toronto_candidates[:8]
+            ],
+        )
     lines += [
         "",
         "## Market Microstructure References",
@@ -790,16 +1332,20 @@ def write_report(path, payload):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Audit capture cadence, data usefulness, and historical coverage.")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--interval-minutes", type=float, default=10.0)
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--historical-start", default="1995-05-20")
     parser.add_argument("--historical-end", default="")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
+    parser.add_argument("--strict", action="store_true", help="Exit 2 when any audit gate fails.")
+    parser.add_argument("--fail-on-warn", action="store_true", help="Exit 2 when any audit gate warns or fails.")
     args = parser.parse_args(argv)
 
     payload = build_audit(
         snapshots_root=Path(args.snapshots_root),
+        backtest_root=Path(args.backtest_root),
         interval_minutes=args.interval_minutes,
         tolerance=args.tolerance,
         historical_start=parse_date(args.historical_start),
@@ -811,7 +1357,14 @@ def main(argv=None):
     print(f"Wrote data layer audit report to {report_path}")
     rec_counts = Counter(item.get("priority") for item in payload.get("recommendations") or [])
     print("Recommendations: " + ", ".join(f"{key}={value}" for key, value in sorted(rec_counts.items())))
+    gate_status = (payload.get("gate_summary") or {}).get("status")
+    print(f"Gate status: {gate_status}")
+    if args.fail_on_warn and gate_status in {"WARN", "FAIL"}:
+        return 2
+    if args.strict and gate_status == "FAIL":
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

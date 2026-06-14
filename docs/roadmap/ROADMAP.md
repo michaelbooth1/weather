@@ -1907,7 +1907,7 @@ Houston, NYC, San Francisco, Seattle, and Toronto; blocked markets are Atlanta,
 Denver, Los Angeles, and Miami. The largest positive code-effect slice is still
 market-specific rather than a corpus-pin issue.
 
-### 37. MLOps And Always-On Production Hardening [OPEN - CLOB LOOP SUPERVISED]
+### 37. MLOps And Always-On Production Hardening [OPEN - CLOB/WATCHER SLO GATE]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
@@ -1929,6 +1929,10 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Production-harden the CLOB book loop: heartbeat/status, diagnostics,
   detached start, stop, restart, ensure, and a Windows Task Scheduler
   registration script separate from the weather/model loop.
+- [ ] Define and enforce the market-making live-forward SLO gate for CLOB book
+  capture plus the observation-trigger watcher: automatic recovery, critical
+  alerting, strict freshness checks, and proof that both loops stay fresh before
+  any live-forward paper day or live order can count toward an MM gate.
 - [ ] Model/artifact registry + versioning; scheduled nightly
   retrain -> validate -> promote.
 - [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
@@ -1937,7 +1941,8 @@ Goal: make the fleet reproducible, self-retraining, and observable.
   cannot stall the loop.
 
 Acceptance: a new market or a model update flows through the pipeline with no
-manual surgery.
+manual surgery, and any market-making live-forward or live-order gate fails
+closed when CLOB capture or observation-trigger freshness violates its SLO.
 
 CLOB hardening update (2026-06-12): `src.market_microstructure` now mirrors the
 snapshot supervisor pattern for the irreplaceable fast book tape. The managed
@@ -1962,7 +1967,7 @@ Scheduler as `WeatherDailySettlementPromotionRefresh` and
 supervisors. The daily task runs `src.daily_refresh run --continue-on-error`;
 the observation task runs `src.observation_trigger ensure`.
 
-### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - CLOB FEATURES WIRED]
+### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - TAXONOMY-GATED CLOB OVERLAY]
 
 Goal: squeeze the last edge once per-market models are solid.
 
@@ -2047,6 +2052,25 @@ max-age window into candidate replay. Active June 13 tapes now produce
 passes, and `compileall` passes for the changed modules. Remaining item-38
 acceptance is to train/shadow-score a microstructure-aware artifact and prove
 settlement or P&L lift on the casebook market-lead/overreaction slices.
+
+Microstructure scoring update (2026-06-14 local): `src.pooled_candidate_replay`
+now trains a non-serving CLOB overlay behind the promotion gauntlet. The overlay
+uses only replay rows with fresh book features, scores out-of-fold by held-out
+target date, writes the shadow artifact
+`artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl`, and
+adds an Item 38 section to both `pooled_candidate_replay_latest_report.md` and
+`f_family_promotion_refresh_report.md`. The 2026-06-14 refresh scored 19,668
+CLOB rows with zero skipped folds: raw overlay Brier `0.0303` versus base
+candidate `0.0486`, current replay `0.0658`, and market `0.0299`.
+
+Taxonomy-gate update (2026-06-14 local): the overlay now has an explicit
+replay-derived allowlist. It can affect only target taxonomies that beat both
+the base candidate and market on the same out-of-fold slice; all other rows
+fall back to the base candidate as `micro_gated_candidate_p`. The current gate
+allows `market_lead` and `book_liquidity_artifact`, and blocks
+`market_overreaction` because it regresses the base candidate (`0.1700` vs
+`0.1037`). The gated overlay changes 437 rows and leaves 66,993 rows on the
+base candidate; aggregate gated Brier is `0.0502` versus base `0.0508`.
 
 Fleet critical follow-up (2026-06-14 UTC): the observation-trigger watcher made
 urgent recomputes first-class evidence, but active CSV tapes created before the
@@ -2314,7 +2338,7 @@ a nonzero iteration counter. This is implementation evidence, not acceptance
 evidence: the item stays partial until those triggered rows settle and the
 WU-lag replay slice can score them.
 
-### 43. Market-Making Policy And Quote Intent Tape [NEW - RESEARCH AUDIT]
+### 43. Market-Making Policy And Quote Intent Tape [COMPLETE 2026-06-14 - SHADOW POLICY LIVE]
 
 Goal: convert the market-making research into a pure, auditable shadow quote
 policy before any live order adapter exists.
@@ -2324,35 +2348,47 @@ The audit's strongest conclusion is that the current plan is right to separate
 harvest quoting from model-edge quoting, but the quote engine needs explicit
 permission, latency, and reason-code semantics before paper trading is useful.
 
-- [ ] Build a pure `mm_policy` decision function whose inputs are fair value,
+- [x] Build a pure `mm_policy` decision function whose inputs are fair value,
   uncertainty, promotion state (`PASS` / `SHADOW` / `BLOCK`), known-edge slice,
   CLOB book state, source freshness, observation-trigger health, simulated
   inventory, reward config, and risk caps.
-- [ ] Encode the permission matrix from the research audit:
+- [x] Encode the permission matrix from the research audit:
   `BLOCK` -> no quotes; `SHADOW` -> market-mid-anchored harvest only when
   books and sources are fresh; `PASS` slices -> model-skewed quotes; any stale
   watcher/heartbeat/book/source state -> pull/stand down; near decisive
   observation windows -> widen or stand down; FAK/taking remains paper-only
   until proven.
-- [ ] Keep harvest and edge regimes mechanically separate. Harvest uses the
+- [x] Keep harvest and edge regimes mechanically separate. Harvest uses the
   model as a veto, not as the quote center. Edge mode uses model fair value
   only where the promotion gauntlet and known-edge map say the slice is proven.
-- [ ] Write a complete `quotes_long.csv` intent tape for every tick: policy
+- [x] Write a complete `quotes_long.csv` intent tape for every tick: policy
   version/hash, model version, market/band/token IDs, promotion state, fair
   probability, market mid, uncertainty, edge, bid/ask/size, inventory summary,
   event-level risk, book spread/depth/imbalance/age, source freshness, latency
   budget status, expected reward/rebate value, adverse-selection buffer,
   final size limiter, and reason code.
-- [ ] Treat latency as a first-class input: model age, book age, source age,
+- [x] Treat latency as a first-class input: model age, book age, source age,
   observation-trigger age, and intended order age must all be visible in the
   quote row and able to fail quote permission closed.
-- [ ] Unit-test policy reason codes, regime transitions, cap precedence,
+- [x] Unit-test policy reason codes, regime transitions, cap precedence,
   stale-input stand-down, and no-cross/post-only price generation.
 
 Acceptance: the policy can run keyless in shadow across all registered weather
 markets, emits an auditable quote/no-quote reason for every eligible band, and
 never emits a trade-permissioned quote when source, book, model, or watcher
 freshness violates configured latency budgets.
+
+Implementation update (2026-06-14 local): `src.mm_policy` / `weather.market.mm_policy`
+now implements the pure policy and a keyless shadow tape writer. It consumes
+`f_family_promotion_refresh.json`, latest snapshot/CLOB rows, and
+`observation_trigger_status.json`; writes `data/backtest/quotes_long.csv` plus
+`data/backtest/mm_policy_shadow.json`; and always keeps
+`live_trade_permission=false`. The first live-forward shadow run emitted 132
+band decisions: 3 harvest quote intents, 129 no-quote rows, zero live-trade
+permission rows. No-quote reason counts were missing book 89, stale book 28,
+blocked promotion 11, and shadow disagreement 1. Focused tests
+cover BLOCK fail-closed, SHADOW harvest, disagreement stand-down, PASS
+known-edge model-skewed quotes, stale watcher stand-down, and tape writing.
 
 ### 44. Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [NEW - RESEARCH AUDIT]
 
@@ -2449,6 +2485,82 @@ artifacts are current, account/platform eligibility is verified, caps and
 balance math are tested, kill-switch drills pass, and the dedicated pilot
 wallet is funded only with isolated risk capital.
 
+### 46. Date/Budget Market-Making Run Orchestrator [NEW - OPERATOR WORKFLOW]
+
+Goal: make the first market-making operator workflow a single target day plus
+total budget, without mixing orchestration concerns into the pure quote policy.
+
+Research source: `docs/research/MM_INITIAL_TEST_RUN_DESIGN.md`. The operator
+should be able to choose a date and a total budget; the run should discover the
+tracked weather markets for that day, call the pure `mm_policy`, enforce
+preflight gates, write run artifacts, and keep total run risk inside the
+operator budget.
+
+- [ ] Add a `src.market_making_run` wrapper around `src.mm_policy` /
+  `weather.market.mm_policy` with `--date`, `--budget-usdc`, `--mode`, market
+  selection, and explicit live-confirmation flags.
+- [ ] Create one run folder per invocation under `data/mm_runs/<date>/<run_id>/`
+  with `run_config.json`, `preflight.json`, `quote_intents_long.csv`,
+  `budget_ledger.jsonl`, `risk_events.jsonl`, `fills_long.csv`, and
+  `run_report.md`.
+- [ ] Implement target-date market discovery through `market_registry.all_specs()`
+  and `config_for_date()`, resolving each tracked weather market to the correct
+  event slug, snapshot folder, token IDs, condition IDs, reward config, min
+  size, tick size, and current book state.
+- [ ] Add preflight gates for active events, current snapshot/model rows, current
+  source-status rows, CLOB tokens/books, strict CLOB freshness, fresh
+  observation-trigger state, promotion state, reward metadata, and, in live
+  modes only, account/platform/wallet/allowance/heartbeat/user-WS readiness.
+- [ ] Write complete quote/no-quote rows for every eligible band and explicit
+  no-quote rows for ineligible bands, including `budget_exhausted`,
+  `missing_preflight`, and `stale_input` reason codes.
+- [ ] Support `shadow` first, `paper-live-forward` as the all-day unattended
+  mode, and later `live-pilot` only after item 45's live gate passes.
+
+Acceptance: an operator can run one command with only date, budget, and mode;
+the keyless shadow run covers all selected tracked markets, writes a complete
+run folder, never emits live-trade permission in shadow, fails closed on stale
+CLOB/watcher inputs, and produces a report explaining selected markets,
+unquoted markets, quote counts, budget usage, and next gating status.
+
+### 47. Model Readiness And Known-Edge Permission Map [NEW - MM READINESS GATE]
+
+Goal: turn "how close is the model to market-make?" into a generated permission
+artifact consumed by the quote engine and live gates.
+
+Research source: `docs/research/MM_MODEL_READINESS_GAP_PLAN.md`. The current
+answer is phase-specific: shadow/paper can start without beating Polymarket;
+live harvest requires positive paper markouts under market-mid quoting; and
+model-skewed edge quoting requires per-slice evidence that the model beats
+Polymarket and survives execution costs.
+
+- [ ] Generate a `data/backtest/mm_known_edge_map.json` plus Markdown report
+  from promotion refresh, gap decomposition, CLOB overlay scores, casebook
+  taxonomy, paper-trading markouts, and live-pilot markouts once available.
+- [ ] Emit explicit permissions by market, cutoff hour, band distance, band
+  type, casebook taxonomy, regime, and source-freshness state:
+  `no_quote`, `harvest_only`, `edge_research`, `edge_allowed`, or
+  `take_research_only`.
+- [ ] Keep PASS/SHADOW/BLOCK as the base permission system: PASS slices may
+  become edge candidates, SHADOW slices stay harvest-only, and BLOCK slices do
+  not quote.
+- [ ] Require market-or-better Brier/log-loss evidence, held-out or
+  live-forward confidence intervals, and positive post-fill markouts before any
+  slice can move from `edge_research` to `edge_allowed`.
+- [ ] Track the active model gap burn-down for the economically relevant cells:
+  US morning/overnight rows, at-settle and one-off central bands, CLOB
+  `market_lead`, CLOB `book_liquidity_artifact`, `market_overreaction`,
+  stale-source cases, and WU lag/catch-up cases.
+- [ ] Expose the known-edge map to `mm_policy` so model-skewed quoting cannot be
+  enabled by hand-editing policy parameters or relying on aggregate model
+  optimism.
+
+Acceptance: every quote-intent row can be traced to a generated permission
+record; broad fleet edge mode remains disabled while aggregate evidence trails
+Polymarket; a promoted market such as Atlanta can be considered for edge mode
+only where the permission map and paper markouts both clear; and the report
+shows exactly which model-market gap cells must improve next.
+
 ## Sequencing The Two Tracks
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
@@ -2470,12 +2582,14 @@ wallet is funded only with isolated risk capital.
    recompute)** follows item 40's live-reading feature work, item 38's
    fast-book capture, and item 41's large-disagreement slices; it is the next
    latency fix before any quote engine trusts sub-10-minute edges.
-7. **43-45 are the market-making bridge.** After book capture, casebook, and
+7. **43-47 are the market-making bridge.** After book capture, casebook, and
    observation-trigger plumbing are stable, build the keyless quote policy
    first, then paper-trade it with conservative and queue-aware fills, then
-   define position sizing and live gates. Live MM-2 orders wait until all three
-   pass; reward/rebate yield is not treated as alpha until adverse-selection
-   markout is deducted.
+   add the date/budget run orchestrator, define the known-edge permission map,
+   and wire position sizing plus live gates. Live MM-2 orders wait until the
+   policy, paper, orchestration, readiness-map, and live-risk gates pass;
+   reward/rebate yield is not treated as alpha until adverse-selection markout
+   is deducted.
 
 Current best next actions after the 2026-06-14 refresh:
 
@@ -2499,19 +2613,22 @@ Current best next actions after the 2026-06-14 refresh:
    cadence and checks strict gaps inside the settlement-decisive window.
    `src.fleet_observability report --strict` is `WARN` with zero critical
    alerts.
-4. **Next: score item 38's CLOB features behind the promotion gauntlet.** Market
-   lead is now a measured losing family, and market overreaction is a measured
-   winning family. The book-depth/stickiness/liquidity feature plumbing is in
-   place; train a shadow artifact and prove it improves those exact slices
-   before letting the features affect serving.
+4. **Done as shadow scoring 2026-06-14: score item 38's CLOB features behind
+   the promotion gauntlet.** Market lead is now a measured losing family, and
+   market overreaction is a measured winning family. The book-depth, stickiness,
+   and liquidity feature plumbing is in place; the CLOB overlay is taxonomy-gated
+   and remains non-serving until held-out/live-forward evidence clears.
 5. **Delay item 35 until the promotion gauntlet has more days.** Continuous
    density is still the endgame, but today's highest value is using the new
    24-day F corpus and casebook slices to fix concrete, settlement-scored
    failure modes first.
-6. **Start item 43 before any execution adapter.** Convert the research audit's
-   permission matrix into a pure shadow quote policy and quote-intent tape, so
-   every future paper/live decision has a reason code, latency budget, and
-   risk limiter attached.
+6. **Next: implement item 46's date/budget run orchestrator.** The pure quote
+   policy exists; the missing operator layer is date selection, budget ledgers,
+   run folders, preflight gates, and a durable report for shadow and
+   live-forward paper runs.
+7. **Then: advance items 44 and 47 together.** The paper simulator provides
+   markouts and incentive accounting; the known-edge map converts those results
+   plus promotion/gap/casebook evidence into enforceable quote permissions.
 
 ## Research Questions
 

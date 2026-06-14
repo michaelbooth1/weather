@@ -399,11 +399,24 @@ The fastest path toward the project goal is likely:
    gap handling, scheduled-vs-triggered snapshot cadence, and settlement-window
    collection health are shipped; current status is `WARN` with zero critical
    alerts.
-4. Score item 38 market microstructure features for book stickiness, liquidity,
-   and market-lead/overreaction slices. `src.market_microstructure_features`
-   now materializes model-ready CLOB features and `src.pooled_candidate_replay`
-   joins them by normalized band key; active June 13 tapes have `17,380 / 17,380`
-   available feature rows after the F-market missing-`bin_value_hi` fix.
-5. Use item 27 weather-regime features only behind replay/casebook gates, and
+4. Item 38's CLOB overlay is now taxonomy-gated behind the promotion path.
+   `src.pooled_candidate_replay` trains a non-serving CLOB overlay on fresh book
+   rows, scores it out-of-fold by target date, writes
+   `artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl`,
+   and reports both raw and gated Item 38 metrics in
+   `pooled_candidate_replay_latest_report.md` plus
+   `f_family_promotion_refresh_report.md`. Current evidence: 19,668 OOF CLOB
+   rows, raw overlay Brier `0.0303` vs base candidate `0.0486` and market
+   `0.0299`; the gate allows `book_liquidity_artifact` and `market_lead`, blocks
+   `market_overreaction`, changes 437 rows, and leaves 66,993 rows on the base
+   candidate. Gated aggregate Brier is `0.0502` vs base `0.0508`.
+5. Item 43's keyless shadow quote policy is live. `src.mm_policy` consumes
+   promotion state, latest snapshot/CLOB rows, and observation-trigger health,
+   then writes `data/backtest/quotes_long.csv` plus
+   `data/backtest/mm_policy_shadow.json` with one quote/no-quote reason per
+   latest eligible band and `live_trade_permission=false` for every row. The
+   first run emitted 132 decisions: 3 harvest quote intents, 129 no-quote rows,
+   and zero live-trade-permission rows. Paper fills and markouts remain Item 44.
+6. Use item 27 weather-regime features only behind replay/casebook gates, and
    postpone the item 35 continuous-density model until more clean market days
    prove the current candidate path.

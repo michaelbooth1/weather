@@ -12,7 +12,7 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,12 +23,15 @@ from weather.backtesting.settlement_ledger import (
 )
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.reporting import disagreement_casebook
+from weather.reporting import data_layer_audit
 from weather.reporting import fleet_observability
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.market.market_registry import all_specs
+from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 
 
-SCHEMA_VERSION = "daily_refresh_v0.1"
+SCHEMA_VERSION = "daily_refresh_v0.2"
 DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"
@@ -36,11 +39,13 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_report.md"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
 DEFAULT_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
 STEP_ORDER = (
+    "reanalysis_recent_refresh",
     "market_day_labels_finalize",
     "promotion_refresh",
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
+    "data_layer_audit",
 )
 
 
@@ -118,6 +123,67 @@ def summarize_labels(labels):
         "quality_counts": dict(sorted(quality_counts.items())),
         "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
         "complete_by_market": dict(sorted(complete_by_market.items())),
+    }
+
+
+def parse_date_arg(value):
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
+
+
+def run_reanalysis_recent_refresh_step(args):
+    if args.skip_reanalysis_refresh:
+        return {"skipped": True, "reason": "skip_reanalysis_refresh"}
+    end_date = parse_date_arg(args.reanalysis_end_date) or (utc_now().date() - timedelta(days=1))
+    start_date = end_date - timedelta(days=max(1, int(args.reanalysis_lag_days)) - 1)
+    client = ReanalysisClient(timeout=args.reanalysis_timeout, sleep_seconds=args.reanalysis_sleep)
+    market_rows = []
+    fetched_ranges = 0
+    errors = {}
+    for spec in all_specs():
+        store = ReanalysisStore(spec)
+        before = store.coverage(start_date, end_date)
+        ranges = store.missing_ranges(start_date, end_date, args.reanalysis_chunk_days)
+        try:
+            for chunk_start, chunk_end in ranges:
+                payload = client.fetch_range(spec, chunk_start, chunk_end)
+                store.write_payload(chunk_start, chunk_end, payload)
+                fetched_ranges += 1
+                if args.reanalysis_sleep:
+                    time.sleep(args.reanalysis_sleep)
+            if ranges:
+                store.rebuild()
+            after = store.coverage(start_date, end_date)
+            market_rows.append({
+                "market_id": spec.id,
+                "station": spec.icao,
+                "ranges_fetched": len(ranges),
+                "missing_before": before.get("missing_days"),
+                "missing_after": after.get("missing_days"),
+                "raw_only_after": after.get("raw_only_day_count"),
+            })
+        except Exception as exc:  # noqa: BLE001 - archive lag must not block promotion refresh
+            errors[spec.id] = f"{type(exc).__name__}: {exc}"
+            market_rows.append({
+                "market_id": spec.id,
+                "station": spec.icao,
+                "ranges_fetched": 0,
+                "missing_before": before.get("missing_days"),
+                "missing_after": None,
+                "error": errors[spec.id],
+            })
+    return {
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "lag_days": int(args.reanalysis_lag_days),
+        "chunk_days": int(args.reanalysis_chunk_days),
+        "fetched_ranges": fetched_ranges,
+        "error_count": len(errors),
+        "errors": errors,
+        "markets": market_rows,
     }
 
 
@@ -280,12 +346,38 @@ def run_fleet_observability_step(args):
     }
 
 
+def run_data_layer_audit_step(args):
+    if args.skip_data_layer_audit:
+        return {"skipped": True, "reason": "skip_data_layer_audit"}
+    payload = data_layer_audit.build_audit(
+        snapshots_root=Path(args.snapshots_root),
+        backtest_root=Path(args.backtest_root),
+        interval_minutes=args.collection_interval_minutes,
+        tolerance=args.collection_tolerance,
+        historical_start=data_layer_audit.parse_date(args.data_layer_historical_start),
+        historical_end=data_layer_audit.parse_date(args.data_layer_historical_end),
+    )
+    json_out = data_layer_audit.write_json(backtest_path(args, "data_layer_audit.json"), payload)
+    report_out = data_layer_audit.write_report(backtest_path(args, "data_layer_audit_report.md"), payload)
+    gate_summary = payload.get("gate_summary") or {}
+    rec_counts = Counter(item.get("priority") for item in payload.get("recommendations") or [])
+    return {
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "gate_status": gate_summary.get("status"),
+        "gate_summary": gate_summary,
+        "recommendation_counts": dict(sorted(rec_counts.items())),
+    }
+
+
 DEFAULT_RUNNERS = (
+    ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("promotion_refresh", run_promotion_refresh_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
+    ("data_layer_audit", run_data_layer_audit_step),
 )
 
 
@@ -318,6 +410,7 @@ def pipeline_summary(steps):
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
+    audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     return {
         "labels": {
             "total": finalize.get("label_count"),
@@ -342,6 +435,11 @@ def pipeline_summary(steps):
             "status": fleet.get("status"),
             "summary": fleet.get("summary") or {},
         },
+        "data_layer_audit": {
+            "gate_status": audit.get("gate_status"),
+            "gate_summary": audit.get("gate_summary") or {},
+            "recommendation_counts": audit.get("recommendation_counts") or {},
+        },
     }
 
 
@@ -364,6 +462,11 @@ def render_report(payload):
             detail = step.get("error") or "-"
         elif step.get("name") == "market_day_labels_finalize":
             detail = f"labels {result.get('label_count')} {result.get('quality_counts')}"
+        elif step.get("name") == "reanalysis_recent_refresh":
+            if result.get("skipped"):
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}"
         elif step.get("name") == "promotion_refresh":
             detail = (
                 f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
@@ -378,6 +481,11 @@ def render_report(payload):
             )
         elif step.get("name") == "fleet_observability":
             detail = f"{result.get('status')} {result.get('summary')}"
+        elif step.get("name") == "data_layer_audit":
+            if result.get("skipped"):
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = f"gates {result.get('gate_status')} {result.get('gate_summary')}"
         else:
             detail = "-"
         lines.append(
@@ -453,6 +561,11 @@ def run_daily_refresh(args, runners=None):
             fleet_status = ((fleet_step.get("result") or {}).get("status"))
             if fleet_status == "CRITICAL" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        if args.fail_on_data_layer_audit:
+            audit_step = next((step for step in payload["steps"] if step.get("name") == "data_layer_audit"), {})
+            gate_status = ((audit_step.get("result") or {}).get("gate_status"))
+            if gate_status == "FAIL" and payload["status"] == "ok":
+                payload["status"] = "critical"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
@@ -487,6 +600,7 @@ def build_run_parser(parser):
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
+    parser.add_argument("--fail-on-data-layer-audit", action="store_true")
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--include-reconstructed", action="store_true")
@@ -508,6 +622,15 @@ def build_run_parser(parser):
     parser.add_argument("--audit-target-day", type=int, default=None)
     parser.add_argument("--audit-years", default="")
     parser.add_argument("--skip-historical-audits", action="store_true")
+    parser.add_argument("--skip-reanalysis-refresh", action="store_true")
+    parser.add_argument("--reanalysis-lag-days", type=int, default=10)
+    parser.add_argument("--reanalysis-chunk-days", type=int, default=5)
+    parser.add_argument("--reanalysis-sleep", type=float, default=0.2)
+    parser.add_argument("--reanalysis-timeout", type=float, default=30)
+    parser.add_argument("--reanalysis-end-date", default="")
+    parser.add_argument("--skip-data-layer-audit", action="store_true")
+    parser.add_argument("--data-layer-historical-start", default="2000-01-01")
+    parser.add_argument("--data-layer-historical-end", default="")
     return parser
 
 

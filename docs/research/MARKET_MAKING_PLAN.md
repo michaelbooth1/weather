@@ -567,6 +567,14 @@ Three new modules, all key-less:
    state, reason. In live mode (MM-2+) the same engine gains an execution
    adapter; the tape format does not change.
 
+**STATUS 2026-06-14: Item 43 policy/tape shipped.** `src.mm_policy` implements
+the pure keyless policy and writes `data/backtest/quotes_long.csv` plus
+`data/backtest/mm_policy_shadow.json` from promotion state, latest snapshot/CLOB
+rows, and observation-trigger health. It emits quote/no-quote reason codes for
+each latest eligible band and hard-disables live trade permission. The remaining
+Stage 2 gap is a continuous scheduler/loop wrapper; performance scoring moves
+to Stage 3 / Item 44.
+
 ### Stage 3: Paper trading (two loops, run for >= 14 days)
 
 Paper trading is the combination of the Stage 2 stack with two evaluators:

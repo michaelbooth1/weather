@@ -59,13 +59,17 @@ DEFAULT_OUT = Path("data") / "backtest" / "pooled_candidate_replay_report.md"
 DEFAULT_JSON_OUT = Path("data") / "backtest" / "pooled_candidate_replay.json"
 DEFAULT_REPLAY_REPORT = Path("data") / "backtest" / "pooled_candidate_current_replay_report.md"
 DEFAULT_CASEBOOK = Path("data") / "backtest" / "disagreement_casebook.json"
-DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl")
-MICROSTRUCTURE_SCHEMA_VERSION = "clob_microstructure_overlay_v0.1"
+DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl")
+MICROSTRUCTURE_SCHEMA_VERSION = "clob_microstructure_overlay_v0.2"
+MICROSTRUCTURE_GATE_SCHEMA_VERSION = "clob_microstructure_taxonomy_gate_v0.1"
 MICROSTRUCTURE_TARGET_TAXONOMIES = (
     "market_lead",
     "market_overreaction",
     "book_liquidity_artifact",
 )
+MICROSTRUCTURE_GATE_MIN_ROWS = 25
+MICROSTRUCTURE_GATE_MAX_DELTA_VS_CANDIDATE = 0.0
+MICROSTRUCTURE_GATE_MAX_DELTA_VS_MARKET = 0.0
 MICROSTRUCTURE_NUMERIC_FEATURES = [
     "candidate_p",
     "replayed_p",
@@ -189,9 +193,9 @@ def _score_probability_field(rows, probability_field):
     return score_rows(view)
 
 
-def microstructure_comparison(rows):
+def microstructure_comparison(rows, probability_field="micro_candidate_p"):
     """Microstructure overlay vs pooled candidate/current/market on same rows."""
-    micro_rows = probability_view(rows, "micro_candidate_p")
+    micro_rows = probability_view(rows, probability_field)
     if not micro_rows:
         return None
     micro = score_rows(micro_rows)
@@ -223,16 +227,137 @@ def microstructure_comparison(rows):
     }
 
 
-def grouped_microstructure_comparison(rows, group_key):
+def grouped_microstructure_comparison(rows, group_key, probability_field="micro_candidate_p"):
     grouped = defaultdict(list)
     for row in rows:
         grouped[row.get(group_key)].append(row)
     output = []
     for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
-        comp = microstructure_comparison(group_rows)
+        comp = microstructure_comparison(group_rows, probability_field=probability_field)
         if comp:
             output.append({"group": group, **comp})
     return output
+
+
+def _micro_gate_reason(comp, min_rows, max_delta_vs_candidate, max_delta_vs_market):
+    if not comp:
+        return "missing taxonomy score"
+    rows = int(comp.get("n") or 0)
+    if rows < int(min_rows):
+        return f"rows {rows} < {int(min_rows)}"
+    delta_candidate = comp.get("delta_vs_candidate")
+    if delta_candidate is None or delta_candidate > float(max_delta_vs_candidate):
+        return (
+            f"delta_vs_candidate {delta_candidate:+.4f} > {float(max_delta_vs_candidate):+.4f}"
+            if delta_candidate is not None
+            else "missing delta_vs_candidate"
+        )
+    delta_market = comp.get("delta_vs_market")
+    if delta_market is None or delta_market > float(max_delta_vs_market):
+        return (
+            f"delta_vs_market {delta_market:+.4f} > {float(max_delta_vs_market):+.4f}"
+            if delta_market is not None
+            else "missing delta_vs_market"
+        )
+    return None
+
+
+def build_microstructure_gate(
+    taxonomy_scores,
+    target_taxonomies=MICROSTRUCTURE_TARGET_TAXONOMIES,
+    min_rows=MICROSTRUCTURE_GATE_MIN_ROWS,
+    max_delta_vs_candidate=MICROSTRUCTURE_GATE_MAX_DELTA_VS_CANDIDATE,
+    max_delta_vs_market=MICROSTRUCTURE_GATE_MAX_DELTA_VS_MARKET,
+):
+    """Return the taxonomy allowlist for applying the CLOB overlay.
+
+    The raw overlay is allowed to change probabilities only on pre-declared
+    target taxonomies where out-of-fold replay beats both the base candidate and
+    the market on that same slice. Everything else falls back to the base
+    candidate probability.
+    """
+    by_taxonomy = {
+        item.get("group"): item
+        for item in taxonomy_scores or []
+        if item.get("group") not in (None, "")
+    }
+    decisions = []
+    allowed = []
+    blocked = []
+    for taxonomy in target_taxonomies:
+        comp = by_taxonomy.get(taxonomy)
+        reason = _micro_gate_reason(
+            comp,
+            min_rows=min_rows,
+            max_delta_vs_candidate=max_delta_vs_candidate,
+            max_delta_vs_market=max_delta_vs_market,
+        )
+        decision = {
+            "taxonomy": taxonomy,
+            "allowed": reason is None,
+            "reason": "replay-proven improvement" if reason is None else reason,
+            "rows": (comp or {}).get("n", 0),
+            "micro_brier": (comp or {}).get("micro_brier"),
+            "candidate_brier": (comp or {}).get("candidate_brier"),
+            "market_brier": (comp or {}).get("market_brier"),
+            "delta_vs_candidate": (comp or {}).get("delta_vs_candidate"),
+            "delta_vs_market": (comp or {}).get("delta_vs_market"),
+        }
+        decisions.append(decision)
+        if decision["allowed"]:
+            allowed.append(taxonomy)
+        else:
+            blocked.append(decision)
+    return {
+        "schema_version": MICROSTRUCTURE_GATE_SCHEMA_VERSION,
+        "policy": "target_taxonomy_replay_allowlist",
+        "target_taxonomies": list(target_taxonomies),
+        "allowed_taxonomies": allowed,
+        "blocked_taxonomies": blocked,
+        "decisions": decisions,
+        "min_rows": int(min_rows),
+        "max_delta_vs_candidate": float(max_delta_vs_candidate),
+        "max_delta_vs_market": float(max_delta_vs_market),
+    }
+
+
+def apply_microstructure_gate(rows, gate, overlay_field="micro_candidate_p", output_field="micro_gated_candidate_p"):
+    allowed = set((gate or {}).get("allowed_taxonomies") or [])
+    counts = {
+        "overlay_rows": 0,
+        "base_rows": 0,
+        "missing_base_rows": 0,
+        "missing_overlay_rows": 0,
+        "allowed_taxonomies": sorted(allowed),
+    }
+    for row in rows:
+        row[output_field] = None
+        row["micro_gate_action"] = "none"
+        row["micro_gate_reason"] = "missing base candidate probability"
+        row["micro_gate_taxonomy"] = row.get("casebook_taxonomy")
+        base = row.get("candidate_p")
+        if not _valid_probability(base):
+            counts["missing_base_rows"] += 1
+            continue
+        taxonomy = row.get("casebook_taxonomy")
+        overlay = row.get(overlay_field)
+        if taxonomy in allowed and _valid_probability(overlay):
+            row[output_field] = _clamp_probability(overlay)
+            row["micro_gate_action"] = "overlay"
+            row["micro_gate_reason"] = f"allowed taxonomy: {taxonomy}"
+            counts["overlay_rows"] += 1
+            continue
+        row[output_field] = _clamp_probability(base)
+        row["micro_gate_action"] = "base"
+        if taxonomy in allowed:
+            row["micro_gate_reason"] = "allowed taxonomy but missing overlay probability"
+            counts["missing_overlay_rows"] += 1
+        elif taxonomy:
+            row["micro_gate_reason"] = f"blocked taxonomy: {taxonomy}"
+        else:
+            row["micro_gate_reason"] = "no casebook taxonomy"
+        counts["base_rows"] += 1
+    return counts
 
 
 def grouped_candidate_comparison(rows, group_key):
@@ -605,6 +730,350 @@ def apply_current_blend_guardrail(rows, config):
     return rows
 
 
+def probability_logit(value, epsilon=1e-6):
+    value = max(float(epsilon), min(1.0 - float(epsilon), float(value)))
+    return math.log(value / (1.0 - value))
+
+
+def cutoff_hour_bucket(value):
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        return "na"
+    if hour <= 8:
+        return "07-08"
+    if hour <= 13:
+        return "09-13"
+    if hour <= 16:
+        return "14-16"
+    return "17-20"
+
+
+def _micro_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def microstructure_feature_record(row):
+    """Build a no-outcome row for the CLOB shadow overlay."""
+    candidate = _micro_float(row.get("candidate_p"))
+    current = _micro_float(row.get("replayed_p"))
+    recorded = _micro_float(row.get("recorded_p"))
+    market = _micro_float(row.get("market_yes"))
+    output = {
+        "market_id": row.get("market_id") or "unknown",
+        "bin_type": row.get("bin_type") or row.get("bin_kind") or "eq",
+        "candidate_cutoff_hour": _micro_float(row.get("candidate_cutoff_hour")),
+        "candidate_cutoff_hour_bucket": cutoff_hour_bucket(row.get("candidate_cutoff_hour")),
+        "candidate_p": candidate,
+        "replayed_p": current,
+        "recorded_p": recorded,
+        "market_yes": market,
+        "candidate_logit": probability_logit(candidate) if candidate is not None else None,
+        "replayed_logit": probability_logit(current) if current is not None else None,
+        "market_logit": probability_logit(market) if market is not None else None,
+        "candidate_minus_market": candidate - market if candidate is not None and market is not None else None,
+        "candidate_minus_replayed": candidate - current if candidate is not None and current is not None else None,
+        "replayed_minus_market": current - market if current is not None and market is not None else None,
+        "abs_candidate_minus_market": abs(candidate - market) if candidate is not None and market is not None else None,
+    }
+    for column in CLOB_MODEL_FEATURE_COLUMNS:
+        output[column] = _micro_float(row.get(column))
+    return output
+
+
+def microstructure_feature_frame(records, feature_names=None):
+    frame = pd.DataFrame(records)
+    for column in MICROSTRUCTURE_NUMERIC_FEATURES:
+        if column not in frame:
+            frame[column] = None
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    for column in MICROSTRUCTURE_CATEGORICAL_FEATURES:
+        if column not in frame:
+            frame[column] = "unknown"
+        frame[column] = frame[column].fillna("unknown").astype(str)
+    features = pd.get_dummies(
+        frame[MICROSTRUCTURE_NUMERIC_FEATURES + MICROSTRUCTURE_CATEGORICAL_FEATURES],
+        columns=MICROSTRUCTURE_CATEGORICAL_FEATURES,
+        dtype=float,
+    )
+    if feature_names is not None:
+        features = features.reindex(columns=feature_names, fill_value=0.0)
+    return features
+
+
+def eligible_microstructure_rows(rows):
+    output = []
+    for idx, row in enumerate(rows):
+        if not _valid_probability(row.get("candidate_p")):
+            continue
+        if not _valid_probability(row.get("replayed_p")):
+            continue
+        if not _valid_probability(row.get("market_yes")):
+            continue
+        if row.get("outcome") is None:
+            continue
+        if _micro_float(row.get("clob_feature_available")) != 1.0:
+            continue
+        copy = dict(row)
+        copy["_micro_index"] = idx
+        output.append(copy)
+    return output
+
+
+def train_microstructure_model(rows, feature_names=None):
+    records = [microstructure_feature_record(row) for row in rows]
+    frame = microstructure_feature_frame(records, feature_names=feature_names)
+    feature_names = list(frame.columns)
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+    x_train = imputer.fit_transform(frame)
+    y_train = [int(row.get("outcome")) for row in rows]
+    model = HistGradientBoostingClassifier(
+        max_iter=70,
+        max_leaf_nodes=15,
+        learning_rate=0.05,
+        l2_regularization=0.05,
+        random_state=38,
+    )
+    model.fit(x_train, y_train)
+    return {
+        "model": model,
+        "imputer": imputer,
+        "feature_names": feature_names,
+        "classes": [int(value) for value in model.classes_],
+    }
+
+
+def predict_microstructure_model(bundle, rows):
+    if not rows:
+        return []
+    records = [microstructure_feature_record(row) for row in rows]
+    frame = microstructure_feature_frame(records, feature_names=bundle["feature_names"])
+    x_eval = bundle["imputer"].transform(frame)
+    probabilities = bundle["model"].predict_proba(x_eval)
+    classes = [int(value) for value in bundle["classes"]]
+    if 1 not in classes:
+        return [1.0 if classes and classes[0] == 1 else 0.0 for _ in rows]
+    idx = classes.index(1)
+    return [_clamp_probability(float(row[idx])) for row in probabilities]
+
+
+def _micro_group_key(row):
+    return row.get("target_date") or f"{row.get('market_id')}:{row.get('snapshot_id')}"
+
+
+def out_of_fold_microstructure_predictions(rows, min_train_rows=500):
+    """Score CLOB rows out of fold, grouped by target date to avoid same-day leakage."""
+    for row in rows:
+        row["micro_candidate_p"] = None
+    eligible = eligible_microstructure_rows(rows)
+    diagnostics = {
+        "eligible_rows": len(eligible),
+        "predicted_rows": 0,
+        "fold_count": 0,
+        "skipped_folds": [],
+        "min_train_rows": int(min_train_rows),
+    }
+    grouped = defaultdict(list)
+    for row in eligible:
+        grouped[_micro_group_key(row)].append(row)
+    if len(grouped) < 2:
+        diagnostics["skipped_folds"].append({
+            "group": "all",
+            "reason": "fewer than two target-date groups with CLOB rows",
+        })
+        return diagnostics
+
+    for group, eval_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
+        train_rows = [
+            row
+            for key, items in grouped.items()
+            if key != group
+            for row in items
+        ]
+        labels = {int(row.get("outcome")) for row in train_rows if row.get("outcome") is not None}
+        if len(train_rows) < int(min_train_rows) or labels != {0, 1}:
+            diagnostics["skipped_folds"].append({
+                "group": group,
+                "train_rows": len(train_rows),
+                "reason": "insufficient rows or one-class training fold",
+            })
+            continue
+        bundle = train_microstructure_model(train_rows)
+        probabilities = predict_microstructure_model(bundle, eval_rows)
+        diagnostics["fold_count"] += 1
+        diagnostics["predicted_rows"] += len(probabilities)
+        for eval_row, probability in zip(eval_rows, probabilities):
+            rows[eval_row["_micro_index"]]["micro_candidate_p"] = probability
+    return diagnostics
+
+
+def final_microstructure_artifact(rows, metadata=None, min_train_rows=500):
+    eligible = eligible_microstructure_rows(rows)
+    labels = {int(row.get("outcome")) for row in eligible if row.get("outcome") is not None}
+    if len(eligible) < int(min_train_rows) or labels != {0, 1}:
+        return None
+    bundle = train_microstructure_model(eligible)
+    return {
+        "schema_version": MICROSTRUCTURE_SCHEMA_VERSION,
+        "trained_at": datetime.now().isoformat(),
+        "family_unit": "F",
+        "prediction_mode": "band_binary_microstructure_overlay",
+        "objective": "out_of_fold_clob_overlay_brier",
+        "gate": (metadata or {}).get("gate"),
+        "feature_names": bundle["feature_names"],
+        "numeric_features": MICROSTRUCTURE_NUMERIC_FEATURES,
+        "categorical_features": MICROSTRUCTURE_CATEGORICAL_FEATURES,
+        "classes": bundle["classes"],
+        "train_rows": len(eligible),
+        "model": bundle["model"],
+        "imputer": bundle["imputer"],
+        "metadata": metadata or {},
+    }
+
+
+def write_microstructure_artifact(path, artifact):
+    if artifact is None or not path:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        pickle.dump(artifact, handle)
+    return str(path)
+
+
+def row_band_key_text(row):
+    kind, value, value_hi = snapshot_band_key(row)
+    if value is None:
+        return f"{kind}:?"
+    if value_hi is not None and value_hi != value:
+        return f"{kind}:{value:g}-{value_hi:g}"
+    return f"{kind}:{value:g}"
+
+
+def load_casebook_index(path):
+    path = Path(path)
+    if not path.exists():
+        return {}, {"path": str(path), "exists": False, "cases": 0, "refs": 0}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    index = {}
+    for case in payload.get("cases") or []:
+        market_id = case.get("market_id")
+        band_key = case.get("band_key_text") or case.get("band_key")
+        if not market_id or not band_key:
+            continue
+        snapshot_ids = case.get("snapshot_ids") or [case.get("peak_snapshot_id")]
+        for snapshot_id in snapshot_ids:
+            if not snapshot_id:
+                continue
+            key = (market_id, str(snapshot_id), band_key)
+            existing = index.get(key)
+            if existing and (existing.get("peak_abs_edge") or 0.0) >= (case.get("peak_abs_edge") or 0.0):
+                continue
+            index[key] = {
+                "case_id": case.get("case_id"),
+                "taxonomy": case.get("taxonomy"),
+                "model_result": case.get("model_result"),
+                "slice_type": (
+                    "known_edge_candidate"
+                    if case.get("model_result") == "model_win"
+                    else "model_losing_family"
+                    if case.get("model_result") == "model_loss"
+                    else "open_or_mixed"
+                ),
+                "peak_abs_edge": case.get("peak_abs_edge"),
+            }
+    return index, {"path": str(path), "exists": True, "cases": len(payload.get("cases") or []), "refs": len(index)}
+
+
+def annotate_casebook_rows(rows, casebook_index):
+    matched = 0
+    for row in rows:
+        key = (row.get("market_id"), str(row.get("snapshot_id")), row_band_key_text(row))
+        case = casebook_index.get(key)
+        if not case:
+            row["casebook_taxonomy"] = None
+            row["casebook_case_id"] = None
+            row["casebook_result"] = None
+            row["casebook_slice_type"] = None
+            continue
+        matched += 1
+        row["casebook_taxonomy"] = case.get("taxonomy")
+        row["casebook_case_id"] = case.get("case_id")
+        row["casebook_result"] = case.get("model_result")
+        row["casebook_slice_type"] = case.get("slice_type")
+    return matched
+
+
+def microstructure_shadow_report(rows, casebook_path=None, artifact_path=None, min_train_rows=500):
+    casebook_index, casebook_diagnostics = load_casebook_index(casebook_path or DEFAULT_CASEBOOK)
+    matched = annotate_casebook_rows(rows, casebook_index)
+    diagnostics = out_of_fold_microstructure_predictions(rows, min_train_rows=min_train_rows)
+    aggregate = microstructure_comparison(rows)
+    by_market = grouped_microstructure_comparison(rows, "market_id")
+    by_hour = grouped_microstructure_comparison(rows, "candidate_cutoff_hour")
+    by_taxonomy = grouped_microstructure_comparison(rows, "casebook_taxonomy")
+    target_slices = [
+        row for row in by_taxonomy
+        if row.get("group") in MICROSTRUCTURE_TARGET_TAXONOMIES
+    ]
+    gate = build_microstructure_gate(target_slices)
+    gate_counts = apply_microstructure_gate(rows, gate)
+    gated = {
+        "gate": gate,
+        "counts": gate_counts,
+        "aggregate": microstructure_comparison(rows, probability_field="micro_gated_candidate_p"),
+        "by_market": grouped_microstructure_comparison(rows, "market_id", probability_field="micro_gated_candidate_p"),
+        "by_hour": grouped_microstructure_comparison(rows, "candidate_cutoff_hour", probability_field="micro_gated_candidate_p"),
+        "by_taxonomy": grouped_microstructure_comparison(rows, "casebook_taxonomy", probability_field="micro_gated_candidate_p"),
+    }
+    gated["target_slices"] = [
+        row for row in gated["by_taxonomy"]
+        if row.get("group") in MICROSTRUCTURE_TARGET_TAXONOMIES
+    ]
+    artifact = final_microstructure_artifact(
+        rows,
+        metadata={
+            "casebook": casebook_diagnostics,
+            "aggregate": aggregate,
+            "target_slices": target_slices,
+            "gate": gate,
+            "gated": {
+                "aggregate": gated["aggregate"],
+                "target_slices": gated["target_slices"],
+                "counts": gate_counts,
+            },
+            "oof": diagnostics,
+        },
+        min_train_rows=min_train_rows,
+    )
+    written_artifact = write_microstructure_artifact(artifact_path, artifact)
+    diagnostics["casebook_matched_rows"] = matched
+    diagnostics["casebook"] = casebook_diagnostics
+    diagnostics["artifact_path"] = written_artifact
+    diagnostics["artifact_train_rows"] = (artifact or {}).get("train_rows")
+    diagnostics["gated_overlay_rows"] = gate_counts["overlay_rows"]
+    diagnostics["gated_base_rows"] = gate_counts["base_rows"]
+    return {
+        "schema_version": MICROSTRUCTURE_SCHEMA_VERSION,
+        "enabled": True,
+        "target_taxonomies": list(MICROSTRUCTURE_TARGET_TAXONOMIES),
+        "gate": gate,
+        "diagnostics": diagnostics,
+        "aggregate": aggregate,
+        "gated": gated,
+        "by_market": by_market,
+        "by_hour": by_hour,
+        "by_taxonomy": by_taxonomy,
+        "target_slices": target_slices,
+    }
+
+
 def market_verdict(comp, day_count, trust, current_tol, market_tol, min_days, min_trust):
     if not comp:
         return "BLOCK", ["no candidate rows scored"]
@@ -812,6 +1281,14 @@ def run_pooled_candidate_replay(args):
     by_hour = grouped_candidate_comparison(candidate_rows, "candidate_cutoff_hour")
     by_bin_type = grouped_candidate_comparison(candidate_rows, "bin_type")
     by_settlement_distance = grouped_candidate_comparison(candidate_rows, "settlement_distance_bucket")
+    microstructure = None
+    if not getattr(args, "skip_microstructure_overlay", False):
+        microstructure = microstructure_shadow_report(
+            candidate_rows,
+            casebook_path=getattr(args, "casebook", DEFAULT_CASEBOOK),
+            artifact_path=getattr(args, "microstructure_artifact", DEFAULT_MICROSTRUCTURE_ARTIFACT),
+            min_train_rows=getattr(args, "microstructure_min_train_rows", 500),
+        )
     market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
     verdict = market_verdict if replay_gate["global_ok"] else "BLOCK"
     postprocess = artifact.get("postprocess") or {}
@@ -848,6 +1325,7 @@ def run_pooled_candidate_replay(args):
         "by_hour": by_hour,
         "by_bin_type": by_bin_type,
         "by_settlement_distance": by_settlement_distance,
+        "microstructure": microstructure,
         "replay_summary": {
             "snaps_scored": replay_results.get("snaps_scored"),
             "total_rows": replay_results.get("total_rows"),
@@ -904,6 +1382,79 @@ def _group_table_rows(items):
         ]
         for item in items
     ]
+
+
+def _microstructure_summary_rows(microstructure):
+    if not microstructure:
+        return []
+    rows = []
+    for label, comp in [
+        ("Raw OOF CLOB overlay rows", microstructure.get("aggregate") or {}),
+        ("Taxonomy-gated overlay rows", (microstructure.get("gated") or {}).get("aggregate") or {}),
+    ]:
+        if not comp:
+            continue
+        rows.append([
+            label,
+            comp.get("n", 0),
+            fmt_num(comp.get("micro_brier")),
+            fmt_num(comp.get("candidate_brier")),
+            fmt_num(comp.get("current_brier")),
+            fmt_num(comp.get("market_brier")),
+            _fmt_delta(comp.get("delta_vs_candidate")),
+            _fmt_delta(comp.get("delta_vs_current")),
+            _fmt_delta(comp.get("delta_vs_market")),
+            fmt_signed(comp.get("micro_skill"), 3),
+            fmt_pct(comp.get("base_rate")),
+        ])
+    return rows
+
+
+def _microstructure_group_rows(items):
+    return [
+        [
+            str(item.get("group")) if item.get("group") not in (None, "") else "-",
+            item.get("n", 0),
+            fmt_num(item.get("micro_brier")),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            _fmt_delta(item.get("delta_vs_candidate")),
+            _fmt_delta(item.get("delta_vs_current")),
+            _fmt_delta(item.get("delta_vs_market")),
+            fmt_signed(item.get("micro_skill"), 3),
+            fmt_pct(item.get("base_rate")),
+        ]
+        for item in items
+    ]
+
+
+def _microstructure_slice_markdown(title, items):
+    lines = ["", f"### {title}", ""]
+    lines += markdown_table(
+        ["Group", "Rows", "Micro Brier", "Base Candidate Brier", "Current Brier",
+         "Market Brier", "Delta vs Base", "Delta vs Current", "Delta vs Market",
+         "Micro Skill", "Base Rate"],
+        _microstructure_group_rows(items),
+    )
+    return lines
+
+
+def _microstructure_gate_rows(gate):
+    rows = []
+    for decision in (gate or {}).get("decisions") or []:
+        rows.append([
+            decision.get("taxonomy") or "-",
+            "ALLOW" if decision.get("allowed") else "BASE",
+            decision.get("rows", 0),
+            fmt_num(decision.get("micro_brier")),
+            fmt_num(decision.get("candidate_brier")),
+            fmt_num(decision.get("market_brier")),
+            _fmt_delta(decision.get("delta_vs_candidate")),
+            _fmt_delta(decision.get("delta_vs_market")),
+            decision.get("reason") or "-",
+        ])
+    return rows
 
 
 def _market_list(rows, verdict):
@@ -1022,6 +1573,63 @@ def write_report(report, out_path):
          "Delta vs Market", "Candidate Skill", "Base Rate"],
         _comparison_summary_rows(report),
     )
+    microstructure = report.get("microstructure")
+    if microstructure:
+        micro_diag = microstructure.get("diagnostics") or {}
+        casebook = micro_diag.get("casebook") or {}
+        lines += [
+            "",
+            "## Microstructure Shadow Overlay",
+            "",
+            "This is a non-serving, out-of-fold CLOB overlay scored behind the",
+            "promotion gauntlet. Base candidate promotion decisions above are",
+            "unchanged; this section only measures whether book features add",
+            "settlement-scored value on the pinned rows and casebook slices.",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Schema", microstructure.get("schema_version") or "-"],
+                ["Eligible CLOB rows", micro_diag.get("eligible_rows", 0)],
+                ["OOF predicted rows", micro_diag.get("predicted_rows", 0)],
+                ["OOF folds", micro_diag.get("fold_count", 0)],
+                ["Skipped folds", len(micro_diag.get("skipped_folds") or [])],
+                ["Casebook", casebook.get("path") or "-"],
+                ["Casebook refs", casebook.get("refs", 0)],
+                ["Casebook-matched rows", micro_diag.get("casebook_matched_rows", 0)],
+                ["Gate allowed taxonomies", ", ".join((microstructure.get("gate") or {}).get("allowed_taxonomies") or []) or "-"],
+                ["Gated overlay rows", micro_diag.get("gated_overlay_rows", 0)],
+                ["Gated base-fallback rows", micro_diag.get("gated_base_rows", 0)],
+                ["Artifact", micro_diag.get("artifact_path") or "-"],
+                ["Artifact train rows", micro_diag.get("artifact_train_rows") or 0],
+            ],
+        )
+        lines += ["", "### Aggregate", ""]
+        lines += markdown_table(
+            ["Scope", "Rows", "Micro Brier", "Base Candidate Brier", "Current Brier",
+            "Market Brier", "Delta vs Base", "Delta vs Current", "Delta vs Market",
+             "Micro Skill", "Base Rate"],
+            _microstructure_summary_rows(microstructure),
+        )
+        lines += ["", "### Taxonomy Gate", ""]
+        lines += markdown_table(
+            ["Taxonomy", "Action", "Rows", "Micro Brier", "Base Brier",
+             "Market Brier", "Delta Base", "Delta Market", "Reason"],
+            _microstructure_gate_rows(microstructure.get("gate") or {}),
+        )
+        lines += _microstructure_slice_markdown(
+            "Raw Target Casebook Slices",
+            microstructure.get("target_slices") or [],
+        )
+        lines += _microstructure_slice_markdown(
+            "Gated Target Casebook Slices",
+            ((microstructure.get("gated") or {}).get("target_slices")) or [],
+        )
+        lines += _microstructure_slice_markdown(
+            "By Casebook Taxonomy",
+            microstructure.get("by_taxonomy") or [],
+        )
     lines += [
         "",
         "## Per-Market Action",
@@ -1084,6 +1692,14 @@ def main():
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
+    parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK),
+                        help="Disagreement casebook JSON used to score Item 38 target slices.")
+    parser.add_argument("--microstructure-artifact", default=str(DEFAULT_MICROSTRUCTURE_ARTIFACT),
+                        help="Shadow CLOB overlay artifact path. Empty string disables artifact writing.")
+    parser.add_argument("--microstructure-min-train-rows", type=int, default=500,
+                        help="Minimum rows required for each out-of-fold CLOB overlay train fold.")
+    parser.add_argument("--skip-microstructure-overlay", action="store_true",
+                        help="Disable the non-serving Item 38 CLOB overlay score.")
     parser.add_argument("--require-exact-identity", action="store_true",
                         help="Fail the candidate promotion gate if the corpus has no exact replay-identity canary rows.")
     parser.add_argument("--require-all-markets", action="store_true")
@@ -1094,6 +1710,8 @@ def main():
         args.replay_report = None
     if args.json_out == "":
         args.json_out = None
+    if args.microstructure_artifact == "":
+        args.microstructure_artifact = None
 
     report = run_pooled_candidate_replay(args)
     print(f"Pooled candidate replay: {report['verdict']} ({report['cutover_decision']})")
