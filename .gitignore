@@ -16,6 +16,8 @@ env/
 data/
 
 # --- Runtime / transient state (not source of truth) ---
+*.log
+scratch/
 data/wunderground/*/last_good_sources.json
 data/snapshots/loop_pause.flag
 **/.snapshot.lock
@@ -30,4 +32,3 @@ data/snapshots/**/replay_inputs_reconstructed.jsonl
 Thumbs.db
 .idea/
 .vscode/
-data/snapshots/loop_console.log

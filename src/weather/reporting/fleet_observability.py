@@ -28,6 +28,8 @@ from market_microstructure import (  # noqa: E402
     read_clob_loop_status,
 )
 from market_registry import all_specs  # noqa: E402
+from weather.artifacts import resolve_artifact_path  # noqa: E402
+from weather.paths import relative_to_repo  # noqa: E402
 
 
 SCHEMA_VERSION = "fleet_observability_v0.1"
@@ -92,13 +94,9 @@ def _artifact_payload(path):
 
 def artifact_metadata(path, kind=None):
     path = Path(path)
-    try:
-        rel = path.relative_to(SRC_ROOT.parent).as_posix()
-    except ValueError:
-        rel = path.as_posix()
     row = {
         "kind": kind or path.stem,
-        "path": rel,
+        "path": relative_to_repo(path),
         "exists": path.exists(),
         "size": None,
         "sha256": None,
@@ -140,7 +138,7 @@ def artifact_inventory():
         market_rows = {}
         for kind, template in MARKET_ARTIFACT_TEMPLATES.items():
             market_rows[kind] = artifact_metadata(
-                SRC_ROOT / template.format(suffix=spec.artifact_suffix),
+                resolve_artifact_path(template.format(suffix=spec.artifact_suffix)),
                 kind=kind,
             )
         markets[spec.id] = {
@@ -149,7 +147,7 @@ def artifact_inventory():
             "artifacts": market_rows,
         }
     family = {
-        kind: artifact_metadata(SRC_ROOT / filename, kind=kind)
+        kind: artifact_metadata(resolve_artifact_path(filename), kind=kind)
         for kind, filename in FAMILY_ARTIFACTS.items()
     }
     return {

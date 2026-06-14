@@ -17,8 +17,9 @@ python -m venv venv
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-`scikit-learn` is pinned exactly because `src/feature_model_hgb.pkl` is a
-pickled model and will not unpickle across versions.
+`scikit-learn` is pinned exactly because the tracked HGB artifacts under
+`artifacts/models/hgb/` are pickled sklearn models and will not unpickle across
+versions.
 
 ## Run the dashboard
 
@@ -125,6 +126,19 @@ separate fast book loop, writes `clob_loop_status.json` and
 `clob_diagnostics.jsonl`, and keeps missing order-book history from becoming a
 silent data-loss event.
 
+For the operator dashboard, use the clickable launcher:
+
+```powershell
+.\scripts\start_weather_dashboard.cmd
+```
+
+It starts Streamlit if needed and opens `http://localhost:8501/?market=ops`.
+The `Operations` page can start/repair, restart, stop, pause, and resume both
+loops; it also compares each loop's running `runtime_identity` against the
+current checkout so stale code is visible before it becomes a data-quality
+surprise. The durable design is documented in
+[docs/operations/OPERATIONS_DESIGN.md](docs/operations/OPERATIONS_DESIGN.md).
+
 ## Data layout
 
 ```text
@@ -145,10 +159,27 @@ data/
     market_ws.jsonl
 ```
 
-Raw provider payloads (`data/**/raw/`) are regenerable and git-ignored; the
-normalized `hourly/` and `daily/` artifacts are tracked.
+`data/` is local runtime/cache/output state and is git-ignored. Durable model
+artifacts are tracked under `artifacts/`; small deterministic smoke fixtures
+live under `tests/fixtures/`.
+
+## Source layout
+
+```text
+app/                 # Streamlit application implementation
+src/weather/         # Packaged source code
+artifacts/           # Tracked model and calibration artifacts
+tools/               # Reusable local helpers and research scripts
+scripts/             # Launch and supervisor wrappers
+docs/                # Operations, research, and roadmap docs
+tests/fixtures/      # Small deterministic fixture data
+```
+
+Historical imports and commands such as `python -m src.snapshot_tracker` still
+work through compatibility wrappers in `src/`.
 
 ## Documentation
 
-- [ROADMAP.md](ROADMAP.md) — feature roadmap and audit history.
-- [HISTORY_DATA_DESIGN.md](HISTORY_DATA_DESIGN.md) — the Wunderground history data layer.
+- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - feature roadmap and audit history.
+- [docs/operations/HISTORY_DATA_DESIGN.md](docs/operations/HISTORY_DATA_DESIGN.md) - the Wunderground history data layer.
+- [docs/roadmap/codebase-organization-audit.md](docs/roadmap/codebase-organization-audit.md) - file and folder organization audit.

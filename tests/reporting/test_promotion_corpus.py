@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
 from promotion_gauntlet import _overall_verdict, run_promotion_gauntlet
 from replay_backtest import run_replay_backtest
-from test_replay import SLUG, _build_corpus_day
+from tests.backtesting.test_replay import SLUG, _build_corpus_day
 
 
 def _write_label(folder, bucket=25):

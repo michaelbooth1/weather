@@ -3,7 +3,7 @@ Full model audit: run all markets, compare model output to market prices.
 Correctly uses local timezone for each market.
 """
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src')))
 
 from datetime import datetime, timezone
 from toronto_model import TorontoHighTempModel

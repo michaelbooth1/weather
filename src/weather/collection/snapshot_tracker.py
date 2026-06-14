@@ -593,7 +593,8 @@ PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+from weather.paths import REPO_ROOT  # noqa: E402
 
 
 def read_loop_status():

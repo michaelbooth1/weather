@@ -15,16 +15,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 IDENTITY_SCHEMA_VERSION = "runtime_identity_v0.1"
 SOURCE_PATTERNS = (
     "app.py",
+    "app/**/*.py",
     "requirements.txt",
     "src/**/*.py",
-    "scripts/*.ps1",
+    "scripts/**/*.ps1",
+    "tools/**/*",
 )
-GIT_STATUS_PATHS = ("app.py", "requirements.txt", "src", "scripts")
+GIT_STATUS_PATHS = ("app.py", "app", "requirements.txt", "src", "scripts", "tools")
 
 
 def utc_now_iso():
@@ -42,14 +44,16 @@ def _run_git(args, repo_root):
             cwd=str(repo_root),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             creationflags=_creationflags(),
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, TypeError, subprocess.SubprocessError):
         return ""
     if result.returncode != 0:
         return ""
-    return result.stdout.strip()
+    return result.stdout.strip() if isinstance(result.stdout, str) else ""
 
 
 def _source_files(repo_root):

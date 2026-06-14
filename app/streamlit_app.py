@@ -1,4 +1,3 @@
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -6,9 +5,8 @@ from pathlib import Path
 import streamlit as st
 
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src"))
-)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from polymarket_client import (  # noqa: E402
     PolymarketClient,
@@ -25,7 +23,7 @@ LIVE_CACHE_TTL_SECONDS = 55
 
 st.set_page_config(page_title="Weather Markets", layout="wide")
 
-_MARKET_LABELS = {"Overview": "overview"}
+_MARKET_LABELS = {"Overview": "overview", "Operations": "ops"}
 _MARKET_LABELS.update({spec.city_label: spec.id for spec in all_specs()})
 
 # Allow query params to dictate default selection
@@ -45,70 +43,15 @@ MARKET_ID = _MARKET_LABELS[_selected_label]
 # Update query param so the URL reflects the choice
 st.query_params["market"] = MARKET_ID
 
+if MARKET_ID == "ops":
+    from app.views.operations import render_operations_page
+
+    render_operations_page()
+
 if MARKET_ID == "overview":
-    from overview_helpers import (
-        compute_biggest_edges,
-        check_snapshot_status,
-        format_edge_table,
-        format_status_table,
-    )
+    from app.views.overview import render_overview_page
 
-    @st.fragment(run_every=f"{LIVE_REFRESH_SECONDS}s")
-    def render_overview():
-        st.markdown("""
-        <style>
-        .gradient-header {
-            background: linear-gradient(90deg, #ff7e5f, #feb47b);
-            -webkit-background-clip: text;
-            color: transparent;
-            font-size: 2.4rem;
-            font-weight: bold;
-        }
-        .section-title {
-            border-bottom: 2px solid #444;
-            padding-bottom: 5px;
-            margin-bottom: 15px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.markdown('<div class="gradient-header">🗺️ Market Overview</div>', unsafe_allow_html=True)
-        st.caption("High-level view of all active markets, biggest model edges, and data-capture health.")
-        
-        # 1. Biggest Edges
-        st.markdown('<div class="section-title">🏆 Biggest Edges (Top 10)</div>', unsafe_allow_html=True)
-        edges = compute_biggest_edges(n=10)
-        df_edges = format_edge_table(edges)
-        
-        if not df_edges.empty:
-            # Create the link target column
-            df_edges["Action"] = df_edges["market_id"].apply(lambda m: f"/?market={m}")
-            
-            # Use column configuration to render links
-            st.dataframe(
-                df_edges[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Action"]],
-                width='stretch',
-                hide_index=True,
-                column_config={
-                    "Action": st.column_config.LinkColumn(
-                        "Action",
-                        display_text="Open Market"
-                    )
-                }
-            )
-        else:
-            st.info("No active edge data found. Ensure snapshot loops are running.")
-            
-        # 2. Capture-Tape Health
-        st.markdown('<div class="section-title">📊 Capture-Tape Health</div>', unsafe_allow_html=True)
-        status = check_snapshot_status()
-        df_status = format_status_table(status)
-        st.dataframe(df_status, width='stretch', hide_index=True)
-
-    render_overview()
-    st.stop()
+    render_overview_page(LIVE_REFRESH_SECONDS)
 
 SPEC = spec_for_id(MARKET_ID)
 

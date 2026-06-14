@@ -2,8 +2,8 @@ import json
 import math
 import statistics
 from collections import Counter
-from pathlib import Path
 
+from weather.artifacts import resolve_artifact_path
 from feature_store import (
     FEATURE_SCHEMA_VERSION,
     build_live_feature_record,
@@ -21,7 +21,7 @@ class FeatureModelMixin:
         return self._feature_model_hgb
 
     def _read_feature_model_hgb(self):
-        path = Path(__file__).parent / f"feature_model_hgb{self.spec.artifact_suffix}.pkl"
+        path = resolve_artifact_path(f"feature_model_hgb{self.spec.artifact_suffix}.pkl")
         if path.exists():
             try:
                 import pickle
@@ -37,7 +37,7 @@ class FeatureModelMixin:
         return self._feature_model_coefs
 
     def _read_feature_model_coefs(self):
-        path = Path(__file__).parent / f"feature_model_coefs{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"feature_model_coefs{self.spec.artifact_suffix}.json")
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:
@@ -608,7 +608,7 @@ class FeatureModelMixin:
         return self._late_day_model_coefs
 
     def _read_late_day_model_coefs(self):
-        path = Path(__file__).parent / f"late_day_model_coefs{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"late_day_model_coefs{self.spec.artifact_suffix}.json")
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:

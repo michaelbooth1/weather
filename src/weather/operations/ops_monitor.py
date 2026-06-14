@@ -48,6 +48,18 @@ def _code_state(runtime_identity, current_identity):
     return "different"
 
 
+def _format_age(value, unit):
+    if value is None:
+        return "-"
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if unit == "seconds":
+        return f"{value:.0f}s"
+    return f"{value:.1f}m"
+
+
 def _loop_row(
     name,
     health,
@@ -58,12 +70,22 @@ def _loop_row(
     console_log_path,
 ):
     runtime_identity = (status or {}).get("runtime_identity")
+    heartbeat = (
+        _format_age(health.get("heartbeat_age_min"), "minutes")
+        if "heartbeat_age_min" in health
+        else _format_age(health.get("heartbeat_age_seconds"), "seconds")
+    )
+    capture = (
+        _format_age(health.get("last_snapshot_age_min"), "minutes")
+        if "last_snapshot_age_min" in health
+        else _format_age(health.get("last_books_age_seconds"), "seconds")
+    )
     return {
         "Loop": name,
         "State": health.get("state"),
         "PID": health.get("pid"),
-        "Heartbeat Age": health.get("heartbeat_age_min", health.get("heartbeat_age_seconds")),
-        "Last Capture Age": health.get("last_snapshot_age_min", health.get("last_books_age_seconds")),
+        "Heartbeat": heartbeat,
+        "Last Capture": capture,
         "Errors": health.get("consecutive_errors"),
         "Paused": bool((status or {}).get("paused")),
         "Mode": health.get("last_mode") or "-",
@@ -196,16 +218,30 @@ def scheduled_task_status(task_name):
             "Next Run": None,
             "Result": None,
         }
-    script = (
-        f"$task = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue; "
-        "if ($null -eq $task) { "
-        f"[pscustomobject]@{{ Task='{task_name}'; Registered=$false; State='missing'; LastRun=$null; NextRun=$null; Result=$null }} "
-        "} else { "
-        "$info = Get-ScheduledTaskInfo -TaskName $task.TaskName; "
-        "[pscustomobject]@{ Task=$task.TaskName; Registered=$true; State=[string]$task.State; "
-        "LastRun=[string]$info.LastRunTime; NextRun=[string]$info.NextRunTime; Result=$info.LastTaskResult } "
-        "} | ConvertTo-Json -Compress"
-    )
+    script = f"""
+$task = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue
+if ($null -eq $task) {{
+    $row = [pscustomobject]@{{
+        Task = '{task_name}'
+        Registered = $false
+        State = 'missing'
+        LastRun = $null
+        NextRun = $null
+        Result = $null
+    }}
+}} else {{
+    $info = Get-ScheduledTaskInfo -TaskName $task.TaskName
+    $row = [pscustomobject]@{{
+        Task = $task.TaskName
+        Registered = $true
+        State = [string]$task.State
+        LastRun = [string]$info.LastRunTime
+        NextRun = [string]$info.NextRunTime
+        Result = $info.LastTaskResult
+    }}
+}}
+$row | ConvertTo-Json -Compress
+"""
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", script],

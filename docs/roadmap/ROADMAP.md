@@ -31,9 +31,23 @@ sample remains useful as provisional research, but two of those tapes are now
 partial. The correct roadmap posture is clear: we need more clean settled
 market days before claiming the model beats Polymarket.
 
+Audit refresh (2026-06-14 UTC): the settlement ledger had fallen behind the
+available snapshot folders. `src.settled_days.discover_settled_folders` saw 93
+eligible settled folders while `market_day_labels.csv` still held 69 rows. A
+fresh `src.market_day_labels finalize` reconciled all 93 with Polymarket
+(`match=93`) and raised clean labels from 15 to 27 (`complete=27`,
+`partial=66`). The missed days were not absent from capture; they were June 11
+and June 12 tapes that had not yet been finalized into the ledger/promotion
+corpus. Promotion evidence therefore improved immediately after refresh:
+the F-family corpus doubled from 12 to 24 market-days, all 11 F markets now
+have at least two clean days and trust above the minimum day gate, and the
+pooled v0.3 candidate now promotes Atlanta and Austin while keeping the other
+nine F markets in shadow. The north-star claim is still unproven because the
+aggregate candidate Brier remains behind market Brier.
+
 ### Current Work That Needed Roadmap Reconciliation
 
-- `AGENT_CONTEXT.md` now exists at the repo root and captures the current
+- `docs/operations/AGENT_CONTEXT.md` captures the current
   mission, architecture, settlement hierarchy, commands, risks, and best next
   work.
 - The test suite is much larger than the 2026-05-28 audit stated. Current
@@ -173,7 +187,7 @@ Detailed design (implemented 2026-05-28):
 - Use a non-leaky historical cap proxy during calibration until the forecast
   archive has enough multi-day history; map the learned cap weight onto the
   live Weather.com/Open-Meteo/ECCC forecast cap in production.
-- Write `src/calibrated_weights.json` with metadata, raw and normalized
+- Write `artifacts/calibration/calibrated_weights.json` with metadata, raw and normalized
   weights, component availability, optimizer status, and metrics.
 - Write `data/wunderground/cyyz/analysis/calibration_report.md` with the
   design, exact-bucket metrics, market-bin metrics, learned weights, and
@@ -182,7 +196,7 @@ Detailed design (implemented 2026-05-28):
 Codex implementation status (2026-05-28): passes for the expanded item-2
 scope. `src/intraday_calibration.py` now calibrates all six empirical
 components, writes exact-bucket and market-bin metrics, and regenerated
-`src/calibrated_weights.json` plus
+`artifacts/calibration/calibrated_weights.json` plus
 `data/wunderground/cyyz/analysis/calibration_report.md`. `src/toronto_model.py`
 now consumes the new component-weight schema for the empirical fallback while
 preserving compatibility with the previous flat weight file.
@@ -802,7 +816,7 @@ Validation results:
 - `.\venv\Scripts\python.exe -m pytest -q`: 113 passed.
 - `.\venv\Scripts\python.exe -m compileall src tests`: passed.
 - `.\venv\Scripts\python.exe -m src.probability_calibration train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
-  `src/probability_calibration.json` and
+  `artifacts/calibration/probability_calibration.json` and
   `data/backtest/probability_calibration_report.md`.
 - Settled-tape leave-one-day validation selected deployable `prior_shrink`
   with weight `0.6`: Brier improved from 0.0954 to 0.0775, log loss improved
@@ -840,7 +854,7 @@ the current forecast-cap/floor heuristics in item 20.
 
 Codex implementation status (2026-05-31): complete for the first item-22
 artifact-backed forecast component. `src/forecast_error_model.py` now trains
-`src/forecast_error_model.json` and
+`artifacts/calibration/forecast_error_model.json` and
 `data/backtest/forecast_error_report.md` from the historical Open-Meteo daily
 forecast archive plus settled snapshot forecast tapes. It learns source-level
 observed-minus-forecast bias, MAE/RMSE, within-1 C rate, and >=2 C tail miss
@@ -858,7 +872,7 @@ Validation results:
 
 - `.\venv\Scripts\python.exe -m pytest tests\test_forecast_error_model.py tests\test_estimate_distribution.py tests\test_intraday_calibration.py -q`: 35 passed.
 - `.\venv\Scripts\python.exe -m src.forecast_error_model train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
-  `src/forecast_error_model.json` and
+  `artifacts/calibration/forecast_error_model.json` and
   `data/backtest/forecast_error_report.md`.
 - Forecast-component artifact replay improved exact-bucket Brier from 0.7433
   for the prior cap proxy to 0.6387, and log loss from 1.7935 to 1.2643 over
@@ -895,7 +909,7 @@ Acceptance: non-resolution live observations improve late-day settlement
 probabilities without repeating the v0.4.8 hard-floor bug.
 
 Codex implementation status (2026-05-31): complete for the item-23 scope.
-`src/settlement_lag_model.py` now trains `src/settlement_lag_model.json` and
+`src/settlement_lag_model.py` now trains `artifacts/calibration/settlement_lag_model.json` and
 `data/backtest/settlement_lag_report.md` from historical METAR/WU hourly rows
 plus settled snapshot tapes containing SWOB and Weather.com current highs. The
 artifact learns catch-up rates by source, cutoff hour, and source-minus-WU
@@ -909,7 +923,7 @@ Validation results:
 
 - `.\venv\Scripts\python.exe -m pytest tests\test_settlement_lag_model.py tests\test_live_floor.py tests\test_estimate_distribution.py -q`: 19 passed.
 - `.\venv\Scripts\python.exe -m src.settlement_lag_model train data\snapshots\highest-temperature-in-toronto-on-may-27-2026 data\snapshots\highest-temperature-in-toronto-on-may-28-2026 data\snapshots\highest-temperature-in-toronto-on-may-30-2026`: wrote
-  `src/settlement_lag_model.json` and
+  `artifacts/calibration/settlement_lag_model.json` and
   `data/backtest/settlement_lag_report.md`.
 - Training produced 9045 lag/revision rows: 369 non-resolution lead rows and
   8676 WU revision rows. Global catch-up was 63.7%; source-level rates were
@@ -974,8 +988,8 @@ Validation results:
 - `.\venv\Scripts\python.exe -m pytest tests\test_backtest.py tests\test_feature_store.py -q`: 28 passed.
 - `.\venv\Scripts\python.exe -m pytest tests\test_feature_model_ablation.py tests\test_feature_store.py -q`: 8 passed.
 - `.\venv\Scripts\python.exe src\feature_model.py`: regenerated
-  `src/feature_model_coefs.json`, `src/feature_model_hgb.pkl`,
-  `src/late_day_model_coefs.json`, and
+  `artifacts/models/coefs/feature_model_coefs.json`, `artifacts/models/hgb/feature_model_hgb.pkl`,
+  `artifacts/models/coefs/late_day_model_coefs.json`, and
   `data/wunderground/cyyz/analysis/feature_model_report.md` with ablation
   tables. This full LOO retrain is slow enough that item 26 should add a faster
   sampled/incremental research mode before routine model-comparison work.
@@ -1722,11 +1736,11 @@ v0.3 pinned replay result:
 at aggregate Brier `0.0515` versus current replay `0.0686`, recorded `0.0499`,
 and market `0.0384`, improving the refreshed v0.2 replay (`0.0538`) while
 clearing all per-market regression gates. Verdict remains
-**SHADOW_ONLY / DO_NOT_CUT_OVER**: all 11 F markets are shadow, none are blocked,
-but every F market still has only one settled pinned day and `15/100` trust, and
-several markets remain behind market-price Brier. Item 33 therefore remains open
-until additional settled F days and the promotion gate can prove market-level
-cutover.
+**SHADOW_ONLY / DO_NOT_CUT_OVER** on the 2026-06-12 corpus: all 11 F markets
+were shadow, none were blocked, every F market still had one settled pinned day
+and `15/100` trust, and several markets remained behind market-price Brier.
+This result is superseded for current decisions by the 2026-06-14
+ledger/promotion refresh below.
 
 Promotion-refresh automation (2026-06-12): added `src.promotion_refresh`, the
 Item 33/37 path that turns newly finalized settled days into a fresh pinned
@@ -1748,6 +1762,19 @@ actions were `0` promote, `11` shadow, `0` blocked. Corpus pin passed, but
 `identity_record_count` is still `0`, so the strict exact-identity canary
 cannot be required until future settled captures include replay identities.
 
+Ledger/promotion refresh (2026-06-14 UTC): `src.market_day_labels finalize`
+found the previously unfinalized June 11/12 fleet tapes and wrote 93 total
+labels (`complete=27`, `partial=66`) with Polymarket reconciliation
+`match=93`. `src.promotion_refresh` then rebuilt the F-family corpus at hash
+`3f6205575b8e9404cce01dbb7dfa9c591abf1db627221840913d4c4f47deb56a`
+(`24` market-days, `3,360` snapshots, `36,960` band rows,
+`1,680` identity records). Candidate verdict improved to
+**PASS_WITH_SHADOWS / PER_MARKET_ONLY**: Atlanta and Austin are
+`PROMOTE_CANDIDATE`, the other nine F markets remain `KEEP_SHADOW`, and no
+F market is blocked. Aggregate candidate Brier is `0.0538` versus current
+replay `0.0687` and market `0.0404`; this is a real model/process improvement
+but not yet proof of beating Polymarket overall.
+
 ### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
 
 Goal: generalize the Toronto calibration/forecast/lag work (items 21-23) to the
@@ -1764,11 +1791,11 @@ empirical, never overconfident.
 
 Implementation result (2026-06-11): added `src.family_secondary_artifacts`,
 which trains the whole F family, writes pooled family artifacts plus per-market
-secondary artifacts, and emits `src/f_family_secondary_artifacts.json` as the
+secondary artifacts, and emits `artifacts/manifests/f_family_secondary_artifacts.json` as the
 serving gate manifest. The family-level artifacts are now:
-`src/probability_calibration_f_family.json` (`16,940` rows),
-`src/forecast_error_model_f_family.json` (`12,969` rows), and
-`src/settlement_lag_model_f_family.json` (`2,493` lead rows). Per-market
+`artifacts/calibration/probability_calibration_f_family.json` (`16,940` rows),
+`artifacts/calibration/forecast_error_model_f_family.json` (`12,969` rows), and
+`artifacts/calibration/settlement_lag_model_f_family.json` (`2,493` lead rows). Per-market
 probability-calibration, forecast-error, and settlement-lag artifacts were also
 written for all 11 F markets, with all artifact statuses `ok` in
 `data/backtest/f_family_secondary_artifacts_report.md`.
@@ -1776,9 +1803,13 @@ written for all 11 F markets, with all artifact statuses `ok` in
 Serving gate result: `TorontoHighTempModel` now loads the family manifest and
 `FeatureModelMixin` suppresses feature-model serving for governed F markets
 whose `serving_gate.mode` is `empirical`; `model_identity` includes the family
-manifest for F replay hashes. With the current trust scores (`15/100`) and one
-settled F day per market, all 11 F markets are honestly empirical:
-`trust 15 < 25; settled_days 1 < 2`. Toronto is not governed by the F manifest.
+manifest for F replay hashes. At ship time the trust scores (`15/100`) and one
+settled F day per market kept all 11 F markets honestly empirical:
+`trust 15 < 25; settled_days 1 < 2`. The 2026-06-14 promotion refresh clears
+that minimum day/trust gate for all F markets, promotes Atlanta and Austin in
+the action report, and keeps the other nine F markets shadowed because they are
+not yet better than market prices on pinned rows. Toronto is not governed by
+the F manifest.
 
 Replay evidence: `data/backtest/f_family_secondary_replay_report.md` reran the
 pinned promotion corpus after the gate landed. The safety gate is intentionally
@@ -1972,7 +2003,7 @@ fail-closed alerts: a DEAD/UNKNOWN/ERRORING book loop or an active-day tape
 gap is critical, while PAUSED/DEGRADED warns. Validation: live fleet audit
 passed with all 12 markets OK (median gap 15.0s in fast mode, max gap 90.9s,
 trailing freshness under 15s); `pytest -q` passed 349 tests + 34 subtests;
-`compileall src tests` passed. The MARKET_MAKING_PLAN.md Stage-0 acceptance
+`compileall src tests` passed. The docs/research/MARKET_MAKING_PLAN.md Stage-0 acceptance
 clock (7 consecutive gap-free days) starts with the first full capture day,
 2026-06-13.
 
@@ -2087,7 +2118,7 @@ hour 12 flat, zero regression at 8-12/15-16; aggregate replayed Brier
 0.0410 -> 0.0405 (market 0.0366). Tests: `tests/test_feature_skew.py`
 `TestRampWallOffsets` (3) pin the per-hour offset sets; full suite 382 passed.
 
-### 41. Model-Market Disagreement Casebook [NEW - AUDIT-DRIVEN]
+### 41. Model-Market Disagreement Casebook [COMPLETE 2026-06-14 - CASEBOOK LIVE]
 
 Goal: turn the project's repeated manual "why does the model disagree with
 Polymarket?" investigations into a durable, settlement-scored learning loop.
@@ -2102,22 +2133,22 @@ context that caused them, then revisits the same cases after settlement to say
 who was right and why. This gap is why investigations like "model says 17% while
 market says 0.1%" are still manual and easy to lose.
 
-- [ ] Build `src.disagreement_casebook` over snapshot and CLOB tapes, scanning
+- [x] Build `src.disagreement_casebook` over snapshot and CLOB tapes, scanning
   all active markets for model-market disagreement episodes above configurable
   thresholds (absolute edge, market-price collapse while model stays high,
   model jump without source support, or large CLOB midpoint move).
-- [ ] Deduplicate contiguous snapshots into one case with start/end time,
+- [x] Deduplicate contiguous snapshots into one case with start/end time,
   peak edge, market/band, model version, trust score, source freshness, WU
   printed high, live observed sources, forecast consensus/disagreement,
   explanation-driver waterfall, and CLOB spread/depth/imbalance at the peak.
-- [ ] After settlement, attach the ledger outcome, Brier/P&L contribution, and
+- [x] After settlement, attach the ledger outcome, Brier/P&L contribution, and
   a first-pass error taxonomy: stale source, WU lag/catch-up miss, forecast
   miss, boundary/rounding error, market overreaction, market lead, model
   calibration error, or book/liquidity artifact.
-- [ ] Emit `data/backtest/disagreement_casebook.json`,
+- [x] Emit `data/backtest/disagreement_casebook.json`,
   `data/backtest/disagreement_casebook_report.md`, and a compact daily
   operator report of open cases needing attention.
-- [ ] Feed the casebook back into item 21/33/35/38 work: top recurring losing
+- [x] Feed the casebook back into item 21/33/35/38 work: top recurring losing
   case types become explicit calibration/features/replay slices, and recurring
   winning case types become candidates for known-edge maps.
 
@@ -2125,6 +2156,43 @@ Acceptance: every edge over a chosen threshold has a durable case ID and every
 settled case is scored as model win/loss/tie with a cause label. The report
 must identify the top model-losing case families and prove that any proposed
 fix improves those exact cases without regressing the broader promotion corpus.
+
+Implementation status (2026-06-14 UTC): complete. `src.disagreement_casebook`
+builds the fleet casebook from append-only `snapshots_long.csv`,
+`components_long.csv`, `replay_inputs.jsonl`, `order_books_summary.csv`, and
+folder/ledger settlement labels. It groups triggered rows by event, market
+band, direction, and episode gap; assigns stable case IDs; attaches peak model,
+market, trust, source freshness/value, driver-waterfall, CLOB, settlement,
+Brier/P&L, and taxonomy context; and writes the JSON casebook, full Markdown
+report, and compact operator report.
+
+Real run:
+`.\venv\Scripts\python.exe -m src.disagreement_casebook` regenerated
+`data/backtest/disagreement_casebook.json`,
+`data/backtest/disagreement_casebook_report.md`, and
+`data/backtest/disagreement_operator_report.md` across 105 folders / 123,112
+snapshot-band rows. It found 2,345 cases over all 12 markets, with 2,075
+settled and 270 still open; model wins/losses/ties were 917 / 1,158 / 0.
+Threshold coverage is exact: 18,427 / 18,427 threshold-crossing snapshot rows
+are assigned to durable cases. Trigger counts: absolute edge 1,979,
+market-price collapse while model stayed high 460, model jump without source
+support 1,247, and large CLOB midpoint move 28. Top model-losing families are
+now explicit feedback slices: WU lag/catch-up miss 745, stale source 153,
+forecast miss 114, boundary/rounding error 83, and market lead 61. Recurring
+model wins are captured as known-edge candidates; `market_overreaction` has
+917 settled model wins. Every feedback slice carries case IDs and peak snapshot
+refs plus the roadmap items that own the next experiment, with the gate that a
+candidate fix must improve that exact slice and then pass the pinned promotion
+corpus/gauntlet.
+
+Validation:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_disagreement_casebook.py -q`:
+  3 passed.
+- `.\venv\Scripts\python.exe -m compileall -q src\disagreement_casebook.py tests\test_disagreement_casebook.py`:
+  passed.
+- Mojibake/label check on the regenerated casebook/operator reports found no
+  corrupted degree glyphs; F/C labels render as ASCII `F` / `C`.
 
 ### 42. Fast Observation-Triggered Recompute Path [NEW - LATENCY GAP]
 
@@ -2177,11 +2245,39 @@ regress settlement-scored performance on the triggered-row replay slice.
 4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
 5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are
    the long-tail accuracy and edge plays.
-6. **41 (disagreement casebook)** should run immediately alongside model work:
-   it converts every large live edge into supervised evidence instead of another
-   one-off chat audit. **42 (fast observation-triggered recompute)** follows
-   item 40's live-reading feature work and item 38's fast-book capture; it is
-   the next latency fix before any quote engine trusts sub-10-minute edges.
+6. **41 (disagreement casebook)** now runs as the durable audit layer alongside
+   model work: it converts every large live edge into supervised evidence
+   instead of another one-off chat audit. **42 (fast observation-triggered
+   recompute)** follows item 40's live-reading feature work, item 38's
+   fast-book capture, and item 41's large-disagreement slices; it is the next
+   latency fix before any quote engine trusts sub-10-minute edges.
+
+Current best next actions after the 2026-06-14 refresh:
+
+1. **Automate the daily settlement-to-promotion refresh.** The biggest audit
+   miss was not a model bug; it was a stale ledger/promotion corpus. Schedule
+   `src.market_day_labels finalize`, `src.promotion_refresh`,
+   `src.progress_audit`, `src.disagreement_casebook`, and
+   `src.fleet_observability report` so clean days enter trust/gates without a
+   manual chat-driven nudge.
+2. **Work item 42 against the casebook's biggest losing family.** WU lag/catch
+   up now accounts for 745 settled model-loss cases. The fastest accuracy path
+   is a low-cost observation watcher and urgent recompute path that is scored
+   directly on those case IDs.
+3. **Fix the fleet observability criticals that can poison future promotion.**
+   The current report is CRITICAL because every active CLOB tape has a startup
+   gap over 120s and Miami has an impossible 2005-06-11 WU value (`171 F`).
+   The loop is currently fresh, but the gap policy should distinguish startup
+   gaps from trailing failure, and the Miami raw/daily row should be repaired or
+   quarantined before retraining.
+4. **Turn item 38 into a model feature, not just a recorder.** Market lead is
+   now a measured losing family, and market overreaction is a measured winning
+   family. Add book-depth/stickiness/liquidity features behind the promotion
+   gauntlet and prove they improve those exact slices.
+5. **Delay item 35 until the promotion gauntlet has more days.** Continuous
+   density is still the endgame, but today's highest value is using the new
+   24-day F corpus and casebook slices to fix concrete, settlement-scored
+   failure modes first.
 
 ## Research Questions
 

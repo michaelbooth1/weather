@@ -22,6 +22,7 @@ from market_registry import all_specs, spec_for_id  # noqa: E402
 from model_sources import request_with_retries  # noqa: E402
 from polymarket_client import PolymarketClient  # noqa: E402
 from runtime_identity import get_runtime_identity  # noqa: E402
+from weather.paths import REPO_ROOT  # noqa: E402
 
 
 CLOB_BASE_URL = "https://clob.polymarket.com"
@@ -36,7 +37,6 @@ CLOB_LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "clob_loop_status.json"
 CLOB_DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "clob_diagnostics.jsonl"
 CLOB_LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "clob_loop_console.log"
 CLOB_SUPERVISOR_LOCK_PATH = SNAPSHOT_DATA_ROOT / ".clob_supervisor.lock"
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 TOKEN_COLUMNS = [
     "captured_at_utc",

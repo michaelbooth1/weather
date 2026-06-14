@@ -7,8 +7,8 @@ working unchanged.
 """
 import json
 from datetime import datetime
-from pathlib import Path
 
+from weather.artifacts import resolve_artifact_path
 from market_config import config_for_date, config_from_event
 from market_registry import DEFAULT_MARKET_ID
 # Re-exported for backward compatibility: callers historically imported these
@@ -86,7 +86,7 @@ class TorontoHighTempModel(
             self.set_target_date(config.target_date)
 
     def load_calibrated_weights(self):
-        path = Path(__file__).parent / f"calibrated_weights{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"calibrated_weights{self.spec.artifact_suffix}.json")
         if path.exists():
             try:
                 with path.open("r", encoding="utf-8") as f:
@@ -96,19 +96,19 @@ class TorontoHighTempModel(
         return None
 
     def load_probability_calibration(self):
-        path = Path(__file__).parent / f"probability_calibration{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"probability_calibration{self.spec.artifact_suffix}.json")
         return load_probability_calibration(path)
 
     def load_forecast_error_model(self):
-        path = Path(__file__).parent / f"forecast_error_model{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"forecast_error_model{self.spec.artifact_suffix}.json")
         return load_forecast_error_model(path)
 
     def load_settlement_lag_model(self):
-        path = Path(__file__).parent / f"settlement_lag_model{self.spec.artifact_suffix}.json"
+        path = resolve_artifact_path(f"settlement_lag_model{self.spec.artifact_suffix}.json")
         return load_settlement_lag_model(path)
 
     def load_family_secondary_artifacts(self):
-        path = Path(__file__).parent / "f_family_secondary_artifacts.json"
+        path = resolve_artifact_path("f_family_secondary_artifacts.json")
         return load_family_secondary_manifest(path)
 
     def calibrated_hour_config(self, cutoff_hour):

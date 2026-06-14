@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from disagreement_casebook import (  # noqa: E402
     build_arg_parser,
     build_casebook,
+    clean_label,
     write_outputs,
 )
 
@@ -128,7 +129,7 @@ class TestDisagreementCasebook(unittest.TestCase):
                 "model_version": "test-model",
                 "top_temp_c": 24,
                 "top_probability": model_p,
-                "range_label": "24 C",
+                "range_label": "24\u00c2\u00b0C",
                 "bin_kind": "eq",
                 "bin_value_c": 24,
                 "model_probability": model_p,
@@ -175,7 +176,7 @@ class TestDisagreementCasebook(unittest.TestCase):
                     "cutoff_hour": 10,
                     "active_model_kind": "hgb",
                     "component_name": component,
-                    "range_label": "24 C",
+                    "range_label": "24\u00c2\u00b0C",
                     "bin_kind": "eq",
                     "bin_value_c": 24,
                     "component_probability": probability,
@@ -226,7 +227,7 @@ class TestDisagreementCasebook(unittest.TestCase):
                 "market_id": "toronto",
                 "polymarket_market_id": "m1",
                 "condition_id": "c1",
-                "range_label": "24 C",
+                "range_label": "24\u00c2\u00b0C",
                 "bin_kind": "eq",
                 "bin_value": 24,
                 "bin_value_hi": 24,
@@ -284,6 +285,11 @@ class TestDisagreementCasebook(unittest.TestCase):
         self.assertEqual(payload["summary"]["case_count"], 1)
         self.assertTrue(payload["summary"]["threshold_coverage_ok"])
         case = payload["cases"][0]
+        self.assertEqual(case["range_label"], "24 C")
+        self.assertEqual(case["peak_snapshot"]["range_label"], "24 C")
+        self.assertEqual(case["start_time_utc"], "2026-06-07T14:10:00+00:00")
+        self.assertEqual(case["end_time_utc"], "2026-06-07T14:20:00+00:00")
+        self.assertEqual(case["source_values"]["wu_history_high_c"], 24.0)
         self.assertEqual(case["threshold_snapshot_count"], 2)
         self.assertIn("absolute_edge", case["trigger_reasons"])
         self.assertIn("market_price_collapse_model_high", case["trigger_reasons"])
@@ -295,6 +301,8 @@ class TestDisagreementCasebook(unittest.TestCase):
         self.assertTrue(case["driver_waterfall"])
         self.assertEqual(case["source_freshness"]["wu_current"]["status"], "fresh")
         self.assertAlmostEqual(case["clob_context"]["midpoint_move_abs"], 0.10)
+        self.assertEqual(payload["feedback_slices"][0]["slice_type"], "known_edge_candidate")
+        self.assertEqual(payload["feedback_slices"][0]["snapshot_refs"][0]["range_label"], "24 C")
 
     def test_write_outputs_creates_json_report_and_operator_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -318,6 +326,12 @@ class TestDisagreementCasebook(unittest.TestCase):
             report = report_out.read_text(encoding="utf-8")
             self.assertIn("## Design", report)
             self.assertIn("## Top Model-Losing Case Families", report)
+            self.assertIn("## Feedback Slices", report)
+            self.assertNotIn("\u00c2\u00b0C", report)
+
+    def test_clean_label_scrubs_degree_mojibake(self):
+        self.assertEqual(clean_label("90-91\u00c2\u00b0F"), "90-91 F")
+        self.assertEqual(clean_label("25\u00b0C"), "25 C")
 
 
 if __name__ == "__main__":

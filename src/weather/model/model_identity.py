@@ -11,27 +11,28 @@ import hashlib
 import json
 from pathlib import Path
 
+from weather.artifacts import resolve_artifact_path
+from weather.paths import SRC_ROOT, relative_to_repo
+
 
 IDENTITY_SCHEMA_VERSION = "weather_model_replay_identity_v0.1"
-
-SRC_ROOT = Path(__file__).resolve().parent
 
 # Files that can alter estimate_distribution for a fixed captured sources dict.
 # Keep this list focused on pure distribution/feature/calibration code; the
 # identity helper itself is intentionally excluded so report-only edits do not
 # invalidate otherwise faithful captures.
 DISTRIBUTION_CODE_FILES = (
-    "model_base.py",
-    "model_climatology.py",
-    "model_constants.py",
-    "model_distribution.py",
-    "model_features.py",
-    "feature_store.py",
-    "forecast_error_model.py",
-    "family_secondary_artifacts.py",
-    "probability_calibration.py",
-    "settlement_lag_model.py",
-    "market_registry.py",
+    Path("weather/model/model_base.py"),
+    Path("weather/model/model_climatology.py"),
+    Path("weather/model/model_constants.py"),
+    Path("weather/model/model_distribution.py"),
+    Path("weather/model/model_features.py"),
+    Path("weather/model/feature_store.py"),
+    Path("weather/calibration/forecast_error_model.py"),
+    Path("weather/calibration/family_secondary_artifacts.py"),
+    Path("weather/calibration/probability_calibration.py"),
+    Path("weather/calibration/settlement_lag_model.py"),
+    Path("weather/market/market_registry.py"),
 )
 
 DISTRIBUTION_ARTIFACT_TEMPLATES = (
@@ -62,7 +63,7 @@ def file_fingerprint(path: Path) -> dict:
     identity must change.
     """
     path = Path(path)
-    rel = path.relative_to(SRC_ROOT.parent).as_posix()
+    rel = relative_to_repo(path)
     if not path.exists():
         return {"path": rel, "exists": False, "size": None, "sha256": None}
     data = path.read_bytes()
@@ -98,11 +99,11 @@ def model_replay_identity(model) -> dict:
 
     code_files = [file_fingerprint(SRC_ROOT / name) for name in DISTRIBUTION_CODE_FILES]
     artifact_files = [
-        file_fingerprint(SRC_ROOT / template.format(suffix=suffix))
+        file_fingerprint(resolve_artifact_path(template.format(suffix=suffix)))
         for template in DISTRIBUTION_ARTIFACT_TEMPLATES
     ]
     if getattr(spec, "display_unit", None) == "F":
-        artifact_files.append(file_fingerprint(SRC_ROOT / "f_family_secondary_artifacts.json"))
+        artifact_files.append(file_fingerprint(resolve_artifact_path("f_family_secondary_artifacts.json")))
 
     try:
         model_version = model.get_model_version_string()

@@ -1,6 +1,9 @@
 import json
+from pathlib import Path
 
-with open('locations.json', 'r', encoding='utf-8') as f:
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+with (REPO_ROOT / "config" / "locations.json").open('r', encoding='utf-8') as f:
     data = json.load(f)
 
 locations = [l for l in data['locations'] if l['country'] in ('Canada', 'United States') and l['id'] not in ('toronto', 'nyc')]

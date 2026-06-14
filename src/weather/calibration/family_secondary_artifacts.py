@@ -22,11 +22,12 @@ from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
 from forecast_history import daily_path_for  # noqa: E402
 from location_trust import score_all_markets  # noqa: E402
 from market_registry import all_specs  # noqa: E402
+from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
 
 
 SCHEMA_VERSION = "family_secondary_artifacts_v0.1"
 DEFAULT_FAMILY_UNIT = "F"
-DEFAULT_MANIFEST = Path("src") / "f_family_secondary_artifacts.json"
+DEFAULT_MANIFEST = resolve_artifact_path("f_family_secondary_artifacts.json")
 DEFAULT_REPORT = Path("data") / "backtest" / "f_family_secondary_artifacts_report.md"
 DEFAULT_MIN_TRUST = 25
 DEFAULT_MIN_SETTLED_DAYS = 2
@@ -46,15 +47,15 @@ def _utc_now():
 def artifact_paths(spec):
     return {
         "probability_calibration": {
-            "artifact": Path("src") / f"probability_calibration{spec.artifact_suffix}.json",
+            "artifact": writable_artifact_path(f"probability_calibration{spec.artifact_suffix}.json"),
             "report": Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md",
         },
         "forecast_error": {
-            "artifact": Path("src") / f"forecast_error_model{spec.artifact_suffix}.json",
+            "artifact": writable_artifact_path(f"forecast_error_model{spec.artifact_suffix}.json"),
             "report": Path("data") / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md",
         },
         "settlement_lag": {
-            "artifact": Path("src") / f"settlement_lag_model{spec.artifact_suffix}.json",
+            "artifact": writable_artifact_path(f"settlement_lag_model{spec.artifact_suffix}.json"),
             "report": Path("data") / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md",
         },
     }
@@ -64,15 +65,15 @@ def family_artifact_paths(family_unit):
     suffix = family_unit.lower()
     return {
         "probability_calibration": {
-            "artifact": Path("src") / f"probability_calibration_{suffix}_family.json",
+            "artifact": writable_artifact_path(f"probability_calibration_{suffix}_family.json"),
             "report": Path("data") / "backtest" / f"probability_calibration_report_{suffix}_family.md",
         },
         "forecast_error": {
-            "artifact": Path("src") / f"forecast_error_model_{suffix}_family.json",
+            "artifact": writable_artifact_path(f"forecast_error_model_{suffix}_family.json"),
             "report": Path("data") / "backtest" / f"forecast_error_report_{suffix}_family.md",
         },
         "settlement_lag": {
-            "artifact": Path("src") / f"settlement_lag_model_{suffix}_family.json",
+            "artifact": writable_artifact_path(f"settlement_lag_model_{suffix}_family.json"),
             "report": Path("data") / "backtest" / f"settlement_lag_report_{suffix}_family.md",
         },
     }

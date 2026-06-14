@@ -25,7 +25,7 @@ from backtest import fmt_num, fmt_signed, markdown_table  # noqa: E402
 SCHEMA_VERSION = "progress_audit_v0.1"
 DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_ROADMAP = Path("ROADMAP.md")
+DEFAULT_ROADMAP = Path("docs") / "roadmap" / "ROADMAP.md"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "progress_audit.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "progress_audit_report.md"
 

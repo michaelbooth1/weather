@@ -29,9 +29,10 @@ from forecast_error_model import load_daily_summary  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
 from market_registry import REGISTRY, spec_for_id  # noqa: E402
 from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
+from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
 
 
-DEFAULT_ARTIFACT_PATH = Path("src") / "settlement_lag_model.json"
+DEFAULT_ARTIFACT_PATH = resolve_artifact_path("settlement_lag_model.json")
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "settlement_lag_report.md"
 DEFAULT_WU_ROOT = Path("data") / "wunderground" / "cyyz" / "hourly"
 DEFAULT_METAR_ROOT = Path("data") / "metar" / "cyyz" / "hourly"
@@ -477,7 +478,7 @@ def cmd_train(args):
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     wu_root = args.wu_root or spec.data_root / "hourly"
     metar_root = args.metar_root or Path("data") / "metar" / spec.icao.lower() / "hourly"
-    artifact_arg = args.artifact or Path("src") / f"settlement_lag_model{spec.artifact_suffix}.json"
+    artifact_arg = args.artifact or writable_artifact_path(f"settlement_lag_model{spec.artifact_suffix}.json")
     report_arg = args.report or Path("data") / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md"
     rows = read_training_rows(wu_root, metar_root, daily_summary, folders)
     if not rows:
@@ -511,7 +512,7 @@ def build_parser():
     train.add_argument("--metar-root", default=None,
                        help="METAR hourly history root (default: the market's station).")
     train.add_argument("--artifact", default=None,
-                       help="Artifact path (default: src/settlement_lag_model<suffix>.json).")
+                       help="Artifact path (default: artifacts/calibration/settlement_lag_model<suffix>.json).")
     train.add_argument("--report", default=None,
                        help="Report path (default: per-market report under data/backtest).")
     train.set_defaults(func=cmd_train)

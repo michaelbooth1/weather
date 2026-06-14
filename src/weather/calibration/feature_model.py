@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 
 # Ensure src is in import path
 sys.path.insert(0, os.path.abspath("src"))
+from weather.artifacts import writable_artifact_path
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
 from forecast_history import load_forecast_daily, daily_path_for
 from feature_store import (
@@ -587,13 +588,13 @@ def main(market_id="toronto"):
         }
         
     # Write coefficients json (per-unit artifact: '' for C, '_f' for F)
-    coefs_path = os.path.join("src", f"feature_model_coefs{suffix}.json")
+    coefs_path = writable_artifact_path(f"feature_model_coefs{suffix}.json")
     with open(coefs_path, "w", encoding="utf-8") as f:
         json.dump(trained_models_info, f, indent=2, sort_keys=True)
     print(f"\nSaved final model coefficients to {coefs_path}")
 
     # Write HGBC pickle (per-unit artifact)
-    hgb_path = os.path.join("src", f"feature_model_hgb{suffix}.pkl")
+    hgb_path = writable_artifact_path(f"feature_model_hgb{suffix}.pkl")
     with open(hgb_path, "wb") as f:
         pickle.dump(hgb_models_info, f)
     print(f"Saved final HGBC models to {hgb_path}")
@@ -735,7 +736,7 @@ def main(market_id="toronto"):
         print(f"  Cutoff Hour {H:02d}:00 trained. Base continuation rate: {prior_p*100:.1f}%.")
         
     # Save late day coefficients JSON (per-unit artifact)
-    ld_coefs_path = os.path.join("src", f"late_day_model_coefs{suffix}.json")
+    ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
     with open(ld_coefs_path, "w", encoding="utf-8") as f:
         json.dump(late_day_info, f, indent=2, sort_keys=True)
     print(f"Saved final late-day model coefficients to {ld_coefs_path}")

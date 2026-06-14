@@ -1,6 +1,6 @@
 # Agent Context
 
-Last audited: 2026-06-12
+Last audited: 2026-06-14
 
 ## Mission
 
@@ -19,16 +19,17 @@ objective evidence:
 - Realized edge/P&L that survives thresholding and avoids one-snapshot
   overfitting.
 
-The current backtest sample is very small. As of
-`data/backtest/backtest_report.md` regenerated on 2026-05-31 with the
-`complete,manual_override` quality filter, only May 28 is a clean market-day
-tape. May 27 starts too late and May 30 has a 74-minute collection gap, so both
-are now labeled `partial`. On the one clean day, the uncalibrated model still
-underperformed market prices (all-snapshot Brier 0.0583 versus market Brier
-0.0394; Brier skill -0.478). The older 3-day probability calibration report is
-useful provisional research, but two of those tapes are now partial. Treat
-clean settled market-day volume as the key benchmark constraint, not as a
-solved problem.
+The current backtest sample is still small, but it is no longer one clean day.
+The 2026-06-14 audit found that the settlement ledger was stale: 93 settled
+snapshot folders existed, while `market_day_labels.csv` held only 69 labels.
+Running `src.market_day_labels finalize` wrote 93 reconciled labels
+(`complete=27`, `partial=66`, Polymarket `match=93`). `src.promotion_refresh`
+then doubled the F-family pinned corpus to 24 market-days and moved the pooled
+candidate to `PASS_WITH_SHADOWS / PER_MARKET_ONLY` with Atlanta and Austin
+promoted, nine F markets shadowed, and zero blocked. This is real progress, but
+the aggregate candidate Brier (`0.0538`) still trails market Brier (`0.0404`).
+Treat clean settled market-day volume and daily refresh automation as active
+benchmark constraints, not solved problems.
 
 ## Settlement Model
 
@@ -149,8 +150,8 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.data_layer_audit
 .\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
 .\venv\Scripts\python.exe -m src.metar_history --market nyc backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
-.\venv\Scripts\python.exe -m src.pooled_feature_model --objective band --artifact src\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
-.\venv\Scripts\python.exe -m src.pooled_candidate_replay --artifact src\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
+.\venv\Scripts\python.exe -m src.pooled_feature_model --objective band --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
+.\venv\Scripts\python.exe -m src.pooled_candidate_replay --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
 .\venv\Scripts\python.exe -m src.promotion_refresh
 .\venv\Scripts\python.exe -m src.backtest
 .\venv\Scripts\python.exe -m src.model_ensemble
@@ -177,17 +178,17 @@ ad-hoc live scripts that may hit the network.
   ramp cutoff hours 12-14 via `feature_model.wall_offset_for`, fixing the
   13-14h winner under-call from WU print-lag; clean control-vs-treatment A/B
   gave hour 14 -0.0088 / hour 13 -0.0020, zero regression elsewhere).
-- `src/feature_model_hgb.pkl` is the preferred HistGradientBoosting model.
-- `src/feature_model_coefs.json` is the pure-Python logistic-regression
+- `artifacts/models/hgb/feature_model_hgb.pkl` is the preferred HistGradientBoosting model.
+- `artifacts/models/coefs/feature_model_coefs.json` is the pure-Python logistic-regression
   fallback.
-- `src/late_day_model_coefs.json` powers late-day continuation risk.
-- `src/calibrated_weights.json` powers calibrated empirical fallback weights.
-- `src/probability_calibration.json` powers exact-distribution and market-bin
+- `artifacts/models/coefs/late_day_model_coefs.json` powers late-day continuation risk.
+- `artifacts/calibration/calibrated_weights.json` powers calibrated empirical fallback weights.
+- `artifacts/calibration/probability_calibration.json` powers exact-distribution and market-bin
   probability calibration in live inference.
-- `src/forecast_error_model.json` powers the learned forecast-error component
+- `artifacts/calibration/forecast_error_model.json` powers the learned forecast-error component
   used by the `forecast_cap` slot, analog forecast-gap distance, and late-day
   forecast-tail adjustment.
-- `src/settlement_lag_model.json` powers learned WU catch-up/revision behavior
+- `artifacts/calibration/settlement_lag_model.json` powers learned WU catch-up/revision behavior
   when SWOB leads WU history. WU remains the only hard floor; SWOB suppression
   is capped so it cannot become a hard non-resolution floor.
 - `src/feature_store.py` defines the live feature schema
@@ -249,28 +250,30 @@ ad-hoc live scripts that may hit the network.
 - `src/model_ensemble.py` is the item-26 research harness. It reads strict
   quality-filtered settled tapes, joins future `components_long.csv` rows,
   reports standalone candidate performance by cutoff/bin type, and keeps
-  no-market and market-informed leave-one-day ensembles separate. The current
-  strict sample has only one clean day, so it writes a report but correctly
-  refuses ensemble promotion.
+  no-market and market-informed leave-one-day ensembles separate. After the
+  2026-06-14 ledger refresh there are more clean labels available, but any
+  ensemble promotion still needs a fresh quality-filtered rerun rather than
+  relying on the old one-day report.
 - `src.pooled_feature_model --objective band` is the Item 33 F-family shadow
   path. Current candidate:
-  `src/feature_model_hgb_f_pooled_v0_3.pkl` with
+  `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl` with
   `pooled_feature_band_hgb_v0.3` / `toronto_feature_store_v0.4`. It trains a
   direct market-band objective with city features and static source-reliability
   priors from WU-vs-METAR/ASOS/GHCNh/reanalysis overlaps. Current pinned replay:
-  `data/backtest/pooled_candidate_replay_v0_3_report.md`, verdict
-  `SHADOW_ONLY / DO_NOT_CUT_OVER`, aggregate Brier `0.0515` versus current
-  replay `0.0686` and market `0.0384`, no blocked F markets. It remains
-  non-serving until more settled F days and trust clear the promotion gate.
+  `data/backtest/pooled_candidate_replay_latest_report.md`, verdict
+  `PASS_WITH_SHADOWS / PER_MARKET_ONLY`, aggregate Brier `0.0538` versus
+  current replay `0.0687` and market `0.0404`. Atlanta and Austin clear the
+  per-market gate; the other nine F markets remain shadow because they have not
+  beaten market prices on the pinned rows.
 - `src.promotion_refresh` is the Item 33/37 settlement-to-promotion runner.
   It rebuilds the pinned promotion corpus, refreshes `location_trust.json`,
   reruns the pooled-F candidate replay, runs the current-serving gauntlet, and
   writes machine-readable per-market actions to
   `data/backtest/f_family_promotion_refresh.json` plus
-  `data/backtest/f_family_promotion_refresh_report.md`. The 2026-06-12 run
-  kept all 11 F markets in `KEEP_SHADOW`: zero promote, zero blocked, corpus
-  pin passed, no exact-identity settled rows yet, and every F market still has
-  one clean settled day with `15/100` trust.
+  `data/backtest/f_family_promotion_refresh_report.md`. The 2026-06-14 run
+  used a 24-market-day F corpus, promoted Atlanta and Austin, kept the other
+  nine F markets in shadow, and left current-serving gauntlet status `BLOCK`
+  because the serving replay still regresses versus its baseline.
 - `requirements.txt` pins `scikit-learn==1.8.0` because the HGB artifact is a
   pickle. Do not casually bump sklearn without regenerating and verifying the
   model artifact.
@@ -292,6 +295,17 @@ skew is one of the easiest ways to create fake edge.
 
 ## Current Audit Notes And Risks
 
+- The 2026-06-14 fleet observability report is `CRITICAL`, even though both
+  loops are running and fresh. Criticals are: active-day CLOB tapes contain
+  startup gaps over 120 seconds, and Miami WU history has an impossible
+  2005-06-11 value (`171 F`). Repair/quarantine the Miami row before retraining,
+  and make the CLOB audit distinguish old startup gaps from trailing recorder
+  failure.
+- The settlement ledger can drift stale if `src.market_day_labels finalize` is
+  not run after new days settle. The June 11/12 backlog materially changed
+  trust and promotion results, so automate finalization plus
+  `src.promotion_refresh`, `src.progress_audit`, and
+  `src.disagreement_casebook`.
 - The dashboard has visible mojibake in some status/warning strings
   (`app.py`, `model_constants.py`, `model_distribution.py`, and
   `model_presentation.py` comments/cleanup paths show encoding artifacts).
@@ -343,12 +357,14 @@ skew is one of the easiest ways to create fake edge.
 
 The fastest path toward the project goal is likely:
 
-1. Increase the number of clean market-day snapshot tapes.
-2. Add item 27 weather-regime and microclimate features behind the item-26
-   harness, promoting only changes that improve clean no-market validation.
-3. Fix the obvious dashboard/reporting cleanup issues so operators trust what
-   they see during the day.
-4. Use settlement-scored backtests to find where the calibrated model is still
-   wrong versus Polymarket, especially late-day exact buckets.
-5. Make the explanation panel show actual probability contributions and edge
-   diagnostics for the active top buckets.
+1. Automate daily settlement finalization and promotion refresh so newly clean
+   days enter trust/gates without manual intervention.
+2. Implement item 42, the fast observation-triggered recompute path, and score
+   it against the casebook's WU lag/catch-up loss slice.
+3. Clear fleet observability criticals: Miami impossible WU value, CLOB startup
+   gap policy, and artifact schema/manifest warnings.
+4. Turn item 38 market microstructure capture into model features for book
+   stickiness, liquidity, and market-lead/overreaction slices.
+5. Use item 27 weather-regime features only behind replay/casebook gates, and
+   postpone the item 35 continuous-density model until more clean market days
+   prove the current candidate path.

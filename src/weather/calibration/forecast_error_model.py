@@ -30,10 +30,11 @@ from market_config import date_from_event_slug  # noqa: E402
 from market_registry import REGISTRY, spec_for_id  # noqa: E402
 from daily_summary import native_bucket, native_high  # noqa: E402
 from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
+from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
 
 
 DEFAULT_FORECAST_DAILY = Path("data") / "forecast_history" / "cyyz" / "forecast_daily.csv"
-DEFAULT_ARTIFACT_PATH = Path("src") / "forecast_error_model.json"
+DEFAULT_ARTIFACT_PATH = resolve_artifact_path("forecast_error_model.json")
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "forecast_error_report.md"
 EPSILON = 1e-9
 
@@ -525,7 +526,7 @@ def write_report(path, artifact):
         "",
         "## Live Use",
         "",
-        "Live inference consumes `src/forecast_error_model.json` through the "
+        "Live inference consumes `artifacts/calibration/forecast_error_model.json` through the "
         "`forecast_cap` component slot, so calibrated empirical weights remain "
         "compatible while the component itself becomes a learned distribution "
         "rather than a one-bucket cap proxy.",
@@ -545,7 +546,7 @@ def cmd_train(args):
         folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     forecast_daily = args.forecast_daily or daily_path_for(spec)
-    artifact_arg = args.artifact or Path("src") / f"forecast_error_model{spec.artifact_suffix}.json"
+    artifact_arg = args.artifact or writable_artifact_path(f"forecast_error_model{spec.artifact_suffix}.json")
     report_arg = args.report or Path("data") / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md"
     rows = read_training_rows(forecast_daily, daily_summary, folders)
     if not rows:
@@ -578,7 +579,7 @@ def build_parser():
     train.add_argument("--forecast-daily", default=None,
                        help="Historical forecast daily CSV (default: the market's archive).")
     train.add_argument("--artifact", default=None,
-                       help="Artifact path (default: src/forecast_error_model<suffix>.json).")
+                       help="Artifact path (default: artifacts/calibration/forecast_error_model<suffix>.json).")
     train.add_argument("--report", default=None,
                        help="Report path (default: per-market report under data/backtest).")
     train.set_defaults(func=cmd_train)

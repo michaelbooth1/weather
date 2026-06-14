@@ -12,6 +12,7 @@ from scipy.optimize import minimize
 
 
 sys.path.insert(0, os.path.abspath("src"))
+from weather.artifacts import writable_artifact_path
 from toronto_model import INTRADAY_CUTOFF_HOURS, TorontoHighTempModel
 
 
@@ -637,7 +638,7 @@ def main(argv=None):
         print(f"Skipping calibration output for market {args.market} due to missing data.")
         return 0
 
-    weights_path = Path(args.weights_path) if args.weights_path else Path("src") / f"calibrated_weights{model.spec.artifact_suffix}.json"
+    weights_path = Path(args.weights_path) if args.weights_path else writable_artifact_path(f"calibrated_weights{model.spec.artifact_suffix}.json")
     weights_path.parent.mkdir(parents=True, exist_ok=True)
     weights_path.write_text(json.dumps(calibrated, indent=2, sort_keys=True), encoding="utf-8")
     print(f"Saved calibrated weights to {weights_path}")

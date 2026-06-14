@@ -14,7 +14,7 @@
 # stored). Re-running replaces the existing task.
 
 param(
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherSnapshotLoopSupervisor",
     [int]$EnsureEveryMinutes = 10
 )

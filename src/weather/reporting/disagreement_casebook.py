@@ -132,6 +132,25 @@ def label_numbers(label):
     return [int(value) for value in re.findall(r"\d+", str(label or ""))]
 
 
+def clean_label(label):
+    if label is None:
+        return None
+    text = str(label)
+    for unit in ("C", "F"):
+        replacements = (
+            f"\u00c3\u201a\u00c2\u00b0{unit}",
+            f"\u00c2\u00b0{unit}",
+            f"\u00ef\u00bf\u00bd{unit}",
+            f"\ufffd{unit}",
+            f"\u00b0{unit}",
+        )
+        for bad in replacements:
+            text = text.replace(bad, f" {unit}")
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text.strip()
+
+
 def band_key(row):
     kind = (row.get("bin_kind") or row.get("kind") or "").lower()
     value = maybe_int(row.get("bin_value_c") or row.get("bin_value") or row.get("value"))
@@ -252,6 +271,7 @@ def load_snapshot_rows(folder):
     with path.open("r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             row = dict(row)
+            row["range_label"] = clean_label(row.get("range_label"))
             row["_folder"] = str(Path(folder))
             row["_captured_dt"] = parse_time(row.get("captured_at_local") or row.get("captured_at_utc"))
             row["_edge"] = edge_value(row)
@@ -376,6 +396,7 @@ def load_clob_context(folder, max_age_seconds=DEFAULT_MAX_CLOB_AGE_SECONDS):
                 "timestamp": ts,
                 "captured_at_utc": row.get("captured_at_utc"),
                 "captured_at_local": row.get("captured_at_local"),
+                "range_label": clean_label(row.get("range_label")),
                 "best_bid": maybe_float(row.get("best_bid")),
                 "best_ask": maybe_float(row.get("best_ask")),
                 "midpoint": midpoint,
@@ -488,7 +509,9 @@ def open_episode(row, direction, reasons, clob, trust):
         "band_key": key,
         "band_key_text": band_key_text(key),
         "direction": direction,
+        "start_time_utc": row.get("captured_at_utc"),
         "start_time_local": row.get("captured_at_local"),
+        "end_time_utc": row.get("captured_at_utc"),
         "end_time_local": row.get("captured_at_local"),
         "start_snapshot_id": row.get("snapshot_id"),
         "end_snapshot_id": row.get("snapshot_id"),
@@ -507,6 +530,7 @@ def open_episode(row, direction, reasons, clob, trust):
 
 def update_episode(case, row, reasons, clob):
     case["end_time_local"] = row.get("captured_at_local")
+    case["end_time_utc"] = row.get("captured_at_utc")
     case["end_snapshot_id"] = row.get("snapshot_id")
     case["snapshot_ids"].append(row.get("snapshot_id"))
     case["snapshot_count"] += 1
@@ -638,7 +662,9 @@ def score_case(case, settlement_label, replay_inputs, components):
     case["market_yes"] = maybe_float(row.get("market_yes"))
     case["market_no"] = maybe_float(row.get("market_no"))
     case["edge"] = row.get("_edge")
+    case["peak_edge"] = case["edge"]
     case["source_context"] = source_snapshot_context(row)
+    case["source_values"] = dict(case["source_context"])
     case["source_freshness"] = source_freshness_from_replay(replay_row)
     case["model_identity"] = (replay_row or {}).get("model_identity") or {}
     component_map = components.get((snapshot_id, row.get("_band_key"))) if components else None
@@ -652,7 +678,7 @@ def score_case(case, settlement_label, replay_inputs, components):
             "settlement_bucket": settlement_bucket,
             "settlement_high": maybe_float(settlement_label.get("settlement_high")),
             "settlement_unit": settlement_label.get("settlement_unit"),
-            "winning_band": settlement_label.get("winning_band"),
+            "winning_band": clean_label(settlement_label.get("winning_band")),
             "quality_grade": settlement_label.get("quality_grade"),
             "settlement_source": settlement_label.get("settlement_source"),
             "reconciliation_status": settlement_label.get("reconciliation_status"),
@@ -686,6 +712,7 @@ def score_case(case, settlement_label, replay_inputs, components):
     peak = dict(case.get("peak_snapshot") or {})
     peak.pop("_captured_dt", None)
     peak["_band_key"] = band_key_text(peak.get("_band_key")) if peak.get("_band_key") else None
+    peak["range_label"] = clean_label(peak.get("range_label"))
     case["peak_snapshot"] = peak
     case.pop("_last_dt", None)
     case["band_key"] = band_key_text(case["band_key"])
@@ -756,9 +783,93 @@ def build_casebook(
         },
         "folders": folder_summaries,
         "summary": summarize_cases(all_cases, folder_summaries),
+        "feedback_slices": feedback_slices(all_cases),
         "cases": all_cases,
     }
     return payload
+
+
+TAXONOMY_ROADMAP_ITEMS = {
+    "stale_source": ["17", "31", "42"],
+    "wu_lag_catchup_miss": ["23", "40", "42"],
+    "forecast_miss": ["22", "27", "33", "35"],
+    "book_liquidity_artifact": ["38"],
+    "boundary_rounding_error": ["7", "21", "35"],
+    "market_lead": ["21", "33", "38"],
+    "model_calibration_error": ["21", "33", "35"],
+    "market_overreaction": ["21", "38"],
+}
+
+
+def mean(values):
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def snapshot_ref(case):
+    return {
+        "case_id": case.get("case_id"),
+        "market_id": case.get("market_id"),
+        "event_slug": case.get("event_slug"),
+        "range_label": case.get("range_label"),
+        "peak_snapshot_id": case.get("peak_snapshot_id"),
+        "snapshot_ids": case.get("snapshot_ids") or [],
+        "start_time_utc": case.get("start_time_utc"),
+        "end_time_utc": case.get("end_time_utc"),
+        "taxonomy": case.get("taxonomy"),
+    }
+
+
+def feedback_slices(cases, max_refs=50):
+    settled = [case for case in cases if case.get("settlement")]
+    grouped = defaultdict(list)
+    for case in settled:
+        grouped[case.get("taxonomy") or "unknown"].append(case)
+    output = []
+    for taxonomy, rows in grouped.items():
+        wins = [case for case in rows if case.get("model_result") == "model_win"]
+        losses = [case for case in rows if case.get("model_result") == "model_loss"]
+        ties = [case for case in rows if case.get("model_result") == "tie"]
+        if len(losses) >= max(len(wins), 1):
+            slice_type = "model_losing_family"
+        elif wins:
+            slice_type = "known_edge_candidate"
+        else:
+            slice_type = "mixed_or_tie"
+        refs = sorted(rows, key=lambda case: abs(case.get("edge") or 0.0), reverse=True)
+        output.append({
+            "taxonomy": taxonomy,
+            "slice_type": slice_type,
+            "case_count": len(rows),
+            "model_win_count": len(wins),
+            "model_loss_count": len(losses),
+            "tie_count": len(ties),
+            "mean_model_brier": mean(case.get("model_brier") for case in rows),
+            "mean_market_brier": mean(case.get("market_brier") for case in rows),
+            "mean_brier_delta_market_minus_model": mean(
+                case.get("brier_delta_market_minus_model") for case in rows
+            ),
+            "trade_pnl_at_5c_sum": sum(
+                case.get("trade_pnl_at_5c") or 0.0
+                for case in rows
+                if case.get("trade_pnl_at_5c") is not None
+            ),
+            "roadmap_items": TAXONOMY_ROADMAP_ITEMS.get(taxonomy, []),
+            "case_ids": [case.get("case_id") for case in refs],
+            "snapshot_refs": [snapshot_ref(case) for case in refs[:max_refs]],
+            "promotion_gate": (
+                "A proposed fix must improve this exact case/snapshot slice "
+                "and then pass the broader pinned promotion corpus/gauntlet."
+            ),
+        })
+    output.sort(key=lambda item: (
+        item.get("model_loss_count", 0),
+        item.get("case_count", 0),
+        item.get("model_win_count", 0),
+    ), reverse=True)
+    return output
 
 
 def summarize_cases(cases, folder_summaries):
@@ -813,7 +924,7 @@ def render_case_rows(cases, limit=30):
         rows.append([
             case.get("case_id"),
             case.get("market_id"),
-            case.get("range_label"),
+            clean_label(case.get("range_label")),
             fmt_case_time(case),
             fmt_signed(case.get("edge"), 3),
             fmt_pct(case.get("model_probability")),
@@ -825,9 +936,30 @@ def render_case_rows(cases, limit=30):
     return rows
 
 
+def render_feedback_rows(slices, slice_type=None, limit=12):
+    rows = []
+    items = [item for item in slices if slice_type is None or item.get("slice_type") == slice_type]
+    for item in items[:limit]:
+        rows.append([
+            item.get("taxonomy"),
+            item.get("slice_type"),
+            item.get("case_count"),
+            item.get("model_loss_count"),
+            item.get("model_win_count"),
+            fmt_num(item.get("mean_model_brier"), 4),
+            fmt_num(item.get("mean_market_brier"), 4),
+            fmt_signed(item.get("mean_brier_delta_market_minus_model"), 4),
+            fmt_signed(item.get("trade_pnl_at_5c_sum"), 2),
+            ", ".join(item.get("roadmap_items") or []),
+            ", ".join((item.get("case_ids") or [])[:5]),
+        ])
+    return rows
+
+
 def render_report(payload):
     summary = payload["summary"]
     cases = payload["cases"]
+    slices = payload.get("feedback_slices") or []
     settled_cases = [case for case in cases if case.get("settlement")]
     open_cases = [case for case in cases if not case.get("settlement")]
     lines = [
@@ -891,6 +1023,50 @@ def render_report(payload):
     lines.extend(markdown_table(
         ["Family", "Losses"],
         [[key, value] for key, value in losing.most_common()],
+    ))
+    lines.extend([
+        "",
+        "## Feedback Slices",
+        "",
+        "These slices make recurring disagreement families actionable: a proposed "
+        "fix should improve the exact case/snapshot refs in the JSON slice, then "
+        "pass the broader pinned promotion corpus/gauntlet.",
+        "",
+        "### Model-Losing Replay Targets",
+        "",
+    ])
+    lines.extend(markdown_table(
+        [
+            "Taxonomy",
+            "Type",
+            "Cases",
+            "Losses",
+            "Wins",
+            "Model Brier",
+            "Market Brier",
+            "Market-Model",
+            "P&L @5c",
+            "Items",
+            "Example Cases",
+        ],
+        render_feedback_rows(slices, slice_type="model_losing_family"),
+    ))
+    lines.extend(["", "### Known-Edge Candidates", ""])
+    lines.extend(markdown_table(
+        [
+            "Taxonomy",
+            "Type",
+            "Cases",
+            "Losses",
+            "Wins",
+            "Model Brier",
+            "Market Brier",
+            "Market-Model",
+            "P&L @5c",
+            "Items",
+            "Example Cases",
+        ],
+        render_feedback_rows(slices, slice_type="known_edge_candidate"),
     ))
     lines.append("")
     return "\n".join(lines)

@@ -41,9 +41,10 @@ from backtest import (  # noqa: E402
 from market_config import date_from_event_slug  # noqa: E402
 from market_registry import REGISTRY, spec_for_id  # noqa: E402
 from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
+from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
 
 
-DEFAULT_ARTIFACT_PATH = Path("src") / "probability_calibration.json"
+DEFAULT_ARTIFACT_PATH = resolve_artifact_path("probability_calibration.json")
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "probability_calibration_report.md"
 EPSILON = 1e-6
 MAX_EXACT_DEPLOYMENT_TEMPERATURE = 1.5
@@ -778,7 +779,7 @@ def cmd_train(args):
     if not folders:
         raise SystemExit("No folders left after the quality filter.")
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
-    artifact_arg = args.artifact or Path("src") / f"probability_calibration{spec.artifact_suffix}.json"
+    artifact_arg = args.artifact or writable_artifact_path(f"probability_calibration{spec.artifact_suffix}.json")
     report_arg = args.report or Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md"
     rows = read_scored_rows(folders, daily_summary_path=daily_summary)
     if not rows:
@@ -813,7 +814,7 @@ def build_parser():
     train.add_argument("--daily-summary", default=None,
                        help="Daily summary CSV (default: the market's own data root).")
     train.add_argument("--artifact", default=None,
-                       help="Artifact path (default: src/probability_calibration<suffix>.json).")
+                       help="Artifact path (default: artifacts/calibration/probability_calibration<suffix>.json).")
     train.add_argument("--report", default=None,
                        help="Report path (default: per-market report under data/backtest).")
     train.set_defaults(func=cmd_train)
