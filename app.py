@@ -313,6 +313,10 @@ def live_dashboard(static_sources):
             "Source": source_display_names.get(name, name),
             "Status": status,
             "Age": age_str,
+            # Per-source cache TTL (item 17): observation/settlement feeds expire
+            # fast, slow forecasts keep a longer stale window, so "stale" means
+            # different things per source and the threshold is now visible.
+            "TTL (min)": model_client(MARKET_ID).source_cache_ttl_minutes(name),
             "Last Fetched": fetched_at_str.split("T")[-1][:5] if fetched_at_str else "-",
             "Fetch Error": error_msg or "-"
         })
@@ -368,7 +372,7 @@ def live_dashboard(static_sources):
     top_prob = distribution.get(top_temp) if top_temp is not None else None
 
     model_col1, model_col2, model_col3 = st.columns(3)
-    model_col1.metric("Most likely final high", f"{top_temp} C" if top_temp else "-")
+    model_col1.metric("Most likely final high", f"{top_temp} {SPEC.display_unit}" if top_temp else "-")
     model_col2.metric("Top bucket probability", fmt_price(top_prob))
     model_col3.metric("Model version", model.get("model_version", "v0.3 empirical intraday"))
 
@@ -382,8 +386,8 @@ def live_dashboard(static_sources):
         exp_col1, exp_col2, exp_col3 = st.columns(3)
         with exp_col1:
             st.markdown("**Active Constraints**")
-            st.write(f"- **Floor (Min possible high):** {explanation.get('observed_floor')} C")
-            st.write(f"- **Plausible Cap:** {explanation.get('forecast_cap')} C")
+            st.write(f"- **Floor (Min possible high):** {explanation.get('observed_floor')} {SPEC.display_unit}")
+            st.write(f"- **Plausible Cap:** {explanation.get('forecast_cap')} {SPEC.display_unit}")
         with exp_col2:
             st.markdown("**Active Regimes**")
             st.write(f"- **Wind Regime:** {explanation.get('wind_regime')}")
@@ -391,11 +395,25 @@ def live_dashboard(static_sources):
         with exp_col3:
             st.markdown("**Model Engine**")
             st.write(f"- **Engine Type:** {explanation.get('model_type')}")
-            
-        st.markdown("**Top Bucket Drivers Breakdown**")
+
+        st.markdown("**Top Bucket Status**")
         st.dataframe(explanation["top_buckets"], width='stretch', hide_index=True)
 
-    st.subheader("25 C Deep Dive")
+        # Quantitative driver breakdown (item 12): how each pipeline stage moved
+        # the top buckets' probabilities, plus what each standalone input says.
+        breakdown = explanation.get("driver_breakdown") or {}
+        if breakdown.get("waterfall"):
+            st.markdown(
+                "**Driver Contribution Waterfall** "
+                "(each stage's change to the final probability; baseline + deltas = final)"
+            )
+            st.dataframe(breakdown["waterfall"], width='stretch', hide_index=True)
+        if breakdown.get("inputs"):
+            st.markdown("**Standalone Input Opinions** (each driver's independent probability)")
+            st.dataframe(breakdown["inputs"], width='stretch', hide_index=True)
+
+    focus_label = f"{top_temp} {SPEC.display_unit}" if top_temp is not None else f"{SPEC.key_bucket} {SPEC.display_unit}"
+    st.subheader(f"Top-Bucket Deep Dive ({focus_label})")
     st.dataframe(model["deep_dive_rows"], width='stretch', hide_index=True)
 
     # Render Bucket Boundary Transition Risk Panel
@@ -517,28 +535,27 @@ def live_dashboard(static_sources):
     # Render Odds Timeline View Panel
     st.subheader("Odds Timeline View")
     
-    # 1. Compact table of current biggest positive and negative edges
+    # 1. Compact table of current biggest positive and negative edges.
+    # Use the canonical bin label and bin_probability (calibrated, range-aware:
+    # F-market bands span [value, value_hi]) so this table matches the main model
+    # table exactly. The old path read a nonexistent `groupItemTitle` key (blank
+    # labels) and re-summed only `value`, dropping calibration and the band's
+    # upper bucket.
+    edge_client = model_client(MARKET_ID)
     current_edges = []
-    for bin_data in model_client(MARKET_ID).market_bins(event):
-        label = model_client(MARKET_ID).clean_label(
-            bin_data.get("groupItemTitle") or bin_data.get("question", "")
-        )
-        model_prob = distribution.get(bin_data.get("value"), 0.0)
-        if bin_data.get("kind") == "lte":
-            model_prob = sum(prob for val, prob in distribution.items() if val <= bin_data["value"])
-        elif bin_data.get("kind") == "gte":
-            model_prob = sum(prob for val, prob in distribution.items() if val >= bin_data["value"])
-            
+    for bin_data in edge_client.market_bins(event):
         market_yes = bin_data.get("market_yes")
-        if market_yes is not None:
-            edge_val = model_prob - market_yes
-            current_edges.append({
-                "Range": label,
-                "Model": f"{model_prob * 100:.1f}%",
-                "Market Price": f"{market_yes * 100:.1f}%",
-                "Edge Value": edge_val,
-                "Edge": f"{edge_val * 100:+.1f}%"
-            })
+        if market_yes is None:
+            continue
+        model_prob = edge_client.bin_probability(distribution, bin_data)
+        edge_val = model_prob - market_yes
+        current_edges.append({
+            "Range": bin_data["label"],
+            "Model": f"{model_prob * 100:.1f}%",
+            "Market Price": f"{market_yes * 100:.1f}%",
+            "Edge Value": edge_val,
+            "Edge": f"{edge_val * 100:+.1f}%"
+        })
     
     if current_edges:
         pos_edges = [e for e in current_edges if e["Edge Value"] > 0.005]

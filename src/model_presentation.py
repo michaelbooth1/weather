@@ -23,6 +23,76 @@ from model_constants import (
 from probability_calibration import calibrate_market_probability
 
 
+# --- Quantitative driver breakdown (item 12) --------------------------------
+# estimate_distribution builds the final distribution as an ordered pipeline and
+# records a snapshot of the RUNNING distribution after each stage into
+# distribution_components. The quantitative contribution of a stage to a bucket
+# is therefore the change it made to that bucket's probability. Because every
+# stage below is a running snapshot of the full distribution, the per-bucket
+# deltas telescope: baseline + sum(deltas) == the final probability exactly.
+DRIVER_WATERFALL_STAGES = (
+    ("climatology_prior", "Base climatology"),
+    # feature_blend (ML path) and empirical_weighted (calibrated-empirical path)
+    # are mutually exclusive and occupy the same pipeline slot.
+    ("feature_blend", "ML feature blend"),
+    ("empirical_weighted", "Empirical component blend"),
+    ("post_live_signals", "Live-signal sharpening"),
+    ("forecast_pull", "Forecast floor / pull"),
+    ("settlement_lag_adjusted", "Settlement-lag (SWOB) floor"),
+    ("current_observed_floor", "Current-observed floor"),
+    ("late_day_lockin", "Late-day lock-in"),
+    ("final_model", "Overconfidence calibration"),
+)
+
+# Standalone INPUT distributions (not running snapshots): each is one driver's
+# independent opinion of the final bucket, shown for context next to the
+# telescoping waterfall. The feature-model raw key is resolved dynamically
+# because it is named for the active model kind (hgb_/lr_feature_model).
+DRIVER_INPUT_COMPONENTS = (
+    ("intraday_high", "Intraday high-so-far analogs"),
+    ("current_bucket", "Current-temperature bucket"),
+    ("wind_regime", "Wind-regime analogs"),
+    ("cloud_regime", "Cloud-regime analogs"),
+    ("forecast_error", "Forecast-error distribution"),
+    ("forecast_cap", "Forecast cap"),
+)
+
+
+def _component_prob(distribution, bucket):
+    """Read a bucket probability from a component distribution, tolerating both
+    int keys (live in-memory build) and str keys (JSON-loaded snapshot tape)."""
+    if not distribution:
+        return 0.0
+    if bucket in distribution:
+        return float(distribution[bucket])
+    key = str(bucket)
+    if key in distribution:
+        return float(distribution[key])
+    return 0.0
+
+
+def driver_waterfall(components, buckets):
+    """Telescoping per-bucket probability waterfall over the running pipeline
+    stages present in ``components`` (a distribution_components ``components``
+    mapping). Returns a list of ``(key, label, {bucket: contribution})``: the
+    first present stage carries the absolute baseline probability and every later
+    stage carries its signed delta from the previous stage, so for each bucket
+    ``baseline + sum(deltas) == final-stage probability``."""
+    rows = []
+    prev = None
+    for key, label in DRIVER_WATERFALL_STAGES:
+        distribution = components.get(key)
+        if not distribution:
+            continue
+        contributions = {}
+        for bucket in buckets:
+            current = _component_prob(distribution, bucket)
+            contributions[bucket] = current if prev is None else current - _component_prob(prev, bucket)
+        rows.append((key, label, contributions))
+        prev = distribution
+    return rows
+
+
 class PresentationMixin:
     """Dashboard/snapshot view rows, market-bin parsing, and value formatting."""
 
@@ -170,8 +240,17 @@ class PresentationMixin:
         })
         return rows
 
-    def deep_dive_rows(self, sources, distribution, analogs_data=None, now=None):
-        kb = self.spec.key_bucket
+    def deep_dive_rows(self, sources, distribution, analogs_data=None, now=None, focus_bucket=None):
+        # Bucket-agnostic (item 12): the deep dive explains whichever bucket the
+        # caller asks about, defaulting to the model's current top bucket rather
+        # than the fixed seasonal key bucket. Falls back to key_bucket only when
+        # there is no distribution yet.
+        if focus_bucket is None:
+            focus_bucket = (
+                int(max(distribution, key=distribution.get))
+                if distribution else self.spec.key_bucket
+            )
+        kb = focus_bucket
         u = self.spec.display_unit
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
@@ -263,10 +342,14 @@ class PresentationMixin:
             impact_key: impact,
         })
 
-        # 6. Local WU History
-        prob_key = local_history.get("prob_key")
-        if prob_key is not None:
-            impact = f"Historical seasonal base rate for {kb} {u} is {prob_key*100:.1f}%."
+        # 6. Local WU History -- seasonal base rate for the focus bucket (not the
+        # fixed key bucket), read from the per-bucket seasonal distribution.
+        bucket_probs = (local_history.get("analysis") or {}).get("bucket_probabilities") or {}
+        base_rate = bucket_probs.get(kb, bucket_probs.get(str(kb)))
+        if base_rate is not None:
+            impact = f"Historical seasonal base rate for {kb} {u} is {float(base_rate)*100:.1f}%."
+        elif local_history.get("available"):
+            impact = f"Seasonal history available but no day in-window settled at exactly {kb} {u}."
         else:
             impact = "No local history available."
         rows.append({
@@ -285,15 +368,15 @@ class PresentationMixin:
                 now,
             )
         analog_n = 0
-        analog_prob_25 = 0.0
+        analog_prob = 0.0
         if isinstance(analogs_data, dict):
             analogs = analogs_data.get("analogs", [])
             analog_n = len(analogs)
             if analog_n > 0:
-                count_25 = sum(1 for d in analogs if d["final_bucket"] == kb)
-                analog_prob_25 = count_25 / analog_n
+                count_focus = sum(1 for d in analogs if d["final_bucket"] == kb)
+                analog_prob = count_focus / analog_n
         if analog_n > 0:
-            impact = f"Of the closest {analog_n} historical analogs, {analog_prob_25*100:.0f}% resolved to exactly {kb} {u}."
+            impact = f"Of the closest {analog_n} historical analogs, {analog_prob*100:.0f}% resolved to exactly {kb} {u}."
         else:
             impact = "Insufficient analog days to evaluate."
         rows.append({
@@ -342,10 +425,11 @@ class PresentationMixin:
         
         # 2. Top buckets in final distribution
         top_buckets = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:3]
-        
+        focus_buckets = [int(temp) for temp, _ in top_buckets]
+
         # 3. Model type
         model_type = self.get_model_version_string()
-        
+
         explanation = {
             "model_type": model_type,
             "observed_floor": observed_bucket,
@@ -361,9 +445,69 @@ class PresentationMixin:
                     )
                 }
                 for temp, prob in top_buckets
-            ]
+            ],
+            # Quantitative, bucket-agnostic contribution of every pipeline driver
+            # to the top buckets' final probabilities (item 12).
+            "driver_breakdown": self.driver_breakdown(focus_buckets),
         }
         return explanation
+
+    def driver_breakdown(self, buckets):
+        """Quantitative driver breakdown for the given final-distribution buckets,
+        from the last estimate_distribution pipeline. Returns a dict with a
+        telescoping ``waterfall`` table (each driver's signed contribution to each
+        bucket's probability, ending in the absolute final probability) and an
+        ``inputs`` table (each standalone driver's independent opinion of each
+        bucket). Bucket-agnostic and unit-aware; empty when no build has run."""
+        buckets = [int(bucket) for bucket in buckets]
+        payload = getattr(self, "_last_distribution_components", {}) or {}
+        components = payload.get("components", {}) or {}
+        u = self.spec.display_unit
+        bucket_cols = {bucket: f"{bucket} {u}" for bucket in buckets}
+
+        waterfall = driver_waterfall(components, buckets)
+        waterfall_rows = []
+        totals = {bucket: 0.0 for bucket in buckets}
+        for index, (_key, label, contributions) in enumerate(waterfall):
+            row = {"Driver": label}
+            for bucket in buckets:
+                value = contributions.get(bucket, 0.0)
+                totals[bucket] += value
+                # The first present stage is the absolute baseline; later stages
+                # are signed deltas (percentage points added / removed).
+                row[bucket_cols[bucket]] = (
+                    self.format_pct(value) if index == 0 else self.format_signed_pct(value)
+                )
+            waterfall_rows.append(row)
+        if waterfall_rows:
+            final_row = {"Driver": "= Final model probability"}
+            for bucket in buckets:
+                final_row[bucket_cols[bucket]] = self.format_pct(totals[bucket])
+            waterfall_rows.append(final_row)
+
+        # Standalone input distributions: each driver's independent opinion.
+        feature_key = next(
+            (key for key in components if key.endswith("_feature_model")), None
+        )
+        input_items = list(DRIVER_INPUT_COMPONENTS)
+        if feature_key:
+            kind = feature_key.split("_feature_model")[0].upper()
+            input_items.insert(0, (feature_key, f"{kind} feature model"))
+        input_rows = []
+        for key, label in input_items:
+            distribution = components.get(key)
+            if not distribution:
+                continue
+            row = {"Input": label}
+            for bucket in buckets:
+                row[bucket_cols[bucket]] = self.format_pct(_component_prob(distribution, bucket))
+            input_rows.append(row)
+
+        return {
+            "buckets": list(buckets),
+            "waterfall": waterfall_rows,
+            "inputs": input_rows,
+        }
 
     def forecast_rows(self, sources):
         rows = []

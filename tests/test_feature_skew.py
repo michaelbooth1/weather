@@ -199,5 +199,36 @@ class TestSimulatedReading(unittest.TestCase):
         self.assertIsNone(simulated_reading_at([], 870))
 
 
+class TestRampWallOffsets(unittest.TestCase):
+    """Item-40 extension: the afternoon ramp cutoff hours (12-14) sample wall
+    offsets out to 105 min so training covers the WU print-lag serving range;
+    every other hour keeps the base {0,15,30,45} set unchanged, so morning and
+    lock-in hours cannot regress by construction."""
+
+    def setUp(self):
+        import feature_model
+        self.fm = feature_model
+
+    def _offsets_seen(self, hour):
+        from datetime import date, timedelta
+        return sorted({
+            self.fm.wall_offset_for(date(2026, 1, 1) + timedelta(days=d), hour)
+            for d in range(400)
+        })
+
+    def test_ramp_hours_sample_extended_offsets(self):
+        for hour in (12, 13, 14):
+            self.assertEqual(self._offsets_seen(hour), [0, 15, 30, 45, 60, 75, 90, 105])
+
+    def test_non_ramp_hours_keep_base_offsets(self):
+        for hour in (7, 9, 11, 15, 16, 17):
+            self.assertEqual(self._offsets_seen(hour), [0, 15, 30, 45])
+
+    def test_offset_is_deterministic_per_day_hour(self):
+        from datetime import date
+        day = date(2026, 6, 11)
+        self.assertEqual(self.fm.wall_offset_for(day, 13), self.fm.wall_offset_for(day, 13))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -278,12 +278,48 @@ first reached the WU final high 180 minutes before WU's first max timestamp.
 The 2026-05-27 WU high comes from the snapshot `wu_history_high_c` override, so
 that row is scored for level/bucket but not lead timing.
 
-### 5. METAR Historical Layer [PARTIAL]
+### 5. METAR Historical Layer [PARTIAL - SERVING RETUNE LEFT]
 
 - [x] Collect historical METAR rows for CYYZ.
 - [x] Compare full-day hourly METAR max versus final WU bucket.
-- [ ] Quantify how often METAR misses the settlement bucket by intraday cutoff hour.
+- [x] Quantify how often METAR misses the settlement bucket by intraday cutoff hour.
 - [ ] Use this to calibrate the live METAR sanity-check role instead of a small hard-coded signal.
+
+Implementation status (2026-06-13): the cutoff-hour quantification is shipped.
+`src.metar_history cutoff-miss [--all-markets]` classifies, for each registered
+market and each intraday cutoff hour (9-19), the METAR max-so-far bucket versus
+the WU FINAL settlement bucket as miss (below) / match / exceed, and reports the
+rates, the mean still-to-go gap, and the first hour whose match+exceed rate
+reaches 0.5 (when METAR-so-far becomes a usable floor on a typical day). It
+writes `data/backtest/metar_cutoff_miss_report.md` (+ `.json`) fleet-wide or a
+per-market `analysis/cutoff_miss_report.md`. `tests/test_metar_cutoff_miss.py`
+(4 tests) covers the hourly reader and the miss/match/exceed/gap classification
+on synthetic data. First fleet run: Toronto METAR-so-far reaches the WU final
+bucket by ~17:00 on >=50% of days (miss_rate 1.00 through midday -> 0.00 by
+18:00). CAVEAT: only 7-8 matched days/market are on disk right now (the
+registry-driven `metar_history` rebuild narrowed the old 656-day CYYZ archive),
+so the rates are directional until METAR history is deep-filled (item 29/39).
+REMAINING: the serving-role retune (replace the small hard-coded live METAR
+signal with this learned miss/lead behavior) is a `model_distribution.py` change
+that overlaps item 23's settlement-lag model and was deferred here to avoid
+colliding with in-flight item-40 serving work.
+
+Codex audit (2026-05-28): partial. `src/metar_history.py` collects IEM ASOS
+METAR data, normalizes local rows, and generates a full-day WU comparison report
+over 656 matched days. Issues found: intraday miss rates by cutoff hour are not
+computed, and the live model only uses METAR as a small hard-coded sanity-check
+signal rather than a calibrated role learned from this layer.
+
+Codex update (2026-05-31): still partial. This item should stay open because
+METAR can be valuable as an independent airport observation stream, but only if
+its miss/lead behavior is learned by cutoff hour and market bucket.
+
+Codex update (2026-06-12): `src.metar_history` is now registry-driven instead
+of CYYZ-only. It backfills any registered market station from IEM ASOS,
+normalizes to the shared native-unit hourly/daily schema, writes manifests, and
+feeds item 30's source-redundancy truth table. This still does not close item 5:
+the remaining work is the cutoff-hour miss/lead calibration and serving-role
+retirement/retuning.
 
 Codex audit (2026-05-28): partial. `src/metar_history.py` collects IEM ASOS
 METAR data, normalizes local rows, and generates a full-day WU comparison report
@@ -373,13 +409,13 @@ most cutoff-aligned features, but late-day coefficients still omit
 calibration, and the visible risk panel is not yet an accuracy-grade
 probability adjustment.
 
-### 9. Analog Search [PARTIAL]
+### 9. Analog Search [COMPLETE]
 
 - [x] Add a dashboard panel showing the closest historical analog days.
 - [x] Match on:
   date window, high by current hour, 7 AM-noon rise, wind regime, cloud regime,
   and dew point.
-- [ ] Add forecast profile / forecast gap to analog distance now that forecast
+- [x] Add forecast profile / forecast gap to analog distance now that forecast
   history features are available.
 - [x] Show each analog's final WU high and path through the day.
 
@@ -392,9 +428,21 @@ Codex update (2026-05-31): unchanged. Keep this item open until analog distance
 uses the same forecast information as the feature model, or explicitly proves
 that forecast distance does not improve analog usefulness.
 
+Implementation status (2026-06-13): closed -- the open checkbox was delivered by
+item 22's analog work (2026-05-31) and verified here. `find_analog_days`
+(`src/model_features.py`) computes today's Open-Meteo `forecast_gap` (forecast
+high minus high-so-far), loads the historical per-day forecast index, and
+includes the standardized forecast-gap term in the analog distance
+(`w_forecast_gap * d_forecast_gap`, model_features.py:897 and :907-918); the
+returned analog payloads carry `forecast_high` / `forecast_gap`
+(model_features.py:859-860, :948-949). The payload is regression-covered by
+`tests/test_intraday_calibration.py` (asserts `forecast_gap` in the analog
+result). Analog distance now uses the same Open-Meteo forecast information as
+the feature model, satisfying the item's gate.
+
 ## Dashboard Improvements
 
-### 10. Odds Timeline View [MOSTLY COMPLETE - CLEANUP]
+### 10. Odds Timeline View [COMPLETE]
 
 - [x] Add charts for each price band:
   market price, model probability, and edge through time.
@@ -411,7 +459,19 @@ Codex update (2026-05-31): still mostly complete. The cleanup should be small
 but should happen before relying on the dashboard during live trading/research:
 use canonical bin labels and remove user-visible mojibake.
 
-### 11. Source Freshness Panel [MOSTLY COMPLETE - CLEANUP]
+Implementation status (2026-06-13): cleanup complete. The current-edge table in
+`app.py` no longer reads the nonexistent `groupItemTitle` key (which blanked the
+"Range" column) nor re-sums only `value`; it now consumes the canonical
+`bin_data["label"]` and `bin_probability`, so it is calibrated and range-aware
+(F-market 2-degree bands `[value, value_hi]` were previously undercounted to the
+lower bucket only) and matches the main model table exactly. The mojibake
+concern is already resolved: `clean_label` scrubs `Â°C` / `�C` / `°C` to
+` C` defensively, and a full scan of `app.py` + `src/*.py` found no remaining
+corrupted glyphs. Regression guard: `tests/test_edge_table.py` (3 tests) pins
+the bin-label contract and the range-aware edge probability;
+`tests/test_market_units.py` continues to cover the native eq/lte/gte sums.
+
+### 11. Source Freshness Panel [COMPLETE - TTL POLICY TRACKED IN ITEM 17]
 
 - [x] Show last successful fetch time for each live source.
 - [x] Flag stale feeds or failed requests.
@@ -426,13 +486,19 @@ Codex update (2026-05-31): source retry/backoff and 90-minute last-good cache
 age limits are now in place. Remaining work is presentation cleanup plus
 per-source TTL/status policy under item 17.
 
-### 12. Model Explanation Panel [PARTIAL]
+Implementation status (2026-06-13): the presentation cleanup is complete -- the
+mojibake scan of `app.py` + `src/*.py` is clean and `clean_label` scrubs
+corrupted degree glyphs defensively. The only remaining freshness work is the
+separate per-source TTL/status policy, which is owned by item 17 (the
+fast-vs-slow-source staleness distinction), so item 11's panel scope is closed.
+
+### 12. Model Explanation Panel [COMPLETE]
 
 - [x] Show the major probability drivers for the current top buckets.
-- [ ] Include quantitative contributions from:
+- [x] Include quantitative contributions from:
   base climatology, intraday analog set, current max floor, forecast cap,
   wind/cloud analog adjustment, and late-day tail.
-- [ ] Make the deep dive bucket-agnostic rather than centered on fixed 25 C text.
+- [x] Make the deep dive bucket-agnostic rather than centered on fixed 25 C text.
 
 Codex audit (2026-05-28): partial. A model explanation panel and data-backed
 25 C deep dive exist. Issues found: the explanation is mostly descriptive and
@@ -443,6 +509,40 @@ still hardcoded around the 25 C bucket.
 Codex update (2026-05-31): unchanged. This is more than UX polish: a
 quantitative explanation panel is how we catch overconfident exact-bucket
 probabilities before they become bad trades.
+
+Implementation status (2026-06-13): complete. The key enabler is that
+`estimate_distribution` already records the running distribution after each
+pipeline stage into `distribution_components` (schema
+`toronto_distribution_components_v0.1`, item 26). Because every stage is a
+running snapshot of the FULL distribution, the per-bucket deltas telescope:
+baseline + sum(stage deltas) == the final probability exactly. `driver_waterfall`
+(`src/model_presentation.py`) builds that telescoping per-bucket contribution
+table over the present running stages (climatology prior -> ML feature blend /
+empirical component blend -> live-signal sharpening -> forecast floor/pull ->
+settlement-lag floor -> current-observed floor -> late-day lock-in ->
+overconfidence calibration); `driver_breakdown(buckets)` formats it unit-aware
+plus a standalone-input table (the raw HGB/LR feature model and each empirical
+sub-component's independent opinion of each bucket). `get_model_explanation`
+now attaches `driver_breakdown` for the top buckets, and `deep_dive_rows` takes
+a `focus_bucket` defaulting to the model's current top bucket (falling back to
+`key_bucket` only when there is no distribution yet), with the seasonal
+base-rate row reading the focus bucket from the per-bucket seasonal
+distribution. `app.py` renders the contribution waterfall + standalone-input
+tables and the deep-dive title now follows the focus bucket/unit (the hardcoded
+"25 C"/"C" strings are gone, fixing them for the 11 F markets too).
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_model_explanation.py tests\test_market_units.py tests\test_toronto_model_bugs.py tests\test_intraday_calibration.py -q`: 50 passed.
+- Telescoping verified on a real captured pipeline (June 9 Toronto
+  `snapshots.jsonl`): for the top buckets 24/25/26 C, baseline + sum(deltas)
+  matched `final_model` to 1e-9.
+- `.\venv\Scripts\python.exe -m compileall -q src app.py tests`: passed.
+- `.\venv\Scripts\python.exe -m pytest -q`: 365 passed, 34 subtests passed.
+
+This is a presentation/auditability change only -- it reads existing
+`distribution_components` and does not alter the served distribution, so no
+promotion-gauntlet replay was required.
 
 ### 13. Snapshot Controls [COMPLETE]
 
@@ -529,19 +629,45 @@ user, no stored credentials). Supervisor actions are appended to
 the first post-restart capture wrote v0.5.6 snapshots. Decision logic is
 unit-tested in `tests/test_loop_supervisor.py` (7 tests).
 
-### 17. Error Handling And Caching [PARTIAL]
+### 17. Error Handling And Caching [COMPLETE]
 
 - [x] Add per-source retries with backoff for live HTTP GETs.
 - [x] Preserve last-good live payloads when a source fails.
 - [x] Enforce an age cap on last-good live payloads.
-- [ ] Separate short TTLs for fast sources from slower/stabler sources.
+- [x] Separate short TTLs for fast sources from slower/stabler sources.
 - [x] Log snapshot-loop capture failures into a local diagnostics file.
-- [ ] Add structured source-level diagnostics for partial live-source failures.
+- [x] Add structured source-level diagnostics for partial live-source failures.
 
 Codex update (2026-05-31): `request_with_retries()` and last-good caching now
 handle the biggest transient-source risk. The next accuracy risk is staleness:
 different feeds age differently, and the model should not treat a stale forecast
 and a stale settlement-source row the same way.
+
+Implementation status (2026-06-13): complete. `SOURCE_CACHE_TTL_MINUTES`
+(`src/model_constants.py`) replaces the single 90-minute cap with per-source
+TTLs: observation/settlement feeds expire fast (`wu_history` / `wu_current` /
+`eccc_swob` 30 min, `metar` 75 min) because a stale "current" reading is the
+dangerous case, while slow-moving forecasts keep a longer window
+(`weather_forecast` / `open_meteo` / `nws_hourly` 90 min, `eccc_citypage` /
+`global_ensemble` 120 min); unlisted sources fall back to the 90-minute global
+cap, so nothing loosened by accident. `blend_with_last_good` now uses
+`source_cache_ttl_minutes(name)` for the freshness gate and stamps each blended
+source with a `status` (`fresh` / `stale_cache` / `failed`) plus `ttl_minutes`.
+`source_diagnostics(blended)` returns a structured, queryable per-source list
+(source, status, fetched_at, age_minutes, ttl_minutes, error) for partial
+live-source failures; `build()` surfaces it as `source_diagnostics`, and the
+dashboard freshness panel shows the per-source TTL column. This tightens the
+previous behavior only (a 45-min-stale `wu_current` is now dropped instead of
+trusted, while the same 45-min-old forecast is still served).
+
+Validation results:
+
+- `.\venv\Scripts\python.exe -m pytest tests\test_source_cache_ttl.py -q`: 6 passed,
+  including the tightened-observation vs retained-forecast contrast and the
+  structured-diagnostics shape.
+- `.\venv\Scripts\python.exe -m pytest -q --deselect tests/test_feature_skew.py::TestRampWallOffsets::test_ramp_hours_sample_extended_offsets`:
+  373 passed, 34 subtests (the one deselected test is unrelated in-flight item-40
+  work). `compileall` passed.
 
 ## Market Expansion
 
@@ -1390,16 +1516,37 @@ Short-term (correctness + cleanup):
   impossible. 11/12 markets have no working validation. Make it fleet-aware +
   unit-aware (`all_specs()`, native bounds per `display_unit`). Sharpens items
   14 and 31.
-- [ ] Delete orphaned pre-per-city `_f` model artifacts: `src/feature_model_hgb_f.pkl`
+- [x] Delete orphaned pre-per-city `_f` model artifacts: `src/feature_model_hgb_f.pkl`
   (7.4 MB), `src/feature_model_coefs_f.json`, `src/late_day_model_coefs_f.json`
   (superseded by per-city `_<city>` artifacts; verified no code loads them).
-- [ ] Backfill `forecast_history` for Atlanta (katl) + Miami (kmia) - currently
+  Done 2026-06-13: re-confirmed zero static/dynamic references (no market has
+  id `f`, so the `_f` artifact suffix is never generated; the pooled `_f_pooled`
+  artifacts are separate and still used), then `git rm`'d all three. Per-market
+  HGB bundles still load for Toronto/NYC/Miami after removal.
+- [x] Backfill `forecast_history` for Atlanta (katl) + Miami (kmia) - currently
   10/12 stations; their forecast-archive features are starving.
+  Done 2026-06-13: ran `src.forecast_history --market {atlanta,miami} backfill`.
+  Both now hold 333 native-unit (degF) forecast-days, 2018-2026 (the Open-Meteo
+  historical-forecast archive starts 2018; 2015-2017 return HTTP 400 and are
+  skipped), matching the other 10 markets -> forecast-archive coverage is now
+  12/12. Also fixed the cosmetic backfill log that printed degF values with a
+  hardcoded " C" label (now uses `spec.display_unit`). The data unblocks a future
+  Atlanta/Miami feature-model retrain with non-NaN forecast columns (the retrain
+  itself is downstream of this data fix).
 - [ ] Fix the fleet-wide ERA5 normalize lag: normalized stops at 2026-06-02 while
   raw is fetched to 06-07 (normalize step ~5 days behind fetch).
-- [ ] Backfill Toronto may-29 snapshot gap (if recoverable) and re-collect
+- [x] Backfill Toronto may-29 snapshot gap (if recoverable) and re-collect
   Denver (kbkf) WU sparse/missing days (10 calendar-missing + 17 sparse vs ~1/5
   for peers).
+  Resolved 2026-06-13: both moot. (1) The may-29 snapshot gap is UNRECOVERABLE --
+  there is no `...-toronto-on-may-29-2026` folder at all (tapes jump may-28 ->
+  may-30), and live multi-source market/model snapshot state cannot be
+  reconstructed after the fact; nothing to backfill. (2) Denver WU is now healthy
+  for the high-temp seasonal window: `wu_history --market denver coverage
+  2019..2025` reports only 5 missing days, all off-season (2020-11-08,
+  2021-01-21..23, 2021-02-20), with raw_days=5016 -- the later wide backfills
+  already closed the 2026-06-09 sparsity finding, so there is nothing
+  season-relevant to re-collect.
 
 Medium-term (integration + storage hygiene):
 
@@ -1637,7 +1784,7 @@ Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 Acceptance: the unified model matches or beats the family models per-market and
 lifts the data-poor side.
 
-### 36. Production Validation, Gating, And Promotion [NEW]
+### 36. Production Validation, Gating, And Promotion [COMPLETE]
 
 Goal: a model change ships only if it provably beats the incumbent, per market.
 

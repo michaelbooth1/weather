@@ -22,6 +22,7 @@ from model_constants import (
     HISTORY_WINDOW_DAYS,
     INTRADAY_CUTOFF_HOURS,
     LIVE_CACHE_MAX_AGE_MINUTES,
+    SOURCE_CACHE_TTL_MINUTES,
     ML_MODEL_VERSION,
     MODEL_VERSION_HGB,
     MODEL_VERSION_LR,
@@ -147,16 +148,20 @@ class SourceFetchMixin:
                 blended[name] = {
                     "ok": True,
                     "stale": False,
+                    "status": "fresh",
                     "fetched_at": item["fetched_at"],
                     "data": item["data"]
                 }
             else:
-                # Failed! Try to load from cache
+                # Failed! Try to load from cache, governed by this source's TTL:
+                # a stale "current" observation expires fast; a stale forecast
+                # can be trusted longer.
+                ttl_minutes = self.source_cache_ttl_minutes(name)
                 cached_item = cache.get(name)
                 cache_age_minutes = self.cache_age_minutes(cached_item.get("fetched_at")) if cached_item else None
                 cache_is_recent = (
                     cache_age_minutes is not None
-                    and cache_age_minutes <= LIVE_CACHE_MAX_AGE_MINUTES
+                    and cache_age_minutes <= ttl_minutes
                 )
                 if (
                     cached_item
@@ -166,20 +171,27 @@ class SourceFetchMixin:
                     blended[name] = {
                         "ok": True,
                         "stale": True,
+                        "status": "stale_cache",
                         "fetched_at": cached_item["fetched_at"],
                         "data": cached_item["data"],
                         "error": item.get("error", "Unknown error"),
                         "cache_age_minutes": cache_age_minutes,
+                        "ttl_minutes": ttl_minutes,
                     }
                 else:
                     stale_detail = ""
                     if cached_item and cached_item.get("target_date") == self.target_date.isoformat():
-                        stale_detail = f" Last good cache is {cache_age_minutes:.0f} minutes old." if cache_age_minutes is not None else " Last good cache age is unknown."
+                        stale_detail = (
+                            f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
+                            if cache_age_minutes is not None else " Last good cache age is unknown."
+                        )
                     blended[name] = {
                         "ok": False,
                         "stale": False,
+                        "status": "failed",
                         "fetched_at": item.get("fetched_at"),
                         "error": f"{item.get('error', 'Unknown error')}.{stale_detail}".strip(),
+                        "ttl_minutes": ttl_minutes,
                         "data": {}
                     }
                     
@@ -203,6 +215,42 @@ class SourceFetchMixin:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=self.spec.tz)
         return max(0.0, (datetime.now(self.spec.tz) - parsed.astimezone(self.spec.tz)).total_seconds() / 60.0)
+
+    def source_cache_ttl_minutes(self, name):
+        """Per-source last-good cache TTL in minutes (item 17). Observation /
+        settlement sources expire fast because a stale 'current' reading is
+        misleading; slow-moving forecasts keep a longer window. Sources not in
+        the map fall back to the global cap."""
+        return SOURCE_CACHE_TTL_MINUTES.get(name, LIVE_CACHE_MAX_AGE_MINUTES)
+
+    def source_diagnostics(self, blended):
+        """Structured per-source status for partial live-source failures (item
+        17): a queryable list of {source, status, fetched_at, age_minutes,
+        ttl_minutes, error} so one failing or stale feed is visible rather than
+        silently blended away. ``status`` is fresh / stale_cache / failed."""
+        diagnostics = []
+        for name in sorted(blended):
+            item = blended.get(name) or {}
+            status = item.get("status")
+            if status is None:
+                if item.get("ok") and not item.get("stale"):
+                    status = "fresh"
+                elif item.get("stale"):
+                    status = "stale_cache"
+                else:
+                    status = "failed"
+            age = item.get("cache_age_minutes")
+            if age is None:
+                age = self.cache_age_minutes(item.get("fetched_at"))
+            diagnostics.append({
+                "source": name,
+                "status": status,
+                "fetched_at": item.get("fetched_at"),
+                "age_minutes": round(age, 1) if age is not None else None,
+                "ttl_minutes": self.source_cache_ttl_minutes(name),
+                "error": item.get("error"),
+            })
+        return diagnostics
 
     def fetch_wu_history(self):
         url = (

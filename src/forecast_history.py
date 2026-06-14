@@ -116,7 +116,7 @@ def backfill(start_year, end_year, spec=TORONTO, pause=0.4):
         per_year[year] = len(year_daily)
         rows.update(year_daily)
         print(f"  {year}: {len(year_daily)} forecast-days "
-              f"({min(year_daily.values()):.1f}..{max(year_daily.values()):.1f} C)"
+              f"({min(year_daily.values()):.1f}..{max(year_daily.values()):.1f} {spec.display_unit})"
               if year_daily else f"  {year}: no data")
         time.sleep(pause)
 

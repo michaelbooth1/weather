@@ -24,6 +24,36 @@ from feature_store import (
 # the 45-year model unvalidated -- the 2026-06-09 audit's finding #6.
 RUN_LOO = True
 
+# Intra-hour wall offsets (item 40). Each (day, cutoff hour) trains at ONE
+# deterministic offset, rotated across days, so the live-reading features see a
+# spread of "minutes past the printed cutoff" without multiplying the O(n^2) LOO
+# row count.
+#
+# Item-40 extension (2026-06-13): the afternoon ramp/peak cutoff hours serve at a
+# much larger minutes_since_cutoff than the base offsets covered. When WU history
+# print-lags through the 13-15h climb, the effective (last-printed) cutoff trails
+# wall clock -- a frozen-corpus probe measured minutes_since_cutoff of 48-100 min
+# at wall 13-14h on 2026-06-11, far outside the trained {0,15,30,45} range. The
+# HGB was extrapolating on the exact feature meant to handle print-lag, so it
+# under-committed to the bucket the live reading had already reached (the measured
+# 13-14h winner under-call). The RAMP cutoff hours now sample offsets out to
+# 105 min so the model LEARNS that regime. Morning hours (the model already beats
+# the market there) and the 15h+ lock-in window keep the base offsets unchanged,
+# so this cannot regress them by construction.
+BASE_WALL_OFFSETS = (0, 15, 30, 45)
+RAMP_WALL_OFFSETS = (0, 15, 30, 45, 60, 75, 90, 105)
+RAMP_CUTOFF_HOURS = ()  # TEMP CONTROL RETRAIN: empty == base offsets everywhere.
+# Restore to (12, 13, 14) after the control A/B retrain completes.
+
+
+def wall_offset_for(local_date, hour):
+    """Deterministic intra-hour wall offset (minutes past the printed cutoff)
+    for one (day, cutoff hour). Afternoon ramp hours sample the extended offset
+    set to cover the print-lag serving range; all other hours keep the base set,
+    leaving their trained behavior byte-identical."""
+    offsets = RAMP_WALL_OFFSETS if hour in RAMP_CUTOFF_HOURS else BASE_WALL_OFFSETS
+    return offsets[(local_date.toordinal() + hour) % len(offsets)]
+
 # We will use scikit-learn models
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
@@ -204,7 +234,6 @@ def main(market_id="toronto"):
     # stays identical to the at-print-only training.
     print("Extracting features at each cutoff hour (sampled intra-hour offsets)...")
     raw_data = defaultdict(list)
-    wall_offsets = (0, 15, 30, 45)
 
     for local_date in sorted(daily.keys()):
         rows = by_date.get(local_date, [])
@@ -212,7 +241,7 @@ def main(market_id="toronto"):
             continue
 
         for hour in INTRADAY_CUTOFF_HOURS:
-            offset = wall_offsets[(local_date.toordinal() + hour) % len(wall_offsets)]
+            offset = wall_offset_for(local_date, hour)
             record = build_historical_feature_record(
                 local_date,
                 rows,
@@ -612,8 +641,10 @@ def main(market_id="toronto"):
 
             # Measure from the sampled intra-hour WALL minute, matching how
             # serving computes it from the wall clock (the audited
-            # wall-vs-cutoff training skew, fixed with item 40).
-            wall_minute = cutoff_minutes + wall_offsets[(local_date.toordinal() + H) % len(wall_offsets)]
+            # wall-vs-cutoff training skew, fixed with item 40). The late-day
+            # hours (15-17) are outside RAMP_CUTOFF_HOURS, so this stays the base
+            # offset set -- the lock-in window's training is unchanged.
+            wall_minute = cutoff_minutes + wall_offset_for(local_date, H)
             time_since_reached = wall_minute - first_obs["minute_of_day"]
             
             # Rise from 7 AM

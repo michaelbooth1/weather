@@ -73,6 +73,13 @@ FORECAST_PULL_BLEND_MAX = 0.6       # cap on the morning blend toward the foreca
 FORECAST_PULL_START_HOUR = 12       # full strength through noon (the high usually is
                                     # not reached until mid-afternoon)
 FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
+# NOTE (2026-06-12): fading this to 14 was tried to fix the measured 13-14h
+# winner under-call and FAILED a frozen 15-day Toronto A/B (14h Brier +0.0046,
+# aggregate +0.0003). The pull is a two-way blend that was SOFTENING an
+# over-sharp-but-wrong core distribution at 13-14h; removing it made the model
+# more confident in its lagged call. The 13-14h under-call lives in the
+# HGB/observed-floor path (printed-cutoff lag), not here -- it needs an
+# item-40-style intra-hour ramp feature + retrain, not a distribution knob.
 
 # --- Live-observed floors ---------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall

@@ -10,6 +10,7 @@ import csv
 import io
 import json
 import sys
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from historical_schema import (  # noqa: E402
     write_jsonl_partitions,
     write_manifest,
 )
-from daily_summary import native_bucket, native_high  # noqa: E402
+from daily_summary import native_bucket, native_high, round_half_up  # noqa: E402
 from market_registry import all_specs, spec_for_id  # noqa: E402
 from wu_history import get_code_version  # noqa: E402
 
@@ -324,6 +325,150 @@ def command_coverage(args):
     print(json.dumps(store.coverage(args.start, args.end), indent=2, sort_keys=True))
 
 
+# Item 5: which intraday cutoff hours can trust METAR-so-far as a settlement
+# floor. Afternoon hours are where the live METAR sanity-check role matters.
+CUTOFF_MISS_HOURS = tuple(range(9, 20))
+
+
+def read_hourly_by_date(store):
+    """Group normalized hourly METAR temps by local_date into sorted
+    (minute_of_day, temp_native) tuples, read from the JSONL partitions."""
+    by_date = defaultdict(list)
+    for path in sorted(store.hourly_root.glob("year=*/month=*/observations.jsonl")):
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                local_date = row.get("local_date")
+                temp = to_float(row.get("temp_native"))
+                local_time = row.get("local_time")
+                if not local_date or temp is None or not local_time:
+                    continue
+                try:
+                    hh, mm = str(local_time).split(":")
+                    minute_of_day = int(hh) * 60 + int(mm)
+                except (ValueError, AttributeError):
+                    continue
+                by_date[local_date].append((minute_of_day, temp))
+    for local_date in by_date:
+        by_date[local_date].sort()
+    return by_date
+
+
+def cutoff_miss_analysis(spec, store, wu_rows, cutoff_hours=CUTOFF_MISS_HOURS):
+    """Quantify how often the METAR max-so-far has NOT yet reached the WU final
+    settlement bucket, by intraday cutoff hour (item 5). ``wu_rows`` is the WU
+    daily summary {local_date: {high, bucket, ...}} -- the settlement-source
+    truth proxy. For each cutoff hour and each day with both sources, classify
+    METAR-so-far vs the WU FINAL bucket as miss (below), match (equal), or
+    exceed (above), and report the rates plus the mean still-to-go gap. The
+    first hour whose match+exceed rate reaches 0.5 is when METAR-so-far becomes
+    a usable floor on a typical day."""
+    hourly = read_hourly_by_date(store)
+    matched_dates = sorted(
+        d for d in hourly
+        if d in wu_rows and wu_rows[d].get("bucket") is not None
+    )
+    per_cutoff = {}
+    reaches_final_by_hour = None
+    for hour in cutoff_hours:
+        cutoff_min = hour * 60
+        miss = match = exceed = n = 0
+        gaps = []
+        for local_date in matched_dates:
+            obs = [temp for minute, temp in hourly[local_date] if minute <= cutoff_min]
+            if not obs:
+                continue
+            n += 1
+            metar_bucket = round_half_up(max(obs))
+            final_bucket = int(wu_rows[local_date]["bucket"])
+            gaps.append(final_bucket - metar_bucket)
+            diff = metar_bucket - final_bucket
+            if diff < 0:
+                miss += 1
+            elif diff == 0:
+                match += 1
+            else:
+                exceed += 1
+        reached_rate = (match + exceed) / n if n else None
+        per_cutoff[hour] = {
+            "n": n,
+            "miss_rate": miss / n if n else None,
+            "match_rate": match / n if n else None,
+            "exceed_rate": exceed / n if n else None,
+            "reached_rate": reached_rate,
+            "mean_gap_to_final": mean(gaps) if gaps else None,
+        }
+        if reaches_final_by_hour is None and reached_rate is not None and reached_rate >= 0.5:
+            reaches_final_by_hour = hour
+    return {
+        "market_id": spec.id,
+        "station": spec.icao,
+        "unit": spec.display_unit,
+        "matched_days": len(matched_dates),
+        "reaches_final_by_hour": reaches_final_by_hour,
+        "per_cutoff": per_cutoff,
+    }
+
+
+def cutoff_miss_report_lines(result):
+    lines = [
+        f"### {result['market_id']} (`{result['station']}`, {result['unit']})",
+        "",
+        f"Matched days: `{result['matched_days']}`. "
+        f"METAR-so-far reaches the WU final bucket on >=50% of days by hour: "
+        f"`{result['reaches_final_by_hour'] if result['reaches_final_by_hour'] is not None else '-'}`.",
+        "",
+        "| Cutoff | N | Miss (below) | Match | Exceed | Reached | Mean gap to final |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for hour, stats in sorted(result["per_cutoff"].items()):
+        lines.append(
+            f"| {hour:02d}:00 | {stats['n']} | {fmt_num(stats['miss_rate'])} | "
+            f"{fmt_num(stats['match_rate'])} | {fmt_num(stats['exceed_rate'])} | "
+            f"{fmt_num(stats['reached_rate'])} | {fmt_num(stats['mean_gap_to_final'], 2)} |"
+        )
+    lines.append("")
+    return lines
+
+
+def command_cutoff_miss(args):
+    specs = all_specs() if getattr(args, "all_markets", False) else [spec_for_id(args.market)]
+    results = []
+    for spec in specs:
+        store = MetarStore(spec, root=args.data_root or None)
+        wu_root = Path(args.wu_root) if args.wu_root else Path("data") / "wunderground" / spec.icao.lower()
+        wu_rows = read_daily_summary(wu_root / "daily" / "daily_summary.csv")
+        results.append(cutoff_miss_analysis(spec, store, wu_rows))
+
+    lines = [
+        "# METAR/ASOS Settlement-Miss By Intraday Cutoff Hour",
+        "",
+        "How often the METAR max-so-far has not yet reached the WU final "
+        "settlement bucket, by cutoff hour. Low matched-day counts mean the "
+        "rates are directional only -- deepen METAR history (item 29/39) for "
+        "statistical power.",
+        "",
+    ]
+    for result in results:
+        lines.extend(cutoff_miss_report_lines(result))
+
+    if args.out:
+        out_path = Path(args.out)
+    elif getattr(args, "all_markets", False):
+        out_path = Path("data") / "backtest" / "metar_cutoff_miss_report.md"
+    else:
+        out_path = MetarStore(specs[0], root=args.data_root or None).root / "analysis" / "cutoff_miss_report.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    json_path = out_path.with_suffix(".json")
+    json_path.write_text(json.dumps(results, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps(results, indent=2, sort_keys=True))
+    print(f"Wrote cutoff-miss report to {out_path}")
+
+
 def command_compare(args):
     spec = spec_for_id(args.market)
     store = MetarStore(spec, root=args.data_root or None)
@@ -428,6 +573,16 @@ def build_parser():
     compare.add_argument("--wu-root", default="")
     compare.add_argument("--out", default="")
     compare.set_defaults(func=command_compare)
+
+    cutoff = sub.add_parser(
+        "cutoff-miss",
+        help="Quantify how often METAR-so-far misses the WU final bucket by cutoff hour (item 5).",
+    )
+    cutoff.add_argument("--wu-root", default="")
+    cutoff.add_argument("--out", default="")
+    cutoff.add_argument("--all-markets", action="store_true",
+                        help="Run every registered market into one fleet report.")
+    cutoff.set_defaults(func=command_cutoff_miss)
 
     return parser
 

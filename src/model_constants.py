@@ -28,6 +28,26 @@ HISTORY_WINDOW_DAYS = 7
 INTRADAY_CUTOFF_HOURS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 LIVE_CACHE_MAX_AGE_MINUTES = 90
 
+# Per-source last-good cache TTLs (item 17). A single global cap treated a stale
+# forecast and a stale settlement-source row identically; they are not the same
+# risk. Observation / settlement sources change intra-hour, so a stale "current"
+# reading is misleading and expires fast; slow-moving forecasts tolerate a
+# longer stale window. Sources not listed fall back to LIVE_CACHE_MAX_AGE_MINUTES,
+# so behavior is unchanged except where deliberately tightened/loosened here.
+SOURCE_CACHE_TTL_MINUTES = {
+    # Observations / settlement evidence -- short TTL (staleness is dangerous).
+    "wu_history": 30,        # the settlement source; a stale high is the worst case
+    "wu_current": 30,
+    "eccc_swob": 30,
+    "metar": 75,            # METAR prints ~hourly; allow one cycle plus buffer
+    # Forecasts -- slow-moving, a longer stale window is acceptable.
+    "weather_forecast": 90,
+    "open_meteo": 90,
+    "nws_hourly": 90,
+    "eccc_citypage": 120,   # public city-page forecast updates a few times/day
+    "global_ensemble": 120,
+}
+
 # Model-version labels — the single source of truth shared with snapshot_tracker.
 # v0.5.0: multi-source forecast fallback (resolve_forecast_high) + forecast pull
 # (apply_forecast_pull) — the morning forecast-trust upgrade.

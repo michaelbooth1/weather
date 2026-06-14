@@ -166,6 +166,10 @@ class TorontoHighTempModel(
             "distribution_components": getattr(self, "_last_distribution_components", {}),
             "model_rows": model_rows,
             "source_rows": self.source_rows(sources),
+            # Structured per-source freshness/failure status (item 17), so the
+            # dashboard/loop can surface partial live-source failures and stale
+            # caches per their own TTL rather than as one undifferentiated blob.
+            "source_diagnostics": self.source_diagnostics(sources),
             "forecast_rows": self.forecast_rows(sources),
             "deep_dive_rows": self.deep_dive_rows(sources, distribution, analog_search, now=now_tz),
             "notes": self.model_notes(sources),
