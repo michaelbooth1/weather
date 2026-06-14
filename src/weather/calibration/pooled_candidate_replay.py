@@ -182,6 +182,59 @@ def candidate_comparison(rows):
     }
 
 
+def _score_probability_field(rows, probability_field):
+    view = probability_view(rows, probability_field)
+    if not view:
+        return None
+    return score_rows(view)
+
+
+def microstructure_comparison(rows):
+    """Microstructure overlay vs pooled candidate/current/market on same rows."""
+    micro_rows = probability_view(rows, "micro_candidate_p")
+    if not micro_rows:
+        return None
+    micro = score_rows(micro_rows)
+    base = _score_probability_field(micro_rows, "candidate_p")
+    current = _score_probability_field(micro_rows, "replayed_p")
+    recorded = _score_probability_field(micro_rows, "recorded_p")
+    if not micro or not base or not current or not recorded:
+        return None
+    return {
+        "n": micro["n"],
+        "micro_brier": micro["model_brier"],
+        "candidate_brier": base["model_brier"],
+        "current_brier": current["model_brier"],
+        "recorded_brier": recorded["model_brier"],
+        "market_brier": micro["market_brier"],
+        "micro_logloss": micro["model_logloss"],
+        "candidate_logloss": base["model_logloss"],
+        "current_logloss": current["model_logloss"],
+        "recorded_logloss": recorded["model_logloss"],
+        "market_logloss": micro["market_logloss"],
+        "micro_skill": micro["brier_skill_score"],
+        "candidate_skill": base["brier_skill_score"],
+        "current_skill": current["brier_skill_score"],
+        "delta_vs_candidate": micro["model_brier"] - base["model_brier"],
+        "delta_vs_current": micro["model_brier"] - current["model_brier"],
+        "delta_vs_recorded": micro["model_brier"] - recorded["model_brier"],
+        "delta_vs_market": micro["model_brier"] - micro["market_brier"],
+        "base_rate": micro["base_rate"],
+    }
+
+
+def grouped_microstructure_comparison(rows, group_key):
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[row.get(group_key)].append(row)
+    output = []
+    for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
+        comp = microstructure_comparison(group_rows)
+        if comp:
+            output.append({"group": group, **comp})
+    return output
+
+
 def grouped_candidate_comparison(rows, group_key):
     grouped = defaultdict(list)
     for row in rows:
