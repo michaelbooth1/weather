@@ -294,15 +294,24 @@ reaches 0.5 (when METAR-so-far becomes a usable floor on a typical day). It
 writes `data/backtest/metar_cutoff_miss_report.md` (+ `.json`) fleet-wide or a
 per-market `analysis/cutoff_miss_report.md`. `tests/test_metar_cutoff_miss.py`
 (4 tests) covers the hourly reader and the miss/match/exceed/gap classification
-on synthetic data. First fleet run: Toronto METAR-so-far reaches the WU final
-bucket by ~17:00 on >=50% of days (miss_rate 1.00 through midday -> 0.00 by
-18:00). CAVEAT: only 7-8 matched days/market are on disk right now (the
-registry-driven `metar_history` rebuild narrowed the old 656-day CYYZ archive),
-so the rates are directional until METAR history is deep-filled (item 29/39).
-REMAINING: the serving-role retune (replace the small hard-coded live METAR
-signal with this learned miss/lead behavior) is a `model_distribution.py` change
-that overlaps item 23's settlement-lag model and was deferred here to avoid
-colliding with in-flight item-40 serving work.
+on synthetic data. After the seasonal METAR deep-fill (below; ~708 matched
+days/market now) the rates are statistically meaningful: Toronto METAR-so-far
+reaches the WU final bucket on >=50% of days by 15:00 (miss-rate 0.94 at 09:00
+-> 0.37 at 15:00 -> 0.01 by 19:00, with near-zero overshoot -- a clean leading,
+non-overshooting signal); Miami reaches it earlier (14:00) and runs slightly
+ABOVE WU late-day (mean gap to final goes negative after 16:00, i.e. KMIA
+ASOS reads a touch warmer than the WU settlement source late). REMAINING: the
+serving-role retune (replace the small hard-coded live METAR signal with this
+learned miss/lead behavior) is a `model_distribution.py` change that overlaps
+item 23's settlement-lag model and was deferred here to avoid colliding with
+in-flight item-40 serving work.
+
+Seasonal METAR deep-fill (2026-06-13): backfilled the May 20-June 30 high-temp
+window for all 12 markets, 2010-2026, from IEM ASOS (one year-window per
+request, resumable, with 429 backoff after the first pass hit rate limits).
+Every market went from ~8 normalized days to **714** (errors=0 on the gap-fill
+pass). This is the item-29/30 "deep-fill METAR/ASOS" data action and is what
+gives the cutoff-miss analysis its statistical power.
 
 Codex audit (2026-05-28): partial. `src/metar_history.py` collects IEM ASOS
 METAR data, normalizes local rows, and generates a full-day WU comparison report
@@ -1333,6 +1342,15 @@ GHCNh and reanalysis are about `36%` target-season coverage. Next Item 29 work
 should therefore deep-fill METAR/ASOS, GHCNh, and reanalysis for at least
 May 20-June 30 across all markets from 1995 forward, then widen to
 April-September.
+
+METAR/ASOS seasonal deep-fill (2026-06-13): done for the high-temp window.
+Backfilled May 20-June 30, 2010-2026, for all 12 markets from IEM ASOS (one
+year-window per request, resumable, with 429 backoff). Normalized METAR daily
+coverage went from `13` to **`714`** days/market (errors=0). This closes the
+"METAR is shallow" half of the redundant-source gap for the high-temp season and
+gives item 5's cutoff-miss analysis and item 30's source-redundancy truth table
+real depth. GHCNh and reanalysis seasonal deep-fills (and extending METAR back to
+1995) remain the open redundant-source work.
 
 Validation results for this increment:
 
