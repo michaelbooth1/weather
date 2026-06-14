@@ -84,6 +84,10 @@ CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
 DEFAULT_DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+TEMPERATURE_BOUNDS = {
+    "C": (-60.0, 60.0),
+    "F": (-80.0, 140.0),
+}
 
 
 class WundergroundHistoryClient:
@@ -167,7 +171,15 @@ class WundergroundHistoryStore:
 
     def rebuild_normalized_files(self):
         records = list(self.iter_raw_records())
-        hourly_records = [normalize_observation(obs, self.tz, unit=self.unit) for obs in records]
+        hourly_records = []
+        quarantined_records = []
+        for obs in records:
+            row = normalize_observation(obs, self.tz, unit=self.unit)
+            if row is None:
+                quarantined_records.append(obs)
+                continue
+            hourly_records.append(row)
+
         hourly_records = [
             row for row in hourly_records
             if row.get("local_date") and row.get("valid_time_utc")
@@ -177,7 +189,7 @@ class WundergroundHistoryStore:
         self.write_hourly_partitions(hourly_records)
         daily_rows = summarize_daily(hourly_records)
         self.write_daily_summary(daily_rows)
-        self.write_manifest(hourly_records, daily_rows)
+        self.write_manifest(hourly_records, daily_rows, quarantined_records=quarantined_records)
         return hourly_records, daily_rows
 
     def iter_raw_records(self):
@@ -247,7 +259,7 @@ class WundergroundHistoryStore:
             writer.writeheader()
             writer.writerows(daily_rows)
 
-    def write_manifest(self, hourly_records, daily_rows):
+    def write_manifest(self, hourly_records, daily_rows, quarantined_records=None):
         path = self.root / "manifest.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -285,6 +297,8 @@ class WundergroundHistoryStore:
             },
             "hourly_record_count": len(hourly_records),
             "daily_record_count": len(daily_rows),
+            "quarantined_raw_observations": len(quarantined_records or []),
+            "quarantine_policy": "drop impossible WU temperature rows during normalization",
             "first_date": daily_rows[0]["local_date"] if daily_rows else None,
             "last_date": daily_rows[-1]["local_date"] if daily_rows else None,
             "layout": {
@@ -398,6 +412,19 @@ class WundergroundHistoryStore:
         return split_date_runs(self.missing_dates(start_date, end_date), chunk_days)
 
 
+def plausible_temperature(value, unit):
+    if value is None:
+        return True
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(numeric):
+        return False
+    low, high = TEMPERATURE_BOUNDS.get(str(unit or "C").upper(), TEMPERATURE_BOUNDS["C"])
+    return low <= numeric <= high
+
+
 def normalize_observation(obs, tz=TORONTO_TZ, unit="C"):
     local_dt = local_datetime(obs, tz)
     utc_dt = datetime.fromtimestamp(
@@ -407,6 +434,9 @@ def normalize_observation(obs, tz=TORONTO_TZ, unit="C"):
     dewpoint = to_number(obs.get("dewPt"))
     heat_index = to_number(obs.get("heat_index"))
     wind_chill = to_number(obs.get("wc"))
+    if not all(plausible_temperature(value, unit) for value in (temp, dewpoint, heat_index, wind_chill)):
+        return None
+
     temp_c = native_to_c(temp, unit)
     dewpoint_c = native_to_c(dewpoint, unit)
     heat_index_c = native_to_c(heat_index, unit)

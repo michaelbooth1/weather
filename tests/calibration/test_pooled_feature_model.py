@@ -11,6 +11,7 @@ from pooled_feature_model import (
     adjacent_calibration_factor,
     apply_band_postprocessing,
     apply_adjacent_calibration,
+    band_feature_frame,
     band_prediction_record,
     feature_frame,
     fit_adjacent_calibration,
@@ -18,6 +19,7 @@ from pooled_feature_model import (
     late_lockin_strength_from_features,
     support_floor_cap,
 )
+from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 
 
 class TestPooledFeatureModel(unittest.TestCase):
@@ -87,6 +89,37 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertEqual(band["observed_floor_bucket"], 80)
         self.assertEqual(band["band_contains_floor"], 1.0)
         self.assertAlmostEqual(band["band_mid_minus_high_so_far"], 0.5)
+
+    def test_band_feature_frame_includes_clob_columns_when_values_exist(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        })
+        band = band_prediction_record(record, "eq", 82, value_hi=83)
+        band.update({
+            "clob_feature_available": 1.0,
+            "clob_midpoint": 0.42,
+            "clob_liquidity_score": 2.75,
+        })
+
+        frame = band_feature_frame([band])
+
+        self.assertIn("clob_feature_available", frame.columns)
+        self.assertIn("clob_midpoint", frame.columns)
+        self.assertIn("clob_liquidity_score", frame.columns)
+        self.assertAlmostEqual(frame.loc[0, "clob_midpoint"], 0.42)
+
+    def test_band_feature_frame_drops_all_empty_clob_columns_for_legacy_rows(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        })
+        band = band_prediction_record(record, "eq", 82, value_hi=83)
+
+        frame = band_feature_frame([band])
+
+        for column in CLOB_MODEL_FEATURE_COLUMNS:
+            self.assertNotIn(column, frame.columns)
 
     def test_hard_floor_probability_prices_already_settled_bands(self):
         self.assertEqual(hard_floor_probability("gte", 79, 80), 1.0)

@@ -473,6 +473,7 @@ def write_markdown(path, payload):
             row.get("captures"),
             row.get("median_gap_seconds"),
             row.get("max_gap_seconds"),
+            row.get("startup_gaps_ignored") or 0,
             row.get("trailing_age_seconds"),
             row.get("reason") or "-",
         ]
@@ -488,7 +489,7 @@ def write_markdown(path, payload):
         "",
     ]
     lines += markdown_table(
-        ["Market", "Tape", "Captures", "Median Gap s", "Max Gap s", "Trailing s", "Reason"],
+        ["Market", "Tape", "Captures", "Median Gap s", "Max Gap s", "Startup Ignored", "Trailing s", "Reason"],
         clob_rows,
     )
     lines += ["", "## Alerts", ""]

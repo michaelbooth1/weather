@@ -11,6 +11,7 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 ``replay_backtest`` drives it and scores the output.
 """
 import json
+import csv
 import re
 import sys
 from datetime import datetime
@@ -30,6 +31,18 @@ REPLAY_INPUTS_FILENAME = "replay_inputs.jsonl"
 # Reconstructed records (approximate, regenerable from snapshots.jsonl) are kept
 # separate and git-ignored, so they never bloat the committed corpus.
 RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
+REPLAY_STATUS_FILENAME = "replay_input_status.json"
+REPLAY_STATUS_LONG_FILENAME = "replay_input_status_long.csv"
+
+REPLAY_STATUS_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "replay_input_status",
+    "replay_input_source",
+    "reason",
+]
 
 
 # --- Corpus loading ---------------------------------------------------------
@@ -408,6 +421,95 @@ def reconstruct_corpus_for_folder(folder):
     return added, skipped
 
 
+def replay_input_status_rows(folder):
+    folder = Path(folder)
+    snapshots = load_snapshot_records(folder)
+    captured = {str(record.get("snapshot_id")) for record in _read_jsonl(folder / REPLAY_INPUTS_FILENAME)}
+    reconstructed = {str(record.get("snapshot_id")) for record in _read_jsonl(folder / RECONSTRUCTED_FILENAME)}
+    rows = []
+    seen = set()
+    for snapshot in snapshots:
+        snapshot_id = str(snapshot.get("snapshot_id"))
+        if not snapshot_id or snapshot_id == "None" or snapshot_id in seen:
+            continue
+        seen.add(snapshot_id)
+        if snapshot_id in captured:
+            status = "captured"
+            source = REPLAY_INPUTS_FILENAME
+            reason = "full replay input captured"
+        elif snapshot_id in reconstructed:
+            status = "reconstructed"
+            source = RECONSTRUCTED_FILENAME
+            reason = "approximate replay input reconstructed from snapshot features"
+        else:
+            status = "evaluation_only"
+            source = ""
+            reason = "no captured or reconstructable replay input"
+        rows.append({
+            "snapshot_id": snapshot_id,
+            "captured_at_utc": snapshot.get("captured_at_utc"),
+            "captured_at_local": snapshot.get("captured_at_local"),
+            "event_slug": snapshot.get("event_slug") or folder.name,
+            "replay_input_status": status,
+            "replay_input_source": source,
+            "reason": reason,
+        })
+    if not rows:
+        for snapshot_id in sorted(captured | reconstructed):
+            if not snapshot_id or snapshot_id == "None":
+                continue
+            rows.append({
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": "",
+                "captured_at_local": "",
+                "event_slug": folder.name,
+                "replay_input_status": "captured" if snapshot_id in captured else "reconstructed",
+                "replay_input_source": REPLAY_INPUTS_FILENAME if snapshot_id in captured else RECONSTRUCTED_FILENAME,
+                "reason": "replay input present; snapshot metadata missing",
+            })
+    return rows
+
+
+def summarize_replay_input_status(rows):
+    counts = {}
+    for row in rows:
+        status = row.get("replay_input_status") or "unknown"
+        counts[status] = counts.get(status, 0) + 1
+    if not rows:
+        folder_status = "evaluation_only"
+    elif counts.get("evaluation_only"):
+        folder_status = "evaluation_only"
+    elif counts.get("reconstructed"):
+        folder_status = "reconstructed"
+    else:
+        folder_status = "captured"
+    return {
+        "folder_status": folder_status,
+        "snapshot_count": len(rows),
+        "captured_count": counts.get("captured", 0),
+        "reconstructed_count": counts.get("reconstructed", 0),
+        "evaluation_only_count": counts.get("evaluation_only", 0),
+        "counts": counts,
+    }
+
+
+def write_replay_input_status(folder):
+    folder = Path(folder)
+    rows = replay_input_status_rows(folder)
+    summary = {
+        "folder": str(folder),
+        **summarize_replay_input_status(rows),
+    }
+    with (folder / REPLAY_STATUS_LONG_FILENAME).open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REPLAY_STATUS_COLUMNS, extrasaction="ignore", restval="")
+        writer.writeheader()
+        writer.writerows(rows)
+    with (folder / REPLAY_STATUS_FILENAME).open("w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2, sort_keys=True, default=str)
+        handle.write("\n")
+    return summary
+
+
 def _reconstruct_main():
     import argparse
 
@@ -430,8 +532,12 @@ def _reconstruct_main():
     total_added = 0
     for folder in folders:
         added, skipped = reconstruct_corpus_for_folder(folder)
+        status = write_replay_input_status(folder)
         total_added += added
-        print(f"  {Path(folder).name}: +{added} reconstructed, {skipped} skipped (already present)")
+        print(
+            f"  {Path(folder).name}: +{added} reconstructed, {skipped} skipped "
+            f"(status {status['folder_status']})"
+        )
     print(f"Reconstructed {total_added} snapshot input(s) across {len(folders)} folder(s).")
 
 

@@ -28,6 +28,8 @@ FORECAST_COLUMNS = [
     "forecast_kind",
     "issue_time",
     "issue_time_basis",
+    "provider_issue_time",
+    "provider_update_time",
     "valid_time",
     "horizon_minutes",
     "target_temp_c",
@@ -61,6 +63,7 @@ def build_forecast_rows(
     rows = []
 
     weather = model_client.source_data(sources, "weather_forecast")
+    weather_issue_time, weather_issue_basis = forecast_issue_fields(weather, captured_local)
     for raw in weather.get("rows", []) or []:
         valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
@@ -70,8 +73,10 @@ def build_forecast_rows(
             event_slug=event_slug,
             source="weather_forecast",
             forecast_kind="hourly",
-            issue_time=captured_local,
-            issue_time_basis="capture_fallback",
+            issue_time=weather_issue_time,
+            issue_time_basis=weather_issue_basis,
+            provider_issue_time=weather.get("provider_issue_time"),
+            provider_update_time=weather.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
             target_temp_c=raw.get("temp_c"),
@@ -84,6 +89,7 @@ def build_forecast_rows(
         rows.append(row)
 
     open_meteo = model_client.source_data(sources, "open_meteo")
+    open_meteo_issue_time, open_meteo_issue_basis = forecast_issue_fields(open_meteo, captured_local)
     for raw in open_meteo.get("rows", []) or []:
         valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
@@ -93,8 +99,10 @@ def build_forecast_rows(
             event_slug=event_slug,
             source="open_meteo",
             forecast_kind="hourly",
-            issue_time=captured_local,
-            issue_time_basis="capture_fallback",
+            issue_time=open_meteo_issue_time,
+            issue_time_basis=open_meteo_issue_basis,
+            provider_issue_time=open_meteo.get("provider_issue_time"),
+            provider_update_time=open_meteo.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
             target_temp_c=raw.get("temp_c"),
@@ -107,6 +115,7 @@ def build_forecast_rows(
         rows.append(row)
 
     nws = model_client.source_data(sources, "nws_hourly")
+    nws_issue_time, nws_issue_basis = forecast_issue_fields(nws, captured_local)
     for raw in nws.get("rows", []) or []:
         valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
@@ -116,8 +125,10 @@ def build_forecast_rows(
             event_slug=event_slug,
             source="nws_hourly",
             forecast_kind="hourly",
-            issue_time=captured_local,
-            issue_time_basis="capture_fallback",
+            issue_time=nws_issue_time,
+            issue_time_basis=nws_issue_basis,
+            provider_issue_time=nws.get("provider_issue_time"),
+            provider_update_time=nws.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
             target_temp_c=raw.get("temp_c"),
@@ -130,6 +141,7 @@ def build_forecast_rows(
         rows.append(row)
 
     global_ensemble = model_client.source_data(sources, "global_ensemble")
+    global_ensemble_issue_time, global_ensemble_issue_basis = forecast_issue_fields(global_ensemble, captured_local)
     for raw in global_ensemble.get("rows", []) or []:
         valid_time = normalize_valid_time(raw.get("valid_time") or raw.get("time"), target_date, tz)
         row = forecast_row(
@@ -139,8 +151,10 @@ def build_forecast_rows(
             event_slug=event_slug,
             source="global_ensemble",
             forecast_kind="hourly",
-            issue_time=captured_local,
-            issue_time_basis="capture_fallback",
+            issue_time=global_ensemble_issue_time,
+            issue_time_basis=global_ensemble_issue_basis,
+            provider_issue_time=global_ensemble.get("provider_issue_time"),
+            provider_update_time=global_ensemble.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
             target_temp_c=raw.get("temp_c"),
@@ -158,8 +172,8 @@ def build_forecast_rows(
 
     eccc = model_client.source_data(sources, "eccc_citypage")
     if eccc:
-        issue_time = eccc.get("last_updated") or captured_local
-        issue_basis = "source_last_updated" if eccc.get("last_updated") else "capture_fallback"
+        issue_time = eccc.get("provider_update_time") or eccc.get("last_updated") or captured_local
+        issue_basis = "source_last_updated" if eccc.get("provider_update_time") or eccc.get("last_updated") else "capture_fallback"
         row = forecast_row(
             snapshot_id=snapshot_id,
             captured_at_utc=captured_utc,
@@ -169,6 +183,8 @@ def build_forecast_rows(
             forecast_kind="daily_high",
             issue_time=issue_time,
             issue_time_basis=issue_basis,
+            provider_issue_time=eccc.get("provider_issue_time"),
+            provider_update_time=eccc.get("provider_update_time") or eccc.get("last_updated"),
             valid_time=target_date.isoformat(),
             captured_at=captured_at,
             target_temp_c=eccc.get("forecast_high_c"),
@@ -201,6 +217,8 @@ def forecast_row(
     wind_speed_kmh,
     condition,
     source_url,
+    provider_issue_time=None,
+    provider_update_time=None,
 ):
     target_date = target_date_from_valid_time(valid_time)
     row = {
@@ -213,6 +231,8 @@ def forecast_row(
         "forecast_kind": forecast_kind,
         "issue_time": issue_time,
         "issue_time_basis": issue_time_basis,
+        "provider_issue_time": provider_issue_time,
+        "provider_update_time": provider_update_time,
         "valid_time": valid_time,
         "horizon_minutes": horizon_minutes(captured_at, valid_time),
         "target_temp_c": target_temp_c,
@@ -225,6 +245,13 @@ def forecast_row(
     row["payload_hash"] = payload_hash(row)
     row["is_changed"] = "true"
     return row
+
+
+def forecast_issue_fields(source_data, captured_local):
+    provider_time = source_data.get("provider_issue_time") or source_data.get("provider_update_time")
+    if provider_time:
+        return provider_time, "source_provider_time"
+    return captured_local, "capture_fallback"
 
 
 def normalize_valid_time(value, target_date=TARGET_DATE, tz=TORONTO_TZ):
@@ -281,6 +308,8 @@ def payload_hash(row):
         "source": row.get("source"),
         "forecast_kind": row.get("forecast_kind"),
         "issue_time": row.get("issue_time"),
+        "provider_issue_time": row.get("provider_issue_time"),
+        "provider_update_time": row.get("provider_update_time"),
         "valid_time": row.get("valid_time"),
         "target_temp_c": row.get("target_temp_c"),
         "forecast_high_c": row.get("forecast_high_c"),
@@ -343,6 +372,10 @@ def migrate_csv_schema(path, columns):
         if not new_row.get("issue_time"):
             new_row["issue_time"] = new_row.get("captured_at_local", "")
             new_row["issue_time_basis"] = "capture_fallback"
+        if not new_row.get("provider_update_time") and new_row.get("issue_time_basis") == "source_last_updated":
+            new_row["provider_update_time"] = new_row.get("issue_time", "")
+        if not new_row.get("provider_issue_time") and new_row.get("issue_time_basis") == "source_provider_time":
+            new_row["provider_issue_time"] = new_row.get("issue_time", "")
         if not new_row.get("valid_time") and row.get("valid_time"):
             new_row["valid_time"] = normalize_valid_time(row.get("valid_time"))
         elif new_row.get("valid_time"):

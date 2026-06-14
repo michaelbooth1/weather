@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,8 +12,10 @@ sys.path.insert(0, os.path.abspath("src"))
 from historical_backfill_plan import build_plan, split_ranges
 from market_registry import NYC, TORONTO
 from historical_coverage import fleet_coverage
+from forecast_history import daily_issue_rows, historical_forecast_rows, previous_run_rows
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
+from wu_history import normalize_observation, summarize_daily
 
 
 GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|LONGITUDE|ELEVATION|temperature|temperature_Quality_Code|temperature_Report_Type|dew_point_temperature|dew_point_temperature_Quality_Code|station_level_pressure|sea_level_pressure|wind_direction|wind_speed|relative_humidity
@@ -84,6 +86,73 @@ class TestHistoricalSources(unittest.TestCase):
             (date(2026, 1, 5), date(2026, 1, 5)),
         ])
 
+    def test_wu_normalizer_quarantines_impossible_temperature(self):
+        base = {
+            "key": "KMIA",
+            "obs_id": "KMIA",
+            "obs_name": "Miami Intl",
+            "valid_time_gmt": int(datetime(2005, 6, 11, 14, 0, tzinfo=timezone.utc).timestamp()),
+            "rh": 72,
+            "pressure": 29.95,
+            "vis": 10,
+            "wdir": 120,
+            "wspd": 8,
+            "gust": None,
+            "clds": "FEW",
+            "wx_phrase": "Fair",
+        }
+        bad = {
+            **base,
+            "temp": 171,
+            "dewPt": 171,
+            "heat_index": 403,
+            "wc": 171,
+        }
+        good = {
+            **base,
+            "valid_time_gmt": int(datetime(2005, 6, 11, 15, 0, tzinfo=timezone.utc).timestamp()),
+            "temp": 86,
+            "dewPt": 78,
+            "heat_index": 95,
+            "wc": 86,
+        }
+
+        self.assertIsNone(normalize_observation(bad, NYC.tz, unit="F"))
+        row = normalize_observation(good, NYC.tz, unit="F")
+
+        self.assertIsNotNone(row)
+        daily = summarize_daily([row])
+        self.assertEqual(daily[0]["max_temp_bucket"], 86)
+
+    def test_forecast_history_writes_source_issue_rows(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-11T14:00", "2026-06-11T15:00"],
+                "temperature_2m": [82, 85],
+                "cloud_cover": [20, 35],
+                "wind_speed_10m": [8, 9],
+                "temperature_2m_previous_day1": [80, 83],
+                "temperature_2m_previous_day2": [79, 81],
+            }
+        }
+
+        stitched = historical_forecast_rows(payload, NYC)
+        previous = previous_run_rows(payload, NYC, leads=(1, 2))
+        daily_rows = daily_issue_rows(stitched + previous)
+
+        self.assertEqual(stitched[0]["source"], "open_meteo_historical_forecast")
+        self.assertEqual(stitched[0]["issue_time_basis"], "stitched_continuous_archive")
+        self.assertEqual(previous[0]["source"], "open_meteo_previous_runs")
+        self.assertEqual(previous[0]["issue_time_basis"], "fixed_lead_day_offset")
+        self.assertEqual(previous[0]["lead_days"], 1)
+        self.assertIn("2026-06-10T00:00", previous[0]["issue_time"])
+        lead_two = [
+            row for row in daily_rows
+            if row["source"] == "open_meteo_previous_runs" and row["lead_days"] == 2
+        ][0]
+        self.assertEqual(lead_two["forecast_high_native"], 81)
+        self.assertEqual(lead_two["hourly_rows"], 2)
+
     def test_ghcnh_station_resolves_by_icao(self):
         station = resolve_station(NYC, [
             {"GHCN_ID": "USW00099999", "ICAO": "XXXX", "LATITUDE": "0", "LONGITUDE": "0"},
@@ -139,6 +208,31 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(daily[0]["max_temp_bucket"], 77)
             self.assertTrue((Path(tmp) / "manifest.json").exists())
             self.assertTrue((Path(tmp) / "hourly" / "year=2023" / "month=06" / "observations.jsonl").exists())
+
+    def test_ghcnh_source_unavailable_years_are_not_refetch_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = GHCNHStore(NYC, tmp)
+            station = {"GHCN_ID": "USW00014732", "NAME": "LAGUARDIA AP"}
+            store.write_station(station)
+            store.write_year("USW00014732", 2023, GHCNH_SAMPLE)
+            store.record_source_unavailable_year(
+                "USW00014732",
+                2022,
+                "https://example.test/GHCNh_USW00014732_2022.psv",
+                "404 Client Error",
+            )
+
+            records, daily = store.rebuild()
+            coverage = store.coverage(2022, 2023)
+            manifest = json.loads((Path(tmp) / "manifest.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(len(records), 2)
+            self.assertEqual(daily[0]["local_date"], "2023-06-01")
+            self.assertEqual(store.missing_years(2022, 2023), [])
+            self.assertEqual(coverage["missing_years"], [])
+            self.assertEqual(coverage["source_unavailable_years"], [2022])
+            self.assertEqual(coverage["raw_missing_years"], [2022])
+            self.assertEqual(manifest["metadata"]["source_unavailable_year_count"], 1)
 
     def test_reanalysis_normalizes_to_native_unit_schema(self):
         payload = {
@@ -207,6 +301,8 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(coverage["normalized_daily_days"], 1)
             self.assertEqual(coverage["covered_days"], 1)
             self.assertEqual(coverage["missing_days"], 1)
+            self.assertEqual(coverage["raw_only_days"], ["2026-06-02"])
+            self.assertEqual(coverage["raw_only_day_count"], 1)
             self.assertEqual(ranges, [(date(2026, 6, 2), date(2026, 6, 2))])
 
 

@@ -21,6 +21,17 @@ from market_microstructure import (
     stop_clob_loop,
     utc_now,
 )
+from observation_trigger import (
+    CONSOLE_LOG_PATH as OBSERVATION_CONSOLE_LOG_PATH,
+    DIAGNOSTICS_PATH as OBSERVATION_DIAGNOSTICS_PATH,
+    STATUS_PATH as OBSERVATION_STATUS_PATH,
+    TASK_NAME as OBSERVATION_TASK_NAME,
+    ensure_watcher_loop,
+    read_status as read_observation_status,
+    start_watcher_detached,
+    stop_watcher_loop,
+    watcher_health,
+)
 from runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from snapshot_tracker import (
     DIAGNOSTICS_PATH,
@@ -38,6 +49,7 @@ from snapshot_tracker import (
 
 SNAPSHOT_TASK_NAME = "WeatherSnapshotLoopSupervisor"
 CLOB_TASK_NAME = "WeatherClobBookLoopSupervisor"
+DAILY_REFRESH_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
 
 
 def _code_state(runtime_identity, current_identity):
@@ -58,6 +70,31 @@ def _format_age(value, unit):
     if unit == "seconds":
         return f"{value:.0f}s"
     return f"{value:.1f}m"
+
+
+def _latest_trigger_summary(status):
+    latest = (status or {}).get("latest_triggered") or {}
+    if not latest:
+        return "-"
+    parts = []
+    for market_id, item in sorted(latest.items()):
+        top_temp = item.get("top_temp")
+        top_probability = item.get("top_probability")
+        snapshot_id = item.get("snapshot_id")
+        if top_temp is None:
+            parts.append(f"{market_id}:{snapshot_id}")
+        elif top_probability is None:
+            parts.append(f"{market_id}:{top_temp}")
+        else:
+            parts.append(f"{market_id}:{top_temp}@{float(top_probability):.0%}")
+    return "; ".join(parts[:4]) + ("; ..." if len(parts) > 4 else "")
+
+
+def _trade_permission_summary(status):
+    trade_permission = (status or {}).get("trade_permission") or {}
+    if not trade_permission:
+        return "-"
+    return "yes" if trade_permission.get("trade_permissioned") else "no"
 
 
 def _loop_row(
@@ -93,6 +130,8 @@ def _loop_row(
         "Code State": _code_state(runtime_identity, current_identity),
         "Started At": health.get("started_at"),
         "Last Error": health.get("last_error"),
+        "Latest Trigger FV": _latest_trigger_summary(status),
+        "Trade Permissioned": _trade_permission_summary(status),
         "Status File": str(status_path),
         "Diagnostics": str(diagnostics_path),
         "Console Log": str(console_log_path),
@@ -105,6 +144,8 @@ def loop_status_rows(current_identity=None):
     weather_health = loop_health(weather_status, datetime.now(TORONTO_TZ))
     clob_status = read_clob_loop_status()
     clob_health = clob_loop_health(clob_status, now=utc_now())
+    observation_status = read_observation_status()
+    observation_health = watcher_health(observation_status, now=utc_now())
     return [
         _loop_row(
             "Weather snapshots",
@@ -123,6 +164,15 @@ def loop_status_rows(current_identity=None):
             CLOB_LOOP_STATUS_PATH,
             CLOB_DIAGNOSTICS_PATH,
             CLOB_LOOP_CONSOLE_LOG_PATH,
+        ),
+        _loop_row(
+            "Observation triggers",
+            observation_health,
+            observation_status,
+            current_identity,
+            OBSERVATION_STATUS_PATH,
+            OBSERVATION_DIAGNOSTICS_PATH,
+            OBSERVATION_CONSOLE_LOG_PATH,
         ),
     ]
 
@@ -156,6 +206,7 @@ def start_all_loops():
             interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
             fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
         ),
+        "observation_trigger": ensure_watcher_loop(),
     }
 
 
@@ -169,6 +220,10 @@ def ensure_clob_book_loop():
         interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
         fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
     )
+
+
+def ensure_observation_trigger_loop():
+    return ensure_watcher_loop()
 
 
 def restart_weather_loop():
@@ -192,8 +247,16 @@ def restart_clob_loop():
         release_clob_supervisor_lock(lock_handle)
 
 
+def restart_observation_trigger_loop():
+    return {"stop": stop_watcher_loop(), "start": start_watcher_detached()}
+
+
 def stop_all_loops():
-    return {"weather": stop_loop(), "clob": stop_clob_loop()}
+    return {
+        "weather": stop_loop(),
+        "clob": stop_clob_loop(),
+        "observation_trigger": stop_watcher_loop(),
+    }
 
 
 def stop_weather_loop():
@@ -202,6 +265,10 @@ def stop_weather_loop():
 
 def stop_clob_book_loop():
     return stop_clob_loop()
+
+
+def stop_observation_trigger_loop():
+    return stop_watcher_loop()
 
 
 def _creationflags():
@@ -286,4 +353,6 @@ def scheduled_task_rows():
     return [
         scheduled_task_status(SNAPSHOT_TASK_NAME),
         scheduled_task_status(CLOB_TASK_NAME),
+        scheduled_task_status(OBSERVATION_TASK_NAME),
+        scheduled_task_status(DAILY_REFRESH_TASK_NAME),
     ]

@@ -1,10 +1,12 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from pooled_candidate_replay import (
+    attach_band_candidate_probabilities,
     apply_current_blend_guardrail,
     band_probability_from_distribution,
     candidate_comparison,
@@ -152,6 +154,65 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertFalse(status["global_ok"])
         self.assertFalse(status["fidelity_ok"])
         self.assertIn("no exact-identity", status["fidelity_message"])
+
+    def test_band_candidate_replay_attaches_clob_features_with_label_hi_fallback(self):
+        replay_results = {
+            "all_rows": [
+                {
+                    "market_id": "nyc",
+                    "snapshot_id": "s1",
+                    "range_label": "82-83 F",
+                    "bin_type": "eq",
+                    "bin_value_c": "82",
+                    "bin_value_hi": "",
+                    "market_yes": 0.40,
+                    "outcome": 1,
+                }
+            ]
+        }
+        feature_rows = {
+            ("nyc", "s1"): {
+                "cutoff_hour": 14,
+                "high_so_far": 80.0,
+                "current_temp": 79.0,
+                "forecast_high": 84.0,
+                "live_reading_temp": 80.0,
+                "climate_normal": 82.0,
+                "wind_group": "S-SW",
+                "cloud_group": "Fair/clear",
+                "market_id": "nyc",
+            }
+        }
+        clob_features = {
+            ("nyc", "s1", "eq", 82, 83): {
+                "clob_feature_available": 1.0,
+                "clob_midpoint": 0.39,
+                "clob_spread": 0.02,
+                "clob_liquidity_score": 2.5,
+            }
+        }
+        artifact = {
+            "models": {"14": {"feature_names": ["placeholder"]}},
+            "postprocess": {"partition_normalization_enabled": False},
+        }
+
+        with patch("pooled_candidate_replay.predict_band_rows_for_bundle", return_value=[0.72]) as predict:
+            rows, coverage = attach_band_candidate_probabilities(
+                replay_results,
+                feature_rows,
+                artifact,
+                "F",
+                clob_features=clob_features,
+            )
+
+        self.assertEqual(coverage["candidate_rows"], 1)
+        self.assertAlmostEqual(rows[0]["candidate_p"], 0.72)
+        self.assertEqual(rows[0]["clob_feature_available"], 1.0)
+        self.assertAlmostEqual(rows[0]["clob_midpoint"], 0.39)
+        band_rows = predict.call_args.args[1]
+        self.assertEqual(band_rows[0]["band_value_hi"], 83.0)
+        self.assertEqual(band_rows[0]["clob_feature_available"], 1.0)
+        self.assertAlmostEqual(band_rows[0]["clob_liquidity_score"], 2.5)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from replay import (
     reconstruct_sources,
     record_target_date,
     replay_distribution,
+    write_replay_input_status,
 )
 from model_identity import model_replay_identity
 from replay_backtest import fidelity_summary, gate, run_replay_backtest, save_baseline
@@ -349,6 +350,25 @@ class TestReconstruction(unittest.TestCase):
             added2, skipped2 = reconstruct_corpus_for_folder(folder)
             self.assertEqual(added2, 0)
             self.assertEqual(skipped2, 1)
+
+            status = write_replay_input_status(folder)
+            status_rows = list(csv.DictReader((folder / "replay_input_status_long.csv").open(encoding="utf-8", newline="")))
+            self.assertEqual(status["folder_status"], "reconstructed")
+            self.assertEqual(status_rows[0]["replay_input_status"], "reconstructed")
+
+    def test_replay_status_marks_missing_replay_input_evaluation_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            folder.mkdir(parents=True)
+            with (folder / "snapshots.jsonl").open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(self._snapshot(), sort_keys=True) + "\n")
+
+            status = write_replay_input_status(folder)
+            status_rows = list(csv.DictReader((folder / "replay_input_status_long.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(status["folder_status"], "evaluation_only")
+        self.assertEqual(status["evaluation_only_count"], 1)
+        self.assertEqual(status_rows[0]["replay_input_status"], "evaluation_only")
 
 
 class TestRegressionGate(unittest.TestCase):

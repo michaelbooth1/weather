@@ -101,25 +101,43 @@ class SourceFetchMixin:
             name: fetcher
             for name, fetcher in fetchers.items()
         }
+        def _timed_fetch(fetcher):
+            started = time.perf_counter()
+            try:
+                return {
+                    "ok": True,
+                    "data": fetcher(),
+                    "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
+                }
+            except Exception as exc:  # noqa: BLE001 - captured into source status below
+                return {
+                    "ok": False,
+                    "error": str(exc),
+                    "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
+                }
+
         results = {}
         with ThreadPoolExecutor(max_workers=len(fetchers)) as executor:
             futures = {
-                executor.submit(fetcher): name
+                executor.submit(_timed_fetch, fetcher): name
                 for name, fetcher in fetchers.items()
             }
             for future in as_completed(futures):
                 name = futures[future]
                 fetched_time = datetime.now(self.spec.tz).isoformat()
-                try:
+                item = future.result()
+                if item.get("ok"):
                     results[name] = {
                         "ok": True,
-                        "data": future.result(),
+                        "data": item.get("data"),
+                        "latency_ms": item.get("latency_ms"),
                         "fetched_at": fetched_time
                     }
-                except Exception as exc:
+                else:
                     results[name] = {
                         "ok": False,
-                        "error": str(exc),
+                        "error": item.get("error"),
+                        "latency_ms": item.get("latency_ms"),
                         "fetched_at": fetched_time
                     }
         return results
@@ -150,6 +168,7 @@ class SourceFetchMixin:
                     "stale": False,
                     "status": "fresh",
                     "fetched_at": item["fetched_at"],
+                    "latency_ms": item.get("latency_ms"),
                     "data": item["data"]
                 }
             else:
@@ -175,6 +194,7 @@ class SourceFetchMixin:
                         "fetched_at": cached_item["fetched_at"],
                         "data": cached_item["data"],
                         "error": item.get("error", "Unknown error"),
+                        "latency_ms": item.get("latency_ms"),
                         "cache_age_minutes": cache_age_minutes,
                         "ttl_minutes": ttl_minutes,
                     }
@@ -191,6 +211,7 @@ class SourceFetchMixin:
                         "status": "failed",
                         "fetched_at": item.get("fetched_at"),
                         "error": f"{item.get('error', 'Unknown error')}.{stale_detail}".strip(),
+                        "latency_ms": item.get("latency_ms"),
                         "ttl_minutes": ttl_minutes,
                         "data": {}
                     }
@@ -248,6 +269,7 @@ class SourceFetchMixin:
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age, 1) if age is not None else None,
                 "ttl_minutes": self.source_cache_ttl_minutes(name),
+                "latency_ms": item.get("latency_ms"),
                 "error": item.get("error"),
             })
         return diagnostics
@@ -450,6 +472,8 @@ class SourceFetchMixin:
         return {
             "url": url,
             "last_updated": props.get("lastUpdated"),
+            "provider_update_time": props.get("lastUpdated"),
+            "raw_payload": data,
             "current_time": current.get("timestamp", {}).get("en"),
             "current_temp_c": self.nested_number(
                 current, "temperature", "value", "en"
@@ -524,7 +548,14 @@ class SourceFetchMixin:
                 "wind": self.array_get(payload, "windDirectionCardinal", index),
                 "wind_kmh": self.array_get(payload, "windSpeed", index),
             })
-        return {"url": url, "rows": rows[:12]}
+        metadata = payload.get("metadata", {}) or {}
+        return {
+            "url": url,
+            "rows": rows[:12],
+            "provider_issue_time": metadata.get("created_time") or metadata.get("createdTime"),
+            "provider_update_time": metadata.get("updated") or metadata.get("update_time"),
+            "raw_payload": payload,
+        }
 
     def fetch_open_meteo(self):
         url = "https://api.open-meteo.com/v1/forecast"
@@ -568,7 +599,12 @@ class SourceFetchMixin:
         # Forecasted daily max over ALL of today's hours (the canonical forecast
         # feature, matching the Open-Meteo historical-forecast training value).
         day_max_c = max(day_temps) if day_temps else None
-        return {"url": url, "rows": rows[:12], "day_max_c": day_max_c}
+        return {
+            "url": url,
+            "rows": rows[:12],
+            "day_max_c": day_max_c,
+            "raw_payload": payload,
+        }
 
     def fetch_nws_hourly_forecast(self):
         """US National Weather Service hourly grid forecast.
@@ -589,10 +625,11 @@ class SourceFetchMixin:
         if not forecast_url:
             raise RuntimeError("NWS points response did not include forecastHourly")
         payload = self.get_json(forecast_url, {}, headers=headers)
+        props = payload.get("properties") or {}
         rows = []
         day_temps = []
         now = datetime.now(self.spec.tz)
-        for period in ((payload.get("properties") or {}).get("periods") or []):
+        for period in (props.get("periods") or []):
             dt = self.parse_weather_com_time(period.get("startTime"))
             if not dt or dt.date() != self.target_date:
                 continue
@@ -609,7 +646,14 @@ class SourceFetchMixin:
                 "wind": period.get("windDirection"),
                 "wind_kmh": self.wind_speed_text_to_kmh(period.get("windSpeed")),
             })
-        return {"url": forecast_url, "rows": rows[:12], "day_max_c": max(day_temps) if day_temps else None}
+        return {
+            "url": forecast_url,
+            "rows": rows[:12],
+            "day_max_c": max(day_temps) if day_temps else None,
+            "provider_issue_time": props.get("generatedAt"),
+            "provider_update_time": props.get("updated"),
+            "raw_payload": payload,
+        }
 
     def cached_nws_points(self, points_url, headers):
         cache_path = self.spec.data_root / "nws_points.json"
@@ -687,6 +731,7 @@ class SourceFetchMixin:
             "rows": rows[:12],
             "day_max_c": max(day_temps) if day_temps else None,
             "day_mean_member_spread": sum(day_spreads) / len(day_spreads) if day_spreads else None,
+            "raw_payload": payload,
         }
 
     def forecast_temp_to_native(self, value, unit):

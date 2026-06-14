@@ -27,14 +27,16 @@ from backtest import binary_log_loss, brier, fmt_num, markdown_table
 from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_historical_feature_record
 from forecast_history import daily_path_for, load_forecast_daily
 from market_registry import all_specs
+from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from model_constants import INTRADAY_CUTOFF_HOURS
 from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, bias_stats_for_source, source_daily_indexes
 from toronto_model import TorontoHighTempModel
+from weather.artifacts import writable_artifact_path
 
 DEFAULT_REPORT = Path("data") / "backtest" / "f_family_pooled_model_report.md"
-DEFAULT_ARTIFACT = Path("src") / "feature_model_hgb_f_pooled.pkl"
+DEFAULT_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled.pkl")
 DEFAULT_BAND_REPORT = Path("data") / "backtest" / "f_family_pooled_band_model_v0_3_report.md"
-DEFAULT_BAND_ARTIFACT = Path("src") / "feature_model_hgb_f_pooled_v0_3.pkl"
+DEFAULT_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_v0_3.pkl")
 
 WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
 CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
@@ -54,6 +56,7 @@ BAND_NUMERIC_COLUMNS = [
     "band_contains_floor",
     "band_above_floor",
     "late_lockin_strength",
+    *CLOB_MODEL_FEATURE_COLUMNS,
 ]
 SOURCE_RELIABILITY_COLUMNS = [
     "source_redundant_streams",
@@ -495,6 +498,11 @@ def band_feature_frame(records, feature_names=None):
     for column in use:
         if column not in frame:
             frame[column] = None
+    if feature_names is None:
+        use = [
+            column for column in use
+            if column not in CLOB_MODEL_FEATURE_COLUMNS or not frame[column].isna().all()
+        ]
     features = pd.get_dummies(
         frame[use],
         columns=["wind_group", "cloud_group", "market_id", "band_kind"],

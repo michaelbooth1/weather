@@ -18,6 +18,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from market_config import config_from_event, config_for_date  # noqa: E402
+from market_microstructure_features import write_clob_feature_rows  # noqa: E402
 from market_registry import all_specs, spec_for_id  # noqa: E402
 from model_sources import request_with_retries  # noqa: E402
 from polymarket_client import PolymarketClient  # noqa: E402
@@ -30,6 +31,13 @@ CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 DEFAULT_BOOK_INTERVAL_SECONDS = 60.0
 DEFAULT_FAST_INTERVAL_SECONDS = 15.0
 DEFAULT_BATCH_SIZE = 100
+DEFAULT_INCLUDE_PRICE_HISTORY = True
+DEFAULT_INCLUDE_WS_EVENTS = True
+DEFAULT_WS_SECONDS = 1.0
+DEFAULT_WS_MESSAGE_LIMIT = 5
+DEFAULT_WS_HEARTBEAT_SECONDS = 10
+DEFAULT_WS_CONNECT_TIMEOUT = 5.0
+DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS = 180.0
 FIXED_EXECUTION_SIZES = (10.0, 100.0, 1000.0)
 SNAPSHOT_DATA_ROOT = Path("data") / "snapshots"
 CLOB_PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "clob_loop_pause.flag"
@@ -287,6 +295,22 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
 
 
 BOOK_AUDIT_MAX_GAP_SECONDS = 120.0
+BOOK_AUDIT_STARTUP_GRACE_SECONDS = 180.0
+
+
+def parse_utc_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def book_capture_times(folder):
@@ -313,7 +337,12 @@ def book_capture_times(folder):
     return sorted(times)
 
 
-def audit_book_tape(folder, now=None, max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS):
+def audit_book_tape(
+    folder,
+    now=None,
+    max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS,
+    ignore_gaps_before=None,
+):
     """Cadence audit for one event folder's book tape.
 
     `ok` means the tape has captures, no internal gap above the threshold, and
@@ -322,6 +351,7 @@ def audit_book_tape(folder, now=None, max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS
     """
     folder = Path(folder)
     now = now or utc_now()
+    ignore_cutoff = parse_utc_datetime(ignore_gaps_before)
     times = book_capture_times(folder)
     result = {
         "folder": str(folder),
@@ -331,30 +361,61 @@ def audit_book_tape(folder, now=None, max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS
         "median_gap_seconds": None,
         "max_gap_seconds": None,
         "gaps_over_threshold": 0,
+        "startup_gaps_ignored": 0,
+        "max_startup_gap_seconds": None,
+        "max_counted_gap_seconds": None,
         "trailing_age_seconds": None,
         "max_gap_seconds_threshold": float(max_gap_seconds),
+        "ignored_gap_cutoff_utc": ignore_cutoff.isoformat() if ignore_cutoff else None,
+        "gap_policy": (
+            f"ignore gaps ending before {ignore_cutoff.isoformat()}"
+            if ignore_cutoff
+            else "count all internal gaps"
+        ),
         "ok": False,
         "reason": None,
     }
     if not times:
         result["reason"] = "no book captures"
         return result
-    gaps = [(later - earlier).total_seconds() for earlier, later in zip(times, times[1:])]
+    gap_rows = [
+        {"earlier": earlier, "later": later, "seconds": (later - earlier).total_seconds()}
+        for earlier, later in zip(times, times[1:])
+    ]
+    gaps = [row["seconds"] for row in gap_rows]
     if gaps:
         result["median_gap_seconds"] = round(statistics.median(gaps), 1)
         result["max_gap_seconds"] = round(max(gaps), 1)
-        result["gaps_over_threshold"] = sum(1 for gap in gaps if gap > float(max_gap_seconds))
+        over_threshold = [row for row in gap_rows if row["seconds"] > float(max_gap_seconds)]
+        ignored = [
+            row
+            for row in over_threshold
+            if ignore_cutoff and row["later"].astimezone(timezone.utc) <= ignore_cutoff
+        ]
+        counted = [row for row in over_threshold if row not in ignored]
+        result["gaps_over_threshold"] = len(counted)
+        result["startup_gaps_ignored"] = len(ignored)
+        if ignored:
+            result["max_startup_gap_seconds"] = round(max(row["seconds"] for row in ignored), 1)
+        if counted:
+            result["max_counted_gap_seconds"] = round(max(row["seconds"] for row in counted), 1)
     trailing = (now - times[-1]).total_seconds()
     result["trailing_age_seconds"] = round(trailing, 1)
     if result["gaps_over_threshold"]:
+        max_counted = result["max_counted_gap_seconds"] or result["max_gap_seconds"]
         result["reason"] = (
             f"{result['gaps_over_threshold']} gaps over {float(max_gap_seconds):.0f}s "
-            f"(max {result['max_gap_seconds']}s)"
+            f"(max {max_counted}s)"
         )
     elif trailing > float(max_gap_seconds):
         result["reason"] = f"last book capture is {trailing:.0f}s old"
     else:
         result["ok"] = True
+        if result["startup_gaps_ignored"]:
+            result["reason"] = (
+                f"ok; ignored {result['startup_gaps_ignored']} startup gaps over "
+                f"{float(max_gap_seconds):.0f}s (max {result['max_startup_gap_seconds']}s)"
+            )
     return result
 
 
@@ -363,10 +424,22 @@ def fleet_book_audit(
     snapshots_root=None,
     now=None,
     max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS,
+    ignore_gaps_before=None,
+    startup_grace_seconds=BOOK_AUDIT_STARTUP_GRACE_SECONDS,
 ):
     """Audit every registered market's active-day book tape cadence."""
     now = now or utc_now()
     root = Path(snapshots_root) if snapshots_root is not None else SNAPSHOT_DATA_ROOT
+    ignore_cutoff = parse_utc_datetime(ignore_gaps_before)
+    try:
+        uses_default_root = root.resolve() == SNAPSHOT_DATA_ROOT.resolve()
+    except OSError:
+        uses_default_root = snapshots_root is None
+    if ignore_cutoff is None and uses_default_root and startup_grace_seconds is not None:
+        loop_status = read_clob_loop_status()
+        started_at = parse_utc_datetime((loop_status or {}).get("started_at"))
+        if started_at is not None:
+            ignore_cutoff = started_at + timedelta(seconds=float(startup_grace_seconds))
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
     rows = []
     for item in market_ids:
@@ -376,11 +449,14 @@ def fleet_book_audit(
             root / config.event_slug,
             now=now,
             max_gap_seconds=max_gap_seconds,
+            ignore_gaps_before=ignore_cutoff,
         )
         rows.append({"market_id": item, "event_slug": config.event_slug, **audit})
     return {
         "generated_at_utc": now.isoformat(),
         "max_gap_seconds_threshold": float(max_gap_seconds),
+        "startup_grace_seconds": float(startup_grace_seconds) if startup_grace_seconds is not None else None,
+        "ignored_gap_cutoff_utc": ignore_cutoff.isoformat() if ignore_cutoff else None,
         "markets": rows,
         "ok": all(row["ok"] for row in rows) if rows else False,
     }
@@ -880,7 +956,10 @@ class MarketMicrostructureStore:
             self.append_jsonl(self.price_history_jsonl_path, record)
 
     def write_ws_event(self, row, raw_record):
-        self.append_csv(self.ws_events_path, WS_EVENT_COLUMNS, [row])
+        self.write_ws_events([row], raw_record)
+
+    def write_ws_events(self, rows, raw_record):
+        self.append_csv(self.ws_events_path, WS_EVENT_COLUMNS, rows)
         self.append_jsonl(self.ws_jsonl_path, raw_record)
 
 
@@ -889,11 +968,17 @@ def capture_market_books(
     clob_client=None,
     root=None,
     outcomes="all",
-    include_price_history=False,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     history_minutes=240,
     history_interval=None,
     fidelity_minutes=1,
     batch_size=DEFAULT_BATCH_SIZE,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    websocket_factory=None,
     now=None,
 ):
     event_client = PolymarketClient(market_id=market_id)
@@ -909,6 +994,12 @@ def capture_market_books(
         history_interval=history_interval,
         fidelity_minutes=fidelity_minutes,
         batch_size=batch_size,
+        include_ws_events=include_ws_events,
+        ws_seconds=ws_seconds,
+        ws_message_limit=ws_message_limit,
+        ws_heartbeat_seconds=ws_heartbeat_seconds,
+        ws_connect_timeout=ws_connect_timeout,
+        websocket_factory=websocket_factory,
         now=now,
     )
 
@@ -919,11 +1010,17 @@ def capture_event_books(
     clob_client=None,
     root=None,
     outcomes="all",
-    include_price_history=False,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     history_minutes=240,
     history_interval=None,
     fidelity_minutes=1,
     batch_size=DEFAULT_BATCH_SIZE,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    websocket_factory=None,
     now=None,
 ):
     captured_at = now or utc_now()
@@ -994,6 +1091,34 @@ def capture_event_books(
             })
         store.write_price_history(history_rows, history_raw)
 
+    ws_result = {"messages": 0}
+    if include_ws_events:
+        try:
+            ws_result = record_market_websocket(
+                event,
+                market_id=market_id,
+                root=root,
+                outcomes=outcomes,
+                seconds=ws_seconds,
+                message_limit=ws_message_limit,
+                heartbeat_seconds=ws_heartbeat_seconds,
+                connect_timeout=ws_connect_timeout,
+                websocket_factory=websocket_factory,
+            )
+        except Exception as exc:  # noqa: BLE001 - WS capture should not drop REST book data
+            ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+    feature_result = {"rows": 0, "csv_path": None, "jsonl_path": None}
+    if (store.root / "snapshots_long.csv").exists():
+        try:
+            feature_result = write_clob_feature_rows(
+                store.root,
+                max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+                market_id=market_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - derived features should not drop raw CLOB evidence
+            feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+
     return {
         "event_slug": config.event_slug,
         "market_id": market_id,
@@ -1002,6 +1127,13 @@ def capture_event_books(
         "books": len(summaries),
         "levels": len(level_rows),
         "price_history_rows": len(history_rows),
+        "ws_messages": ws_result.get("messages", 0),
+        "ws_event_rows": ws_result.get("event_rows", 0),
+        "ws_error": ws_result.get("error"),
+        "market_ws_path": ws_result.get("market_ws_path"),
+        "clob_feature_rows": feature_result.get("rows", 0),
+        "clob_features_path": feature_result.get("csv_path"),
+        "clob_features_error": feature_result.get("error"),
         "order_books_summary_path": str(store.books_summary_path),
         "order_books_long_path": str(store.books_long_path),
         "order_books_jsonl_path": str(store.books_jsonl_path),
@@ -1015,11 +1147,17 @@ def capture_fleet_books(
     clob_client=None,
     root=None,
     outcomes="all",
-    include_price_history=False,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     history_minutes=240,
     history_interval=None,
     fidelity_minutes=1,
     batch_size=DEFAULT_BATCH_SIZE,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    websocket_factory=None,
 ):
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
     results = {}
@@ -1035,6 +1173,12 @@ def capture_fleet_books(
                 history_interval=history_interval,
                 fidelity_minutes=fidelity_minutes,
                 batch_size=batch_size,
+                include_ws_events=include_ws_events,
+                ws_seconds=ws_seconds,
+                ws_message_limit=ws_message_limit,
+                ws_heartbeat_seconds=ws_heartbeat_seconds,
+                ws_connect_timeout=ws_connect_timeout,
+                websocket_factory=websocket_factory,
             )
         except Exception as exc:  # noqa: BLE001 - one market should not stop the fleet
             results[item] = {"error": f"{type(exc).__name__}: {exc}"}
@@ -1088,6 +1232,12 @@ def summarize_loop_results(results):
             "books": value.get("books"),
             "captured_tokens": value.get("captured_tokens"),
             "levels": value.get("levels"),
+            "price_history_rows": value.get("price_history_rows"),
+            "ws_messages": value.get("ws_messages"),
+            "ws_event_rows": value.get("ws_event_rows"),
+            "ws_error": value.get("ws_error"),
+            "clob_feature_rows": value.get("clob_feature_rows"),
+            "clob_features_error": value.get("clob_features_error"),
             "error": value.get("error"),
         }
     return summary
@@ -1126,8 +1276,14 @@ def _clob_loop_command(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
 ):
-    return [
+    command = [
         sys.executable,
         "-m",
         "src.market_microstructure",
@@ -1149,6 +1305,21 @@ def _clob_loop_command(
         "--batch-size",
         str(batch_size),
     ]
+    if not include_price_history:
+        command.append("--no-price-history")
+    if not include_ws_events:
+        command.append("--no-websocket-events")
+    command.extend([
+        "--websocket-seconds",
+        str(ws_seconds),
+        "--websocket-message-limit",
+        str(ws_message_limit),
+        "--websocket-heartbeat-seconds",
+        str(ws_heartbeat_seconds),
+        "--websocket-connect-timeout",
+        str(ws_connect_timeout),
+    ])
+    return command
 
 
 def start_clob_loop_detached(
@@ -1160,6 +1331,12 @@ def start_clob_loop_detached(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     now=None,
 ):
     now = now or utc_now()
@@ -1178,6 +1355,12 @@ def start_clob_loop_detached(
             fast_on_mid_change_bps=fast_on_mid_change_bps,
             outcomes=outcomes,
             batch_size=batch_size,
+            include_price_history=include_price_history,
+            include_ws_events=include_ws_events,
+            ws_seconds=ws_seconds,
+            ws_message_limit=ws_message_limit,
+            ws_heartbeat_seconds=ws_heartbeat_seconds,
+            ws_connect_timeout=ws_connect_timeout,
         ),
         cwd=str(REPO_ROOT),
         stdout=log_handle,
@@ -1198,6 +1381,12 @@ def start_clob_loop_detached(
         "fast_after_local_hour": fast_after_local_hour,
         "fast_on_mid_change_bps": fast_on_mid_change_bps,
         "batch_size": batch_size,
+        "include_price_history": include_price_history,
+        "include_ws_events": include_ws_events,
+        "websocket_seconds": ws_seconds,
+        "websocket_message_limit": ws_message_limit,
+        "websocket_heartbeat_seconds": ws_heartbeat_seconds,
+        "websocket_connect_timeout": ws_connect_timeout,
         "iterations": 0,
         "consecutive_errors": 0,
         "error_markets": [],
@@ -1224,6 +1413,12 @@ def ensure_clob_loop(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     now=None,
 ):
     now = now or utc_now()
@@ -1247,6 +1442,12 @@ def ensure_clob_loop(
                 fast_on_mid_change_bps=fast_on_mid_change_bps,
                 outcomes=outcomes,
                 batch_size=batch_size,
+                include_price_history=include_price_history,
+                include_ws_events=include_ws_events,
+                ws_seconds=ws_seconds,
+                ws_message_limit=ws_message_limit,
+                ws_heartbeat_seconds=ws_heartbeat_seconds,
+                ws_connect_timeout=ws_connect_timeout,
                 now=now,
             )
         elif action == "start":
@@ -1259,6 +1460,12 @@ def ensure_clob_loop(
                 fast_on_mid_change_bps=fast_on_mid_change_bps,
                 outcomes=outcomes,
                 batch_size=batch_size,
+                include_price_history=include_price_history,
+                include_ws_events=include_ws_events,
+                ws_seconds=ws_seconds,
+                ws_message_limit=ws_message_limit,
+                ws_heartbeat_seconds=ws_heartbeat_seconds,
+                ws_connect_timeout=ws_connect_timeout,
                 now=now,
             )
         if action != "noop":
@@ -1277,6 +1484,12 @@ def run_book_loop(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
+    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     max_iterations=None,
     capture_fn=None,
     sleep_fn=time.sleep,
@@ -1296,6 +1509,12 @@ def run_book_loop(
         "fast_after_local_hour": fast_after_local_hour,
         "fast_on_mid_change_bps": fast_on_mid_change_bps,
         "batch_size": batch_size,
+        "include_price_history": include_price_history,
+        "include_ws_events": include_ws_events,
+        "websocket_seconds": ws_seconds,
+        "websocket_message_limit": ws_message_limit,
+        "websocket_heartbeat_seconds": ws_heartbeat_seconds,
+        "websocket_connect_timeout": ws_connect_timeout,
         "iterations": 0,
         "consecutive_errors": 0,
         "error_markets": [],
@@ -1321,7 +1540,12 @@ def run_book_loop(
                 results = capture_fn(
                     market_id=market_id,
                     outcomes=outcomes,
-                    include_price_history=False,
+                    include_price_history=include_price_history,
+                    include_ws_events=include_ws_events,
+                    ws_seconds=ws_seconds,
+                    ws_message_limit=ws_message_limit,
+                    ws_heartbeat_seconds=ws_heartbeat_seconds,
+                    ws_connect_timeout=ws_connect_timeout,
                     batch_size=batch_size,
                 )
                 current_midpoints = {}
@@ -1391,21 +1615,43 @@ def run_book_loop(
         sleep_fn(max(1.0, sleep_seconds - elapsed))
 
 
-def ws_summary_row(received_at, event_slug, market_id, payload):
+def ws_summary_rows(received_at, event_slug, market_id, payload, raw_sha1=None):
+    raw_sha1 = raw_sha1 or payload_sha1(payload)
     if isinstance(payload, list):
-        payload = payload[0] if payload else {}
-    payload = payload if isinstance(payload, dict) else {"message": payload}
-    return {
-        "received_at_utc": received_at.isoformat(),
-        "event_slug": event_slug,
-        "market_id": market_id,
-        "event_type": payload.get("event_type"),
-        "asset_id": payload.get("asset_id") or payload.get("asset_id"),
-        "market": payload.get("market"),
-        "price": payload.get("price"),
-        "side": payload.get("side"),
-        "raw_sha1": payload_sha1(payload),
-    }
+        payloads = payload
+    else:
+        payloads = [payload]
+    rows = []
+    for item in payloads:
+        item = item if isinstance(item, dict) else {"message": item}
+        price_changes = item.get("price_changes")
+        if isinstance(price_changes, list) and price_changes:
+            for change in price_changes:
+                change = change if isinstance(change, dict) else {"price": change}
+                rows.append({
+                    "received_at_utc": received_at.isoformat(),
+                    "event_slug": event_slug,
+                    "market_id": market_id,
+                    "event_type": change.get("event_type") or item.get("event_type"),
+                    "asset_id": change.get("asset_id") or item.get("asset_id") or change.get("clob_token_id"),
+                    "market": change.get("market") or item.get("market"),
+                    "price": change.get("price"),
+                    "side": change.get("side") or item.get("side"),
+                    "raw_sha1": raw_sha1,
+                })
+            continue
+        rows.append({
+            "received_at_utc": received_at.isoformat(),
+            "event_slug": event_slug,
+            "market_id": market_id,
+            "event_type": item.get("event_type"),
+            "asset_id": item.get("asset_id") or item.get("clob_token_id"),
+            "market": item.get("market"),
+            "price": item.get("price"),
+            "side": item.get("side"),
+            "raw_sha1": raw_sha1,
+        })
+    return rows
 
 
 def record_market_websocket(
@@ -1416,6 +1662,7 @@ def record_market_websocket(
     seconds=300,
     message_limit=None,
     heartbeat_seconds=10,
+    connect_timeout=30,
     websocket_factory=None,
 ):
     config = config_from_event(event)
@@ -1440,7 +1687,7 @@ def record_market_websocket(
         websocket_factory = websocket.create_connection
         timeout_exceptions = (TimeoutError, websocket.WebSocketTimeoutException)
 
-    ws = websocket_factory(CLOB_WS_URL, timeout=30)
+    ws = websocket_factory(CLOB_WS_URL, timeout=connect_timeout)
     recv_timeout = max(1.0, min(float(seconds), float(heartbeat_seconds), 10.0))
     try:
         ws.settimeout(recv_timeout)
@@ -1451,6 +1698,7 @@ def record_market_websocket(
     deadline = time.time() + float(seconds)
     next_heartbeat = time.time() + float(heartbeat_seconds)
     messages = 0
+    event_rows = 0
     try:
         while time.time() < deadline:
             if message_limit is not None and messages >= message_limit:
@@ -1467,15 +1715,19 @@ def record_market_websocket(
                 payload = json.loads(raw)
             except (TypeError, json.JSONDecodeError):
                 payload = raw
-            row = ws_summary_row(received_at, config.event_slug, market_id, payload)
-            store.write_ws_event(row, {
+            raw_sha1 = payload_sha1(payload)
+            rows = ws_summary_rows(received_at, config.event_slug, market_id, payload, raw_sha1=raw_sha1)
+            store.write_ws_events(rows, {
                 "received_at_utc": received_at.isoformat(),
                 "event_slug": config.event_slug,
                 "market_id": market_id,
                 "subscription": sent,
+                "raw_sha1": raw_sha1,
+                "event_rows": len(rows),
                 "payload": payload,
             })
             messages += 1
+            event_rows += len(rows)
     finally:
         try:
             ws.close()
@@ -1486,6 +1738,7 @@ def record_market_websocket(
         "market_id": market_id,
         "tokens": len(token_ids),
         "messages": messages,
+        "event_rows": event_rows,
         "market_ws_path": str(store.ws_jsonl_path),
     }
 
@@ -1503,6 +1756,23 @@ def add_loop_options(parser):
     parser.add_argument("--fast-after-local-hour", type=float, default=15.0)
     parser.add_argument("--fast-on-mid-change-bps", type=float, default=500.0)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    add_capture_enrichment_options(parser)
+
+
+def add_capture_enrichment_options(parser):
+    parser.set_defaults(price_history=DEFAULT_INCLUDE_PRICE_HISTORY, websocket_events=DEFAULT_INCLUDE_WS_EVENTS)
+    parser.add_argument("--price-history", dest="price_history", action="store_true",
+                        help="Capture /prices-history for each token (default).")
+    parser.add_argument("--no-price-history", dest="price_history", action="store_false",
+                        help="Disable /prices-history capture for this run.")
+    parser.add_argument("--websocket-events", dest="websocket_events", action="store_true",
+                        help="Record public CLOB market WebSocket events (default).")
+    parser.add_argument("--no-websocket-events", dest="websocket_events", action="store_false",
+                        help="Disable market WebSocket event capture for this run.")
+    parser.add_argument("--websocket-seconds", type=float, default=DEFAULT_WS_SECONDS)
+    parser.add_argument("--websocket-message-limit", type=int, default=DEFAULT_WS_MESSAGE_LIMIT)
+    parser.add_argument("--websocket-heartbeat-seconds", type=float, default=DEFAULT_WS_HEARTBEAT_SECONDS)
+    parser.add_argument("--websocket-connect-timeout", type=float, default=DEFAULT_WS_CONNECT_TIMEOUT)
 
 
 def main():
@@ -1519,11 +1789,11 @@ def main():
     capture = subparsers.add_parser("capture", help="Capture one REST book batch.")
     capture.add_argument("--market", choices=_market_choices(), default="all")
     capture.add_argument("--outcomes", default="all", help="'all', 'yes', 'no', or comma-separated outcomes.")
-    capture.add_argument("--price-history", action="store_true", help="Also capture /prices-history for each token.")
     capture.add_argument("--history-minutes", type=int, default=240)
     capture.add_argument("--history-interval", default=None)
     capture.add_argument("--fidelity-minutes", type=int, default=1)
     capture.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    add_capture_enrichment_options(capture)
 
     loop = subparsers.add_parser("loop", help="Run a fast CLOB book capture loop.")
     add_loop_options(loop)
@@ -1564,6 +1834,7 @@ def main():
     ws.add_argument("--seconds", type=int, default=300)
     ws.add_argument("--message-limit", type=int, default=None)
     ws.add_argument("--heartbeat-seconds", type=int, default=10)
+    ws.add_argument("--connect-timeout", type=float, default=30)
 
     args = parser.parse_args()
     if args.command is None:
@@ -1578,6 +1849,11 @@ def main():
             history_minutes=args.history_minutes,
             history_interval=args.history_interval,
             fidelity_minutes=args.fidelity_minutes,
+            include_ws_events=args.websocket_events,
+            ws_seconds=args.websocket_seconds,
+            ws_message_limit=args.websocket_message_limit,
+            ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+            ws_connect_timeout=args.websocket_connect_timeout,
             batch_size=args.batch_size,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
@@ -1592,6 +1868,12 @@ def main():
             fast_on_mid_change_bps=args.fast_on_mid_change_bps,
             outcomes=args.outcomes,
             batch_size=args.batch_size,
+            include_price_history=args.price_history,
+            include_ws_events=args.websocket_events,
+            ws_seconds=args.websocket_seconds,
+            ws_message_limit=args.websocket_message_limit,
+            ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+            ws_connect_timeout=args.websocket_connect_timeout,
         )
         return
     if command == "status":
@@ -1637,6 +1919,12 @@ def main():
                 fast_on_mid_change_bps=args.fast_on_mid_change_bps,
                 outcomes=args.outcomes,
                 batch_size=args.batch_size,
+                include_price_history=args.price_history,
+                include_ws_events=args.websocket_events,
+                ws_seconds=args.websocket_seconds,
+                ws_message_limit=args.websocket_message_limit,
+                ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+                ws_connect_timeout=args.websocket_connect_timeout,
             ), indent=2, sort_keys=True, default=str))
         finally:
             release_clob_supervisor_lock(lock_handle)
@@ -1658,6 +1946,12 @@ def main():
                     fast_on_mid_change_bps=args.fast_on_mid_change_bps,
                     outcomes=args.outcomes,
                     batch_size=args.batch_size,
+                    include_price_history=args.price_history,
+                    include_ws_events=args.websocket_events,
+                    ws_seconds=args.websocket_seconds,
+                    ws_message_limit=args.websocket_message_limit,
+                    ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+                    ws_connect_timeout=args.websocket_connect_timeout,
                 ),
             }
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
@@ -1674,6 +1968,12 @@ def main():
             fast_on_mid_change_bps=args.fast_on_mid_change_bps,
             outcomes=args.outcomes,
             batch_size=args.batch_size,
+            include_price_history=args.price_history,
+            include_ws_events=args.websocket_events,
+            ws_seconds=args.websocket_seconds,
+            ws_message_limit=args.websocket_message_limit,
+            ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+            ws_connect_timeout=args.websocket_connect_timeout,
         ), indent=2, sort_keys=True, default=str))
         return
     if command == "websocket":
@@ -1685,6 +1985,7 @@ def main():
             seconds=args.seconds,
             message_limit=args.message_limit,
             heartbeat_seconds=args.heartbeat_seconds,
+            connect_timeout=args.connect_timeout,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return

@@ -227,6 +227,7 @@ class ReanalysisStore:
             expected = covered or raw_covered
         missing = sorted(expected - covered)
         raw_missing = sorted(expected - raw_covered)
+        raw_only = sorted((raw_covered & expected) - covered)
         return {
             "source": SOURCE,
             "market_id": self.spec.id,
@@ -238,6 +239,8 @@ class ReanalysisStore:
             "expected_days": len(expected),
             "missing_days": len(missing),
             "raw_missing_days": len(raw_missing),
+            "raw_only_days": [day.isoformat() for day in raw_only],
+            "raw_only_day_count": len(raw_only),
             "first_raw_date": min(raw_covered).isoformat() if raw_covered else None,
             "last_raw_date": max(raw_covered).isoformat() if raw_covered else None,
             "first_normalized_date": min(normalized_covered).isoformat() if normalized_covered else None,

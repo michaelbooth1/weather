@@ -13,7 +13,7 @@ import pandas as pd
 sys.path.insert(0, os.path.abspath("src"))
 
 from model_sources import request_with_retries, _is_retryable
-from snapshot_tracker import loop_health
+from snapshot_tracker import SnapshotStore, loop_health
 from collection_health import (
     detect_gaps,
     coverage_summary,
@@ -105,6 +105,36 @@ class TestGapDetection(unittest.TestCase):
         self.assertEqual(len(gaps), 1)
         self.assertAlmostEqual(gaps[0]["gap_minutes"], 50.0)
 
+    def test_scheduled_due_ignores_recent_triggered_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(
+                root=tmp,
+                interval=timedelta(minutes=10),
+                event_slug="highest-temperature-in-toronto-on-may-30-2026",
+            )
+            pd.DataFrame([
+                {
+                    "snapshot_id": "scheduled",
+                    "captured_at_local": "2026-05-30T12:00:00",
+                    "snapshot_cadence": "scheduled",
+                },
+                {
+                    "snapshot_id": "triggered",
+                    "captured_at_local": "2026-05-30T12:08:00",
+                    "snapshot_cadence": "triggered",
+                },
+            ]).to_csv(store.long_path, index=False)
+
+            due_at = datetime(2026, 5, 30, 12, 10)
+
+            self.assertEqual(store.last_snapshot_time(), datetime(2026, 5, 30, 12, 8))
+            self.assertEqual(
+                store.last_snapshot_time(cadence="scheduled"),
+                datetime(2026, 5, 30, 12, 0),
+            )
+            self.assertTrue(store.is_due(due_at, cadence="scheduled"))
+            self.assertEqual(store.next_due_at(cadence="scheduled"), "2026-05-30T12:10:00")
+
     def test_coverage_clean_full_afternoon(self):
         start = datetime(2026, 5, 30, 11, 0)
         times = [start + timedelta(minutes=10 * i) for i in range(49)]  # 11:00..19:00
@@ -118,6 +148,30 @@ class TestGapDetection(unittest.TestCase):
         cov = coverage_summary(times, 10.0)
         self.assertFalse(cov["clean"])
         self.assertFalse(cov["covers_afternoon"])
+
+    def test_coverage_ignores_gap_after_settlement_window(self):
+        times = self._times(
+            "11:50", "12:00", "12:10", "12:20", "12:30", "12:40",
+            "12:50", "13:00", "13:10", "13:20", "13:30", "13:40",
+            "13:50", "14:00", "14:10", "14:20", "14:30", "14:40",
+            "14:50", "15:00", "15:10", "15:20", "15:30", "15:40",
+            "15:50", "16:00", "16:10", "16:20", "16:30", "16:40",
+            "16:50", "17:00", "17:10", "17:20", "17:30", "17:40",
+            "17:50", "18:00", "23:00", "23:30",
+        )
+
+        cov = coverage_summary(times, 10.0, target_date=datetime(2026, 5, 30).date())
+
+        self.assertTrue(cov["clean"])
+        self.assertEqual(cov["gaps"], [])
+
+    def test_coverage_keeps_gap_crossing_window_start(self):
+        times = self._times("11:50", "12:20", "12:30", "18:00")
+
+        cov = coverage_summary(times, 10.0, target_date=datetime(2026, 5, 30).date())
+
+        self.assertFalse(cov["clean"])
+        self.assertIn("gap", cov["reason"])
 
     def test_live_coverage_collecting_before_afternoon_window(self):
         times = self._times("09:40", "09:50", "10:00")

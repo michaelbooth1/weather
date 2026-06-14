@@ -419,6 +419,7 @@ def _candidate_args(args, corpus_path):
         min_days=args.min_days,
         min_trust=args.min_trust,
         max_fidelity_l1=args.max_fidelity_l1,
+        clob_max_age_seconds=args.clob_max_age_seconds,
         require_exact_identity=args.require_exact_identity,
         require_all_markets=args.require_all_markets,
         fail_on_block=False,
@@ -508,6 +509,7 @@ def build_parser():
     parser.add_argument("--min-days", type=int, default=2)
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
+    parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
     parser.add_argument("--require-exact-identity", action="store_true")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true")

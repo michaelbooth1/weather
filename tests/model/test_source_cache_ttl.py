@@ -88,6 +88,22 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(blended["open_meteo"]["status"], "fresh")
         self.assertFalse(blended["open_meteo"]["stale"])
 
+    def test_fetch_source_group_records_latency_for_success_and_failure(self):
+        model = TorontoHighTempModel()
+
+        def fail():
+            raise RuntimeError("boom")
+
+        fetched = model.fetch_source_group({
+            "open_meteo": lambda: {"rows": []},
+            "wu_current": fail,
+        })
+
+        self.assertTrue(fetched["open_meteo"]["ok"])
+        self.assertIn("latency_ms", fetched["open_meteo"])
+        self.assertFalse(fetched["wu_current"]["ok"])
+        self.assertIn("latency_ms", fetched["wu_current"])
+
     def test_source_diagnostics_structured(self):
         m = TorontoHighTempModel()
         now = datetime.now(m.spec.tz).isoformat()

@@ -801,5 +801,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--market", default="toronto",
         help="Registered market id (toronto -> C artifacts, nyc -> *_f artifacts).")
+    parser.add_argument(
+        "--skip-loo", action="store_true",
+        help="Skip leave-one-out validation and only retrain final serving artifacts.")
     args = parser.parse_args()
+    if args.skip_loo:
+        RUN_LOO = False
     main(market_id=args.market)

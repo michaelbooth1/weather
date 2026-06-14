@@ -1,5 +1,6 @@
 import argparse
 import csv
+import hashlib
 import json
 import os
 import signal
@@ -21,7 +22,8 @@ from forecast_archive import (  # noqa: E402
 from collection_health import fleet_collection_health, serialize_summary, summarize_folder  # noqa: E402
 from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from market_config import config_for_date, config_from_event
-from market_registry import DEFAULT_MARKET_ID, all_specs
+from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_slug
+from model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from model_identity import model_replay_identity
 from runtime_identity import get_runtime_identity
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
@@ -47,6 +49,12 @@ LONG_COLUMNS = [
     "event_slug",
     "event_updated_at",
     "model_version",
+    "snapshot_cadence",
+    "trigger_reason",
+    "trigger_source",
+    "trigger_previous_value",
+    "trigger_current_value",
+    "trigger_observed_at",
     "top_temp_c",
     "top_probability",
     "range_label",
@@ -98,6 +106,43 @@ COMPONENT_COLUMNS = [
     "market_yes",
 ]
 
+SOURCE_STATUS_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "model_version",
+    "source",
+    "ok",
+    "status",
+    "stale",
+    "fetched_at",
+    "age_minutes",
+    "ttl_minutes",
+    "latency_ms",
+    "payload_hash",
+    "row_count",
+    "source_url",
+    "error",
+]
+
+FORECAST_PAYLOAD_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "model_version",
+    "source",
+    "fetched_at",
+    "provider_issue_time",
+    "provider_update_time",
+    "payload_hash",
+    "payload_bytes",
+    "row_count",
+    "source_url",
+    "raw_payload_path",
+]
+
 
 class SnapshotStore:
     def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None):
@@ -118,9 +163,14 @@ class SnapshotStore:
         self.features_jsonl_path = self.root / "features.jsonl"
         self.components_long_path = self.root / "components_long.csv"
         self.components_jsonl_path = self.root / "components.jsonl"
+        self.source_status_long_path = self.root / "source_status_long.csv"
+        self.source_status_jsonl_path = self.root / "source_status.jsonl"
+        self.forecast_payload_dir = self.root / "forecast_payloads"
+        self.forecast_payloads_long_path = self.root / "forecast_payloads_long.csv"
+        self.forecast_payloads_jsonl_path = self.root / "forecast_payloads.jsonl"
         self.replay_inputs_path = self.root / "replay_inputs.jsonl"
 
-    def maybe_write(self, event, model, model_client, force=False):
+    def maybe_write(self, event, model, model_client, force=False, cadence="scheduled", trigger_context=None):
         event_config = config_from_event(event, fallback_date=getattr(model_client, "target_date", None))
         if not self.fixed_root and event_config.event_slug != self.event_slug:
             self._set_paths(None, event_config.event_slug)
@@ -134,22 +184,31 @@ class SnapshotStore:
                 "next_due_at": self.next_due_at(),
             }
         try:
-            if not force and not self.is_due(now):
+            if not force and not self.is_due(now, cadence=cadence):
                 return {
                     "written": False,
                     "path": str(self.long_path),
-                    "next_due_at": self.next_due_at(),
+                    "next_due_at": self.next_due_at(cadence=cadence),
                 }
-            return self.write(event, model, model_client, now)
+            return self.write(
+                event,
+                model,
+                model_client,
+                now,
+                cadence=cadence,
+                trigger_context=trigger_context,
+            )
         finally:
             self.release_lock(lock_handle)
 
-    def write(self, event, model, model_client, captured_at):
+    def write(self, event, model, model_client, captured_at, cadence="scheduled", trigger_context=None):
         event_config = config_from_event(event)
         if not self.fixed_root and event_config.event_slug != self.event_slug:
             self._set_paths(None, event_config.event_slug)
         self.root.mkdir(parents=True, exist_ok=True)
         snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
+        trigger_context = self.normalized_trigger_context(trigger_context)
+        trigger_summary = self.trigger_summary(trigger_context)
         distribution = model.get("distribution", {}) or {}
         model_version = model.get("model_version") or MODEL_VERSION
         model_identity = model.get("model_identity") or self.model_identity(model_client)
@@ -157,6 +216,19 @@ class SnapshotStore:
         top_probability = distribution.get(top_temp) if top_temp is not None else None
         sources = model.get("sources", {}) or {}
         source_values = self.source_values(sources, model_client)
+        source_status_rows = self.source_status_rows(
+            sources,
+            model_client,
+            snapshot_id,
+            captured_at,
+            model_version,
+        )
+        forecast_payload_rows = self.write_forecast_payloads(
+            sources,
+            snapshot_id,
+            captured_at,
+            model_version,
+        )
 
         bins = model_client.market_bins(event)
         long_rows = []
@@ -175,6 +247,8 @@ class SnapshotStore:
                 "event_slug": self.event_slug,
                 "event_updated_at": event.get("updatedAt"),
                 "model_version": model_version,
+                "snapshot_cadence": cadence,
+                **trigger_summary,
                 "top_temp_c": top_temp,
                 "top_probability": top_probability,
                 "range_label": bin_data.get("label"),
@@ -213,11 +287,15 @@ class SnapshotStore:
             "event_updated_at": event.get("updatedAt"),
             "model_version": model_version,
             "model_identity": model_identity,
+            "snapshot_cadence": cadence,
+            "trigger_context": trigger_context,
             "top_temp_c": top_temp,
             "top_probability": top_probability,
             "distribution": distribution,
             "distribution_components": model.get("distribution_components"),
             "source_values": source_values,
+            "source_status": source_status_rows,
+            "forecast_payloads": forecast_payload_rows,
             "feature_vector": model.get("feature_vector"),
             "bands": long_rows,
         })
@@ -268,6 +346,11 @@ class SnapshotStore:
                 "forecasts": forecast_rows,
             })
 
+        if source_status_rows:
+            self.append_csv(self.source_status_long_path, SOURCE_STATUS_COLUMNS, source_status_rows)
+            for row in source_status_rows:
+                self.append_jsonl(self.source_status_jsonl_path, row)
+
         self.write_replay_input(
             snapshot_id,
             captured_at,
@@ -275,30 +358,51 @@ class SnapshotStore:
             model_client,
             model_version,
             model_identity,
+            cadence=cadence,
+            trigger_context=trigger_context,
         )
 
         return {
             "written": True,
             "snapshot_id": snapshot_id,
+            "snapshot_cadence": cadence,
+            "trigger_context": trigger_context,
             "bands": len(long_rows),
             "path": str(self.long_path),
             "wide_path": str(self.wide_path),
             "jsonl_path": str(self.jsonl_path),
             "features_path": str(self.features_long_path),
             "components_path": str(self.components_long_path),
-            "next_due_at": self.next_due_at(captured_at),
+            "source_status_rows": len(source_status_rows),
+            "source_status_path": str(self.source_status_long_path),
+            "forecast_payload_rows": len(forecast_payload_rows),
+            "forecast_payloads_path": str(self.forecast_payloads_long_path),
+            "next_due_at": self.next_due_at(
+                captured_at if cadence == "scheduled" else None,
+                cadence="scheduled",
+            ),
+            "event_slug": self.event_slug,
+            "model_version": model_version,
+            "model_identity": model_identity,
+            "top_temp_c": top_temp,
+            "top_probability": top_probability,
+            "distribution": distribution,
         }
 
-    def is_due(self, now):
-        last = self.last_snapshot_time()
+    def is_due(self, now, cadence="scheduled"):
+        last = self.last_snapshot_time(cadence="scheduled" if cadence == "scheduled" else None)
         return last is None or now - last >= self.interval
 
-    def last_snapshot_time(self):
+    def last_snapshot_time(self, cadence=None):
         if not self.long_path.exists():
             return None
         last_time = None
         with self.long_path.open("r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
+                if cadence == "scheduled":
+                    row_cadence = row.get("snapshot_cadence") or "scheduled"
+                    if row_cadence != "scheduled":
+                        continue
                 value = row.get("captured_at_local")
                 if value:
                     try:
@@ -307,8 +411,8 @@ class SnapshotStore:
                         continue
         return last_time
 
-    def next_due_at(self, from_time=None):
-        base = from_time or self.last_snapshot_time()
+    def next_due_at(self, from_time=None, cadence="scheduled"):
+        base = from_time or self.last_snapshot_time(cadence="scheduled" if cadence == "scheduled" else None)
         if base is None:
             return None
         return (base + self.interval).isoformat()
@@ -344,6 +448,135 @@ class SnapshotStore:
             "forecast_disagreement": forecast_ensemble.get("forecast_disagreement"),
             "eccc_forecast_high_c": eccc_city.get("forecast_high_c"),
         }
+
+    def source_status_rows(self, sources, model_client, snapshot_id, captured_at, model_version):
+        rows = []
+        captured_utc = captured_at.astimezone(timezone.utc).isoformat()
+        captured_local = captured_at.isoformat()
+        for source, item in sorted((sources or {}).items()):
+            item = item or {}
+            data = item.get("data")
+            status = item.get("status")
+            if status is None:
+                if item.get("ok") and not item.get("stale"):
+                    status = "fresh"
+                elif item.get("stale"):
+                    status = "stale_cache"
+                else:
+                    status = "failed"
+            ttl_minutes = item.get("ttl_minutes")
+            if ttl_minutes is None and hasattr(model_client, "source_cache_ttl_minutes"):
+                ttl_minutes = model_client.source_cache_ttl_minutes(source)
+            age_minutes = item.get("cache_age_minutes")
+            if age_minutes is None:
+                age_minutes = self.source_age_minutes(item.get("fetched_at"), captured_at, model_client)
+            rows.append({
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": captured_utc,
+                "captured_at_local": captured_local,
+                "event_slug": self.event_slug,
+                "model_version": model_version,
+                "source": source,
+                "ok": bool(item.get("ok")),
+                "status": status,
+                "stale": bool(item.get("stale")),
+                "fetched_at": item.get("fetched_at"),
+                "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+                "ttl_minutes": ttl_minutes,
+                "latency_ms": item.get("latency_ms"),
+                "payload_hash": self.payload_hash(data),
+                "row_count": self.source_row_count(data),
+                "source_url": data.get("url") if isinstance(data, dict) else None,
+                "error": item.get("error"),
+            })
+        return rows
+
+    def source_age_minutes(self, fetched_at, captured_at, model_client):
+        if not fetched_at:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            tz = getattr(getattr(model_client, "spec", None), "tz", captured_at.tzinfo)
+            parsed = parsed.replace(tzinfo=tz)
+        return max(0.0, (captured_at.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() / 60.0)
+
+    def payload_hash(self, payload):
+        raw = json.dumps(payload, sort_keys=True, default=str)
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    def source_row_count(self, data):
+        if data is None:
+            return 0
+        if isinstance(data, list):
+            return len(data)
+        if not isinstance(data, dict):
+            return 1
+        for key in ("rows", "observations", "periods", "forecasts", "history"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return len(value)
+        if data.get("available") is False:
+            return 0
+        return 1 if data else 0
+
+    def write_forecast_payloads(self, sources, snapshot_id, captured_at, model_version):
+        rows = []
+        captured_utc = captured_at.astimezone(timezone.utc).isoformat()
+        captured_local = captured_at.isoformat()
+        for source, item in sorted((sources or {}).items()):
+            item = item or {}
+            data = item.get("data") or {}
+            if not isinstance(data, dict) or "raw_payload" not in data:
+                continue
+            payload = data.get("raw_payload")
+            if payload is None:
+                continue
+            raw_text = json.dumps(payload, sort_keys=True, default=str)
+            payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+            safe_source = self.safe_filename_part(source)
+            filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
+            payload_path = self.forecast_payload_dir / filename
+            self.forecast_payload_dir.mkdir(parents=True, exist_ok=True)
+            payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            row = {
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": captured_utc,
+                "captured_at_local": captured_local,
+                "event_slug": self.event_slug,
+                "model_version": model_version,
+                "source": source,
+                "fetched_at": item.get("fetched_at"),
+                "provider_issue_time": data.get("provider_issue_time"),
+                "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
+                "payload_hash": payload_hash,
+                "payload_bytes": len(raw_text.encode("utf-8")),
+                "row_count": self.source_row_count(data),
+                "source_url": data.get("url"),
+                "raw_payload_path": str(payload_path),
+            }
+            rows.append(row)
+        if rows:
+            self.append_csv(self.forecast_payloads_long_path, FORECAST_PAYLOAD_COLUMNS, rows)
+            for row in rows:
+                self.append_jsonl(self.forecast_payloads_jsonl_path, row)
+        return rows
+
+    def safe_filename_part(self, value):
+        return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value))
+
+    def strip_raw_payloads(self, value):
+        if isinstance(value, dict):
+            return {
+                key: self.strip_raw_payloads(item)
+                for key, item in value.items()
+                if key != "raw_payload"
+            }
+        if isinstance(value, list):
+            return [self.strip_raw_payloads(item) for item in value]
+        return value
 
     def component_rows(self, bundle, bins, snapshot_id, captured_at, model_version):
         bundle = bundle or {}
@@ -403,6 +636,8 @@ class SnapshotStore:
             "event_slug",
             "event_updated_at",
             "model_version",
+            "snapshot_cadence",
+            "trigger_reason",
             "top_temp_c",
             "top_probability",
             "wu_history_high_c",
@@ -435,6 +670,8 @@ class SnapshotStore:
             "event_slug": first.get("event_slug"),
             "event_updated_at": first.get("event_updated_at"),
             "model_version": first.get("model_version"),
+            "snapshot_cadence": first.get("snapshot_cadence"),
+            "trigger_reason": first.get("trigger_reason"),
             "top_temp_c": first.get("top_temp_c"),
             "top_probability": first.get("top_probability"),
             "wu_history_high_c": first.get("wu_history_high_c"),
@@ -495,6 +732,36 @@ class SnapshotStore:
         except Exception:  # noqa: BLE001 - capture must continue without identity
             return None
 
+    def normalized_trigger_context(self, trigger_context):
+        if not trigger_context:
+            return None
+        context = dict(trigger_context)
+        reasons = context.get("reasons")
+        if reasons is None and context.get("reason"):
+            reasons = [context.get("reason")]
+        if reasons is not None:
+            context["reasons"] = sorted({str(reason) for reason in reasons if reason})
+        if not context.get("reason") and context.get("reasons"):
+            context["reason"] = context["reasons"][0]
+        return context
+
+    def trigger_summary(self, trigger_context):
+        context = trigger_context or {}
+        primary = context.get("primary_trigger") or {}
+        previous_value = primary.get("previous_value")
+        if previous_value is None:
+            previous_value = context.get("previous_value")
+        current_value = primary.get("current_value")
+        if current_value is None:
+            current_value = context.get("current_value")
+        return {
+            "trigger_reason": context.get("reason"),
+            "trigger_source": primary.get("source") or context.get("source"),
+            "trigger_previous_value": previous_value,
+            "trigger_current_value": current_value,
+            "trigger_observed_at": primary.get("observed_at") or context.get("observed_at"),
+        }
+
     def write_replay_input(
         self,
         snapshot_id,
@@ -503,6 +770,8 @@ class SnapshotStore:
         model_client,
         model_version,
         model_identity=None,
+        cadence="scheduled",
+        trigger_context=None,
     ):
         """Persist the full model inputs for this snapshot so it can be replayed.
 
@@ -511,7 +780,7 @@ class SnapshotStore:
         JSON-serializable. ``recorded_distribution`` is kept alongside as a fidelity
         canary: replaying with the same code version must reproduce it.
         """
-        sources = model.get("sources")
+        sources = self.strip_raw_payloads(model.get("sources"))
         if not sources:
             return
         target_date = getattr(model_client, "target_date", None)
@@ -524,6 +793,8 @@ class SnapshotStore:
             "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
             "model_version": model_version,
             "model_identity": model_identity if model_identity is not None else self.model_identity(model_client),
+            "snapshot_cadence": cadence,
+            "trigger_context": trigger_context,
             # The timestamp the build actually used (falls back to the write time).
             "built_at": model.get("built_at") or captured_at.isoformat(),
             "recorded_distribution": model.get("distribution") or {},
@@ -565,7 +836,7 @@ class SnapshotStore:
         return age > 300
 
 
-def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID):
+def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="scheduled", trigger_context=None):
     from polymarket_client import PolymarketClient
     from toronto_model import TorontoHighTempModel
 
@@ -585,6 +856,8 @@ def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID):
         model,
         model_client,
         force=force,
+        cadence=cadence,
+        trigger_context=trigger_context,
     )
 
 
@@ -595,6 +868,111 @@ DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 
 from weather.paths import REPO_ROOT  # noqa: E402
+
+
+class SourceStatusContext:
+    def __init__(self, spec):
+        self.spec = spec
+
+    def source_cache_ttl_minutes(self, name):
+        return SOURCE_CACHE_TTL_MINUTES.get(name, LIVE_CACHE_MAX_AGE_MINUTES)
+
+
+def read_jsonl_records(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    records = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def parse_capture_time(record, spec):
+    value = record.get("captured_at_local") or record.get("captured_at_utc")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=spec.tz if spec else TORONTO_TZ)
+    return parsed
+
+
+def write_rows_csv(path, columns, rows):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def backfill_source_status_for_folder(folder, overwrite=False):
+    folder = Path(folder)
+    status_path = folder / "source_status_long.csv"
+    if status_path.exists() and not overwrite:
+        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "source_status_long.csv exists"}
+    records = read_jsonl_records(folder / "replay_inputs.jsonl")
+    if not records:
+        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "no replay_inputs.jsonl"}
+
+    spec = spec_for_slug(folder.name)
+    context = SourceStatusContext(spec)
+    store = SnapshotStore(root=folder, event_slug=folder.name)
+    rows = []
+    seen = set()
+    for record in records:
+        snapshot_id = record.get("snapshot_id")
+        sources = record.get("sources") or {}
+        captured_at = parse_capture_time(record, spec)
+        if not snapshot_id or not sources or captured_at is None:
+            continue
+        for row in store.source_status_rows(
+            sources,
+            context,
+            snapshot_id,
+            captured_at,
+            record.get("model_version"),
+        ):
+            key = (row.get("snapshot_id"), row.get("source"))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+
+    if not rows:
+        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "no source rows"}
+
+    write_rows_csv(status_path, SOURCE_STATUS_COLUMNS, rows)
+    with (folder / "source_status.jsonl").open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+    return {"folder": str(folder), "rows": len(rows), "path": str(status_path)}
+
+
+def backfill_source_status(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
+    root = Path(snapshots_root)
+    results = [
+        backfill_source_status_for_folder(folder, overwrite=overwrite)
+        for folder in sorted(path for path in root.iterdir() if path.is_dir())
+    ]
+    return {
+        "snapshots_root": str(root),
+        "folders": len(results),
+        "written_folders": sum(1 for result in results if result.get("rows", 0) > 0),
+        "rows": sum(result.get("rows", 0) for result in results),
+        "results": results,
+    }
 
 
 def read_loop_status():
@@ -933,6 +1311,21 @@ def main():
         help="Supervisor check: start/restart the loop only if it is dead or hung. "
              "Run this from Task Scheduler every few minutes.",
     )
+    parser.add_argument(
+        "--backfill-source-status",
+        action="store_true",
+        help="Rebuild source_status_long.csv/jsonl from replay_inputs.jsonl under --snapshots-root.",
+    )
+    parser.add_argument(
+        "--snapshots-root",
+        default=str(SNAPSHOT_DATA_ROOT),
+        help="Snapshot root used by --backfill-source-status.",
+    )
+    parser.add_argument(
+        "--overwrite-source-status",
+        action="store_true",
+        help="Overwrite existing source_status_long.csv/jsonl during --backfill-source-status.",
+    )
     args = parser.parse_args()
 
     if args.status:
@@ -963,6 +1356,14 @@ def main():
         return
     if args.ensure:
         print(json.dumps(ensure_loop(args.interval_minutes), indent=2, sort_keys=True, default=str))
+        return
+    if args.backfill_source_status:
+        print(json.dumps(
+            backfill_source_status(args.snapshots_root, overwrite=args.overwrite_source_status),
+            indent=2,
+            sort_keys=True,
+            default=str,
+        ))
         return
     if not args.loop:
         print(json.dumps(capture_snapshot(force=args.force), indent=2, sort_keys=True))

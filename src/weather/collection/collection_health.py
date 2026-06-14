@@ -57,6 +57,23 @@ def detect_gaps(times, interval_minutes, tolerance=1.5):
     return gaps
 
 
+def gap_times_for_window(times, window_start, window_end):
+    """Times relevant for cadence inside the settlement-decisive window.
+
+    Keep the nearest capture before/after the window so missing captures right
+    after 12:00 or right before 18:00 still count as window gaps, while late
+    evening/post-settlement gaps do not poison a clean training day.
+    """
+    inside = [t for t in times if window_start <= t <= window_end]
+    before = max((t for t in times if t < window_start), default=None)
+    after = min((t for t in times if t > window_end), default=None)
+    if before is not None and (not inside or inside[0] > window_start):
+        inside.insert(0, before)
+    if after is not None and (not inside or inside[-1] < window_end):
+        inside.append(after)
+    return inside
+
+
 def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None):
     times = sorted(times)
     n = len(times)
@@ -64,15 +81,17 @@ def coverage_summary(times, interval_minutes, tolerance=1.5, target_date=None):
         return {"n": 0, "clean": False, "reason": "no captures"}
     span_min = (times[-1] - times[0]).total_seconds() / 60.0
     expected = int(span_min // interval_minutes) + 1 if span_min > 0 else 1
-    gaps = detect_gaps(times, interval_minutes, tolerance)
-    max_gap = max((g["gap_minutes"] for g in gaps), default=interval_minutes if n > 1 else 0.0)
     first, last = times[0], times[-1]
     
     if target_date is not None:
         window_start, window_end = local_window(target_date, first.tzinfo)
         covers_afternoon = first <= window_start and last >= window_end
+        gap_times = gap_times_for_window(times, window_start, window_end)
     else:
         covers_afternoon = first.hour <= AFTERNOON_START_HOUR and (last.hour >= AFTERNOON_END_HOUR or last.date() > first.date())
+        gap_times = times
+    gaps = detect_gaps(gap_times, interval_minutes, tolerance)
+    max_gap = max((g["gap_minutes"] for g in gaps), default=interval_minutes if n > 1 else 0.0)
     clean = n >= 2 and not gaps and covers_afternoon
     reasons = []
     if n < 2:

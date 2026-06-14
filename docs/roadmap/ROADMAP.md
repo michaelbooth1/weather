@@ -1503,14 +1503,13 @@ standalone `src\data_auditor.py --fleet --json --strict` path is now
 registry-aware and unit-aware, so F-market rows no longer trigger false Celsius
 impossible-value alerts.
 
-Current fleet report (2026-06-12 01:20 UTC): status is `CRITICAL`, which is the
-desired fail-closed behavior. It found 12 collection-gap criticals on the June
-11 tapes (Toronto 93 snapshots, max gap 21 min; US markets 92 snapshots, max
-gap 31 min), plus one true
-Miami historical outlier (`171 F` on 2005-06-11). It also warns on
-target-window missing/sparse historical days and legacy core artifacts whose
-schema is only represented in the external provenance manifest. Those are now
-surfaced before training/serving can treat the data as clean.
+Fleet observability follow-up (2026-06-14 UTC): the report now exits strict with
+status `WARN` and zero critical alerts. Earlier reports correctly failed closed
+on June 11 collection gaps, Miami's true 2005-06-11 outlier (`171 F`), and
+active CLOB startup gaps. Miami is now quarantined/rebuilt, CLOB startup gaps
+are separated from post-start recorder failure, and remaining warnings are
+target-window missing/sparse historical days plus legacy core artifacts whose
+schema is represented in the external provenance manifest.
 
 ### 32. Reanalysis And Synoptic Feature Layer [NEW - GATED]
 
@@ -1639,7 +1638,9 @@ native temperature bounds (`F` and `C`) instead of hardcoded CYYZ/Celsius
 assumptions. It exposes `--fleet --json --strict` for automation and feeds the
 fleet observability report. Spot checks cleared the false NYC/Denver F-market
 pressure/temperature alerts while preserving the true Miami 2005-06-11
-`171 F` critical.
+`171 F` critical. Follow-up on 2026-06-14 quarantined that impossible raw WU row
+during normalization; Miami 2005-06-11 now rebuilds to `86 F`, and fleet strict
+audits report zero impossible values.
 
 ## Track B — From Bootstrap To Full Production Model
 
@@ -1913,6 +1914,12 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Settlement-to-promotion refresh runner: `src.promotion_refresh` rebuilds
   the pinned corpus, refreshes trust, runs pooled replay, runs the current
   serving gauntlet, and emits per-market actions for automation.
+- [x] Daily settlement-to-promotion automation: `src.daily_refresh run` executes
+  `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
+  `disagreement_casebook`, and `fleet_observability` in order; writes
+  `data/backtest/daily_refresh_status.json` and
+  `data/backtest/daily_refresh_report.md`; and
+  `scripts/register_daily_refresh.ps1` installs the Windows daily task.
 - [x] Data-layer audit runner: `src.data_layer_audit` reports loop health,
   snapshot cadence/completeness, low-fill fields, historical source coverage,
   and prioritized data-retention recommendations.
@@ -1948,7 +1955,14 @@ CLOB loop next to the weather/model loop and raises P0 when book capture is not
 managed or fresh. Item 37 remains open only for the broader model/artifact
 registry and shadow/A-B drift-monitoring work.
 
-### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-12 - CLOB CAPTURE SHIPPED]
+Operational registration update (2026-06-14 UTC): the daily refresh and
+observation-trigger supervisor tasks are now registered in Windows Task
+Scheduler as `WeatherDailySettlementPromotionRefresh` and
+`WeatherObservationTriggerSupervisor`, alongside the existing snapshot and CLOB
+supervisors. The daily task runs `src.daily_refresh run --continue-on-error`;
+the observation task runs `src.observation_trigger ensure`.
+
+### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - CLOB FEATURES WIRED]
 
 Goal: squeeze the last edge once per-market models are solid.
 
@@ -2006,6 +2020,42 @@ trailing freshness under 15s); `pytest -q` passed 349 tests + 34 subtests;
 `compileall src tests` passed. The docs/research/MARKET_MAKING_PLAN.md Stage-0 acceptance
 clock (7 consecutive gap-free days) starts with the first full capture day,
 2026-06-13.
+
+Startup-gap policy update (2026-06-14 UTC): the active-day book audit now
+distinguishes loop startup gaps from ongoing recorder failure. Gaps ending
+before the CLOB loop's `started_at` plus a 180-second grace are recorded as
+`startup_gaps_ignored`; post-start gaps and stale trailing captures still fail
+strict mode. Live validation: `src.market_microstructure audit --strict` passes
+all 12 active markets, and `src.fleet_observability report --strict` now exits
+0 with fleet status `WARN` rather than `CRITICAL`.
+
+Feature-wiring update (2026-06-14 UTC): `src.market_microstructure_features`
+now converts the fast CLOB book tape into band-level model features for book
+age, midpoint, spread, depth, imbalance, liquidity, midpoint change, stickiness,
+model edge to midpoint, and market-vs-midpoint residual. `src.pooled_candidate_replay`
+joins those features into band-binary candidate rows through a normalized
+market/snapshot/band key. A live active-tape audit found an F-market coverage
+bug: snapshot rows used labels like `82-83 F` while leaving `bin_value_hi`
+blank, so only threshold bands matched the CLOB book key. The feature key now
+derives the missing high value from the label; direct pooled replay also uses
+that normalized high bound, and `src.promotion_refresh` forwards the CLOB
+max-age window into candidate replay. Active June 13 tapes now produce
+`17,380 / 17,380` CLOB feature rows with available book data, and
+`src.market_microstructure_features --market all --json` materializes
+`clob_features_long.csv/jsonl` for all active markets. Focused validation:
+`pytest tests\market\test_market_microstructure_features.py tests\calibration\test_pooled_feature_model.py tests\calibration\test_pooled_candidate_replay.py -q`
+passes, and `compileall` passes for the changed modules. Remaining item-38
+acceptance is to train/shadow-score a microstructure-aware artifact and prove
+settlement or P&L lift on the casebook market-lead/overreaction slices.
+
+Fleet critical follow-up (2026-06-14 UTC): the observation-trigger watcher made
+urgent recomputes first-class evidence, but active CSV tapes created before the
+new cadence column could make scheduled captures appear gappy late at night.
+`SnapshotStore` now measures scheduled due time against the last scheduled
+capture, and `src.collection_health` scopes strict gap detection to the 12:00-
+18:00 settlement-decisive window while still requiring the tape to span that
+window. `src.fleet_observability report --strict` now exits 0 with fleet status
+`WARN`, zero critical alerts, and only historical/artifact metadata warnings.
 
 ### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]
 
@@ -2194,7 +2244,7 @@ Validation:
 - Mojibake/label check on the regenerated casebook/operator reports found no
   corrupted degree glyphs; F/C labels render as ASCII `F` / `C`.
 
-### 42. Fast Observation-Triggered Recompute Path [NEW - LATENCY GAP]
+### 42. Fast Observation-Triggered Recompute Path [PARTIAL 2026-06-14 - WATCHER SHIPPED]
 
 Goal: close the remaining latency gap between live weather observations and the
 served fair-value distribution without turning the full snapshot loop into an
@@ -2209,26 +2259,195 @@ value and dashboard edge remain frozen until the next full snapshot tick. This
 is not a model-feature problem anymore; it is a live recompute/triggering
 problem.
 
-- [ ] Add a lightweight source-event watcher that polls only low-cost
+- [x] Add a lightweight source-event watcher that polls only low-cost
   observation sources (WU current/history freshness where available, METAR,
   SWOB for Toronto, and source timestamps) at a 30-60 second cadence.
-- [ ] Trigger an "urgent recompute" when a settlement-relevant source changes
+- [x] Trigger an "urgent recompute" when a settlement-relevant source changes
   materially: new WU printed high, live reading crosses a bucket boundary,
   METAR/SWOB support jumps above the WU floor, or a previously stale current
   source becomes fresh.
-- [ ] Persist urgent recomputes with a trigger reason and replay identity in
+- [x] Persist urgent recomputes with a trigger reason and replay identity in
   the same append-only evidence model as normal snapshots, but mark cadence so
   backtests can analyze regular versus triggered rows separately.
-- [ ] Expose the latest triggered fair value to the dashboard and any future
+- [x] Expose the latest triggered fair value to the dashboard and any future
   quote engine, with freshness/fail-closed semantics: if the watcher is stale,
   edges are visible but not trade-permissioned.
-- [ ] Add a replay slice comparing pre-trigger, triggered, and next scheduled
+- [x] Add a replay slice comparing pre-trigger, triggered, and next scheduled
   snapshot probabilities on settled days, especially the large-disagreement
   cases from item 41.
 
 Acceptance: a material live observation change updates the served distribution
 within 60 seconds, records why it happened, and improves or at least does not
 regress settlement-scored performance on the triggered-row replay slice.
+
+Implementation update (2026-06-14 UTC): `src.observation_trigger` now owns the
+fast watcher. It polls only observation feeds (`wu_history`, `wu_current`,
+`metar`, and Toronto `eccc_swob`) at 30-60 second cadence, detects WU printed
+high increases, live bucket crossings, leading-observation support above the WU
+floor, and stale-source recovery, then calls `snapshot_tracker.capture_snapshot`
+with `force=True`, `snapshot_cadence=triggered`, and structured
+`trigger_context`. `SnapshotStore` now persists `snapshot_cadence` and trigger
+metadata to future `snapshots_long.csv` rows plus `snapshots.jsonl` and
+`replay_inputs.jsonl`; old CSV headers stay stable by design. The watcher has
+`once`, `loop`, `status`, `start-detached`, `ensure`, `stop`, `restart`, and
+`replay` commands, writes `data/snapshots/observation_trigger_status.json`,
+`observation_triggers.jsonl`, diagnostics, and a fail-closed `trade_permission`
+payload. `ops_monitor` now includes the watcher and latest triggered fair-value
+summary next to the weather/CLOB loops, and
+`scripts/register_observation_trigger_supervisor.ps1` installs the Windows
+supervisor.
+
+Replay update (2026-06-14 UTC): `src.observation_trigger replay` writes
+`data/backtest/observation_trigger_replay.json` and
+`data/backtest/observation_trigger_replay_report.md`, comparing pre-trigger,
+triggered, and next scheduled rows against the casebook's WU lag/catch-up loss
+slice. The first run found the expected 745 WU-lag model-loss cases but zero
+settled triggered rows, because the watcher did not exist during the historical
+tapes. Item 42 remains partial until live triggered rows settle and the report
+can prove no regression or improvement on that slice.
+
+Live-ops update (2026-06-14 UTC): the watcher is registered under Task
+Scheduler and was restarted onto the status-counter fix. It has begun writing
+live `snapshot_cadence=triggered` rows and `observation_triggers.jsonl` events;
+the latest status shows a fresh watcher heartbeat, zero consecutive errors, and
+a nonzero iteration counter. This is implementation evidence, not acceptance
+evidence: the item stays partial until those triggered rows settle and the
+WU-lag replay slice can score them.
+
+### 43. Market-Making Policy And Quote Intent Tape [NEW - RESEARCH AUDIT]
+
+Goal: convert the market-making research into a pure, auditable shadow quote
+policy before any live order adapter exists.
+
+Research source: `docs/research/MARKET_MAKING_RESEARCH_AUDIT_2026-06-13.md`.
+The audit's strongest conclusion is that the current plan is right to separate
+harvest quoting from model-edge quoting, but the quote engine needs explicit
+permission, latency, and reason-code semantics before paper trading is useful.
+
+- [ ] Build a pure `mm_policy` decision function whose inputs are fair value,
+  uncertainty, promotion state (`PASS` / `SHADOW` / `BLOCK`), known-edge slice,
+  CLOB book state, source freshness, observation-trigger health, simulated
+  inventory, reward config, and risk caps.
+- [ ] Encode the permission matrix from the research audit:
+  `BLOCK` -> no quotes; `SHADOW` -> market-mid-anchored harvest only when
+  books and sources are fresh; `PASS` slices -> model-skewed quotes; any stale
+  watcher/heartbeat/book/source state -> pull/stand down; near decisive
+  observation windows -> widen or stand down; FAK/taking remains paper-only
+  until proven.
+- [ ] Keep harvest and edge regimes mechanically separate. Harvest uses the
+  model as a veto, not as the quote center. Edge mode uses model fair value
+  only where the promotion gauntlet and known-edge map say the slice is proven.
+- [ ] Write a complete `quotes_long.csv` intent tape for every tick: policy
+  version/hash, model version, market/band/token IDs, promotion state, fair
+  probability, market mid, uncertainty, edge, bid/ask/size, inventory summary,
+  event-level risk, book spread/depth/imbalance/age, source freshness, latency
+  budget status, expected reward/rebate value, adverse-selection buffer,
+  final size limiter, and reason code.
+- [ ] Treat latency as a first-class input: model age, book age, source age,
+  observation-trigger age, and intended order age must all be visible in the
+  quote row and able to fail quote permission closed.
+- [ ] Unit-test policy reason codes, regime transitions, cap precedence,
+  stale-input stand-down, and no-cross/post-only price generation.
+
+Acceptance: the policy can run keyless in shadow across all registered weather
+markets, emits an auditable quote/no-quote reason for every eligible band, and
+never emits a trade-permissioned quote when source, book, model, or watcher
+freshness violates configured latency budgets.
+
+### 44. Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [NEW - RESEARCH AUDIT]
+
+Goal: make MM-1 paper trading honest enough to decide whether live min-size
+testing is justified.
+
+Research source: the market-making audit says midpoint-only backtests and
+headline P&L are not enough. Queue position, latency, adverse selection,
+rebates, rewards, and overfit controls must be measured explicitly.
+
+- [ ] Build the conservative fill simulator as the promotion gate: a passive
+  quote fills only when a recorded trade prints strictly through the intended
+  price, never merely at the price, and fill size is capped by recorded trade
+  size.
+- [ ] Add a queue-aware companion simulator using recorded book deltas to
+  estimate queue depletion, cancellations ahead, partial fills, and missed
+  fills. Report it beside the conservative simulator; do not let it replace
+  the conservative go-live gate.
+- [ ] Score markout curves at `+30s`, `+1m`, `+5m`, `+30m`, and settlement by
+  market, hour, band distance, quote age, regime, source freshness, book
+  imbalance, and casebook taxonomy.
+- [ ] Decompose P&L into spread capture, adverse-selection markout,
+  maker-rebate estimate, liquidity-reward estimate, taker/flattening fees,
+  and settlement P&L. Reward/rebate income is valid only after toxic markout
+  and flattening costs are deducted.
+- [ ] Implement reward accounting against Polymarket's formula: qualifying
+  size, distance from adjusted midpoint, `Q_min`, normalized share, campaign
+  pool, payout threshold, and rolling competition by hour/band. Refresh the
+  reward-competition report continuously; thin competition is not assumed to
+  persist.
+- [ ] Implement maker-rebate accounting: theoretical fee-equivalent, realized
+  maker fee-equivalent, per-market rebate pool, our pool share, and paid-vs-
+  predicted reconciliation once live.
+- [ ] Enforce anti-overfit discipline for policy changes: frozen replay day
+  sets, held-out validation days, live-forward paper results generated in real
+  time, parameter hashes, confidence intervals by slice, and a deflated-Sharpe,
+  PBO, or equivalent multiple-test adjustment when many variants are tried.
+- [ ] Emit `data/backtest/mm_paper_report.md` plus machine-readable JSON with
+  conservative and queue-aware results, markout slices, rewards/rebates,
+  quote uptime, stale-input pulls, and casebook-linked fill toxicity.
+
+Acceptance: before MM-2 live testing, there are at least 14 consecutive
+live-forward paper days with locked policy parameters, conservative fills,
+queue-aware companion analysis, net P&L after markout/rewards/rebates/fees,
+slice confidence intervals, and no unresolved quotes resting through decisive
+observation events.
+
+### 45. Market-Making Position Sizing, Risk Controls, And Live Gate [NEW - RESEARCH AUDIT]
+
+Goal: define the sizing and operational gates that must be green before any
+real-money market-making pilot.
+
+Research source: the audit recommends explicit sizing formulas and capped
+fractional Kelly only after observed edge is credible. It also flags a live
+verification gap: `MARKET_MAKING_PLAN.md` says token persistence shipped, but
+the current `data/backtest/data_layer_audit_report.md` still reported
+`Market token IDs persisted: False` when the research was written.
+
+- [ ] Represent inventory at event level as settlement P&L if each mutually
+  exclusive band wins. Track expected value, standard deviation over the model
+  density, worst-case loss, and negative-risk conversion state rather than only
+  token counts.
+- [ ] Implement a sizing stack:
+  `min(rewards_min_size_or_target, per-band cap, per-event expected-loss cap,
+  per-event worst-case cap, daily drawdown budget, fractional-Kelly cap,
+  available backed balance after open-order reserves)`.
+- [ ] Use zero Kelly size until live-forward paper and/or MM-2 fills produce
+  statistically credible net edge. When enabled, use heavily fractional Kelly
+  only (for example 0.10-0.25x full Kelly) and keep hard loss caps binding.
+- [ ] Add daily loss halt, per-band share cap, per-event notional cap, fleet
+  notional cap, stale-source halt, stale-book halt, stale-observation-trigger
+  halt, heartbeat halt, and manual pause/cancel-all paths to the risk design.
+- [ ] Simulate balance and allowance accounting for simultaneous YES/NO orders
+  in negative-risk markets, including reserved balances, partial fills, open
+  order reductions, pUSD collateral, and redemption after settlement.
+- [ ] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
+  token IDs, condition IDs, order-book depth, and trade tapes are verified in
+  current active-day artifacts, not just described in roadmap text.
+- [ ] Verify the exact operating platform before live keys: Polymarket global
+  versus Polymarket US eligibility, current fees, current reward/rebate rules,
+  account jurisdiction, wallet type, allowances, and API semantics.
+- [ ] Write the MM-2 day-one protocol: heartbeat-lapse drill with a throwaway
+  far-from-mid order, min-size/tick/post-only rejection probes, one tiny
+  two-sided quote on one band, user WebSocket lifecycle verification,
+  balance-reserve verification, and next payout-cycle reward/rebate
+  reconciliation before scaling beyond one event.
+- [ ] Write the live runbook: start, pause, cancel-all, flatten, redeem,
+  reconcile, rotate keys, handle failed user WebSocket, handle CLOB outage,
+  handle stale observation watcher, and recover after process death.
+
+Acceptance: no live market-making order is allowed until items 43 and 44 have
+passed their acceptance gates, the latest data-layer audit proves token/book
+artifacts are current, account/platform eligibility is verified, caps and
+balance math are tested, kill-switch drills pass, and the dedicated pilot
+wallet is funded only with isolated risk capital.
 
 ## Sequencing The Two Tracks
 
@@ -2251,33 +2470,48 @@ regress settlement-scored performance on the triggered-row replay slice.
    recompute)** follows item 40's live-reading feature work, item 38's
    fast-book capture, and item 41's large-disagreement slices; it is the next
    latency fix before any quote engine trusts sub-10-minute edges.
+7. **43-45 are the market-making bridge.** After book capture, casebook, and
+   observation-trigger plumbing are stable, build the keyless quote policy
+   first, then paper-trade it with conservative and queue-aware fills, then
+   define position sizing and live gates. Live MM-2 orders wait until all three
+   pass; reward/rebate yield is not treated as alpha until adverse-selection
+   markout is deducted.
 
 Current best next actions after the 2026-06-14 refresh:
 
-1. **Automate the daily settlement-to-promotion refresh.** The biggest audit
+1. **Done 2026-06-14: automate the daily settlement-to-promotion refresh.** The biggest audit
    miss was not a model bug; it was a stale ledger/promotion corpus. Schedule
-   `src.market_day_labels finalize`, `src.promotion_refresh`,
-   `src.progress_audit`, `src.disagreement_casebook`, and
-   `src.fleet_observability report` so clean days enter trust/gates without a
-   manual chat-driven nudge.
-2. **Work item 42 against the casebook's biggest losing family.** WU lag/catch
-   up now accounts for 745 settled model-loss cases. The fastest accuracy path
-   is a low-cost observation watcher and urgent recompute path that is scored
-   directly on those case IDs.
-3. **Fix the fleet observability criticals that can poison future promotion.**
-   The current report is CRITICAL because every active CLOB tape has a startup
-   gap over 120s and Miami has an impossible 2005-06-11 WU value (`171 F`).
-   The loop is currently fresh, but the gap policy should distinguish startup
-   gaps from trailing failure, and the Miami raw/daily row should be repaired or
-   quarantined before retraining.
-4. **Turn item 38 into a model feature, not just a recorder.** Market lead is
-   now a measured losing family, and market overreaction is a measured winning
-   family. Add book-depth/stickiness/liquidity features behind the promotion
-   gauntlet and prove they improve those exact slices.
+   `src.daily_refresh run --continue-on-error` via
+   `scripts/register_daily_refresh.ps1` so clean days enter trust/gates without
+   a manual chat-driven nudge.
+2. **Done as implementation 2026-06-14: ship item 42's watcher and scoring
+   slice.** WU lag/catch-up accounts for 745 settled model-loss cases; the new
+   low-cost observation watcher creates tagged urgent recomputes, and
+   `src.observation_trigger replay` scores them directly on those case IDs once
+   live triggered rows settle. Keep the watcher supervised so the acceptance
+   report gains evidence.
+3. **Done 2026-06-14: clear the fleet observability criticals.** Miami's impossible
+   2005-06-11 WU value is quarantined and the rebuilt normalized daily high is
+   `86 F`; `data_auditor.py --fleet --json --strict` reports zero impossible
+   values. The CLOB audit now records startup gaps separately from post-start
+   recorder failures; `src.market_microstructure audit --strict` passes all 12
+   active markets. Main snapshot health now separates scheduled and triggered
+   cadence and checks strict gaps inside the settlement-decisive window.
+   `src.fleet_observability report --strict` is `WARN` with zero critical
+   alerts.
+4. **Next: score item 38's CLOB features behind the promotion gauntlet.** Market
+   lead is now a measured losing family, and market overreaction is a measured
+   winning family. The book-depth/stickiness/liquidity feature plumbing is in
+   place; train a shadow artifact and prove it improves those exact slices
+   before letting the features affect serving.
 5. **Delay item 35 until the promotion gauntlet has more days.** Continuous
    density is still the endgame, but today's highest value is using the new
    24-day F corpus and casebook slices to fix concrete, settlement-scored
    failure modes first.
+6. **Start item 43 before any execution adapter.** Convert the research audit's
+   permission matrix into a pure shadow quote policy and quote-intent tape, so
+   every future paper/live decision has a reason code, latency budget, and
+   risk limiter attached.
 
 ## Research Questions
 
@@ -2294,6 +2528,16 @@ Current best next actions after the 2026-06-14 refresh:
   calibration, or overconfidence after a WU floor prints?
 - Does using market price as an ensemble input improve settlement accuracy
   while still leaving tradable residual edge?
+- What is the realized queue-position value in weather books: how often would
+  conservative trade-through fills miss fills that a queue-aware model would
+  have captured, and are those additional fills toxic?
+- Are maker rebates and liquidity rewards net positive after adverse-selection
+  markout, flattening fees, payout thresholds, and reward-competition drift?
+- Which event-level inventory metric best predicts future drawdown: token
+  count, notional, model-density P&L standard deviation, or worst-case band
+  loss?
+- Which quote-policy parameters remain significant after frozen-day validation,
+  live-forward paper, and multiple-test adjustment?
 
 ## Codex Deep Model Audit - 2026-05-28
 

@@ -145,6 +145,11 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m src.market_microstructure websocket --market toronto --seconds 300
+.\venv\Scripts\python.exe -m src.observation_trigger once --market all
+.\venv\Scripts\python.exe -m src.observation_trigger loop --market all --interval-seconds 60
+.\venv\Scripts\python.exe -m src.observation_trigger status
+.\venv\Scripts\python.exe -m src.observation_trigger ensure --market all --interval-seconds 60
+.\venv\Scripts\python.exe -m src.observation_trigger replay
 .\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
 .\venv\Scripts\python.exe -m src.fleet_observability report --strict
 .\venv\Scripts\python.exe -m src.data_layer_audit
@@ -153,6 +158,8 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m src.pooled_feature_model --objective band --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
 .\venv\Scripts\python.exe -m src.pooled_candidate_replay --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
 .\venv\Scripts\python.exe -m src.promotion_refresh
+.\venv\Scripts\python.exe -m src.daily_refresh run --continue-on-error
+.\venv\Scripts\python.exe -m src.daily_refresh status
 .\venv\Scripts\python.exe -m src.backtest
 .\venv\Scripts\python.exe -m src.model_ensemble
 .\venv\Scripts\python.exe -m src.probability_calibration train
@@ -235,6 +242,21 @@ ad-hoc live scripts that may hit the network.
   trailing freshness), non-zero exit on any gap. `src.fleet_observability`
   includes the CLOB loop and book-gap state as fail-closed alerts, so a dead
   recorder or tape gap surfaces like a snapshot-collection failure.
+- `src.observation_trigger` is the item-42 fast recompute path. It polls only
+  low-cost observation sources (`wu_history`, `wu_current`, `metar`, and
+  Toronto `eccc_swob`) at 30-60 second cadence, triggers forced snapshots on
+  new WU printed highs, live bucket crossings, support above the WU floor, or
+  stale-source recovery, and tags evidence with `snapshot_cadence=triggered`
+  plus `trigger_context` in `snapshots.jsonl` and `replay_inputs.jsonl`.
+  The watcher writes `data/snapshots/observation_trigger_status.json`,
+  `data/snapshots/observation_triggers.jsonl`, diagnostics/console logs, and
+  exposes a freshness/fail-closed `trade_permission` payload for future quote
+  code. Register `scripts/register_observation_trigger_supervisor.ps1` so Task
+  Scheduler keeps it alive. `src.observation_trigger replay` writes
+  `data/backtest/observation_trigger_replay.json` and report, scoring triggered
+  rows against the casebook's WU lag/catch-up loss cases; the first generated
+  report sees 745 WU-lag losses but zero historical triggered rows because the
+  watcher did not exist for those tapes.
 - `src.source_redundancy report` writes
   `data/backtest/source_redundancy.json`,
   `data/backtest/source_redundancy_report.md`,
@@ -295,17 +317,25 @@ skew is one of the easiest ways to create fake edge.
 
 ## Current Audit Notes And Risks
 
-- The 2026-06-14 fleet observability report is `CRITICAL`, even though both
-  loops are running and fresh. Criticals are: active-day CLOB tapes contain
-  startup gaps over 120 seconds, and Miami WU history has an impossible
-  2005-06-11 value (`171 F`). Repair/quarantine the Miami row before retraining,
-  and make the CLOB audit distinguish old startup gaps from trailing recorder
-  failure.
+- Miami's impossible 2005-06-11 WU value (`171 F`) was quarantined during
+  normalization and the rebuilt daily row is `86 F`; `data_auditor.py --fleet
+  --json --strict` reports zero impossible values and zero duplicate markets.
+  CLOB startup gaps are visible as ignored startup gaps in the book-tape audit
+  while post-start gaps and stale trailing captures still fail closed. The main
+  snapshot loop now measures scheduled cadence separately from triggered
+  recomputes, and collection health scopes gap criticals to the 12:00-18:00
+  settlement-decisive window. A fresh 2026-06-14
+  `src.fleet_observability report --strict` run is `WARN` with zero critical
+  alerts.
 - The settlement ledger can drift stale if `src.market_day_labels finalize` is
   not run after new days settle. The June 11/12 backlog materially changed
   trust and promotion results, so automate finalization plus
   `src.promotion_refresh`, `src.progress_audit`, and
-  `src.disagreement_casebook`.
+  `src.disagreement_casebook`. `src.daily_refresh run --continue-on-error`
+  now executes that chain plus `src.fleet_observability` and writes
+  `data/backtest/daily_refresh_status.json` /
+  `data/backtest/daily_refresh_report.md`; `scripts/register_daily_refresh.ps1`
+  is registered as `WeatherDailySettlementPromotionRefresh`.
 - The dashboard has visible mojibake in some status/warning strings
   (`app.py`, `model_constants.py`, `model_distribution.py`, and
   `model_presentation.py` comments/cleanup paths show encoding artifacts).
@@ -357,14 +387,23 @@ skew is one of the easiest ways to create fake edge.
 
 The fastest path toward the project goal is likely:
 
-1. Automate daily settlement finalization and promotion refresh so newly clean
-   days enter trust/gates without manual intervention.
-2. Implement item 42, the fast observation-triggered recompute path, and score
-   it against the casebook's WU lag/catch-up loss slice.
-3. Clear fleet observability criticals: Miami impossible WU value, CLOB startup
-   gap policy, and artifact schema/manifest warnings.
-4. Turn item 38 market microstructure capture into model features for book
-   stickiness, liquidity, and market-lead/overreaction slices.
+1. Keep daily settlement finalization and promotion refresh scheduled. Item 1 is
+   implemented and registered as `WeatherDailySettlementPromotionRefresh`; inspect
+   `data/backtest/daily_refresh_status.json` after each morning run.
+2. Keep item 42's observation-trigger watcher supervised and accumulate settled
+   triggered rows. `WeatherObservationTriggerSupervisor` is registered, the
+   watcher status counter is fixed, and live triggered rows are being written;
+   `data/backtest/observation_trigger_replay_report.md` becomes acceptance
+   evidence once those rows settle.
+3. Keep fleet observability free of criticals. Miami quarantine, CLOB startup
+   gap handling, scheduled-vs-triggered snapshot cadence, and settlement-window
+   collection health are shipped; current status is `WARN` with zero critical
+   alerts.
+4. Score item 38 market microstructure features for book stickiness, liquidity,
+   and market-lead/overreaction slices. `src.market_microstructure_features`
+   now materializes model-ready CLOB features and `src.pooled_candidate_replay`
+   joins them by normalized band key; active June 13 tapes have `17,380 / 17,380`
+   available feature rows after the F-market missing-`bin_value_hi` fix.
 5. Use item 27 weather-regime features only behind replay/casebook gates, and
    postpone the item 35 continuous-density model until more clean market days
    prove the current candidate path.

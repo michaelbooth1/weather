@@ -10,6 +10,7 @@ import csv
 import io
 import json
 import sys
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -59,6 +60,20 @@ def parse_date(value):
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value))
+
+
+def chunk_date_ranges(start_date, end_date, chunk_days=None):
+    start_date = parse_date(start_date)
+    end_date = parse_date(end_date)
+    if not chunk_days or chunk_days <= 0:
+        return [(start_date, end_date)]
+    ranges = []
+    current = start_date
+    while current <= end_date:
+        chunk_end = min(current + timedelta(days=chunk_days - 1), end_date)
+        ranges.append((current, chunk_end))
+        current = chunk_end + timedelta(days=1)
+    return ranges
 
 
 def parse_valid_utc(value):
@@ -176,8 +191,12 @@ def mean(values):
 
 
 class MetarClient:
-    def __init__(self, timeout=60):
+    RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+
+    def __init__(self, timeout=60, max_attempts=3, retry_sleep=10):
         self.timeout = timeout
+        self.max_attempts = max(1, int(max_attempts))
+        self.retry_sleep = retry_sleep
 
     def fetch(self, station, start_date, end_date):
         start_date = parse_date(start_date)
@@ -200,9 +219,23 @@ class MetarClient:
             ("trace", "T"),
         ]
         params.extend(("data", field) for field in DATA_FIELDS)
-        response = requests.get(IEM_ASOS_URL, params=params, timeout=self.timeout)
-        response.raise_for_status()
-        return response.text
+        for attempt in range(1, self.max_attempts + 1):
+            response = requests.get(IEM_ASOS_URL, params=params, timeout=self.timeout)
+            try:
+                response.raise_for_status()
+                return response.text
+            except requests.HTTPError:
+                if response.status_code not in self.RETRY_STATUS_CODES or attempt == self.max_attempts:
+                    raise
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    sleep_seconds = float(retry_after) if retry_after else None
+                except ValueError:
+                    sleep_seconds = None
+                if sleep_seconds is None:
+                    sleep_seconds = self.retry_sleep * attempt
+                time.sleep(max(0.0, sleep_seconds))
+        return ""
 
 
 class MetarStore:
@@ -221,15 +254,27 @@ class MetarStore:
     def raw_files(self):
         return sorted(self.raw_root.glob("asos_*.csv"))
 
-    def backfill(self, start_date, end_date, skip_existing=False, client=None):
+    def backfill(
+        self,
+        start_date,
+        end_date,
+        skip_existing=False,
+        client=None,
+        chunk_days=None,
+        sleep_seconds=0.0,
+    ):
         start_date = parse_date(start_date)
         end_date = parse_date(end_date)
         client = client or MetarClient()
-        path = self.raw_path(start_date, end_date)
-        if not (skip_existing and path.exists()):
-            self.raw_root.mkdir(parents=True, exist_ok=True)
-            text = client.fetch(self.spec.icao, start_date, end_date)
+        self.raw_root.mkdir(parents=True, exist_ok=True)
+        for chunk_start, chunk_end in chunk_date_ranges(start_date, end_date, chunk_days):
+            path = self.raw_path(chunk_start, chunk_end)
+            if skip_existing and path.exists():
+                continue
+            text = client.fetch(self.spec.icao, chunk_start, chunk_end)
             path.write_text(text, encoding="utf-8")
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
         return self.rebuild()
 
     def rebuild(self):
@@ -302,7 +347,19 @@ def run_legacy_toronto_backfill():
 def command_backfill(args):
     spec = spec_for_id(args.market)
     store = MetarStore(spec, root=args.data_root or None)
-    result = store.backfill(args.start, args.end, skip_existing=args.skip_existing)
+    client = MetarClient(
+        timeout=args.timeout,
+        max_attempts=args.retry_attempts,
+        retry_sleep=args.retry_sleep,
+    )
+    result = store.backfill(
+        args.start,
+        args.end,
+        skip_existing=args.skip_existing,
+        client=client,
+        chunk_days=args.chunk_days,
+        sleep_seconds=args.sleep,
+    )
     print(
         f"{spec.id}: wrote {result['records']} METAR hourly rows and "
         f"{result['daily_rows']} daily rows"
@@ -558,6 +615,11 @@ def build_parser():
     backfill = sub.add_parser("backfill")
     backfill.add_argument("--start", required=True)
     backfill.add_argument("--end", required=True)
+    backfill.add_argument("--chunk-days", type=int, default=0)
+    backfill.add_argument("--sleep", type=float, default=0.0)
+    backfill.add_argument("--timeout", type=float, default=60)
+    backfill.add_argument("--retry-attempts", type=int, default=3)
+    backfill.add_argument("--retry-sleep", type=float, default=10.0)
     backfill.add_argument("--skip-existing", action="store_true")
     backfill.set_defaults(func=command_backfill)
 

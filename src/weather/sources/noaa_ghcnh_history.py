@@ -43,6 +43,11 @@ YEAR_FILE_URL = (
     "hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
 )
 DEFAULT_ROOT = Path("data") / "noaa_ghcnh"
+SOURCE_UNAVAILABLE_FILE = "source_unavailable_years.json"
+
+
+def year_file_url(station_id, year):
+    return YEAR_FILE_URL.format(station_id=station_id, year=year)
 
 
 def distance2(row, spec):
@@ -159,7 +164,7 @@ class GHCNHClient:
         return response.text
 
     def fetch_year(self, station_id, year):
-        url = YEAR_FILE_URL.format(station_id=station_id, year=year)
+        url = year_file_url(station_id, year)
         response = requests.get(url, timeout=self.timeout)
         response.raise_for_status()
         return response.text
@@ -173,6 +178,7 @@ class GHCNHStore:
         self.hourly_root = self.root / "hourly"
         self.daily_root = self.root / "daily"
         self.station_path = self.root / "station.json"
+        self.unavailable_path = self.root / SOURCE_UNAVAILABLE_FILE
 
     def raw_path(self, station_id, year):
         return self.raw_root / f"year={year}" / f"GHCNh_{station_id}_{year}.psv"
@@ -201,9 +207,44 @@ class GHCNHStore:
                 continue
         return years
 
+    def source_unavailable_years(self):
+        if not self.unavailable_path.exists():
+            return {}
+        try:
+            records = json.loads(self.unavailable_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        unavailable = {}
+        for record in records:
+            try:
+                year = int(record.get("year"))
+            except (TypeError, ValueError):
+                continue
+            unavailable[year] = record
+        return unavailable
+
+    def record_source_unavailable_year(self, station_id, year, url, error):
+        records = self.source_unavailable_years()
+        records[int(year)] = {
+            "year": int(year),
+            "station_id": station_id,
+            "url": url,
+            "reason": "http_404",
+            "error": str(error),
+            "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        self.unavailable_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = [records[year] for year in sorted(records)]
+        self.unavailable_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return records[int(year)]
+
     def missing_years(self, start_year, end_year):
         existing = self.raw_years()
-        return [year for year in range(start_year, end_year + 1) if year not in existing]
+        unavailable = set(self.source_unavailable_years())
+        return [
+            year for year in range(start_year, end_year + 1)
+            if year not in existing and year not in unavailable
+        ]
 
     def iter_raw_files(self):
         return sorted(self.raw_root.glob("year=*/*.psv"))
@@ -216,6 +257,7 @@ class GHCNHStore:
         records.sort(key=lambda row: row["valid_time_utc"])
         write_jsonl_partitions(self.hourly_root, records)
         daily = summarize_daily(records)
+        unavailable_years = self.source_unavailable_years()
         write_daily_csv(self.daily_root / "daily_summary.csv", daily)
         write_manifest(
             self.root / "manifest.json",
@@ -229,6 +271,8 @@ class GHCNHStore:
                 "station": station,
                 "station_list_url": STATION_LIST_URL,
                 "year_file_url_template": YEAR_FILE_URL,
+                "source_unavailable_years": [unavailable_years[year] for year in sorted(unavailable_years)],
+                "source_unavailable_year_count": len(unavailable_years),
                 "quality_counts": quality_counts(records),
             },
         )
@@ -240,7 +284,9 @@ class GHCNHStore:
             expected = set(range(start_year, end_year + 1))
         else:
             expected = raw_years
-        missing = sorted(expected - raw_years)
+        unavailable_years = self.source_unavailable_years()
+        unavailable_in_window = sorted(set(unavailable_years) & expected)
+        missing = sorted(expected - raw_years - set(unavailable_in_window))
         return {
             "source": SOURCE,
             "market_id": self.spec.id,
@@ -249,6 +295,9 @@ class GHCNHStore:
             "raw_years": sorted(raw_years),
             "expected_years": sorted(expected),
             "missing_years": missing,
+            "source_unavailable_years": unavailable_in_window,
+            "source_unavailable_year_count": len(unavailable_in_window),
+            "raw_missing_years": sorted(expected - raw_years),
             "station_resolved": self.read_station() is not None,
             "daily_summary_exists": (self.daily_root / "daily_summary.csv").exists(),
             "manifest_exists": (self.root / "manifest.json").exists(),
@@ -284,7 +333,22 @@ def cmd_backfill(args):
     )
     print(f"{spec.id}: {len(years)} GHCNh year(s) to fetch for {station_id}")
     for year in years:
-        text = client.fetch_year(station_id, year)
+        try:
+            text = client.fetch_year(station_id, year)
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code != 404:
+                raise
+            record = store.record_source_unavailable_year(
+                station_id,
+                year,
+                year_file_url(station_id, year),
+                exc,
+            )
+            print(f"Source unavailable {year}: {record['url']}")
+            if args.sleep:
+                time.sleep(args.sleep)
+            continue
         path = store.write_year(station_id, year, text)
         print(f"Fetched {year}: {len(text)} bytes -> {path}")
         if args.sleep:

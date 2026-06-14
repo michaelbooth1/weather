@@ -36,6 +36,7 @@ class TestForecastArchive(unittest.TestCase):
                     "ok": True,
                     "data": {
                         "url": "weather-url",
+                        "provider_update_time": "2026-05-27T09:50:00-04:00",
                         "rows": [
                             {
                                 "valid_time": "2026-05-27T11:00:00-04:00",
@@ -81,6 +82,9 @@ class TestForecastArchive(unittest.TestCase):
 
             self.assertEqual({row["source"] for row in rows}, {"weather_forecast", "eccc_citypage"})
             self.assertEqual(rows[0]["horizon_minutes"], 60)
+            self.assertEqual(rows[0]["issue_time"], "2026-05-27T09:50:00-04:00")
+            self.assertEqual(rows[0]["issue_time_basis"], "source_provider_time")
+            self.assertEqual(rows[0]["provider_update_time"], "2026-05-27T09:50:00-04:00")
             self.assertEqual(rows[1]["issue_time_basis"], "source_last_updated")
             self.assertEqual([row["source"] for row in second_rows], ["weather_forecast"])
 

@@ -14,6 +14,10 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.impute import SimpleImputer
+
 SRC_ROOT = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -29,6 +33,11 @@ from backtest import (
 )
 from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
 from location_trust import score_all_markets
+from market_microstructure_features import (
+    CLOB_MODEL_FEATURE_COLUMNS,
+    feature_index_for_folder,
+    snapshot_band_key,
+)
 from market_registry import REGISTRY
 from pooled_feature_model import (
     DEFAULT_BAND_ARTIFACT,
@@ -44,10 +53,39 @@ from replay import index_records_by_snapshot, is_reconstructed, load_replay_reco
 from replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
 from settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
 from toronto_model import TorontoHighTempModel
+from weather.artifacts import writable_artifact_path
 
 DEFAULT_OUT = Path("data") / "backtest" / "pooled_candidate_replay_report.md"
 DEFAULT_JSON_OUT = Path("data") / "backtest" / "pooled_candidate_replay.json"
 DEFAULT_REPLAY_REPORT = Path("data") / "backtest" / "pooled_candidate_current_replay_report.md"
+DEFAULT_CASEBOOK = Path("data") / "backtest" / "disagreement_casebook.json"
+DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl")
+MICROSTRUCTURE_SCHEMA_VERSION = "clob_microstructure_overlay_v0.1"
+MICROSTRUCTURE_TARGET_TAXONOMIES = (
+    "market_lead",
+    "market_overreaction",
+    "book_liquidity_artifact",
+)
+MICROSTRUCTURE_NUMERIC_FEATURES = [
+    "candidate_p",
+    "replayed_p",
+    "recorded_p",
+    "market_yes",
+    "candidate_logit",
+    "replayed_logit",
+    "market_logit",
+    "candidate_minus_market",
+    "candidate_minus_replayed",
+    "replayed_minus_market",
+    "abs_candidate_minus_market",
+    "candidate_cutoff_hour",
+    *CLOB_MODEL_FEATURE_COLUMNS,
+]
+MICROSTRUCTURE_CATEGORICAL_FEATURES = [
+    "market_id",
+    "bin_type",
+    "candidate_cutoff_hour_bucket",
+]
 
 
 def load_artifact(path):
@@ -291,6 +329,38 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
     return features, diagnostics
 
 
+def build_clob_feature_index(manifest, snapshots_root, family_unit, max_age_seconds=180):
+    """Return band-level CLOB features keyed by replay row identity."""
+    output = {}
+    diagnostics = {
+        "clob_feature_folders": 0,
+        "clob_feature_rows": 0,
+        "clob_feature_available_rows": 0,
+        "clob_feature_missing_folders": 0,
+    }
+    for folder in folders_from_manifest(manifest, snapshots_root):
+        market_id = folder_market_id(folder)
+        spec = REGISTRY.get(market_id)
+        if not spec or spec.display_unit != family_unit:
+            continue
+        if not (Path(folder) / "order_books_summary.csv").exists():
+            diagnostics["clob_feature_missing_folders"] += 1
+            continue
+        folder_index = feature_index_for_folder(
+            folder,
+            max_age_seconds=max_age_seconds,
+            market_id=market_id,
+        )
+        diagnostics["clob_feature_folders"] += 1
+        diagnostics["clob_feature_rows"] += len(folder_index)
+        diagnostics["clob_feature_available_rows"] += sum(
+            1 for row in folder_index.values()
+            if row.get("clob_feature_available")
+        )
+        output.update(folder_index)
+    return output, diagnostics
+
+
 def build_candidate_distributions(manifest, snapshots_root, artifact):
     """Return (market_id, snapshot_id) -> pooled candidate distribution."""
     family_unit = artifact.get("family_unit") or "F"
@@ -345,12 +415,13 @@ def attach_candidate_probabilities(replay_results, predictions, family_unit):
         copy = dict(row)
         candidate = predictions.get((market_id, str(row.get("snapshot_id"))))
         if candidate:
+            kind, value, value_hi = snapshot_band_key(row)
             copy["candidate_cutoff_hour"] = candidate.get("cutoff_hour")
             copy["candidate_p"] = band_probability_from_distribution(
                 candidate.get("distribution"),
-                row.get("bin_type"),
-                row.get("bin_value_c"),
-                row.get("bin_value_hi"),
+                kind,
+                value,
+                value_hi,
             )
         else:
             copy["candidate_cutoff_hour"] = None
@@ -363,7 +434,7 @@ def attach_candidate_probabilities(replay_results, predictions, family_unit):
     return rows, coverage
 
 
-def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, family_unit):
+def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, family_unit, clob_features=None):
     rows = []
     coverage = {
         "family_unit": family_unit,
@@ -387,12 +458,19 @@ def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, 
         copy["candidate_cutoff_hour"] = None
         feature_row = feature_rows.get((market_id, str(row.get("snapshot_id"))))
         if feature_row:
+            kind, value, value_hi = snapshot_band_key(row)
             band_row = band_prediction_record(
                 feature_row,
-                row.get("bin_type"),
-                row.get("bin_value_c"),
-                value_hi=row.get("bin_value_hi"),
+                kind,
+                value,
+                value_hi=value_hi,
             )
+            clob_key = (market_id, str(row.get("snapshot_id")), kind, value, value_hi)
+            clob_row = (clob_features or {}).get(clob_key)
+            if clob_row:
+                for column in CLOB_MODEL_FEATURE_COLUMNS:
+                    band_row[column] = clob_row.get(column)
+                    copy[column] = clob_row.get(column)
             hour = str(band_row.get("cutoff_hour"))
             copy["candidate_cutoff_hour"] = band_row.get("cutoff_hour")
             if hour in models_by_hour:
@@ -651,11 +729,19 @@ def run_pooled_candidate_replay(args):
     )
     if artifact.get("prediction_mode") == "band_binary":
         feature_rows, diagnostics = build_candidate_features(manifest, args.snapshots_root, family_unit)
+        clob_features, clob_diagnostics = build_clob_feature_index(
+            manifest,
+            args.snapshots_root,
+            family_unit,
+            max_age_seconds=args.clob_max_age_seconds,
+        )
+        diagnostics.update(clob_diagnostics)
         candidate_rows, coverage = attach_band_candidate_probabilities(
             replay_results,
             feature_rows,
             artifact,
             family_unit,
+            clob_features=clob_features,
         )
     else:
         predictions, diagnostics = build_candidate_distributions(manifest, args.snapshots_root, artifact)
@@ -862,6 +948,9 @@ def write_report(report, out_path):
             ["Missing candidate rows", coverage.get("missing_candidate_rows", 0)],
             ["Candidate snapshots", diagnostics.get("candidate_snapshots", 0)],
             ["Predicted snapshots", diagnostics.get("predicted_snapshots", 0)],
+            ["CLOB feature folders", diagnostics.get("clob_feature_folders", 0)],
+            ["CLOB feature rows", diagnostics.get("clob_feature_rows", 0)],
+            ["CLOB available rows", diagnostics.get("clob_feature_available_rows", 0)],
         ],
     )
     gate = report.get("replay_gate") or {}
@@ -941,6 +1030,7 @@ def main():
     parser.add_argument("--min-days", type=int, default=2)
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
+    parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
     parser.add_argument("--require-exact-identity", action="store_true",
                         help="Fail the candidate promotion gate if the corpus has no exact replay-identity canary rows.")
     parser.add_argument("--require-all-markets", action="store_true")

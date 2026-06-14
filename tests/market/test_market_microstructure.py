@@ -93,10 +93,19 @@ class FakeWebSocket:
     def recv(self):
         return json.dumps({
             "event_type": "price_change",
-            "asset_id": "yes-token",
             "market": "0xabc",
-            "price": "0.46",
-            "side": "BUY",
+            "price_changes": [
+                {
+                    "asset_id": "yes-token",
+                    "price": "0.46",
+                    "side": "BUY",
+                },
+                {
+                    "asset_id": "no-token",
+                    "price": "0.54",
+                    "side": "SELL",
+                },
+            ],
         })
 
     def close(self):
@@ -149,31 +158,71 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertAlmostEqual(row["sell_fillable_100"], 100.0)
         self.assertAlmostEqual(row["sell_vwap_100"], (50 * 0.44 + 50 * 0.43) / 100)
 
-    def test_capture_event_books_writes_tokens_books_levels_and_history(self):
+    def test_capture_event_books_writes_tokens_books_levels_history_and_ws_by_default(self):
         fake = FakeClobClient()
+        fake_ws = FakeWebSocket()
+
+        def factory(url, timeout=30):
+            self.assertIn("/ws/market", url)
+            self.assertEqual(timeout, mm.DEFAULT_WS_CONNECT_TIMEOUT)
+            return fake_ws
+
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (root / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "range_label",
+                    "bin_kind",
+                    "bin_value_c",
+                    "bin_value_hi",
+                    "model_probability",
+                    "market_yes",
+                ])
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap1",
+                    "captured_at_utc": "2026-06-12T15:00:00+00:00",
+                    "event_slug": "highest-temperature-in-toronto-on-june-12-2026",
+                    "range_label": "20 C or below",
+                    "bin_kind": "lte",
+                    "bin_value_c": "20",
+                    "bin_value_hi": "",
+                    "model_probability": "0.25",
+                    "market_yes": "0.12",
+                })
             result = capture_event_books(
                 sample_event(),
                 market_id="toronto",
                 clob_client=fake,
                 root=tmp,
                 outcomes="yes",
-                include_price_history=True,
                 history_minutes=60,
+                websocket_factory=factory,
                 now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
             )
-            root = Path(tmp)
             token_rows = list(csv.DictReader((root / "clob_tokens.csv").open(encoding="utf-8", newline="")))
             summary_rows = list(csv.DictReader((root / "order_books_summary.csv").open(encoding="utf-8", newline="")))
             level_rows = list(csv.DictReader((root / "order_books_long.csv").open(encoding="utf-8", newline="")))
             history_rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
+            ws_rows = list(csv.DictReader((root / "market_ws_events.csv").open(encoding="utf-8", newline="")))
+            clob_feature_rows = list(csv.DictReader((root / "clob_features_long.csv").open(encoding="utf-8", newline="")))
 
         self.assertEqual(result["captured_tokens"], 1)
         self.assertEqual(result["books"], 1)
+        self.assertEqual(result["ws_messages"], mm.DEFAULT_WS_MESSAGE_LIMIT)
+        self.assertEqual(result["ws_event_rows"], mm.DEFAULT_WS_MESSAGE_LIMIT * 2)
+        self.assertEqual(result["clob_feature_rows"], 1)
         self.assertEqual(len(token_rows), 2)
         self.assertEqual(summary_rows[0]["clob_token_id"], "yes-token")
         self.assertEqual(len(level_rows), 4)
         self.assertEqual(history_rows[0]["price"], "0.45")
+        self.assertEqual(ws_rows[0]["asset_id"], "yes-token")
+        self.assertEqual(ws_rows[0]["price"], "0.46")
+        self.assertEqual(clob_feature_rows[0]["clob_feature_available"], "1.0")
+        self.assertEqual(clob_feature_rows[0]["clob_best_bid"], "0.44")
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
 
@@ -217,8 +266,12 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(sent["assets_ids"], ["yes-token"])
         self.assertTrue(fake_ws.closed)
         self.assertEqual(result["messages"], 1)
+        self.assertEqual(result["event_rows"], 2)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["event_type"], "price_change")
         self.assertEqual(rows[0]["asset_id"], "yes-token")
+        self.assertEqual(rows[0]["price"], "0.46")
+        self.assertEqual(rows[1]["asset_id"], "no-token")
 
     def test_fast_interval_triggers_on_large_midpoint_change(self):
         config = config_for_date("2026-06-12", "toronto")
@@ -267,11 +320,15 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         def capture_fn(**kwargs):
             self.assertEqual(kwargs["market_id"], "toronto")
+            self.assertTrue(kwargs["include_price_history"])
+            self.assertTrue(kwargs["include_ws_events"])
             return {
                 "toronto": {
                     "books": 2,
                     "captured_tokens": 2,
                     "levels": 8,
+                    "price_history_rows": 4,
+                    "ws_messages": 1,
                     "midpoint_by_token": {"yes-token": 0.45},
                 }
             }
@@ -295,6 +352,10 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         self.assertEqual(status["iterations"], 1)
         self.assertEqual(written["last_market_results"]["toronto"]["books"], 2)
+        self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 4)
+        self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 1)
+        self.assertTrue(written["include_price_history"])
+        self.assertTrue(written["include_ws_events"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(len(diagnostics), 1)
@@ -338,6 +399,39 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertIn("gaps over", gappy["reason"])
         self.assertFalse(stale["ok"])
         self.assertIn("old", stale["reason"])
+
+    def test_audit_book_tape_ignores_startup_gap_before_cutoff(self):
+        base = datetime(2026, 6, 13, 1, 0, tzinfo=timezone.utc)
+        times = [base, base + timedelta(seconds=60), base + timedelta(seconds=400)]
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_summary_tape(tmp, times)
+            result = audit_book_tape(
+                tmp,
+                now=times[-1] + timedelta(seconds=10),
+                ignore_gaps_before=times[-1] + timedelta(seconds=1),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["gaps_over_threshold"], 0)
+        self.assertEqual(result["startup_gaps_ignored"], 1)
+        self.assertEqual(result["max_startup_gap_seconds"], 340.0)
+        self.assertIn("ignored 1 startup gaps", result["reason"])
+
+    def test_audit_book_tape_counts_gap_after_startup_cutoff(self):
+        base = datetime(2026, 6, 13, 1, 0, tzinfo=timezone.utc)
+        times = [base, base + timedelta(seconds=60), base + timedelta(seconds=400)]
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_summary_tape(tmp, times)
+            result = audit_book_tape(
+                tmp,
+                now=times[-1] + timedelta(seconds=10),
+                ignore_gaps_before=times[1] + timedelta(seconds=1),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["gaps_over_threshold"], 1)
+        self.assertEqual(result["startup_gaps_ignored"], 0)
+        self.assertEqual(result["max_counted_gap_seconds"], 340.0)
 
     def test_audit_book_tape_missing_tape(self):
         with tempfile.TemporaryDirectory() as tmp:
