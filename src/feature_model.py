@@ -42,8 +42,7 @@ RUN_LOO = True
 # so this cannot regress them by construction.
 BASE_WALL_OFFSETS = (0, 15, 30, 45)
 RAMP_WALL_OFFSETS = (0, 15, 30, 45, 60, 75, 90, 105)
-RAMP_CUTOFF_HOURS = ()  # TEMP CONTROL RETRAIN: empty == base offsets everywhere.
-# Restore to (12, 13, 14) after the control A/B retrain completes.
+RAMP_CUTOFF_HOURS = (12, 13, 14)
 
 
 def wall_offset_for(local_date, hour):

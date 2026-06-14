@@ -172,7 +172,11 @@ ad-hoc live scripts that may hit the network.
 
 ## Model Artifacts
 
-- `src/model_constants.py` currently labels the ML model as `v0.4.9`.
+- `src/model_constants.py` currently labels the ML model as `v0.5.8` (item-40
+  afternoon-ramp extension: training samples wall offsets out to 105 min for
+  ramp cutoff hours 12-14 via `feature_model.wall_offset_for`, fixing the
+  13-14h winner under-call from WU print-lag; clean control-vs-treatment A/B
+  gave hour 14 -0.0088 / hour 13 -0.0020, zero regression elsewhere).
 - `src/feature_model_hgb.pkl` is the preferred HistGradientBoosting model.
 - `src/feature_model_coefs.json` is the pure-Python logistic-regression
   fallback.

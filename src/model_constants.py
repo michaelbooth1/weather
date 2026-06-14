@@ -93,7 +93,16 @@ SOURCE_CACHE_TTL_MINUTES = {
 # readings), replacing the reverted v0.5.1 injection and the deleted
 # cutoff-interpolation path. June-9 staircase probe: the 50% crossing on the
 # winning band moved ~40-50 minutes earlier.
-ML_MODEL_VERSION = "v0.5.7"
+# v0.5.8: item-40 extension -- afternoon ramp print-lag. A frozen-corpus probe
+# found serving minutes_since_cutoff of 48-100 min at wall 13-14h (WU history
+# print-lagging the climb), far outside the trained {0,15,30,45} offset range,
+# so the HGB extrapolated and under-committed to the bucket the live reading had
+# already reached (the measured 13-14h winner under-call). Training now samples
+# wall offsets out to 105 min for the ramp cutoff hours (12-14) only; morning
+# and 15h+ lock-in hours keep base offsets. Clean control-vs-treatment A/B
+# (seeded, today-cache): hours outside 12-14 byte-identical, hour 14 -0.0088,
+# hour 13 -0.0020, zero regression elsewhere; aggregate 0.0410 -> 0.0405.
+ML_MODEL_VERSION = "v0.5.8"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

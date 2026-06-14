@@ -2059,6 +2059,105 @@ Design (feature schema v0.3):
 Acceptance: pinned replay improves in the 20-59 minutes-past-print windows
 without regressing the 0-19 window, and the feature-skew parity suite passes.
 
+Afternoon-ramp extension (2026-06-13, v0.5.8): a per-capture-hour replay
+decomposition of a frozen 15-day Toronto corpus found the one remaining
+in-window loss was the 13-14h dip -- a ~10-point under-call on the eventual
+WINNING bucket (model 0.43 vs market 0.53, entirely the settlement-distance-0
+slice; neighbors were tied-or-better, so it was sharpness, not over-spread). A
+forecast-pull-fade attempt was A/B-falsified first (the pull was helping there;
+removing it made 14h +0.0046), which relocated the cause to the HGB feature
+path. Root cause: training sampled `minutes_since_cutoff` only from offsets
+{0,15,30,45} (<=45 min), but when WU history print-lags the 13-15h climb the
+effective (last-printed) cutoff trails wall clock -- a snapshot probe measured
+`minutes_since_cutoff` of 48-100 min at wall 13-14h on 2026-06-11, so the HGB
+was extrapolating on the exact feature meant to handle print-lag. Fix:
+`feature_model.wall_offset_for` now samples wall offsets out to 105 min for the
+ramp cutoff hours (12-14) ONLY; morning and 15h+ lock-in hours keep base
+offsets, so they cannot regress by construction. No serving/schema/parity
+change (the features are identical; only training coverage of their range
+grew). Validation used a CLEAN control-vs-treatment A/B (both retrained on
+today's cache, HGB seeded so per-hour-independent training isolates the change
+-- a stale prior artifact had been a drift-contaminated baseline): hours
+outside 12-14 byte-identical (delta 0.0000), hour 14 -0.0088, hour 13 -0.0020,
+hour 12 flat, zero regression at 8-12/15-16; aggregate replayed Brier
+0.0410 -> 0.0405 (market 0.0366). Tests: `tests/test_feature_skew.py`
+`TestRampWallOffsets` (3) pin the per-hour offset sets; full suite 382 passed.
+
+### 41. Model-Market Disagreement Casebook [NEW - AUDIT-DRIVEN]
+
+Goal: turn the project's repeated manual "why does the model disagree with
+Polymarket?" investigations into a durable, settlement-scored learning loop.
+
+Codebase audit finding (2026-06-13): the repo has several pieces of this, but
+not the missing object. `src.snapshot_analytics` finds per-folder edge episodes,
+`app.py` / `src.overview_helpers` show the latest biggest edges, `src.backtest`
+scores realized edge/P&L after settlement, and promotion reports decompose
+aggregate regressions. What is absent is a fleet-wide casebook that captures
+large live disagreements as named cases, preserves the model/market/source/book
+context that caused them, then revisits the same cases after settlement to say
+who was right and why. This gap is why investigations like "model says 17% while
+market says 0.1%" are still manual and easy to lose.
+
+- [ ] Build `src.disagreement_casebook` over snapshot and CLOB tapes, scanning
+  all active markets for model-market disagreement episodes above configurable
+  thresholds (absolute edge, market-price collapse while model stays high,
+  model jump without source support, or large CLOB midpoint move).
+- [ ] Deduplicate contiguous snapshots into one case with start/end time,
+  peak edge, market/band, model version, trust score, source freshness, WU
+  printed high, live observed sources, forecast consensus/disagreement,
+  explanation-driver waterfall, and CLOB spread/depth/imbalance at the peak.
+- [ ] After settlement, attach the ledger outcome, Brier/P&L contribution, and
+  a first-pass error taxonomy: stale source, WU lag/catch-up miss, forecast
+  miss, boundary/rounding error, market overreaction, market lead, model
+  calibration error, or book/liquidity artifact.
+- [ ] Emit `data/backtest/disagreement_casebook.json`,
+  `data/backtest/disagreement_casebook_report.md`, and a compact daily
+  operator report of open cases needing attention.
+- [ ] Feed the casebook back into item 21/33/35/38 work: top recurring losing
+  case types become explicit calibration/features/replay slices, and recurring
+  winning case types become candidates for known-edge maps.
+
+Acceptance: every edge over a chosen threshold has a durable case ID and every
+settled case is scored as model win/loss/tie with a cause label. The report
+must identify the top model-losing case families and prove that any proposed
+fix improves those exact cases without regressing the broader promotion corpus.
+
+### 42. Fast Observation-Triggered Recompute Path [NEW - LATENCY GAP]
+
+Goal: close the remaining latency gap between live weather observations and the
+served fair-value distribution without turning the full snapshot loop into an
+expensive high-frequency fetcher.
+
+Codebase audit finding (2026-06-13): item 40 taught the model how to use live
+readings, but `src.snapshot_tracker` still recomputes the full model on a fixed
+weather/model cadence (`--interval-minutes`, currently 10 minutes). Separately,
+item 38's CLOB loop now captures books every 15-60 seconds. That means market
+prices can move on a fresh WU current/METAR/SWOB print while our latest fair
+value and dashboard edge remain frozen until the next full snapshot tick. This
+is not a model-feature problem anymore; it is a live recompute/triggering
+problem.
+
+- [ ] Add a lightweight source-event watcher that polls only low-cost
+  observation sources (WU current/history freshness where available, METAR,
+  SWOB for Toronto, and source timestamps) at a 30-60 second cadence.
+- [ ] Trigger an "urgent recompute" when a settlement-relevant source changes
+  materially: new WU printed high, live reading crosses a bucket boundary,
+  METAR/SWOB support jumps above the WU floor, or a previously stale current
+  source becomes fresh.
+- [ ] Persist urgent recomputes with a trigger reason and replay identity in
+  the same append-only evidence model as normal snapshots, but mark cadence so
+  backtests can analyze regular versus triggered rows separately.
+- [ ] Expose the latest triggered fair value to the dashboard and any future
+  quote engine, with freshness/fail-closed semantics: if the watcher is stale,
+  edges are visible but not trade-permissioned.
+- [ ] Add a replay slice comparing pre-trigger, triggered, and next scheduled
+  snapshot probabilities on settled days, especially the large-disagreement
+  cases from item 41.
+
+Acceptance: a material live observation change updates the served distribution
+within 60 seconds, records why it happened, and improves or at least does not
+regress settlement-scored performance on the triggered-row replay slice.
+
 ## Sequencing The Two Tracks
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
@@ -2074,6 +2173,11 @@ without regressing the 0-19 window, and the feature-skew parity suite passes.
 4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
 5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are
    the long-tail accuracy and edge plays.
+6. **41 (disagreement casebook)** should run immediately alongside model work:
+   it converts every large live edge into supervised evidence instead of another
+   one-off chat audit. **42 (fast observation-triggered recompute)** follows
+   item 40's live-reading feature work and item 38's fast-book capture; it is
+   the next latency fix before any quote engine trusts sub-10-minute edges.
 
 ## Research Questions
 
