@@ -23,6 +23,7 @@ from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from market_config import config_for_date, config_from_event
 from market_registry import DEFAULT_MARKET_ID, all_specs
 from model_identity import model_replay_identity
+from runtime_identity import get_runtime_identity
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
 
@@ -745,6 +746,7 @@ def start_loop_detached(interval_minutes=10.0, now=None):
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
+        "runtime_identity": get_runtime_identity(),
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,
@@ -799,6 +801,7 @@ def run_loop(force=False, interval_minutes=10.0):
     status = {
         "pid": os.getpid(),
         "started_at": datetime.now(TORONTO_TZ).isoformat(),
+        "runtime_identity": get_runtime_identity(),
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,

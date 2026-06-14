@@ -21,6 +21,7 @@ from market_config import config_from_event, config_for_date  # noqa: E402
 from market_registry import all_specs, spec_for_id  # noqa: E402
 from model_sources import request_with_retries  # noqa: E402
 from polymarket_client import PolymarketClient  # noqa: E402
+from runtime_identity import get_runtime_identity  # noqa: E402
 
 
 CLOB_BASE_URL = "https://clob.polymarket.com"
@@ -1188,6 +1189,7 @@ def start_clob_loop_detached(
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
+        "runtime_identity": get_runtime_identity(),
         "market_id": market_id,
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
@@ -1285,6 +1287,7 @@ def run_book_loop(
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
+        "runtime_identity": get_runtime_identity(),
         "market_id": market_id,
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
