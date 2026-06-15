@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from supplemental_station_validation import (  # noqa: E402
     build_validation_payload,
+    daily_value_rows,
     promotion_gate_for_source,
     source_fingerprint,
     source_validation,
@@ -129,6 +131,38 @@ class TestSupplementalStationValidation(unittest.TestCase):
         self.assertEqual(row["promotion_state"], "rejected")
         self.assertFalse(row["eligible_for_training"])
         self.assertIn("wu_target_season_mae", {gate["name"] for gate in row["failures"]})
+
+    def test_daily_value_rows_prefers_native_temperature_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily_summary.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "local_date",
+                        "max_temp_native",
+                        "max_temp",
+                        "max_temp_c",
+                        "max_temp_bucket_native",
+                        "max_temp_bucket",
+                        "max_temp_bucket_c",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "local_date": "2026-06-07",
+                    "max_temp_native": "91",
+                    "max_temp": "88",
+                    "max_temp_c": "33",
+                    "max_temp_bucket_native": "91",
+                    "max_temp_bucket": "88",
+                    "max_temp_bucket_c": "33",
+                })
+
+            rows = daily_value_rows(path)
+
+        self.assertEqual(rows[date(2026, 6, 7)]["high"], 91.0)
+        self.assertEqual(rows[date(2026, 6, 7)]["bucket"], 91)
 
     def test_promotion_gate_fails_missing_and_stale_validation_report(self):
         with tempfile.TemporaryDirectory() as tmp:

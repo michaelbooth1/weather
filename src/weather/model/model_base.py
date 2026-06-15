@@ -2,6 +2,16 @@ import math
 from collections import Counter
 from datetime import datetime
 
+from weather.model.feature_store import (
+    row_air_temp_native,
+    row_dewpoint_native,
+    row_forecast_high_native,
+    row_max_native,
+    row_max_since_7am_native,
+    row_same_day_max_native,
+    row_temp_native,
+)
+
 
 SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES = 10
 
@@ -17,6 +27,27 @@ class ModelUtilsMixin:
             if minute is not None and minute <= cutoff:
                 filtered.append(row)
         return filtered
+
+    def row_temp_native(self, row):
+        return row_temp_native(row)
+
+    def row_dewpoint_native(self, row):
+        return row_dewpoint_native(row)
+
+    def row_air_temp_native(self, row):
+        return row_air_temp_native(row)
+
+    def row_forecast_high_native(self, row):
+        return row_forecast_high_native(row)
+
+    def row_max_native(self, row):
+        return row_max_native(row)
+
+    def row_max_since_7am_native(self, row):
+        return row_max_since_7am_native(row)
+
+    def row_same_day_max_native(self, row):
+        return row_same_day_max_native(row)
 
     def latest_source_row(self, rows):
         latest = None
@@ -192,18 +223,19 @@ class ModelUtilsMixin:
         if rows == (data.get("rows") or []):
             return data
         temps = [
-            self.to_number(row.get("temp_c"))
+            self.row_temp_native(row)
             for row in rows
-            if self.to_number(row.get("temp_c")) is not None
+            if self.row_temp_native(row) is not None
         ]
         history_max = max(temps) if temps else None
         filtered = dict(data)
         filtered["rows"] = rows
         filtered["latest"] = rows[-1] if rows else None
+        filtered["max_native"] = history_max
         filtered["max_c"] = history_max
         filtered["max_times"] = [
             row.get("time") for row in rows
-            if self.to_number(row.get("temp_c")) == history_max and row.get("time")
+            if self.row_temp_native(row) == history_max and row.get("time")
         ] if history_max is not None else []
         filtered["target_date_match"] = bool(rows)
         return filtered
@@ -215,8 +247,12 @@ class ModelUtilsMixin:
         filtered = dict(data)
         filtered["rows"] = rows
         filtered["latest"] = rows[-1] if rows else None
+        filtered["same_day_max_native"] = self.max_value(*[
+            self.row_air_temp_native(row)
+            for row in rows
+        ])
         filtered["same_day_max_c"] = self.max_value(*[
-            self.to_number(row.get("air_temp_c"))
+            self.row_air_temp_native(row)
             for row in rows
         ])
         filtered["target_date_match"] = bool(rows)
@@ -230,15 +266,15 @@ class ModelUtilsMixin:
         if not rows:
             return None
         temps = [
-            self.to_number(row.get("temp_c"))
+            self.row_temp_native(row)
             for row in rows
-            if self.to_number(row.get("temp_c")) is not None
+            if self.row_temp_native(row) is not None
         ]
         return max(temps) if temps else None
 
     def forecast_day_max(self, data):
         data = data or {}
-        day_max = self.to_number(data.get("day_max_c"))
+        day_max = self.row_forecast_high_native(data)
         if day_max is not None:
             return day_max
         return self.max_row_temp(data.get("rows"))

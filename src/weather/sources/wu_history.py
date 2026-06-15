@@ -12,11 +12,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-from market_registry import spec_for_id  # noqa: E402
-from daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c  # noqa: E402
+from weather.market.market_registry import spec_for_id
+from weather.sources.daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c
 
 
 def get_code_version():
@@ -558,11 +555,19 @@ def summarize_daily(records):
 
 
 def row_temp(row):
-    return row.get("temp_native") if row.get("temp_native") is not None else row.get("temp_c")
+    for key in ("temp_native", "temperature_native", "target_temp_native", "temp_c", "target_temp_c"):
+        value = to_number(row.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def row_dewpoint(row):
-    return row.get("dewpoint_native") if row.get("dewpoint_native") is not None else row.get("dewpoint_c")
+    for key in ("dewpoint_native", "dewpoint_c"):
+        value = to_number(row.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def iter_dates(start_date, end_date):

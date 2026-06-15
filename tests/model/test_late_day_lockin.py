@@ -175,7 +175,7 @@ class TestHighHasStoodLockin(unittest.TestCase):
                 "hour=14": {"n": 600, "revision_up_rate": 0.27},
             },
         }
-        self.history = {"max_c": 93.0, "max_times": ["12:53"]}
+        self.history = {"max_native": 93.0, "max_c": 33.0, "max_times": ["12:53"]}
         self.now = datetime(2026, 6, 15, 14, 10)
 
     def _forecast(self, value):

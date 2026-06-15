@@ -4,9 +4,10 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-from daily_summary import native_bucket, native_high
-from wu_history import DEFAULT_DATA_ROOT
-from model_constants import (
+from weather.model.feature_store import row_dewpoint_native, row_temp_native
+from weather.sources.daily_summary import native_bucket, native_high
+from weather.sources.wu_history import DEFAULT_DATA_ROOT
+from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
@@ -95,18 +96,18 @@ class ClimatologyMixin:
                     minute_of_day = self.minute_of_day(row.get("local_time"))
                     if minute_of_day is None:
                         continue
+                    temp_native = row_temp_native(row)
+                    dewpoint_native = row_dewpoint_native(row)
                     by_date[date.fromisoformat(row["local_date"])].append({
                         "minute_of_day": minute_of_day,
                         "minute": int(row.get("minute") or 0),
                         # The serving/model stack is native-unit internally.
-                        # Storage keeps true Celsius in ``*_c``; map native
-                        # hourly values into the historical feature shape.
-                        "temp_c": self.to_number(row.get("temp_native"))
-                                  if row.get("temp_native") not in (None, "")
-                                  else self.to_number(row.get("temp_c")),
-                        "dewpoint_c": self.to_number(row.get("dewpoint_native"))
-                                      if row.get("dewpoint_native") not in (None, "")
-                                      else self.to_number(row.get("dewpoint_c")),
+                        # Keep ``*_c`` aliases only for historical feature
+                        # compatibility while exposing native names first.
+                        "temp_native": temp_native,
+                        "temp_c": temp_native,
+                        "dewpoint_native": dewpoint_native,
+                        "dewpoint_c": dewpoint_native,
                         "humidity": self.to_number(row.get("humidity")),
                         "pressure": self.to_number(row.get("pressure")),
                         "wind": row.get("wind_cardinal"),
@@ -187,7 +188,7 @@ class ClimatologyMixin:
             if not rows:
                 continue
             latest = rows[-1]
-            latest_bucket = self.round_half_up(latest.get("temp_c"))
+            latest_bucket = self.round_half_up(row_temp_native(latest))
             if latest_bucket == current_bucket:
                 buckets.append(daily["bucket"])
 
@@ -246,8 +247,8 @@ class ClimatologyMixin:
 
     def historical_max_until(self, rows, cutoff):
         values = [
-            row.get("temp_c") for row in rows
-            if row.get("temp_c") is not None
+            row_temp_native(row) for row in rows
+            if row_temp_native(row) is not None
             and row.get("minute_of_day") is not None
             and row["minute_of_day"] <= cutoff
         ]

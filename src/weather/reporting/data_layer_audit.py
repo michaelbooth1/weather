@@ -12,30 +12,26 @@ import csv
 import json
 import math
 import statistics
-import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import fmt_num, markdown_table
-from canonical_history_guardrails import canonical_guardrail_report
-from collection_health import summarize_folder
-from market_config import date_from_event_slug
-from market_registry import all_specs, spec_for_slug
-from market_microstructure import CLOB_LOOP_STATUS_PATH, clob_loop_health
-from reanalysis_history import ReanalysisStore
-from snapshot_tracker import LOOP_STATUS_PATH, loop_health
-from supplemental_station_validation import (
+from weather.backtesting.backtest import fmt_num, markdown_table
+from weather.collection.collection_health import summarize_folder
+from weather.collection.snapshot_tracker import LOOP_STATUS_PATH, loop_health
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_microstructure import CLOB_LOOP_STATUS_PATH, clob_loop_health
+from weather.market.market_registry import all_specs, spec_for_slug
+from weather.model.toronto_model import TORONTO_TZ
+from weather.sources.canonical_history_guardrails import canonical_guardrail_report
+from weather.sources.daily_summary import native_bucket, native_high
+from weather.sources.reanalysis_history import ReanalysisStore
+from weather.sources.supplemental_station_validation import (
     DEFAULT_OUT as DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
     load_validation_report,
     promotion_gate_for_source,
 )
-from supplemental_stations import guard_not_canonical_root, source_root, supplemental_sources
-from toronto_model import TORONTO_TZ
+from weather.sources.supplemental_stations import guard_not_canonical_root, source_root, supplemental_sources
 
 
 SCHEMA_VERSION = "data_layer_audit_v0.3"
@@ -551,18 +547,12 @@ def daily_value_rows_from_csv(path):
                 local_date = date.fromisoformat(str(value)[:10])
             except ValueError:
                 continue
-            high = safe_float(
-                row.get("max_temp")
-                or row.get("max_temp_native")
-                or row.get("max_temp_c")
-                or row.get("high")
-            )
-            bucket = safe_float(
-                row.get("max_temp_bucket")
-                or row.get("max_temp_bucket_native")
-                or row.get("max_temp_bucket_c")
-                or row.get("bucket")
-            )
+            high = native_high(row)
+            if high is None:
+                high = safe_float(row.get("high"))
+            bucket = native_bucket(row)
+            if bucket is None:
+                bucket = safe_float(row.get("bucket"))
             if high is not None:
                 rows[local_date] = {
                     "high": high,

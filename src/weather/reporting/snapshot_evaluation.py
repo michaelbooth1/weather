@@ -14,17 +14,12 @@ import argparse
 import csv
 import json
 import math
-import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import fmt_num, fmt_signed, markdown_table  # noqa: E402
-from settled_days import folder_market_id  # noqa: E402
+from weather.backtesting.backtest import fmt_num, fmt_signed, markdown_table
+from weather.backtesting.settled_days import folder_market_id
 
 
 SCHEMA_VERSION = "snapshot_evaluation_v0.1"

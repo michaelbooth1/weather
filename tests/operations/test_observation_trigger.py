@@ -14,10 +14,13 @@ if sys_path not in os.sys.path:
 from observation_trigger import (  # noqa: E402
     build_triggered_replay_report,
     detect_observation_triggers,
+    ensure_decision,
+    observation_state_from_sources,
     run_loop,
     run_once,
 )
 from snapshot_tracker import SnapshotStore, backfill_source_status  # noqa: E402
+from toronto_model import TorontoHighTempModel  # noqa: E402
 
 
 def obs_state(high=20.0, current=20.1, metar=None, swob=None, status=None, captured="2026-06-13T16:00:00+00:00"):
@@ -69,6 +72,65 @@ class FakeModelClient:
 
 
 class ObservationTriggerTests(unittest.TestCase):
+    def test_ensure_restarts_only_source_identity_erroring_watcher(self):
+        self.assertEqual(
+            ensure_decision(
+                "ERRORING",
+                pid_alive=True,
+                last_error="RuntimeError: snapshot process code identity differs from current source tree",
+            ),
+            "restart",
+        )
+        self.assertEqual(
+            ensure_decision("ERRORING", pid_alive=True, last_error="ConnectionError: upstream timeout"),
+            "noop",
+        )
+
+    def test_observation_state_reads_native_aliases_first(self):
+        model = TorontoHighTempModel(target_date="2026-06-13", market_id="nyc")
+        captured = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "max_native": 91.0,
+                    "max_c": 31.0,
+                    "latest": {"temp_native": 90.0, "temp_c": 30.0, "time": "12:00"},
+                    "rows": [{"temp_native": 90.0, "temp_c": 30.0}],
+                },
+            },
+            "wu_current": {
+                "ok": True,
+                "data": {
+                    "temp_native": 89.0,
+                    "temp_c": 29.0,
+                    "max_since_7am_native": 92.0,
+                    "max_since_7am_c": 32.0,
+                },
+            },
+            "metar": {"ok": True, "data": {"temp_native": 88.0, "temp_c": 28.0}},
+            "eccc_swob": {
+                "ok": True,
+                "data": {
+                    "same_day_max_native": 90.0,
+                    "same_day_max_c": 30.0,
+                    "latest": {"air_temp_native": 87.0, "air_temp_c": 27.0},
+                },
+            },
+        }
+
+        state = observation_state_from_sources(model, sources, captured_at=captured)
+
+        values = state["values"]
+        self.assertEqual(state["unit"], "F")
+        self.assertEqual(values["wu_history_high"], 91.0)
+        self.assertEqual(values["wu_history_latest_value"], 90.0)
+        self.assertEqual(values["wu_current_temp"], 89.0)
+        self.assertEqual(values["wu_current_max_since_7am"], 92.0)
+        self.assertEqual(values["metar_temp"], 88.0)
+        self.assertEqual(values["eccc_swob_max"], 90.0)
+        self.assertEqual(values["eccc_swob_latest_temp"], 87.0)
+
     def test_detects_material_observation_changes(self):
         previous = obs_state(high=20.0, current=20.4, metar=20.0, swob=20.0)
         current = obs_state(high=21.0, current=21.0, metar=22.0, swob=22.0, captured="2026-06-13T16:01:00+00:00")

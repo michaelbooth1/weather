@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -182,6 +183,74 @@ class TestForecastArchive(unittest.TestCase):
         self.assertEqual(ensemble["ensemble_day_mean_spread"], 3.5)
         self.assertEqual(ensemble["ensemble_day_high_p90"], 27)
 
+    def test_build_forecast_rows_prefers_native_source_aliases(self):
+        captured_at = datetime(2026, 5, 27, 12, 0, tzinfo=TORONTO_TZ)
+        sources = {
+            "weather_forecast": {
+                "ok": True,
+                "data": {
+                    "rows": [{
+                        "valid_time": "2026-05-27T13:00:00-04:00",
+                        "temp_native": 84,
+                        "temp_c": 28.9,
+                    }],
+                },
+            },
+            "open_meteo": {
+                "ok": True,
+                "data": {
+                    "rows": [{
+                        "valid_time": "2026-05-27T14:00:00-04:00",
+                        "temp_native": 86,
+                        "temp_c": 30.0,
+                    }],
+                },
+            },
+            "nws_hourly": {
+                "ok": True,
+                "data": {
+                    "rows": [{
+                        "valid_time": "2026-05-27T15:00:00-04:00",
+                        "temp_native": 88,
+                        "temp_c": 31.1,
+                    }],
+                },
+            },
+            "global_ensemble": {
+                "ok": True,
+                "data": {
+                    "rows": [{
+                        "valid_time": "2026-05-27T16:00:00-04:00",
+                        "temp_native": 90,
+                        "temp_c": 32.2,
+                    }],
+                },
+            },
+            "eccc_citypage": {
+                "ok": True,
+                "data": {
+                    "forecast_high_native": 91,
+                    "forecast_high_c": 33,
+                },
+            },
+        }
+
+        rows = build_forecast_rows(
+            sources,
+            FakeModelClient(),
+            captured_at,
+            "s1",
+            "event",
+        )
+
+        by_source = {row["source"]: row for row in rows}
+        self.assertEqual(by_source["weather_forecast"]["target_temp_c"], 84)
+        self.assertEqual(by_source["open_meteo"]["target_temp_c"], 86)
+        self.assertEqual(by_source["nws_hourly"]["target_temp_c"], 88)
+        self.assertEqual(by_source["global_ensemble"]["target_temp_c"], 90)
+        self.assertEqual(by_source["eccc_citypage"]["forecast_high_c"], 91)
+        self.assertEqual(by_source["eccc_citypage"]["target_temp_c"], 91)
+
     def test_backfill_and_analyze_forecast_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "event"
@@ -197,6 +266,7 @@ class TestForecastArchive(unittest.TestCase):
                         "event_slug",
                         "range_label",
                         "eccc_forecast_high_c",
+                        "wu_history_high_native",
                         "wu_history_high_c",
                     ],
                 )
@@ -209,6 +279,7 @@ class TestForecastArchive(unittest.TestCase):
                         "event_slug": "event",
                         "range_label": "24 C",
                         "eccc_forecast_high_c": "24",
+                        "wu_history_high_native": "27",
                         "wu_history_high_c": "25",
                     }
                 )
@@ -218,6 +289,8 @@ class TestForecastArchive(unittest.TestCase):
 
             self.assertEqual(count, 1)
             self.assertEqual(result["scored_rows"], 1)
+            scored = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))["scored_rows"]
+            self.assertEqual(scored[0]["final_high_c"], 27.0)
             self.assertTrue((folder / "forecast_bias_report.md").exists())
 
 

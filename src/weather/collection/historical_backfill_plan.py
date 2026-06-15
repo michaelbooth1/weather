@@ -7,18 +7,13 @@ items for WU, NOAA GHCNh, and ERA5-style reanalysis.
 import argparse
 import json
 import subprocess
-import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from noaa_ghcnh_history import GHCNHStore  # noqa: E402
-from reanalysis_history import ReanalysisStore  # noqa: E402
-from wu_history import WundergroundHistoryStore, parse_date  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.noaa_ghcnh_history import GHCNHStore
+from weather.sources.reanalysis_history import ReanalysisStore
+from weather.sources.wu_history import WundergroundHistoryStore, parse_date
 
 
 DEFAULT_OUT = Path("data") / "backtest" / "historical_backfill_plan.json"

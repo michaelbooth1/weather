@@ -19,17 +19,12 @@ This self-maintains: a new day is picked up automatically the day after it
 settles, with no code edit. ``as_of`` is injectable so the cutoff is testable and
 so a backtest can reconstruct the training set as of any historical date.
 """
-import sys
 from datetime import date, datetime
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_config import date_from_event_slug
-from market_registry import spec_for_slug
-from model_constants import TORONTO_TZ
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import spec_for_slug
+from weather.model.model_constants import TORONTO_TZ
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 

@@ -17,11 +17,8 @@ from pathlib import Path
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from historical_schema import (  # noqa: E402
+from weather.sources.daily_summary import native_bucket, native_high, round_half_up
+from weather.sources.historical_schema import (
     c_to_native,
     hourly_record,
     quality_counts,
@@ -31,9 +28,8 @@ from historical_schema import (  # noqa: E402
     write_jsonl_partitions,
     write_manifest,
 )
-from daily_summary import native_bucket, native_high, round_half_up  # noqa: E402
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from wu_history import get_code_version  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.wu_history import get_code_version
 
 
 SOURCE = "metar_asos"

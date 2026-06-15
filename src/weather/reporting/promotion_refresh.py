@@ -14,30 +14,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import fmt_num, fmt_signed, markdown_table
-from location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
-from location_trust import score_all_markets
-from market_registry import all_specs
-from pooled_candidate_replay import (
+from weather.backtesting.backtest import fmt_num, fmt_signed, markdown_table
+from weather.reporting.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
+from weather.reporting.location_trust import score_all_markets
+from weather.market.market_registry import all_specs
+from weather.calibration.pooled_candidate_replay import (
     DEFAULT_CASEBOOK,
     DEFAULT_MICROSTRUCTURE_ARTIFACT,
     run_pooled_candidate_replay,
 )
-from pooled_feature_model import DEFAULT_BAND_ARTIFACT
-from promotion_corpus import (
+from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
+from weather.reporting.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     DEFAULT_QUALITY_GRADES,
     build_promotion_corpus,
     parse_quality_grades,
     write_manifest,
 )
-from promotion_gauntlet import DEFAULT_FORECAST_TRACKER, run_promotion_gauntlet
-from replay_backtest import DEFAULT_BASELINE, FIDELITY_FAITHFUL_L1
-from settled_days import DEFAULT_SNAPSHOTS_ROOT
+from weather.reporting.promotion_gauntlet import DEFAULT_FORECAST_TRACKER, run_promotion_gauntlet
+from weather.backtesting.replay_backtest import DEFAULT_BASELINE, FIDELITY_FAITHFUL_L1
+from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
+from weather.operations.long_job_guard import (
+    DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
+    DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
+    long_job_guard,
+)
 
 
 SCHEMA_VERSION = "promotion_refresh_v0.1"
@@ -830,7 +831,7 @@ def _serving_gauntlet_args(args, corpus_path):
     )
 
 
-def _candidate_args(args, corpus_path):
+def _candidate_args(args, corpus_path, long_job_guard_info=None):
     return SimpleNamespace(
         corpus=str(corpus_path),
         snapshots_root=args.snapshots_root,
@@ -850,11 +851,24 @@ def _candidate_args(args, corpus_path):
         skip_microstructure_overlay=args.skip_microstructure_overlay,
         require_exact_identity=args.require_exact_identity,
         require_all_markets=args.require_all_markets,
+        long_job_guard_info=long_job_guard_info,
         fail_on_block=False,
     )
 
 
 def run_promotion_refresh(args):
+    with long_job_guard(
+        "promotion_refresh",
+        state_path=getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+        lock_path=getattr(args, "long_job_lock", DEFAULT_LONG_JOB_LOCK_PATH),
+        priority=getattr(args, "long_job_priority", "below_normal"),
+        enabled=not getattr(args, "disable_long_job_guard", False),
+        force_lock=getattr(args, "force_long_job_lock", False),
+    ) as guard:
+        return _run_promotion_refresh_guarded(args, long_job_guard_info=guard)
+
+
+def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     quality_grades = parse_quality_grades(args.quality_grades)
     manifest = build_promotion_corpus(
         folders=args.folders,
@@ -874,7 +888,9 @@ def run_promotion_refresh(args):
     )
     trust_path = _write_json(args.trust_out, trust_rows)
 
-    candidate_report = run_pooled_candidate_replay(_candidate_args(args, corpus_path))
+    candidate_report = run_pooled_candidate_replay(
+        _candidate_args(args, corpus_path, long_job_guard_info=long_job_guard_info)
+    )
 
     serving_report = None
     if not args.skip_serving_gauntlet:
@@ -903,6 +919,7 @@ def run_promotion_refresh(args):
         "serving_gauntlet": serving_summary,
         "decisions": decisions,
         "readiness": promotion_readiness(candidate_summary, serving_summary, decisions),
+        "long_job_guard": long_job_guard_info or {},
     }
     out_path = _write_json(args.out, payload)
     report_path = write_report(args.report, payload)
@@ -949,6 +966,11 @@ def build_parser():
     parser.add_argument("--require-exact-identity", action="store_true")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true")
+    parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
+    parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
+    parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
+    parser.add_argument("--disable-long-job-guard", action="store_true")
+    parser.add_argument("--force-long-job-lock", action="store_true")
     return parser
 
 

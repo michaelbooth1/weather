@@ -499,6 +499,11 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(second["quote_permission_rows"], 2)
             self.assertAlmostEqual(second["budget_reserved_usdc"], first["budget_reserved_usdc"])
             self.assertGreater(second["budget_released_usdc"], 0.0)
+            self.assertEqual(second["cumulative_tick_count"], 2)
+            self.assertEqual(second["cumulative_quote_permission_rows"], 4)
+            self.assertEqual(second["cumulative_paper_posted_count"], 8)
+            self.assertEqual(second["cumulative_lifecycle_transition_counts"]["replaced"], 4)
+            self.assertEqual(second["latest_tick"]["quote_permission_rows"], 2)
             transitions = [
                 json.loads(line)["transition"]
                 for line in (Path(second["run_folder"]) / "order_lifecycle.jsonl").read_text(encoding="utf-8").splitlines()

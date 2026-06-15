@@ -1,37 +1,36 @@
-import os
-import sys
 import json
 import math
+import os
 import pickle
 import numpy as np
 import pandas as pd
 from datetime import date, datetime
 from collections import Counter, defaultdict
 
-# Ensure src is in import path
-sys.path.insert(0, os.path.abspath("src"))
 from weather.artifacts import writable_artifact_path
-from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
-from forecast_history import (
-    daily_path_for,
-    load_forecast_daily,
-    load_forecast_profiles,
-    long_path_for,
+from weather.calibration.feature_probability_calibration import (
+    fit_temperature_blend_grid,
+    temperature_scale_distribution,
 )
-from feature_store import (
+from weather.model.feature_store import (
     FEATURE_COLUMNS,
-    FORECAST_FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
+    FORECAST_FEATURE_COLUMNS,
     NATIVE_NAN_FEATURE_COLUMNS,
     build_historical_feature_record,
     closest_wind_direction,
+    row_dewpoint_native,
+    row_temp_native,
     row_value,
     row_wind_direction,
     wind_direction_delta_degrees,
 )
-from feature_probability_calibration import (
-    fit_temperature_blend_grid,
-    temperature_scale_distribution,
+from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS, TorontoHighTempModel
+from weather.sources.forecast_history import (
+    daily_path_for,
+    load_forecast_daily,
+    load_forecast_profiles,
+    long_path_for,
 )
 
 # LOO must stay ON: without it the retrain exports artifacts with no
@@ -439,7 +438,7 @@ def train_late_day_continuation_models(
 
             obs_7am_candidates = [
                 r for r in rows
-                if 360 <= r["minute_of_day"] <= 480 and r["temp_c"] is not None
+                if 360 <= r["minute_of_day"] <= 480 and row_temp_native(r) is not None
             ]
             temp_7am = None
             if obs_7am_candidates:
@@ -447,22 +446,22 @@ def train_late_day_continuation_models(
                     obs_7am_candidates,
                     key=lambda r: abs(r["minute_of_day"] - 420),
                 )
-                temp_7am = closest_obs_7am["temp_c"]
+                temp_7am = row_temp_native(closest_obs_7am)
 
             cutoff_minutes = H * 60
             obs_before = [r for r in rows if r["minute_of_day"] <= cutoff_minutes]
             if not obs_before:
                 continue
-            temps_before = [r["temp_c"] for r in obs_before if r["temp_c"] is not None]
+            temps_before = [row_temp_native(r) for r in obs_before if row_temp_native(r) is not None]
             if not temps_before:
                 continue
             high_so_far = max(temps_before)
             current_obs = obs_before[-1]
-            current_temp = current_obs.get("temp_c")
+            current_temp = row_temp_native(current_obs)
 
             first_obs = None
             for r in obs_before:
-                if r.get("temp_c") == high_so_far:
+                if row_temp_native(r) == high_so_far:
                     first_obs = r
                     break
             if first_obs is None:
@@ -475,7 +474,7 @@ def train_late_day_continuation_models(
             if current_temp is not None and temp_7am is not None:
                 rise_from_7am = current_temp - temp_7am
 
-            dewpoint = current_obs.get("dewpoint_c")
+            dewpoint = row_dewpoint_native(current_obs)
             humidity = current_obs.get("humidity")
             pressure = current_obs.get("pressure")
 

@@ -12,17 +12,12 @@ import csv
 import hashlib
 import json
 import math
-import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[2]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_microstructure_features import snapshot_band_key
-from market_registry import REGISTRY, spec_for_slug
+from weather.market.market_microstructure_features import snapshot_band_key
+from weather.market.market_registry import REGISTRY, spec_for_slug
 
 
 SCHEMA_VERSION = "mm_quote_intent_v0.1"

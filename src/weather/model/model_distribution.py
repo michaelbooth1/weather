@@ -2,7 +2,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from model_constants import (
+from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
@@ -21,92 +21,50 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from forecast_error_model import forecast_error_distribution
-from probability_calibration import apply_exact_distribution_calibration
-from settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.calibration.forecast_error_model import forecast_error_distribution
+from weather.calibration.probability_calibration import apply_exact_distribution_calibration
+from weather.calibration.settlement_lag_model import revision_up_probability, settlement_catchup_probability
 
-try:
-    from .model_distribution_constants import (
-        BUCKET_TRANSITION_BLEND_MAX,
-        BUCKET_TRANSITION_MIN_SAMPLE,
-        COMPONENT_SCHEMA_VERSION,
-        FALSIFICATION_EARLIEST_HOUR,
-        FALSIFICATION_MARGIN,
-        FALSIFICATION_STAND_MINUTES,
-        FORECAST_AGREEMENT_SPREAD,
-        FORECAST_FLOOR_BASE,
-        FORECAST_FLOOR_MARGIN,
-        FORECAST_FLOOR_MIN_SOURCES,
-        FORECAST_PULL_BLEND_MAX,
-        FORECAST_PULL_END_HOUR,
-        FORECAST_PULL_START_HOUR,
-        FORECAST_SOFT_SIGMA,
-        HIGH_HAS_STOOD_END_HOUR,
-        HIGH_HAS_STOOD_FORECAST_MARGIN,
-        HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
-        HIGH_HAS_STOOD_MIN_MINUTES,
-        HIGH_HAS_STOOD_ROLLOVER_MARGIN,
-        HIGH_HAS_STOOD_START_HOUR,
-        LATE_DAY_CONTINUATION_BLEND_15H,
-        LATE_DAY_CONTINUATION_BLEND_17H,
-        LATE_LOCKIN_BASE,
-        LATE_LOCKIN_FULL_HOUR,
-        LATE_LOCKIN_HEDGE,
-        LATE_LOCKIN_PEAK_DROP,
-        LATE_LOCKIN_START_HOUR,
-        LEARNED_LOCKIN_STAND_MINUTES,
-        LEARNED_LOCKIN_START_HOUR,
-        LIVE_FLOOR_BASE,
-        LIVE_FLOOR_HEDGE,
-        LIVE_FLOOR_HEDGE_MAX,
-        LIVE_FLOOR_HEDGE_MIN,
-        METAR_LIVE_SIGNAL_MAX_WEIGHT,
-        METAR_LIVE_SIGNAL_REACHED_BASELINE,
-        METAR_LIVE_SIGNAL_SIGMA,
-        VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
-        WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from model_distribution_constants import (
-        BUCKET_TRANSITION_BLEND_MAX,
-        BUCKET_TRANSITION_MIN_SAMPLE,
-        COMPONENT_SCHEMA_VERSION,
-        FALSIFICATION_EARLIEST_HOUR,
-        FALSIFICATION_MARGIN,
-        FALSIFICATION_STAND_MINUTES,
-        FORECAST_AGREEMENT_SPREAD,
-        FORECAST_FLOOR_BASE,
-        FORECAST_FLOOR_MARGIN,
-        FORECAST_FLOOR_MIN_SOURCES,
-        FORECAST_PULL_BLEND_MAX,
-        FORECAST_PULL_END_HOUR,
-        FORECAST_PULL_START_HOUR,
-        FORECAST_SOFT_SIGMA,
-        HIGH_HAS_STOOD_END_HOUR,
-        HIGH_HAS_STOOD_FORECAST_MARGIN,
-        HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
-        HIGH_HAS_STOOD_MIN_MINUTES,
-        HIGH_HAS_STOOD_ROLLOVER_MARGIN,
-        HIGH_HAS_STOOD_START_HOUR,
-        LATE_DAY_CONTINUATION_BLEND_15H,
-        LATE_DAY_CONTINUATION_BLEND_17H,
-        LATE_LOCKIN_BASE,
-        LATE_LOCKIN_FULL_HOUR,
-        LATE_LOCKIN_HEDGE,
-        LATE_LOCKIN_PEAK_DROP,
-        LATE_LOCKIN_START_HOUR,
-        LEARNED_LOCKIN_STAND_MINUTES,
-        LEARNED_LOCKIN_START_HOUR,
-        LIVE_FLOOR_BASE,
-        LIVE_FLOOR_HEDGE,
-        LIVE_FLOOR_HEDGE_MAX,
-        LIVE_FLOOR_HEDGE_MIN,
-        METAR_LIVE_SIGNAL_MAX_WEIGHT,
-        METAR_LIVE_SIGNAL_REACHED_BASELINE,
-        METAR_LIVE_SIGNAL_SIGMA,
-        VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
-        WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
-    )
+from weather.model.model_distribution_constants import (
+    BUCKET_TRANSITION_BLEND_MAX,
+    BUCKET_TRANSITION_MIN_SAMPLE,
+    COMPONENT_SCHEMA_VERSION,
+    FALSIFICATION_EARLIEST_HOUR,
+    FALSIFICATION_MARGIN,
+    FALSIFICATION_STAND_MINUTES,
+    FORECAST_AGREEMENT_SPREAD,
+    FORECAST_FLOOR_BASE,
+    FORECAST_FLOOR_MARGIN,
+    FORECAST_FLOOR_MIN_SOURCES,
+    FORECAST_PULL_BLEND_MAX,
+    FORECAST_PULL_END_HOUR,
+    FORECAST_PULL_START_HOUR,
+    FORECAST_SOFT_SIGMA,
+    HIGH_HAS_STOOD_END_HOUR,
+    HIGH_HAS_STOOD_FORECAST_MARGIN,
+    HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
+    HIGH_HAS_STOOD_MIN_MINUTES,
+    HIGH_HAS_STOOD_ROLLOVER_MARGIN,
+    HIGH_HAS_STOOD_START_HOUR,
+    LATE_DAY_CONTINUATION_BLEND_15H,
+    LATE_DAY_CONTINUATION_BLEND_17H,
+    LATE_LOCKIN_BASE,
+    LATE_LOCKIN_FULL_HOUR,
+    LATE_LOCKIN_HEDGE,
+    LATE_LOCKIN_PEAK_DROP,
+    LATE_LOCKIN_START_HOUR,
+    LEARNED_LOCKIN_STAND_MINUTES,
+    LEARNED_LOCKIN_START_HOUR,
+    LIVE_FLOOR_BASE,
+    LIVE_FLOOR_HEDGE,
+    LIVE_FLOOR_HEDGE_MAX,
+    LIVE_FLOOR_HEDGE_MIN,
+    METAR_LIVE_SIGNAL_MAX_WEIGHT,
+    METAR_LIVE_SIGNAL_REACHED_BASELINE,
+    METAR_LIVE_SIGNAL_SIGMA,
+    VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
+    WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
+)
 @dataclass
 class DistributionPipelineState:
     """Named probability snapshots and metadata for one distribution run."""
@@ -134,10 +92,7 @@ class DistributionPipelineState:
 
 
 
-try:
-    from .model_distribution_signals import DistributionSignalMixin  # noqa: E402
-except ImportError:  # pragma: no cover - direct src compatibility
-    from model_distribution_signals import DistributionSignalMixin  # noqa: E402
+from weather.model.model_distribution_signals import DistributionSignalMixin
 class DistributionMixin(DistributionSignalMixin):
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
@@ -157,16 +112,16 @@ class DistributionMixin(DistributionSignalMixin):
         global_ensemble = self.source_data(sources, "global_ensemble")
 
         now = now or datetime.now(self.spec.tz)
-        history_max = history.get("max_c")
-        current_temp = current.get("temp_c")
-        current_max = current.get("max_since_7am_c")
-        eccc_max = eccc.get("same_day_max_c")
-        metar_temp = metar.get("temp_c")
+        history_max = self.row_max_native(history)
+        current_temp = self.row_temp_native(current)
+        current_max = self.row_max_since_7am_native(current)
+        eccc_max = self.row_same_day_max_native(eccc)
+        metar_temp = self.row_temp_native(metar)
         weather_forecast_max = self.forecast_day_max(weather_forecast)
         open_meteo_max = self.forecast_day_max(open_meteo)
         nws_forecast_max = self.forecast_day_max(nws_hourly)
         global_ensemble_max = self.forecast_day_max(global_ensemble)
-        eccc_forecast_high = eccc_city.get("forecast_high_c")
+        eccc_forecast_high = self.row_forecast_high_native(eccc_city)
         forecast_values = [
             weather_forecast_max,
             open_meteo_max,
@@ -419,7 +374,7 @@ class DistributionMixin(DistributionSignalMixin):
             ),
             latest_wu_history_minute=latest_wu_history_minute,
             latest_wu_history_temp=(
-                latest_wu_history_row.get("temp_c") if latest_wu_history_row else None
+                self.row_temp_native(latest_wu_history_row) if latest_wu_history_row else None
             ),
             lockin_strength=lockin_strength,
             high_has_stood_lockin=high_has_stood_context,

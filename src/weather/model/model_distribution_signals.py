@@ -4,88 +4,47 @@ from __future__ import annotations
 
 import math
 
-from forecast_error_model import forecast_error_distribution
-try:
-    from .model_distribution_constants import (
-        BUCKET_TRANSITION_BLEND_MAX,
-        BUCKET_TRANSITION_MIN_SAMPLE,
-        FALSIFICATION_EARLIEST_HOUR,
-        FALSIFICATION_MARGIN,
-        FALSIFICATION_STAND_MINUTES,
-        FORECAST_AGREEMENT_SPREAD,
-        FORECAST_FLOOR_BASE,
-        FORECAST_FLOOR_MARGIN,
-        FORECAST_FLOOR_MIN_SOURCES,
-        FORECAST_PULL_BLEND_MAX,
-        FORECAST_PULL_END_HOUR,
-        FORECAST_PULL_START_HOUR,
-        FORECAST_SOFT_SIGMA,
-        HIGH_HAS_STOOD_END_HOUR,
-        HIGH_HAS_STOOD_FORECAST_MARGIN,
-        HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
-        HIGH_HAS_STOOD_MIN_MINUTES,
-        HIGH_HAS_STOOD_ROLLOVER_MARGIN,
-        HIGH_HAS_STOOD_START_HOUR,
-        LATE_DAY_CONTINUATION_BLEND_15H,
-        LATE_DAY_CONTINUATION_BLEND_17H,
-        LATE_LOCKIN_BASE,
-        LATE_LOCKIN_FULL_HOUR,
-        LATE_LOCKIN_HEDGE,
-        LATE_LOCKIN_PEAK_DROP,
-        LATE_LOCKIN_START_HOUR,
-        LEARNED_LOCKIN_STAND_MINUTES,
-        LEARNED_LOCKIN_START_HOUR,
-        LIVE_FLOOR_BASE,
-        LIVE_FLOOR_HEDGE,
-        LIVE_FLOOR_HEDGE_MAX,
-        LIVE_FLOOR_HEDGE_MIN,
-        METAR_LIVE_SIGNAL_MAX_WEIGHT,
-        METAR_LIVE_SIGNAL_REACHED_BASELINE,
-        METAR_LIVE_SIGNAL_SIGMA,
-        VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
-        WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from model_distribution_constants import (
-        BUCKET_TRANSITION_BLEND_MAX,
-        BUCKET_TRANSITION_MIN_SAMPLE,
-        FALSIFICATION_EARLIEST_HOUR,
-        FALSIFICATION_MARGIN,
-        FALSIFICATION_STAND_MINUTES,
-        FORECAST_AGREEMENT_SPREAD,
-        FORECAST_FLOOR_BASE,
-        FORECAST_FLOOR_MARGIN,
-        FORECAST_FLOOR_MIN_SOURCES,
-        FORECAST_PULL_BLEND_MAX,
-        FORECAST_PULL_END_HOUR,
-        FORECAST_PULL_START_HOUR,
-        FORECAST_SOFT_SIGMA,
-        HIGH_HAS_STOOD_END_HOUR,
-        HIGH_HAS_STOOD_FORECAST_MARGIN,
-        HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
-        HIGH_HAS_STOOD_MIN_MINUTES,
-        HIGH_HAS_STOOD_ROLLOVER_MARGIN,
-        HIGH_HAS_STOOD_START_HOUR,
-        LATE_DAY_CONTINUATION_BLEND_15H,
-        LATE_DAY_CONTINUATION_BLEND_17H,
-        LATE_LOCKIN_BASE,
-        LATE_LOCKIN_FULL_HOUR,
-        LATE_LOCKIN_HEDGE,
-        LATE_LOCKIN_PEAK_DROP,
-        LATE_LOCKIN_START_HOUR,
-        LEARNED_LOCKIN_STAND_MINUTES,
-        LEARNED_LOCKIN_START_HOUR,
-        LIVE_FLOOR_BASE,
-        LIVE_FLOOR_HEDGE,
-        LIVE_FLOOR_HEDGE_MAX,
-        LIVE_FLOOR_HEDGE_MIN,
-        METAR_LIVE_SIGNAL_MAX_WEIGHT,
-        METAR_LIVE_SIGNAL_REACHED_BASELINE,
-        METAR_LIVE_SIGNAL_SIGMA,
-        VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
-        WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
-    )
-from settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.calibration.forecast_error_model import forecast_error_distribution
+from weather.calibration.settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.model.model_distribution_constants import (
+    BUCKET_TRANSITION_BLEND_MAX,
+    BUCKET_TRANSITION_MIN_SAMPLE,
+    FALSIFICATION_EARLIEST_HOUR,
+    FALSIFICATION_MARGIN,
+    FALSIFICATION_STAND_MINUTES,
+    FORECAST_AGREEMENT_SPREAD,
+    FORECAST_FLOOR_BASE,
+    FORECAST_FLOOR_MARGIN,
+    FORECAST_FLOOR_MIN_SOURCES,
+    FORECAST_PULL_BLEND_MAX,
+    FORECAST_PULL_END_HOUR,
+    FORECAST_PULL_START_HOUR,
+    FORECAST_SOFT_SIGMA,
+    HIGH_HAS_STOOD_END_HOUR,
+    HIGH_HAS_STOOD_FORECAST_MARGIN,
+    HIGH_HAS_STOOD_MIN_FORECAST_SOURCES,
+    HIGH_HAS_STOOD_MIN_MINUTES,
+    HIGH_HAS_STOOD_ROLLOVER_MARGIN,
+    HIGH_HAS_STOOD_START_HOUR,
+    LATE_DAY_CONTINUATION_BLEND_15H,
+    LATE_DAY_CONTINUATION_BLEND_17H,
+    LATE_LOCKIN_BASE,
+    LATE_LOCKIN_FULL_HOUR,
+    LATE_LOCKIN_HEDGE,
+    LATE_LOCKIN_PEAK_DROP,
+    LATE_LOCKIN_START_HOUR,
+    LEARNED_LOCKIN_STAND_MINUTES,
+    LEARNED_LOCKIN_START_HOUR,
+    LIVE_FLOOR_BASE,
+    LIVE_FLOOR_HEDGE,
+    LIVE_FLOOR_HEDGE_MAX,
+    LIVE_FLOOR_HEDGE_MIN,
+    METAR_LIVE_SIGNAL_MAX_WEIGHT,
+    METAR_LIVE_SIGNAL_REACHED_BASELINE,
+    METAR_LIVE_SIGNAL_SIGMA,
+    VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
+    WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
+)
 
 class DistributionSignalMixin:
     def apply_live_observed_floor(self, scores, swob_max, history_max, hour=None):
@@ -282,7 +241,7 @@ class DistributionSignalMixin:
         plateau the past-peak heuristic misses (current == high => drop 0)."""
         if hour < LEARNED_LOCKIN_START_HOUR:
             return 0.0
-        history_max = self.to_number(history.get("max_c"))
+        history_max = self.row_max_native(history)
         max_times = history.get("max_times") or []
         if history_max is None or not max_times:
             return 0.0
@@ -307,11 +266,11 @@ class DistributionSignalMixin:
             values = []
             for row in rows:
                 minute = self.minute_of_day(row.get("time") or row.get("valid_time"))
-                value = self.to_number(row.get("temp_c"))
+                value = self.row_temp_native(row)
                 if minute is not None and minute >= wall_minute and value is not None:
                     values.append(value)
-            if not values and source.get("forecast_high_c") is not None:
-                value = self.to_number(source.get("forecast_high_c"))
+            if not values and self.row_forecast_high_native(source) is not None:
+                value = self.row_forecast_high_native(source)
                 if value is not None:
                     values.append(value)
             if not values:
@@ -348,7 +307,7 @@ class DistributionSignalMixin:
         if hour < HIGH_HAS_STOOD_START_HOUR or hour > HIGH_HAS_STOOD_END_HOUR:
             context["reason"] = "outside_hour_window"
             return context
-        history_max = self.to_number(history.get("max_c"))
+        history_max = self.row_max_native(history)
         max_times = history.get("max_times") or []
         if history_max is None or not max_times:
             context["reason"] = "missing_history_high"
@@ -420,7 +379,7 @@ class DistributionSignalMixin:
         """
         if now.hour < FALSIFICATION_EARLIEST_HOUR:
             return forecasts
-        history_max = self.to_number(history.get("max_c"))
+        history_max = self.row_max_native(history)
         max_times = history.get("max_times") or []
         if history_max is None or not max_times:
             return forecasts

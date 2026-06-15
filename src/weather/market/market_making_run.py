@@ -50,11 +50,11 @@ try:
         utc_now,
     )
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from market_config import config_for_date, ensure_date
-    from market_microstructure import audit_book_tape
-    from market_microstructure_features import snapshot_band_key
-    from market_registry import all_specs, spec_for_id
-    from mm_policy import (
+    from weather.market.market_config import config_for_date, ensure_date
+    from weather.market.market_microstructure import audit_book_tape
+    from weather.market.market_microstructure_features import snapshot_band_key
+    from weather.market.market_registry import all_specs, spec_for_id
+    from weather.market.mm_policy import (
         DEFAULT_OBSERVATION_STATUS,
         DEFAULT_KNOWN_EDGE_MAP,
         DEFAULT_POLICY_CONFIG,
@@ -137,7 +137,7 @@ try:
         write_json,
     )
 except ImportError:  # pragma: no cover - direct src compatibility
-    from market_making_run_constants import (  # noqa: E402
+    from weather.market.market_making_run_constants import (  # noqa: E402
         DEFAULT_DATA_LAYER_AUDIT,
         DEFAULT_QUOTE_TTL_SECONDS,
         DEFAULT_RUNS_ROOT,
@@ -147,7 +147,7 @@ except ImportError:  # pragma: no cover - direct src compatibility
         RUN_QUOTE_COLUMNS,
         SCHEMA_VERSION,
     )
-    from market_making_run_support import (  # noqa: E402
+    from weather.market.market_making_run_support import (  # noqa: E402
         add_run_columns,
         append_csv,
         append_jsonl,
@@ -189,7 +189,102 @@ except ImportError:  # pragma: no cover - direct src compatibility
         write_json,
     )
 
+try:
+    from ..operations.runtime_identity import (  # noqa: E402
+        format_runtime_identity,
+        get_runtime_identity,
+        identities_match,
+    )
+except ImportError:  # pragma: no cover - direct src compatibility
+    from weather.operations.runtime_identity import (  # noqa: E402
+        format_runtime_identity,
+        get_runtime_identity,
+        identities_match,
+    )
 
+
+SNAPSHOT_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "loop_status.json"
+CLOB_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "clob_loop_status.json"
+
+
+def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS):
+    current = get_runtime_identity()
+
+    def loop_row(name, path):
+        status = read_json(path, {}) or {}
+        process = status.get("runtime_identity") or {}
+        if process:
+            matches = identities_match(process, current)
+            code_state = "current" if matches else "different"
+        else:
+            matches = None
+            code_state = "unknown"
+        return {
+            "name": name,
+            "status_path": str(path),
+            "pid": status.get("pid"),
+            "last_heartbeat": status.get("last_heartbeat"),
+            "consecutive_errors": status.get("consecutive_errors"),
+            "last_error": status.get("last_error"),
+            "runtime_code_state": code_state,
+            "runtime_identity_matches_current": matches,
+            "process_identity": process,
+            "process_identity_text": format_runtime_identity(process),
+            "current_identity_text": format_runtime_identity(current),
+        }
+
+    loops = [
+        loop_row("weather_snapshots", SNAPSHOT_LOOP_STATUS_PATH),
+        loop_row("clob_books", CLOB_LOOP_STATUS_PATH),
+        loop_row("observation_triggers", observation_status_path),
+    ]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "current_identity": current,
+        "current_identity_text": format_runtime_identity(current),
+        "loops": loops,
+        "drift_count": sum(1 for row in loops if row.get("runtime_identity_matches_current") is False),
+    }
+
+
+def cumulative_run_summary(run_folder, fallback_quote_rows=None, fallback_lifecycle=None):
+    run_folder = Path(run_folder)
+    quote_rows = read_csv_rows(run_folder / "quote_intents_long.csv")
+    if not quote_rows:
+        quote_rows = list(fallback_quote_rows or [])
+    lifecycle_rows = read_jsonl_rows(run_folder / "order_lifecycle.jsonl")
+    generated_times = sorted({
+        str(row.get("generated_at_utc") or "")
+        for row in quote_rows
+        if row.get("generated_at_utc")
+    })
+    transition_counts = Counter(
+        row.get("transition") or row.get("event") or "-"
+        for row in lifecycle_rows
+    )
+    current_lifecycle = fallback_lifecycle or {}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "tick_count": len(generated_times),
+        "row_count": len(quote_rows),
+        "quote_permission_rows": sum(1 for row in quote_rows if bool_value(row.get("quote_permission"))),
+        "live_trade_permission_rows": sum(1 for row in quote_rows if bool_value(row.get("live_trade_permission"))),
+        "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
+        "first_tick_utc": generated_times[0] if generated_times else None,
+        "last_tick_utc": generated_times[-1] if generated_times else None,
+        "order_lifecycle_transition_counts": dict(sorted(transition_counts.items())),
+        "paper_posted_count": transition_counts.get("paper_posted", 0),
+        "live_posted_count": transition_counts.get("live_posted", 0),
+        "intended_count": transition_counts.get("intended", 0),
+        "replaced_count": transition_counts.get("replaced", 0),
+        "released_count": transition_counts.get("released", 0),
+        "expired_count": transition_counts.get("expired", 0),
+        "blocked_by_preflight_count": transition_counts.get("blocked_by_preflight", 0),
+        "canceled_count": transition_counts.get("canceled", 0),
+        "open_order_count": current_lifecycle.get("current_open_order_count", 0),
+        "budget_reserved_usdc": current_lifecycle.get("current_reserved_usdc", 0.0),
+        "budget_released_last_tick_usdc": current_lifecycle.get("released_this_tick_usdc", 0.0),
+    }
 
 
 def load_data_layer_live_gate(path, target_date, mode):
@@ -513,12 +608,13 @@ def build_run_config_payload(
     }
 
 
-def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=None, remediation=None):
+def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=None, remediation=None, cumulative=None):
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
     quote_rows_count = sum(1 for row in quote_rows if row.get("quote_permission"))
     live_rows = sum(1 for row in quote_rows if row.get("live_trade_permission"))
     lifecycle = lifecycle or {}
     remediation = remediation or {}
+    cumulative = cumulative or {}
     reserved = maybe_float(lifecycle.get("current_reserved_usdc"))
     if reserved is None:
         reserved = max((maybe_float(row.get("reserved_usdc")) or 0.0 for row in budget_ledger), default=0.0)
@@ -541,14 +637,18 @@ def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=Non
         "## Summary",
         "",
         f"- Preflight status: `{preflight.get('status')}`",
-        f"- Quote rows: `{quote_rows_count}`",
-        f"- No-quote rows: `{len(quote_rows) - quote_rows_count}`",
-        f"- Live-trade permission rows: `{live_rows}`",
+        f"- Latest-tick quote rows: `{quote_rows_count}`",
+        f"- Latest-tick no-quote rows: `{len(quote_rows) - quote_rows_count}`",
+        f"- Latest-tick live-trade permission rows: `{live_rows}`",
+        f"- Cumulative ticks: `{cumulative.get('tick_count', 1 if quote_rows else 0)}`",
+        f"- Cumulative quote rows: `{cumulative.get('quote_permission_rows', quote_rows_count)}`",
+        f"- Cumulative paper-posted lifecycle legs: `{cumulative.get('paper_posted_count', 0)}`",
         f"- Budget reserved: `{reserved:.2f}` / `{budget:.2f}` USDC",
         f"- Remaining budget: `{max(0.0, budget - reserved):.2f}` USDC",
         f"- Open lifecycle orders: `{lifecycle.get('current_open_order_count', 0)}`",
         f"- Released this tick: `{float(lifecycle.get('released_this_tick_usdc') or 0.0):.2f}` USDC",
         f"- Preflight remediation incidents: `{remediation.get('incident_count', 0)}`",
+        f"- Counts toward live-forward gate: `{str(remediation.get('counts_toward_live_forward_gate', False)).lower()}`",
         "",
         "## Preflight By Market",
         "",
@@ -570,6 +670,22 @@ def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=Non
     ])
     for reason, count in sorted(reason_counts.items()):
         lines.append(f"| {reason or '-'} | {count} |")
+    if cumulative:
+        lines.extend([
+            "",
+            "## Cumulative Run",
+            "",
+            "| Metric | Value |",
+            "| :--- | :--- |",
+            f"| Ticks | {cumulative.get('tick_count', 0)} |",
+            f"| Rows | {cumulative.get('row_count', 0)} |",
+            f"| Quote rows | {cumulative.get('quote_permission_rows', 0)} |",
+            f"| Live-trade rows | {cumulative.get('live_trade_permission_rows', 0)} |",
+            f"| Paper posted legs | {cumulative.get('paper_posted_count', 0)} |",
+            f"| Replaced legs | {cumulative.get('replaced_count', 0)} |",
+            f"| Released legs | {cumulative.get('released_count', 0)} |",
+            f"| Blocked-by-preflight legs | {cumulative.get('blocked_by_preflight_count', 0)} |",
+        ])
     if lifecycle:
         lines.extend([
             "",
@@ -648,6 +764,7 @@ def build_run_once(
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
     observation = load_observation_status(observation_status_path, now=now, config=policy_config)
+    runtime_identity = runtime_identity_snapshot(observation_status_path)
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
@@ -754,6 +871,7 @@ def build_run_once(
         "promotion": promotion_diag,
         "known_edge_map": known_edge_diag,
         "observation_status": observation,
+        "runtime_identity": runtime_identity,
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
         "markets": preflight_rows,
@@ -798,7 +916,16 @@ def build_run_once(
     append_jsonl(run_folder / "risk_events.jsonl", risk_events)
     if not (run_folder / "fills_long.csv").exists():
         write_csv(run_folder / "fills_long.csv", FILL_COLUMNS, [])
-    report = build_report(run_config, preflight_payload, quote_rows, budget_ledger, lifecycle=lifecycle, remediation=remediation_payload)
+    cumulative = cumulative_run_summary(run_folder, fallback_quote_rows=quote_rows, fallback_lifecycle=lifecycle)
+    report = build_report(
+        run_config,
+        preflight_payload,
+        quote_rows,
+        budget_ledger,
+        lifecycle=lifecycle,
+        remediation=remediation_payload,
+        cumulative=cumulative,
+    )
     (run_folder / "run_report.md").write_text(report, encoding="utf-8")
 
     payload = {
@@ -825,6 +952,20 @@ def build_run_once(
         "budget_released_usdc": lifecycle.get("released_this_tick_usdc", 0.0),
         "open_order_count": lifecycle.get("current_open_order_count", 0),
         "budget_usdc": float(budget_usdc),
+        "latest_tick": {
+            "row_count": len(quote_rows),
+            "quote_permission_rows": sum(1 for row in quote_rows if row.get("quote_permission")),
+            "live_trade_permission_rows": sum(1 for row in quote_rows if row.get("live_trade_permission")),
+            "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
+        },
+        "cumulative": cumulative,
+        "cumulative_tick_count": cumulative.get("tick_count", 0),
+        "cumulative_row_count": cumulative.get("row_count", 0),
+        "cumulative_quote_permission_rows": cumulative.get("quote_permission_rows", 0),
+        "cumulative_live_trade_permission_rows": cumulative.get("live_trade_permission_rows", 0),
+        "cumulative_paper_posted_count": cumulative.get("paper_posted_count", 0),
+        "cumulative_lifecycle_transition_counts": cumulative.get("order_lifecycle_transition_counts", {}),
+        "runtime_identity": runtime_identity,
         "order_lifecycle": lifecycle,
         "preflight_remediation": {
             "status": remediation_payload.get("status"),

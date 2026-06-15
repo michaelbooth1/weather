@@ -3,19 +3,15 @@ import csv
 import hashlib
 import json
 import math
-import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_config import date_from_event_slug
-from daily_summary import native_high
-from toronto_model import TARGET_DATE, TORONTO_TZ
-from wu_history import DEFAULT_DATA_ROOT
+from weather.market.market_config import date_from_event_slug
+from weather.model.feature_store import row_forecast_high_native, row_temp_native
+from weather.model.toronto_model import TARGET_DATE, TORONTO_TZ
+from weather.sources.daily_summary import native_high
+from weather.sources.wu_history import DEFAULT_DATA_ROOT
 
 
 FORECAST_COLUMNS = [
@@ -89,7 +85,7 @@ def build_forecast_rows(
             provider_update_time=weather.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
-            target_temp_c=raw.get("temp_c"),
+            target_temp_c=row_temp_native(raw),
             forecast_high_c=None,
             cloud_cover=raw.get("cloud_cover"),
             wind_speed_kmh=raw.get("wind_kmh"),
@@ -115,7 +111,7 @@ def build_forecast_rows(
             provider_update_time=open_meteo.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
-            target_temp_c=raw.get("temp_c"),
+            target_temp_c=row_temp_native(raw),
             forecast_high_c=None,
             cloud_cover=raw.get("cloud_cover"),
             wind_speed_kmh=raw.get("wind_kmh"),
@@ -147,7 +143,7 @@ def build_forecast_rows(
             provider_update_time=nws.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
-            target_temp_c=raw.get("temp_c"),
+            target_temp_c=row_temp_native(raw),
             forecast_high_c=None,
             cloud_cover=None,
             wind_speed_kmh=raw.get("wind_kmh"),
@@ -173,7 +169,7 @@ def build_forecast_rows(
             provider_update_time=global_ensemble.get("provider_update_time"),
             valid_time=valid_time,
             captured_at=captured_at,
-            target_temp_c=raw.get("temp_c"),
+            target_temp_c=row_temp_native(raw),
             forecast_high_c=None,
             cloud_cover=None,
             wind_speed_kmh=None,
@@ -211,8 +207,8 @@ def build_forecast_rows(
             provider_update_time=eccc.get("provider_update_time") or eccc.get("last_updated"),
             valid_time=target_date.isoformat(),
             captured_at=captured_at,
-            target_temp_c=eccc.get("forecast_high_c"),
-            forecast_high_c=eccc.get("forecast_high_c"),
+            target_temp_c=row_forecast_high_native(eccc),
+            forecast_high_c=row_forecast_high_native(eccc),
             cloud_cover=None,
             wind_speed_kmh=eccc.get("wind_kmh"),
             condition=build_eccc_condition(eccc),
@@ -586,7 +582,9 @@ def load_final_highs(data_root, snapshot_folder):
         with snapshots_path.open("r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 date_value = row.get("captured_at_local", "")[:10] or TARGET_DATE.isoformat()
-                high = to_float(row.get("wu_history_high_c"))
+                high = to_float(row.get("wu_history_high_native"))
+                if high is None:
+                    high = to_float(row.get("wu_history_high_c"))
                 if high is not None:
                     latest_by_date[date_value] = high
         for date_value, high in latest_by_date.items():
@@ -604,7 +602,7 @@ def score_forecasts(rows, final_highs, final_basis):
     for row in rows:
         target_date = row.get("target_date") or target_date_from_valid_time(row.get("valid_time"))
         final_high = final_highs.get(target_date)
-        forecast_temp = to_float(row.get("target_temp_c") or row.get("forecast_high_c"))
+        forecast_temp = forecast_archive_temp(row)
         if final_high is None or forecast_temp is None:
             continue
         error = forecast_temp - final_high
@@ -627,6 +625,13 @@ def score_forecasts(rows, final_highs, final_basis):
             }
         )
     return scored
+
+
+def forecast_archive_temp(row):
+    temp = row_temp_native(row)
+    if temp is not None:
+        return temp
+    return row_forecast_high_native(row)
 
 
 def summarize_scored_forecasts(scored):

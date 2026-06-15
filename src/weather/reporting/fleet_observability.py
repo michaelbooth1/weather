@@ -13,27 +13,28 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
-from collection_health import fleet_collection_health  # noqa: E402
-from data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result  # noqa: E402
-from location_trust import score_all_markets  # noqa: E402
-from market_microstructure import (  # noqa: E402
+from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.collection.collection_health import fleet_collection_health
+from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
     clob_loop_health,
     fleet_book_audit,
     read_clob_loop_status,
 )
-from market_registry import all_specs  # noqa: E402
-from observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH  # noqa: E402
-from observation_trigger import read_status as read_observation_status  # noqa: E402
-from observation_trigger import watcher_health  # noqa: E402
-from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, source_daily_indexes, source_values_for_day  # noqa: E402
-from weather.artifacts import resolve_artifact_path  # noqa: E402
-from weather.paths import relative_to_repo  # noqa: E402
+from weather.market.market_registry import all_specs
+from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
+from weather.operations.observation_trigger import read_status as read_observation_status
+from weather.operations.observation_trigger import watcher_health
+from weather.artifacts import resolve_artifact_path
+from weather.paths import relative_to_repo
+from weather.reporting.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
+from weather.reporting.location_trust import score_all_markets
+from weather.reporting.source_redundancy import (
+    FALLBACK_ORDER,
+    PRIMARY_SOURCE,
+    source_daily_indexes,
+    source_values_for_day,
+)
 
 
 SCHEMA_VERSION = "fleet_observability_v0.1"

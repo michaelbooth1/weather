@@ -15,12 +15,12 @@ try:
     )
     from .mm_policy import maybe_float, parse_time
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from mm_paper_constants import (
+    from weather.market.mm_paper_constants import (
         DEFAULT_CONFIG,
         DEFAULT_PROMOTION_REFRESH,
         KNOWN_EDGE_SCHEMA_VERSION,
     )
-    from mm_policy import maybe_float, parse_time
+    from weather.market.mm_policy import maybe_float, parse_time
 
 
 def utc_now():
@@ -82,6 +82,8 @@ def render_paper_report(payload):
         ["Metric", "Value"],
         [
             ["Run folders", summary.get("run_folders")],
+            ["Candidate run folders", summary.get("candidate_run_folders")],
+            ["Excluded run folders", summary.get("excluded_run_folders")],
             ["Quote rows / legs", f"{summary.get('quote_rows')} / {summary.get('quote_legs')}"],
             ["Conservative fills", summary.get("conservative_fills")],
             ["Conservative filled shares", fmt_num(summary.get("conservative_filled_shares"), 3)],
@@ -170,6 +172,26 @@ def render_paper_report(payload):
             ["Multiple-test adjustment", anti.get("multiple_test_adjustment")],
         ],
     ))
+    excluded_rows = []
+    for row in payload.get("excluded_run_folders") or []:
+        excluded_rows.append([
+            row.get("run_id"),
+            row.get("schema_version"),
+            ", ".join(row.get("non_scoreable_reasons") or []) or "-",
+            row.get("run_folder"),
+        ])
+    if excluded_rows:
+        lines.extend([
+            "",
+            "## Excluded Runs",
+            "",
+            "These runs are quarantined from paper scoring and promotion decisions.",
+            "",
+        ])
+        lines.extend(markdown_table(
+            ["Run", "Schema", "Reason", "Folder"],
+            excluded_rows,
+        ))
     lines.extend([
         "",
         "## Evidence Gaps",

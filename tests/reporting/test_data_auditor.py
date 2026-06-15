@@ -67,6 +67,48 @@ class TestDataAuditor(unittest.TestCase):
         self.assertEqual(result["duplicate_timestamps"], [])
         self.assertEqual(result["hourly_days_audited"], 1)
 
+    def test_hourly_native_temperature_wins_over_legacy_c_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "daily").mkdir(parents=True)
+            (root / "hourly" / "year=2026" / "month=06").mkdir(parents=True)
+            (root / "daily" / "daily_summary.csv").write_text(
+                "\n".join([
+                    "schema_version,local_date,temperature_unit,row_count,max_temp_native,max_temp_c,max_temp_bucket_native",
+                    "wu_daily_native_v2,2026-06-07,F,18,86,30,86",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            hourly_rows = [
+                {
+                    "local_date": "2026-06-07",
+                    "local_time": f"{hour:02d}:00",
+                    "temperature_unit": "F",
+                    "temp_native": 80,
+                    "temp_c": 180,
+                    "humidity": 55,
+                    "pressure_hpa": 1012,
+                    "wind_speed_kmh": 12,
+                }
+                for hour in range(18)
+            ]
+            (root / "hourly" / "year=2026" / "month=06" / "observations.jsonl").write_text(
+                "\n".join(__import__("json").dumps(row) for row in hourly_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            result = audit_historical_data(
+                data_root=root,
+                market_id="nyc",
+                target_month=6,
+                target_day=7,
+                years=[2026],
+                quiet=True,
+            )
+
+        self.assertEqual(result["impossible_values"], [])
+        self.assertEqual(result["hourly_days_audited"], 1)
+
     def test_fleet_audit_summary_tracks_corruption_markets(self):
         summary = audit_summary({
             "nyc": {

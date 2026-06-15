@@ -14,20 +14,15 @@ import hashlib
 import json
 import math
 import statistics
-import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import brier, fmt_num, fmt_signed, markdown_table, trade_pnl  # noqa: E402
-from market_config import date_from_event_slug  # noqa: E402
-from market_registry import spec_for_slug  # noqa: E402
-from model_presentation import DRIVER_WATERFALL_STAGES  # noqa: E402
-from settlement_ledger import ledger_label_for_slug  # noqa: E402
+from weather.backtesting.backtest import brier, fmt_num, fmt_signed, markdown_table, trade_pnl
+from weather.backtesting.settlement_ledger import ledger_label_for_slug
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import spec_for_slug
+from weather.model.model_presentation import DRIVER_WATERFALL_STAGES
 
 
 SCHEMA_VERSION = "disagreement_casebook_v0.1"

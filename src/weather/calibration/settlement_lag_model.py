@@ -9,27 +9,23 @@ import argparse
 import json
 import math
 import statistics
-import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (  # noqa: E402
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     parse_snapshot_time,
     safe_float,
     settlement_for_tape,
 )
-from forecast_error_model import load_daily_summary  # noqa: E402
-from market_config import date_from_event_slug  # noqa: E402
-from market_registry import REGISTRY, spec_for_id  # noqa: E402
-from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
-from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
+from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
+from weather.calibration.forecast_error_model import load_daily_summary
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_id
+from weather.model.feature_store import row_temp_native
+from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("settlement_lag_model.json")
@@ -48,6 +44,14 @@ def round_half_up(value):
         return int(math.floor(float(value) + 0.5))
     except (TypeError, ValueError):
         return None
+
+
+def snapshot_value(row, *columns):
+    for column in columns:
+        value = safe_float(row.get(column))
+        if value is not None:
+            return value
+    return None
 
 
 def in_season_window(date_iso):
@@ -70,9 +74,7 @@ def load_jsonl_hourly(root):
                 except json.JSONDecodeError:
                     continue
                 local_date = row.get("local_date")
-                temp = safe_float(row.get("temp_native"))
-                if temp is None:
-                    temp = safe_float(row.get("temp_c"))
+                temp = row_temp_native(row)
                 minute = row.get("minute_of_day")
                 if minute is None:
                     minute = minute_of_day(row.get("local_time") or row.get("time"))
@@ -82,6 +84,7 @@ def load_jsonl_hourly(root):
                     continue
                 rows_by_date[local_date].append({
                     "minute_of_day": int(minute),
+                    "temp_native": temp,
                     "temp_c": temp,
                 })
     for rows in rows_by_date.values():
@@ -102,11 +105,11 @@ def minute_of_day(value):
 def high_until(rows, cutoff_minute):
     eligible = [
         row for row in rows
-        if row["minute_of_day"] <= cutoff_minute and row.get("temp_c") is not None
+        if row["minute_of_day"] <= cutoff_minute and row_temp_native(row) is not None
     ]
     if not eligible:
         return None, None
-    high = max(row["temp_c"] for row in eligible)
+    high = max(row_temp_native(row) for row in eligible)
     bucket = round_half_up(high)
     return high, bucket
 
@@ -115,7 +118,8 @@ def first_reach_minute(rows, bucket):
     if bucket is None:
         return None
     for row in rows:
-        if round_half_up(row.get("temp_c")) is not None and round_half_up(row["temp_c"]) >= bucket:
+        temp = row_temp_native(row)
+        if round_half_up(temp) is not None and round_half_up(temp) >= bucket:
             return row["minute_of_day"]
     return None
 
@@ -219,14 +223,15 @@ def rows_from_snapshot_folders(folders, daily_summary):
             seen_snapshots.add(snapshot_id)
             captured = parse_snapshot_time(row.get("captured_at_local"))
             cutoff_hour = captured.hour if captured else None
-            wu_bucket = round_half_up(row.get("wu_history_high_c"))
+            wu_high = snapshot_value(row, "wu_history_high_native", "wu_history_high_c")
+            wu_bucket = round_half_up(wu_high)
             if cutoff_hour is not None:
                 revision = revision_row(target_date.isoformat(), cutoff_hour, wu_bucket, final_bucket)
                 if revision:
                     rows.append(revision)
             source_specs = (
-                ("eccc_swob", row.get("eccc_swob_max_c")),
-                ("weather_current", row.get("wu_max_since_7am_c")),
+                ("eccc_swob", snapshot_value(row, "eccc_swob_max_native", "eccc_swob_max_c")),
+                ("weather_current", snapshot_value(row, "wu_max_since_7am_native", "wu_max_since_7am_c")),
             )
             for source, value in source_specs:
                 source_bucket = round_half_up(value)
@@ -237,8 +242,16 @@ def rows_from_snapshot_folders(folders, daily_summary):
                     source_bucket,
                     wu_bucket,
                     final_bucket,
-                    [{"minute_of_day": (cutoff_hour or 0) * 60, "temp_c": safe_float(value)}],
-                    [{"minute_of_day": (cutoff_hour or 0) * 60, "temp_c": safe_float(row.get("wu_history_high_c"))}],
+                    [{
+                        "minute_of_day": (cutoff_hour or 0) * 60,
+                        "temp_native": safe_float(value),
+                        "temp_c": safe_float(value),
+                    }],
+                    [{
+                        "minute_of_day": (cutoff_hour or 0) * 60,
+                        "temp_native": wu_high,
+                        "temp_c": wu_high,
+                    }],
                 )
                 if lead:
                     rows.append(lead)

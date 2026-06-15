@@ -36,8 +36,8 @@ try:
     from .polymarket_client import PolymarketClient
     from ..model.model_sources import request_with_retries
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from market_config import config_from_event
-    from market_microstructure_constants import (
+    from weather.market.market_config import config_from_event
+    from weather.market.market_microstructure_constants import (
         BOOK_LEVEL_COLUMNS,
         BOOK_SUMMARY_COLUMNS,
         CLOB_BASE_URL,
@@ -55,10 +55,10 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
         TOKEN_COLUMNS,
         WS_EVENT_COLUMNS,
     )
-    from market_microstructure_features import write_clob_feature_rows
-    from market_registry import all_specs, spec_for_id
-    from model_sources import request_with_retries
-    from polymarket_client import PolymarketClient
+    from weather.market.market_microstructure_features import write_clob_feature_rows
+    from weather.market.market_registry import all_specs, spec_for_id
+    from weather.market.polymarket_client import PolymarketClient
+    from weather.model.model_sources import request_with_retries
 
 
 def utc_now():

@@ -1,4 +1,4 @@
-# 37. MLOps And Always-On Production Hardening [PARTIAL 2026-06-15 - LIVE-FORWARD SLO + ARTIFACT REGISTRY READY]
+# 37. MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
@@ -30,12 +30,12 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Require a gap-free active-day snapshot tape across all registered markets
   before fleet observability can clear strict mode; true same-day gaps remain
   immutable data-quality blockers and should not be backfilled synthetically.
-- [ ] Isolate or throttle long replay/refresh jobs so active-day CLOB book
+- [x] Isolate or throttle long replay/refresh jobs so active-day CLOB book
   capture stays inside the generated strict cadence threshold while live-forward
   evidence is being collected.
 - [x] Model/artifact registry + versioning.
-- [ ] Scheduled nightly retrain -> validate -> promote.
-- [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
+- [x] Scheduled nightly retrain -> validate -> promote.
+- [x] Shadow / A-B deployment; monitoring + alerting + drift detection per
   market.
 - [x] Clean supervised always-on capture (closes item 16); one market's failure
   cannot stall the loop.
@@ -57,9 +57,9 @@ rest of the fleet. A supervisor lock guards `ensure`, `start-detached`, and
 `restart` against duplicate loop starts when a manual command lands on the same
 minute as Task Scheduler. `src.data_layer_audit` schema `v0.2` now reports the
 CLOB loop next to the weather/model loop and raises P0 when book capture is not
-managed or fresh. Item 37 remains open for the broader live-forward SLO gate,
-gap-free active snapshot-tape requirement, model/artifact registry, and
-shadow/A-B drift-monitoring work.
+managed or fresh. At that point, item 37 still needed the broader live-forward
+SLO gate, gap-free active snapshot-tape requirement, model/artifact registry,
+and shadow/A-B drift-monitoring work.
 
 Operational registration update (2026-06-14 UTC): the daily refresh and
 observation-trigger supervisor tasks are now registered in Windows Task
@@ -90,8 +90,9 @@ be counted while weather snapshots, CLOB books, or trigger freshness are stale,
 gappy, paused, dead, or erroring. Focused coverage in
 `tests/reporting/test_fleet_observability.py` proves the gate passes only when
 all capture loops are clean and blocks on snapshot gaps, CLOB gaps, or watcher
-failure. Remaining item-37 work is the broader model/artifact registry,
-scheduled retrain/validate/promote flow, and shadow/A-B drift monitoring.
+failure. At that point, the remaining item-37 work was the broader
+model/artifact registry, scheduled retrain/validate/promote flow, and
+shadow/A-B drift monitoring.
 Validation: `pytest tests\collection\test_collection_robustness.py -q`
 passes.
 
@@ -132,3 +133,51 @@ roadmap bullet, but the scheduled retrain -> validate -> promote loop remains
 open. Focused tests: `tests\test_artifacts.py` and
 `tests\operations\test_schema_registry.py` pass; strict schema audit reports
 `66` registered schemas, `125` discovered literals, and `0` unregistered.
+
+Long-job guard update (2026-06-15 UTC): `weather.operations.long_job_guard`
+adds a shared lock, durable `long_job_guard_v0.1` status file, nested-process
+detection, and best-effort process priority throttling for expensive local
+jobs. `src.daily_refresh run`, `src.promotion_refresh`, `src.replay_backtest`,
+and `src.pooled_candidate_replay` now serialize long replay/refresh work via
+the guard by default, with `--disable-long-job-guard`, `--force-long-job-lock`,
+and `--long-job-priority` operator overrides. The daily refresh status,
+promotion refresh JSON, pooled candidate JSON, and replay result payloads carry
+guard metadata so live-forward evidence can distinguish guarded from unguarded
+maintenance work. This left shadow/A-B drift monitoring as the final item-37
+slice. Focused
+validation: `pytest tests/operations/test_long_job_guard.py
+tests/operations/test_daily_refresh.py tests/backtesting/test_replay.py
+tests/reporting/test_promotion_corpus.py
+tests/calibration/test_pooled_candidate_replay.py -q` passes.
+
+Nightly retrain update (2026-06-15 UTC): `weather.operations.nightly_retrain`
+adds a scheduled retrain/validation/promotion-decision runner with schema
+`nightly_retrain_v0.1`. The default run trains family secondary artifacts,
+trains the F-family pooled band candidate, refreshes the model artifact
+registry, runs `promotion_refresh`, and writes
+`data/backtest/nightly_retrain_status.json` plus
+`data/backtest/nightly_retrain_report.md`. It is fail-closed: subprocess
+errors mark the run `error`, while promotion decisions classify the result as
+`promote_ready`, `shadow`, or `blocked` without mutating serving code paths.
+`scripts/register_nightly_retrain.ps1` installs the Windows Task Scheduler job
+`WeatherNightlyRetrainValidatePromote` for the nightly run. This left
+shadow/A-B deployment plus drift monitoring and alerting as the final item-37
+slice. Focused validation: `pytest tests/operations/test_nightly_retrain.py -q`
+passes; CLI dry-run and strict schema audit pass.
+
+Shadow/A-B monitoring update (2026-06-15 UTC):
+`weather.reporting.shadow_ab_monitor` adds schema `shadow_ab_monitor_v0.1` and
+builds an alertable per-market monitor from `f_family_promotion_refresh.json`
+and `pooled_candidate_replay_latest.json`. It classifies markets as
+`PROMOTE_READY`, `SHADOW`, or `ALERT`, flags candidate regression versus the
+current serving replay, candidate gaps versus market prices, blocked promotion
+actions, serving-gauntlet blockers, missing artifacts, and failed replay gates,
+and writes `data/backtest/shadow_ab_monitor.json` plus
+`data/backtest/shadow_ab_monitor_report.md`. `src.daily_refresh run` now runs
+the monitor after promotion refresh and can mark the refresh critical with
+`--fail-on-shadow-ab-alert`; `src.nightly_retrain run` also runs it after the
+post-retrain promotion refresh and can fail with `--fail-on-shadow-ab-alert`.
+This completes item 37. Focused validation:
+`pytest tests/reporting/test_shadow_ab_monitor.py
+tests/operations/test_daily_refresh.py tests/operations/test_nightly_retrain.py
+-q` passes; CLI help and strict schema audit pass.

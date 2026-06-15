@@ -8,17 +8,12 @@ probability tapes persisted by snapshot_tracker.
 import argparse
 import csv
 import math
-import sys
 from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (  # noqa: E402
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     backtest_tape,
@@ -29,9 +24,9 @@ from backtest import (  # noqa: E402
     missing,
     settlement_for_tape,
 )
-from market_config import date_from_event_slug  # noqa: E402
-from market_registry import REGISTRY, spec_for_id  # noqa: E402
-from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
+from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_id
 
 
 DEFAULT_REPORT_PATH = Path("data") / "backtest" / "model_ensemble_report.md"

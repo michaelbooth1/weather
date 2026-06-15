@@ -173,6 +173,21 @@ def closest_value(rows, target_minute, window_min, value_key):
     return row.get(value_key)
 
 
+def closest_temperature_native(rows, target_minute, window_min):
+    candidates = []
+    for row in rows:
+        minute = row_minute_of_day(row)
+        value = row_temp_native(row)
+        if minute is None or value is None:
+            continue
+        distance = abs(minute - target_minute)
+        if distance <= window_min:
+            candidates.append((distance, value))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[0])[1]
+
+
 def to_float(value):
     if value in (None, "", "nan", "NaN"):
         return None
@@ -222,11 +237,63 @@ def row_minute_of_day(row):
 
 
 def row_value(row, *keys):
+    row = row or {}
     for key in keys:
         value = to_float(row.get(key))
         if value is not None:
             return value
     return None
+
+
+def row_temp_native(row):
+    return row_value(
+        row,
+        "temp_native",
+        "temperature_native",
+        "target_temp_native",
+        "temp_c",
+        "target_temp_c",
+    )
+
+
+def row_dewpoint_native(row):
+    return row_value(row, "dewpoint_native", "dewpoint_c")
+
+
+def row_air_temp_native(row):
+    return row_value(row, "air_temp_native", "air_temp_c", "temp_native", "temp_c")
+
+
+def row_forecast_high_native(row):
+    return row_value(
+        row,
+        "forecast_high_native",
+        "day_max_native",
+        "forecast_high",
+        "day_max",
+        "forecast_high_c",
+        "day_max_c",
+    )
+
+
+def row_max_native(row):
+    return row_value(
+        row,
+        "max_native",
+        "max_temp_native",
+        "high_native",
+        "max_c",
+        "max_temp_c",
+        "high_c",
+    )
+
+
+def row_max_since_7am_native(row):
+    return row_value(row, "max_since_7am_native", "max_since_7am_c")
+
+
+def row_same_day_max_native(row):
+    return row_value(row, "same_day_max_native", "same_day_max_c")
 
 
 COMPASS_DEGREES = {
@@ -339,7 +406,7 @@ def forecast_profile_features(
             continue
         profile.append({
             "minute": minute,
-            "temp": row_value(row, "temp_c", "target_temp_native", "target_temp_c"),
+            "temp": row_temp_native(row),
             "solar": row_value(row, "solar", "shortwave_radiation"),
             "cloud": row_value(row, "cloud_cover"),
             "low_cloud": row_value(row, "low_cloud", "cloud_cover_low"),
@@ -424,7 +491,7 @@ def forecast_profile_features(
     return features
 
 
-def simulated_reading_at(rows, minute, value_key="temp_c", exact_window=10, max_lookback=75):
+def simulated_reading_at(rows, minute, value_key=None, exact_window=10, max_lookback=75):
     """Simulate the live instantaneous reading at ``minute`` from historical
     observations: a real obs within ``exact_window`` minutes BEFORE wins;
     otherwise linearly interpolate between the bracketing observations.
@@ -438,9 +505,12 @@ def simulated_reading_at(rows, minute, value_key="temp_c", exact_window=10, max_
     """
     timed = sorted(
         (
-            (int(row["minute_of_day"]), float(row[value_key]))
+            (int(row["minute_of_day"]), float(value))
             for row in rows
-            if row.get(value_key) is not None and row.get("minute_of_day") is not None
+            for value in [
+                row_value(row, value_key) if value_key else row_temp_native(row)
+            ]
+            if value is not None and row.get("minute_of_day") is not None
         ),
     )
     if not timed:
@@ -495,7 +565,7 @@ def build_historical_feature_record(
     if not obs_before:
         return None
     current_obs = obs_before[-1]
-    temps_before = [row["temp_c"] for row in obs_before if row.get("temp_c") is not None]
+    temps_before = [row_temp_native(row) for row in obs_before if row_temp_native(row) is not None]
     if not temps_before:
         return None
 
@@ -504,14 +574,14 @@ def build_historical_feature_record(
     if minutes_since_cutoff > 0:
         live_reading = simulated_reading_at(rows, wall_minute)
     else:
-        live_reading = current_obs.get("temp_c")
+        live_reading = row_temp_native(current_obs)
     live_reading_minus_high = (
         live_reading - high_so_far if live_reading is not None else None
     )
-    current_temp = current_obs.get("temp_c")
+    current_temp = row_temp_native(current_obs)
     if current_temp is None and strict:
         return None
-    temp_7am = closest_value(rows, 420, 60, "temp_c")
+    temp_7am = closest_temperature_native(rows, 420, 60)
     if temp_7am is None and strict:
         return None
     rise_from_7am = (
@@ -521,7 +591,7 @@ def build_historical_feature_record(
     )
     
     # warming_rate_2h
-    temp_2h_ago = closest_value(rows, cutoff_minutes - 120, 60, "temp_c")
+    temp_2h_ago = closest_temperature_native(rows, cutoff_minutes - 120, 60)
     warming_rate_2h = (
         current_temp - temp_2h_ago
         if current_temp is not None and temp_2h_ago is not None
@@ -531,7 +601,7 @@ def build_historical_feature_record(
     # hours_at_peak
     first_reached_min = None
     for row in obs_before:
-        if row.get("temp_c") == high_so_far and row.get("minute_of_day") is not None:
+        if row_temp_native(row) == high_so_far and row.get("minute_of_day") is not None:
             first_reached_min = int(row["minute_of_day"])
             break
     hours_at_peak = (
@@ -540,7 +610,7 @@ def build_historical_feature_record(
         else 0.0
     )
 
-    dewpoint = current_obs.get("dewpoint_c")
+    dewpoint = row_dewpoint_native(current_obs)
     if dewpoint is None and strict:
         return None
     pressure = current_obs.get("pressure")

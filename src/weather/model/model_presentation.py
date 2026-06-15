@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from model_constants import (
+from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
@@ -20,7 +20,7 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from probability_calibration import calibrate_market_probability
+from weather.calibration.probability_calibration import calibrate_market_probability
 
 
 # --- Quantitative driver breakdown (item 12) --------------------------------
@@ -177,7 +177,7 @@ class PresentationMixin:
         rows.append({
             "Source": "Wunderground history proxy",
             "Signal": "Printed history high",
-            "Value": self.format_temp(history.get("max_c")),
+            "Value": self.format_temp(self.row_max_native(history)),
             "Detail": ", ".join(history.get("max_times") or []) or "-",
             "Model role": "Primary settlement proxy",
         })
@@ -185,7 +185,7 @@ class PresentationMixin:
         rows.append({
             "Source": "Wunderground history proxy",
             "Signal": "Latest printed row",
-            "Value": self.format_temp(latest.get("temp_c")),
+            "Value": self.format_temp(self.row_temp_native(latest)),
             "Detail": latest.get("time", "-"),
             "Model role": "Confirms table trend",
         })
@@ -193,8 +193,8 @@ class PresentationMixin:
             "Source": f"Weather.com current {self.spec.icao}",
             "Signal": "Current / max since 7 AM",
             "Value": (
-                f"{self.format_temp(current.get('temp_c'))} / "
-                f"{self.format_temp(current.get('max_since_7am_c'))}"
+                f"{self.format_temp(self.row_temp_native(current))} / "
+                f"{self.format_temp(self.row_max_since_7am_native(current))}"
             ),
             "Detail": current.get("time", "-"),
             "Model role": "Same data family, discounted until in history",
@@ -219,8 +219,8 @@ class PresentationMixin:
             "Source": f"ECCC SWOB {self.spec.icao}",
             "Signal": "Air / same-day max",
             "Value": (
-                f"{self.format_temp(eccc_latest.get('air_temp_c'))} / "
-                f"{self.format_temp(eccc.get('same_day_max_c'))}"
+                f"{self.format_temp(self.row_air_temp_native(eccc_latest))} / "
+                f"{self.format_temp(self.row_same_day_max_native(eccc))}"
             ),
             "Detail": eccc_latest.get("time", "-"),
             "Model role": "Official station support, non-resolution",
@@ -228,14 +228,14 @@ class PresentationMixin:
         rows.append({
             "Source": "Environment Canada forecast",
             "Signal": "Public forecast high",
-            "Value": self.format_temp(eccc_city.get("forecast_high_c")),
+            "Value": self.format_temp(self.row_forecast_high_native(eccc_city)),
             "Detail": eccc_city.get("forecast_cloud", "-"),
             "Model role": "Official forecast, non-resolution",
         })
         rows.append({
             "Source": f"METAR {self.spec.icao}",
             "Signal": "Hourly airport report",
-            "Value": self.format_temp(metar.get("temp_c")),
+            "Value": self.format_temp(self.row_temp_native(metar)),
             "Detail": metar.get("report_time", "-"),
             "Model role": "Hourly sanity check",
         })
@@ -269,7 +269,7 @@ class PresentationMixin:
         impact_key = f"Impact on {kb} {u}"
 
         # 1. Wunderground History
-        hist_max = history.get("max_c")
+        hist_max = self.row_max_native(history)
         if hist_max is None:
             impact = f"No historical printed observations yet. {kb} {u} is wide open."
         elif hist_max >= kb:
@@ -285,8 +285,8 @@ class PresentationMixin:
         })
 
         # 2. Weather.com Current
-        curr_temp = current.get("temp_c")
-        max_7am = current.get("max_since_7am_c")
+        curr_temp = self.row_temp_native(current)
+        max_7am = self.row_max_since_7am_native(current)
         if max_7am is not None and max_7am >= kb:
             impact = f"Strong indicator. Max since 7 AM is {self.format_temp(max_7am)}, which matches or exceeds {kb} {u}."
         elif curr_temp is not None and curr_temp >= kb:
@@ -300,7 +300,7 @@ class PresentationMixin:
         })
 
         # 3. ECCC SWOB
-        swob_max = eccc.get("same_day_max_c")
+        swob_max = self.row_same_day_max_native(eccc)
         if swob_max is not None and swob_max >= kb:
             impact = (
                 f"Station support. SWOB same-day max is {self.format_temp(swob_max)}, "
@@ -332,7 +332,7 @@ class PresentationMixin:
 
         # 5. Open-Meteo & ECCC Citypage
         om_max = self.max_row_temp(open_meteo.get("rows"))
-        ec_high = eccc_city.get("forecast_high_c")
+        ec_high = self.row_forecast_high_native(eccc_city)
         alt_max = max([val for val in [om_max, ec_high] if val is not None], default=None)
         if alt_max is not None and alt_max >= kb:
             impact = f"Bullish alternative forecast. Alt models project a high of {self.format_temp(alt_max)}."
@@ -408,14 +408,14 @@ class PresentationMixin:
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
         
-        history_max = history.get("max_c")
-        current_temp = current.get("temp_c")
-        current_max = current.get("max_since_7am_c")
+        history_max = self.row_max_native(history)
+        current_temp = self.row_temp_native(current)
+        current_max = self.row_max_since_7am_native(current)
         observed_bucket = self.round_half_up(history_max)
         
         weather_forecast_max = self.max_row_temp(weather_forecast.get("rows"))
         open_meteo_max = self.max_row_temp(open_meteo.get("rows"))
-        eccc_forecast_high = eccc_city.get("forecast_high_c")
+        eccc_forecast_high = self.row_forecast_high_native(eccc_city)
         
         plausible_cap = self.round_half_up(self.max_value(
             observed_bucket,
@@ -525,7 +525,7 @@ class PresentationMixin:
             rows.append({
                 "Source": "Weather.com forecast",
                 "Time": row.get("time"),
-                "Temp": self.format_temp(row.get("temp_c")),
+                "Temp": self.format_temp(self.row_temp_native(row)),
                 "Cloud": self.format_pct_number(row.get("cloud_cover")),
                 "Condition": row.get("condition"),
                 "Wind": f"{row.get('wind', '-')}, {row.get('wind_kmh', '-')} km/h",
@@ -536,7 +536,7 @@ class PresentationMixin:
             rows.append({
                 "Source": "Open-Meteo forecast",
                 "Time": row.get("time"),
-                "Temp": self.format_temp(row.get("temp_c")),
+                "Temp": self.format_temp(self.row_temp_native(row)),
                 "Cloud": self.format_pct_number(row.get("cloud_cover")),
                 "Condition": f"solar {row.get('solar', '-')} W/m2",
                 "Wind": f"{row.get('wind_kmh', '-')} km/h",
@@ -568,20 +568,23 @@ class PresentationMixin:
             notes.append("Prior probabilities generated by the Logistic Regression ML model coefficients (v0.4).")
         else:
             notes.append("Prior probabilities generated by the empirical lookups baseline (v0.3).")
-        if history.get("max_c") is not None:
+        history_max = self.row_max_native(history)
+        if history_max is not None:
             notes.append(
-                f"Current printed WU-history high is {self.format_temp(history.get('max_c'))}."
+                f"Current printed WU-history high is {self.format_temp(history_max)}."
             )
-        if current.get("max_since_7am_c") is not None:
+        current_max_native = self.row_max_since_7am_native(current)
+        if current_max_native is not None:
             notes.append(
                 "Weather.com current says max since 7 AM is "
-                f"{self.format_temp(current.get('max_since_7am_c'))}."
+                f"{self.format_temp(current_max_native)}."
             )
         eccc_latest = eccc.get("latest") or {}
-        if eccc.get("same_day_max_c") is not None:
+        eccc_max_native = self.row_same_day_max_native(eccc)
+        if eccc_max_native is not None:
             notes.append(
                 "ECCC SWOB same-day max is "
-                f"{self.format_temp(eccc.get('same_day_max_c'))}; "
+                f"{self.format_temp(eccc_max_native)}; "
                 "this can catch intra-hour highs that WU history may miss."
             )
         forecast_max = self.max_row_temp(weather_forecast.get("rows"))
@@ -589,10 +592,11 @@ class PresentationMixin:
             notes.append(
                 f"Weather.com remaining-hour forecast max is {self.format_temp(forecast_max)}."
             )
-        if eccc_city.get("forecast_high_c") is not None:
+        eccc_forecast_native = self.row_forecast_high_native(eccc_city)
+        if eccc_forecast_native is not None:
             notes.append(
                 "Environment Canada public forecast high is "
-                f"{self.format_temp(eccc_city.get('forecast_high_c'))}; "
+                f"{self.format_temp(eccc_forecast_native)}; "
                 "it is included as a lower-weight non-resolution forecast."
             )
         if local_history.get("available"):

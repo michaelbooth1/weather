@@ -4,22 +4,17 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[2]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from supplemental_station_validation import (  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.supplemental_station_validation import (
     DEFAULT_OUT as DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
     load_validation_report,
     promotion_gate_for_source,
 )
-from supplemental_stations import load_registry, source_root, supplemental_sources  # noqa: E402
-from weather.paths import REPO_ROOT, relative_to_repo  # noqa: E402
+from weather.sources.supplemental_stations import load_registry, source_root, supplemental_sources
+from weather.paths import REPO_ROOT, relative_to_repo
 
 
 CANONICAL_GUARDRAIL_SCHEMA_VERSION = "canonical_history_guardrails_v0.1"

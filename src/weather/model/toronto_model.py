@@ -9,12 +9,12 @@ import json
 from datetime import datetime
 
 from weather.artifacts import resolve_artifact_path
-from market_config import config_for_date, config_from_event
-from market_registry import DEFAULT_MARKET_ID
+from weather.market.market_config import config_for_date, config_from_event
+from weather.market.market_registry import DEFAULT_MARKET_ID
 # Re-exported for backward compatibility: callers historically imported these
 # from toronto_model when it owned the wu_history import.
-from wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary  # noqa: F401
-from model_constants import (
+from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary  # noqa: F401
+from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TORONTO_TZ,
     TARGET_DATE,
@@ -34,16 +34,16 @@ from model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from model_base import ModelUtilsMixin
-from model_sources import SourceFetchMixin
-from model_climatology import ClimatologyMixin
-from model_distribution import DistributionMixin
-from model_features import FeatureModelMixin
-from model_presentation import PresentationMixin
-from forecast_error_model import load_forecast_error_model
-from family_secondary_artifacts import load_family_secondary_manifest
-from probability_calibration import load_probability_calibration
-from settlement_lag_model import load_settlement_lag_model
+from weather.model.model_base import ModelUtilsMixin
+from weather.model.model_sources import SourceFetchMixin
+from weather.model.model_climatology import ClimatologyMixin
+from weather.model.model_distribution import DistributionMixin
+from weather.model.model_features import FeatureModelMixin
+from weather.model.model_presentation import PresentationMixin
+from weather.calibration.forecast_error_model import load_forecast_error_model
+from weather.calibration.family_secondary_artifacts import load_family_secondary_manifest
+from weather.calibration.probability_calibration import load_probability_calibration
+from weather.calibration.settlement_lag_model import load_settlement_lag_model
 
 
 class TorontoHighTempModel(

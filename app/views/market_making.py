@@ -112,7 +112,13 @@ def _format_num(value, digits=2):
 
 
 def _df(rows):
-    return pd.DataFrame(rows or [])
+    normalized = []
+    for row in rows or []:
+        item = dict(row)
+        if "Value" in item:
+            item["Value"] = "-" if item["Value"] in (None, "") else str(item["Value"])
+        normalized.append(item)
+    return pd.DataFrame(normalized)
 
 
 def _reason_rows(reason_counts):
@@ -270,6 +276,22 @@ def _gate_progress_rows(run_summary, paper):
     ]
 
 
+def _runtime_identity_rows(identity):
+    rows = []
+    for row in (identity or {}).get("loops") or []:
+        rows.append({
+            "Loop": row.get("name"),
+            "Code state": row.get("runtime_code_state") or "-",
+            "PID": row.get("pid") or "-",
+            "Errors": row.get("consecutive_errors") if row.get("consecutive_errors") is not None else "-",
+            "Last heartbeat": row.get("last_heartbeat") or "-",
+            "Running code": row.get("process_identity_text") or "-",
+            "Current code": row.get("current_identity_text") or "-",
+            "Status file": row.get("status_path") or "-",
+        })
+    return rows
+
+
 def render_market_making_page(refresh_seconds=15):
     @st.fragment(run_every=f"{refresh_seconds}s")
     def render_live():
@@ -288,12 +310,13 @@ def render_market_making_page(refresh_seconds=15):
         st.caption("Selected run: " + (_run_label(run_folder) if run_folder else "-"))
 
         st.subheader("Latest Tick")
-        top = st.columns(5)
+        top = st.columns(6)
         top[0].metric("Latest Run", run_summary.get("run_id") or "-")
         top[1].metric("Run Mode", run_summary.get("mode") or "-")
         top[2].metric("Preflight", run_summary.get("preflight_status") or "-")
-        top[3].metric("Quotes", run_summary.get("quote_permission_rows", 0))
-        top[4].metric("Live Rows", run_summary.get("live_trade_permission_rows", 0))
+        top[3].metric("Latest Tick Quotes", run_summary.get("quote_permission_rows", 0))
+        top[4].metric("Cumulative Quotes", run_summary.get("cumulative_quote_permission_rows", run_summary.get("quote_permission_rows", 0)))
+        top[5].metric("Live Rows", run_summary.get("live_trade_permission_rows", 0))
 
         st.subheader("Paper Corpus")
         score = st.columns(5)
@@ -316,9 +339,13 @@ def render_market_making_page(refresh_seconds=15):
                 {"Metric": "Reserved USDC", "Value": _format_num(run_summary.get("budget_reserved_usdc"), 2)},
                 {"Metric": "Released USDC", "Value": _format_num(run_summary.get("budget_released_usdc"), 2)},
                 {"Metric": "Open orders", "Value": run_summary.get("open_order_count")},
-                {"Metric": "Rows", "Value": run_summary.get("row_count")},
-                {"Metric": "Quote rows", "Value": run_summary.get("quote_permission_rows")},
-                {"Metric": "Live-trade rows", "Value": run_summary.get("live_trade_permission_rows")},
+                {"Metric": "Latest tick rows", "Value": run_summary.get("row_count")},
+                {"Metric": "Latest tick quote rows", "Value": run_summary.get("quote_permission_rows")},
+                {"Metric": "Latest tick live-trade rows", "Value": run_summary.get("live_trade_permission_rows")},
+                {"Metric": "Cumulative ticks", "Value": run_summary.get("cumulative_tick_count")},
+                {"Metric": "Cumulative rows", "Value": run_summary.get("cumulative_row_count")},
+                {"Metric": "Cumulative quote rows", "Value": run_summary.get("cumulative_quote_permission_rows")},
+                {"Metric": "Cumulative paper-posted legs", "Value": run_summary.get("cumulative_paper_posted_count")},
             ]
             st.dataframe(_df(run_rows), width="stretch", hide_index=True)
 
@@ -330,9 +357,14 @@ def render_market_making_page(refresh_seconds=15):
         if run_folder:
             preflight = _read_json(run_folder / "preflight.json", {}) or {}
             remediation = _read_json(run_folder / "preflight_remediation.json", {}) or {}
+            identity = (preflight.get("runtime_identity") or run_summary.get("runtime_identity") or {})
             lifecycle_rows = _read_jsonl(run_folder / "order_lifecycle.jsonl")
             quote_rows_all = _read_csv(run_folder / "quote_intents_long.csv")
             markets = preflight.get("markets") or []
+            runtime_rows = _runtime_identity_rows(identity)
+            if runtime_rows:
+                st.subheader("Runtime Identity")
+                st.dataframe(_df(runtime_rows), width="stretch", hide_index=True)
             if markets:
                 st.subheader("Market Health")
                 st.dataframe(_df(_market_health_rows(markets, quote_rows_all, lifecycle_rows, remediation)), width="stretch", hide_index=True)
@@ -383,7 +415,9 @@ def render_market_making_page(refresh_seconds=15):
 
         st.subheader("Paper Scoring")
         paper_rows = [
+            {"Metric": "Candidate run folders", "Value": summary.get("candidate_run_folders", summary.get("run_folders", 0))},
             {"Metric": "Run folders", "Value": summary.get("run_folders", 0)},
+            {"Metric": "Excluded run folders", "Value": summary.get("excluded_run_folders", 0)},
             {"Metric": "Quote rows", "Value": summary.get("quote_rows", 0)},
             {"Metric": "Quote legs", "Value": summary.get("quote_legs", 0)},
             {"Metric": "Conservative fills", "Value": summary.get("conservative_fills", 0)},

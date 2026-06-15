@@ -2,21 +2,16 @@
 import argparse
 import csv
 import json
-import sys
 from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from noaa_ghcnh_history import GHCNHStore  # noqa: E402
-from reanalysis_history import ReanalysisStore  # noqa: E402
-from supplemental_stations import source_root, supplemental_sources  # noqa: E402
-from wu_history import WundergroundHistoryStore, history_coverage, parse_date  # noqa: E402
-from weather.schema_registry import schema_version  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.schema_registry import schema_version
+from weather.sources.noaa_ghcnh_history import GHCNHStore
+from weather.sources.reanalysis_history import ReanalysisStore
+from weather.sources.supplemental_stations import source_root, supplemental_sources
+from weather.sources.wu_history import WundergroundHistoryStore, history_coverage, parse_date
 
 
 SCHEMA_VERSION = schema_version("historical_coverage")

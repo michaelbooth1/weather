@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from probability_calibration import (
     apply_exact_distribution_calibration,
     calibrate_market_probability,
+    prepare_training_row,
 )
 from toronto_model import TorontoHighTempModel
 
@@ -134,6 +135,27 @@ class TestProbabilityCalibration(unittest.TestCase):
         )
 
         self.assertAlmostEqual(calibrated, 0.02)
+
+    def test_prepare_training_row_prefers_native_snapshot_source_fields(self):
+        row = {
+            "target_date": "2026-06-07",
+            "captured_at_local": "2026-06-07T12:00:00-04:00",
+            "cutoff_hour": 12,
+            "bin_kind": "eq",
+            "bin_value_c": 93,
+            "wu_history_high_native": 91,
+            "wu_history_high_c": 33,
+            "wu_current_native": 92,
+            "wu_current_c": 34,
+            "eccc_swob_max_native": 90,
+            "eccc_swob_max_c": 32,
+        }
+
+        prepared = prepare_training_row(row)
+
+        self.assertEqual(prepared["observed_floor_bucket"], 91)
+        self.assertEqual(prepared["observed_support_bucket"], 92)
+        self.assertEqual(prepared["distance_bucket"], "two_above")
 
     def test_market_calibration_preserves_distribution_coherence_by_default(self):
         artifact = _artifact(weight=0.6, base_rate=0.35)

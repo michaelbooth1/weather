@@ -14,7 +14,9 @@ from feature_model import (
     late_day_feature_columns,
     neutralize_feature_family,
     summarize_ablation_by_family,
+    train_late_day_continuation_models,
 )
+from toronto_model import TorontoHighTempModel
 
 
 class TestFeatureModelAblation(unittest.TestCase):
@@ -154,6 +156,58 @@ class TestFeatureModelAblation(unittest.TestCase):
         self.assertIsNotNone(summary["brier"])
         self.assertIsNotNone(summary["ece"])
         self.assertIn("forecast", {row["family"] for row in ablations})
+
+    def test_late_day_training_prefers_native_temperature_aliases(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="nyc")
+        local_date = pd.Timestamp("2026-05-29").date()
+        daily = {local_date: {"max_temp_native": 92.0, "bucket": 92}}
+        by_date = {
+            local_date: [
+                {
+                    "minute_of_day": 420,
+                    "temp_native": 80.0,
+                    "temp_c": 26.7,
+                    "dewpoint_native": 60.0,
+                    "dewpoint_c": 15.6,
+                    "humidity": 50.0,
+                    "pressure": 1015.0,
+                    "wind": "SW",
+                    "wind_kmh": 8.0,
+                    "condition": "Fair",
+                    "clouds": "Clear",
+                },
+                {
+                    "minute_of_day": 900,
+                    "temp_native": 91.0,
+                    "temp_c": 32.8,
+                    "dewpoint_native": 70.0,
+                    "dewpoint_c": 21.1,
+                    "humidity": 45.0,
+                    "pressure": 1012.0,
+                    "wind": "SW",
+                    "wind_kmh": 10.0,
+                    "condition": "Fair",
+                    "clouds": "Clear",
+                },
+            ],
+        }
+
+        info, _validation, _ablations = train_late_day_continuation_models(
+            model,
+            daily,
+            by_date,
+            {local_date.isoformat(): 93.0},
+            all_wind_groups=["S-SW"],
+            all_cloud_groups=["Fair/clear"],
+            trained_at="test",
+        )
+
+        feature_names = info["15"]["numeric_feature_names"]
+        means = dict(zip(feature_names, info["15"]["scaler_mean"]))
+        self.assertEqual(means["high_so_far"], 91.0)
+        self.assertEqual(means["current_temp"], 91.0)
+        self.assertEqual(means["rise_from_7am"], 11.0)
+        self.assertEqual(means["dewpoint_c"], 70.0)
 
 
 if __name__ == "__main__":

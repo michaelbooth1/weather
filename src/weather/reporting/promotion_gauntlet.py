@@ -12,15 +12,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
-from location_trust import score_all_markets
-from market_registry import REGISTRY
-from promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS, folders_from_manifest, load_manifest
-from replay_backtest import (
+from weather.backtesting.backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
+from weather.backtesting.replay_backtest import (
     DEFAULT_BASELINE,
     FIDELITY_FAITHFUL_L1,
     comparison,
@@ -29,7 +22,14 @@ from replay_backtest import (
     grouped_comparison,
     run_replay_backtest,
 )
-from settled_days import DEFAULT_SNAPSHOTS_ROOT
+from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
+from weather.market.market_registry import REGISTRY
+from weather.reporting.location_trust import score_all_markets
+from weather.reporting.promotion_corpus import (
+    DEFAULT_OUT as DEFAULT_CORPUS,
+    folders_from_manifest,
+    load_manifest,
+)
 
 DEFAULT_OUT = Path("data") / "backtest" / "promotion_gauntlet_report.md"
 DEFAULT_REPLAY_REPORT = Path("data") / "backtest" / "promotion_replay_report.md"

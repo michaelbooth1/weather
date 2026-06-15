@@ -10,23 +10,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from forecast_archive import (  # noqa: E402
+from weather.collection.collection_health import fleet_collection_health, serialize_summary, summarize_folder
+from weather.collection.forecast_archive import (
     FORECAST_COLUMNS,
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
-from collection_health import fleet_collection_health, serialize_summary, summarize_folder  # noqa: E402
-from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
-from market_config import config_for_date, config_from_event
-from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_slug
-from model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
-from model_identity import model_replay_identity
-from runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
-from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.market.market_config import config_for_date, config_from_event
+from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_slug
+from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
+from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
+from weather.model.model_identity import model_replay_identity
+from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 
 
 
@@ -47,7 +43,7 @@ try:
         SnapshotStore,
     )
 except ImportError:  # pragma: no cover - direct src compatibility
-    from snapshot_store import (  # noqa: E402
+    from weather.collection.snapshot_store import (  # noqa: E402
         COMPONENT_COLUMNS,
         DEFAULT_MARKET_CONFIG,
         DEFAULT_SNAPSHOT_ROOT,
@@ -65,8 +61,8 @@ except ImportError:  # pragma: no cover - direct src compatibility
 
 
 def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="scheduled", trigger_context=None):
-    from polymarket_client import PolymarketClient
-    from toronto_model import TorontoHighTempModel
+    from weather.market.polymarket_client import PolymarketClient
+    from weather.model.toronto_model import TorontoHighTempModel
 
     market_client = PolymarketClient(market_id=market_id)
     event = market_client.get_event()
@@ -216,10 +212,17 @@ def read_loop_status():
 
 def write_loop_status(status):
     LOOP_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = LOOP_STATUS_PATH.with_suffix(".json.tmp")
+    tmp = LOOP_STATUS_PATH.with_name(f"{LOOP_STATUS_PATH.name}.{os.getpid()}.{time.time_ns()}.tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(status, handle, indent=2, sort_keys=True, default=str)
-    tmp.replace(LOOP_STATUS_PATH)
+    for attempt in range(20):
+        try:
+            tmp.replace(LOOP_STATUS_PATH)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
 
 
 def append_diagnostic(record):

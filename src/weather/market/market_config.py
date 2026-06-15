@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from market_registry import DEFAULT_MARKET_ID, TORONTO, spec_for_id, spec_for_slug
+from weather.market.market_registry import DEFAULT_MARKET_ID, TORONTO, spec_for_id, spec_for_slug
 
 # Back-compat aliases: callers historically imported these Toronto constants here.
 TORONTO_TZ = TORONTO.tz

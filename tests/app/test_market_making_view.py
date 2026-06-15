@@ -1,8 +1,10 @@
 from app.views.market_making import (
+    _df,
     _blocker_rows,
     _budget_lifecycle_rows,
     _gate_progress_rows,
     _market_health_rows,
+    _runtime_identity_rows,
 )
 
 
@@ -98,3 +100,31 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
     assert any(row["Metric"] == "Current run counts" and row["Value"] is False for row in gate)
     assert any(row["Metric"] == "Locked paper days" and row["Value"] == 1 for row in gate)
 
+
+def test_market_making_value_tables_are_arrow_safe_and_runtime_identity_rows_render():
+    frame = _df([
+        {"Metric": "Target date", "Value": "2026-06-15"},
+        {"Metric": "Open orders", "Value": 2},
+        {"Metric": "Current run counts", "Value": False},
+    ])
+
+    assert frame["Value"].tolist() == ["2026-06-15", "2", "False"]
+
+    rows = _runtime_identity_rows({
+        "loops": [
+            {
+                "name": "clob_books",
+                "runtime_code_state": "different",
+                "pid": 123,
+                "consecutive_errors": 0,
+                "last_heartbeat": "2026-06-15T23:00:00+00:00",
+                "process_identity_text": "old",
+                "current_identity_text": "new",
+                "status_path": "data/snapshots/clob_loop_status.json",
+            }
+        ]
+    })
+
+    assert rows[0]["Loop"] == "clob_books"
+    assert rows[0]["Code state"] == "different"
+    assert rows[0]["Running code"] == "old"

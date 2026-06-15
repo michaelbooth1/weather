@@ -6,23 +6,19 @@ import csv
 import hashlib
 import json
 import math
-import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[2]
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from supplemental_stations import (  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.daily_summary import native_bucket, native_high
+from weather.sources.supplemental_stations import (
     DEFAULT_REGISTRY_PATH,
     guard_not_canonical_root,
     load_registry,
     source_root,
     supplemental_sources,
 )
-from weather.paths import REPO_ROOT, relative_to_repo  # noqa: E402
+from weather.paths import REPO_ROOT, relative_to_repo
 
 
 VALIDATION_SCHEMA_VERSION = "supplemental_station_validation_v0.1"
@@ -188,20 +184,14 @@ def daily_value_rows(path):
                 local_date = date.fromisoformat(str(value)[:10])
             except ValueError:
                 continue
-            high = safe_float(
-                row.get("max_temp")
-                or row.get("max_temp_native")
-                or row.get("max_temp_c")
-                or row.get("high")
-            )
+            high = native_high(row)
+            if high is None:
+                high = safe_float(row.get("high"))
             if high is None:
                 continue
-            bucket = safe_float(
-                row.get("max_temp_bucket")
-                or row.get("max_temp_bucket_native")
-                or row.get("max_temp_bucket_c")
-                or row.get("bucket")
-            )
+            bucket = native_bucket(row)
+            if bucket is None:
+                bucket = safe_float(row.get("bucket"))
             rows[local_date] = {
                 "high": high,
                 "bucket": int(bucket) if bucket is not None else round_half_up(high),

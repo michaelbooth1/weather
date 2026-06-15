@@ -186,6 +186,21 @@ class TestBucketAgnosticDeepDive(unittest.TestCase):
         self.assertIn("non-resolution", impact)
         self.assertNotIn("guarantee", impact.lower())
 
+    def test_deep_dive_prefers_native_history_alias(self):
+        sources = self._sources(wu_max=12.0)
+        sources["wu_history"]["data"]["max_native"] = 26.0
+
+        rows = self.model.deep_dive_rows(
+            sources,
+            {24: 0.2, 25: 0.3, 26: 0.5},
+            analogs_data=self.analogs,
+            focus_bucket=26,
+        )
+
+        wu_row = rows[0]
+        self.assertEqual(wu_row["Answer"], "26 C")
+        self.assertIn("Guaranteed floor", wu_row["Impact on 26 C"])
+
 
 if __name__ == "__main__":
     unittest.main()

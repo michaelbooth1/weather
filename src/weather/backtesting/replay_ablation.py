@@ -24,18 +24,13 @@ CLI:
       [--out data/backtest/replay_ablation_report.md]
 """
 import argparse
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (
+from weather.backtesting.backtest import (
     DEFAULT_SNAPSHOTS_ROOT,
     band_value_hi,
     load_daily_summary,
@@ -43,17 +38,17 @@ from backtest import (
     safe_float,
     settlement_for_tape,
 )
-from market_config import date_from_event_slug
-from market_registry import REGISTRY
-from replay import (
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY
+from weather.backtesting.replay import (
     band_model_probability,
     index_records_by_snapshot,
     is_reconstructed,
     load_replay_records,
     replay_distribution,
 )
-from settled_days import folder_market_id
-from toronto_model import TorontoHighTempModel
+from weather.backtesting.settled_days import folder_market_id
+from weather.model.toronto_model import TorontoHighTempModel
 
 DEFAULT_OUT = Path("data") / "backtest" / "replay_ablation_report.md"
 SINGLE_SOURCES = (

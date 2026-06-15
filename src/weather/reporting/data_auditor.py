@@ -1,18 +1,14 @@
 import argparse
-import os
 import csv
 import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_config import config_for_date
-from market_registry import all_specs, spec_for_id
-from daily_summary import (
+from weather.market.market_config import config_for_date
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.model.feature_store import row_temp_native as feature_row_temp_native
+from weather.sources.daily_summary import (
     celsius_high,
     native_high,
     row_count as daily_row_count,
@@ -42,12 +38,10 @@ def _coerce_years(years):
 
 
 def _row_temperature(row, spec):
-    if row.get("temp_native") not in (None, ""):
-        return to_float(row.get("temp_native")), row.get("temperature_unit") or spec.display_unit
-    if row.get("temp_c") not in (None, ""):
-        # Legacy Fahrenheit-market WU rows used ``temp_c`` as the native column.
-        return to_float(row.get("temp_c")), row.get("temperature_unit") or spec.display_unit
-    return None, spec.display_unit
+    value = feature_row_temp_native(row)
+    if value is None:
+        return None, spec.display_unit
+    return value, row.get("temperature_unit") or spec.display_unit
 
 
 def _pressure(row):

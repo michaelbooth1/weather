@@ -53,7 +53,8 @@ def write_test_folder(root):
                 "model_probability": 0.5,
                 "market_yes": 0.5,
                 "market_no": 0.5,
-                "wu_max_since_7am_c": wu_max,
+                "wu_max_since_7am_native": wu_max,
+                "wu_max_since_7am_c": wu_max + 100,
             })
     write_csv(folder / "snapshots_long.csv", rows)
     records = []

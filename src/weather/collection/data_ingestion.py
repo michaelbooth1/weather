@@ -11,14 +11,8 @@ the process incremental and rate‑limit friendly.
 import subprocess
 import sys
 from datetime import datetime
-from pathlib import Path
 
-# Ensure the repository's src directory is on PYTHONPATH
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_registry import all_specs
+from weather.market.market_registry import all_specs
 
 
 def backfill_market(spec, start_date: str, end_date: str):

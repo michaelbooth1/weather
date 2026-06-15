@@ -1,8 +1,6 @@
 import argparse
 import json
 import math
-import os
-import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -11,9 +9,9 @@ import numpy as np
 from scipy.optimize import minimize
 
 
-sys.path.insert(0, os.path.abspath("src"))
 from weather.artifacts import writable_artifact_path
-from toronto_model import INTRADAY_CUTOFF_HOURS, TorontoHighTempModel
+from weather.model.feature_store import row_temp_native
+from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS, TorontoHighTempModel
 
 
 WEIGHT_COMPONENTS = (
@@ -211,12 +209,12 @@ def extract_hourly_records(model):
             ]
             if not obs_before:
                 continue
-            temp_rows = [row for row in obs_before if row.get("temp_c") is not None]
+            temp_rows = [row for row in obs_before if row_temp_native(row) is not None]
             if not temp_rows:
                 continue
-            high_so_far = max(row["temp_c"] for row in temp_rows)
+            high_so_far = max(row_temp_native(row) for row in temp_rows)
             current_obs = obs_before[-1]
-            current_temp = current_obs.get("temp_c")
+            current_temp = row_temp_native(current_obs)
             records_by_hour[hour].append(
                 {
                     "date": local_date,

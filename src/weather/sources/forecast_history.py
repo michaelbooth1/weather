@@ -15,9 +15,8 @@ CLI:
 """
 import argparse
 import csv
-import json
-import sys
 import hashlib
+import json
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -25,13 +24,10 @@ from pathlib import Path
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from model_sources import request_with_retries
-from market_registry import TORONTO, spec_for_id
-from daily_summary import native_to_c
+from weather.market.market_registry import TORONTO, spec_for_id
+from weather.model.feature_store import row_forecast_high_native, row_temp_native
+from weather.model.model_sources import request_with_retries
+from weather.sources.daily_summary import native_to_c
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
@@ -345,10 +341,12 @@ def load_forecast_profiles(path=None, source="open_meteo_historical_forecast"):
                     minute = valid_dt.hour * 60 + valid_dt.minute
                 except ValueError:
                     minute = ""
+            temp_native = row_temp_native(row)
             profiles[target_date].append({
                 "minute_of_day": minute,
                 "time": valid_time,
-                "temp_c": to_float(row.get("target_temp_native") or row.get("target_temp_c")),
+                "temp_native": temp_native,
+                "temp_c": temp_native,
                 "cloud_cover": to_float(row.get("cloud_cover")),
                 "low_cloud": to_float(row.get("low_cloud") or row.get("cloud_cover_low")),
                 "mid_cloud": to_float(row.get("mid_cloud") or row.get("cloud_cover_mid")),
@@ -426,19 +424,16 @@ def fetch_year_forecast(year, spec=TORONTO, timeout=30):
 
 
 def load_forecast_daily(path=DAILY_PATH):
-    """date_iso -> forecast_high_c from the stored layer (empty dict if absent)."""
+    """date_iso -> forecast high in the market's native unit."""
     index = {}
     if not Path(path).exists():
         return index
     with open(path, encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             d = row.get("local_date")
-            v = row.get("forecast_high_c")
-            if d and v not in (None, ""):
-                try:
-                    index[d] = float(v)
-                except ValueError:
-                    continue
+            v = row_forecast_high_native(row)
+            if d and v is not None:
+                index[d] = v
     return index
 
 

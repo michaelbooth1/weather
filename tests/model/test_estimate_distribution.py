@@ -84,6 +84,45 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertLess(below, 0.05)
         self.assertGreater(at_or_above, 0.80)
 
+    def test_estimate_distribution_prefers_native_live_max_aliases(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="nyc")
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "max_native": 91.0,
+                    "max_c": 31.0,
+                    "max_times": ["12:00"],
+                    "rows": [{"time": "12:00", "temp_native": 91.0, "temp_c": 31.0}],
+                },
+            },
+            "wu_current": {
+                "ok": True,
+                "data": {
+                    "temp_native": 89.0,
+                    "temp_c": 29.0,
+                    "max_since_7am_native": 92.0,
+                    "max_since_7am_c": 32.0,
+                },
+            },
+            "eccc_swob": {
+                "ok": True,
+                "data": {"same_day_max_native": 90.0, "same_day_max_c": 30.0},
+            },
+            "metar": {"ok": True, "data": {"temp_native": 88.0, "temp_c": 28.0}},
+            "local_history": {"ok": True, "data": {}},
+            "eccc_citypage": {"ok": True, "data": {}},
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "open_meteo": {"ok": True, "data": {"rows": []}},
+        }
+
+        model.estimate_distribution(sources, now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ))
+
+        context = model._last_probability_calibration_context
+        self.assertEqual(context["wu_history_floor_bucket"], 91)
+        self.assertEqual(context["observed_support_bucket"], 91)
+        self.assertGreaterEqual(context["current_observed_bucket"], 91)
+
     def test_printed_history_floor_is_applied_once(self):
         rows = [
             _wu_row("07:00", 18.0),

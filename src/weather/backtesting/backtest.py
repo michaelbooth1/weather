@@ -25,22 +25,17 @@ import csv
 import json
 import math
 import re
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from feature_store import FEATURE_COLUMNS
-from market_config import date_from_event_slug
-from market_registry import spec_for_slug
-from daily_summary import native_bucket
-from settlement_ledger import (
+from weather.model.feature_store import FEATURE_COLUMNS
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import spec_for_slug
+from weather.sources.daily_summary import native_bucket
+from weather.backtesting.settlement_ledger import (
     ledger_label_for_slug,
     settlement_from_sources as ledger_settlement_from_sources,
 )

@@ -10,21 +10,16 @@ import json
 import math
 import os
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from collection_health import coverage_summary, parse_times  # noqa: E402
-from market_config import date_from_event_slug, polymarket_url_for_slug  # noqa: E402
-from market_registry import all_specs, spec_for_slug  # noqa: E402
-from weather.schema_registry import schema_version  # noqa: E402
+from weather.collection.collection_health import coverage_summary, parse_times
+from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
+from weather.market.market_registry import all_specs, spec_for_slug
+from weather.schema_registry import schema_version
 
 
 LEDGER_SCHEMA_VERSION = schema_version("settlement_ledger")

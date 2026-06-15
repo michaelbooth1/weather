@@ -16,22 +16,19 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
-from daily_summary import native_bucket, native_high, row_count, row_unit  # noqa: E402
-from market_config import config_for_date, date_from_event_slug  # noqa: E402
-from market_registry import all_specs, spec_for_id, spec_for_slug  # noqa: E402
-from supplemental_station_validation import (  # noqa: E402
+from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.market.market_config import config_for_date, date_from_event_slug
+from weather.market.market_registry import all_specs, spec_for_id, spec_for_slug
+from weather.model.feature_store import row_forecast_high_native, row_temp_native
+from weather.sources.daily_summary import native_bucket, native_high, row_count, row_unit
+from weather.sources.supplemental_station_validation import (
     DEFAULT_OUT as DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
     load_validation_report,
     promotion_gate_for_source,
     validation_row_for_source,
 )
-from supplemental_stations import load_registry, source_root, supplemental_sources  # noqa: E402
-from wu_history import parse_date  # noqa: E402
+from weather.sources.supplemental_stations import load_registry, source_root, supplemental_sources
+from weather.sources.wu_history import parse_date
 
 
 SCHEMA_VERSION = "source_redundancy_v0.3"
@@ -587,10 +584,10 @@ def median(values):
 
 
 def forecast_value(row):
-    high = to_float(row.get("forecast_high_c"))
+    high = row_forecast_high_native(row)
     if high is not None:
         return high
-    return to_float(row.get("target_temp_c"))
+    return row_temp_native(row)
 
 
 def forecast_rows_from_folder(folder):

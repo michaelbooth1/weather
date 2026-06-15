@@ -4,7 +4,7 @@ import statistics
 from collections import Counter
 
 from weather.artifacts import resolve_artifact_path
-from feature_store import (
+from weather.model.feature_store import (
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
     NATIVE_NAN_FEATURE_COLUMNS,
@@ -16,9 +16,9 @@ from feature_store import (
     row_wind_direction,
     wind_direction_delta_degrees,
 )
-from forecast_history import load_forecast_daily, daily_path_for
-from feature_probability_calibration import temperature_scale_distribution
-from model_constants import _UNLOADED
+from weather.sources.forecast_history import load_forecast_daily, daily_path_for
+from weather.calibration.feature_probability_calibration import temperature_scale_distribution
+from weather.model.model_constants import _UNLOADED
 
 
 class FeatureModelMixin:
@@ -88,13 +88,13 @@ class FeatureModelMixin:
         exactly that failure.
         """
         values = []
-        day_max = self.to_number(open_meteo.get("day_max_c"))
+        day_max = self.forecast_day_max(open_meteo)
         if day_max is not None:
             values.append(("open_meteo", day_max))
         weather_com = self.max_row_temp(weather_forecast.get("rows"))
         if weather_com is not None:
             values.append(("weather_forecast", weather_com))
-        eccc_high = self.to_number(eccc_city.get("forecast_high_c"))
+        eccc_high = self.row_forecast_high_native(eccc_city)
         if eccc_high is not None:
             values.append(("eccc_citypage", eccc_high))
         if not values:
@@ -115,19 +115,19 @@ class FeatureModelMixin:
         global_ensemble=None,
     ):
         values = []
-        day_max = self.to_number(open_meteo.get("day_max_c"))
+        day_max = self.forecast_day_max(open_meteo)
         if day_max is not None:
             values.append(("open_meteo", day_max))
         weather_com = self.max_row_temp(weather_forecast.get("rows"))
         if weather_com is not None:
             values.append(("weather_forecast", weather_com))
-        eccc_high = self.to_number(eccc_city.get("forecast_high_c"))
+        eccc_high = self.row_forecast_high_native(eccc_city)
         if eccc_high is not None:
             values.append(("eccc_citypage", eccc_high))
-        nws_high = self.to_number((nws_hourly or {}).get("day_max_c"))
+        nws_high = self.forecast_day_max(nws_hourly or {})
         if nws_high is not None:
             values.append(("nws_hourly", nws_high))
-        global_high = self.to_number((global_ensemble or {}).get("day_max_c"))
+        global_high = self.forecast_day_max(global_ensemble or {})
         if global_high is not None:
             values.append(("global_ensemble", global_high))
         if not values:
@@ -177,8 +177,8 @@ class FeatureModelMixin:
         feature_latest = feature_rows[-1] if feature_rows else None
 
         # high_so_far
-        temps = [r["temp_c"] for r in feature_rows if r.get("temp_c") is not None]
-        current_temp = feature_latest.get("temp_c") if feature_latest else current.get("temp_c")
+        temps = [self.row_temp_native(r) for r in feature_rows if self.row_temp_native(r) is not None]
+        current_temp = self.row_temp_native(feature_latest) if feature_latest else self.row_temp_native(current)
         if temps:
             high_so_far = max(temps)
         else:
@@ -186,11 +186,11 @@ class FeatureModelMixin:
 
         # current_temp
         if current_temp is None:
-            current_temp = current.get("temp_c")
+            current_temp = self.row_temp_native(current)
         if current_temp is None and strict:
             return None
         if current_temp is None:
-            current_temp = rows[-1]["temp_c"] if rows else 17.0
+            current_temp = self.row_temp_native(rows[-1]) if rows else 17.0
         high_so_far = self.max_value(high_so_far, current_temp)
         if high_so_far is None and strict:
             return None
@@ -198,11 +198,11 @@ class FeatureModelMixin:
             high_so_far = 17.0 # fallback
 
         # rise_from_7am
-        obs_7am_candidates = [r for r in rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and r.get("temp_c") is not None]
+        obs_7am_candidates = [r for r in rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and self.row_temp_native(r) is not None]
         temp_7am = None
         if obs_7am_candidates:
             closest_7am = min(obs_7am_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - 420))
-            temp_7am = closest_7am["temp_c"]
+            temp_7am = self.row_temp_native(closest_7am)
         if temp_7am is None and strict:
             return None
         if temp_7am is None:
@@ -211,11 +211,11 @@ class FeatureModelMixin:
 
         # warming_rate_2h
         cutoff_minutes = cutoff_hour * 60
-        obs_2h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and r.get("temp_c") is not None]
+        obs_2h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and self.row_temp_native(r) is not None]
         temp_2h_ago = None
         if obs_2h_candidates:
             closest_2h = min(obs_2h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 120)))
-            temp_2h_ago = closest_2h["temp_c"]
+            temp_2h_ago = self.row_temp_native(closest_2h)
         if temp_2h_ago is None:
             temp_2h_ago = current_temp # fallback if no recent data
         warming_rate_2h = current_temp - temp_2h_ago
@@ -223,17 +223,17 @@ class FeatureModelMixin:
         # hours_at_peak
         first_reached_min = None
         for r in feature_rows:
-            if r.get("temp_c") == high_so_far and r.get("time"):
+            if self.row_temp_native(r) == high_so_far and r.get("time"):
                 first_reached_min = self.minute_of_day(r["time"])
                 break
         hours_at_peak = ((cutoff_minutes - first_reached_min) / 60.0) if first_reached_min is not None else 0.0
 
         # dewpoint_c, humidity, pressure
-        dewpoint = feature_latest.get("dewpoint_c") if feature_latest else current.get("dewpoint_c")
+        dewpoint = self.row_dewpoint_native(feature_latest) if feature_latest else self.row_dewpoint_native(current)
         if dewpoint is None and strict:
             return None
         if dewpoint is None:
-            dewpoint = rows[-1]["dewpoint_c"] if rows else 10.0 # fallback
+            dewpoint = self.row_dewpoint_native(rows[-1]) if rows else 10.0 # fallback
         humidity = feature_latest.get("humidity") if feature_latest else current.get("humidity")
         if humidity is None:
             humidity = rows[-1].get("humidity") if rows else 60.0
@@ -310,7 +310,7 @@ class FeatureModelMixin:
             except (AttributeError, TypeError):
                 minutes_since_cutoff = 0.0
         wall_minute = int(cutoff_hour * 60 + minutes_since_cutoff)
-        live_reading = self.to_number(current.get("temp_c"))
+        live_reading = self.row_temp_native(current)
         live_reading_minus_high = (
             live_reading - high_so_far
             if live_reading is not None and high_so_far is not None
@@ -335,7 +335,7 @@ class FeatureModelMixin:
             ),
             "latest_wu_history_minute": latest_wu_history_minute,
             "latest_wu_history_temp": (
-                latest_wu_history_row.get("temp_c") if latest_wu_history_row else None
+                self.row_temp_native(latest_wu_history_row) if latest_wu_history_row else None
             ),
             "high_so_far": high_so_far,
             "current_temp": current_temp,
@@ -548,7 +548,7 @@ class FeatureModelMixin:
 
     def bucket_transition_model(self, sources, now, min_sample_size=5):
         history = self.source_data(sources, "wu_history")
-        observed_bucket = self.round_half_up(history.get("max_c"))
+        observed_bucket = self.round_half_up(self.row_max_native(history))
 
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
@@ -589,7 +589,7 @@ class FeatureModelMixin:
                         minute = row.get("minute_of_day")
                         if minute is None or minute <= cutoff:
                             continue
-                        bucket = self.round_half_up(row.get("temp_c"))
+                        bucket = self.round_half_up(self.row_temp_native(row))
                         if bucket is not None and bucket > observed_bucket:
                             first_update_minutes.append(int(minute))
                             break
@@ -617,7 +617,7 @@ class FeatureModelMixin:
                 continue
             total_warming_days += 1
 
-            temps = [r["temp_c"] for r in warm_rows if r.get("temp_c") is not None]
+            temps = [self.row_temp_native(r) for r in warm_rows if self.row_temp_native(r) is not None]
             if len(temps) < 2:
                 continue
 
@@ -741,7 +741,7 @@ class FeatureModelMixin:
         first_reached_min = None
         first_reached_time = None
         for r in feature_rows:
-            if r.get("temp_c") == high_so_far:
+            if self.row_temp_native(r) == high_so_far:
                 time_str = r.get("time")
                 if time_str:
                     first_reached_time = time_str
@@ -821,8 +821,8 @@ class FeatureModelMixin:
                     range(observed_bucket, observed_bucket + 8),
                     observed_bucket,
                     self.max_row_temp(weather_forecast.get("rows")),
-                    open_meteo.get("day_max_c") or self.max_row_temp(open_meteo.get("rows")),
-                    eccc_city.get("forecast_high_c"),
+                    self.forecast_day_max(open_meteo),
+                    self.row_forecast_high_native(eccc_city),
                     cutoff_hour,
                 )
                 if forecast_component:
@@ -873,7 +873,7 @@ class FeatureModelMixin:
         temp_path = {}
         for hour in range(7, 21):
             target_minute = hour * 60
-            candidates = [row for row in rows if row.get("temp_c") is not None]
+            candidates = [row for row in rows if self.row_temp_native(row) is not None]
             if candidates:
                 closest = min(
                     candidates,
@@ -885,7 +885,7 @@ class FeatureModelMixin:
                     if closest.get("time") else int(closest["minute_of_day"])
                 )
                 temp_path[f"{hour:02d}:00"] = (
-                    closest["temp_c"] if abs(closest_minute - target_minute) <= 60 else None
+                    self.row_temp_native(closest) if abs(closest_minute - target_minute) <= 60 else None
                 )
             else:
                 temp_path[f"{hour:02d}:00"] = None
@@ -939,7 +939,7 @@ class FeatureModelMixin:
             hist_days_features.append({
                 "date": local_date,
                 **h_features,
-                "final_high": daily.get("max_temp_native", daily.get("max_temp_c")),
+                "final_high": self.row_max_native(daily),
                 "final_bucket": daily["bucket"],
                 "observations": day_obs
             })

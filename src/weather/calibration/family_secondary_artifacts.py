@@ -7,22 +7,17 @@ small serving gate so unproven markets fall back to empirical probabilities.
 """
 import argparse
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-import forecast_error_model as forecast_error  # noqa: E402
-import probability_calibration as probability_calibration  # noqa: E402
-import settlement_lag_model as settlement_lag  # noqa: E402
-from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
-from forecast_history import daily_path_for  # noqa: E402
-from location_trust import score_all_markets  # noqa: E402
-from market_registry import all_specs  # noqa: E402
-from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
+from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.calibration import forecast_error_model as forecast_error
+from weather.calibration import probability_calibration as probability_calibration
+from weather.calibration import settlement_lag_model as settlement_lag
+from weather.market.market_registry import all_specs
+from weather.reporting.location_trust import score_all_markets
+from weather.sources.forecast_history import daily_path_for
+from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 SCHEMA_VERSION = "family_secondary_artifacts_v0.1"

@@ -5,7 +5,7 @@ from pathlib import Path
 try:
     from .mm_policy import QUOTE_COLUMNS
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from mm_policy import QUOTE_COLUMNS
+    from weather.market.mm_policy import QUOTE_COLUMNS
 
 SCHEMA_VERSION = "mm_run_v0.2"
 RUN_MODES = {"shadow", "paper-live-forward", "live-pilot"}

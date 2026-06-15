@@ -26,12 +26,21 @@ def _args(tmp, **overrides):
         "roadmap": str(root / "ROADMAP.md"),
         "status_out": str(root / "backtest" / "daily_refresh_status.json"),
         "report_out": str(root / "backtest" / "daily_refresh_report.md"),
+        "long_job_state": str(root / "backtest" / "long_job_guard_status.json"),
+        "long_job_lock": str(root / "backtest" / "long_job_guard.lock"),
+        "long_job_priority": "normal",
+        "disable_long_job_guard": False,
+        "force_long_job_lock": False,
         "dry_run": False,
         "continue_on_error": False,
         "fail_on_fleet_critical": False,
         "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
         "fail_on_snapshot_evaluation": False,
+        "fail_on_shadow_ab_alert": False,
+        "skip_shadow_ab_monitor": False,
+        "ab_current_tol": 0.003,
+        "ab_market_tol": 0.003,
         "skip_ingest_quality_gate": False,
         "ingest_quality_years": "",
         "skip_reanalysis_refresh": False,
@@ -83,6 +92,8 @@ class TestDailyRefresh(unittest.TestCase):
         ])
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(saved["status"], "ok")
+        self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
+        self.assertFalse(saved["config"]["long_job_guard"]["nested"])
         self.assertTrue(report_exists)
 
     def test_run_daily_refresh_stops_on_error_by_default(self):
@@ -145,7 +156,7 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 9)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 10)
 
     def test_fail_on_ingest_quality_marks_run_critical(self):
         def ingest(_args):
@@ -185,6 +196,19 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["snapshot_evaluation"]["status"], "FAIL")
+
+    def test_fail_on_shadow_ab_alert_marks_run_critical(self):
+        def monitor(_args):
+            return {"status": "ALERT", "summary": {"alert_count": 1}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_shadow_ab_alert=True),
+                runners=[("shadow_ab_monitor", monitor)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["shadow_ab_monitor"]["status"], "ALERT")
 
     def test_reanalysis_recent_refresh_fetches_missing_ranges_without_raising(self):
         stores = []

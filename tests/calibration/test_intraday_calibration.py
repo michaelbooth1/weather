@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from intraday_calibration import (
     cap_prior_distribution,
+    extract_hourly_records,
     market_group_distribution,
     weighted_component_dist,
 )
@@ -20,6 +21,42 @@ from toronto_model import TorontoHighTempModel
 
 
 class TestIntradayCalibrationPrimitives(unittest.TestCase):
+    def test_extract_hourly_records_prefers_native_temperature_alias(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="nyc")
+        local_date = date(2026, 5, 29)
+        model.historical_target_cache = lambda: {
+            "daily": {local_date: {"bucket": 91}},
+            "by_date": {
+                local_date: [
+                    {
+                        "minute_of_day": 420,
+                        "temp_native": 80.0,
+                        "temp_c": 26.7,
+                        "wind": "SW",
+                        "condition": "Fair",
+                        "clouds": "Clear",
+                    },
+                    {
+                        "minute_of_day": 720,
+                        "temp_native": 91.0,
+                        "temp_c": 32.8,
+                        "wind": "SW",
+                        "condition": "Fair",
+                        "clouds": "Clear",
+                    },
+                ],
+            },
+            "bucket_space": [90, 91],
+        }
+
+        records_by_hour, _support = extract_hourly_records(model)
+
+        record = records_by_hour[12][0]
+        self.assertEqual(record["high_so_far"], 91.0)
+        self.assertEqual(record["observed_bucket"], 91)
+        self.assertEqual(record["current_temp"], 91.0)
+        self.assertEqual(record["current_bucket"], 91)
+
     def test_weighted_component_dist_normalizes_available_components(self):
         support = [24, 25, 26]
         components = {

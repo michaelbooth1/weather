@@ -13,7 +13,15 @@ sys.path.insert(0, os.path.abspath("src"))
 from historical_backfill_plan import build_plan, split_ranges
 from market_registry import NYC, TORONTO
 from historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
-from forecast_history import daily_issue_rows, historical_forecast_rows, load_forecast_profiles, previous_run_rows, write_csv, RICH_FORECAST_COLUMNS
+from forecast_history import (
+    RICH_FORECAST_COLUMNS,
+    daily_issue_rows,
+    historical_forecast_rows,
+    load_forecast_daily,
+    load_forecast_profiles,
+    previous_run_rows,
+    write_csv,
+)
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
 from supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
@@ -317,6 +325,48 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(profiles["2026-06-11"][0]["minute_of_day"], 720)
         self.assertEqual(profiles["2026-06-11"][0]["low_cloud"], 10.0)
         self.assertEqual(profiles["2026-06-11"][1]["solar"], 800.0)
+
+    def test_forecast_loaders_prefer_native_temperature_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            long_path = Path(tmp) / "forecast_long.csv"
+            daily_path = Path(tmp) / "forecast_daily.csv"
+            with long_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "source",
+                        "target_date",
+                        "valid_time",
+                        "target_temp_native",
+                        "target_temp_c",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "source": "open_meteo_historical_forecast",
+                    "target_date": "2026-06-11",
+                    "valid_time": "2026-06-11T12:00",
+                    "target_temp_native": "84",
+                    "target_temp_c": "28.9",
+                })
+            with daily_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["local_date", "forecast_high_native", "forecast_high_c"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "local_date": "2026-06-11",
+                    "forecast_high_native": "86",
+                    "forecast_high_c": "30",
+                })
+
+            profiles = load_forecast_profiles(long_path)
+            daily = load_forecast_daily(daily_path)
+
+        self.assertEqual(profiles["2026-06-11"][0]["temp_native"], 84.0)
+        self.assertEqual(profiles["2026-06-11"][0]["temp_c"], 84.0)
+        self.assertEqual(daily["2026-06-11"], 86.0)
 
     def test_ghcnh_station_resolves_by_icao(self):
         station = resolve_station(NYC, [

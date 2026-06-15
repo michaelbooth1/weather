@@ -7,7 +7,7 @@ composed ``TorontoHighTempModel`` class.
 import os
 from zoneinfo import ZoneInfo
 
-from market_config import config_for_date
+from weather.market.market_config import config_for_date
 
 
 DEFAULT_MARKET_CONFIG = config_for_date()

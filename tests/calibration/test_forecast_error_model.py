@@ -2,13 +2,17 @@ import os
 import sys
 import unittest
 import math
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from forecast_error_model import (
     build_artifact,
     forecast_error_distribution,
+    forecast_rows_from_daily_archive,
+    forecast_rows_from_snapshot_folders,
     score_component_rows,
     summarize_error_rows,
 )
@@ -65,6 +69,52 @@ class TestForecastErrorModel(unittest.TestCase):
         self.assertAlmostEqual(summary["bias_observed_minus_forecast"], 0.0)
         self.assertAlmostEqual(summary["mae"], 1.0)
         self.assertAlmostEqual(summary["rmse"], 1.0)
+
+    def test_daily_archive_rows_use_native_forecast_high_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecast_daily.csv"
+            path.write_text(
+                "\n".join([
+                    "local_date,forecast_high_native,forecast_high_c",
+                    "2026-06-07,91,33",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            rows = forecast_rows_from_daily_archive(
+                path,
+                {"2026-06-07": {"high_c": 92.0, "bucket": 92, "row_count": 24}},
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["forecast_high_c"], 91.0)
+
+    def test_snapshot_forecast_rows_use_native_temperature_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-toronto-on-june-7-2026"
+            folder.mkdir()
+            (folder / "snapshots_long.csv").write_text(
+                "\n".join([
+                    "event_slug,wu_history_high_c",
+                    f"{folder.name},91",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "forecasts_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,target_date,source,captured_at_local,forecast_high_native,forecast_high_c,target_temp_native,target_temp_c",
+                    "s1,2026-06-07,open_meteo,2026-06-07T12:00:00-04:00,89,33,92,34",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            rows = forecast_rows_from_snapshot_folders(
+                [folder],
+                {"2026-06-07": {"high_c": 92.0, "bucket": 92, "row_count": 24}},
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["forecast_high_c"], 92.0)
 
     def test_distribution_is_normalized_and_respects_wu_floor(self):
         distribution = forecast_error_distribution(

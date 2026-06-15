@@ -8,18 +8,13 @@ import argparse
 import csv
 import io
 import json
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from historical_schema import (  # noqa: E402
+from weather.sources.historical_schema import (
     c_to_native,
     hourly_record,
     quality_counts,
@@ -29,15 +24,15 @@ from historical_schema import (  # noqa: E402
     write_jsonl_partitions,
     write_manifest,
 )
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from supplemental_stations import (  # noqa: E402
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.supplemental_stations import (
     guard_not_canonical_root,
     load_registry,
     provenance_fields,
     source_for_root,
     supplemental_sources,
 )
-from wu_history import get_code_version  # noqa: E402
+from weather.sources.wu_history import get_code_version
 
 
 SOURCE = "noaa_ghcnh"

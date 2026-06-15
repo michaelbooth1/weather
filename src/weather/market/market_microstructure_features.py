@@ -538,12 +538,9 @@ def write_clob_feature_rows(folder, out_name="clob_features_long.csv", jsonl_nam
 
 
 def _load_market_helpers():
-    try:
-        from collection_health import latest_market_folder  # noqa: WPS433
-        from market_registry import REGISTRY, all_specs, spec_for_slug  # noqa: WPS433
-    except ImportError:  # pragma: no cover - package execution fallback
-        from weather.collection.collection_health import latest_market_folder  # noqa: WPS433
-        from weather.market.market_registry import REGISTRY, all_specs, spec_for_slug  # noqa: WPS433
+    from weather.collection.collection_health import latest_market_folder  # noqa: WPS433
+    from weather.market.market_registry import REGISTRY, all_specs, spec_for_slug  # noqa: WPS433
+
     return latest_market_folder, REGISTRY, all_specs, spec_for_slug
 
 

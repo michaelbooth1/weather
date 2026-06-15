@@ -1,11 +1,14 @@
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from settlement_lag_model import (
     build_artifact,
+    rows_from_snapshot_folders,
     rows_from_metar_history,
     settlement_catchup_probability,
 )
@@ -36,6 +39,49 @@ class TestSettlementLagModel(unittest.TestCase):
         self.assertTrue(revision_rows)
         self.assertEqual(lead_rows[0]["source"], "metar")
         self.assertEqual(lead_rows[0]["caught_up"], 1)
+
+    def test_metar_history_rows_use_native_temperature_aliases(self):
+        wu_rows = {
+            "2020-05-27": [
+                {"minute_of_day": 480, "target_temp_native": 70.0, "temp_c": 20.0},
+            ]
+        }
+        metar_rows = {
+            "2020-05-27": [
+                {"minute_of_day": 480, "temperature_native": 72.0, "temp_c": 21.0},
+            ]
+        }
+        daily = {"2020-05-27": {"bucket": 72, "row_count": 24}}
+
+        rows = rows_from_metar_history(wu_rows, metar_rows, daily)
+        lead_rows = [row for row in rows if row["row_kind"] == "lead"]
+
+        self.assertTrue(lead_rows)
+        self.assertEqual(lead_rows[0]["source_bucket"], 72)
+        self.assertEqual(lead_rows[0]["wu_floor_bucket"], 70)
+
+    def test_snapshot_folder_rows_use_native_snapshot_source_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-toronto-on-june-7-2026"
+            folder.mkdir()
+            (folder / "snapshots_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,event_slug,captured_at_local,wu_history_high_native,wu_history_high_c,eccc_swob_max_native,eccc_swob_max_c,wu_max_since_7am_native,wu_max_since_7am_c",
+                    f"s1,{folder.name},2026-06-07T14:00:00-04:00,91,33,94,34,93,33",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            rows = rows_from_snapshot_folders(
+                [folder],
+                {"2026-06-07": {"bucket": 94, "row_count": 24}},
+            )
+
+        lead_rows = {row["source"]: row for row in rows if row["row_kind"] == "lead"}
+        self.assertEqual(lead_rows["eccc_swob"]["source_bucket"], 94)
+        self.assertEqual(lead_rows["eccc_swob"]["wu_floor_bucket"], 91)
+        self.assertEqual(lead_rows["weather_current"]["source_bucket"], 93)
+        self.assertEqual(lead_rows["weather_current"]["wu_floor_bucket"], 91)
 
     def test_catchup_probability_uses_context_fallbacks(self):
         artifact = build_artifact([

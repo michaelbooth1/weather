@@ -17,21 +17,37 @@ try:
         build_forecast_rows,
     )
     from ..market.market_config import config_for_date, config_from_event
-    from ..model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
+    from ..model.feature_store import (
+        FEATURE_AUDIT_COLUMNS,
+        audit_row,
+        row_forecast_high_native,
+        row_max_native,
+        row_max_since_7am_native,
+        row_same_day_max_native,
+        row_temp_native,
+    )
     from ..model.model_identity import model_replay_identity
     from ..model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
     from ..operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from forecast_archive import (
+    from weather.collection.forecast_archive import (
         FORECAST_COLUMNS,
         append_rows as append_forecast_rows,
         build_forecast_rows,
     )
-    from feature_store import FEATURE_AUDIT_COLUMNS, audit_row
-    from market_config import config_for_date, config_from_event
-    from model_identity import model_replay_identity
-    from runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
-    from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+    from weather.market.market_config import config_for_date, config_from_event
+    from weather.model.feature_store import (
+        FEATURE_AUDIT_COLUMNS,
+        audit_row,
+        row_forecast_high_native,
+        row_max_native,
+        row_max_since_7am_native,
+        row_same_day_max_native,
+        row_temp_native,
+    )
+    from weather.model.model_identity import model_replay_identity
+    from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+    from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()
@@ -478,10 +494,10 @@ class SnapshotStore:
             global_ensemble=global_ensemble,
         )
         return {
-            "wu_history_high_c": history.get("max_c"),
-            "wu_current_c": current.get("temp_c"),
-            "wu_max_since_7am_c": current.get("max_since_7am_c"),
-            "eccc_swob_max_c": eccc.get("same_day_max_c"),
+            "wu_history_high_c": row_max_native(history),
+            "wu_current_c": row_temp_native(current),
+            "wu_max_since_7am_c": row_max_since_7am_native(current),
+            "eccc_swob_max_c": row_same_day_max_native(eccc),
             "weather_forecast_max_c": model_client.max_row_temp(
                 weather_forecast.get("rows")
             ),
@@ -490,7 +506,7 @@ class SnapshotStore:
             "global_ensemble_max_c": model_client.max_row_temp(global_ensemble.get("rows")),
             "forecast_source_count": forecast_ensemble.get("forecast_source_count"),
             "forecast_disagreement": forecast_ensemble.get("forecast_disagreement"),
-            "eccc_forecast_high_c": eccc_city.get("forecast_high_c"),
+            "eccc_forecast_high_c": row_forecast_high_native(eccc_city),
         }
 
     def source_status_rows(self, sources, model_client, snapshot_id, captured_at, model_version):

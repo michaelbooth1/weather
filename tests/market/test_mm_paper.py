@@ -159,6 +159,61 @@ def write_run_fixture(root):
     return runs_root, run_folder
 
 
+def write_minimal_run(root, run_id, schema_version, target_date, gate_counts=True):
+    runs_root = root / "mm_runs"
+    run_folder = runs_root / target_date / run_id
+    run_folder.mkdir(parents=True)
+    run_config = {
+        "run_id": run_id,
+        "mode": "paper-live-forward",
+        "target_date": target_date,
+        "policy_hash": f"policy-{run_id}",
+        "schema_version": schema_version,
+    }
+    (run_folder / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+    summary = {
+        "schema_version": schema_version,
+        "run_id": run_id,
+        "mode": "paper-live-forward",
+        "target_date": target_date,
+        "policy_hash": f"policy-{run_id}",
+        "preflight_status": "PASS" if gate_counts else "STALE",
+        "preflight_remediation": {
+            "counts_toward_live_forward_gate": gate_counts,
+        },
+    }
+    (run_folder / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    quote_row = {
+        "run_id": run_id,
+        "target_date": target_date,
+        "run_mode": "paper-live-forward",
+        "generated_at_utc": f"{target_date}T16:00:00+00:00",
+        "captured_at_utc": f"{target_date}T15:59:30+00:00",
+        "policy_hash": f"policy-{run_id}",
+        "quote_permission": "True",
+        "market_id": "atlanta",
+        "event_slug": EVENT,
+        "range_label": "80-81 F",
+        "bin_kind": "eq",
+        "bin_value": "80",
+        "bin_value_hi": "81",
+        "clob_token_id": f"token-{run_id}",
+        "fair_probability": "0.50",
+        "market_mid": "0.50",
+        "bid_price": "0.49",
+        "bid_size": "5",
+        "ask_price": "0.51",
+        "ask_size": "5",
+        "regime": "harvest",
+        "source_fresh": "True",
+        "book_imbalance_1pct": "0.10",
+        "min_order_size": "1",
+        "reason_code": "QUOTE_HARVEST_MID",
+    }
+    write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
+    return runs_root, run_folder
+
+
 def write_snapshot_fixture(root):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / EVENT
@@ -385,6 +440,30 @@ class TestMMPaper(unittest.TestCase):
                 known_edge["active_model_gap_cells"][0]["source_freshness_state"],
                 "failed:wu_history",
             )
+
+    def test_incompatible_schema_is_quarantined_and_non_countable_run_does_not_lock_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, _old_run = write_minimal_run(root, "old-v1", "mm_run_v0.1", TARGET_DATE)
+            _runs_root, current_run = write_minimal_run(root, "current-v2", "mm_run_v0.2", "2026-06-15", gate_counts=False)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[runs_root / TARGET_DATE / "old-v1", current_run],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-15T17:00:00+00:00",
+            )
+
+            self.assertEqual(payload["summary"]["candidate_run_folders"], 2)
+            self.assertEqual(payload["summary"]["excluded_run_folders"], 1)
+            self.assertEqual(payload["summary"]["run_folders"], 1)
+            self.assertEqual(payload["summary"]["quote_rows"], 1)
+            self.assertEqual(payload["excluded_run_folders"][0]["schema_version"], "mm_run_v0.1")
+            self.assertEqual(payload["summary"]["anti_overfit"]["live_forward_days"], [])
+            current_key = str(current_run)
+            self.assertFalse(payload["run_folder_eligibility"][current_key]["live_forward_gate_counts"])
 
 
 if __name__ == "__main__":

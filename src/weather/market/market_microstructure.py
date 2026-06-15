@@ -13,17 +13,13 @@ from pathlib import Path
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_config import config_from_event, config_for_date  # noqa: E402
-from market_microstructure_features import write_clob_feature_rows  # noqa: E402
-from market_registry import all_specs, spec_for_id  # noqa: E402
-from model_sources import request_with_retries  # noqa: E402
-from polymarket_client import PolymarketClient  # noqa: E402
-from runtime_identity import get_runtime_identity  # noqa: E402
-from weather.paths import REPO_ROOT  # noqa: E402
+from weather.market.market_config import config_from_event, config_for_date
+from weather.market.market_microstructure_features import write_clob_feature_rows
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.market.polymarket_client import PolymarketClient
+from weather.model.model_sources import request_with_retries
+from weather.operations.runtime_identity import get_runtime_identity
+from weather.paths import REPO_ROOT
 
 
 
@@ -85,7 +81,7 @@ try:
         ws_summary_rows,
     )
 except ImportError:  # pragma: no cover - direct src compatibility
-    from market_microstructure_constants import (  # noqa: E402
+    from weather.market.market_microstructure_constants import (  # noqa: E402
         BOOK_LEVEL_COLUMNS,
         BOOK_SUMMARY_COLUMNS,
         CLOB_BASE_URL,
@@ -113,7 +109,7 @@ except ImportError:  # pragma: no cover - direct src compatibility
         TOKEN_COLUMNS,
         WS_EVENT_COLUMNS,
     )
-    from market_microstructure_capture import (  # noqa: E402
+    from weather.market.market_microstructure_capture import (  # noqa: E402
         ClobClient,
         MarketMicrostructureStore,
         capture_event_books,
@@ -161,10 +157,17 @@ def read_clob_loop_status(path=None):
 def write_clob_loop_status(status, path=None):
     path = Path(path or CLOB_LOOP_STATUS_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(status, handle, indent=2, sort_keys=True, default=str)
-    tmp.replace(path)
+    for attempt in range(20):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
 
 
 def append_clob_diagnostic(record, path=None):

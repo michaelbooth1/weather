@@ -331,6 +331,28 @@ class TestReconstruction(unittest.TestCase):
         self.assertEqual(feats["forecast_high"], 26.0)
         self.assertAlmostEqual(feats["forecast_gap"], 2.0)
 
+    def test_reconstructed_sources_emit_native_aliases(self):
+        sources = reconstruct_sources(self._snapshot(), NOW.date())
+
+        history = sources["wu_history"]["data"]
+        current = sources["wu_current"]["data"]
+        swob = sources["eccc_swob"]["data"]
+        citypage = sources["eccc_citypage"]["data"]
+        weather_row = sources["weather_forecast"]["data"]["rows"][0]
+        open_meteo = sources["open_meteo"]["data"]
+
+        self.assertEqual(history["max_native"], 24.0)
+        self.assertEqual(history["max_c"], 24.0)
+        self.assertEqual(history["latest"]["temp_native"], 22.0)
+        self.assertEqual(history["latest"]["temp_c"], 22.0)
+        self.assertEqual(current["temp_native"], 22.0)
+        self.assertEqual(current["max_since_7am_native"], 24.0)
+        self.assertEqual(swob["same_day_max_native"], 24.2)
+        self.assertEqual(citypage["forecast_high_native"], 26.0)
+        self.assertEqual(weather_row["temp_native"], 25.0)
+        self.assertEqual(weather_row["temp_c"], 25.0)
+        self.assertEqual(open_meteo["day_max_native"], 26.0)
+
     def test_reconstruction_uses_snapshot_market(self):
         # An Austin snapshot must reconstruct with the Austin model (its own
         # climatology/data root), not Toronto's.

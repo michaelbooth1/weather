@@ -16,32 +16,27 @@ baselines, then writes a lightweight JSON artifact consumed by live inference.
 import argparse
 import json
 import math
-import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (  # noqa: E402
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
+    backtest_tape,
     binary_log_loss,
     brier,
     load_market_day_label,
     parse_snapshot_time,
     safe_float,
     settlement_for_tape,
-    backtest_tape,
 )
-from market_config import date_from_event_slug  # noqa: E402
-from market_registry import REGISTRY, spec_for_id  # noqa: E402
-from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
-from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
+from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_id
+from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("probability_calibration.json")
@@ -315,15 +310,23 @@ def load_probability_calibration(path=DEFAULT_ARTIFACT_PATH):
         return None
 
 
+def snapshot_value(row, *columns):
+    for column in columns:
+        value = safe_float(row.get(column))
+        if value is not None:
+            return value
+    return None
+
+
 def row_floor_bucket(row):
-    return round_half_up(row.get("wu_history_high_c"))
+    return round_half_up(snapshot_value(row, "wu_history_high_native", "wu_history_high_c"))
 
 
 def row_observed_support_bucket(row):
     values = [
-        row.get("wu_history_high_c"),
-        row.get("wu_current_c"),
-        row.get("eccc_swob_max_c"),
+        snapshot_value(row, "wu_history_high_native", "wu_history_high_c"),
+        snapshot_value(row, "wu_current_native", "wu_current_c"),
+        snapshot_value(row, "eccc_swob_max_native", "eccc_swob_max_c"),
     ]
     numeric = []
     for value in values:
@@ -355,7 +358,7 @@ def prepare_training_row(row):
 def read_scored_rows(folders, daily_summary_path=DEFAULT_DAILY_SUMMARY, overrides=None):
     daily_index = {}
     if daily_summary_path and Path(daily_summary_path).exists():
-        from backtest import load_daily_summary
+        from weather.backtesting.backtest import load_daily_summary
         daily_index = load_daily_summary(daily_summary_path)
     rows = []
     overrides = overrides or {}
@@ -375,7 +378,16 @@ def read_scored_rows(folders, daily_summary_path=DEFAULT_DAILY_SUMMARY, override
         }
         for scored_row in scored:
             source_row = by_order.get(scored_row.get("row_order"), {})
-            scored_row["wu_history_high_c"] = safe_float(source_row.get("wu_history_high_c"))
+            for column in (
+                "wu_history_high_native",
+                "wu_history_high_c",
+                "wu_current_native",
+                "wu_current_c",
+                "eccc_swob_max_native",
+                "eccc_swob_max_c",
+            ):
+                if column in source_row:
+                    scored_row[column] = safe_float(source_row.get(column))
             rows.append(prepare_training_row(scored_row))
     return rows
 

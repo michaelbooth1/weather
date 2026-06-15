@@ -8,7 +8,7 @@ from pathlib import Path
 try:
     from ..backtesting.backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
+    from weather.backtesting.backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
 
 def _fmt_delta(value):
     return fmt_signed(value, 4)

@@ -23,12 +23,12 @@ from pathlib import Path
 try:
     from .mm_policy import bool_value, maybe_float, parse_time
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from mm_policy import bool_value, maybe_float, parse_time
+    from weather.market.mm_policy import bool_value, maybe_float, parse_time
 
 try:
     from ..backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from settlement_ledger import ledger_label_for_slug, resolve_outcome
+    from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 
 
 
@@ -51,7 +51,7 @@ try:
         SCHEMA_VERSION,
     )
 except ImportError:  # pragma: no cover - direct src compatibility
-    from mm_paper_constants import (  # noqa: E402
+    from weather.market.mm_paper_constants import (  # noqa: E402
         DEFAULT_BACKTEST_ROOT,
         DEFAULT_CASEBOOK,
         DEFAULT_CONFIG,
@@ -247,6 +247,49 @@ def discover_run_folders(runs_root=DEFAULT_RUNS_ROOT, run_folders=None):
     )
 
 
+COMPATIBLE_RUN_SCHEMA_VERSIONS = {"mm_run_v0.2"}
+
+
+def run_folder_eligibility(folder):
+    folder = Path(folder)
+    summary = read_json(folder / "run_summary.json", {}) or {}
+    run_config = read_json(folder / "run_config.json", {}) or {}
+    schema_version = summary.get("schema_version") or run_config.get("schema_version")
+    reasons = []
+    if schema_version and schema_version not in COMPATIBLE_RUN_SCHEMA_VERSIONS:
+        reasons.append(f"incompatible_schema:{schema_version}")
+    remediation = summary.get("preflight_remediation")
+    if remediation is None:
+        remediation = read_json(folder / "preflight_remediation.json", {}) or {}
+    counts_toward_gate = None
+    if remediation:
+        counts_toward_gate = bool_value(remediation.get("counts_toward_live_forward_gate"), False)
+    elif summary.get("preflight_status"):
+        counts_toward_gate = summary.get("preflight_status") == "PASS"
+    return {
+        "run_folder": str(folder),
+        "schema_version": schema_version or "unknown",
+        "scoreable": not reasons,
+        "live_forward_gate_counts": bool(counts_toward_gate) if counts_toward_gate is not None else True,
+        "non_scoreable_reasons": reasons,
+        "preflight_status": summary.get("preflight_status"),
+        "remediation_counts_toward_live_forward_gate": counts_toward_gate,
+        "policy_hash": summary.get("policy_hash") or run_config.get("policy_hash"),
+        "run_id": summary.get("run_id") or run_config.get("run_id") or folder.name,
+    }
+
+
+def split_run_folders_by_eligibility(run_folders):
+    eligibility = {str(Path(folder)): run_folder_eligibility(folder) for folder in run_folders}
+    scoreable = [Path(folder) for folder in run_folders if eligibility[str(Path(folder))]["scoreable"]]
+    excluded = [
+        item
+        for item in eligibility.values()
+        if not item.get("scoreable")
+    ]
+    return scoreable, eligibility, excluded
+
+
 def quote_id(row, index):
     digest = hashlib.sha1(
         "|".join([
@@ -261,19 +304,23 @@ def quote_id(row, index):
     return f"quote_{digest}"
 
 
-def load_quote_rows(run_folders):
+def load_quote_rows(run_folders, eligibility_by_folder=None):
     rows = []
     run_configs = {}
+    eligibility_by_folder = eligibility_by_folder or {}
     for folder in run_folders:
         folder = Path(folder)
         run_config = read_json(folder / "run_config.json", {}) or {}
         run_configs[str(folder)] = run_config
+        eligibility = eligibility_by_folder.get(str(folder)) or run_folder_eligibility(folder)
         for index, row in enumerate(read_csv_rows(folder / "quote_intents_long.csv")):
             row = dict(row)
             row["_run_folder"] = str(folder)
             row["_quote_row_index"] = index
             row["_quote_id"] = quote_id(row, index)
             row["_run_config"] = run_config
+            row["_run_schema_version"] = eligibility.get("schema_version")
+            row["_run_live_forward_gate_counts"] = eligibility.get("live_forward_gate_counts", True)
             rows.append(row)
     return rows, run_configs
 
@@ -1061,7 +1108,11 @@ def anti_overfit_summary(quote_rows, run_configs):
         "live_forward_days": [
             day for day in run_days
             if any(
-                (row.get("target_date") == day and (row.get("run_mode") or (row.get("_run_config") or {}).get("mode")) == "paper-live-forward")
+                (
+                    row.get("target_date") == day
+                    and (row.get("run_mode") or (row.get("_run_config") or {}).get("mode")) == "paper-live-forward"
+                    and bool_value(row.get("_run_live_forward_gate_counts"), True)
+                )
                 for row in quote_rows
             )
         ],
@@ -1125,8 +1176,9 @@ def build_paper_payload(
     ledger_root=None,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
-    run_folders = discover_run_folders(runs_root, run_folders=run_folders)
-    quote_rows, run_configs = load_quote_rows(run_folders)
+    candidate_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
+    run_folders, eligibility_by_folder, excluded_run_folders = split_run_folders_by_eligibility(candidate_run_folders)
+    quote_rows, run_configs = load_quote_rows(run_folders, eligibility_by_folder=eligibility_by_folder)
     legs = quote_legs(quote_rows, config)
     casebook_index = load_casebook_index(casebook_path)
     fill_rows, queue_rows, diagnostics, leg_fill_sizes = simulate_conservative_fills(
@@ -1141,6 +1193,8 @@ def build_paper_payload(
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     summary = {
         "run_folders": len(run_folders),
+        "candidate_run_folders": len(candidate_run_folders),
+        "excluded_run_folders": len(excluded_run_folders),
         "quote_rows": len(quote_rows),
         "quote_legs": len(legs),
         "conservative_fills": len(fill_rows),
@@ -1172,6 +1226,8 @@ def build_paper_payload(
         "summary": summary,
         "event_diagnostics": diagnostics,
         "run_configs": run_configs,
+        "run_folder_eligibility": eligibility_by_folder,
+        "excluded_run_folders": excluded_run_folders,
         "markout_slices": slices,
         "queue_companion": queue_rows,
         "fills": fill_rows,
@@ -1192,7 +1248,7 @@ try:
         source_freshness_gap_records,
     )
 except ImportError:  # pragma: no cover - direct src compatibility
-    from mm_paper_reports import (  # noqa: E402
+    from weather.market.mm_paper_reports import (  # noqa: E402
         build_known_edge_map,
         fmt_num,
         load_promotion_records,

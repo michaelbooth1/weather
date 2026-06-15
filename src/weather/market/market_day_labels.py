@@ -1,13 +1,9 @@
 """CLI wrapper for settlement-ledger finalization."""
 import argparse
-import sys
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from settlement_ledger import (  # noqa: E402
+from weather.backtesting.settled_days import discover_settled_folders
+from weather.backtesting.settlement_ledger import (
     DEFAULT_LABELS_CSV,
     DEFAULT_LEDGER_ROOT,
     LABEL_COLUMNS,
@@ -18,7 +14,6 @@ from settlement_ledger import (  # noqa: E402
     quality_reason,
     write_labels_csv,
 )
-from settled_days import discover_settled_folders  # noqa: E402
 
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"

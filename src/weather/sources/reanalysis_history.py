@@ -2,18 +2,13 @@
 import argparse
 import csv
 import json
-import sys
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from historical_schema import (  # noqa: E402
+from weather.sources.historical_schema import (
     hourly_record,
     quality_counts,
     summarize_daily,
@@ -22,8 +17,8 @@ from historical_schema import (  # noqa: E402
     write_jsonl_partitions,
     write_manifest,
 )
-from market_registry import spec_for_id  # noqa: E402
-from wu_history import get_code_version, parse_date  # noqa: E402
+from weather.market.market_registry import spec_for_id
+from weather.sources.wu_history import get_code_version, parse_date
 
 
 SOURCE = "open_meteo_era5_reanalysis"

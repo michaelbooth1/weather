@@ -28,8 +28,14 @@ from weather.reporting import data_auditor
 from weather.reporting import fleet_observability
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
 from weather.market.market_registry import all_specs
+from weather.operations.long_job_guard import (
+    DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
+    DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
+    long_job_guard,
+)
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.schema_registry import schema_version
 
@@ -46,6 +52,7 @@ STEP_ORDER = (
     "ingest_quality_gate",
     "market_day_labels_finalize",
     "promotion_refresh",
+    "shadow_ab_monitor",
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
@@ -379,6 +386,25 @@ def run_promotion_refresh_step(args):
     }
 
 
+def run_shadow_ab_monitor_step(args):
+    if getattr(args, "skip_shadow_ab_monitor", False):
+        return {"status": "SKIPPED", "reason": "skip_shadow_ab_monitor"}
+    payload = shadow_ab_monitor.build_monitor(
+        promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
+        candidate_replay=backtest_path(args, "pooled_candidate_replay_latest.json"),
+        current_tol=getattr(args, "ab_current_tol", 0.003),
+        market_tol=getattr(args, "ab_market_tol", 0.003),
+    )
+    json_out = shadow_ab_monitor.write_json(backtest_path(args, "shadow_ab_monitor.json"), payload)
+    report_out = shadow_ab_monitor.write_report(backtest_path(args, "shadow_ab_monitor_report.md"), payload)
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "summary": payload.get("summary") or {},
+    }
+
+
 def run_progress_audit_step(args):
     payload = progress_audit.build_audit(
         backtest_root=args.backtest_root,
@@ -521,6 +547,7 @@ DEFAULT_RUNNERS = (
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("promotion_refresh", run_promotion_refresh_step),
+    ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
@@ -556,6 +583,7 @@ def pipeline_summary(steps):
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
+    shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
@@ -580,6 +608,10 @@ def pipeline_summary(steps):
             "promote_markets": promotion.get("promote_markets") or [],
             "shadow_markets": promotion.get("shadow_markets") or [],
             "blocked_markets": promotion.get("blocked_markets") or [],
+        },
+        "shadow_ab_monitor": {
+            "status": shadow_ab.get("status"),
+            "summary": shadow_ab.get("summary") or {},
         },
         "progress_answer": progress.get("answer"),
         "casebook": {
@@ -648,6 +680,8 @@ def render_report(payload):
                 f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
                 f"actions {result.get('action_counts')}"
             )
+        elif step.get("name") == "shadow_ab_monitor":
+            detail = f"{result.get('status')} {result.get('summary')}"
         elif step.get("name") == "progress_audit":
             detail = result.get("answer") or "-"
         elif step.get("name") == "disagreement_casebook":
@@ -693,6 +727,22 @@ def write_report(path, payload):
 
 
 def run_daily_refresh(args, runners=None):
+    guard_enabled = (
+        not getattr(args, "dry_run", False)
+        and not getattr(args, "disable_long_job_guard", False)
+    )
+    with long_job_guard(
+        "daily_refresh",
+        state_path=getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+        lock_path=getattr(args, "long_job_lock", DEFAULT_LONG_JOB_LOCK_PATH),
+        priority=getattr(args, "long_job_priority", "below_normal"),
+        enabled=guard_enabled,
+        force_lock=getattr(args, "force_long_job_lock", False),
+    ) as guard:
+        return _run_daily_refresh_guarded(args, runners=runners, long_job_guard_info=guard)
+
+
+def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
     runners = list(runners or DEFAULT_RUNNERS)
@@ -711,6 +761,7 @@ def run_daily_refresh(args, runners=None):
             "backtest_root": args.backtest_root,
             "roadmap": args.roadmap,
             "continue_on_error": args.continue_on_error,
+            "long_job_guard": long_job_guard_info or {},
         },
     }
     if args.dry_run:
@@ -757,6 +808,11 @@ def run_daily_refresh(args, runners=None):
             evaluation_status = ((evaluation_step.get("result") or {}).get("status"))
             if evaluation_status == "FAIL" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        if getattr(args, "fail_on_shadow_ab_alert", False):
+            shadow_step = next((step for step in payload["steps"] if step.get("name") == "shadow_ab_monitor"), {})
+            shadow_status = ((shadow_step.get("result") or {}).get("status"))
+            if shadow_status == "ALERT" and payload["status"] == "ok":
+                payload["status"] = "critical"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
@@ -788,12 +844,21 @@ def build_run_parser(parser):
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     parser.add_argument("--lock-path", default=str(DEFAULT_LOCK_PATH))
     parser.add_argument("--force-lock", action="store_true")
+    parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
+    parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
+    parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
+    parser.add_argument("--disable-long-job-guard", action="store_true")
+    parser.add_argument("--force-long-job-lock", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
     parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
+    parser.add_argument("--fail-on-shadow-ab-alert", action="store_true")
+    parser.add_argument("--skip-shadow-ab-monitor", action="store_true")
+    parser.add_argument("--ab-current-tol", type=float, default=0.003)
+    parser.add_argument("--ab-market-tol", type=float, default=0.003)
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--include-reconstructed", action="store_true")

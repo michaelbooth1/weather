@@ -34,16 +34,16 @@ try:
         utc_now,
     )
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from market_config import ensure_date
-    from market_making_run_constants import (
+    from weather.market.market_config import ensure_date
+    from weather.market.market_making_run_constants import (
         DEFAULT_QUOTE_TTL_SECONDS,
         RUN_MODES,
         SCHEMA_VERSION,
     )
-    from market_microstructure import audit_book_tape
-    from market_microstructure_features import snapshot_band_key
-    from market_registry import all_specs, spec_for_id
-    from mm_policy import (
+    from weather.market.market_microstructure import audit_book_tape
+    from weather.market.market_microstructure_features import snapshot_band_key
+    from weather.market.market_registry import all_specs, spec_for_id
+    from weather.market.mm_policy import (
         DEFAULT_POLICY_CONFIG,
         POLICY_VERSION,
         apply_known_edge_permission,

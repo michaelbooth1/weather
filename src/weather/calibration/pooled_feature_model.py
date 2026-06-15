@@ -9,7 +9,6 @@ import argparse
 import json
 import math
 import pickle
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -19,17 +18,13 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import binary_log_loss, brier, fmt_num, markdown_table
-from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_historical_feature_record
-from forecast_history import daily_path_for, load_forecast_daily, load_forecast_profiles, long_path_for
-from market_registry import all_specs
-from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
-from model_constants import INTRADAY_CUTOFF_HOURS
-from source_redundancy import (
+from weather.backtesting.backtest import binary_log_loss, brier, fmt_num, markdown_table
+from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
+from weather.market.market_registry import all_specs
+from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_historical_feature_record
+from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
+from weather.model.toronto_model import TorontoHighTempModel
+from weather.reporting.source_redundancy import (
     FALLBACK_ORDER,
     PRIMARY_SOURCE,
     SUPPLEMENTAL_FEATURE_FAMILY,
@@ -37,7 +32,7 @@ from source_redundancy import (
     bias_stats_for_source,
     source_daily_indexes,
 )
-from toronto_model import TorontoHighTempModel
+from weather.sources.forecast_history import daily_path_for, load_forecast_daily, load_forecast_profiles, long_path_for
 from weather.artifacts import writable_artifact_path
 
 DEFAULT_REPORT = Path("data") / "backtest" / "f_family_pooled_model_report.md"

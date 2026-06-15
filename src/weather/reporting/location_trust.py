@@ -25,16 +25,11 @@ CLI:
 """
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     backtest_tape,
@@ -45,9 +40,9 @@ from backtest import (
     settlement_for_tape,
     winner_band_catchup,
 )
-from market_config import date_from_event_slug
-from market_registry import all_specs, spec_for_slug
-from settled_days import discover_settled_folders
+from weather.backtesting.settled_days import discover_settled_folders
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import all_specs, spec_for_slug
 
 # Tunables (documented so the score is explainable).
 K_MATURITY = 8       # settled days for the maturity term to reach 0.5

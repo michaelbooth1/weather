@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from data_layer_audit import (  # noqa: E402
     build_recommendations,
     build_gates,
+    daily_value_rows_from_csv,
     nearby_history_audit,
     scan_snapshot_csv,
     source_status_summary_for_folder,
@@ -57,6 +58,38 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(scanned["row_count"], 2)
         self.assertEqual(scanned["nonempty"]["best_bid"], 1)
         self.assertEqual(scanned["rows_with_market_token_ids"], 1)
+
+    def test_daily_value_rows_from_csv_prefers_native_temperature_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily_summary.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "local_date",
+                        "max_temp_native",
+                        "max_temp",
+                        "max_temp_c",
+                        "max_temp_bucket_native",
+                        "max_temp_bucket",
+                        "max_temp_bucket_c",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "local_date": "2026-06-07",
+                    "max_temp_native": "91",
+                    "max_temp": "88",
+                    "max_temp_c": "33",
+                    "max_temp_bucket_native": "91",
+                    "max_temp_bucket": "88",
+                    "max_temp_bucket_c": "33",
+                })
+
+            rows = daily_value_rows_from_csv(path)
+
+        self.assertEqual(rows[date(2026, 6, 7)]["high"], 91.0)
+        self.assertEqual(rows[date(2026, 6, 7)]["bucket"], 91)
 
     def test_recommendations_prioritize_microstructure_and_cadence(self):
         recs = build_recommendations(

@@ -18,11 +18,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (
+from weather.backtesting.backtest import (
     expected_calibration_error,
     fmt_num,
     fmt_pct,
@@ -31,15 +27,15 @@ from backtest import (
     markdown_table,
     score_rows,
 )
-from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
-from location_trust import score_all_markets
-from market_microstructure_features import (
+from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, row_temp_native
+from weather.reporting.location_trust import score_all_markets
+from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
     feature_index_for_folder,
     snapshot_band_key,
 )
-from market_registry import REGISTRY
-from pooled_feature_model import (
+from weather.market.market_registry import REGISTRY
+from weather.calibration.pooled_feature_model import (
     DEFAULT_BAND_ARTIFACT,
     add_city_features,
     band_prediction_record,
@@ -48,13 +44,29 @@ from pooled_feature_model import (
     predict_band_rows_for_bundle,
     predict_rows,
 )
-from promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS, entry_for_folder, folders_from_manifest, load_manifest
-from replay import index_records_by_snapshot, is_reconstructed, load_replay_records, parse_built_at, record_target_date
-from replay import source_freshness_group
-from replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
-from settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
-from toronto_model import TorontoHighTempModel
+from weather.reporting.promotion_corpus import (
+    DEFAULT_OUT as DEFAULT_CORPUS,
+    entry_for_folder,
+    folders_from_manifest,
+    load_manifest,
+)
+from weather.backtesting.replay import (
+    index_records_by_snapshot,
+    is_reconstructed,
+    load_replay_records,
+    parse_built_at,
+    record_target_date,
+    source_freshness_group,
+)
+from weather.backtesting.replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
+from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
+from weather.model.toronto_model import TorontoHighTempModel
 from weather.artifacts import writable_artifact_path
+from weather.operations.long_job_guard import (
+    DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
+    DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
+    long_job_guard,
+)
 
 DEFAULT_OUT = Path("data") / "backtest" / "pooled_candidate_replay_report.md"
 DEFAULT_JSON_OUT = Path("data") / "backtest" / "pooled_candidate_replay.json"
@@ -432,8 +444,8 @@ def _record_feature_row(model, spec, climate, record, source_reliability=None):
     metar = model.source_data(sources, "metar")
     support_values = [
         features.get("high_so_far"),
-        current.get("temp_c"),
-        metar.get("temp_c"),
+        row_temp_native(current),
+        row_temp_native(metar),
     ]
     observed_support = model.max_value(*support_values)
     row = {column: features.get(column) for column in FEATURE_COLUMNS}
@@ -1293,6 +1305,7 @@ def run_pooled_candidate_replay(args):
         include_reconstructed=manifest.get("include_reconstructed", False),
         write=bool(args.replay_report),
         corpus_manifest=manifest,
+        long_job_guard_info=getattr(args, "long_job_guard_info", None),
     )
     replay_gate = replay_gate_status(
         replay_results,
@@ -1402,6 +1415,7 @@ def run_pooled_candidate_replay(args):
             "fidelity": replay_results.get("fidelity") or {},
             "corpus_warnings": replay_results.get("corpus_warnings") or [],
         },
+        "long_job_guard": getattr(args, "long_job_guard_info", None) or {},
     }
     write_report(report, args.out)
     if args.json_out:
@@ -1447,6 +1461,11 @@ def main():
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true",
                         help="Exit nonzero when the candidate is blocked.")
+    parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
+    parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
+    parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
+    parser.add_argument("--disable-long-job-guard", action="store_true")
+    parser.add_argument("--force-long-job-lock", action="store_true")
     args = parser.parse_args()
     if args.replay_report == "":
         args.replay_report = None
@@ -1455,7 +1474,16 @@ def main():
     if args.microstructure_artifact == "":
         args.microstructure_artifact = None
 
-    report = run_pooled_candidate_replay(args)
+    with long_job_guard(
+        "pooled_candidate_replay",
+        state_path=args.long_job_state,
+        lock_path=args.long_job_lock,
+        priority=args.long_job_priority,
+        enabled=not args.disable_long_job_guard,
+        force_lock=args.force_long_job_lock,
+    ) as guard:
+        args.long_job_guard_info = guard
+        report = run_pooled_candidate_replay(args)
     print(f"Pooled candidate replay: {report['verdict']} ({report['cutover_decision']})")
     print(f"Report written to {args.out}")
     if args.json_out:

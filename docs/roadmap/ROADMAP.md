@@ -87,6 +87,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
 | 64 | [Canonical Settlement History Provenance Guardrails [COMPLETE 2026-06-15 - CANONICAL GUARDRAILS LIVE]](items/item-64-canonical-settlement-history-provenance-guardrails.md) |
+| 65 | [Irreplaceable Tape Retention, Backup, And Restore [NEW - OPEN]](items/item-65-irreplaceable-tape-retention-backup-and-restore.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -96,7 +97,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
 | 35 | [Unified Continuous-Density Model [NEW - ENDGAME]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
-| 37 | [MLOps And Always-On Production Hardening [PARTIAL 2026-06-15 - LIVE-FORWARD SLO + ARTIFACT REGISTRY READY]](items/item-37-mlops-and-always-on-production-hardening.md) |
+| 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
 | 38 | [Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - TAXONOMY-GATED CLOB OVERLAY]](items/item-38-cross-market-and-market-microstructure-signal.md) |
 | 40 | [Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]](items/item-40-intra-hour-feature-freshness.md) |
 | 41 | [Model-Market Disagreement Casebook [COMPLETE 2026-06-14 - CASEBOOK LIVE]](items/item-41-model-market-disagreement-casebook.md) |
@@ -109,7 +110,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS + PERMISSION CELLS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [NEW - OPEN]](items/item-50-scholarly-weather-input-gap-closure.md) |
-| 51 | [Model Architecture Health Refactor [PARTIAL 2026-06-15 - ANALOG FEATURE VIEW]](items/item-51-model-architecture-health-refactor.md) |
+| 51 | [Model Architecture Health Refactor [PARTIAL 2026-06-15 - NATIVE CLEANUP COMPLETE]](items/item-51-model-architecture-health-refactor.md) |
 | 52 | [Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]](items/item-52-miami-current-serving-replay-regression-triage.md) |
 | 53 | [Candidate Source-Freshness Gap Attribution [COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE]](items/item-53-candidate-source-freshness-gap-attribution.md) |
 | 54 | [Source-Freshness Known-Edge Map Consumption [COMPLETE 2026-06-15 - PERMISSION CELLS LIVE]](items/item-54-source-freshness-known-edge-map-consumption.md) |
@@ -120,6 +121,9 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 59 | [Afternoon High-Has-Stood Lock-In Model [COMPLETE 2026-06-15 - HIGH-HAS-STOOD LOCK-IN LIVE]](items/item-59-afternoon-high-has-stood-lock-in-model.md) |
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
+| 66 | [CLOB Book Recon And Reward-Competition Analytics [NEW - OPEN]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [NEW - BLOCKED BY ITEM 45]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 68 | [Information-Event Calendar And Quote-Pull Gates [NEW - OPEN]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 
 ## Maintenance Conventions
 

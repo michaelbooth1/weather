@@ -7,7 +7,7 @@ from pathlib import Path
 try:
     from ..backtesting.backtest import fmt_num, markdown_table
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from backtest import fmt_num, markdown_table
+    from weather.backtesting.backtest import fmt_num, markdown_table
 
 def _fmt_pct(value):
     if value is None:

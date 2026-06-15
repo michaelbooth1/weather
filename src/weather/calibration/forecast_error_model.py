@@ -9,28 +9,24 @@ import argparse
 import csv
 import json
 import math
-import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (  # noqa: E402
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     parse_snapshot_time,
     safe_float,
     settlement_for_tape,
 )
-from forecast_history import daily_path_for  # noqa: E402
-from market_config import date_from_event_slug  # noqa: E402
-from market_registry import REGISTRY, spec_for_id  # noqa: E402
-from daily_summary import native_bucket, native_high  # noqa: E402
-from settled_days import discover_settled_folders, validate_folders_market  # noqa: E402
-from weather.artifacts import resolve_artifact_path, writable_artifact_path  # noqa: E402
+from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_id
+from weather.model.feature_store import row_forecast_high_native, row_temp_native
+from weather.sources.daily_summary import native_bucket, native_high
+from weather.sources.forecast_history import daily_path_for
+from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 DEFAULT_FORECAST_DAILY = Path("data") / "forecast_history" / "cyyz" / "forecast_daily.csv"
@@ -99,7 +95,7 @@ def forecast_rows_from_daily_archive(path, daily_summary):
         for row in csv.DictReader(handle):
             target_date = row.get("local_date")
             final = daily_summary.get(target_date)
-            forecast_high = safe_float(row.get("forecast_high_c"))
+            forecast_high = row_forecast_high_native(row)
             if not final or forecast_high is None:
                 continue
             rows.append({
@@ -159,8 +155,8 @@ def forecast_rows_from_snapshot_folders(folders, daily_summary):
         for (snapshot_id, source), group in grouped.items():
             if not snapshot_id or not source:
                 continue
-            forecast_highs = [safe_float(row.get("forecast_high_c")) for row in group]
-            hourly_temps = [safe_float(row.get("target_temp_c")) for row in group]
+            forecast_highs = [row_forecast_high_native(row) for row in group]
+            hourly_temps = [row_temp_native(row) for row in group]
             values = [value for value in forecast_highs + hourly_temps if value is not None]
             if not values:
                 continue

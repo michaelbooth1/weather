@@ -16,6 +16,14 @@ from feature_store import (
     audit_row,
     build_historical_feature_record,
     build_live_feature_record,
+    forecast_profile_features,
+    row_air_temp_native,
+    row_dewpoint_native,
+    row_forecast_high_native,
+    row_max_native,
+    row_max_since_7am_native,
+    row_same_day_max_native,
+    row_temp_native,
 )
 from snapshot_tracker import SnapshotStore
 from toronto_model import TORONTO_TZ, TorontoHighTempModel
@@ -56,6 +64,88 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(set(row), set(FEATURE_AUDIT_COLUMNS))
         self.assertEqual(row["snapshot_id"], "s1")
         self.assertEqual(row["high_so_far"], 21.0)
+
+    def test_native_accessors_prefer_native_fields_with_legacy_fallback(self):
+        self.assertEqual(row_temp_native({"temp_native": 86.0, "temp_c": 30.0}), 86.0)
+        self.assertEqual(row_temp_native({"temp_c": 30.0}), 30.0)
+        self.assertEqual(row_air_temp_native({"air_temp_native": 87.0, "air_temp_c": 27.0}), 87.0)
+        self.assertEqual(row_air_temp_native({"air_temp_c": 27.0}), 27.0)
+        self.assertEqual(row_dewpoint_native({"dewpoint_native": 68.0, "dewpoint_c": 20.0}), 68.0)
+        self.assertEqual(row_dewpoint_native({"dewpoint_c": 20.0}), 20.0)
+        self.assertEqual(
+            row_forecast_high_native({"forecast_high_native": 91.0, "forecast_high_c": 33.0}),
+            91.0,
+        )
+        self.assertEqual(row_forecast_high_native({"forecast_high_c": 33.0}), 33.0)
+        self.assertEqual(row_max_native({"max_native": 91.0, "max_c": 33.0}), 91.0)
+        self.assertEqual(row_max_native({"max_c": 33.0}), 33.0)
+        self.assertEqual(
+            row_max_since_7am_native({"max_since_7am_native": 92.0, "max_since_7am_c": 34.0}),
+            92.0,
+        )
+        self.assertEqual(row_max_since_7am_native({"max_since_7am_c": 34.0}), 34.0)
+        self.assertEqual(
+            row_same_day_max_native({"same_day_max_native": 90.0, "same_day_max_c": 32.0}),
+            90.0,
+        )
+        self.assertEqual(row_same_day_max_native({"same_day_max_c": 32.0}), 32.0)
+
+    def test_forecast_profile_uses_native_temperature_alias(self):
+        features = forecast_profile_features(
+            forecast_rows=[
+                {"time": "12:00", "temp_native": 90.0, "temp_c": 32.0},
+                {"time": "16:00", "temp_native": 94.0, "temp_c": 34.0},
+            ],
+            cutoff_hour=12,
+            high_so_far=88.0,
+        )
+
+        self.assertEqual(features["forecast_temp_12"], 90.0)
+        self.assertEqual(features["forecast_temp_16"], 94.0)
+        self.assertEqual(features["forecast_afternoon_slope"], 4.0)
+
+    def test_historical_builder_uses_native_temperature_aliases_for_anchors(self):
+        rows = [
+            {
+                "time": "07:00",
+                "minute_of_day": 420,
+                "temperature_native": 70.0,
+                "temp_c": 20.0,
+                "dewpoint_native": 60.0,
+                "humidity": 60.0,
+                "pressure": 1015.0,
+            },
+            {
+                "time": "10:00",
+                "minute_of_day": 600,
+                "target_temp_native": 78.0,
+                "temp_c": 25.0,
+                "dewpoint_native": 62.0,
+                "humidity": 58.0,
+                "pressure": 1014.5,
+            },
+            {
+                "time": "12:00",
+                "minute_of_day": 720,
+                "temp_native": 82.0,
+                "temp_c": 28.0,
+                "dewpoint_native": 64.0,
+                "humidity": 55.0,
+                "pressure": 1014.0,
+            },
+        ]
+
+        historical = build_historical_feature_record(
+            "2026-06-07",
+            rows,
+            {"bucket": 82},
+            12,
+        )
+
+        self.assertEqual(historical["current_temp"], 82.0)
+        self.assertEqual(historical["high_so_far"], 82.0)
+        self.assertEqual(historical["rise_from_7am"], 12.0)
+        self.assertEqual(historical["warming_rate_2h"], 4.0)
 
     def test_model_build_returns_feature_vector(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
@@ -427,6 +517,51 @@ class TestFeatureStore(unittest.TestCase):
         band = {"kind": "eq", "value": 90, "value_hi": 91}
 
         self.assertAlmostEqual(store.raw_bin_probability(distribution, band), 0.95)
+
+    def test_snapshot_source_values_read_native_aliases_first(self):
+        store = SnapshotStore(root=Path("."), event_slug="event")
+        model = TorontoHighTempModel(target_date="2026-05-28", market_id="nyc")
+
+        values = store.source_values(
+            {
+                "wu_history": {
+                    "ok": True,
+                    "data": {"max_native": 91.0, "max_c": 33.0},
+                },
+                "wu_current": {
+                    "ok": True,
+                    "data": {
+                        "temp_native": 89.0,
+                        "temp_c": 32.0,
+                        "max_since_7am_native": 92.0,
+                        "max_since_7am_c": 34.0,
+                    },
+                },
+                "eccc_swob": {
+                    "ok": True,
+                    "data": {"same_day_max_native": 90.0, "same_day_max_c": 32.0},
+                },
+                "weather_forecast": {
+                    "ok": True,
+                    "data": {"rows": [{"temp_native": 93.0, "temp_c": 34.0}]},
+                },
+                "open_meteo": {"ok": True, "data": {"rows": []}},
+                "nws_hourly": {"ok": True, "data": {"rows": []}},
+                "global_ensemble": {"ok": True, "data": {"rows": []}},
+                "eccc_citypage": {
+                    "ok": True,
+                    "data": {"forecast_high_native": 94.0, "forecast_high_c": 35.0},
+                },
+            },
+            model,
+        )
+
+        self.assertEqual(values["wu_history_high_c"], 91.0)
+        self.assertEqual(values["wu_current_c"], 89.0)
+        self.assertEqual(values["wu_max_since_7am_c"], 92.0)
+        self.assertEqual(values["eccc_swob_max_c"], 90.0)
+        self.assertEqual(values["weather_forecast_max_c"], 93.0)
+        self.assertEqual(values["eccc_forecast_high_c"], 94.0)
 
 
 if __name__ == "__main__":

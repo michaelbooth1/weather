@@ -2,9 +2,9 @@ import json
 
 import requests
 
-from market_config import config_for_date, config_from_event
-from market_registry import DEFAULT_MARKET_ID
-from model_sources import request_with_retries
+from weather.market.market_config import config_for_date, config_from_event
+from weather.market.market_registry import DEFAULT_MARKET_ID
+from weather.model.model_sources import request_with_retries
 
 
 DEFAULT_MARKET_CONFIG = config_for_date()

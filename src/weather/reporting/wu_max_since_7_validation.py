@@ -5,20 +5,15 @@ import argparse
 import csv
 import json
 import math
-import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import fmt_num, fmt_pct, markdown_table  # noqa: E402
-from promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS  # noqa: E402
-from promotion_corpus import folders_from_manifest, load_manifest  # noqa: E402
-from replay import index_records_by_snapshot, load_replay_records, source_freshness_group  # noqa: E402
-from settled_days import DEFAULT_SNAPSHOTS_ROOT  # noqa: E402
+from weather.backtesting.backtest import fmt_num, fmt_pct, markdown_table
+from weather.backtesting.replay import index_records_by_snapshot, load_replay_records, source_freshness_group
+from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
+from weather.reporting.promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS
+from weather.reporting.promotion_corpus import folders_from_manifest, load_manifest
 
 
 SCHEMA_VERSION = "wu_max_since_7_validation_v0.1"
@@ -128,7 +123,9 @@ def _record_freshness(record):
 
 
 def _validation_row(entry, tape_row, record):
-    current_max = maybe_float(tape_row.get("wu_max_since_7am_c"))
+    current_max = maybe_float(tape_row.get("wu_max_since_7am_native"))
+    if current_max is None:
+        current_max = maybe_float(tape_row.get("wu_max_since_7am_c"))
     settlement_high = maybe_float(entry.get("settlement_high"))
     settlement_bucket = maybe_float(entry.get("settlement_bucket"))
     final_wu_high = settlement_high if settlement_high is not None else settlement_bucket

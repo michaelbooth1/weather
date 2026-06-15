@@ -220,7 +220,9 @@ class TestSourceRedundancy(unittest.TestCase):
                         "event_slug",
                         "target_date",
                         "source",
+                        "forecast_high_native",
                         "forecast_high_c",
+                        "target_temp_native",
                         "target_temp_c",
                     ],
                 )
@@ -231,7 +233,9 @@ class TestSourceRedundancy(unittest.TestCase):
                     "event_slug": folder.name,
                     "target_date": "2026-06-02",
                     "source": "open_meteo",
+                    "forecast_high_native": "",
                     "forecast_high_c": "",
+                    "target_temp_native": 84.0,
                     "target_temp_c": 24.0,
                 })
                 writer.writerow({
@@ -240,7 +244,9 @@ class TestSourceRedundancy(unittest.TestCase):
                     "event_slug": folder.name,
                     "target_date": "2026-06-02",
                     "source": "weather_forecast",
+                    "forecast_high_native": "",
                     "forecast_high_c": "",
+                    "target_temp_native": 86.0,
                     "target_temp_c": 26.0,
                 })
 
@@ -248,7 +254,7 @@ class TestSourceRedundancy(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["forecast_source_count"], 2)
-        self.assertEqual(rows[0]["ensemble_forecast_high"], 25.0)
+        self.assertEqual(rows[0]["ensemble_forecast_high"], 85.0)
         self.assertEqual(rows[0]["forecast_disagreement"], 2.0)
 
     def test_validated_supplemental_features_do_not_replace_truth_labels(self):

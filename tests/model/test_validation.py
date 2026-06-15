@@ -134,6 +134,37 @@ class TestWundergroundHistoryParsing(unittest.TestCase):
         self.assertEqual(native_high(summary), 86.0)
         self.assertAlmostEqual(celsius_high(summary), 30.0)
 
+    def test_summarize_daily_prefers_native_temperature_aliases(self):
+        records = [
+            {
+                "local_date": "2026-06-01",
+                "valid_time_local": "2026-06-01T07:00:00",
+                "local_time": "07:00",
+                "minute": 0,
+                "temperature_unit": "F",
+                "temperature_native": 80.0,
+                "temp_c": 26.6667,
+                "dewpoint_native": 65.0,
+            },
+            {
+                "local_date": "2026-06-01",
+                "valid_time_local": "2026-06-01T12:00:00",
+                "local_time": "12:00",
+                "minute": 0,
+                "temperature_unit": "F",
+                "target_temp_native": 92.0,
+                "temp_c": 33.3333,
+                "dewpoint_native": 70.0,
+            },
+        ]
+
+        summary = summarize_daily(records)[0]
+
+        self.assertEqual(summary["max_temp_native"], 92.0)
+        self.assertEqual(summary["max_temp_bucket_native"], 92)
+        self.assertEqual(summary["max_temp_times"], "12:00")
+        self.assertEqual(native_high(summary), 92.0)
+
 
 class TestTorontoModelCore(unittest.TestCase):
     def setUp(self):

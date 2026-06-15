@@ -30,17 +30,12 @@ CLI:
 import argparse
 import json
 import statistics
-import sys
 from collections import defaultdict
 from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (
+from weather.backtesting.backtest import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
     capture_minute,
@@ -49,9 +44,9 @@ from backtest import (
     safe_float,
     settlement_for_tape,
 )
-from market_config import date_from_event_slug
-from market_registry import REGISTRY, spec_for_id
-from settled_days import discover_settled_folders, validate_folders_market
+from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_id
 
 DEFAULT_CUTOFFS = (7, 9, 11, 13)
 DEFAULT_VERDICT_CUTOFF = 9

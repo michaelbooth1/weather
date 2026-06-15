@@ -20,12 +20,19 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from market_config import config_for_date, date_from_event_slug
-from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
-from runtime_identity import get_runtime_identity
-from snapshot_tracker import capture_snapshot, pid_is_python
-from toronto_model import TorontoHighTempModel
+from weather.collection.snapshot_tracker import capture_snapshot, pid_is_python
+from weather.market.market_config import config_for_date, date_from_event_slug
+from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
+from weather.model.feature_store import (
+    row_air_temp_native,
+    row_max_native,
+    row_max_since_7am_native,
+    row_same_day_max_native,
+    row_temp_native,
+)
+from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT
+from weather.operations.runtime_identity import get_runtime_identity
 from weather.schema_registry import schema_version
 
 
@@ -56,9 +63,16 @@ def utc_now():
 def write_json(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    for attempt in range(20):
+        try:
+            tmp.replace(path)
+            break
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
     return path
 
 
@@ -195,17 +209,17 @@ def observation_state_from_sources(model_client, sources, captured_at=None, even
     latest_swob = swob.get("latest") or {}
 
     values = {
-        "wu_history_high": to_float(history.get("max_c")),
-        "wu_history_latest_value": to_float(latest_history.get("temp_c")),
+        "wu_history_high": row_max_native(history),
+        "wu_history_latest_value": row_temp_native(latest_history),
         "wu_history_latest_time": latest_history.get("datetime") or latest_history.get("time"),
         "wu_history_row_count": len(history.get("rows") or []),
-        "wu_current_temp": to_float(current.get("temp_c")),
-        "wu_current_max_since_7am": to_float(current.get("max_since_7am_c")),
+        "wu_current_temp": row_temp_native(current),
+        "wu_current_max_since_7am": row_max_since_7am_native(current),
         "wu_current_time": current.get("time"),
-        "metar_temp": to_float(metar.get("temp_c")),
+        "metar_temp": row_temp_native(metar),
         "metar_report_time": metar.get("report_time"),
-        "eccc_swob_max": to_float(swob.get("same_day_max_c")),
-        "eccc_swob_latest_temp": to_float(latest_swob.get("air_temp_c")),
+        "eccc_swob_max": row_same_day_max_native(swob),
+        "eccc_swob_latest_temp": row_air_temp_native(latest_swob),
         "eccc_swob_latest_time": latest_swob.get("local_time") or latest_swob.get("time"),
     }
     values["max_live_observation"] = max(
@@ -675,7 +689,14 @@ def release_supervisor_lock(handle, path=SUPERVISOR_LOCK_PATH):
         pass
 
 
-def ensure_decision(health_state, pid_alive):
+def source_identity_error(value):
+    text = str(value or "").lower()
+    return "code identity differs" in text or "source tree" in text
+
+
+def ensure_decision(health_state, pid_alive, last_error=None):
+    if health_state == "ERRORING" and source_identity_error(last_error):
+        return "restart" if pid_alive else "start"
     if health_state in {"RUNNING", "PAUSED", "DEGRADED", "ERRORING"}:
         return "noop"
     if pid_alive:
@@ -697,7 +718,7 @@ def ensure_watcher_loop(
         status = read_status()
         health = watcher_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
-        action = ensure_decision(health["state"], alive)
+        action = ensure_decision(health["state"], alive, health.get("last_error"))
         result = {"action": action, "state": health["state"], "pid": health.get("pid")}
         if action == "restart":
             result["stop"] = stop_watcher_loop(now=now)

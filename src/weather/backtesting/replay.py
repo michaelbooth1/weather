@@ -13,18 +13,13 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 import json
 import csv
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from market_config import date_from_event_slug, market_id_from_slug
-from market_registry import DEFAULT_MARKET_ID
-from model_identity import identity_hash, model_replay_identity
-from model_constants import TORONTO_TZ
+from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.market.market_registry import DEFAULT_MARKET_ID
+from weather.model.model_identity import identity_hash, model_replay_identity
+from weather.model.model_constants import TORONTO_TZ
 
 # Captured records (real inputs, byte-faithfully replayable) are committed.
 REPLAY_INPUTS_FILENAME = "replay_inputs.jsonl"
@@ -347,7 +342,7 @@ def reconstruct_sources(snapshot, target_date):
     daily summary (a deterministic, network-free file read), so the climatology
     prior is exact -- and not Toronto's for the 11 US markets.
     """
-    from toronto_model import TorontoHighTempModel  # lazy: avoids any import cycle
+    from weather.model.toronto_model import TorontoHighTempModel  # lazy: avoids any import cycle
 
     market_id = market_id_from_slug(snapshot.get("event_slug")) or DEFAULT_MARKET_ID
 
@@ -379,18 +374,20 @@ def reconstruct_sources(snapshot, target_date):
     rows = []
     # 7am anchor so rise_from_7am reconstructs.
     if rise is not None and current_temp is not None:
-        rows.append({"time": "07:00", "temp_c": current_temp - rise})
+        rows.append(_temp_row("07:00", current_temp - rise))
     # 3h-before-cutoff anchor so pressure_trend_3h reconstructs.
     if pressure is not None and pressure_trend is not None and cutoff_hour - 3 >= 0:
         rows.append({"time": f"{cutoff_hour - 3:02d}:00", "pressure": pressure - pressure_trend})
     # The day's peak (if it was reached before the current reading).
     if high_so_far is not None and (current_temp is None or high_so_far > current_temp):
         peak_hour = max(0, min(cutoff_hour - 1, 14))
-        rows.append({"time": f"{peak_hour:02d}:00", "temp_c": high_so_far})
+        rows.append(_temp_row(f"{peak_hour:02d}:00", high_so_far))
     # The latest (cutoff) observation carries the point-in-time features.
     latest = {
         "time": f"{max(0, min(cutoff_hour, 23)):02d}:00",
+        "temp_native": current_temp,
         "temp_c": current_temp,
+        "dewpoint_native": dewpoint,
         "dewpoint_c": dewpoint,
         "humidity": humidity,
         "pressure": pressure,
@@ -404,6 +401,7 @@ def reconstruct_sources(snapshot, target_date):
     history_data = {
         "rows": rows,
         "latest": latest,
+        "max_native": history_high if history_high is not None else high_so_far,
         "max_c": history_high if history_high is not None else high_so_far,
         "max_times": [],
     }
@@ -418,21 +416,36 @@ def reconstruct_sources(snapshot, target_date):
         "local_history": _ok(local_history),
         "wu_history": _ok(history_data),
         "wu_current": _ok({
+            "temp_native": _f(values.get("wu_current_c")),
             "temp_c": _f(values.get("wu_current_c")),
+            "max_since_7am_native": _f(values.get("wu_max_since_7am_c")),
             "max_since_7am_c": _f(values.get("wu_max_since_7am_c")),
+            "dewpoint_native": dewpoint,
             "dewpoint_c": dewpoint,
             "humidity": humidity,
             "target_date_match": True,
         }),
-        "eccc_swob": _ok({"same_day_max_c": _f(values.get("eccc_swob_max_c")), "rows": []}),
-        "eccc_citypage": _ok({"forecast_high_c": _f(values.get("eccc_forecast_high_c"))}),
+        "eccc_swob": _ok({
+            "same_day_max_native": _f(values.get("eccc_swob_max_c")),
+            "same_day_max_c": _f(values.get("eccc_swob_max_c")),
+            "rows": [],
+        }),
+        "eccc_citypage": _ok({
+            "forecast_high_native": _f(values.get("eccc_forecast_high_c")),
+            "forecast_high_c": _f(values.get("eccc_forecast_high_c")),
+        }),
         "weather_forecast": _ok({"rows": _max_only_rows(_f(values.get("weather_forecast_max_c")))}),
         "open_meteo": _ok({
             "rows": _max_only_rows(_f(values.get("open_meteo_max_c"))),
+            "day_max_native": forecast_high,
             "day_max_c": forecast_high,
         }),
         "metar": {"ok": False, "data": {}},
     }
+
+
+def _temp_row(time, value):
+    return {"time": time, "temp_native": value, "temp_c": value}
 
 
 def _max_only_rows(max_temp):
@@ -440,7 +453,7 @@ def _max_only_rows(max_temp):
     (``max_row_temp`` reads the max; the floor pipeline only needs that)."""
     if max_temp is None:
         return []
-    return [{"temp_c": max_temp}]
+    return [_temp_row(None, max_temp)]
 
 
 def reconstruct_record(snapshot):

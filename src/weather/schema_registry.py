@@ -144,6 +144,7 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("mm_quote_intent", "mm_quote_intent_v0.1", "weather.market.mm_policy", "active"),
     SchemaSpec("mm_run", "mm_run_v0.2", "weather.market.market_making_run", "active"),
     SchemaSpec("model_artifact_registry", "model_artifact_registry_v0.1", "weather.artifacts", "active"),
+    SchemaSpec("nightly_retrain", "nightly_retrain_v0.1", "weather.operations.nightly_retrain", "active"),
     SchemaSpec(
         "model_history_cache_legacy",
         "model_history_cache_v0.1",
@@ -164,6 +165,8 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("promotion_corpus", "promotion_corpus_v0.1", "weather.reporting.promotion_corpus", "active"),
     SchemaSpec("promotion_refresh", "promotion_refresh_v0.1", "weather.reporting.promotion_refresh", "active"),
     SchemaSpec("runtime_identity", "runtime_identity_v0.1", "weather.operations.runtime_identity", "active"),
+    SchemaSpec("long_job_guard", "long_job_guard_v0.1", "weather.operations.long_job_guard", "active"),
+    SchemaSpec("shadow_ab_monitor", "shadow_ab_monitor_v0.1", "weather.reporting.shadow_ab_monitor", "active"),
     SchemaSpec("snapshot_evaluation", "snapshot_evaluation_v0.1", "weather.reporting.snapshot_evaluation", "active"),
     SchemaSpec("source_redundancy", "source_redundancy_v0.3", "weather.reporting.source_redundancy", "active"),
     SchemaSpec("supplemental_station_registry", "supplemental_station_registry_v0.1", "weather.sources.supplemental_stations", "active"),

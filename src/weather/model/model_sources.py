@@ -8,8 +8,8 @@ from pathlib import Path
 
 import requests
 
-from wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
-from model_constants import (
+from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
+from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
@@ -306,11 +306,15 @@ class SourceFetchMixin:
             ).astimezone(self.spec.tz)
             if local_dt.date() != self.target_date:
                 continue
+            temp_native = self.to_number(obs.get("temp"))
+            dewpoint_native = self.to_number(obs.get("dewPt"))
             rows.append({
                 "time": local_dt.strftime("%H:%M"),
                 "datetime": local_dt.isoformat(),
-                "temp_c": self.to_number(obs.get("temp")),
-                "dewpoint_c": self.to_number(obs.get("dewPt")),
+                "temp_native": temp_native,
+                "temp_c": temp_native,
+                "dewpoint_native": dewpoint_native,
+                "dewpoint_c": dewpoint_native,
                 "humidity": self.to_number(obs.get("rh")),
                 "pressure": self.to_number(obs.get("pressure")),
                 "clouds": obs.get("clds"),
@@ -320,20 +324,18 @@ class SourceFetchMixin:
                 "gust_kmh": self.to_number(obs.get("gust")),
             })
 
-        temps = [
-            row["temp_c"] for row in rows
-            if row.get("temp_c") is not None
-        ]
+        temps = [row["temp_native"] for row in rows if row.get("temp_native") is not None]
         history_max = max(temps) if temps else None
         max_times = [
             row["time"] for row in rows
-            if row.get("temp_c") == history_max
+            if row.get("temp_native") == history_max
         ] if history_max is not None else []
 
         return {
             "url": url,
             "rows": rows,
             "latest": rows[-1] if rows else None,
+            "max_native": history_max,
             "max_c": history_max,
             "max_times": max_times,
         }
@@ -349,14 +351,22 @@ class SourceFetchMixin:
         })
         valid_time = self.parse_weather_com_time(data.get("validTimeLocal"))
         is_target_day = valid_time is not None and valid_time.date() == self.target_date
+        temp_native = self.to_number(data.get("temperature")) if is_target_day else None
+        max_24h_native = self.to_number(data.get("temperatureMax24Hour")) if is_target_day else None
+        max_since_7am_native = self.to_number(data.get("temperatureMaxSince7Am")) if is_target_day else None
+        dewpoint_native = self.to_number(data.get("temperatureDewPoint")) if is_target_day else None
         return {
             "url": url,
             "time": data.get("validTimeLocal"),
             "target_date_match": is_target_day,
-            "temp_c": self.to_number(data.get("temperature")) if is_target_day else None,
-            "max_24h_c": self.to_number(data.get("temperatureMax24Hour")) if is_target_day else None,
-            "max_since_7am_c": self.to_number(data.get("temperatureMaxSince7Am")) if is_target_day else None,
-            "dewpoint_c": self.to_number(data.get("temperatureDewPoint")) if is_target_day else None,
+            "temp_native": temp_native,
+            "temp_c": temp_native,
+            "max_24h_native": max_24h_native,
+            "max_24h_c": max_24h_native,
+            "max_since_7am_native": max_since_7am_native,
+            "max_since_7am_c": max_since_7am_native,
+            "dewpoint_native": dewpoint_native,
+            "dewpoint_c": dewpoint_native,
             "humidity": self.to_number(data.get("relativeHumidity")) if is_target_day else None,
             "cloud_cover": self.to_number(data.get("cloudCover")) if is_target_day else None,
             "cloud_phrase": data.get("cloudCoverPhrase"),
@@ -454,13 +464,14 @@ class SourceFetchMixin:
 
         latest = rows[-1] if rows else None
         same_day_max = self.max_value(*[
-            row.get("air_temp_c")
+            self.row_air_temp_native(row)
             for row in rows
         ])
         return {
             "url": base_url,
             "latest": latest,
             "rows": rows,
+            "same_day_max_native": same_day_max,
             "same_day_max_c": same_day_max,
         }
 
@@ -488,6 +499,9 @@ class SourceFetchMixin:
             "provider_update_time": props.get("lastUpdated"),
             "raw_payload": data,
             "current_time": current.get("timestamp", {}).get("en"),
+            "current_temp_native": self.nested_number(
+                current, "temperature", "value", "en"
+            ),
             "current_temp_c": self.nested_number(
                 current, "temperature", "value", "en"
             ),
@@ -505,6 +519,7 @@ class SourceFetchMixin:
             "humidity": self.nested_number(
                 current, "relativeHumidity", "value", "en"
             ),
+            "forecast_high_native": high_c,
             "forecast_high_c": high_c,
             "forecast_summary": temp_summary,
             "forecast_cloud": today.get("cloudPrecip", {}).get("en"),
@@ -522,14 +537,18 @@ class SourceFetchMixin:
         row = payload[0] if payload else {}
         report_time = self.parse_utc_time(row.get("reportTime"))
         is_target_day = report_time is not None and report_time.date() == self.target_date
+        temp_native = self.spec.c_to_native(self.to_number(row.get("temp"))) if is_target_day else None
+        dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp"))) if is_target_day else None
         return {
             "url": url,
             "report_time": row.get("reportTime"),
             "target_date_match": is_target_day,
             # METAR temps are always Celsius from the API; convert to the
             # market's native unit so all features share one unit.
-            "temp_c": self.spec.c_to_native(self.to_number(row.get("temp"))) if is_target_day else None,
-            "dewpoint_c": self.spec.c_to_native(self.to_number(row.get("dewp"))) if is_target_day else None,
+            "temp_native": temp_native,
+            "temp_c": temp_native,
+            "dewpoint_native": dewpoint_native,
+            "dewpoint_c": dewpoint_native,
             "wind_dir": row.get("wdir"),
             "wind_speed": self.to_number(row.get("wspd")) if is_target_day else None,
             "wind_gust": self.to_number(row.get("wgst")) if is_target_day else None,
@@ -552,10 +571,12 @@ class SourceFetchMixin:
             dt = self.parse_weather_com_time(raw_time)
             if not dt or dt.date() != self.target_date or dt < now:
                 continue
+            temp_native = self.array_get(payload, "temperature", index)
             rows.append({
                 "time": dt.strftime("%H:%M"),
                 "valid_time": dt.isoformat(),
-                "temp_c": self.array_get(payload, "temperature", index),
+                "temp_native": temp_native,
+                "temp_c": temp_native,
                 "cloud_cover": self.array_get(payload, "cloudCover", index),
                 "condition": self.array_get(payload, "wxPhraseLong", index),
                 "wind": self.array_get(payload, "windDirectionCardinal", index),
@@ -600,6 +621,7 @@ class SourceFetchMixin:
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
+                "temp_native": temp,
                 "temp_c": temp,
                 "cloud_cover": self.to_number(self.array_get(hourly, "cloud_cover", index)),
                 "low_cloud": self.to_number(self.array_get(hourly, "cloud_cover_low", index)),
@@ -614,12 +636,13 @@ class SourceFetchMixin:
             rows.append(row)
         # Forecasted daily max over ALL of today's hours (the canonical forecast
         # feature, matching the Open-Meteo historical-forecast training value).
-        day_max_c = max(day_temps) if day_temps else None
+        day_max_native = max(day_temps) if day_temps else None
         return {
             "url": url,
             "rows": rows[:12],
             "day_rows": day_rows,
-            "day_max_c": day_max_c,
+            "day_max_native": day_max_native,
+            "day_max_c": day_max_native,
             "raw_payload": payload,
         }
 
@@ -631,7 +654,7 @@ class SourceFetchMixin:
         converter still honors the market display unit for safety.
         """
         if ":US" not in str(self.spec.wu_history_id):
-            return {"available": False, "reason": "NWS hourly forecast is US-only.", "rows": [], "day_max_c": None}
+            return {"available": False, "reason": "NWS hourly forecast is US-only.", "rows": [], "day_max_native": None, "day_max_c": None}
         points_url = f"https://api.weather.gov/points/{self.spec.lat:.4f},{self.spec.lon:.4f}"
         headers = {
             "User-Agent": "weather-market-research/1.0 (local)",
@@ -658,6 +681,7 @@ class SourceFetchMixin:
             rows.append({
                 "time": dt.strftime("%H:%M"),
                 "valid_time": dt.isoformat(),
+                "temp_native": temp,
                 "temp_c": temp,
                 "condition": period.get("shortForecast"),
                 "wind": period.get("windDirection"),
@@ -666,6 +690,7 @@ class SourceFetchMixin:
         return {
             "url": forecast_url,
             "rows": rows[:12],
+            "day_max_native": max(day_temps) if day_temps else None,
             "day_max_c": max(day_temps) if day_temps else None,
             "provider_issue_time": props.get("generatedAt"),
             "provider_update_time": props.get("updated"),
@@ -743,6 +768,7 @@ class SourceFetchMixin:
             row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
+                "temp_native": temp,
                 "temp_c": temp,
                 "ensemble_member_spread": spread,
                 "ensemble_member_p10": percentile(members, 0.10),
@@ -763,6 +789,7 @@ class SourceFetchMixin:
             "url": url,
             "rows": rows[:12],
             "day_rows": day_rows,
+            "day_max_native": max(day_temps) if day_temps else None,
             "day_max_c": max(day_temps) if day_temps else None,
             "day_mean_member_spread": sum(day_spreads) / len(day_spreads) if day_spreads else None,
             "day_member_high_p10": member_high_p10,
@@ -813,11 +840,16 @@ class SourceFetchMixin:
             "time": utc_time,
             "local_time": local_dt.isoformat() if local_dt else None,
             "local_date": local_dt.date().isoformat() if local_dt else None,
+            "air_temp_native": self.to_number(element_value("air_temp")),
             "air_temp_c": self.to_number(element_value("air_temp")),
+            "dewpoint_native": self.to_number(element_value("dwpt_temp")),
             "dewpoint_c": self.to_number(element_value("dwpt_temp")),
             "humidity": self.to_number(element_value("rel_hum")),
+            "max_1h_native": self.to_number(element_value("max_air_temp_pst1hr")),
             "max_1h_c": self.to_number(element_value("max_air_temp_pst1hr")),
+            "max_6h_native": self.to_number(element_value("max_air_temp_pst6hrs")),
             "max_6h_c": self.to_number(element_value("max_air_temp_pst6hrs")),
+            "max_24h_native": self.to_number(element_value("max_air_temp_pst24hrs")),
             "max_24h_c": self.to_number(element_value("max_air_temp_pst24hrs")),
         }
 

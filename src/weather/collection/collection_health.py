@@ -17,16 +17,12 @@ import sys
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
 try:
-    from market_config import date_from_event_slug
-    from market_registry import all_specs, spec_for_slug
+    from weather.market.market_config import date_from_event_slug
+    from weather.market.market_registry import all_specs, spec_for_slug
 except ImportError:  # pragma: no cover - package/module execution fallback
-    from .market_config import date_from_event_slug
-    from .market_registry import all_specs, spec_for_slug
+    from ..market.market_config import date_from_event_slug
+    from ..market.market_registry import all_specs, spec_for_slug
 
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.

@@ -35,11 +35,7 @@ from pathlib import Path
 
 import pandas as pd
 
-SRC_ROOT = Path(__file__).resolve().parent
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from backtest import (
+from weather.backtesting.backtest import (
     DEFAULT_SNAPSHOTS_ROOT,
     bin_type,
     capture_minute,
@@ -59,15 +55,15 @@ from backtest import (
     score_rows,
     settlement_for_tape,
 )
-from market_config import date_from_event_slug
-from market_registry import REGISTRY, spec_for_slug
-from promotion_corpus import (
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import REGISTRY, spec_for_slug
+from weather.reporting.promotion_corpus import (
     entry_for_folder,
     folders_from_manifest,
     load_manifest,
     verify_entry_inputs,
 )
-from replay import (
+from weather.backtesting.replay import (
     band_model_probability,
     distribution_l1,
     identity_hash,
@@ -79,8 +75,13 @@ from replay import (
     replay_model_version,
     source_freshness_group,
 )
-from settled_days import folder_market_id
-from toronto_model import TorontoHighTempModel
+from weather.backtesting.settled_days import folder_market_id
+from weather.model.toronto_model import TorontoHighTempModel
+from weather.operations.long_job_guard import (
+    DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
+    DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
+    long_job_guard,
+)
 
 DEFAULT_OUT = Path("data") / "backtest" / "replay_report.md"
 DEFAULT_BASELINE = Path("data") / "backtest" / "replay_baseline.json"
@@ -288,7 +289,7 @@ def settlement_distance_bucket(value):
 
 def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                         include_reconstructed=False, write=True,
-                        corpus_manifest=None):
+                        corpus_manifest=None, long_job_guard_info=None):
     # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
     # climatology) and settles against its own market's daily summary; one
     # Toronto model for every folder silently mis-replayed the 11 F markets.
@@ -494,6 +495,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         "include_reconstructed": include_reconstructed,
         "promotion_corpus": _manifest_summary(corpus_manifest),
         "corpus_warnings": corpus_warnings,
+        "long_job_guard": long_job_guard_info or {},
     }
     if write:
         write_report(results, out_path)
@@ -785,6 +787,11 @@ def main():
     parser.add_argument("--gate", nargs="?", const=str(DEFAULT_BASELINE), default=None,
                         help="Fail (exit 1) if replayed Brier regressed vs the saved baseline.")
     parser.add_argument("--tol", type=float, default=0.003, help="Gate tolerance on aggregate Brier.")
+    parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
+    parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
+    parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
+    parser.add_argument("--disable-long-job-guard", action="store_true")
+    parser.add_argument("--force-long-job-lock", action="store_true")
     args = parser.parse_args()
 
     overrides = {}
@@ -814,11 +821,20 @@ def main():
         return
 
     print(f"Replaying {len(folders)} market day(s) over the corpus...")
-    results = run_replay_backtest(
-        folders, args.daily_summary, overrides, args.out,
-        include_reconstructed=args.include_reconstructed,
-        corpus_manifest=corpus_manifest,
-    )
+    with long_job_guard(
+        "replay_backtest",
+        state_path=args.long_job_state,
+        lock_path=args.long_job_lock,
+        priority=args.long_job_priority,
+        enabled=not args.disable_long_job_guard,
+        force_lock=args.force_long_job_lock,
+    ) as guard:
+        results = run_replay_backtest(
+            folders, args.daily_summary, overrides, args.out,
+            include_reconstructed=args.include_reconstructed,
+            corpus_manifest=corpus_manifest,
+            long_job_guard_info=guard,
+        )
 
     if results["snaps_scored"] == 0:
         print("\nNo snapshots had replay inputs yet. Seed the corpus by running the")
