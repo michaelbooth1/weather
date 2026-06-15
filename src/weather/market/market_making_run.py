@@ -45,6 +45,7 @@ try:
         parse_time,
         policy_hash,
         resolve_known_edge_record,
+        source_freshness_state_from_rows,
         utc_now,
     )
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
@@ -76,6 +77,7 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
         parse_time,
         policy_hash,
         resolve_known_edge_record,
+        source_freshness_state_from_rows,
         utc_now,
     )
 
@@ -267,12 +269,14 @@ def assemble_policy_inputs_for_market(
     market_id,
     folder,
     snapshot_rows,
+    source_rows,
     promotion,
     observation_status,
     known_edge_records=None,
     known_edge_map_loaded=False,
 ):
     clob_by_token, clob_by_band = load_clob_feature_index(folder)
+    source_freshness_state = source_freshness_state_from_rows(source_rows)
     rows = []
     for snapshot_row in snapshot_rows:
         kind, value, value_hi = snapshot_band_key(snapshot_row)
@@ -299,6 +303,7 @@ def assemble_policy_inputs_for_market(
         merged["watcher_age_seconds"] = observation_status.get("watcher_age_seconds")
         merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
         merged["source_fresh"] = observation_status.get("fresh", False)
+        merged["source_freshness_state"] = source_freshness_state
         record = resolve_known_edge_record(merged, known_edge_records or [])
         merged = apply_known_edge_permission(
             merged,
@@ -905,6 +910,7 @@ def build_run_once(
                 spec.id,
                 folder,
                 snapshot_rows,
+                source_rows,
                 promotion,
                 observation,
                 known_edge_records=known_edge_records,
