@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -31,6 +32,9 @@ class TestFeatureStore(unittest.TestCase):
                 "high_so_far": 20.0,
                 "current_temp": 19.5,
                 "forecast_gap": 2.0,
+                "latest_wu_history_time": "12:53",
+                "latest_wu_history_minute": 773,
+                "latest_wu_history_temp": 20.0,
                 "wind_group": "W-NW",
             },
         )
@@ -38,6 +42,9 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(record["feature_schema_version"], FEATURE_SCHEMA_VERSION)
         self.assertEqual(record["cutoff_hour"], 12)
         self.assertEqual(record["forecast_gap"], 2.0)
+        self.assertEqual(record["latest_wu_history_time"], "12:53")
+        self.assertEqual(record["latest_wu_history_minute"], 773)
+        self.assertEqual(record["latest_wu_history_temp"], 20.0)
         self.assertIn("wind_group", record)
 
     def test_audit_row_keeps_expected_columns(self):
@@ -304,8 +311,115 @@ class TestFeatureStore(unittest.TestCase):
             self.assertEqual(len(component_rows), 2)
             self.assertEqual(component_rows[0]["component_schema_version"], "components-v")
             self.assertEqual(component_rows[0]["component_name"], "feature_model")
+            self.assertEqual(component_rows[0]["bin_value_hi_c"], "20")
             self.assertAlmostEqual(float(component_rows[0]["component_probability"]), 0.5)
             self.assertAlmostEqual(float(component_rows[1]["component_probability"]), 0.3)
+
+    def test_snapshot_store_persists_range_band_upper_endpoint(self):
+        class RangeModelClient:
+            target_date = datetime(2026, 5, 28).date()
+
+            def market_bins(self, _event):
+                return [{
+                    "label": "90-91 F",
+                    "kind": "eq",
+                    "value": 90,
+                    "value_hi": 91,
+                    "market_yes": 0.4,
+                    "market_no": 0.6,
+                }]
+
+            def bin_probability(self, distribution, bin_data):
+                return sum(
+                    probability
+                    for bucket, probability in distribution.items()
+                    if int(bin_data["value"]) <= int(bucket) <= int(bin_data["value_hi"])
+                )
+
+            def source_data(self, _sources, _name):
+                return {}
+
+            def forecast_ensemble_metrics(self, *_args, **_kwargs):
+                return {}
+
+            def max_row_temp(self, _rows):
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="event")
+            captured_at = datetime(2026, 5, 28, 12, 0, tzinfo=TORONTO_TZ)
+            model = {
+                "distribution": {90: 0.10, 91: 0.85, 92: 0.05},
+                "top_temp": 91,
+                "model_version": "model-v",
+                "sources": {},
+                "feature_vector": {
+                    "target_date": "2026-05-28",
+                    "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                },
+                "distribution_components": {
+                    "schema_version": "components-v",
+                    "components": {"feature_model": {90: 0.10, 91: 0.85, 92: 0.05}},
+                },
+            }
+
+            result = store.write({"slug": "event", "markets": []}, model, RangeModelClient(), captured_at)
+            long_rows = list(csv.DictReader((root / "snapshots_long.csv").open(encoding="utf-8", newline="")))
+            component_rows = list(csv.DictReader((root / "components_long.csv").open(encoding="utf-8", newline="")))
+            wide_header = (root / "snapshots_wide.csv").read_text(encoding="utf-8").splitlines()[0]
+            snapshot_json = json.loads((root / "snapshots.jsonl").read_text(encoding="utf-8").strip())
+
+        self.assertEqual(result["snapshot_self_check"]["status"], "pass")
+        self.assertEqual(long_rows[0]["bin_value_c"], "90")
+        self.assertEqual(long_rows[0]["bin_value_hi_c"], "91")
+        self.assertEqual(long_rows[0]["feature_schema_version"], FEATURE_SCHEMA_VERSION)
+        self.assertTrue(long_rows[0]["runtime_source_fingerprint"])
+        self.assertEqual(component_rows[0]["bin_value_hi_c"], "91")
+        self.assertIn("model_eq_90_91c", wide_header)
+        self.assertEqual(snapshot_json["feature_schema_version"], FEATURE_SCHEMA_VERSION)
+        self.assertEqual(snapshot_json["snapshot_self_check"]["rows_checked"], 1)
+
+    def test_snapshot_probability_self_check_rejects_range_metadata_mismatch(self):
+        class RangeModelClient:
+            def bin_probability(self, distribution, bin_data):
+                return sum(
+                    probability
+                    for bucket, probability in distribution.items()
+                    if int(bin_data["value"]) <= int(bucket) <= int(bin_data["value_hi"])
+                )
+
+        store = SnapshotStore(root=Path("."), event_slug="event")
+        with self.assertRaises(ValueError):
+            store.check_snapshot_probabilities(
+                {90: 0.10, 91: 0.85},
+                [{
+                    "range_label": "90-91 F",
+                    "bin_kind": "eq",
+                    "bin_value_c": 90,
+                    "bin_value_hi_c": 91,
+                    "model_probability": 0.10,
+                }],
+                RangeModelClient(),
+            )
+
+    def test_append_csv_widens_existing_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rows.csv"
+            path.write_text("snapshot_id,bin_value_c\nold,90\n", encoding="utf-8")
+            store = SnapshotStore(root=tmp, event_slug="event")
+
+            store.append_csv(
+                path,
+                ["snapshot_id", "bin_value_c", "bin_value_hi_c"],
+                [{"snapshot_id": "new", "bin_value_c": 90, "bin_value_hi_c": 91}],
+            )
+            rows = list(csv.DictReader(path.open(encoding="utf-8", newline="")))
+
+        self.assertEqual(rows[0]["snapshot_id"], "old")
+        self.assertEqual(rows[0]["bin_value_hi_c"], "")
+        self.assertEqual(rows[1]["snapshot_id"], "new")
+        self.assertEqual(rows[1]["bin_value_hi_c"], "91")
 
     def test_snapshot_component_probability_sums_range_bands(self):
         store = SnapshotStore(root=Path("."), event_slug="event")

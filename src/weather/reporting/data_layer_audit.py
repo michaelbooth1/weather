@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -27,6 +28,7 @@ from market_registry import all_specs, spec_for_slug
 from market_microstructure import CLOB_LOOP_STATUS_PATH, clob_loop_health
 from reanalysis_history import ReanalysisStore
 from snapshot_tracker import LOOP_STATUS_PATH, loop_health
+from supplemental_stations import guard_not_canonical_root, source_root, supplemental_sources
 from toronto_model import TORONTO_TZ
 
 
@@ -396,6 +398,9 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     field_nonempty = Counter()
     field_totals = Counter()
     artifact_totals = Counter()
+    training_ready_artifact_totals = Counter()
+    training_ready_folder_count = 0
+    training_ready_cutoff = datetime.now(TORONTO_TZ).date()
     source_status_rows = 0
     source_status_stale_or_failed_rows = 0
     source_status_counts = Counter()
@@ -408,11 +413,18 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     replay_status_counts = Counter()
     for row in folder_rows:
         by_market[row.get("market_id")].append(row)
+        target_date = parse_date(row.get("target_date"))
+        training_ready = bool(target_date and target_date < training_ready_cutoff)
+        row["training_ready"] = training_ready
+        if training_ready:
+            training_ready_folder_count += 1
         field_nonempty.update(row.get("nonempty") or {})
         field_totals.update(row.get("field_totals") or {})
         for name, present in (row.get("artifact_presence") or {}).items():
             if present:
                 artifact_totals[name] += 1
+                if training_ready:
+                    training_ready_artifact_totals[name] += 1
         status = row.get("source_status") or {}
         source_status_rows += int(status.get("row_count") or 0)
         source_status_stale_or_failed_rows += int(status.get("stale_or_failed_rows") or 0)
@@ -471,6 +483,8 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         "median_capture_gap_minutes": safe_median([row.get("median_gap_minutes") for row in folder_rows]),
         "max_capture_gap_minutes": safe_max([row.get("max_gap_minutes") for row in folder_rows]),
         "artifact_day_counts": dict(sorted(artifact_totals.items())),
+        "training_ready_folder_count": training_ready_folder_count,
+        "artifact_training_ready_day_counts": dict(sorted(training_ready_artifact_totals.items())),
         "source_status": {
             "row_count": source_status_rows,
             "stale_or_failed_rows": source_status_stale_or_failed_rows,
@@ -517,6 +531,40 @@ def daily_dates_from_csv(path):
     return dates
 
 
+def daily_value_rows_from_csv(path):
+    path = Path(path)
+    if not path.exists():
+        return {}
+    rows = {}
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            value = row.get("local_date") or row.get("date")
+            if not value:
+                continue
+            try:
+                local_date = date.fromisoformat(str(value)[:10])
+            except ValueError:
+                continue
+            high = safe_float(
+                row.get("max_temp")
+                or row.get("max_temp_native")
+                or row.get("max_temp_c")
+                or row.get("high")
+            )
+            bucket = safe_float(
+                row.get("max_temp_bucket")
+                or row.get("max_temp_bucket_native")
+                or row.get("max_temp_bucket_c")
+                or row.get("bucket")
+            )
+            if high is not None:
+                rows[local_date] = {
+                    "high": high,
+                    "bucket": int(bucket) if bucket is not None else None,
+                }
+    return rows
+
+
 def source_daily_summary_path(source, spec):
     station = spec.icao.lower()
     if source == "wu":
@@ -528,6 +576,34 @@ def source_daily_summary_path(source, spec):
     if source == "reanalysis":
         return Path("data") / "reanalysis" / station / "daily" / "daily_summary.csv"
     raise KeyError(source)
+
+
+def station_distance_km(spec, station):
+    lat = safe_float((station or {}).get("LATITUDE") or (station or {}).get("latitude"))
+    lon = safe_float((station or {}).get("LONGITUDE") or (station or {}).get("longitude"))
+    if lat is None or lon is None:
+        return None
+    radius_km = 6371.0
+    lat1 = math.radians(float(spec.lat))
+    lat2 = math.radians(lat)
+    dlat = lat2 - lat1
+    dlon = math.radians(lon - float(spec.lon))
+    hav = math.sin(dlat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
+    return round(radius_km * 2.0 * math.asin(min(1.0, math.sqrt(hav))), 3)
+
+
+def station_metadata(root):
+    root = Path(root)
+    station = read_json_dict(root / "station.json")
+    if station:
+        return station
+    manifest = read_json_dict(root / "manifest.json")
+    station = (manifest.get("metadata") or {}).get("station")
+    return station if isinstance(station, dict) else {}
+
+
+def supplemental_ghcnh_sources(spec, registry=None):
+    return supplemental_sources(spec.id, source_type="noaa_ghcnh", registry=registry)
 
 
 def source_root_path(source, spec):
@@ -571,6 +647,118 @@ def coverage_for_dates(covered, expected):
     }
 
 
+def compare_high_rows(candidate, reference, expected_dates=None):
+    expected_set = set(expected_dates or [])
+    overlap = sorted(set(candidate) & set(reference) & (expected_set or set(candidate) | set(reference)))
+    high_pairs = [
+        (candidate[local_date].get("high"), reference[local_date].get("high"))
+        for local_date in overlap
+    ]
+    diffs = [
+        float(candidate_high) - float(reference_high)
+        for candidate_high, reference_high in high_pairs
+        if candidate_high is not None and reference_high is not None
+    ]
+    if not diffs:
+        return {"days": 0}
+    bucket_matches = []
+    for local_date in overlap:
+        candidate_row = candidate[local_date]
+        reference_row = reference[local_date]
+        candidate_bucket = candidate_row.get("bucket")
+        reference_bucket = reference_row.get("bucket")
+        if candidate_bucket is None and candidate_row.get("high") is not None:
+            candidate_bucket = round(candidate_row.get("high"))
+        if reference_bucket is None and reference_row.get("high") is not None:
+            reference_bucket = round(reference_row.get("high"))
+        if candidate_bucket is not None and reference_bucket is not None:
+            bucket_matches.append(candidate_bucket == reference_bucket)
+    return {
+        "days": len(diffs),
+        "mean_bias": round(sum(diffs) / len(diffs), 4),
+        "mae": round(sum(abs(diff) for diff in diffs) / len(diffs), 4),
+        "max_abs": round(max(abs(diff) for diff in diffs), 4),
+        "candidate_exceeds_rate": round(sum(1 for diff in diffs if diff > 0) / len(diffs), 4),
+        "candidate_misses_rate": round(sum(1 for diff in diffs if diff < 0) / len(diffs), 4),
+        "bucket_match_rate": (
+            round(sum(1 for match in bucket_matches if match) / len(bucket_matches), 4)
+            if bucket_matches else None
+        ),
+    }
+
+
+def nearby_history_audit(spec, canonical_sources, expected_period, expected_season, registry=None):
+    canonical_ghcnh_dates = daily_dates_from_csv(source_daily_summary_path("ghcnh", spec))
+    wu_highs = daily_value_rows_from_csv(source_daily_summary_path("wu", spec))
+    metar_highs = daily_value_rows_from_csv(source_daily_summary_path("metar", spec))
+    supplemental_sources = []
+    supplemental_dates_union = set()
+    for source in supplemental_ghcnh_sources(spec, registry=registry):
+        guard_not_canonical_root(source, spec)
+        root = source_root(source)
+        path = root / "daily" / "daily_summary.csv"
+        dates = daily_dates_from_csv(path)
+        highs = daily_value_rows_from_csv(path)
+        if not dates:
+            continue
+        station = station_metadata(root)
+        added_period = sorted((dates - canonical_ghcnh_dates) & set(expected_period))
+        added_season = sorted((dates - canonical_ghcnh_dates) & set(expected_season))
+        supplemental_dates_union |= dates
+        supplemental_sources.append({
+            "source": "ghcnh_supplemental",
+            "source_type": source.get("source_type"),
+            "source_id": source.get("source_id"),
+            "source_role": source.get("source_role"),
+            "canonical_market_id": source.get("canonical_market_id") or spec.id,
+            "root": str(root),
+            "path": str(path),
+            "exists": path.exists(),
+            "station": source.get("station_id") or station.get("GHCN_ID") or station.get("ID") or root.name,
+            "station_name": source.get("station_name") or station.get("NAME") or station.get("Station_name"),
+            "latitude": source.get("latitude") if source.get("latitude") is not None else station.get("LATITUDE"),
+            "longitude": source.get("longitude") if source.get("longitude") is not None else station.get("LONGITUDE"),
+            "elevation_m": source.get("elevation_m"),
+            "distance_km": (
+                source.get("distance_from_canonical_km")
+                if source.get("distance_from_canonical_km") is not None
+                else station_distance_km(spec, station)
+            ),
+            "validation_status": source.get("validation_status"),
+            "adopted_date_windows": source.get("adopted_date_windows"),
+            "reason_for_adoption": source.get("reason_for_adoption"),
+            "daily_days": len(dates),
+            "period": coverage_for_dates(dates, expected_period),
+            "target_season": coverage_for_dates(dates, expected_season),
+            "adds_period_days": len(added_period),
+            "adds_target_season_days": len(added_season),
+            "sample_added_target_season_days": [item.isoformat() for item in added_season[:10]],
+            "bias_vs_wu": {
+                "all": compare_high_rows(highs, wu_highs),
+                "target_season": compare_high_rows(highs, wu_highs, expected_season),
+            },
+            "bias_vs_metar": {
+                "all": compare_high_rows(highs, metar_highs),
+                "target_season": compare_high_rows(highs, metar_highs, expected_season),
+            },
+        })
+    composite_dates = canonical_ghcnh_dates | supplemental_dates_union
+    composite = {
+        "source": "ghcnh_canonical_plus_supplemental",
+        "period": coverage_for_dates(composite_dates, expected_period),
+        "target_season": coverage_for_dates(composite_dates, expected_season),
+        "canonical_target_season_days": (
+            (canonical_sources.get("ghcnh") or {}).get("target_season") or {}
+        ).get("covered_days"),
+        "supplemental_target_season_added_days": len((supplemental_dates_union - canonical_ghcnh_dates) & set(expected_season)),
+    }
+    return {
+        "supplemental_sources": supplemental_sources,
+        "composite": composite,
+        "usefulness": "useful_if_validated" if supplemental_sources else "not_evaluated",
+    }
+
+
 def historical_source_audit(spec, source, expected_period, expected_season):
     path = source_daily_summary_path(source, spec)
     covered = daily_dates_from_csv(path)
@@ -590,7 +778,7 @@ def historical_source_audit(spec, source, expected_period, expected_season):
     return row
 
 
-def historical_audit(start, end):
+def historical_audit(start, end, registry=None):
     expected_period = list(iter_dates(start, end))
     expected_season = season_dates(start, end)
     markets = []
@@ -599,12 +787,14 @@ def historical_audit(start, end):
             source: historical_source_audit(spec, source, expected_period, expected_season)
             for source in ("wu", "metar", "ghcnh", "reanalysis")
         }
+        nearby_history = nearby_history_audit(spec, sources, expected_period, expected_season, registry=registry)
         markets.append({
             "market_id": spec.id,
             "city": spec.city_label,
             "station": spec.icao,
             "unit": spec.display_unit,
             "sources": sources,
+            "nearby_history": nearby_history,
         })
     return {
         "start": start.isoformat(),
@@ -750,15 +940,25 @@ def gate(name, severity, ok, evidence, threshold=None, action=None):
 
 def artifact_gate(snapshot, name, expected_count=None, thresholds=None, severity="fail"):
     thresholds = thresholds or DEFAULT_AUDIT_THRESHOLDS
-    expected = snapshot.get("folder_count", 0) if expected_count is None else expected_count
-    present = snapshot.get("artifact_day_counts", {}).get(name, 0)
+    scoped_counts = snapshot.get("artifact_training_ready_day_counts")
+    scoped_expected = snapshot.get("training_ready_folder_count")
+    if scoped_counts is not None and scoped_expected is not None:
+        counts = scoped_counts
+        default_expected = scoped_expected
+        scope = "training-ready "
+    else:
+        counts = snapshot.get("artifact_day_counts", {})
+        default_expected = snapshot.get("folder_count", 0)
+        scope = ""
+    expected = default_expected if expected_count is None else expected_count
+    present = counts.get(name, 0)
     rate = pct(present, expected)
     required_rate = thresholds["required_artifact_rate"]
     return gate(
         f"snapshot_artifact_{name}",
         severity,
         rate is not None and rate >= required_rate,
-        f"{present}/{expected} folders have {SNAPSHOT_OPTIONAL_ARTIFACTS.get(name, name)}.",
+        f"{present}/{expected} {scope}folders have {SNAPSHOT_OPTIONAL_ARTIFACTS.get(name, name)}.",
         threshold=f">= {required_rate:.1%}",
         action="Backfill or regenerate the missing snapshot artifact before using the folder for training.",
     )
@@ -941,9 +1141,17 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
 
     low_sources = []
     for market in historical.get("markets") or []:
+        nearby = market.get("nearby_history") or {}
+        composite_season = ((nearby.get("composite") or {}).get("target_season") or {})
         for source, source_row in (market.get("sources") or {}).items():
             season = source_row.get("target_season") or {}
             if season.get("coverage_rate") is not None and season["coverage_rate"] < 0.95:
+                if (
+                    source == "ghcnh"
+                    and composite_season.get("coverage_rate") is not None
+                    and composite_season["coverage_rate"] >= 0.95
+                ):
+                    continue
                 low_sources.append((market["market_id"], source, season["covered_days"], season["expected_days"]))
     if low_sources:
         sample = ", ".join(f"{m}:{s} {c}/{e}" for m, s, c, e in low_sources[:8])
@@ -993,13 +1201,49 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
             ),
             "Item 17 / Item 37",
         ))
+    useful_nearby = []
+    for market in historical.get("markets") or []:
+        nearby = market.get("nearby_history") or {}
+        composite = nearby.get("composite") or {}
+        season = composite.get("target_season") or {}
+        added = int(composite.get("supplemental_target_season_added_days") or 0)
+        if added and season.get("coverage_rate") is not None and season["coverage_rate"] >= 0.95:
+            useful_nearby.append((
+                market.get("market_id"),
+                added,
+                season.get("covered_days"),
+                season.get("expected_days"),
+            ))
+    if useful_nearby:
+        sample = ", ".join(
+            f"{market} +{added} days -> {covered}/{expected}"
+            for market, added, covered, expected in useful_nearby[:6]
+        )
+        recs.append(recommendation(
+            "P1",
+            "Promote validated nearby station history as supplemental data",
+            f"Nearby GHCNh sources lift canonical target-season coverage for {len(useful_nearby)} market(s); sample: {sample}.",
+            (
+                "Keep supplemental station roots provenance-labelled and train them as redundant history/source-trust features, "
+                "not as silent replacements for canonical settlement stations."
+            ),
+            "Items 27, 29, 30",
+        ))
+    nearby_station_ids = {
+        item.get("station")
+        for market in historical.get("markets") or []
+        for item in ((market.get("nearby_history") or {}).get("supplemental_sources") or [])
+        if item.get("station")
+    }
     toronto_candidates = historical_gap_investigation.get("toronto_available_ghcnh_candidates") or []
     if toronto_candidates:
         station = (toronto_candidates[0].get("station") or {}).get("GHCN_ID")
         years = ",".join(str(year) for year in toronto_candidates[0].get("available_years") or [])
         bias = historical_gap_investigation.get("toronto_alt_ghcnh_bias") or {}
         wu_target = (((bias.get("comparisons") or {}).get("wu") or {}).get("target_season") or {})
-        if bias and wu_target.get("days"):
+        if station in nearby_station_ids:
+            pass
+        elif bias and wu_target.get("days"):
             recs.append(recommendation(
                 "P1",
                 "Promote validated Toronto alternate GHCNh station as redundant history",
@@ -1119,6 +1363,62 @@ def _historical_table_rows(payload):
                 _fmt_pct(season.get("coverage_rate")),
                 f"{period.get('covered_days', 0)}/{period.get('expected_days', 0)}",
                 _fmt_pct(period.get("coverage_rate")),
+                item.get("path"),
+            ])
+    return rows
+
+
+def _nearby_composite_rows(historical):
+    rows = []
+    for market in historical.get("markets") or []:
+        nearby = market.get("nearby_history") or {}
+        supplemental = nearby.get("supplemental_sources") or []
+        if not supplemental:
+            continue
+        composite = nearby.get("composite") or {}
+        season = composite.get("target_season") or {}
+        period = composite.get("period") or {}
+        rows.append([
+            market.get("market_id"),
+            "ghcnh canonical + supplemental",
+            len(supplemental),
+            composite.get("supplemental_target_season_added_days"),
+            f"{season.get('covered_days', 0)}/{season.get('expected_days', 0)}",
+            _fmt_pct(season.get("coverage_rate")),
+            f"{period.get('covered_days', 0)}/{period.get('expected_days', 0)}",
+            _fmt_pct(period.get("coverage_rate")),
+            ", ".join(item.get("station") or "-" for item in supplemental[:3]),
+        ])
+    return rows
+
+
+def _nearby_source_rows(historical):
+    rows = []
+    for market in historical.get("markets") or []:
+        nearby = market.get("nearby_history") or {}
+        for item in nearby.get("supplemental_sources") or []:
+            wu_season = ((item.get("bias_vs_wu") or {}).get("target_season") or {})
+            metar_season = ((item.get("bias_vs_metar") or {}).get("target_season") or {})
+            rows.append([
+                market.get("market_id"),
+                item.get("source_id"),
+                item.get("station"),
+                item.get("station_name") or "-",
+                fmt_num(item.get("distance_km"), 2),
+                item.get("validation_status") or "-",
+                "; ".join(
+                    f"{window.get('start')}..{window.get('end')}"
+                    for window in item.get("adopted_date_windows") or []
+                ) or "-",
+                item.get("adds_target_season_days"),
+                item.get("daily_days"),
+                wu_season.get("days") or "-",
+                fmt_num(wu_season.get("mae"), 3),
+                _fmt_pct(wu_season.get("bucket_match_rate")),
+                metar_season.get("days") or "-",
+                fmt_num(metar_season.get("mae"), 3),
+                _fmt_pct(metar_season.get("bucket_match_rate")),
+                item.get("reason_for_adoption") or "-",
                 item.get("path"),
             ])
     return rows
@@ -1266,6 +1566,45 @@ def write_report(path, payload):
         ],
         _historical_table_rows(historical),
     )
+    nearby_composite_rows = _nearby_composite_rows(historical)
+    nearby_source_rows = _nearby_source_rows(historical)
+    if nearby_composite_rows or nearby_source_rows:
+        lines += [
+            "",
+            "## Nearby Historical Sources",
+            "",
+            (
+                "Supplemental nearby stations are kept separate from canonical settlement/source roots. "
+                "They are useful when they add missing days with acceptable overlap bias, and should stay "
+                "provenance-labelled in training features."
+            ),
+            "",
+        ]
+        if nearby_composite_rows:
+            lines += markdown_table(
+                [
+                    "Market", "Composite", "Supp Sources", "Season Added",
+                    "Season Covered", "Season Rate", "Full Covered", "Full Rate",
+                    "Stations",
+                ],
+                nearby_composite_rows,
+            )
+        if nearby_source_rows:
+            lines += [
+                "",
+                "### Supplemental Station Bias",
+                "",
+            ]
+            lines += markdown_table(
+                [
+                    "Market", "Source ID", "Station", "Name", "Distance Km",
+                    "Validation", "Adopted Windows", "Season Added",
+                    "Daily Rows", "WU Days", "WU MAE", "WU Bucket Match",
+                    "METAR Days", "METAR MAE", "METAR Bucket Match",
+                    "Reason", "Path",
+                ],
+                nearby_source_rows,
+            )
     lines += [
         "",
         "## Historical Gap Investigation",

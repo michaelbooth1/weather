@@ -1,4 +1,4 @@
-# 39. Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE CLEANUP DONE]
+# 39. Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE CLEANUP DONE]
 
 Full data-layer audit across all 12 markets. Verdict: broad and well-organized
 (per-station roots, manifests, raw->hourly->daily tiers, coverage tool), but with
@@ -132,9 +132,24 @@ Long-term (the production data layer):
   non-empty consensus high, and 3 Toronto rows include SWOB in `source_values`.
   Focused tests: `tests\reporting\test_source_redundancy.py` asserts SWOB join,
   consensus median/bucket fields, SWOB-vs-WU bias, and CSV flattening.
-- [ ] Automated ingest quality gate in the loop/CI - block writes failing
+- [x] Automated ingest quality gate in the loop/CI - block writes failing
   range/gap/dup/schema checks; surface in collection-health (closes item 14,
   feeds item 31).
+  Done 2026-06-15: `src.weather.operations.daily_refresh` now runs an
+  `ingest_quality_gate` step immediately after the reanalysis refresh and writes
+  durable `data\backtest\ingest_quality_gate.json` /
+  `data\backtest\ingest_quality_gate_report.md` artifacts. The step is visible
+  in dry-run plans, daily-refresh reports, and `pipeline_summary`; scheduled/CI
+  callers can make the refresh fail closed with `--fail-on-ingest-quality`.
+  `src.weather.reporting.data_auditor` now treats daily-summary schema errors as
+  corruption alongside duplicate timestamps and impossible values, while missing
+  or sparse target-window days remain WARN-level gap evidence. Evidence run
+  scoped to 2026 produced `WARN`: 12 market audits ran, 0 missing audit results,
+  0 schema-error markets, 0 duplicate-timestamp markets, 0 impossible-value
+  markets, and 12 markets with missing target-window days. Focused tests:
+  `tests\operations\test_daily_refresh.py` covers the new step, dry-run
+  planning, artifact writes, and critical fail-on behavior; `tests\reporting
+  \test_data_auditor.py` covers schema errors as corruption.
 - [ ] Central schema registry + migration tooling (replace scattered
   `schema_version` strings). Part of item 31.
 - [ ] Parquet + per-source freshness SLAs + a coverage/gap dashboard (extend the
@@ -153,8 +168,8 @@ unit coverage proving model artifacts route to `artifacts/models/hgb`,
 rather than the source tree, with legacy `src/` paths retained only as read
 fallback candidates. The `artifact_candidates()` annotation now reflects that
 absolute/explicit paths return a variable-length tuple. This does not close the
-remaining infrastructure decisions: central schema registry and CI ingest gates
-remain open.
+remaining infrastructure decisions: central schema registry and Parquet/freshness
+dashboard work remain open.
 
 P0 unit-contract fix (2026-06-11): `src.daily_summary` now centralizes
 native-vs-Celsius daily-summary reads, `src.wu_history` writes

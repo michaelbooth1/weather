@@ -83,7 +83,10 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
 | 32 | [Reanalysis And Synoptic Feature Layer [NEW - GATED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
-| 39 | [Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE CLEANUP DONE]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
+| 39 | [Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE CLEANUP DONE]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
+| 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
+| 62 | [Nearby Station Validation And Promotion Gates [NEW - AUDIT FOLLOW-UP]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
+| 64 | [Canonical Settlement History Provenance Guardrails [NEW - AUDIT FOLLOW-UP]](items/item-64-canonical-settlement-history-provenance-guardrails.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -113,9 +116,10 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 55 | [Market-Making Order Lifecycle And Budget Reconciliation [COMPLETE 2026-06-15 - LIFECYCLE LEDGER LIVE]](items/item-55-market-making-order-lifecycle-and-budget-reconciliation.md) |
 | 56 | [Market-Making Test Cockpit And Drilldown Diagnostics [COMPLETE 2026-06-15 - COCKPIT LIVE]](items/item-56-market-making-test-cockpit-and-drilldown-diagnostics.md) |
 | 57 | [Market-Making Preflight Remediation And Active-Day Reliability [COMPLETE 2026-06-15 - REMEDIATION INCIDENTS LIVE]](items/item-57-market-making-preflight-remediation-and-active-day-reliability.md) |
-| 58 | [Miami Intra-Hour WU Print-Lag Feature Parity [NEW - AUDIT]](items/item-58-miami-intra-hour-wu-print-lag-feature-parity.md) |
-| 59 | [Afternoon High-Has-Stood Lock-In Model [NEW - AUDIT]](items/item-59-afternoon-high-has-stood-lock-in-model.md) |
-| 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [NEW - AUDIT]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
+| 58 | [Miami Intra-Hour WU Print-Lag Feature Parity [COMPLETE 2026-06-15 - PRINT-LAG PARITY FIXED]](items/item-58-miami-intra-hour-wu-print-lag-feature-parity.md) |
+| 59 | [Afternoon High-Has-Stood Lock-In Model [COMPLETE 2026-06-15 - HIGH-HAS-STOOD LOCK-IN LIVE]](items/item-59-afternoon-high-has-stood-lock-in-model.md) |
+| 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
+| 63 | [Nearby Station Source-Trust And Redundant-History Features [NEW - AUDIT FOLLOW-UP]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 
 ## Maintenance Conventions
 

@@ -11,10 +11,18 @@ from pathlib import Path
 
 HOURLY_SCHEMA_VERSION = "historical_hourly_native_v1"
 DAILY_SCHEMA_VERSION = "historical_daily_native_v1"
+PROVENANCE_COLUMNS = [
+    "source_role",
+    "canonical_market_id",
+    "supplemental_source_id",
+    "supplemental_station_id",
+    "source_distance_from_canonical_km",
+]
 
 HOURLY_COLUMNS = [
     "schema_version",
     "source",
+    *PROVENANCE_COLUMNS,
     "market_id",
     "city",
     "station",
@@ -42,6 +50,7 @@ HOURLY_COLUMNS = [
 DAILY_COLUMNS = [
     "schema_version",
     "source",
+    *PROVENANCE_COLUMNS,
     "market_id",
     "city",
     "station",
@@ -152,11 +161,21 @@ def hourly_record(
     clouds=None,
     source_report_type=None,
     source_quality=None,
+    source_role="canonical",
+    canonical_market_id=None,
+    supplemental_source_id="",
+    supplemental_station_id="",
+    source_distance_from_canonical_km="",
 ):
     valid_time_utc = valid_time_local.astimezone(timezone.utc)
     return {
         "schema_version": HOURLY_SCHEMA_VERSION,
         "source": source,
+        "source_role": source_role,
+        "canonical_market_id": canonical_market_id or spec.id,
+        "supplemental_source_id": supplemental_source_id,
+        "supplemental_station_id": supplemental_station_id,
+        "source_distance_from_canonical_km": source_distance_from_canonical_km,
         "market_id": spec.id,
         "city": spec.city_label,
         "station": station,
@@ -213,6 +232,11 @@ def summarize_daily(records):
         daily_rows.append({
             "schema_version": DAILY_SCHEMA_VERSION,
             "source": rows[0].get("source"),
+            "source_role": rows[0].get("source_role") or "canonical",
+            "canonical_market_id": rows[0].get("canonical_market_id") or rows[0].get("market_id"),
+            "supplemental_source_id": rows[0].get("supplemental_source_id") or "",
+            "supplemental_station_id": rows[0].get("supplemental_station_id") or "",
+            "source_distance_from_canonical_km": rows[0].get("source_distance_from_canonical_km") or "",
             "market_id": rows[0].get("market_id"),
             "city": rows[0].get("city"),
             "station": rows[0].get("station"),

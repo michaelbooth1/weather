@@ -84,6 +84,12 @@ FEATURE_COLUMNS = [
     "cloud_group",
 ]
 
+FEATURE_DIAGNOSTIC_COLUMNS = [
+    "latest_wu_history_time",
+    "latest_wu_history_minute",
+    "latest_wu_history_temp",
+]
+
 FEATURE_AUDIT_COLUMNS = [
     "snapshot_id",
     "captured_at_utc",
@@ -93,6 +99,7 @@ FEATURE_AUDIT_COLUMNS = [
     "model_version",
     "feature_schema_version",
     "cutoff_hour",
+    *FEATURE_DIAGNOSTIC_COLUMNS,
     *FEATURE_COLUMNS,
 ]
 
@@ -120,6 +127,8 @@ def build_live_feature_record(
     }
     if captured_at is not None:
         record["captured_at_local"] = captured_at.isoformat()
+    for column in FEATURE_DIAGNOSTIC_COLUMNS:
+        record[column] = scalar((features or {}).get(column))
     for column in FEATURE_COLUMNS:
         record[column] = scalar((features or {}).get(column))
     return record

@@ -10,8 +10,8 @@ from snapshot_tracker import TORONTO_TZ, ensure_decision, loop_health
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=TORONTO_TZ)
 
 
-def status(heartbeat_age_min=1.0, paused=False, errors=0, pid=1234, interval=10.0):
-    return {
+def status(heartbeat_age_min=1.0, paused=False, errors=0, pid=1234, interval=10.0, **extra):
+    base = {
         "pid": pid,
         "interval_minutes": interval,
         "last_heartbeat": (NOW - timedelta(minutes=heartbeat_age_min)).isoformat(),
@@ -19,6 +19,8 @@ def status(heartbeat_age_min=1.0, paused=False, errors=0, pid=1234, interval=10.
         "paused": paused,
         "started_at": (NOW - timedelta(hours=2)).isoformat(),
     }
+    base.update(extra)
+    return base
 
 
 class TestEnsureDecision(unittest.TestCase):
@@ -70,6 +72,30 @@ class TestEnsureDecision(unittest.TestCase):
         state = self._state(status(heartbeat_age_min=18))
         self.assertEqual(state, "RUNNING")
         self.assertEqual(ensure_decision(state, pid_alive=True), "noop")
+
+    def test_stale_runtime_identity_restarts_loop(self):
+        old_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "abc",
+            "source_fingerprint": "old",
+        }
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "abc",
+            "source_fingerprint": "new",
+        }
+
+        health = loop_health(
+            status(runtime_identity=old_identity),
+            NOW,
+            current_identity=current_identity,
+        )
+
+        self.assertEqual(health["state"], "STALE_CODE")
+        self.assertEqual(health["runtime_code_state"], "stale_code")
+        self.assertEqual(ensure_decision(health["state"], pid_alive=True), "restart")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import sys
@@ -15,6 +16,7 @@ from historical_coverage import fleet_coverage
 from forecast_history import daily_issue_rows, historical_forecast_rows, load_forecast_profiles, previous_run_rows, write_csv, RICH_FORECAST_COLUMNS
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
+from supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
 from wu_history import normalize_observation, summarize_daily
 
 
@@ -25,6 +27,33 @@ USW00014732|LAGUARDIA AP|2023-06-01T13:51:00|2023|06|01|13|51|40.78|-73.88|3.0|2
 
 
 class TestHistoricalSources(unittest.TestCase):
+    def supplemental_registry(self, root, market_id="nyc"):
+        return {
+            "schema_version": "supplemental_station_registry_v0.1",
+            "sources": [{
+                "market_id": market_id,
+                "source_id": "ghcnh_test_supplemental",
+                "source_type": "noaa_ghcnh",
+                "source_role": "supplemental",
+                "station_id": "USW00014732",
+                "station_name": "LAGUARDIA AP",
+                "root_path": str(root),
+                "latitude": 40.78,
+                "longitude": -73.88,
+                "elevation_m": 3.0,
+                "distance_from_canonical_km": 0.42,
+                "canonical_market_id": market_id,
+                "canonical_station_id": "KLGA",
+                "validation_status": "candidate",
+                "adopted_date_windows": [{
+                    "start": "2023-06-01",
+                    "end": "2023-06-01",
+                    "reason": "unit test",
+                }],
+                "reason_for_adoption": "unit test supplemental source",
+            }],
+        }
+
     def test_fleet_coverage_includes_all_item29_sources(self):
         payload = fleet_coverage(["nyc"])
 
@@ -33,6 +62,23 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertIn("wu", sources)
         self.assertIn("ghcnh", sources)
         self.assertIn("reanalysis", sources)
+
+    def test_fleet_coverage_reports_registered_supplemental_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = self.supplemental_registry(Path(tmp) / "supp")
+            payload = fleet_coverage(["nyc"], registry=registry)
+
+        supplemental = payload["markets"][0]["supplemental_sources"]["ghcnh"]
+        self.assertEqual(len(supplemental), 1)
+        self.assertEqual(supplemental[0]["source_id"], "ghcnh_test_supplemental")
+        self.assertEqual(supplemental[0]["source_role"], "supplemental")
+        self.assertEqual(supplemental[0]["distance_from_canonical_km"], 0.42)
+
+    def test_supplemental_registry_rejects_canonical_root(self):
+        registry = self.supplemental_registry(Path("data") / "noaa_ghcnh" / "klga")
+
+        with self.assertRaises(SupplementalStationRegistryError):
+            guard_not_canonical_root(registry["sources"][0], NYC)
 
     def test_backfill_plan_has_stable_shape(self):
         plan = build_plan(
@@ -237,6 +283,29 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(daily[0]["max_temp_bucket"], 77)
             self.assertTrue((Path(tmp) / "manifest.json").exists())
             self.assertTrue((Path(tmp) / "hourly" / "year=2023" / "month=06" / "observations.jsonl").exists())
+
+    def test_ghcnh_supplemental_rebuild_writes_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "supp"
+            registry = self.supplemental_registry(root)
+            store = GHCNHStore(NYC, root, registry=registry)
+            station = {"GHCN_ID": "USW00014732", "NAME": "LAGUARDIA AP"}
+            store.write_station(station)
+            store.write_year("USW00014732", 2023, GHCNH_SAMPLE)
+
+            records, daily = store.rebuild()
+            daily_rows = list(csv.DictReader((root / "daily" / "daily_summary.csv").open(encoding="utf-8", newline="")))
+            hourly_record = json.loads((root / "hourly" / "year=2023" / "month=06" / "observations.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(records[0]["source_role"], "supplemental")
+        self.assertEqual(records[0]["supplemental_source_id"], "ghcnh_test_supplemental")
+        self.assertEqual(daily[0]["source_role"], "supplemental")
+        self.assertEqual(daily_rows[0]["source_role"], "supplemental")
+        self.assertEqual(daily_rows[0]["supplemental_station_id"], "USW00014732")
+        self.assertEqual(hourly_record["source_distance_from_canonical_km"], 0.42)
+        self.assertEqual(manifest["metadata"]["source_role"], "supplemental")
+        self.assertEqual(manifest["metadata"]["supplemental_source"]["source_id"], "ghcnh_test_supplemental")
 
     def test_ghcnh_source_unavailable_years_are_not_refetch_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:

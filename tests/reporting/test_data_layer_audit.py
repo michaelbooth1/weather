@@ -5,12 +5,14 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from data_layer_audit import (  # noqa: E402
     build_recommendations,
     build_gates,
+    nearby_history_audit,
     scan_snapshot_csv,
     source_status_summary_for_folder,
     season_dates,
@@ -115,6 +117,128 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertNotIn("Split weather/model cadence from market-book cadence", running_titles)
         self.assertIn("Start and supervise the CLOB book loop", dead_titles)
 
+    def test_nearby_history_audit_measures_supplemental_coverage_and_bias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                spec = SimpleNamespace(id="kxxx", icao="KXXX", lat=10.0, lon=20.0)
+
+                def write_daily(path, rows):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with path.open("w", encoding="utf-8", newline="") as handle:
+                        writer = csv.DictWriter(handle, fieldnames=["local_date", "max_temp"])
+                        writer.writeheader()
+                        writer.writerows(rows)
+
+                write_daily(
+                    Path("data/noaa_ghcnh/kxxx/daily/daily_summary.csv"),
+                    [{"local_date": "2020-05-20", "max_temp": "19.8"}],
+                )
+                write_daily(
+                    Path("data/noaa_ghcnh/kxxx_alt_nearby/daily/daily_summary.csv"),
+                    [
+                        {"local_date": "2020-05-21", "max_temp": "20.2"},
+                        {"local_date": "2020-05-22", "max_temp": "21.0"},
+                    ],
+                )
+                station_path = Path("data/noaa_ghcnh/kxxx_alt_nearby/station.json")
+                station_path.write_text(
+                    '{"GHCN_ID":"USW00000001","NAME":"Nearby AP","LATITUDE":"10.0","LONGITUDE":"20.0"}\n',
+                    encoding="utf-8",
+                )
+                reference_rows = [
+                    {"local_date": "2020-05-21", "max_temp": "20.0"},
+                    {"local_date": "2020-05-22", "max_temp": "21.0"},
+                ]
+                write_daily(Path("data/wunderground/kxxx/daily/daily_summary.csv"), reference_rows)
+                write_daily(Path("data/metar/kxxx/daily/daily_summary.csv"), reference_rows)
+
+                expected = [date(2020, 5, 20), date(2020, 5, 21), date(2020, 5, 22)]
+                out = nearby_history_audit(
+                    spec,
+                    {"ghcnh": {"target_season": {"covered_days": 1}}},
+                    expected,
+                    expected,
+                    registry={
+                        "schema_version": "supplemental_station_registry_v0.1",
+                        "sources": [{
+                            "market_id": "kxxx",
+                            "source_id": "ghcnh_kxxx_nearby",
+                            "source_type": "noaa_ghcnh",
+                            "source_role": "supplemental",
+                            "station_id": "USW00000001",
+                            "station_name": "Nearby AP",
+                            "root_path": str(Path("data/noaa_ghcnh/kxxx_alt_nearby").resolve()),
+                            "latitude": 10.0,
+                            "longitude": 20.0,
+                            "elevation_m": None,
+                            "distance_from_canonical_km": 0.0,
+                            "canonical_market_id": "kxxx",
+                            "canonical_station_id": "KXXX",
+                            "validation_status": "candidate",
+                            "adopted_date_windows": [{
+                                "start": "2020-05-21",
+                                "end": "2020-05-22",
+                                "reason": "unit test",
+                            }],
+                            "reason_for_adoption": "unit test registry entry",
+                        }],
+                    },
+                )
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(out["composite"]["target_season"]["covered_days"], 3)
+        self.assertEqual(out["composite"]["supplemental_target_season_added_days"], 2)
+        self.assertEqual(out["supplemental_sources"][0]["source_id"], "ghcnh_kxxx_nearby")
+        self.assertEqual(out["supplemental_sources"][0]["source_role"], "supplemental")
+        self.assertEqual(out["supplemental_sources"][0]["reason_for_adoption"], "unit test registry entry")
+        self.assertEqual(out["supplemental_sources"][0]["station"], "USW00000001")
+        self.assertEqual(out["supplemental_sources"][0]["bias_vs_wu"]["target_season"]["mae"], 0.1)
+
+    def test_recommendations_use_validated_nearby_history_before_deep_fill(self):
+        recs = build_recommendations(
+            {
+                "has_market_token_ids": True,
+                "low_fill_fields": [],
+                "artifact_day_counts": {"replay_inputs": 1, "source_status": 1},
+                "folder_count": 1,
+            },
+            {
+                "markets": [
+                    {
+                        "market_id": "toronto",
+                        "sources": {
+                            "ghcnh": {
+                                "target_season": {
+                                    "coverage_rate": 0.5,
+                                    "covered_days": 1,
+                                    "expected_days": 2,
+                                },
+                            },
+                        },
+                        "nearby_history": {
+                            "composite": {
+                                "target_season": {
+                                    "coverage_rate": 1.0,
+                                    "covered_days": 2,
+                                    "expected_days": 2,
+                                },
+                                "supplemental_target_season_added_days": 1,
+                            },
+                        },
+                    },
+                ],
+            },
+            {"configured_interval_minutes": 5},
+            {"state": "RUNNING"},
+        )
+
+        titles = [item["title"] for item in recs]
+        self.assertIn("Promote validated nearby station history as supplemental data", titles)
+        self.assertNotIn("Deep-fill redundant historical weather sources for the target season", titles)
+
     def test_source_status_summary_counts_stale_and_failed_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "source_status_long.csv"
@@ -167,6 +291,32 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(by_name["forecast_payload_artifact_rate"]["status"], "WARN")
         self.assertEqual(by_name["source_status_stale_or_failed_rate"]["status"], "WARN")
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "WARN")
+
+    def test_build_gates_scopes_snapshot_artifacts_to_training_ready_folders(self):
+        snapshot = {
+            "folder_count": 2,
+            "training_ready_folder_count": 1,
+            "artifact_day_counts": {
+                "forecasts": 2,
+                "clob_features": 2,
+                "replay_input_status": 1,
+            },
+            "artifact_training_ready_day_counts": {
+                "forecasts": 1,
+                "clob_features": 1,
+                "replay_input_status": 1,
+            },
+            "source_status": {
+                "row_count": 1,
+                "stale_or_failed_rows": 0,
+                "stale_or_failed_rate": 0.0,
+            },
+        }
+        gates = build_gates(snapshot, {"markets": []})
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["snapshot_artifact_replay_input_status"]["status"], "PASS")
+        self.assertIn("training-ready folders", by_name["snapshot_artifact_replay_input_status"]["evidence"])
 
     def test_build_gates_allows_reanalysis_source_lag_raw_only_days(self):
         snapshot = {

@@ -40,6 +40,7 @@ DRIVER_WATERFALL_STAGES = (
     ("forecast_pull", "Forecast floor / pull"),
     ("settlement_lag_adjusted", "Settlement-lag (SWOB) floor"),
     ("current_observed_floor", "Current-observed floor"),
+    ("high_has_stood_lockin", "High-has-stood lock-in"),
     ("late_day_lockin", "Late-day lock-in"),
     ("final_model", "Overconfidence calibration"),
 )
@@ -432,9 +433,14 @@ class PresentationMixin:
 
         # 3. Model type
         model_type = self.get_model_version_string()
+        component_payload = getattr(self, "_last_distribution_components", {}) or {}
 
         explanation = {
             "model_type": model_type,
+            "feature_cutoff_hour": component_payload.get("cutoff_hour"),
+            "latest_wu_history_time": component_payload.get("latest_wu_history_time"),
+            "latest_wu_history_temp": component_payload.get("latest_wu_history_temp"),
+            "high_has_stood_lockin": component_payload.get("high_has_stood_lockin"),
             "observed_floor": observed_bucket,
             "forecast_cap": plausible_cap,
             "wind_regime": wind_group,

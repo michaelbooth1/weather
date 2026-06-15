@@ -134,6 +134,81 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["live_reading_minus_high"], 1.0)
         self.assertEqual(serve["high_so_far"], 24.0)   # printed path untouched
 
+    def test_miami_20260615_140914_print_lag_aliases_to_13h_features(self):
+        # Item 58 replay fixture:
+        # highest-temperature-in-miami-on-june-15-2026 / 20260615T140914-0400.
+        # At wall 14:09, WU history latest was a 12:53 settlement-source print
+        # at 93 F. That row is part of the 13h trained printed path, even
+        # though it is not an exact 13:00 row.
+        model = TorontoHighTempModel(target_date="2026-06-15", market_id="miami")
+        now = datetime(2026, 6, 15, 14, 9, tzinfo=TORONTO_TZ)
+
+        def row(time, temp, pressure):
+            return {
+                "time": time,
+                "datetime": f"2026-06-15T{time}:00-04:00",
+                "temp_c": temp,
+                "dewpoint_c": 75.0,
+                "humidity": 58.0,
+                "pressure": pressure,
+                "wind_kmh": 12.0,
+                "wind": "S",
+                "condition": "Fair",
+                "clouds": "Clear",
+            }
+
+        live_rows = [
+            row("07:00", 80.0, 1016.0),
+            row("10:00", 86.0, 1015.0),
+            row("11:00", 89.0, 1014.5),
+            row("12:00", 91.0, 1014.2),
+            row("12:53", 93.0, 1014.0),
+        ]
+        ok = lambda data: {"ok": True, "data": data}
+        live_sources_for_alias = {
+            "wu_history": ok({"rows": live_rows, "max_c": 93.0, "max_times": ["12:53"]}),
+        }
+        cutoff = model.effective_intraday_cutoff_hour(now, live_rows)
+        self.assertEqual(cutoff, 13)
+
+        serve_sources = {
+            **live_sources_for_alias,
+            "wu_current": ok({"temp_c": 93.0, "dewpoint_c": 75.0, "humidity": 58.0}),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_c": 96.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+        serve = model.extract_live_features(serve_sources, cutoff, now=now)
+
+        historical_rows = [
+            {**item, "minute_of_day": model.minute_of_day(item["time"])}
+            for item in [*live_rows, row("14:00", 93.0, 1013.8)]
+        ]
+        train = build_historical_feature_record(
+            local_date="2026-06-15",
+            rows=historical_rows,
+            daily={"bucket": 93},
+            cutoff_hour=cutoff,
+            forecast_high=96.0,
+            wind_group_fn=model.wind_group,
+            cloud_group_fn=model.cloud_group,
+            wall_minute=14 * 60 + 9,
+        )
+
+        self.assertIsNotNone(train)
+        for feature in SHARED_FEATURES:
+            with self.subTest(feature=feature):
+                self.assertEqual(
+                    train[feature], serve[feature],
+                    f"train/serve skew on {feature}: train={train[feature]} serve={serve[feature]}",
+                )
+        self.assertEqual(serve["high_so_far"], 93.0)
+        self.assertEqual(serve["current_temp"], 93.0)
+        self.assertEqual(serve["minutes_since_cutoff"], 69.0)
+        self.assertEqual(serve["latest_wu_history_time"], "12:53")
+        self.assertEqual(serve["latest_wu_history_minute"], 12 * 60 + 53)
+        self.assertEqual(serve["latest_wu_history_temp"], 93.0)
+
     def test_sanity_of_extracted_values(self):
         # Guards that the test inputs actually exercise the derivations (not all
         # defaults), so the agreement above is meaningful.

@@ -26,6 +26,7 @@ from market_microstructure import (  # noqa: E402
     summarize_order_book,
     token_rows_from_event,
 )
+from market_microstructure_features import snapshot_band_key  # noqa: E402
 from market_config import config_for_date  # noqa: E402
 
 
@@ -226,6 +227,17 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(clob_feature_rows[0]["clob_best_bid"], "0.44")
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
+
+    def test_snapshot_band_key_reads_new_upper_endpoint_column(self):
+        self.assertEqual(
+            snapshot_band_key({
+                "range_label": "90 F",
+                "bin_kind": "eq",
+                "bin_value_c": "90",
+                "bin_value_hi_c": "91",
+            }),
+            ("eq", 90, 91),
+        )
 
     def test_price_history_rows_normalize_point_time(self):
         token = token_rows_from_event(sample_event())[0]

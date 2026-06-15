@@ -253,10 +253,10 @@ class TestDailyRefresh(unittest.TestCase):
                 patch("daily_refresh.data_auditor.audit_fleet_historical_data", return_value=fake_results):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
-        self.assertEqual(result["status"], "WARN")
-        self.assertTrue(Path(result["json_out"]).exists())
-        self.assertTrue(Path(result["report_out"]).exists())
-        self.assertEqual(result["summary"]["markets_with_missing_days"], 1)
+            self.assertEqual(result["status"], "WARN")
+            self.assertTrue(Path(result["json_out"]).exists())
+            self.assertTrue(Path(result["report_out"]).exists())
+            self.assertEqual(result["summary"]["markets_with_missing_days"], 1)
 
 
 if __name__ == "__main__":

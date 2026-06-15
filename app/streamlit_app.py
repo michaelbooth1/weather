@@ -23,12 +23,17 @@ LIVE_CACHE_TTL_SECONDS = 55
 
 st.set_page_config(page_title="Weather Markets", layout="wide")
 
-_MARKET_LABELS = {"Overview": "overview", "Operations": "ops", "Market Making": "mm"}
+_MARKET_LABELS = {
+    "Overview": "overview",
+    "History": "history",
+    "Operations": "ops",
+    "Market Making": "mm",
+}
 _MARKET_LABELS.update({spec.city_label: spec.id for spec in all_specs()})
 
 # Allow query params to dictate default selection
 query_params = st.query_params
-default_market = query_params.get("market", "overview")
+default_market = "history" if "history" in query_params else query_params.get("market", "overview")
 
 keys_list = list(_MARKET_LABELS.keys())
 default_index = 0
@@ -41,7 +46,19 @@ _selected_label = st.sidebar.selectbox("Market", keys_list, index=default_index)
 MARKET_ID = _MARKET_LABELS[_selected_label]
 
 # Update query param so the URL reflects the choice
-st.query_params["market"] = MARKET_ID
+if MARKET_ID == "history":
+    if "history" not in st.query_params or st.query_params.get("market"):
+        st.query_params.clear()
+        st.query_params["history"] = ""
+else:
+    if "history" in st.query_params:
+        st.query_params.clear()
+    st.query_params["market"] = MARKET_ID
+
+if MARKET_ID == "history":
+    from app.views.history import render_history_page
+
+    render_history_page()
 
 if MARKET_ID == "ops":
     from app.views.operations import render_operations_page
@@ -343,6 +360,25 @@ def live_dashboard(static_sources):
         with exp_col3:
             st.markdown("**Model Engine**")
             st.write(f"- **Engine Type:** {explanation.get('model_type')}")
+            cutoff_hour = explanation.get("feature_cutoff_hour")
+            cutoff_label = f"{int(cutoff_hour):02d}:00" if cutoff_hour is not None else "-"
+            latest_wu_time = explanation.get("latest_wu_history_time") or "-"
+            latest_wu_temp = explanation.get("latest_wu_history_temp")
+            latest_wu_label = (
+                f"{latest_wu_time} / {latest_wu_temp} {SPEC.display_unit}"
+                if latest_wu_temp is not None else latest_wu_time
+            )
+            st.write(f"- **Feature Cutoff:** {cutoff_label}")
+            st.write(f"- **Latest WU Print:** {latest_wu_label}")
+            stood_lock = explanation.get("high_has_stood_lockin") or {}
+            if stood_lock.get("active"):
+                ceiling = stood_lock.get("remaining_forecast_ceiling")
+                stood = stood_lock.get("stood_minutes")
+                strength = stood_lock.get("strength")
+                st.write(
+                    f"- **High-Has-Stood Lock:** {strength:.0%} "
+                    f"({stood:.0f} min, ceiling {ceiling} {SPEC.display_unit})"
+                )
 
         st.markdown("**Top Bucket Status**")
         st.dataframe(explanation["top_buckets"], width='stretch', hide_index=True)
@@ -647,8 +683,32 @@ def live_dashboard(static_sources):
             
             if st.button("Inspect Last Snapshot Details"):
                 last_snapshot_df = hist_df[hist_df["snapshot_id"] == last_id].copy()
+                meta = last_snapshot_df.iloc[-1].to_dict()
+                st.caption(
+                    " | ".join(
+                        part for part in [
+                            f"Model `{meta.get('model_version')}`" if meta.get("model_version") else None,
+                            f"Feature schema `{meta.get('feature_schema_version')}`" if meta.get("feature_schema_version") else None,
+                            f"Code `{meta.get('runtime_source_fingerprint')}`" if meta.get("runtime_source_fingerprint") else None,
+                            f"Runtime `{meta.get('runtime_code_state')}`" if meta.get("runtime_code_state") else None,
+                        ]
+                        if part
+                    )
+                )
+                detail_columns = [
+                    column for column in [
+                        "range_label",
+                        "bin_kind",
+                        "bin_value_c",
+                        "bin_value_hi_c",
+                        "model_probability",
+                        "market_yes",
+                        "edge",
+                    ]
+                    if column in last_snapshot_df.columns
+                ]
                 st.dataframe(
-                    last_snapshot_df[["range_label", "model_probability", "market_yes", "edge"]],
+                    last_snapshot_df[detail_columns],
                     width='stretch',
                     hide_index=True
                 )

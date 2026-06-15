@@ -11,6 +11,7 @@ if str(SRC_ROOT) not in sys.path:
 from market_registry import all_specs, spec_for_id  # noqa: E402
 from noaa_ghcnh_history import GHCNHStore  # noqa: E402
 from reanalysis_history import ReanalysisStore  # noqa: E402
+from supplemental_stations import source_root, supplemental_sources  # noqa: E402
 from wu_history import WundergroundHistoryStore, history_coverage, parse_date  # noqa: E402
 
 
@@ -29,7 +30,27 @@ def wu_store(spec):
     )
 
 
-def source_coverage(spec, start_date=None, end_date=None):
+def ghcnh_supplemental_coverage(spec, start_year=None, end_year=None, registry=None):
+    rows = []
+    for source in supplemental_sources(spec.id, source_type="noaa_ghcnh", registry=registry):
+        coverage = GHCNHStore(spec, source_root(source)).coverage(start_year, end_year)
+        rows.append({
+            "source_id": source.get("source_id"),
+            "source_type": source.get("source_type"),
+            "source_role": source.get("source_role"),
+            "station_id": source.get("station_id"),
+            "station_name": source.get("station_name"),
+            "root_path": source.get("root_path"),
+            "distance_from_canonical_km": source.get("distance_from_canonical_km"),
+            "validation_status": source.get("validation_status"),
+            "adopted_date_windows": source.get("adopted_date_windows"),
+            "reason_for_adoption": source.get("reason_for_adoption"),
+            "coverage": coverage,
+        })
+    return rows
+
+
+def source_coverage(spec, start_date=None, end_date=None, registry=None):
     start_year = start_date.year if start_date else None
     end_year = end_date.year if end_date else None
     return {
@@ -37,6 +58,9 @@ def source_coverage(spec, start_date=None, end_date=None):
         "city": spec.city_label,
         "station": spec.icao,
         "unit": spec.display_unit,
+        "supplemental_sources": {
+            "ghcnh": ghcnh_supplemental_coverage(spec, start_year, end_year, registry=registry),
+        },
         "sources": {
             "wu": history_coverage(wu_store(spec), start_date, end_date),
             "ghcnh": GHCNHStore(spec).coverage(start_year, end_year),
@@ -45,12 +69,12 @@ def source_coverage(spec, start_date=None, end_date=None):
     }
 
 
-def fleet_coverage(market_ids=None, start_date=None, end_date=None):
+def fleet_coverage(market_ids=None, start_date=None, end_date=None, registry=None):
     ids = set(market_ids or [])
     specs = [spec for spec in all_specs() if not ids or spec.id in ids]
     return {
         "schema_version": "historical_coverage_v1",
-        "markets": [source_coverage(spec, start_date, end_date) for spec in specs],
+        "markets": [source_coverage(spec, start_date, end_date, registry=registry) for spec in specs],
     }
 
 
@@ -79,6 +103,9 @@ def cmd_report(args):
             else:
                 missing_text = str(missing)
             bits.append(f"{source}:missing={missing_text}")
+        supplemental = (market.get("supplemental_sources") or {}).get("ghcnh") or []
+        if supplemental:
+            bits.append(f"ghcnh_supplemental={len(supplemental)}")
         print(f"{market['market_id']}: " + ", ".join(bits))
 
 

@@ -30,6 +30,7 @@ from historical_schema import (  # noqa: E402
     write_manifest,
 )
 from market_registry import all_specs, spec_for_id  # noqa: E402
+from supplemental_stations import provenance_fields, source_for_root  # noqa: E402
 from wu_history import get_code_version  # noqa: E402
 
 
@@ -171,9 +172,10 @@ class GHCNHClient:
 
 
 class GHCNHStore:
-    def __init__(self, spec, root=None):
+    def __init__(self, spec, root=None, registry=None):
         self.spec = spec
         self.root = Path(root) if root else DEFAULT_ROOT / spec.icao.lower()
+        self.registry = registry
         self.raw_root = self.root / "raw"
         self.hourly_root = self.root / "hourly"
         self.daily_root = self.root / "daily"
@@ -223,6 +225,9 @@ class GHCNHStore:
             unavailable[year] = record
         return unavailable
 
+    def supplemental_source(self):
+        return source_for_root(self.spec, self.root, source_type=SOURCE, registry=self.registry)
+
     def record_source_unavailable_year(self, station_id, year, url, error):
         records = self.source_unavailable_years()
         records[int(year)] = {
@@ -251,9 +256,13 @@ class GHCNHStore:
 
     def rebuild(self):
         station = self.read_station() or {}
+        supplemental_source = self.supplemental_source()
+        provenance = provenance_fields(supplemental_source, self.spec)
         records = []
         for path in self.iter_raw_files():
-            records.extend(normalize_psv(path.read_text(encoding="utf-8"), self.spec, station))
+            for record in normalize_psv(path.read_text(encoding="utf-8"), self.spec, station):
+                record.update(provenance)
+                records.append(record)
         records.sort(key=lambda row: row["valid_time_utc"])
         write_jsonl_partitions(self.hourly_root, records)
         daily = summarize_daily(records)
@@ -274,6 +283,9 @@ class GHCNHStore:
                 "source_unavailable_years": [unavailable_years[year] for year in sorted(unavailable_years)],
                 "source_unavailable_year_count": len(unavailable_years),
                 "quality_counts": quality_counts(records),
+                "source_role": provenance["source_role"],
+                "canonical_market_id": provenance["canonical_market_id"],
+                "supplemental_source": supplemental_source,
             },
         )
         return records, daily
@@ -292,6 +304,8 @@ class GHCNHStore:
             "market_id": self.spec.id,
             "station": self.spec.icao,
             "data_root": str(self.root),
+            "source_role": "supplemental" if self.supplemental_source() else "canonical",
+            "supplemental_source_id": (self.supplemental_source() or {}).get("source_id"),
             "raw_years": sorted(raw_years),
             "expected_years": sorted(expected),
             "missing_years": missing,

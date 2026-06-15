@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from toronto_model import TORONTO_TZ, TorontoHighTempModel
 from replay import (
     as_int_distribution,
+    band_value_hi,
     band_model_probability,
     distribution_l1,
     load_replay_records,
@@ -131,6 +132,16 @@ class TestReplayRoundTrip(unittest.TestCase):
         }
 
         self.assertGreater(band_model_probability(model, dist, band), 0.99)
+
+    def test_stored_range_endpoint_beats_legacy_label_fallback(self):
+        band = {
+            "bin_kind": "eq",
+            "bin_value_c": 90,
+            "bin_value_hi_c": 91,
+            "range_label": "90 F",
+        }
+
+        self.assertEqual(band_value_hi(band), 91)
 
     def test_band_probabilities_are_valid(self):
         dist = self.model.estimate_distribution(make_sources(), now=NOW)

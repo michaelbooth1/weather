@@ -25,7 +25,7 @@ from market_config import config_for_date, config_from_event
 from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_slug
 from model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from model_identity import model_replay_identity
-from runtime_identity import get_runtime_identity
+from runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 
 
@@ -40,6 +40,19 @@ MODEL_VERSION = MODEL_VERSION_HGB
 # day and scored against settlement. This turns every captured snapshot into a
 # permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
 REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
+SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
+PROCESS_RUNTIME_IDENTITY = get_runtime_identity()
+
+
+RUNTIME_IDENTITY_COLUMNS = [
+    "runtime_identity_schema_version",
+    "runtime_git_branch",
+    "runtime_git_commit",
+    "runtime_git_dirty",
+    "runtime_dirty_fingerprint",
+    "runtime_source_fingerprint",
+    "runtime_code_state",
+]
 
 
 LONG_COLUMNS = [
@@ -49,6 +62,8 @@ LONG_COLUMNS = [
     "event_slug",
     "event_updated_at",
     "model_version",
+    "feature_schema_version",
+    *RUNTIME_IDENTITY_COLUMNS,
     "snapshot_cadence",
     "trigger_reason",
     "trigger_source",
@@ -66,6 +81,7 @@ LONG_COLUMNS = [
     "enable_order_book",
     "bin_kind",
     "bin_value_c",
+    "bin_value_hi_c",
     "model_probability",
     "market_yes",
     "market_no",
@@ -95,6 +111,7 @@ COMPONENT_COLUMNS = [
     "captured_at_local",
     "event_slug",
     "model_version",
+    *RUNTIME_IDENTITY_COLUMNS,
     "component_schema_version",
     "cutoff_hour",
     "active_model_kind",
@@ -102,6 +119,7 @@ COMPONENT_COLUMNS = [
     "range_label",
     "bin_kind",
     "bin_value_c",
+    "bin_value_hi_c",
     "component_probability",
     "market_yes",
 ]
@@ -207,11 +225,17 @@ class SnapshotStore:
             self._set_paths(None, event_config.event_slug)
         self.root.mkdir(parents=True, exist_ok=True)
         snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
+        runtime_guard = self.runtime_identity_guard()
+        if not runtime_guard.get("ok"):
+            raise RuntimeError(runtime_guard.get("detail") or "stale snapshot runtime identity")
+        runtime_identity = runtime_guard.get("process_identity") or {}
+        runtime_fields = self.runtime_identity_fields(runtime_identity, runtime_guard.get("state"))
         trigger_context = self.normalized_trigger_context(trigger_context)
         trigger_summary = self.trigger_summary(trigger_context)
         distribution = model.get("distribution", {}) or {}
         model_version = model.get("model_version") or MODEL_VERSION
         model_identity = model.get("model_identity") or self.model_identity(model_client)
+        feature_schema_version = (model.get("feature_vector") or {}).get("feature_schema_version")
         top_temp = model.get("top_temp")
         top_probability = distribution.get(top_temp) if top_temp is not None else None
         sources = model.get("sources", {}) or {}
@@ -233,6 +257,8 @@ class SnapshotStore:
         bins = model_client.market_bins(event)
         long_rows = []
         for bin_data in bins:
+            value = bin_data.get("value")
+            value_hi = bin_data.get("value_hi", value)
             model_probability = model_client.bin_probability(distribution, bin_data)
             market_yes = bin_data.get("market_yes")
             edge = (
@@ -247,6 +273,8 @@ class SnapshotStore:
                 "event_slug": self.event_slug,
                 "event_updated_at": event.get("updatedAt"),
                 "model_version": model_version,
+                "feature_schema_version": feature_schema_version,
+                **runtime_fields,
                 "snapshot_cadence": cadence,
                 **trigger_summary,
                 "top_temp_c": top_temp,
@@ -259,7 +287,8 @@ class SnapshotStore:
                 "clob_no_token_id": bin_data.get("clob_no_token_id"),
                 "enable_order_book": bin_data.get("enable_order_book"),
                 "bin_kind": bin_data.get("kind"),
-                "bin_value_c": bin_data.get("value"),
+                "bin_value_c": value,
+                "bin_value_hi_c": value_hi,
                 "model_probability": model_probability,
                 "market_yes": market_yes,
                 "market_no": bin_data.get("market_no"),
@@ -273,6 +302,7 @@ class SnapshotStore:
                 **source_values,
             })
 
+        snapshot_self_check = self.check_snapshot_probabilities(distribution, long_rows, model_client)
         self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
@@ -286,16 +316,20 @@ class SnapshotStore:
             "event_slug": self.event_slug,
             "event_updated_at": event.get("updatedAt"),
             "model_version": model_version,
+            "runtime_identity": runtime_identity,
+            "runtime_guard": runtime_guard,
             "model_identity": model_identity,
             "snapshot_cadence": cadence,
             "trigger_context": trigger_context,
             "top_temp_c": top_temp,
             "top_probability": top_probability,
+            "snapshot_self_check": snapshot_self_check,
             "distribution": distribution,
             "distribution_components": model.get("distribution_components"),
             "source_values": source_values,
             "source_status": source_status_rows,
             "forecast_payloads": forecast_payload_rows,
+            "feature_schema_version": feature_schema_version,
             "feature_vector": model.get("feature_vector"),
             "bands": long_rows,
         })
@@ -321,6 +355,7 @@ class SnapshotStore:
             snapshot_id,
             captured_at,
             model_version,
+            runtime_fields,
         )
         if component_rows:
             self.append_csv(self.components_long_path, COMPONENT_COLUMNS, component_rows)
@@ -358,6 +393,8 @@ class SnapshotStore:
             model_client,
             model_version,
             model_identity,
+            runtime_identity,
+            runtime_guard,
             cadence=cadence,
             trigger_context=trigger_context,
         )
@@ -383,6 +420,9 @@ class SnapshotStore:
             ),
             "event_slug": self.event_slug,
             "model_version": model_version,
+            "runtime_identity": runtime_identity,
+            "runtime_guard": runtime_guard,
+            "snapshot_self_check": snapshot_self_check,
             "model_identity": model_identity,
             "top_temp_c": top_temp,
             "top_probability": top_probability,
@@ -578,17 +618,103 @@ class SnapshotStore:
             return [self.strip_raw_payloads(item) for item in value]
         return value
 
-    def component_rows(self, bundle, bins, snapshot_id, captured_at, model_version):
+    def runtime_identity_guard(self, current_identity=None, process_identity=None):
+        process_identity = process_identity or PROCESS_RUNTIME_IDENTITY
+        current_identity = current_identity or get_runtime_identity()
+        ok = identities_match(process_identity, current_identity)
+        state = "current" if ok else "stale_code"
+        return {
+            "ok": ok,
+            "state": state,
+            "process_identity": process_identity,
+            "current_identity": current_identity,
+            "detail": None if ok else (
+                "snapshot process code identity differs from current source tree: "
+                f"process={format_runtime_identity(process_identity)}; "
+                f"current={format_runtime_identity(current_identity)}"
+            ),
+        }
+
+    def runtime_identity_fields(self, identity, code_state="current"):
+        identity = identity or {}
+        return {
+            "runtime_identity_schema_version": identity.get("schema_version"),
+            "runtime_git_branch": identity.get("git_branch"),
+            "runtime_git_commit": identity.get("git_commit"),
+            "runtime_git_dirty": identity.get("git_dirty"),
+            "runtime_dirty_fingerprint": identity.get("dirty_fingerprint"),
+            "runtime_source_fingerprint": identity.get("source_fingerprint"),
+            "runtime_code_state": code_state,
+        }
+
+    def row_bin_data(self, row):
+        value = row.get("bin_value_c")
+        if value is None:
+            return None
+        value = int(float(value))
+        value_hi = row.get("bin_value_hi_c")
+        if value_hi is None or value_hi == "":
+            value_hi = value
+        else:
+            value_hi = int(float(value_hi))
+        return {
+            "kind": row.get("bin_kind"),
+            "value": value,
+            "value_hi": value_hi,
+            "label": row.get("range_label"),
+            "market_yes": row.get("market_yes"),
+            "market_no": row.get("market_no"),
+        }
+
+    def check_snapshot_probabilities(self, distribution, long_rows, model_client):
+        checked = 0
+        max_abs_diff = 0.0
+        failures = []
+        if not distribution:
+            return {"status": "skipped", "rows_checked": 0, "reason": "empty distribution"}
+        for row in long_rows:
+            stored = row.get("model_probability")
+            bin_data = self.row_bin_data(row)
+            if stored is None or bin_data is None:
+                continue
+            recomputed = model_client.bin_probability(distribution, bin_data)
+            diff = abs(float(stored) - float(recomputed))
+            checked += 1
+            max_abs_diff = max(max_abs_diff, diff)
+            if diff > SNAPSHOT_PROBABILITY_TOLERANCE:
+                failures.append({
+                    "range_label": row.get("range_label"),
+                    "stored": stored,
+                    "recomputed": recomputed,
+                    "abs_diff": diff,
+                })
+        if failures:
+            first = failures[0]
+            raise ValueError(
+                "snapshot probability self-check failed for "
+                f"{first['range_label']}: stored={first['stored']} "
+                f"recomputed={first['recomputed']} diff={first['abs_diff']}"
+            )
+        return {
+            "status": "pass",
+            "rows_checked": checked,
+            "max_abs_diff": max_abs_diff,
+            "tolerance": SNAPSHOT_PROBABILITY_TOLERANCE,
+        }
+
+    def component_rows(self, bundle, bins, snapshot_id, captured_at, model_version, runtime_fields=None):
         bundle = bundle or {}
         components = bundle.get("components") or {}
         if not components or not bins:
             return []
+        runtime_fields = runtime_fields or {}
         base = {
             "snapshot_id": snapshot_id,
             "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
             "captured_at_local": captured_at.isoformat(),
             "event_slug": self.event_slug,
             "model_version": model_version,
+            **runtime_fields,
             "component_schema_version": bundle.get("schema_version"),
             "cutoff_hour": bundle.get("cutoff_hour"),
             "active_model_kind": bundle.get("active_model_kind"),
@@ -604,6 +730,7 @@ class SnapshotStore:
                     "range_label": bin_data.get("label"),
                     "bin_kind": bin_data.get("kind"),
                     "bin_value_c": bin_data.get("value"),
+                    "bin_value_hi_c": bin_data.get("value_hi", bin_data.get("value")),
                     "component_probability": self.raw_bin_probability(distribution, bin_data),
                     "market_yes": bin_data.get("market_yes"),
                 })
@@ -637,6 +764,8 @@ class SnapshotStore:
             "event_slug",
             "event_updated_at",
             "model_version",
+            "feature_schema_version",
+            *RUNTIME_IDENTITY_COLUMNS,
             "snapshot_cadence",
             "trigger_reason",
             "top_temp_c",
@@ -671,6 +800,8 @@ class SnapshotStore:
             "event_slug": first.get("event_slug"),
             "event_updated_at": first.get("event_updated_at"),
             "model_version": first.get("model_version"),
+            "feature_schema_version": first.get("feature_schema_version"),
+            **{column: first.get(column) for column in RUNTIME_IDENTITY_COLUMNS},
             "snapshot_cadence": first.get("snapshot_cadence"),
             "trigger_reason": first.get("trigger_reason"),
             "top_temp_c": first.get("top_temp_c"),
@@ -697,23 +828,55 @@ class SnapshotStore:
     def band_key(self, row):
         kind = row.get("bin_kind")
         value = row.get("bin_value_c")
+        value_hi = row.get("bin_value_hi_c")
+        value_text = self.band_key_value(value)
+        value_hi_text = self.band_key_value(value_hi)
         if kind == "lte":
-            return f"lte_{value}c"
+            return f"lte_{value_text}c"
         if kind == "gte":
-            return f"gte_{value}c"
-        return f"eq_{value}c"
+            return f"gte_{value_text}c"
+        if value_hi_text and value_hi_text != value_text:
+            return f"eq_{value_text}_{value_hi_text}c"
+        return f"eq_{value_text}c"
+
+    def band_key_value(self, value):
+        if value is None or value == "":
+            return "unknown"
+        try:
+            numeric = float(value)
+            if abs(numeric - round(numeric)) < 1e-9:
+                return str(int(round(numeric)))
+            return str(numeric).replace(".", "p")
+        except (TypeError, ValueError):
+            return self.safe_filename_part(value)
 
     def append_csv(self, path, columns, rows):
-        """Append rows; an EXISTING file keeps its own header (schema drift
-        guard: appending wider-schema rows under an older header would
-        misalign every subsequent column). New files get the current schema."""
+        """Append rows, widening an existing header when the schema grows.
+
+        Older snapshot files may lack newly added audit columns. Rewriting the
+        file with the union header preserves existing rows and prevents the new
+        values from being silently dropped on append.
+        """
         write_header = not path.exists()
+        columns = list(columns)
         if not write_header:
             try:
                 with path.open("r", encoding="utf-8", newline="") as handle:
                     existing_header = next(csv.reader(handle), None)
                 if existing_header:
-                    columns = existing_header
+                    missing_columns = [column for column in columns if column not in existing_header]
+                    columns = list(existing_header) + missing_columns
+                    if missing_columns:
+                        with path.open("r", encoding="utf-8", newline="") as handle:
+                            existing_rows = list(csv.DictReader(handle))
+                        tmp_path = path.with_name(f"{path.name}.tmp")
+                        with tmp_path.open("w", encoding="utf-8", newline="") as handle:
+                            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
+                            writer.writeheader()
+                            writer.writerows(existing_rows)
+                        tmp_path.replace(path)
+                else:
+                    write_header = True
             except (OSError, csv.Error):
                 pass
         with path.open("a", encoding="utf-8", newline="") as handle:
@@ -771,6 +934,8 @@ class SnapshotStore:
         model_client,
         model_version,
         model_identity=None,
+        runtime_identity=None,
+        runtime_guard=None,
         cadence="scheduled",
         trigger_context=None,
     ):
@@ -794,6 +959,8 @@ class SnapshotStore:
             "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
             "model_version": model_version,
             "model_identity": model_identity if model_identity is not None else self.model_identity(model_client),
+            "runtime_identity": runtime_identity,
+            "runtime_guard": runtime_guard,
             "snapshot_cadence": cadence,
             "trigger_context": trigger_context,
             # The timestamp the build actually used (falls back to the write time).
@@ -1011,7 +1178,29 @@ def _age_minutes(now, iso_value):
     return (now - parsed).total_seconds() / 60.0
 
 
-def loop_health(status, now, interval_minutes=10.0):
+def runtime_identity_status(process_identity, current_identity=None):
+    if not process_identity:
+        return {
+            "runtime_code_state": "unknown",
+            "runtime_identity_matches_current": None,
+            "current_runtime_identity": current_identity,
+            "detail": "no runtime identity recorded",
+        }
+    current_identity = current_identity or get_runtime_identity()
+    matches = identities_match(process_identity, current_identity)
+    return {
+        "runtime_code_state": "current" if matches else "stale_code",
+        "runtime_identity_matches_current": matches,
+        "current_runtime_identity": current_identity,
+        "detail": None if matches else (
+            "running process code identity differs from current source tree: "
+            f"process={format_runtime_identity(process_identity)}; "
+            f"current={format_runtime_identity(current_identity)}"
+        ),
+    }
+
+
+def loop_health(status, now, interval_minutes=10.0, current_identity=None):
     """Judge collection liveness from the heartbeat. Liveness is decided by
     heartbeat freshness, not PID (a stale heartbeat means dead regardless, and
     PIDs get reused across reboots)."""
@@ -1022,7 +1211,10 @@ def loop_health(status, now, interval_minutes=10.0):
     snap_age = _age_minutes(now, status.get("last_snapshot_written_at"))
     errors = status.get("consecutive_errors", 0)
     dead_after = 2 * interval + 2  # tolerate one full sleep cycle plus slack
-    if status.get("paused"):
+    runtime = runtime_identity_status(status.get("runtime_identity"), current_identity)
+    if runtime.get("runtime_code_state") == "stale_code":
+        state = "STALE_CODE"
+    elif status.get("paused"):
         state = "PAUSED"
     elif hb_age is None or hb_age > dead_after:
         state = "DEAD"
@@ -1041,6 +1233,7 @@ def loop_health(status, now, interval_minutes=10.0):
         "last_iteration_elapsed_minutes": status.get("last_iteration_elapsed_minutes"),
         "max_recent_iteration_elapsed_minutes": status.get("max_recent_iteration_elapsed_minutes"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
+        **runtime,
     }
 
 
@@ -1215,7 +1408,7 @@ def run_loop(
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": PROCESS_RUNTIME_IDENTITY,
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,
@@ -1230,7 +1423,23 @@ def run_loop(
         status["iterations"] += 1
         status["last_heartbeat"] = now.isoformat()
         status["paused"] = PAUSE_FLAG_PATH.exists()
-        if status["paused"]:
+        runtime = runtime_identity_status(status.get("runtime_identity"))
+        status["runtime_guard"] = runtime
+        if runtime.get("runtime_code_state") == "stale_code":
+            status["last_error"] = runtime.get("detail")
+            status["consecutive_errors"] += 1
+            write_loop_status(status)
+            append_diagnostic({
+                "time": now.isoformat(),
+                "status": "stale_code",
+                "detail": runtime.get("detail"),
+            })
+            print(json.dumps({
+                "status": "stale_code",
+                "time": now.isoformat(),
+                "detail": runtime.get("detail"),
+            }, sort_keys=True), flush=True)
+        elif status["paused"]:
             write_loop_status(status)
             append_diagnostic({"time": now.isoformat(), "status": "paused"})
             print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)

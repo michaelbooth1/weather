@@ -36,6 +36,9 @@ class TestNativeOutcome(unittest.TestCase):
         self.assertEqual(band_value_hi("75°F or below", 75), 75)
         self.assertEqual(band_value_hi("94°F or higher", 94), 94)
 
+    def test_band_value_hi_prefers_explicit_endpoint(self):
+        self.assertEqual(band_value_hi("90 F", 90, explicit=91), 91)
+
 
 if __name__ == "__main__":
     unittest.main()

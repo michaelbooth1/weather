@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from datetime import datetime
 
 # Add src to the path
 sys.path.insert(0, os.path.abspath("src"))
@@ -107,6 +108,76 @@ class TestApplyLateDayLockin(unittest.TestCase):
         # 23, 24, 25 keep their pre-norm ratios; only 26 is suppressed.
         self.assertAlmostEqual(out[23] / out[24], 1.0)
         self.assertAlmostEqual(out[24] / out[25], 0.2 / 0.4)
+
+
+class TestHighHasStoodLockin(unittest.TestCase):
+    def setUp(self):
+        self.m = TorontoHighTempModel(target_date="2026-06-15", market_id="miami")
+        self.m.settlement_lag_model = {
+            "component": {"min_context_n": 20},
+            "revision_contexts": {
+                "hour=14": {"n": 600, "revision_up_rate": 0.27},
+            },
+        }
+        self.history = {"max_c": 93.0, "max_times": ["12:53"]}
+        self.now = datetime(2026, 6, 15, 14, 10)
+
+    def _forecast(self, value):
+        return {"rows": [{"time": "15:00", "temp_c": value}]}
+
+    def test_activates_when_high_stood_current_rolled_and_forecasts_below(self):
+        context = self.m.high_has_stood_lockin_context(
+            14,
+            self.history,
+            92.0,
+            self.now,
+            self._forecast(90.0),
+            self._forecast(92.1),
+            self._forecast(90.0),
+            self._forecast(89.6),
+            {},
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(context["reason"], "high_stood_current_rolled_forecasts_below")
+        self.assertEqual(context["strength"], 1.0)
+        self.assertEqual(context["stood_minutes"], 77)
+        self.assertEqual(context["forecast_source_count"], 4)
+        self.assertAlmostEqual(context["remaining_forecast_ceiling"], 92.1)
+        self.assertEqual(context["remaining_degree_hours_above_high"], 0.0)
+        self.assertAlmostEqual(context["revision_up_rate"], 0.27)
+
+    def test_blocks_when_remaining_forecast_can_clear_the_high(self):
+        context = self.m.high_has_stood_lockin_context(
+            14,
+            self.history,
+            92.0,
+            self.now,
+            self._forecast(90.0),
+            self._forecast(94.0),
+            self._forecast(90.0),
+            {},
+            {},
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["reason"], "forecast_ceiling_above_high")
+
+    def test_blocks_when_live_temperature_has_not_rolled_below_high(self):
+        context = self.m.high_has_stood_lockin_context(
+            14,
+            self.history,
+            93.0,
+            self.now,
+            self._forecast(90.0),
+            self._forecast(92.1),
+            self._forecast(90.0),
+            {},
+            {},
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["reason"], "current_not_below_high")
 
 
 if __name__ == "__main__":

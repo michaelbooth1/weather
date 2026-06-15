@@ -165,6 +165,7 @@ class FeatureModelMixin:
         eccc_city = self.source_data(sources, "eccc_citypage")
 
         rows = history.get("rows") or []
+        latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(rows)
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None
 
@@ -299,6 +300,13 @@ class FeatureModelMixin:
         return {
             "feature_rows": feature_rows,
             "feature_latest": feature_latest,
+            "latest_wu_history_time": (
+                latest_wu_history_row.get("time") if latest_wu_history_row else None
+            ),
+            "latest_wu_history_minute": latest_wu_history_minute,
+            "latest_wu_history_temp": (
+                latest_wu_history_row.get("temp_c") if latest_wu_history_row else None
+            ),
             "high_so_far": high_so_far,
             "current_temp": current_temp,
             "rise_from_7am": rise_from_7am,

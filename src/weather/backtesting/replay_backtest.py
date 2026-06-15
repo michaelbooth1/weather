@@ -319,6 +319,12 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
     days = []
     fidelity_rows = []
     corpus_warnings = []
+    band_semantics = {
+        "rows": 0,
+        "explicit_value_hi_rows": 0,
+        "legacy_label_fallback_rows": 0,
+        "range_band_rows": 0,
+    }
     snaps_in_corpus = 0
     snaps_scored = 0
 
@@ -391,7 +397,21 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
 
             for _, band_series in group.iterrows():
                 band = band_series.to_dict()
-                value_hi = band_value_hi(band.get("range_label"), band.get("bin_value_c"))
+                explicit_value_hi = band.get("bin_value_hi_c")
+                if explicit_value_hi is None or safe_float(explicit_value_hi) is None:
+                    explicit_value_hi = band.get("bin_value_hi")
+                value_hi = band_value_hi(
+                    band.get("range_label"),
+                    band.get("bin_value_c"),
+                    explicit=explicit_value_hi,
+                )
+                band_semantics["rows"] += 1
+                if safe_float(explicit_value_hi) is not None:
+                    band_semantics["explicit_value_hi_rows"] += 1
+                else:
+                    band_semantics["legacy_label_fallback_rows"] += 1
+                if safe_float(value_hi) != safe_float(band.get("bin_value_c")):
+                    band_semantics["range_band_rows"] += 1
                 outcome = resolve_outcome(
                     band.get("bin_kind"), band.get("bin_value_c"), bucket,
                     value_hi=value_hi)
@@ -470,6 +490,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         "by_bin_type": grouped_comparison(all_rows, "bin_type"),
         "fidelity": fidelity_summary(fidelity_rows),
         "fidelity_rows": fidelity_rows,
+        "band_semantics": band_semantics,
         "include_reconstructed": include_reconstructed,
         "promotion_corpus": _manifest_summary(corpus_manifest),
         "corpus_warnings": corpus_warnings,
@@ -530,6 +551,7 @@ def write_report(results, out_path):
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     fid = results.get("fidelity") or {}
     corpus = results.get("promotion_corpus") or {}
+    semantics = results.get("band_semantics") or {}
     lines = [
         "# Replay Backtest (model re-run over captured inputs)",
         "",
@@ -618,6 +640,17 @@ def write_report(results, out_path):
                 "-",
                 "approximate inputs -- exploratory only",
             ],
+        ],
+    )
+
+    lines += ["", "## Band Semantics Audit", ""]
+    lines += markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Rows checked", semantics.get("rows", 0)],
+            ["Rows with explicit upper endpoint", semantics.get("explicit_value_hi_rows", 0)],
+            ["Rows using legacy label fallback", semantics.get("legacy_label_fallback_rows", 0)],
+            ["Native range-band rows", semantics.get("range_band_rows", 0)],
         ],
     )
 

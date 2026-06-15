@@ -96,7 +96,11 @@ def band_value(value):
 
 
 def band_value_hi(row, value):
-    explicit = band_value(row.get("bin_value_hi"))
+    explicit = band_value(
+        row.get("bin_value_hi")
+        if row.get("bin_value_hi") not in (None, "")
+        else row.get("bin_value_hi_c")
+    )
     if explicit is not None:
         return explicit
     label = str(row.get("range_label") or "")

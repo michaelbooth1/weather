@@ -3,6 +3,9 @@ from collections import Counter
 from datetime import datetime
 
 
+SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES = 10
+
+
 class ModelUtilsMixin:
     """Stateless numeric, regime, and source-access helpers shared model-wide."""
 
@@ -14,6 +17,39 @@ class ModelUtilsMixin:
             if minute is not None and minute <= cutoff:
                 filtered.append(row)
         return filtered
+
+    def latest_source_row(self, rows):
+        latest = None
+        latest_minute = None
+        for row in rows or []:
+            minute = self.minute_of_day(row.get("time"))
+            if minute is None:
+                continue
+            if latest_minute is None or minute > latest_minute:
+                latest = row
+                latest_minute = minute
+        return latest, latest_minute
+
+    def aliased_settlement_print_minute(
+        self,
+        minute,
+        wall_cutoff_hour,
+        alias_window=SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES,
+    ):
+        if minute is None:
+            return None
+        try:
+            minute = int(minute)
+            wall_cutoff_minute = int(wall_cutoff_hour) * 60
+        except (TypeError, ValueError):
+            return None
+        next_hour_minute = ((minute // 60) + 1) * 60
+        if (
+            next_hour_minute <= wall_cutoff_minute
+            and 0 < (next_hour_minute - minute) <= int(alias_window)
+        ):
+            return next_hour_minute
+        return minute
 
     def live_wind_group(self, current, weather_forecast):
         wind = current.get("wind")

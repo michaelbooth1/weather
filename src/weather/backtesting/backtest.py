@@ -61,10 +61,20 @@ def round_half_up(value):
         return None
 
 
-def band_value_hi(range_label, value):
+def band_value_hi(range_label, value, explicit=None):
     """Upper value of a band from its label ('76-77F' -> 77); single bands -> value."""
+    explicit_value = safe_float(explicit)
+    if explicit_value is not None:
+        return int(explicit_value) if abs(explicit_value - round(explicit_value)) < 1e-9 else explicit_value
     numbers = re.findall(r"\d+", str(range_label or ""))
     return int(numbers[-1]) if len(numbers) >= 2 else value
+
+
+def row_band_value_hi(row):
+    explicit = row.get("bin_value_hi_c")
+    if missing(explicit) or explicit == "":
+        explicit = row.get("bin_value_hi")
+    return band_value_hi(row.get("range_label"), row.get("bin_value_c"), explicit=explicit)
 
 
 def resolve_outcome(kind, value, settlement_bucket, value_hi=None):
@@ -520,7 +530,7 @@ def backtest_tape(df, settlement_bucket, thresholds, target_date=None, feature_i
             r.get("bin_kind"),
             r.get("bin_value_c"),
             settlement_bucket,
-            value_hi=band_value_hi(r.get("range_label"), r.get("bin_value_c")),
+            value_hi=row_band_value_hi(r),
         )
         if outcome is None:
             continue
@@ -543,6 +553,7 @@ def backtest_tape(df, settlement_bucket, thresholds, target_date=None, feature_i
             "bin_kind": r.get("bin_kind"),
             "bin_type": bin_type(r.get("bin_kind")),
             "bin_value_c": safe_float(r.get("bin_value_c")),
+            "bin_value_hi": safe_float(row_band_value_hi(r)),
             "model_probability": mp,
             "market_yes": my,
             "market_no": safe_float(r.get("market_no")),

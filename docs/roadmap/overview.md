@@ -52,9 +52,9 @@ Can be done now, in implementation order:
 4. [done] Item 37: define/enforce the live-forward SLO and gap-free active-day
    tape gates in software; final clearance still requires a clean future active
    day, and the current strict report blocks on snapshot and CLOB tape gaps.
-5. [partial] Item 39 cleanup: source/truth/storage hygiene is reconciled;
+5. [partial] Item 39 cleanup: source/truth/storage/gate hygiene is reconciled;
    remaining work is infrastructure-heavy, especially schema migration tooling
-   and ingest quality gates.
+   and the Parquet/freshness dashboard.
 6. [done] Item 55: reconcile quote lifecycle and budget reservation state before
    treating the running market-making test's budget numbers as live-gate
    evidence.
@@ -64,10 +64,19 @@ Can be done now, in implementation order:
 8. [done] Item 56: upgrade the MM dashboard into an operator cockpit that
    separates latest tick, cumulative run, paper corpus, and live-forward gate
    state.
-9. [new] Items 58-60: turn the 2026-06-15 Miami 92-93 F audit into concrete
-   follow-up work. Item 58 owns the intra-hour WU print-lag feature parity bug;
-   item 59 owns the afternoon high-has-stood lock-in model; item 60 owns
-   range-band artifact schema and stale serving-version guards.
+9. [done] Items 58-60: turn the 2026-06-15 Miami 92-93 F audit into
+   concrete follow-up work. Item 58 is complete: the intra-hour WU print-lag
+   feature parity bug is fixed and gauntlet-proven. Item 59 is complete: the
+   afternoon high-has-stood lock-in component is live, explained, and
+   gauntlet-proven with per-market activation caveats documented. Item 60 is
+   complete: range-band endpoints, replay compatibility, latest-row
+   diagnostics, and stale-code collector guards are live.
+10. [partial] Items 61-64: turn the 2026-06-15 historical/nearby-station audit
+    into provenance-safe follow-up work. Item 61 is complete: registered
+    supplemental station roots now carry source id, station provenance,
+    distance, adopted windows, and canonical-plus-supplemental audit coverage.
+    Items 62-64 still own validation gates, source-trust feature integration,
+    and stronger canonical-history guardrails.
 
 Blocked or gated:
 
@@ -85,12 +94,14 @@ Blocked or gated:
 - Item 27, item 32, and the infrastructure families in item 50 are blocked from
   promotion until their historical/archive coverage exists and they pass
   replay-safe validation.
+- Items 62-64 are the remaining path for nearby-station data: validation gates
+  first, feature integration second, and stronger canonical-history guardrails
+  throughout. Item 61 has established the registry/provenance base.
 - Any feature or quote mode that relies on live-only data remains blocked from
   promotion until matching historical or live-forward evidence exists.
-- The Miami 2026-06-15 92-93 F disagreement remains a live model-quality
-  blocker until item 58 or item 59 produces a pinned-corpus-neutral fix. The
-  market-making policy should treat this as a stand-down/model-disagreement
-  case, not an edge quote.
+- The Miami 2026-06-15 92-93 F audit package is closed by items 58-60:
+  print-lag parity, afternoon high-has-stood lock-in, and range-band/version
+  artifact guards are now implemented.
 
 ### Current Work That Needed Roadmap Reconciliation
 

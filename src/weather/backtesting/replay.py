@@ -129,6 +129,32 @@ def _boolish(value):
     return None
 
 
+def _numeric_band_value(value):
+    if value in (None, ""):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if abs(numeric - round(numeric)) < 1e-9:
+        return int(round(numeric))
+    return numeric
+
+
+def band_value_hi(band):
+    explicit = _numeric_band_value(
+        band.get("bin_value_hi_c")
+        if band.get("bin_value_hi_c") not in (None, "")
+        else band.get("bin_value_hi")
+    )
+    if explicit is not None:
+        return explicit
+    value = _numeric_band_value(band.get("bin_value_c") or band.get("bin_value"))
+    label = band.get("range_label")
+    numbers = re.findall(r"\d+", str(label or ""))
+    return int(numbers[-1]) if len(numbers) >= 2 else value
+
+
 def source_status_kind(item):
     item = item or {}
     status = str(item.get("status") or "").strip().lower()
@@ -219,15 +245,12 @@ def replay_distribution(model, record):
 
 def band_bin_data(band):
     """Translate a recorded ``snapshots_long`` row into the ``bin_data`` shape
-    that ``bin_probability`` consumes. ``value_hi`` must be recovered from the
-    range label: tapes store only the band's lower value, and without it
-    bin_probability scores an F range band ("90-91") as its lower bucket
-    alone -- which silently zeroed the replayed probability whenever the model
-    correctly concentrated on the band's UPPER bucket."""
-    value = band.get("bin_value_c")
+    that ``bin_probability`` consumes. New tapes store ``bin_value_hi_c``
+    explicitly; legacy tapes reconstruct the upper endpoint from ``range_label``
+    so F range bands ("90-91") still score both buckets."""
+    value = _numeric_band_value(band.get("bin_value_c") or band.get("bin_value"))
     label = band.get("range_label")
-    numbers = re.findall(r"\d+", str(label or ""))
-    value_hi = int(numbers[-1]) if len(numbers) >= 2 else value
+    value_hi = band_value_hi(band)
     return {
         "kind": band.get("bin_kind"),
         "value": value,

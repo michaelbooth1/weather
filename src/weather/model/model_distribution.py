@@ -121,6 +121,12 @@ LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
 # dominates the unconditional rate.
 LEARNED_LOCKIN_START_HOUR = 17   # the unconditional rate is trustworthy from here
 LEARNED_LOCKIN_STAND_MINUTES = 90  # a just-reached high keeps the heuristic only
+HIGH_HAS_STOOD_START_HOUR = 13
+HIGH_HAS_STOOD_END_HOUR = 15
+HIGH_HAS_STOOD_MIN_MINUTES = 60
+HIGH_HAS_STOOD_MIN_FORECAST_SOURCES = 2
+HIGH_HAS_STOOD_FORECAST_MARGIN = 0.25  # Celsius delta; converted per market.
+HIGH_HAS_STOOD_ROLLOVER_MARGIN = 0.25  # Celsius delta below the printed high.
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
 
@@ -260,6 +266,96 @@ class DistributionMixin:
         if rate is None:
             return 0.0
         return max(0.0, min(1.0, 1.0 - rate))
+
+    def remaining_forecast_context(self, now, history_max, *forecast_sources):
+        wall_minute = now.hour * 60 + now.minute
+        source_maxes = []
+        degree_hours_above_high = 0.0
+        for source in forecast_sources:
+            source = source or {}
+            rows = source.get("rows") or source.get("day_rows") or []
+            values = []
+            for row in rows:
+                minute = self.minute_of_day(row.get("time") or row.get("valid_time"))
+                value = self.to_number(row.get("temp_c"))
+                if minute is not None and minute >= wall_minute and value is not None:
+                    values.append(value)
+            if not values and source.get("forecast_high_c") is not None:
+                value = self.to_number(source.get("forecast_high_c"))
+                if value is not None:
+                    values.append(value)
+            if not values:
+                continue
+            source_max = max(values)
+            source_maxes.append(source_max)
+            if history_max is not None:
+                degree_hours_above_high += sum(max(0.0, value - history_max) for value in values)
+        return {
+            "forecast_source_count": len(source_maxes),
+            "remaining_forecast_ceiling": max(source_maxes) if source_maxes else None,
+            "remaining_degree_hours_above_high": degree_hours_above_high,
+        }
+
+    def high_has_stood_lockin_context(
+        self,
+        hour,
+        history,
+        current_reading,
+        now,
+        *forecast_sources,
+    ):
+        context = {
+            "active": False,
+            "strength": 0.0,
+            "reason": "inactive",
+            "stood_minutes": None,
+            "current_minus_high": None,
+            "remaining_forecast_ceiling": None,
+            "remaining_degree_hours_above_high": None,
+            "forecast_source_count": 0,
+            "revision_up_rate": None,
+        }
+        if hour < HIGH_HAS_STOOD_START_HOUR or hour > HIGH_HAS_STOOD_END_HOUR:
+            context["reason"] = "outside_hour_window"
+            return context
+        history_max = self.to_number(history.get("max_c"))
+        max_times = history.get("max_times") or []
+        if history_max is None or not max_times:
+            context["reason"] = "missing_history_high"
+            return context
+        first_at_max = self.minute_of_day(max_times[0])
+        if first_at_max is None:
+            context["reason"] = "missing_first_high_time"
+            return context
+        stood_minutes = (now.hour * 60 + now.minute) - first_at_max
+        context["stood_minutes"] = stood_minutes
+        if stood_minutes < HIGH_HAS_STOOD_MIN_MINUTES:
+            context["reason"] = "high_not_stood_long_enough"
+            return context
+        current_value = self.to_number(current_reading)
+        if current_value is None:
+            context["reason"] = "missing_current_reading"
+            return context
+        current_minus_high = current_value - history_max
+        context["current_minus_high"] = current_minus_high
+        if current_minus_high > -self.spec.scale_delta(HIGH_HAS_STOOD_ROLLOVER_MARGIN):
+            context["reason"] = "current_not_below_high"
+            return context
+        forecast_context = self.remaining_forecast_context(now, history_max, *forecast_sources)
+        context.update(forecast_context)
+        if forecast_context["forecast_source_count"] < HIGH_HAS_STOOD_MIN_FORECAST_SOURCES:
+            context["reason"] = "insufficient_remaining_forecasts"
+            return context
+        ceiling = forecast_context["remaining_forecast_ceiling"]
+        if ceiling is None or ceiling > history_max + self.spec.scale_delta(HIGH_HAS_STOOD_FORECAST_MARGIN):
+            context["reason"] = "forecast_ceiling_above_high"
+            return context
+        revision_rate = revision_up_probability(getattr(self, "settlement_lag_model", None), hour)
+        context["revision_up_rate"] = revision_rate
+        context["active"] = True
+        context["strength"] = 1.0
+        context["reason"] = "high_stood_current_rolled_forecasts_below"
+        return context
 
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):
         """Suppress buckets above the observed high as the day locks in. Soft one
@@ -882,13 +978,34 @@ class DistributionMixin:
         # The learned revision curve floors the strength late, covering the
         # evening-plateau case the past-peak heuristic cannot see.
         current_reading = current_temp if current_temp is not None else metar_temp
+        heuristic_lockin_strength = self.late_day_lockin_strength(
+            now.hour,
+            current_reading,
+            history_max,
+        )
+        learned_lockin_strength = self.learned_lockin_strength(now.hour, history, now)
+        high_has_stood_context = self.high_has_stood_lockin_context(
+            now.hour,
+            history,
+            current_reading,
+            now,
+            weather_forecast,
+            open_meteo,
+            nws_hourly,
+            global_ensemble,
+            eccc_city,
+        )
+        high_has_stood_strength = high_has_stood_context.get("strength") or 0.0
         lockin_strength = max(
-            self.late_day_lockin_strength(now.hour, current_reading, history_max),
-            self.learned_lockin_strength(now.hour, history, now),
+            heuristic_lockin_strength,
+            learned_lockin_strength,
+            high_has_stood_strength,
         )
         scores = self.apply_late_day_lockin(
             scores, history_max, current_reading, now.hour, strength=lockin_strength
         )
+        if high_has_stood_strength > max(heuristic_lockin_strength, learned_lockin_strength):
+            distribution_components["high_has_stood_lockin"] = dict(self.normalize_scores(scores))
         distribution_components["late_day_lockin"] = dict(self.normalize_scores(scores))
 
         scores = self.normalize_scores(scores)
@@ -905,10 +1022,22 @@ class DistributionMixin:
             cutoff_hour=cutoff_hour,
         )
         distribution_components["final_model"] = dict(calibrated_scores)
+        latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(
+            history.get("rows") or []
+        )
         self._last_distribution_components = {
             "schema_version": COMPONENT_SCHEMA_VERSION,
             "cutoff_hour": cutoff_hour,
             "active_model_kind": getattr(self, "active_model_kind", "empirical"),
+            "latest_wu_history_time": (
+                latest_wu_history_row.get("time") if latest_wu_history_row else None
+            ),
+            "latest_wu_history_minute": latest_wu_history_minute,
+            "latest_wu_history_temp": (
+                latest_wu_history_row.get("temp_c") if latest_wu_history_row else None
+            ),
+            "lockin_strength": lockin_strength,
+            "high_has_stood_lockin": high_has_stood_context,
             "family_secondary_gate": getattr(self, "_last_family_secondary_gate", {}),
             "observed_floor_bucket": hard_floor_bucket,
             "wu_history_floor_bucket": observed_bucket,
@@ -1065,13 +1194,10 @@ class DistributionMixin:
 
     def effective_intraday_cutoff_hour(self, now, rows):
         wall_cutoff = self.intraday_cutoff_hour(now)
-        latest_minute = None
-        for row in rows or []:
-            minute = self.minute_of_day(row.get("time"))
-            if minute is not None:
-                latest_minute = minute if latest_minute is None else max(latest_minute, minute)
+        _latest_row, latest_minute = self.latest_source_row(self.rows_for_target_date(rows or []))
         if latest_minute is None:
             return wall_cutoff
+        latest_minute = self.aliased_settlement_print_minute(latest_minute, wall_cutoff)
         eligible = [
             cutoff for cutoff in INTRADAY_CUTOFF_HOURS
             if cutoff <= wall_cutoff and cutoff * 60 <= latest_minute

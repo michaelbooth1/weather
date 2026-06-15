@@ -126,11 +126,13 @@ class TestEstimateDistribution(unittest.TestCase):
         )
         self.assertIn("distribution", model)
         self._assert_valid_distribution(model["distribution"])
+        self.assertEqual(model["model_explanation"]["feature_cutoff_hour"], 13)
+        self.assertEqual(model["model_explanation"]["latest_wu_history_time"], "13:00")
 
 
 class TestDistributionHelpers(unittest.TestCase):
     def setUp(self):
-        self.model = TorontoHighTempModel()
+        self.model = TorontoHighTempModel(target_date="2026-05-29")
 
     def test_blend_distribution_is_convex_combination(self):
         out = self.model.blend_distribution({20: 1.0}, {22: 1.0}, 0.5)
@@ -170,6 +172,39 @@ class TestDistributionHelpers(unittest.TestCase):
         rows = [_wu_row("06:50", 14.0)]
 
         self.assertEqual(self.model.effective_intraday_cutoff_hour(now, rows), 7)
+
+    def test_effective_cutoff_aliases_near_boundary_settlement_print(self):
+        now = datetime(2026, 5, 29, 14, 9, tzinfo=TORONTO_TZ)
+        rows = [_wu_row("07:00", 14.0), _wu_row("12:53", 24.0)]
+
+        self.assertEqual(self.model.effective_intraday_cutoff_hour(now, rows), 13)
+
+    def test_effective_cutoff_does_not_alias_stale_or_future_cutoff_prints(self):
+        now = datetime(2026, 5, 29, 14, 9, tzinfo=TORONTO_TZ)
+        self.assertEqual(
+            self.model.effective_intraday_cutoff_hour(
+                now,
+                [_wu_row("07:00", 14.0), _wu_row("12:49", 24.0)],
+            ),
+            12,
+        )
+
+        before_13h = datetime(2026, 5, 29, 12, 59, tzinfo=TORONTO_TZ)
+        self.assertEqual(
+            self.model.effective_intraday_cutoff_hour(
+                before_13h,
+                [_wu_row("07:00", 14.0), _wu_row("12:53", 24.0)],
+            ),
+            12,
+        )
+
+    def test_effective_cutoff_alias_ignores_non_target_date_rows(self):
+        now = datetime(2026, 5, 29, 14, 9, tzinfo=TORONTO_TZ)
+        stale_row = _wu_row("12:53", 24.0)
+        stale_row["datetime"] = "2026-05-28T12:53:00-04:00"
+        rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), stale_row]
+
+        self.assertEqual(self.model.effective_intraday_cutoff_hour(now, rows), 12)
 
 
 class TestModelLoadCaching(unittest.TestCase):
