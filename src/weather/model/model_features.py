@@ -12,6 +12,7 @@ from feature_store import (
     forecast_profile_features,
 )
 from forecast_history import load_forecast_daily, daily_path_for
+from feature_probability_calibration import temperature_scale_distribution
 from model_constants import _UNLOADED
 
 
@@ -248,6 +249,7 @@ class FeatureModelMixin:
             self.cloud_group(feature_latest.get("condition"), feature_latest.get("clouds"))
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
+        microclimate = self.microclimate_features(wind_group, wind_speed)
 
         # Forecast features: forecasted daily max (matching the archived-forecast
         # training value) and the gap above the high so far. Open-Meteo is the
@@ -317,6 +319,7 @@ class FeatureModelMixin:
             "pressure": pressure,
             "pressure_trend_3h": pressure_trend_3h,
             "wind_speed_kmh": wind_speed,
+            **microclimate,
             "wind_group": wind_group,
             "cloud_group": cloud_group,
             "forecast_high": forecast_high,
@@ -402,6 +405,10 @@ class FeatureModelMixin:
                 classes = model_obj.classes_
                 
                 prob_dict = {int(c): float(p) for c, p in zip(classes, probs)}
+                prob_dict = temperature_scale_distribution(
+                    prob_dict,
+                    bundle.get("probability_temperature", 1.0),
+                )
                 return prob_dict, "hgb"
             except Exception as e:
                 print(f"Error predicting with HGBC model: {e}. Falling back to LR coefficients...")
@@ -507,33 +514,35 @@ class FeatureModelMixin:
         return self._last_family_secondary_gate.get("mode") == "ml"
 
 
-    def get_bucket_transitions(self, sources, now):
+    def bucket_transition_model(self, sources, now, min_sample_size=5):
         history = self.source_data(sources, "wu_history")
         observed_bucket = self.round_half_up(history.get("max_c"))
-        
+
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
         )
-        
+
         if observed_bucket is None:
             return {
                 "current_max_bucket": None,
                 "observed_bucket": None,
                 "cutoff_hour": cutoff_hour,
                 "sample_size": 0,
-                "transitions": [],
-                "skip_rate": 0.0
+                "probabilities": {},
+                "skip_rate": 0.0,
+                "update_rate": 0.0,
+                "median_first_update_minute": None,
             }
-            
+
         cache = self.historical_target_cache()
         daily = cache["daily"]
         by_date = cache["by_date"]
-        
+
         cutoff = cutoff_hour * 60
         matching_final_buckets = []
-        
-        # 1. Compute transitions
+        first_update_minutes = []
+
         for local_date, daily_info in daily.items():
             rows = by_date.get(local_date, [])
             high_so_far = self.historical_max_until(rows, cutoff)
@@ -541,66 +550,121 @@ class FeatureModelMixin:
                 continue
             bucket_so_far = self.round_half_up(high_so_far)
             if bucket_so_far == observed_bucket:
-                matching_final_buckets.append(daily_info["bucket"])
-                
-        # Calculate transition distribution
-        transitions = []
+                final_bucket = daily_info["bucket"]
+                matching_final_buckets.append(final_bucket)
+                if final_bucket > observed_bucket:
+                    for row in sorted(rows, key=lambda item: item.get("minute_of_day") or 0):
+                        minute = row.get("minute_of_day")
+                        if minute is None or minute <= cutoff:
+                            continue
+                        bucket = self.round_half_up(row.get("temp_c"))
+                        if bucket is not None and bucket > observed_bucket:
+                            first_update_minutes.append(int(minute))
+                            break
+
         sample_size = len(matching_final_buckets)
-        unit = self.spec.display_unit
-        if sample_size >= 5:
-            counts = Counter(matching_final_buckets)
-            # Group into stays at X, rises to X+1, rises to X+2, rises to >= X+3
-            for target_b in range(observed_bucket, observed_bucket + 3):
-                cnt = counts.get(target_b, 0)
-                prob = cnt / sample_size
-                transitions.append({
-                    "Target Bucket": f"{target_b} {unit}",
-                    "Probability": f"{prob * 100:.1f}%",
-                    "Historical Days": cnt
-                })
-            cnt_plus_3 = sum(cnt for target_b, cnt in counts.items() if target_b >= observed_bucket + 3)
-            prob_plus_3 = cnt_plus_3 / sample_size
-            transitions.append({
-                "Target Bucket": f">= {observed_bucket + 3} {unit}",
-                "Probability": f"{prob_plus_3 * 100:.1f}%",
-                "Historical Days": cnt_plus_3
-            })
-            
-        # 2. Compute historical rate of intermediate bucket skips during afternoon warming (10 AM to 6 PM)
+        probabilities = {}
+        counts = Counter(matching_final_buckets)
+        if sample_size >= min_sample_size:
+            high = max(max(counts), observed_bucket + 3)
+            support = range(observed_bucket, high + 1)
+            probabilities = self.smoothed_distribution(
+                matching_final_buckets,
+                support,
+                alpha=0.10,
+            )
+
+        # Historical rate of intermediate bucket skips during afternoon warming
+        # (10 AM to 6 PM).
         total_warming_days = 0
         skipping_days = 0
-        
+
         for local_date, rows in by_date.items():
             warm_rows = [r for r in rows if 600 <= r["minute_of_day"] <= 1080]
             if not warm_rows:
                 continue
             total_warming_days += 1
-            
+
             temps = [r["temp_c"] for r in warm_rows if r.get("temp_c") is not None]
             if len(temps) < 2:
                 continue
-                
+
             has_skip = False
             for i in range(len(temps) - 1):
                 t1, t2 = temps[i], temps[i+1]
                 b1 = self.round_half_up(t1)
                 b2 = self.round_half_up(t2)
-                # Check for an upward jump that skips an integer bucket (e.g. 23 C -> 25 C)
+                # Check for an upward jump that skips an integer bucket.
                 if b2 >= b1 + 2:
                     has_skip = True
                     break
             if has_skip:
                 skipping_days += 1
-                
+
         skip_rate = (skipping_days / total_warming_days) if total_warming_days > 0 else 0.0
-        
+        update_rate = (
+            len(first_update_minutes) / sample_size
+            if sample_size > 0 else 0.0
+        )
+        median_first_update_minute = None
+        if first_update_minutes:
+            ordered = sorted(first_update_minutes)
+            median_first_update_minute = ordered[len(ordered) // 2]
+
         return {
             "current_max_bucket": observed_bucket,
             "observed_bucket": observed_bucket,
             "cutoff_hour": cutoff_hour,
             "sample_size": sample_size,
+            "counts": {int(bucket): int(count) for bucket, count in counts.items()},
+            "probabilities": probabilities,
+            "skip_rate": skip_rate,
+            "update_rate": update_rate,
+            "median_first_update_minute": median_first_update_minute,
+        }
+
+    def get_bucket_transitions(self, sources, now):
+        transition_model = self.bucket_transition_model(sources, now)
+        observed_bucket = transition_model["observed_bucket"]
+
+        if observed_bucket is None:
+            return {
+                **transition_model,
+                "transitions": [],
+            }
+
+        probabilities = transition_model.get("probabilities") or {}
+        counts = transition_model.get("counts") or {}
+        sample_size = transition_model["sample_size"]
+        unit = self.spec.display_unit
+        transitions = []
+        if sample_size >= 5:
+            for target_b in range(observed_bucket, observed_bucket + 3):
+                prob = probabilities.get(target_b, 0.0)
+                transitions.append({
+                    "Target Bucket": f"{target_b} {unit}",
+                    "Probability": f"{prob * 100:.1f}%",
+                    "Historical Days": counts.get(target_b, 0),
+                })
+            prob_plus_3 = sum(
+                probability
+                for target_b, probability in probabilities.items()
+                if target_b >= observed_bucket + 3
+            )
+            cnt_plus_3 = sum(
+                count
+                for target_b, count in counts.items()
+                if target_b >= observed_bucket + 3
+            )
+            transitions.append({
+                "Target Bucket": f">= {observed_bucket + 3} {unit}",
+                "Probability": f"{prob_plus_3 * 100:.1f}%",
+                "Historical Days": cnt_plus_3,
+            })
+
+        return {
+            **transition_model,
             "transitions": transitions,
-            "skip_rate": skip_rate
         }
 
     def load_late_day_model_coefs(self):

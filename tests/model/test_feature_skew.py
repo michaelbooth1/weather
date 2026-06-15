@@ -81,6 +81,7 @@ class TestFeatureSkew(unittest.TestCase):
             forecast_high=FORECAST_HIGH,
             wind_group_fn=model.wind_group,
             cloud_group_fn=model.cloud_group,
+            microclimate_feature_fn=model.microclimate_features,
         )
         serve = model.extract_live_features(live_sources(), CUTOFF_HOUR)
 
@@ -113,6 +114,7 @@ class TestFeatureSkew(unittest.TestCase):
             forecast_high=FORECAST_HIGH,
             wind_group_fn=model.wind_group,
             cloud_group_fn=model.cloud_group,
+            microclimate_feature_fn=model.microclimate_features,
             wall_minute=CUTOFF_HOUR * 60 + 30,
         )
 
@@ -192,6 +194,7 @@ class TestFeatureSkew(unittest.TestCase):
             forecast_high=96.0,
             wind_group_fn=model.wind_group,
             cloud_group_fn=model.cloud_group,
+            microclimate_feature_fn=model.microclimate_features,
             wall_minute=14 * 60 + 9,
         )
 
@@ -222,6 +225,58 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["forecast_disagreement"], 0.0)
         self.assertEqual(serve["wind_group"], "S-SW")
         self.assertEqual(serve["cloud_group"], "Fair/clear")
+
+    def test_toronto_onshore_microclimate_features_match_between_train_and_live(self):
+        model = TorontoHighTempModel(target_date="2026-06-02", market_id="toronto")
+        obs = [
+            (7, 0, 16.0, 10.0, 70.0, 1016.0, 7.0, "E", "Fair"),
+            (11, 0, 22.0, 11.0, 55.0, 1015.0, 10.0, "E", "Fair"),
+            (14, 0, 24.0, 11.0, 48.0, 1014.0, 12.0, "E", "Fair"),
+        ]
+        hist_rows = [
+            {
+                "minute_of_day": hh * 60 + mm,
+                "temp_c": temp,
+                "dewpoint_c": dew,
+                "humidity": hum,
+                "pressure": pres,
+                "wind_kmh": wind_kmh,
+                "wind": wind,
+                "condition": cond,
+                "clouds": None,
+            }
+            for (hh, mm, temp, dew, hum, pres, wind_kmh, wind, cond) in obs
+        ]
+        live_rows = [
+            {**row, "time": f"{row['minute_of_day'] // 60:02d}:{row['minute_of_day'] % 60:02d}"}
+            for row in hist_rows
+        ]
+        train = build_historical_feature_record(
+            local_date="2026-06-02",
+            rows=hist_rows,
+            daily={"bucket": 24},
+            cutoff_hour=CUTOFF_HOUR,
+            forecast_high=FORECAST_HIGH,
+            wind_group_fn=model.wind_group,
+            cloud_group_fn=model.cloud_group,
+            microclimate_feature_fn=model.microclimate_features,
+        )
+        ok = lambda data: {"ok": True, "data": data}
+        serve = model.extract_live_features({
+            "wu_history": ok({"rows": live_rows, "max_c": 24.0}),
+            "wu_current": ok({"temp_c": 24.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+            "open_meteo": ok({"rows": [], "day_max_c": FORECAST_HIGH}),
+        }, CUTOFF_HOUR)
+
+        for feature in ("onshore_flow", "onshore_wind_speed_kmh", "lake_breeze_proxy"):
+            with self.subTest(feature=feature):
+                self.assertEqual(train[feature], serve[feature])
+        self.assertEqual(serve["wind_group"], "E-SE/onshore-ish")
+        self.assertEqual(serve["onshore_flow"], 1.0)
+        self.assertEqual(serve["onshore_wind_speed_kmh"], 12.0)
+        self.assertEqual(serve["lake_breeze_proxy"], 1.0)
 
 
 class TestSimulatedReading(unittest.TestCase):

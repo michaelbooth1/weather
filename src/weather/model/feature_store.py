@@ -2,6 +2,10 @@
 
 from datetime import datetime
 
+from weather.schema_registry import schema_version
+
+# v0.6 (ROADMAP item 27): microclimate/onshore-flow features.
+#
 # v0.5 (ROADMAP item 50): forecast profile, radiation/cloud detail, and GFS
 # ensemble-spread features. Old artifacts keep serving because prediction code
 # selects by trained feature_names.
@@ -15,7 +19,7 @@ from datetime import datetime
 # state is frozen; the live wu_current reading and the elapsed minutes are now
 # explicit TRAINED features instead of fabricated rows (the reverted v0.5.1
 # injection) or heuristic floors. high_so_far stays printed-only.
-FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.5"
+FEATURE_SCHEMA_VERSION = schema_version("feature_store")
 
 FORECAST_PROFILE_COLUMNS = [
     "forecast_peak_hour",
@@ -70,6 +74,9 @@ FEATURE_COLUMNS = [
     "pressure",
     "pressure_trend_3h",
     "wind_speed_kmh",
+    "onshore_flow",
+    "onshore_wind_speed_kmh",
+    "lake_breeze_proxy",
     "forecast_high",
     "forecast_gap",
     "forecast_source_count",
@@ -174,6 +181,14 @@ def to_float(value):
 def mean(values):
     values = [value for value in values if value is not None]
     return sum(values) / len(values) if values else None
+
+
+def empty_microclimate_features():
+    return {
+        "onshore_flow": 0.0,
+        "onshore_wind_speed_kmh": 0.0,
+        "lake_breeze_proxy": 0.0,
+    }
 
 
 def row_minute_of_day(row):
@@ -385,6 +400,7 @@ def build_historical_feature_record(
     global_ensemble_day_high_p90=None,
     wind_group_fn=None,
     cloud_group_fn=None,
+    microclimate_feature_fn=None,
     wall_minute=None,
 ):
     """One training record at printed-cutoff ``cutoff_hour``. ``wall_minute``
@@ -475,6 +491,11 @@ def build_historical_feature_record(
         if cloud_group_fn is not None
         else current_obs.get("cloud_group")
     )
+    microclimate = (
+        microclimate_feature_fn(wind_group, current_obs.get("wind_kmh"))
+        if microclimate_feature_fn is not None
+        else empty_microclimate_features()
+    )
     forecast_gap = (
         forecast_high - high_so_far
         if forecast_high is not None and high_so_far is not None
@@ -503,6 +524,7 @@ def build_historical_feature_record(
         "pressure": pressure,
         "pressure_trend_3h": pressure_trend_3h,
         "wind_speed_kmh": current_obs.get("wind_kmh"),
+        **microclimate,
         "forecast_high": forecast_high,
         "forecast_gap": forecast_gap,
         "forecast_source_count": (

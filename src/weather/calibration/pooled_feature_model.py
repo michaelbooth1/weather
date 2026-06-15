@@ -29,7 +29,14 @@ from forecast_history import daily_path_for, load_forecast_daily, load_forecast_
 from market_registry import all_specs
 from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from model_constants import INTRADAY_CUTOFF_HOURS
-from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, bias_stats_for_source, source_daily_indexes
+from source_redundancy import (
+    FALLBACK_ORDER,
+    PRIMARY_SOURCE,
+    SUPPLEMENTAL_FEATURE_FAMILY,
+    SUPPLEMENTAL_SOURCE_PREFIX,
+    bias_stats_for_source,
+    source_daily_indexes,
+)
 from toronto_model import TorontoHighTempModel
 from weather.artifacts import writable_artifact_path
 
@@ -72,6 +79,14 @@ SOURCE_RELIABILITY_COLUMNS = [
     "source_reanalysis_bias",
     "source_reanalysis_mae",
     "source_reanalysis_bucket_match",
+]
+HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS = [
+    "source_supplemental_available",
+    "source_supplemental_count",
+    "source_supplemental_overlap_days",
+    "source_supplemental_best_mae",
+    "source_supplemental_best_bucket_match",
+    "source_supplemental_min_distance_km",
 ]
 
 
@@ -229,7 +244,7 @@ def market_climate_stats(cache):
     return {"climate_normal": mean, "climate_std": std}
 
 
-def market_source_reliability(spec):
+def market_source_reliability(spec, include_historical_only=False):
     """Static per-market source-quality priors for pooled training.
 
     These are learned from available daily-source overlaps versus WU, not from
@@ -243,6 +258,8 @@ def market_source_reliability(spec):
         indexes = {}
     primary_rows = indexes.get(PRIMARY_SOURCE) or {}
     reliability = {column: None for column in SOURCE_RELIABILITY_COLUMNS}
+    if include_historical_only:
+        reliability.update({column: None for column in HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS})
     if not primary_rows:
         reliability["source_redundant_streams"] = 0.0
         reliability["source_overlap_days"] = 0.0
@@ -288,10 +305,66 @@ def market_source_reliability(spec):
     reliability["source_overlap_days"] = float(overlap_days)
     reliability["source_best_bucket_match"] = best_match
     reliability["source_best_mae"] = best_mae
+    if include_historical_only:
+        supplemental_sources = [
+            source for source in indexes
+            if source.startswith(SUPPLEMENTAL_SOURCE_PREFIX)
+        ]
+        supplemental_mae = []
+        supplemental_match = []
+        supplemental_distances = []
+        supplemental_overlap_days = 0
+        for source in supplemental_sources:
+            source_rows = indexes.get(source) or {}
+            days = sorted(set(primary_rows) & set(source_rows))
+            if not days:
+                continue
+            supplemental_overlap_days += len(days)
+            truth_rows = [
+                {
+                    "source_values": {
+                        PRIMARY_SOURCE: primary_rows[local_date],
+                        source: source_rows[local_date],
+                    },
+                }
+                for local_date in days
+            ]
+            stats = bias_stats_for_source(truth_rows, source)
+            if stats.get("mae_vs_wu") is not None:
+                supplemental_mae.append(stats.get("mae_vs_wu"))
+            if stats.get("exact_bucket_match_rate") is not None:
+                supplemental_match.append(stats.get("exact_bucket_match_rate"))
+            for row in source_rows.values():
+                value = row.get("supplemental_distance_km")
+                if value is not None:
+                    try:
+                        supplemental_distances.append(float(value))
+                    except (TypeError, ValueError):
+                        pass
+        reliability["source_supplemental_available"] = 1.0 if supplemental_sources else 0.0
+        reliability["source_supplemental_count"] = float(len(supplemental_sources))
+        reliability["source_supplemental_overlap_days"] = float(supplemental_overlap_days)
+        reliability["source_supplemental_best_mae"] = min(supplemental_mae) if supplemental_mae else None
+        reliability["source_supplemental_best_bucket_match"] = (
+            max(supplemental_match) if supplemental_match else None
+        )
+        reliability["source_supplemental_min_distance_km"] = (
+            min(supplemental_distances) if supplemental_distances else None
+        )
     return reliability
 
 
-def add_city_features(record, spec, climate, source_reliability=None):
+def historical_only_source_feature_manifest():
+    return {
+        "feature_family": SUPPLEMENTAL_FEATURE_FAMILY,
+        "columns": HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS,
+        "historical_only": True,
+        "live_serving_eligible": False,
+        "default_in_feature_frame": False,
+    }
+
+
+def add_city_features(record, spec, climate, source_reliability=None, include_historical_only=False):
     normal = climate.get("climate_normal")
     high_so_far = record.get("high_so_far")
     forecast_high = record.get("forecast_high")
@@ -310,6 +383,9 @@ def add_city_features(record, spec, climate, source_reliability=None):
     })
     for column in SOURCE_RELIABILITY_COLUMNS:
         record[column] = (source_reliability or {}).get(column)
+    if include_historical_only:
+        for column in HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS:
+            record[column] = (source_reliability or {}).get(column)
     return record
 
 
@@ -355,6 +431,7 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
                 forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
+                microclimate_feature_fn=model.microclimate_features,
                 wall_minute=int(hour) * 60 + offset,
             )
             if not record or record.get("final_bucket") is None:
@@ -383,7 +460,7 @@ def build_family_dataset(unit="F", cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days_
     return records, counts
 
 
-def feature_frame(records, feature_names=None):
+def feature_frame(records, feature_names=None, include_historical_only=False):
     frame = pd.DataFrame(records)
     base_numeric = [
         column for column in FEATURE_COLUMNS
@@ -399,6 +476,8 @@ def feature_frame(records, feature_names=None):
         "forecast_anomaly",
         *SOURCE_RELIABILITY_COLUMNS,
     ]
+    if include_historical_only:
+        city_numeric += HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS
     use = base_numeric + city_numeric + ["wind_group", "cloud_group", "market_id"]
     for column in use:
         if column not in frame:
@@ -475,7 +554,7 @@ def band_prediction_record(record, kind, value, value_hi=None):
     return out
 
 
-def band_feature_frame(records, feature_names=None):
+def band_feature_frame(records, feature_names=None, include_historical_only=False):
     frame = pd.DataFrame(records)
     base_numeric = [
         column for column in FEATURE_COLUMNS
@@ -491,6 +570,8 @@ def band_feature_frame(records, feature_names=None):
         "forecast_anomaly",
         *SOURCE_RELIABILITY_COLUMNS,
     ]
+    if include_historical_only:
+        city_numeric += HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS
     use = (
         base_numeric
         + city_numeric

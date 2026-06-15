@@ -8,7 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from market_making_run import build_run_once, lifecycle_summary, load_open_lifecycle_orders, utc_now
+from market_making_run import (
+    build_run_once,
+    lifecycle_summary,
+    load_data_layer_live_gate,
+    load_open_lifecycle_orders,
+    utc_now,
+)
 
 
 NOW = "2026-06-14T16:00:00+00:00"
@@ -236,7 +242,95 @@ def write_known_edge_map(path, permission="harvest_only", reason="promotion_shad
     return path
 
 
+def write_live_readiness(path):
+    path.write_text(json.dumps({
+        "account_platform_verified": True,
+        "wallet_ready": True,
+        "allowance_ready": True,
+        "heartbeat_ready": True,
+        "user_websocket_ready": True,
+        "cancel_all_ready": True,
+    }), encoding="utf-8")
+    return path
+
+
+def write_data_layer_audit(path, ok=True):
+    path.write_text(json.dumps({
+        "schema_version": "data_layer_audit_v0.3",
+        "generated_at_utc": NOW,
+        "gate_summary": {"status": "PASS" if ok else "FAIL"},
+        "snapshots": {
+            "has_market_token_ids": ok,
+            "clob_features": {
+                "row_count": 2 if ok else 0,
+                "book_available_rows": 2 if ok else 0,
+            },
+            "folders": [{
+                "target_date": TARGET_DATE,
+                "rows_with_market_token_ids": 2 if ok else 0,
+                "artifact_presence": {"clob_features": ok},
+                "clob_features": {"book_available_rows": 2 if ok else 0},
+            }],
+        },
+    }), encoding="utf-8")
+    return path
+
+
 class TestMarketMakingRun(unittest.TestCase):
+    def test_data_layer_live_gate_requires_target_day_clob_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = write_data_layer_audit(root / "good.json", ok=True)
+            bad = write_data_layer_audit(root / "bad.json", ok=False)
+
+            good_gate = load_data_layer_live_gate(good, TARGET_DATE, "live-pilot")
+            bad_gate = load_data_layer_live_gate(bad, TARGET_DATE, "live-pilot")
+
+        self.assertTrue(good_gate["ok"])
+        self.assertFalse(bad_gate["ok"])
+        self.assertIn("has_market_token_ids", bad_gate["missing"])
+        self.assertFalse(load_data_layer_live_gate(bad, TARGET_DATE, "shadow")["required"])
+
+    def test_live_pilot_blocks_when_latest_data_layer_audit_lacks_clob_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+            live_readiness = write_live_readiness(root / "live_readiness.json")
+            bad_audit = write_data_layer_audit(root / "bad_data_layer_audit.json", ok=False)
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="live-blocked",
+                now=NOW,
+                pilot=True,
+                confirm_live_orders=True,
+                live_readiness_path=live_readiness,
+                data_layer_audit_path=bad_audit,
+            )
+
+            preflight = json.loads(Path(payload["preflight_path"]).read_text(encoding="utf-8"))
+            gates = {
+                gate["name"]: gate
+                for gate in preflight["markets"][0]["gates"]
+            }
+
+        self.assertEqual(payload["preflight_status"], "BLOCK")
+        self.assertEqual(payload["quote_permission_rows"], 0)
+        self.assertFalse(preflight["data_layer_live_gate"]["ok"])
+        self.assertFalse(gates["data_layer_live_gate"]["ok"])
+        self.assertIn("data-layer audit missing live CLOB proof", gates["data_layer_live_gate"]["detail"])
+
     def test_shadow_run_writes_complete_artifacts_and_budget_exhaustion(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -96,6 +96,28 @@ class ModelUtilsMixin:
             return "Mostly cloudy/overcast"
         return "Other" if text.strip() else None
 
+    def microclimate_features(self, wind_group, wind_speed_kmh=None):
+        """Market-aware onshore/lake-breeze indicators for item 27."""
+        west_coast = {"los-angeles", "san-francisco", "seattle"}
+        east_or_lake = {"toronto", "nyc", "miami", "houston"}
+        market_id = getattr(self, "market_id", "")
+        if market_id in west_coast:
+            onshore_group = "W-NW"
+        elif market_id in east_or_lake:
+            onshore_group = "E-SE/onshore-ish"
+        else:
+            onshore_group = None
+        try:
+            wind_speed = float(wind_speed_kmh) if wind_speed_kmh is not None else 0.0
+        except (TypeError, ValueError):
+            wind_speed = 0.0
+        onshore = 1.0 if onshore_group and wind_group == onshore_group else 0.0
+        return {
+            "onshore_flow": onshore,
+            "onshore_wind_speed_kmh": wind_speed if onshore else 0.0,
+            "lake_breeze_proxy": 1.0 if market_id == "toronto" and onshore and wind_speed >= 8.0 else 0.0,
+        }
+
     def minute_of_day(self, value):
         if not value:
             return None

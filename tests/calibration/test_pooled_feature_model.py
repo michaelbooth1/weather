@@ -18,6 +18,7 @@ from pooled_feature_model import (
     feature_frame,
     fit_adjacent_calibration,
     hard_floor_probability,
+    historical_only_source_feature_manifest,
     late_lockin_strength_from_features,
     market_source_reliability,
     support_floor_cap,
@@ -109,6 +110,59 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertAlmostEqual(reliability["source_reanalysis_bucket_match"], 0.5)
         self.assertAlmostEqual(reliability["source_best_bucket_match"], 0.5)
         self.assertAlmostEqual(reliability["source_best_mae"], 1.0)
+
+    def test_supplemental_reliability_columns_are_historical_only_opt_in(self):
+        indexes = {
+            "wu": {
+                "2026-06-01": {"high": 80.0, "bucket": 80, "peak_minute": 900},
+                "2026-06-02": {"high": 82.0, "bucket": 82, "peak_minute": 960},
+            },
+            "ghcnh_supplemental__nearby": {
+                "2026-06-01": {
+                    "high": 80.2,
+                    "bucket": 80,
+                    "peak_minute": 900,
+                    "supplemental_distance_km": 0.5,
+                },
+                "2026-06-02": {
+                    "high": 81.0,
+                    "bucket": 81,
+                    "peak_minute": 960,
+                    "supplemental_distance_km": 0.5,
+                },
+            },
+        }
+
+        with patch("pooled_feature_model.source_daily_indexes", return_value=indexes):
+            reliability = market_source_reliability(NYC, include_historical_only=True)
+
+        self.assertEqual(reliability["source_supplemental_available"], 1.0)
+        self.assertEqual(reliability["source_supplemental_count"], 1.0)
+        self.assertEqual(reliability["source_supplemental_overlap_days"], 2.0)
+        self.assertAlmostEqual(reliability["source_supplemental_best_mae"], 0.6)
+        self.assertAlmostEqual(reliability["source_supplemental_best_bucket_match"], 0.5)
+        self.assertAlmostEqual(reliability["source_supplemental_min_distance_km"], 0.5)
+
+        record = add_city_features(
+            self._base_record(),
+            NYC,
+            {"climate_normal": 82.0, "climate_std": 5.0},
+            source_reliability=reliability,
+            include_historical_only=True,
+        )
+        default_frame = feature_frame([record])
+        opt_in_frame = feature_frame([record], include_historical_only=True)
+        band_frame = band_feature_frame(
+            [band_prediction_record(record, "eq", 80)],
+            include_historical_only=True,
+        )
+        manifest = historical_only_source_feature_manifest()
+
+        self.assertNotIn("source_supplemental_available", default_frame.columns)
+        self.assertIn("source_supplemental_available", opt_in_frame.columns)
+        self.assertIn("source_supplemental_best_mae", band_frame.columns)
+        self.assertFalse(manifest["live_serving_eligible"])
+        self.assertFalse(manifest["default_in_feature_frame"])
 
     def test_band_prediction_record_adds_floor_and_band_context(self):
         record = add_city_features(self._base_record(), NYC, {

@@ -30,7 +30,13 @@ from historical_schema import (  # noqa: E402
     write_manifest,
 )
 from market_registry import all_specs, spec_for_id  # noqa: E402
-from supplemental_stations import provenance_fields, source_for_root  # noqa: E402
+from supplemental_stations import (  # noqa: E402
+    guard_not_canonical_root,
+    load_registry,
+    provenance_fields,
+    source_for_root,
+    supplemental_sources,
+)
 from wu_history import get_code_version  # noqa: E402
 
 
@@ -176,6 +182,9 @@ class GHCNHStore:
         self.spec = spec
         self.root = Path(root) if root else DEFAULT_ROOT / spec.icao.lower()
         self.registry = registry
+        if registry is not None:
+            for source in supplemental_sources(spec.id, source_type=SOURCE, registry=registry):
+                guard_not_canonical_root(source, spec)
         self.raw_root = self.root / "raw"
         self.hourly_root = self.root / "hourly"
         self.daily_root = self.root / "daily"
@@ -329,14 +338,14 @@ def resolve_and_store_station(spec, store, client):
 
 def cmd_station(args):
     spec = spec_for_id(args.market)
-    store = GHCNHStore(spec, args.data_root)
+    store = GHCNHStore(spec, args.data_root, registry=load_registry())
     station = resolve_and_store_station(spec, store, GHCNHClient(timeout=args.timeout))
     print(json.dumps(station, indent=2, sort_keys=True))
 
 
 def cmd_backfill(args):
     spec = spec_for_id(args.market)
-    store = GHCNHStore(spec, args.data_root)
+    store = GHCNHStore(spec, args.data_root, registry=load_registry())
     client = GHCNHClient(timeout=args.timeout, sleep_seconds=args.sleep)
     station = store.read_station() or resolve_and_store_station(spec, store, client)
     station_id = station.get("GHCN_ID")
@@ -373,7 +382,7 @@ def cmd_backfill(args):
 
 def cmd_rebuild(args):
     spec = spec_for_id(args.market)
-    records, daily = GHCNHStore(spec, args.data_root).rebuild()
+    records, daily = GHCNHStore(spec, args.data_root, registry=load_registry()).rebuild()
     print(f"Rebuilt {len(records)} hourly rows and {len(daily)} daily rows")
 
 
@@ -381,7 +390,11 @@ def cmd_coverage(args):
     spec = spec_for_id(args.market)
     start_year = args.start_year if args.start_year else None
     end_year = args.end_year if args.end_year else None
-    print(json.dumps(GHCNHStore(spec, args.data_root).coverage(start_year, end_year), indent=2, sort_keys=True))
+    print(json.dumps(
+        GHCNHStore(spec, args.data_root, registry=load_registry()).coverage(start_year, end_year),
+        indent=2,
+        sort_keys=True,
+    ))
 
 
 def build_parser():

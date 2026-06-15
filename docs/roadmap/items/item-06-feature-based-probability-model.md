@@ -1,4 +1,4 @@
-# 6. Feature-Based Probability Model [IMPLEMENTED - CALIBRATION NEXT]
+# 6. Feature-Based Probability Model [COMPLETE - TEMPERATURE CALIBRATION LAYER]
 
 - [x] Build a tabular training set with one row per historical day per cutoff hour.
 - [x] Include features:
@@ -25,3 +25,24 @@ accuracy, ECE, and tuned per-hour HGB blend weights. Remaining accuracy work:
 the HGB output is still not probability-calibrated with a dedicated
 Platt/isotonic/temperature layer, and validation is still model-vs-history
 rather than model-vs-Polymarket market-bin edge. New item 21 owns this.
+
+Implementation update (2026-06-15): complete. HGB now has a dedicated
+probability-temperature calibration layer. `src.weather.calibration.feature_probability_calibration`
+provides normalization, multiclass temperature scaling, blend/log-loss helpers,
+and a grid tuner that keeps the legacy `temperature=1.00` / `blend=0.80` pair
+in the candidate set. `src.weather.calibration.feature_model` writes the tuned
+per-hour `probability_temperature` and calibration metadata into new HGB bundles
+(`feature_model_hgb_v0.2`), and `src.weather.model.model_features` applies that
+temperature at serving time with a `1.0` fallback for older pickles. The
+model-vs-market calibration concern is covered by item 21's exact-distribution
+and market-bin calibration layer.
+
+Artifact note: a full Toronto LOO retrain was attempted on 2026-06-15 with
+`.\venv\Scripts\python.exe -m src.feature_model --market toronto`, but it did
+not finish within a 10-minute command window and did not rewrite the checked-in
+pickle. Existing bundles therefore keep the safe `1.0` fallback until the next
+offline feature-model artifact refresh.
+
+Verification:
+- `.\venv\Scripts\python.exe -m pytest tests\calibration\test_feature_probability_calibration.py tests\model\test_feature_model_calibration.py tests\model\test_feature_model_ablation.py tests\model\test_feature_skew.py tests\model\test_estimate_distribution.py tests\calibration\test_probability_calibration.py -q` -> 47 passed, 126 subtests passed.
+- `.\venv\Scripts\python.exe -m compileall src\weather\calibration\feature_probability_calibration.py src\feature_probability_calibration.py src\weather\calibration\feature_model.py src\weather\model\model_features.py`

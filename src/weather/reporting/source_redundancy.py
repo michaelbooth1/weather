@@ -24,11 +24,18 @@ from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
 from daily_summary import native_bucket, native_high, row_count, row_unit  # noqa: E402
 from market_config import config_for_date, date_from_event_slug  # noqa: E402
 from market_registry import all_specs, spec_for_id, spec_for_slug  # noqa: E402
+from supplemental_station_validation import (  # noqa: E402
+    DEFAULT_OUT as DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
+    load_validation_report,
+    promotion_gate_for_source,
+    validation_row_for_source,
+)
+from supplemental_stations import load_registry, source_root, supplemental_sources  # noqa: E402
 from wu_history import parse_date  # noqa: E402
 
 
-SCHEMA_VERSION = "source_redundancy_v0.2"
-TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.2"
+SCHEMA_VERSION = "source_redundancy_v0.3"
+TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.3"
 FORECAST_ENSEMBLE_SCHEMA_VERSION = "forecast_ensemble_features_v0.1"
 
 DEFAULT_JSON_OUT = Path("data") / "backtest" / "source_redundancy.json"
@@ -57,6 +64,8 @@ SOURCE_LABELS = {
     "reanalysis": "Open-Meteo ERA5 reanalysis",
 }
 DISAGREEMENT_THRESHOLD = 1.5
+SUPPLEMENTAL_SOURCE_PREFIX = "ghcnh_supplemental__"
+SUPPLEMENTAL_FEATURE_FAMILY = "nearby_station_historical_only"
 
 
 def utc_now():
@@ -119,6 +128,14 @@ def daily_path_for_source(spec, source, roots=None):
     return root_for_source(source, roots) / spec.icao.lower() / "daily" / "daily_summary.csv"
 
 
+def supplemental_source_key(source):
+    return f"{SUPPLEMENTAL_SOURCE_PREFIX}{source.get('source_id')}"
+
+
+def source_daily_path(path):
+    return Path(path) / "daily" / "daily_summary.csv"
+
+
 def obs_sources_for_spec(spec):
     declared = set(getattr(spec, "sources", ()) or ())
     return tuple(
@@ -142,6 +159,11 @@ def earliest_minute(times_text):
 
 def read_daily_source(spec, source, roots=None):
     path = daily_path_for_source(spec, source, roots)
+    return read_daily_path(spec, source, SOURCE_LABELS[source], path)
+
+
+def read_daily_path(spec, source, source_label, path, metadata=None):
+    metadata = metadata or {}
     rows = {}
     if not path.exists():
         return rows
@@ -156,7 +178,7 @@ def read_daily_source(spec, source, roots=None):
                 continue
             rows[local_date] = {
                 "source": source,
-                "source_label": SOURCE_LABELS[source],
+                "source_label": source_label,
                 "path": str(path),
                 "market_id": spec.id,
                 "local_date": local_date,
@@ -168,15 +190,72 @@ def read_daily_source(spec, source, roots=None):
                 "last_time": row.get("last_time"),
                 "max_times": row.get("max_temp_times"),
                 "peak_minute": earliest_minute(row.get("max_temp_times")),
+                **metadata,
             }
     return rows
 
 
-def source_daily_indexes(spec, roots=None):
-    return {
+def _wu_target_metrics(validation_row):
+    return (((validation_row or {}).get("references") or {}).get("wu") or {}).get("metrics", {}).get("target_season") or {}
+
+
+def read_supplemental_daily_sources(spec, registry=None, validation_report=None):
+    if validation_report is None:
+        validation_report = load_validation_report(DEFAULT_SUPPLEMENTAL_VALIDATION_OUT)
+    rows = {}
+    for source in supplemental_sources(spec.id, source_type="noaa_ghcnh", registry=registry):
+        gate = promotion_gate_for_source(
+            source,
+            validation_report=validation_report,
+            validation_path=DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
+        )
+        if not gate.get("ok"):
+            continue
+        validation_row = validation_row_for_source(validation_report, source.get("source_id"))
+        wu_metrics = _wu_target_metrics(validation_row)
+        key = supplemental_source_key(source)
+        metadata = {
+            "source_role": "supplemental",
+            "supplemental_source_id": source.get("source_id"),
+            "supplemental_station_id": source.get("station_id"),
+            "supplemental_distance_km": source.get("distance_from_canonical_km"),
+            "supplemental_validation_status": source.get("validation_status"),
+            "supplemental_promotion_state": gate.get("promotion_state"),
+            "supplemental_historical_bias_vs_wu": wu_metrics.get("mean_bias"),
+            "supplemental_historical_mae_vs_wu": wu_metrics.get("mae"),
+            "supplemental_historical_bucket_match_rate": wu_metrics.get("bucket_match_rate"),
+            "historical_only_feature": True,
+            "live_serving_eligible": False,
+            "feature_family": SUPPLEMENTAL_FEATURE_FAMILY,
+        }
+        rows[key] = read_daily_path(
+            spec,
+            key,
+            f"Validated nearby GHCNh station {source.get('station_id')}",
+            source_daily_path(source_root(source)),
+            metadata=metadata,
+        )
+    return rows
+
+
+def source_daily_indexes(
+    spec,
+    roots=None,
+    registry=None,
+    validation_report=None,
+    include_supplemental=True,
+):
+    indexes = {
         source: read_daily_source(spec, source, roots=roots)
         for source in obs_sources_for_spec(spec)
     }
+    if include_supplemental:
+        indexes.update(read_supplemental_daily_sources(
+            spec,
+            registry=registry,
+            validation_report=validation_report,
+        ))
+    return indexes
 
 
 def source_values_for_day(indexes, local_date):
@@ -220,6 +299,62 @@ def consensus_high(values):
     return statistics.median(highs) if highs else None
 
 
+def supplemental_values(values):
+    return {
+        source: row for source, row in values.items()
+        if source.startswith(SUPPLEMENTAL_SOURCE_PREFIX)
+    }
+
+
+def supplemental_feature_values(values):
+    supplemental = supplemental_values(values)
+    primary = values.get(PRIMARY_SOURCE)
+    same_day_deltas = []
+    same_day_bucket_matches = []
+    source_ids = []
+    distances = []
+    validation_states = []
+    bias_values = []
+    mae_values = []
+    bucket_rates = []
+    for source, row in sorted(supplemental.items()):
+        source_ids.append(row.get("supplemental_source_id") or source)
+        if row.get("supplemental_distance_km") is not None:
+            distances.append(to_float(row.get("supplemental_distance_km")))
+        if row.get("supplemental_promotion_state"):
+            validation_states.append(row.get("supplemental_promotion_state"))
+        if row.get("supplemental_historical_bias_vs_wu") is not None:
+            bias_values.append(to_float(row.get("supplemental_historical_bias_vs_wu")))
+        if row.get("supplemental_historical_mae_vs_wu") is not None:
+            mae_values.append(to_float(row.get("supplemental_historical_mae_vs_wu")))
+        if row.get("supplemental_historical_bucket_match_rate") is not None:
+            bucket_rates.append(to_float(row.get("supplemental_historical_bucket_match_rate")))
+        if primary and primary.get("high") is not None and row.get("high") is not None:
+            same_day_deltas.append(float(row["high"]) - float(primary["high"]))
+        if primary and primary.get("bucket") is not None and row.get("bucket") is not None:
+            same_day_bucket_matches.append(int(row["bucket"]) == int(primary["bucket"]))
+    best_delta = None
+    if same_day_deltas:
+        best_delta = min(same_day_deltas, key=lambda value: abs(value))
+    return {
+        "supplemental_source_available": bool(supplemental),
+        "supplemental_source_count": len(supplemental),
+        "supplemental_source_ids": source_ids,
+        "supplemental_distance_km": min(distances) if distances else None,
+        "supplemental_validation_status": "|".join(sorted(set(validation_states))) if validation_states else "",
+        "supplemental_historical_bias_vs_wu": mean(bias_values),
+        "supplemental_historical_mae_vs_wu": mean(mae_values),
+        "supplemental_historical_bucket_match_rate": mean(bucket_rates),
+        "supplemental_same_day_delta_vs_primary": best_delta,
+        "supplemental_same_day_bucket_match": (
+            any(same_day_bucket_matches) if same_day_bucket_matches else None
+        ),
+        "supplemental_historical_only_feature": bool(supplemental),
+        "supplemental_live_serving_eligible": False,
+        "supplemental_feature_family": SUPPLEMENTAL_FEATURE_FAMILY if supplemental else "",
+    }
+
+
 def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRESHOLD):
     selected, status = selected_truth(values)
     spread = source_spread(values)
@@ -257,6 +392,12 @@ def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRE
                 "bucket": row.get("bucket"),
                 "row_count": row.get("row_count"),
                 "peak_minute": row.get("peak_minute"),
+                "source_role": row.get("source_role", "canonical"),
+                "supplemental_source_id": row.get("supplemental_source_id"),
+                "supplemental_distance_km": row.get("supplemental_distance_km"),
+                "supplemental_promotion_state": row.get("supplemental_promotion_state"),
+                "historical_only_feature": row.get("historical_only_feature", False),
+                "live_serving_eligible": row.get("live_serving_eligible", True),
             }
             for source, row in sorted(values.items())
         },
@@ -267,12 +408,22 @@ def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRE
         ),
         "fill_candidate": status == "filled_from_redundant",
         "missing_sources": [source for source in obs_sources_for_spec(spec) if source not in values],
+        **supplemental_feature_values(values),
     }
 
 
 def build_truth_rows(spec, start_date, end_date, roots=None,
-                     disagreement_threshold=DISAGREEMENT_THRESHOLD):
-    indexes = source_daily_indexes(spec, roots=roots)
+                     disagreement_threshold=DISAGREEMENT_THRESHOLD,
+                     registry=None,
+                     validation_report=None,
+                     include_supplemental=True):
+    indexes = source_daily_indexes(
+        spec,
+        roots=roots,
+        registry=registry,
+        validation_report=validation_report,
+        include_supplemental=include_supplemental,
+    )
     rows = []
     for day in iter_dates(start_date, end_date):
         day_text = day.isoformat()
@@ -414,6 +565,11 @@ def market_summary(rows):
         "primary_days": sum(1 for row in rows if row.get("primary_available")),
         "redundant_days": sum(1 for row in rows if row.get("redundant_source_count", 0) >= 1),
         "two_plus_source_days": sum(1 for row in rows if row.get("source_count", 0) >= 2),
+        "supplemental_source_days": sum(1 for row in rows if row.get("supplemental_source_available")),
+        "supplemental_same_day_primary_overlap_days": sum(
+            1 for row in rows
+            if row.get("supplemental_same_day_delta_vs_primary") is not None
+        ),
         "filled_days": sum(1 for row in rows if row.get("fill_candidate")),
         "missing_all_sources_days": sum(1 for row in rows if row.get("status") == "missing_all_sources"),
         "disagreement_alert_days": sum(1 for row in rows if row.get("disagreement_alert")),
@@ -534,12 +690,22 @@ def build_payload(
     source_roots=None,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     disagreement_threshold=DISAGREEMENT_THRESHOLD,
+    registry=None,
+    supplemental_validation_report=None,
+    supplemental_validation_path=DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
+    include_supplemental=True,
 ):
     if start_date is None or end_date is None:
         target = config_for_date().target_date
         start_date = target - timedelta(days=7)
         end_date = target + timedelta(days=7)
     ids = set(market_ids or [])
+    registry = registry if registry is not None else load_registry()
+    supplemental_validation_report = (
+        supplemental_validation_report
+        if supplemental_validation_report is not None
+        else load_validation_report(supplemental_validation_path)
+    )
     markets = {}
     all_truth_rows = []
     for spec in all_specs():
@@ -551,6 +717,9 @@ def build_payload(
             end_date,
             roots=source_roots,
             disagreement_threshold=disagreement_threshold,
+            registry=registry,
+            validation_report=supplemental_validation_report,
+            include_supplemental=include_supplemental,
         )
         all_truth_rows.extend(rows)
         markets[spec.id] = {
@@ -558,6 +727,15 @@ def build_payload(
             "unit": spec.display_unit,
             "summary": market_summary(rows),
             "source_bias_vs_wu": bias_stats(rows, sources=obs_sources_for_spec(spec)),
+            "supplemental_source_bias_vs_wu": bias_stats(
+                rows,
+                sources=sorted({
+                    source
+                    for row in rows
+                    for source in (row.get("source_values") or {})
+                    if source.startswith(SUPPLEMENTAL_SOURCE_PREFIX)
+                }),
+            ),
             "gap_fill": gap_fill_plan(spec, rows),
             "daily_truth": rows,
         }
@@ -584,6 +762,7 @@ def build_payload(
         "summary": fleet_summary(markets),
         "forecast_ensemble": forecast_summary(forecast_rows),
         "forecast_ensemble_rows": forecast_rows,
+        "supplemental_nearby_features": supplemental_feature_summary(markets),
     }
 
 
@@ -594,9 +773,107 @@ def fleet_summary(markets):
         "days": sum(item["days"] for item in summaries),
         "primary_days": sum(item["primary_days"] for item in summaries),
         "two_plus_source_days": sum(item["two_plus_source_days"] for item in summaries),
+        "supplemental_source_days": sum(item.get("supplemental_source_days", 0) for item in summaries),
+        "supplemental_same_day_primary_overlap_days": sum(
+            item.get("supplemental_same_day_primary_overlap_days", 0) for item in summaries
+        ),
         "filled_days": sum(item["filled_days"] for item in summaries),
         "missing_all_sources_days": sum(item["missing_all_sources_days"] for item in summaries),
         "disagreement_alert_days": sum(item["disagreement_alert_days"] for item in summaries),
+    }
+
+
+def supplemental_feature_summary(markets):
+    feature_columns = [
+        "supplemental_source_available",
+        "supplemental_source_count",
+        "supplemental_source_ids",
+        "supplemental_distance_km",
+        "supplemental_validation_status",
+        "supplemental_historical_bias_vs_wu",
+        "supplemental_historical_mae_vs_wu",
+        "supplemental_historical_bucket_match_rate",
+        "supplemental_same_day_delta_vs_primary",
+        "supplemental_same_day_bucket_match",
+    ]
+    rows = []
+    for market_id, market in sorted((markets or {}).items()):
+        daily_rows = market.get("daily_truth") or []
+        supplemental_rows = [row for row in daily_rows if row.get("supplemental_source_available")]
+        overlap_rows = [
+            row for row in supplemental_rows
+            if row.get("supplemental_same_day_delta_vs_primary") is not None
+        ]
+        deltas = [row.get("supplemental_same_day_delta_vs_primary") for row in overlap_rows]
+        bucket_matches = [
+            row.get("supplemental_same_day_bucket_match")
+            for row in overlap_rows
+            if row.get("supplemental_same_day_bucket_match") is not None
+        ]
+        source_ids = sorted({
+            source_id
+            for row in supplemental_rows
+            for source_id in (row.get("supplemental_source_ids") or [])
+        })
+        two_plus_with = sum(1 for row in daily_rows if row.get("source_count", 0) >= 2)
+        two_plus_without = 0
+        redundant_with = sum(1 for row in daily_rows if row.get("redundant_source_count", 0) >= 1)
+        redundant_without = 0
+        for row in daily_rows:
+            values = row.get("source_values") or {}
+            non_supplemental = [
+                source for source in values
+                if not source.startswith(SUPPLEMENTAL_SOURCE_PREFIX)
+            ]
+            if len(non_supplemental) >= 2:
+                two_plus_without += 1
+            if any(source != PRIMARY_SOURCE for source in non_supplemental):
+                redundant_without += 1
+        rows.append({
+            "market_id": market_id,
+            "feature_family": SUPPLEMENTAL_FEATURE_FAMILY,
+            "historical_only": True,
+            "live_serving_eligible": False,
+            "source_ids": source_ids,
+            "supplemental_source_days": len(supplemental_rows),
+            "same_day_primary_overlap_days": len(overlap_rows),
+            "two_plus_source_day_delta": two_plus_with - two_plus_without,
+            "redundant_source_day_delta": redundant_with - redundant_without,
+            "same_day_mae_vs_primary": mean([abs(value) for value in deltas]),
+            "same_day_bucket_match_rate": (
+                sum(1 for value in bucket_matches if value) / len(bucket_matches)
+                if bucket_matches else None
+            ),
+            "feature_columns": feature_columns,
+        })
+    return {
+        "feature_family": SUPPLEMENTAL_FEATURE_FAMILY,
+        "historical_only": True,
+        "live_serving_eligible": False,
+        "train_serve_parity": {
+            "status": "historical_only_excluded_from_live_serving",
+            "training_columns": feature_columns,
+            "serving_columns": [],
+            "reason": (
+                "Supplemental nearby rows are daily historical source-trust evidence; "
+                "no live-compatible same-day source exists for serving yet."
+            ),
+        },
+        "ablation": {
+            "status": "diagnostic_ablation_ready",
+            "effect_metrics": [
+                "two_plus_source_day_delta",
+                "redundant_source_day_delta",
+                "same_day_mae_vs_primary",
+                "same_day_bucket_match_rate",
+            ],
+            "settlement_scored_replay_status": "not_run_historical_only_excluded_from_live_serving",
+            "decision": (
+                "Do not claim Brier/log-loss lift until a training experiment opts into "
+                "the historical-only columns and runs settlement-scored replay."
+            ),
+        },
+        "markets": rows,
     }
 
 
@@ -614,6 +891,7 @@ def truth_csv_rows(payload):
             out["redundant_sources"] = "|".join(row.get("redundant_sources") or [])
             out["consensus_sources"] = "|".join(row.get("consensus_sources") or [])
             out["missing_sources"] = "|".join(row.get("missing_sources") or [])
+            out["supplemental_source_ids"] = "|".join(row.get("supplemental_source_ids") or [])
             out["source_values"] = json.dumps(row.get("source_values") or {}, sort_keys=True)
             yield out
 
@@ -651,6 +929,19 @@ TRUTH_COLUMNS = [
     "disagreement_alert",
     "fill_candidate",
     "missing_sources",
+    "supplemental_source_available",
+    "supplemental_source_count",
+    "supplemental_source_ids",
+    "supplemental_distance_km",
+    "supplemental_validation_status",
+    "supplemental_historical_bias_vs_wu",
+    "supplemental_historical_mae_vs_wu",
+    "supplemental_historical_bucket_match_rate",
+    "supplemental_same_day_delta_vs_primary",
+    "supplemental_same_day_bucket_match",
+    "supplemental_historical_only_feature",
+    "supplemental_live_serving_eligible",
+    "supplemental_feature_family",
     "source_values",
 ]
 
@@ -710,6 +1001,7 @@ def write_markdown(path, payload):
             s.get("days"),
             s.get("primary_days"),
             s.get("two_plus_source_days"),
+            s.get("supplemental_source_days"),
             s.get("filled_days"),
             s.get("missing_all_sources_days"),
             s.get("disagreement_alert_days"),
@@ -717,6 +1009,17 @@ def write_markdown(path, payload):
             fmt_num(s.get("max_source_spread")),
         ])
         for source, stats in (market.get("source_bias_vs_wu") or {}).items():
+            bias_rows.append([
+                market_id,
+                source,
+                stats.get("n"),
+                fmt_num(stats.get("bias_source_minus_wu")),
+                fmt_num(stats.get("mae_vs_wu")),
+                fmt_num(stats.get("rmse_vs_wu")),
+                fmt_num(stats.get("exact_bucket_match_rate"), suffix=""),
+                fmt_num(stats.get("mean_peak_time_lead_minutes"), suffix=" min"),
+            ])
+        for source, stats in (market.get("supplemental_source_bias_vs_wu") or {}).items():
             bias_rows.append([
                 market_id,
                 source,
@@ -736,6 +1039,21 @@ def write_markdown(path, payload):
                 command.get("command"),
             ])
     forecast = payload.get("forecast_ensemble") or {}
+    supplemental_feature = payload.get("supplemental_nearby_features") or {}
+    supplemental_rows = []
+    for item in supplemental_feature.get("markets") or []:
+        supplemental_rows.append([
+            item.get("market_id"),
+            "|".join(item.get("source_ids") or []) or "-",
+            item.get("supplemental_source_days"),
+            item.get("same_day_primary_overlap_days"),
+            item.get("two_plus_source_day_delta"),
+            item.get("redundant_source_day_delta"),
+            fmt_num(item.get("same_day_mae_vs_primary")),
+            fmt_num(item.get("same_day_bucket_match_rate")),
+            item.get("historical_only"),
+            item.get("live_serving_eligible"),
+        ])
     forecast_rows = []
     for market_id, item in sorted((forecast.get("by_market") or {}).items()):
         forecast_rows.append([
@@ -762,6 +1080,8 @@ def write_markdown(path, payload):
             ["Market-days", summary.get("days")],
             ["WU primary days", summary.get("primary_days")],
             ["Two-plus-source days", summary.get("two_plus_source_days")],
+            ["Supplemental nearby days", summary.get("supplemental_source_days")],
+            ["Supplemental/WU overlap days", summary.get("supplemental_same_day_primary_overlap_days")],
             ["Redundant fill days", summary.get("filled_days")],
             ["Missing all sources", summary.get("missing_all_sources_days")],
             ["Disagreement alerts", summary.get("disagreement_alert_days")],
@@ -769,13 +1089,25 @@ def write_markdown(path, payload):
     )
     lines += ["", "## Observation Redundancy By Market", ""]
     lines += markdown_table(
-        ["Market", "Days", "WU", "2+ Src", "Fill", "Missing", "Disagree", "Median Spread", "Max Spread"],
+        [
+            "Market", "Days", "WU", "2+ Src", "Supp Days", "Fill",
+            "Missing", "Disagree", "Median Spread", "Max Spread",
+        ],
         rows,
     )
     lines += ["", "## Source Bias vs WU", ""]
     lines += markdown_table(
         ["Market", "Source", "N", "Bias", "MAE", "RMSE", "Bucket Match", "Peak Lead"],
         bias_rows,
+    )
+    lines += ["", "## Supplemental Nearby Feature Family", ""]
+    lines += markdown_table(
+        [
+            "Market", "Source IDs", "Supp Days", "WU Overlap", "2+ Delta",
+            "Redundant Delta", "Same-Day MAE", "Bucket Match", "Historical Only",
+            "Live Eligible",
+        ],
+        supplemental_rows,
     )
     lines += ["", "## Forecast Ensemble Features", ""]
     lines += markdown_table(
@@ -825,6 +1157,10 @@ def cmd_report(args):
         source_roots=_source_roots(args),
         snapshots_root=Path(args.snapshots_root),
         disagreement_threshold=args.disagreement_threshold,
+        supplemental_validation_path=(
+            Path(args.supplemental_validation) if args.supplemental_validation else None
+        ),
+        include_supplemental=not args.skip_supplemental,
     )
     json_path = write_json(args.out, payload)
     report_path = write_markdown(args.report, payload)
@@ -855,6 +1191,16 @@ def build_parser():
     report.add_argument("--metar-root", default="")
     report.add_argument("--ghcnh-root", default="")
     report.add_argument("--reanalysis-root", default="")
+    report.add_argument(
+        "--supplemental-validation",
+        default=str(DEFAULT_SUPPLEMENTAL_VALIDATION_OUT),
+        help="Supplemental nearby station validation JSON artifact.",
+    )
+    report.add_argument(
+        "--skip-supplemental",
+        action="store_true",
+        help="Disable validated supplemental nearby-history feature rows.",
+    )
     report.add_argument("--disagreement-threshold", type=float, default=DISAGREEMENT_THRESHOLD)
     report.add_argument("--strict", action="store_true", help="Exit 2 on missing/fill/disagreement days.")
     report.add_argument("--out", default=str(DEFAULT_JSON_OUT))

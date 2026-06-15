@@ -261,6 +261,59 @@ def score_rows(rows):
     return out
 
 
+def _mean(values):
+    values = list(values)
+    return sum(values) / len(values) if values else None
+
+
+def winner_band_catchup(rows):
+    """Model-vs-market recognition of the realized winning band.
+
+    Uses only scored rows whose outcome is YES. The core gap is model
+    probability minus market price; negative values mean the model was slower
+    than the market to catch the winning band.
+    """
+    winners = [row for row in rows if row.get("outcome") == 1]
+    n = len(winners)
+    if not n:
+        return {
+            "winner_rows": 0,
+            "winner_model_probability": None,
+            "winner_market_probability": None,
+            "winner_catchup_gap": None,
+            "winner_catchup_rate": None,
+            "winner_model_over_50_rate": None,
+            "winner_market_over_50_rate": None,
+        }
+
+    model_probability = _mean(row["model_probability"] for row in winners)
+    market_probability = _mean(row["market_yes"] for row in winners)
+    return {
+        "winner_rows": n,
+        "winner_model_probability": model_probability,
+        "winner_market_probability": market_probability,
+        "winner_catchup_gap": (
+            model_probability - market_probability
+            if model_probability is not None and market_probability is not None
+            else None
+        ),
+        "winner_catchup_rate": (
+            sum(
+                1
+                for row in winners
+                if row["model_probability"] >= row["market_yes"]
+            )
+            / n
+        ),
+        "winner_model_over_50_rate": (
+            sum(1 for row in winners if row["model_probability"] > 0.5) / n
+        ),
+        "winner_market_over_50_rate": (
+            sum(1 for row in winners if row["market_yes"] > 0.5) / n
+        ),
+    }
+
+
 def reliability(rows, prob_key, n_bins=5):
     """Reliability table: per confidence bin, mean predicted vs realized."""
     bins = [[] for _ in range(n_bins)]

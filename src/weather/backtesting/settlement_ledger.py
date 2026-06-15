@@ -24,10 +24,11 @@ if str(SRC_ROOT) not in sys.path:
 from collection_health import coverage_summary, parse_times  # noqa: E402
 from market_config import date_from_event_slug, polymarket_url_for_slug  # noqa: E402
 from market_registry import all_specs, spec_for_slug  # noqa: E402
+from weather.schema_registry import schema_version  # noqa: E402
 
 
-LEDGER_SCHEMA_VERSION = "settlement_ledger_v1"
-RESOLUTION_SPEC_SCHEMA_VERSION = "resolution_spec_v1"
+LEDGER_SCHEMA_VERSION = schema_version("settlement_ledger")
+RESOLUTION_SPEC_SCHEMA_VERSION = schema_version("resolution_spec")
 DEFAULT_LEDGER_ROOT = Path("data") / "settlements"
 LEDGER_ROOT_ENV = "SETTLEMENT_LEDGER_ROOT"
 DEFAULT_LABELS_CSV = Path("data") / "backtest" / "market_day_labels.csv"

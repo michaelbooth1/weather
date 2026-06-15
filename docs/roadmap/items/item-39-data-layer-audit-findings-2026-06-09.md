@@ -1,4 +1,4 @@
-# 39. Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE CLEANUP DONE]
+# 39. Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE/SCHEMA/DASHBOARD CLEANUP DONE]
 
 Full data-layer audit across all 12 markets. Verdict: broad and well-organized
 (per-station roots, manifests, raw->hourly->daily tiers, coverage tool), but with
@@ -150,9 +150,9 @@ Long-term (the production data layer):
   `tests\operations\test_daily_refresh.py` covers the new step, dry-run
   planning, artifact writes, and critical fail-on behavior; `tests\reporting
   \test_data_auditor.py` covers schema errors as corruption.
-- [ ] Central schema registry + migration tooling (replace scattered
+- [x] Central schema registry + migration tooling (replace scattered
   `schema_version` strings). Part of item 31.
-- [ ] Parquet + per-source freshness SLAs + a coverage/gap dashboard (extend the
+- [x] Parquet + per-source freshness SLAs + a coverage/gap dashboard (extend the
   existing `historical_coverage.py`).
 - [ ] Evaluate new sources: NWS/NOAA CF6 daily climate reports (official
   daily-max-of-record, settlement-adjacent truth), Meteostat (free long daily
@@ -168,8 +168,33 @@ unit coverage proving model artifacts route to `artifacts/models/hgb`,
 rather than the source tree, with legacy `src/` paths retained only as read
 fallback candidates. The `artifact_candidates()` annotation now reflects that
 absolute/explicit paths return a variable-length tuple. This does not close the
-remaining infrastructure decisions: central schema registry and Parquet/freshness
-dashboard work remain open.
+remaining source-evaluation work remains open.
+
+Schema-registry update (2026-06-15 UTC): `weather.schema_registry` now owns a
+central inventory for public artifact schema versions and exposes migration
+audit tooling via `python -m src.schema_registry`. High-traffic producers now
+consume registry constants directly (`feature_store`, `historical_coverage`,
+`market_registry`, WU daily summaries, `daily_refresh`, `observation_trigger`,
+and settlement ledgers). The registry also inventories legacy/current schema
+versions discovered across `src`; strict audit writes
+`data/backtest/schema_registry_audit.json` and passes with `65` registered
+schemas, `124` discovered literals, and `0` unregistered schema versions.
+Focused tests: `tests\operations\test_schema_registry.py`,
+`tests\sources\test_historical_sources.py`, `tests\market\test_market_config.py`,
+`tests\model\test_feature_store.py`, `tests\market\test_market_day_labels.py`,
+and `tests\operations\test_daily_refresh.py` pass.
+
+Historical coverage dashboard update (2026-06-15 UTC):
+`src.historical_coverage dashboard` now produces a normalized per-market/source
+dashboard with coverage status, gap counts, artifact presence, per-source
+freshness SLA status, Markdown, JSON, CSV, and Parquet outputs. The dashboard
+schema is registered as `historical_coverage_dashboard_v0.1`; default artifacts
+write to `data/backtest/historical_coverage_dashboard.{json,md,csv,parquet}`.
+Focused coverage in `tests\sources\test_historical_sources.py` verifies stale
+and missing-source classification plus JSON/Markdown/CSV/Parquet rendering.
+Smoke command:
+`.\venv\Scripts\python.exe -m src.historical_coverage dashboard --markets nyc
+--start 2026-06-01 --end 2026-06-02 --as-of 2026-06-15` passed.
 
 P0 unit-contract fix (2026-06-11): `src.daily_summary` now centralizes
 native-vs-Celsius daily-summary reads, `src.wu_history` writes

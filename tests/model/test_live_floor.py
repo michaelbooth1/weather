@@ -115,6 +115,69 @@ class TestLiveObservedFloor(unittest.TestCase):
         self.assertAlmostEqual(out[19] / out[20], 0.50, places=6)
         self.assertLess(out[18], out[19])   # further below decays harder
 
+    def test_learned_metar_live_signal_scales_with_cutoff_catchup(self):
+        self.m.settlement_lag_model = {
+            "component": {"min_context_n": 20},
+            "catchup_contexts": {
+                "source=metar|hour=15|gap=1": {"n": 80, "catchup_rate": 0.75},
+            },
+        }
+
+        signal = self.m.learned_metar_live_signal(
+            metar_temp=19.0,
+            history_max=18.0,
+            hour=15,
+        )
+
+        self.assertIsNotNone(signal)
+        value, weight, sigma = signal
+        self.assertEqual(value, 19.0)
+        # 0.75 reached-rate is halfway between the 0.50 baseline and 1.00,
+        # so it gets half the 0.60 max signal weight.
+        self.assertAlmostEqual(weight, 0.30)
+        self.assertAlmostEqual(sigma, 0.90)
+
+    def test_learned_metar_live_signal_replaces_hardcoded_default(self):
+        self.m.settlement_lag_model = None
+
+        self.assertIsNone(
+            self.m.learned_metar_live_signal(
+                metar_temp=19.0,
+                history_max=18.0,
+                hour=15,
+            )
+        )
+
+    def test_learned_metar_live_signal_noops_when_wu_history_covers_metar(self):
+        self.m.settlement_lag_model = {
+            "component": {"min_context_n": 20},
+            "catchup_contexts": {
+                "source=metar|hour=15|gap=1": {"n": 80, "catchup_rate": 0.75},
+            },
+        }
+
+        self.assertIsNone(
+            self.m.learned_metar_live_signal(
+                metar_temp=18.0,
+                history_max=19.0,
+                hour=15,
+            )
+        )
+
+    def test_wu_floor_residual_preserves_printed_bucket_only(self):
+        scores = {16: 0.10, 17: 0.000001, 18: 0.40, 19: 0.499999}
+
+        out = self.m.preserve_wu_floor_residual(
+            scores,
+            history_max=17.0,
+            observed_support_bucket=18,
+        )
+
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=9)
+        self.assertAlmostEqual(out[17], 0.001)
+        self.assertLess(out[16], scores[16])
+        self.assertGreater(out[18], 0.0)
+
     def test_current_floor_noop_when_history_covers_reading(self):
         scores = {18: 0.50, 19: 0.50}
         out = self.m.apply_current_observed_floor(

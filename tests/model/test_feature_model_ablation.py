@@ -26,6 +26,9 @@ class TestFeatureModelAblation(unittest.TestCase):
             "forecast_gap",
             "forecast_source_count",
             "forecast_disagreement",
+            "onshore_flow",
+            "onshore_wind_speed_kmh",
+            "lake_breeze_proxy",
             "wind_W-NW",
             "cloud_Fair/clear",
         ]
@@ -35,6 +38,10 @@ class TestFeatureModelAblation(unittest.TestCase):
         self.assertEqual(
             families["forecast"],
             ["forecast_high", "forecast_gap", "forecast_source_count", "forecast_disagreement"],
+        )
+        self.assertEqual(
+            families["microclimate"],
+            ["onshore_flow", "onshore_wind_speed_kmh", "lake_breeze_proxy"],
         )
         self.assertEqual(families["wind_regime"], ["wind_W-NW"])
         self.assertEqual(families["cloud_regime"], ["cloud_Fair/clear"])

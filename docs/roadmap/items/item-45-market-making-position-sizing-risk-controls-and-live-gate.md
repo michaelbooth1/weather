@@ -1,4 +1,4 @@
-# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [NEW - RESEARCH AUDIT]
+# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK SIM LIVE]
 
 Goal: define the sizing and operational gates that must be green before any
 real-money market-making pilot.
@@ -9,23 +9,24 @@ verification gap: `MARKET_MAKING_PLAN.md` says token persistence shipped, but
 the current `data/backtest/data_layer_audit_report.md` still reported
 `Market token IDs persisted: False` when the research was written.
 
-- [ ] Represent inventory at event level as settlement P&L if each mutually
+- [x] Represent inventory at event level as settlement P&L if each mutually
   exclusive band wins. Track expected value, standard deviation over the model
   density, worst-case loss, and negative-risk conversion state rather than only
   token counts.
-- [ ] Implement a sizing stack:
+- [x] Implement a sizing stack:
   `min(rewards_min_size_or_target, per-band cap, per-event expected-loss cap,
   per-event worst-case cap, daily drawdown budget, fractional-Kelly cap,
   available backed balance after open-order reserves)`.
-- [ ] Use zero Kelly size until live-forward paper and/or MM-2 fills produce
+- [x] Use zero Kelly size until live-forward paper and/or MM-2 fills produce
   statistically credible net edge. When enabled, use heavily fractional Kelly
   only (for example 0.10-0.25x full Kelly) and keep hard loss caps binding.
-- [ ] Add daily loss halt, per-band share cap, per-event notional cap, fleet
+- [x] Add daily loss halt, per-band share cap, per-event notional cap, fleet
   notional cap, stale-source halt, stale-book halt, stale-observation-trigger
   halt, heartbeat halt, and manual pause/cancel-all paths to the risk design.
-- [ ] Simulate balance and allowance accounting for simultaneous YES/NO orders
-  in negative-risk markets, including reserved balances, partial fills, open
-  order reductions, pUSD collateral, and redemption after settlement.
+- [x] Add balance, allowance, and open-order reserve accounting primitives.
+- [x] Complete full negative-risk market simulation for simultaneous YES/NO
+  orders, including conversion, partial fills, open order reductions, pUSD
+  collateral, and redemption after settlement.
 - [ ] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
   token IDs, condition IDs, order-book depth, and trade tapes are verified in
   current active-day artifacts, not just described in roadmap text.
@@ -46,3 +47,27 @@ passed their acceptance gates, the latest data-layer audit proves token/book
 artifacts are current, account/platform eligibility is verified, caps and
 balance math are tested, kill-switch drills pass, and the dedicated pilot
 wallet is funded only with isolated risk capital.
+
+Risk-primitives update (2026-06-15 UTC): `weather.market.mm_risk` now provides
+pure, side-effect-free risk primitives for item 45. It can score event
+inventory as settlement P&L across mutually exclusive outcomes, normalize model
+density, compute expected value/stdev/worst-case loss, carry negative-risk
+conversion state, size quotes through the explicit cap stack, force zero Kelly
+size until live edge is marked credible, emit fail-closed halt reasons for
+stale source/book/watcher/heartbeat/manual/cancel-all/daily-loss states, and
+account for backed balance minus open-order reserves and pending allowances.
+Focused tests: `pytest tests\market\test_mm_risk.py
+tests\market\test_mm_policy.py tests\market\test_market_making_run.py -q`
+passed (`28` tests). This does not authorize live trading: platform/account
+verification, day-one protocol, live runbook, and the latest-data-layer live
+gate remain open.
+
+Negative-risk simulation update (2026-06-15 UTC): `mm_risk` now includes a
+pure negative-risk account lifecycle simulator (`mm_negative_risk_simulation_v0.1`).
+It reserves backed balance for YES/NO/covered-YES-ask orders, rejects unbacked
+orders, supports partial fills, consumes pUSD collateral into positions, releases
+reserves on order reductions and cancel-all, converts complete YES sets across
+all mutually exclusive outcomes back to pUSD collateral, and settles remaining
+YES/NO positions into final redemption/P&L. Focused tests cover partial fills,
+open-order reductions, complete-set conversion, unbacked-order rejection,
+cancel-all reserve release, and settlement redemption.

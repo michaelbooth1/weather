@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from historical_backfill_plan import build_plan, split_ranges
 from market_registry import NYC, TORONTO
-from historical_coverage import fleet_coverage
+from historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
 from forecast_history import daily_issue_rows, historical_forecast_rows, load_forecast_profiles, previous_run_rows, write_csv, RICH_FORECAST_COLUMNS
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
@@ -62,6 +62,96 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertIn("wu", sources)
         self.assertIn("ghcnh", sources)
         self.assertIn("reanalysis", sources)
+
+    def test_coverage_dashboard_flags_gap_and_freshness_status(self):
+        payload = {
+            "schema_version": "historical_coverage_v1",
+            "markets": [{
+                "market_id": "nyc",
+                "city": "NYC",
+                "sources": {
+                    "wu": {
+                        "station": "KLGA",
+                        "raw_days": 2,
+                        "expected_days": 2,
+                        "missing_days": 0,
+                        "last_raw_date": "2026-06-14",
+                        "manifest_exists": True,
+                        "daily_summary_exists": True,
+                    },
+                    "reanalysis": {
+                        "station": "era5:40.0000,-73.0000",
+                        "normalized_daily_days": 1,
+                        "expected_days": 2,
+                        "missing_days": 1,
+                        "last_normalized_date": "2026-06-01",
+                        "raw_only_normalizable_day_count": 1,
+                        "manifest_exists": True,
+                        "daily_summary_exists": True,
+                    },
+                    "ghcnh": {
+                        "station": "KLGA",
+                        "raw_years": [2023],
+                        "expected_years": [2023, 2024, 2025, 2026],
+                        "missing_years": [2024, 2025, 2026],
+                        "manifest_exists": True,
+                        "daily_summary_exists": True,
+                    },
+                },
+                "supplemental_sources": {"ghcnh": []},
+            }],
+        }
+
+        dashboard = coverage_dashboard(payload, as_of="2026-06-15")
+        rows = {row["source"]: row for row in dashboard["rows"]}
+
+        self.assertEqual(dashboard["schema_version"], "historical_coverage_dashboard_v0.1")
+        self.assertEqual(rows["wu"]["status"], "OK")
+        self.assertEqual(rows["reanalysis"]["coverage_status"], "WARN")
+        self.assertEqual(rows["reanalysis"]["status"], "WARN")
+        self.assertEqual(rows["ghcnh"]["freshness_status"], "CRITICAL")
+        self.assertEqual(rows["ghcnh"]["status"], "CRITICAL")
+
+    def test_coverage_dashboard_writes_report_csv_json_and_parquet(self):
+        try:
+            import pyarrow  # noqa: F401
+        except ImportError:
+            self.skipTest("pyarrow not installed")
+        payload = {
+            "schema_version": "historical_coverage_v1",
+            "markets": [{
+                "market_id": "nyc",
+                "city": "NYC",
+                "sources": {
+                    "wu": {
+                        "station": "KLGA",
+                        "raw_days": 1,
+                        "expected_days": 1,
+                        "missing_days": 0,
+                        "last_raw_date": "2026-06-15",
+                        "manifest_exists": True,
+                        "daily_summary_exists": True,
+                    },
+                },
+                "supplemental_sources": {"ghcnh": []},
+            }],
+        }
+        dashboard = coverage_dashboard(payload, as_of="2026-06-15")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_dashboard_outputs(
+                dashboard,
+                json_out=root / "dashboard.json",
+                markdown_out=root / "dashboard.md",
+                csv_out=root / "dashboard.csv",
+                parquet_out=root / "dashboard.parquet",
+            )
+
+            self.assertTrue((root / "dashboard.json").exists())
+            self.assertIn("Historical Coverage Dashboard", (root / "dashboard.md").read_text(encoding="utf-8"))
+            self.assertIn("market_id,city,source", (root / "dashboard.csv").read_text(encoding="utf-8"))
+            self.assertTrue((root / "dashboard.parquet").exists())
 
     def test_fleet_coverage_reports_registered_supplemental_sources(self):
         with tempfile.TemporaryDirectory() as tmp:

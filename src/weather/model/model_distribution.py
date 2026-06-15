@@ -1,5 +1,6 @@
 import math
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from model_constants import (
     DEFAULT_MARKET_CONFIG,
@@ -83,6 +84,15 @@ FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 # HGB/observed-floor path (printed-cutoff lag), not here -- it needs an
 # item-40-style intra-hour ramp feature + retrain, not a distribution knob.
 
+# --- Bucket transition prior ------------------------------------------------
+# The dashboard's X/X+1/X+2/>=X+3 transition table is now also a small numeric
+# prior: conditional on the printed WU high bucket at the effective cutoff, how
+# often did the final settlement stay there or climb. Kept low-weight because
+# the HGB feature model and late-day continuation model already consume richer
+# features; this mainly protects exact-bucket boundary shapes.
+BUCKET_TRANSITION_MIN_SAMPLE = 20
+BUCKET_TRANSITION_BLEND_MAX = 0.12
+
 # --- Live-observed floors ---------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall
 # for hours. Non-resolution observations (SWOB, Weather.com current, METAR) can
@@ -97,6 +107,10 @@ LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below, when no learned 
 LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
 LIVE_FLOOR_HEDGE_MIN = 0.30   # hedge clamp: never harder than this...
 LIVE_FLOOR_HEDGE_MAX = 0.80   # ...and never weaker than this when a rate exists
+METAR_LIVE_SIGNAL_REACHED_BASELINE = 0.50
+METAR_LIVE_SIGNAL_MAX_WEIGHT = 0.60
+METAR_LIVE_SIGNAL_SIGMA = 0.90
+WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL = 0.001
 
 # --- Late-day lock-in (upper-tail mirror of the floors) ---------------------
 # The biggest model-vs-market gap is end-of-day under-confidence: once the day
@@ -111,6 +125,8 @@ LATE_LOCKIN_FULL_HOUR = 17     # full strength by this hour (the high is locked 
 LATE_LOCKIN_PEAK_DROP = 2.0    # degrees the temp must fall below the high for full past-peak
 LATE_LOCKIN_HEDGE = 0.05       # retained fraction one bucket above the high at full strength
 LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
+LATE_DAY_CONTINUATION_BLEND_15H = 0.35
+LATE_DAY_CONTINUATION_BLEND_17H = 0.45
 # The heuristic above needs the temperature to FALL off the peak; an evening
 # plateau (current == high) left strength at 0 all night on 2026-06-09 while
 # the market sat at 92% -- "it could still rise" priced at 20%+ against a
@@ -129,6 +145,32 @@ HIGH_HAS_STOOD_FORECAST_MARGIN = 0.25  # Celsius delta; converted per market.
 HIGH_HAS_STOOD_ROLLOVER_MARGIN = 0.25  # Celsius delta below the printed high.
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
+
+
+@dataclass
+class DistributionPipelineState:
+    """Named probability snapshots and metadata for one distribution run."""
+
+    schema_version: str = COMPONENT_SCHEMA_VERSION
+    components: dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
+
+    def snapshot(self, name, distribution):
+        self.components[name] = dict(distribution or {})
+        return self.components[name]
+
+    def snapshot_normalized(self, name, distribution, normalizer):
+        return self.snapshot(name, normalizer(distribution or {}))
+
+    def update_metadata(self, **metadata):
+        self.metadata.update(metadata)
+
+    def payload(self):
+        return {
+            "schema_version": self.schema_version,
+            **self.metadata,
+            "components": self.components,
+        }
 
 
 class DistributionMixin:
@@ -221,6 +263,75 @@ class DistributionMixin:
                 adjusted[temp] = score * one_bucket_hedge * (LIVE_FLOOR_BASE ** (below - 1))
         return self.normalize_scores(adjusted)
 
+    def learned_metar_live_signal(self, metar_temp, history_max, hour=None):
+        """Cutoff-aware METAR vote learned from historical catch-up behavior.
+
+        METAR only gets this extra Gaussian live vote when it leads the printed
+        WU high and the settlement-lag artifact has evidence for that hour/gap.
+        Otherwise METAR remains available to the hedged observed-floor path, but
+        no longer contributes the old fixed small signal.
+        """
+        metar_bucket = self.round_half_up(metar_temp)
+        history_bucket = self.round_half_up(history_max)
+        if metar_bucket is None or history_bucket is None or metar_bucket <= history_bucket:
+            return None
+        catchup_probability = settlement_catchup_probability(
+            getattr(self, "settlement_lag_model", None),
+            "metar",
+            metar_bucket,
+            history_bucket,
+            cutoff_hour=hour,
+        )
+        if catchup_probability is None:
+            return None
+        lift = (float(catchup_probability) - METAR_LIVE_SIGNAL_REACHED_BASELINE) / (
+            1.0 - METAR_LIVE_SIGNAL_REACHED_BASELINE
+        )
+        weight = METAR_LIVE_SIGNAL_MAX_WEIGHT * max(0.0, min(1.0, lift))
+        if weight <= 0:
+            return None
+        return (metar_temp, weight, METAR_LIVE_SIGNAL_SIGMA)
+
+    def preserve_wu_floor_residual(self, scores, history_max, observed_support_bucket):
+        """Keep a small exact-bucket residual on the printed WU high.
+
+        Live current/METAR/SWOB support can lead lagging WU history, but those
+        are non-resolution sources. They should suppress the printed WU bucket,
+        not erase the branch where WU never catches that higher live reading.
+        """
+        history_bucket = self.round_half_up(history_max)
+        support_bucket = self.round_half_up(observed_support_bucket)
+        scores = self.normalize_scores(scores)
+        if (
+            history_bucket is None
+            or support_bucket is None
+            or support_bucket <= history_bucket
+            or history_bucket not in scores
+            or scores.get(history_bucket, 0.0) >= WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL
+        ):
+            return scores
+        other_total = sum(
+            probability for bucket, probability in scores.items()
+            if bucket != history_bucket
+        )
+        if other_total <= 0:
+            return scores
+        scale = (1.0 - WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL) / other_total
+        return {
+            bucket: (
+                WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL
+                if bucket == history_bucket
+                else probability * scale
+            )
+            for bucket, probability in scores.items()
+        }
+
+    def bucket_transition_blend_weight(self, transition_model):
+        sample_size = int((transition_model or {}).get("sample_size") or 0)
+        if sample_size < BUCKET_TRANSITION_MIN_SAMPLE:
+            return 0.0
+        return BUCKET_TRANSITION_BLEND_MAX * min(1.0, sample_size / 100.0)
+
     def late_day_lockin_strength(self, hour, current_reading, history_max):
         """How locked-in the day's high is: 0 until both late enough (time) and
         past peak (temperature has fallen below the observed high), ramping to 1
@@ -244,6 +355,13 @@ class DistributionMixin:
         else:
             peak_factor = drop / peak_drop
         return time_factor * peak_factor
+
+    def late_day_continuation_blend_weight(self, hour):
+        if hour < 15:
+            return 0.0
+        if hour >= 17:
+            return LATE_DAY_CONTINUATION_BLEND_17H
+        return LATE_DAY_CONTINUATION_BLEND_15H
 
     def learned_lockin_strength(self, hour, history, now):
         """Lock-in floor from the learned WU revision-up curve: ``1 - rate``
@@ -584,6 +702,7 @@ class DistributionMixin:
 
     def estimate_distribution(self, sources, now=None):
         self._last_distribution_components = {}
+        self._last_distribution_pipeline_state = None
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
         local_history = self.source_data(sources, "local_history")
@@ -661,10 +780,9 @@ class DistributionMixin:
         ))
         max_signal = self.round_half_up(self.max_value(*live_values))
         if max_signal is None and not scores:
-            self._last_distribution_components = {
-                "schema_version": COMPONENT_SCHEMA_VERSION,
-                "components": {},
-            }
+            pipeline = DistributionPipelineState()
+            self._last_distribution_pipeline_state = pipeline
+            self._last_distribution_components = pipeline.payload()
             return {}
 
         low = min(min(scores), round(self.spec.c_to_native(8)),
@@ -674,9 +792,10 @@ class DistributionMixin:
         for temp in range(low, high + 1):
             scores.setdefault(temp, 0.0005)
         scores = self.normalize_scores(scores)
-        distribution_components = {
-            "climatology_prior": dict(scores),
-        }
+        pipeline = DistributionPipelineState()
+        self._last_distribution_pipeline_state = pipeline
+        pipeline.snapshot("climatology_prior", scores)
+        distribution_components = pipeline.components
 
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
@@ -718,15 +837,17 @@ class DistributionMixin:
                 sigma=0.75,
                 blend_weight=0.50,
             )
-            distribution_components[f"{active_kind}_feature_model"] = dict(
-                self.normalize_scores(feature_probs)
+            pipeline.snapshot_normalized(
+                f"{active_kind}_feature_model",
+                feature_probs,
+                self.normalize_scores,
             )
             # Blend the ML prediction with the climatology prior, using the
             # per-hour weight tuned by LOO log loss (was a flat 0.80).
             scores = self.blend_distribution(
                 scores, feature_probs, self.feature_blend_weight(cutoff_hour)
             )
-            distribution_components["feature_blend"] = dict(scores)
+            pipeline.snapshot("feature_blend", scores)
         else:
             self.active_model_kind = "empirical"
             intraday = self.historical_intraday_distribution(
@@ -772,7 +893,7 @@ class DistributionMixin:
             }
             for name, distribution in empirical_components.items():
                 if distribution:
-                    distribution_components[name] = dict(self.normalize_scores(distribution))
+                    pipeline.snapshot_normalized(name, distribution, self.normalize_scores)
 
             if has_component_weights:
                 using_calibrated_empirical = True
@@ -788,7 +909,7 @@ class DistributionMixin:
                     components,
                     weight_map,
                 )
-                distribution_components["empirical_weighted"] = dict(scores)
+                pipeline.snapshot("empirical_weighted", scores)
             else:
                 if intraday:
                     if weights_config:
@@ -812,82 +933,46 @@ class DistributionMixin:
                         scores, cloud_distribution["probabilities"], w_cld
                     )
 
-        if using_feature_model:
-            current_max_signal = None
-            current_max_bucket = self.round_half_up(current_max)
-            if current_max_bucket is not None and (
-                observed_bucket is None or current_max_bucket > observed_bucket
-            ):
-                current_max_signal = current_max
-            peak_cluster_values = [
-                current_max_signal,
-                weather_forecast_max,
-                self.round_half_up(open_meteo_max)
-                if open_meteo_max is not None else None,
-                self.round_half_up(nws_forecast_max)
-                if nws_forecast_max is not None else None,
-                self.round_half_up(global_ensemble_max)
-                if global_ensemble_max is not None else None,
-            ]
-            peak_cluster_signal = self.max_value(*peak_cluster_values)
-            peak_cluster_count = sum(
-                1 for value in peak_cluster_values if value is not None
+        bucket_transition = self.bucket_transition_model(
+            sources,
+            now,
+            min_sample_size=BUCKET_TRANSITION_MIN_SAMPLE,
+        )
+        bucket_transition_probabilities = bucket_transition.get("probabilities") or {}
+        bucket_transition_weight = self.bucket_transition_blend_weight(bucket_transition)
+        if bucket_transition_probabilities and bucket_transition_weight > 0:
+            pipeline.snapshot_normalized(
+                "bucket_transition_model",
+                bucket_transition_probabilities,
+                self.normalize_scores,
             )
-            peak_cluster_weight = 1.1 if peak_cluster_count <= 1 else 1.6
-            live_signals = [
-                # Current max, Weather.com forecast, and Open-Meteo often share
-                # the same weather-family signal. Treat them as one peak cluster
-                # so a single bucket does not get triple-counted.
-                (peak_cluster_signal, peak_cluster_weight, 1.0),
-                (eccc_max, 0.6, 0.8),
-                (eccc_forecast_high, 0.5, 1.2),
-            ]
-        elif using_calibrated_empirical:
-            live_signals = [
-                (history_max, self.history_signal_weight(now.hour), 0.65),
-                (
-                    self.round_half_up(eccc_max) if eccc_max is not None else None,
-                    0.6,
-                    0.9,
-                ),
-                (metar_temp, 0.3, 0.9),
-            ]
-        else:
-            live_signals = [
-                (history_max, self.history_signal_weight(now.hour), 0.65),
-                (current_temp, 1.8, 0.65),
-                # Weather.com's 24h max can include the previous afternoon. For this
-                # market we only use the same-day max-since-7am field.
-                (current_max, 2.3, 0.75),
-                (
-                    self.round_half_up(eccc_max) if eccc_max is not None else None,
-                    0.6,
-                    0.9,
-                ),
-                (metar_temp, 0.3, 0.9),
-                (weather_forecast_max, self.forecast_signal_weight(now.hour), 0.9),
-                (
-                    self.round_half_up(open_meteo_max)
-                    if open_meteo_max is not None else None,
-                    0.8,
-                    1.1,
-                ),
-                (
-                    self.round_half_up(nws_forecast_max)
-                    if nws_forecast_max is not None else None,
-                    0.7,
-                    1.1,
-                ),
-                (
-                    self.round_half_up(global_ensemble_max)
-                    if global_ensemble_max is not None else None,
-                    0.7,
-                    1.1,
-                ),
-                (eccc_forecast_high, 0.5, 1.2),
-            ]
+            scores = self.blend_distribution(
+                scores,
+                bucket_transition_probabilities,
+                bucket_transition_weight,
+            )
+            pipeline.snapshot("bucket_transition_blend", scores)
+
+        metar_live_signal = self.learned_metar_live_signal(metar_temp, history_max, hour=now.hour)
+
+        live_signals = self.distribution_live_signals(
+            using_feature_model=using_feature_model,
+            using_calibrated_empirical=using_calibrated_empirical,
+            hour=now.hour,
+            history_max=history_max,
+            current_temp=current_temp,
+            current_max=current_max,
+            eccc_max=eccc_max,
+            metar_live_signal=metar_live_signal,
+            weather_forecast_max=weather_forecast_max,
+            open_meteo_max=open_meteo_max,
+            nws_forecast_max=nws_forecast_max,
+            global_ensemble_max=global_ensemble_max,
+            eccc_forecast_high=eccc_forecast_high,
+            observed_bucket=observed_bucket,
+        )
         scores = self.apply_live_signals(scores, live_signals)
-        distribution_components["post_live_signals"] = dict(self.normalize_scores(scores))
+        pipeline.snapshot_normalized("post_live_signals", scores, self.normalize_scores)
 
         if hard_floor_bucket is not None:
             self.apply_floor(scores, hard_floor_bucket, 0.000001)
@@ -952,17 +1037,17 @@ class DistributionMixin:
                 observed_bucket,
                 current_observed_bucket,
             )
-            distribution_components["forecast_pull"] = dict(self.normalize_scores(scores))
+            pipeline.snapshot_normalized("forecast_pull", scores, self.normalize_scores)
 
         if validated_current_max_floor is not None:
             self.apply_floor(scores, validated_current_max_floor, 0.000001)
             scores = self.normalize_scores(scores)
-            distribution_components["validated_current_max_floor"] = dict(scores)
+            pipeline.snapshot("validated_current_max_floor", scores)
 
         # Live-observed floor: react to SWOB leading the lagging WU history,
         # instead of waiting hours for WU to print what already happened.
         scores = self.apply_live_observed_floor(scores, eccc_max, history_max, hour=now.hour)
-        distribution_components["settlement_lag_adjusted"] = dict(self.normalize_scores(scores))
+        pipeline.snapshot_normalized("settlement_lag_adjusted", scores, self.normalize_scores)
         scores = self.apply_current_observed_floor(
             scores,
             current_temp,
@@ -970,7 +1055,47 @@ class DistributionMixin:
             history_max,
             hour=now.hour,
         )
-        distribution_components["current_observed_floor"] = dict(self.normalize_scores(scores))
+        pipeline.snapshot_normalized("current_observed_floor", scores, self.normalize_scores)
+        scores = self.preserve_wu_floor_residual(
+            scores,
+            history_max,
+            observed_support_bucket,
+        )
+        pipeline.snapshot_normalized("wu_floor_residual", scores, self.normalize_scores)
+
+        late_day_continuation = None
+        live_support_ahead_of_wu = (
+            observed_support_bucket is not None
+            and observed_bucket is not None
+            and observed_support_bucket > observed_bucket
+        )
+        if (
+            using_feature_model
+            and observed_bucket is not None
+            and not live_support_ahead_of_wu
+        ):
+            late_day_continuation = self.predict_late_day_continuation(
+                sources,
+                cutoff_hour,
+                now,
+            )
+            continuation_probability = (
+                late_day_continuation or {}
+            ).get("continuation_probability")
+            continuation_weight = self.late_day_continuation_blend_weight(now.hour)
+            if continuation_probability is not None and continuation_weight > 0:
+                tail_target = max(0.0, min(1.0, float(continuation_probability)))
+                scores = self.apply_tail_target(
+                    scores,
+                    observed_bucket,
+                    tail_target,
+                    continuation_weight,
+                )
+                pipeline.snapshot_normalized(
+                    "late_day_continuation_blend",
+                    scores,
+                    self.normalize_scores,
+                )
 
         # Late-day lock-in: once the day is past peak and the temperature is
         # falling, concentrate onto the observed high (suppress the upper tail
@@ -1005,11 +1130,11 @@ class DistributionMixin:
             scores, history_max, current_reading, now.hour, strength=lockin_strength
         )
         if high_has_stood_strength > max(heuristic_lockin_strength, learned_lockin_strength):
-            distribution_components["high_has_stood_lockin"] = dict(self.normalize_scores(scores))
-        distribution_components["late_day_lockin"] = dict(self.normalize_scores(scores))
+            pipeline.snapshot_normalized("high_has_stood_lockin", scores, self.normalize_scores)
+        pipeline.snapshot_normalized("late_day_lockin", scores, self.normalize_scores)
 
         scores = self.normalize_scores(scores)
-        distribution_components["pre_calibration_model"] = dict(scores)
+        pipeline.snapshot("pre_calibration_model", scores)
         # Taper the overconfidence-calibration toward identity as the day locks
         # in: once it is past peak and falling, the concentration is earned, so
         # softening it back toward uniform only re-inflates buckets the high can
@@ -1021,32 +1146,126 @@ class DistributionMixin:
             resolution_weight=lockin_strength,
             cutoff_hour=cutoff_hour,
         )
-        distribution_components["final_model"] = dict(calibrated_scores)
+        pipeline.snapshot("final_model", calibrated_scores)
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(
             history.get("rows") or []
         )
-        self._last_distribution_components = {
-            "schema_version": COMPONENT_SCHEMA_VERSION,
-            "cutoff_hour": cutoff_hour,
-            "active_model_kind": getattr(self, "active_model_kind", "empirical"),
-            "latest_wu_history_time": (
+        pipeline.update_metadata(
+            cutoff_hour=cutoff_hour,
+            active_model_kind=getattr(self, "active_model_kind", "empirical"),
+            latest_wu_history_time=(
                 latest_wu_history_row.get("time") if latest_wu_history_row else None
             ),
-            "latest_wu_history_minute": latest_wu_history_minute,
-            "latest_wu_history_temp": (
+            latest_wu_history_minute=latest_wu_history_minute,
+            latest_wu_history_temp=(
                 latest_wu_history_row.get("temp_c") if latest_wu_history_row else None
             ),
-            "lockin_strength": lockin_strength,
-            "high_has_stood_lockin": high_has_stood_context,
-            "family_secondary_gate": getattr(self, "_last_family_secondary_gate", {}),
-            "observed_floor_bucket": hard_floor_bucket,
-            "wu_history_floor_bucket": observed_bucket,
-            "validated_current_max_floor_bucket": validated_current_max_floor,
-            "current_observed_bucket": current_observed_bucket,
-            "observed_support_bucket": observed_support_bucket,
-            "components": distribution_components,
-        }
+            lockin_strength=lockin_strength,
+            high_has_stood_lockin=high_has_stood_context,
+            family_secondary_gate=getattr(self, "_last_family_secondary_gate", {}),
+            bucket_transition=bucket_transition,
+            late_day_continuation=late_day_continuation,
+            observed_floor_bucket=hard_floor_bucket,
+            wu_history_floor_bucket=observed_bucket,
+            validated_current_max_floor_bucket=validated_current_max_floor,
+            current_observed_bucket=current_observed_bucket,
+            observed_support_bucket=observed_support_bucket,
+        )
+        self._last_distribution_components = pipeline.payload()
         return calibrated_scores
+
+    def distribution_live_signals(
+        self,
+        *,
+        using_feature_model,
+        using_calibrated_empirical,
+        hour,
+        history_max,
+        current_temp,
+        current_max,
+        eccc_max,
+        metar_live_signal,
+        weather_forecast_max,
+        open_meteo_max,
+        nws_forecast_max,
+        global_ensemble_max,
+        eccc_forecast_high,
+        observed_bucket,
+    ):
+        """Return the live-signal stage inputs for the current model path."""
+        if using_feature_model:
+            current_max_signal = None
+            current_max_bucket = self.round_half_up(current_max)
+            if current_max_bucket is not None and (
+                observed_bucket is None or current_max_bucket > observed_bucket
+            ):
+                current_max_signal = current_max
+            peak_cluster_values = [
+                current_max_signal,
+                weather_forecast_max,
+                self.round_half_up(open_meteo_max)
+                if open_meteo_max is not None else None,
+                self.round_half_up(nws_forecast_max)
+                if nws_forecast_max is not None else None,
+                self.round_half_up(global_ensemble_max)
+                if global_ensemble_max is not None else None,
+            ]
+            peak_cluster_signal = self.max_value(*peak_cluster_values)
+            peak_cluster_count = sum(
+                1 for value in peak_cluster_values if value is not None
+            )
+            peak_cluster_weight = 1.1 if peak_cluster_count <= 1 else 1.6
+            return [
+                # Current max, Weather.com forecast, and Open-Meteo often share
+                # the same weather-family signal. Treat them as one peak cluster
+                # so a single bucket does not get triple-counted.
+                (peak_cluster_signal, peak_cluster_weight, 1.0),
+                (eccc_max, 0.6, 0.8),
+                (eccc_forecast_high, 0.5, 1.2),
+            ]
+        if using_calibrated_empirical:
+            return [
+                (history_max, self.history_signal_weight(hour), 0.65),
+                (
+                    self.round_half_up(eccc_max) if eccc_max is not None else None,
+                    0.6,
+                    0.9,
+                ),
+                metar_live_signal or (None, 0.0, METAR_LIVE_SIGNAL_SIGMA),
+            ]
+        return [
+            (history_max, self.history_signal_weight(hour), 0.65),
+            (current_temp, 1.8, 0.65),
+            # Weather.com's 24h max can include the previous afternoon. For this
+            # market we only use the same-day max-since-7am field.
+            (current_max, 2.3, 0.75),
+            (
+                self.round_half_up(eccc_max) if eccc_max is not None else None,
+                0.6,
+                0.9,
+            ),
+            metar_live_signal or (None, 0.0, METAR_LIVE_SIGNAL_SIGMA),
+            (weather_forecast_max, self.forecast_signal_weight(hour), 0.9),
+            (
+                self.round_half_up(open_meteo_max)
+                if open_meteo_max is not None else None,
+                0.8,
+                1.1,
+            ),
+            (
+                self.round_half_up(nws_forecast_max)
+                if nws_forecast_max is not None else None,
+                0.7,
+                1.1,
+            ),
+            (
+                self.round_half_up(global_ensemble_max)
+                if global_ensemble_max is not None else None,
+                0.7,
+                1.1,
+            ),
+            (eccc_forecast_high, 0.5, 1.2),
+        ]
 
     def weighted_component_distribution(self, components, weights):
         support = sorted({

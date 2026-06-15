@@ -1,10 +1,10 @@
-# 8. Late-Day Tail Model [PARTIAL]
+# 8. Late-Day Tail Model [COMPLETE - CONTINUATION BLEND LIVE]
 
 - [x] Learn a separate after-3 PM / after-4 PM / after-5 PM continuation model.
 - [x] Condition late-day tail on sun/cloud, wind direction, and whether the current high was first reached recently.
 - [x] Add forecast remaining max / forecast gap to the late-day continuation model.
 - [x] Make late-day extension risk visible in the dashboard.
-- [ ] Blend late-day continuation risk into the final distribution when the feature-model path is active.
+- [x] Blend late-day continuation risk into the final distribution when the feature-model path is active.
 
 Codex audit (2026-05-28): partial. Logistic continuation models are exported
 for 15:00, 16:00, and 17:00, and the dashboard has a late-day extension risk
@@ -30,3 +30,16 @@ include `forecast_high` and `forecast_gap` for all registered markets, and the
 pinned settlement replay improved rather than regressed the final distribution.
 The older final-distribution blend checkbox remains open as its own design
 question; this update closes only the forecast-gap training/validation split.
+
+Implementation update (2026-06-15): complete. The feature-model serving path now
+calls `predict_late_day_continuation()` and blends its calibrated
+`continuation_probability` into the exact distribution as an upper-tail target
+(`late_day_continuation_blend`) before the existing late-day lock-in step. The
+blend is intentionally gated off when live current/METAR/SWOB support already
+leads the printed WU high, because the live-observed floor owns that case. The
+trained continuation model therefore adjusts unresolved late-day extension risk
+without double-counting non-resolution live observations.
+
+Verification:
+- `.\venv\Scripts\python.exe -m pytest tests\model\test_late_day_lockin.py tests\calibration\test_forecast_error_model.py tests\model\test_estimate_distribution.py tests\calibration\test_intraday_calibration.py -q` -> 59 passed.
+- `.\venv\Scripts\python.exe -m compileall src\weather\model\model_distribution.py`

@@ -10,9 +10,19 @@ market -- WU is fetched in metric for all stations -- so a model trained on one
 city's Celsius data applies to another unchanged. ``display_unit`` only affects
 how the Polymarket bands are parsed and shown (Toronto trades in C, NYC in F).
 """
+import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from weather.paths import CONFIG_ROOT
+from weather.schema_registry import schema_version
+
+
+MARKET_REGISTRY_SCHEMA_VERSION = schema_version("market_registry")
+DEFAULT_EXTERNAL_REGISTRY_PATH = CONFIG_ROOT / "markets.json"
+MARKET_REGISTRY_ENV = "WEATHER_MARKET_REGISTRY"
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,7 @@ class MarketSpec:
     sources: tuple                # ordered source-adapter ids fetched live
     leading_obs: str              # source whose obs lead the WU settlement print
     coastal: bool = False
+    resolution_source: str = "wu_history"
 
     @property
     def tz(self):
@@ -282,8 +293,96 @@ SEATTLE = MarketSpec(
     coastal=True,
 )
 
-REGISTRY = {spec.id: spec for spec in (TORONTO, NYC, ATLANTA, AUSTIN, CHICAGO, DALLAS, DENVER, HOUSTON, LOS_ANGELES, MIAMI, SAN_FRANCISCO, SEATTLE)}
 DEFAULT_MARKET_ID = "toronto"
+
+BUILTIN_SPECS = (
+    TORONTO,
+    NYC,
+    ATLANTA,
+    AUSTIN,
+    CHICAGO,
+    DALLAS,
+    DENVER,
+    HOUSTON,
+    LOS_ANGELES,
+    MIAMI,
+    SAN_FRANCISCO,
+    SEATTLE,
+)
+
+
+def _external_registry_path(path=None):
+    configured = path or os.environ.get(MARKET_REGISTRY_ENV)
+    if configured:
+        return Path(configured)
+    return DEFAULT_EXTERNAL_REGISTRY_PATH
+
+
+def market_spec_from_mapping(row):
+    required = {
+        "id",
+        "city_label",
+        "slug_prefix",
+        "timezone",
+        "display_unit",
+        "wu_history_id",
+        "icao",
+        "lat",
+        "lon",
+        "sources",
+        "leading_obs",
+    }
+    missing = sorted(required - set(row or {}))
+    if missing:
+        raise ValueError(f"market registry row missing required fields: {', '.join(missing)}")
+    return MarketSpec(
+        id=str(row["id"]),
+        city_label=str(row["city_label"]),
+        slug_prefix=str(row["slug_prefix"]),
+        timezone=str(row["timezone"]),
+        display_unit=str(row["display_unit"]).upper(),
+        wu_history_id=str(row["wu_history_id"]),
+        icao=str(row["icao"]).upper(),
+        lat=float(row["lat"]),
+        lon=float(row["lon"]),
+        sources=tuple(str(item) for item in row["sources"]),
+        leading_obs=str(row["leading_obs"]),
+        coastal=bool(row.get("coastal", False)),
+        resolution_source=str(row.get("resolution_source", "wu_history")),
+    )
+
+
+def load_external_registry(path=None):
+    path = _external_registry_path(path)
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if isinstance(payload, dict):
+        schema = payload.get("schema_version")
+        if schema and schema != MARKET_REGISTRY_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported market registry schema {schema!r}; expected {MARKET_REGISTRY_SCHEMA_VERSION}"
+            )
+        rows = payload.get("markets") or []
+    else:
+        rows = payload
+    specs = {}
+    for row in rows:
+        if row.get("enabled", True) is False:
+            continue
+        spec = market_spec_from_mapping(row)
+        specs[spec.id] = spec
+    return specs
+
+
+def build_registry(extra_path=None):
+    registry = {spec.id: spec for spec in BUILTIN_SPECS}
+    registry.update(load_external_registry(extra_path))
+    return registry
+
+
+REGISTRY = build_registry()
 
 
 def spec_for_id(market_id):
@@ -303,3 +402,35 @@ def spec_for_slug(slug):
 
 def all_specs():
     return list(REGISTRY.values())
+
+
+def validate_market_registry(registry=None):
+    """Return validation issues for per-market resolution/station mappings."""
+    issues = []
+    registry = registry or REGISTRY
+    for market_id, spec in registry.items():
+        if spec.resolution_source not in spec.sources:
+            issues.append({
+                "market_id": market_id,
+                "field": "resolution_source",
+                "issue": f"{spec.resolution_source} is not listed in sources",
+            })
+        if not spec.wu_history_id:
+            issues.append({
+                "market_id": market_id,
+                "field": "wu_history_id",
+                "issue": "missing settlement/history station id",
+            })
+        if not spec.icao:
+            issues.append({
+                "market_id": market_id,
+                "field": "icao",
+                "issue": "missing live observation station id",
+            })
+        if spec.leading_obs not in spec.sources:
+            issues.append({
+                "market_id": market_id,
+                "field": "leading_obs",
+                "issue": f"{spec.leading_obs} is not listed in sources",
+            })
+    return issues

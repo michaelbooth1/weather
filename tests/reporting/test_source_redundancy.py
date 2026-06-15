@@ -11,8 +11,10 @@ sys.path.insert(0, os.path.abspath("src"))
 from source_redundancy import (  # noqa: E402
     build_payload,
     forecast_ensemble_features,
+    supplemental_source_key,
     truth_csv_rows,
 )
+from supplemental_station_validation import source_fingerprint  # noqa: E402
 
 
 def write_daily(root, icao, rows):
@@ -42,6 +44,55 @@ def write_daily(root, icao, rows):
 
 
 class TestSourceRedundancy(unittest.TestCase):
+    def supplemental_source(self, root):
+        return {
+            "market_id": "toronto",
+            "source_id": "ghcnh_cyyz_nearby",
+            "source_type": "noaa_ghcnh",
+            "source_role": "supplemental",
+            "station_id": "CAN00000001",
+            "station_name": "Nearby Toronto",
+            "root_path": str(root),
+            "latitude": 43.677,
+            "longitude": -79.631,
+            "elevation_m": 173.0,
+            "distance_from_canonical_km": 0.5,
+            "canonical_market_id": "toronto",
+            "canonical_station_id": "CYYZ",
+            "validation_status": "candidate",
+            "adopted_date_windows": [{
+                "start": "2000-05-20",
+                "end": "2000-05-21",
+                "reason": "unit test",
+            }],
+            "reason_for_adoption": "unit test supplemental source",
+        }
+
+    def validation_report(self, source):
+        return {
+            "schema_version": "supplemental_station_validation_v0.1",
+            "artifact_path": "unit-test.json",
+            "sources": [{
+                "source_id": source["source_id"],
+                "source_fingerprint": source_fingerprint(source),
+                "promotion_state": "validated_supplemental",
+                "validation_window": {"start": "2000-05-20", "end": "2000-05-21"},
+                "validated_weather_regimes": ["mild"],
+                "references": {
+                    "wu": {
+                        "metrics": {
+                            "target_season": {
+                                "mean_bias": 0.1,
+                                "mae": 0.2,
+                                "bucket_match_rate": 0.99,
+                            },
+                        },
+                    },
+                },
+                "gates": [{"name": "distance_from_canonical", "severity": "hard", "ok": True}],
+            }],
+        }
+
     def test_build_payload_fills_missing_wu_from_redundant_source_and_learns_bias(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -136,7 +187,7 @@ class TestSourceRedundancy(unittest.TestCase):
             )
 
         row = payload["markets"]["toronto"]["daily_truth"][0]
-        self.assertEqual(row["schema_version"], "daily_source_truth_v0.2")
+        self.assertEqual(row["schema_version"], "daily_source_truth_v0.3")
         self.assertIn("swob", row["source_values"])
         self.assertEqual(row["source_count"], 5)
         self.assertEqual(row["consensus_source_count"], 5)
@@ -199,6 +250,80 @@ class TestSourceRedundancy(unittest.TestCase):
         self.assertEqual(rows[0]["forecast_source_count"], 2)
         self.assertEqual(rows[0]["ensemble_forecast_high"], 25.0)
         self.assertEqual(rows[0]["forecast_disagreement"], 2.0)
+
+    def test_validated_supplemental_features_do_not_replace_truth_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wu_root = root / "wu"
+            metar_root = root / "metar"
+            swob_root = root / "swob"
+            ghcnh_root = root / "ghcnh"
+            reanalysis_root = root / "reanalysis"
+            supplemental_root = root / "supplemental"
+            snapshots_root = root / "snapshots"
+            snapshots_root.mkdir()
+
+            write_daily(wu_root, "cyyz", [
+                {"local_date": "2000-05-20", "max_temp": 20.0, "max_temp_bucket": 20},
+            ])
+            write_daily(supplemental_root, "", [
+                {"local_date": "2000-05-20", "max_temp": 20.2, "max_temp_bucket": 20},
+                {"local_date": "2000-05-21", "max_temp": 21.0, "max_temp_bucket": 21},
+            ])
+            source = self.supplemental_source(supplemental_root)
+            payload = build_payload(
+                market_ids=["toronto"],
+                start_date=date(2000, 5, 20),
+                end_date=date(2000, 5, 21),
+                source_roots={
+                    "wu": wu_root,
+                    "metar": metar_root,
+                    "swob": swob_root,
+                    "ghcnh": ghcnh_root,
+                    "reanalysis": reanalysis_root,
+                },
+                registry={"schema_version": "supplemental_station_registry_v0.1", "sources": [source]},
+                supplemental_validation_report=self.validation_report(source),
+                snapshots_root=snapshots_root,
+            )
+
+        market = payload["markets"]["toronto"]
+        rows = market["daily_truth"]
+        source_key = supplemental_source_key(source)
+
+        self.assertEqual(rows[0]["selected_source"], "wu")
+        self.assertTrue(rows[0]["supplemental_source_available"])
+        self.assertEqual(rows[0]["supplemental_source_ids"], ["ghcnh_cyyz_nearby"])
+        self.assertAlmostEqual(rows[0]["supplemental_same_day_delta_vs_primary"], 0.2)
+        self.assertTrue(rows[0]["supplemental_same_day_bucket_match"])
+        self.assertFalse(rows[0]["source_values"][source_key]["live_serving_eligible"])
+        self.assertTrue(rows[0]["source_values"][source_key]["historical_only_feature"])
+
+        self.assertEqual(rows[1]["status"], "missing_all_sources")
+        self.assertIsNone(rows[1]["selected_source"])
+        self.assertFalse(rows[1]["fill_candidate"])
+        self.assertNotIn(source_key, market["source_bias_vs_wu"])
+        self.assertIn(source_key, market["supplemental_source_bias_vs_wu"])
+        self.assertEqual(market["summary"]["supplemental_source_days"], 2)
+        self.assertEqual(market["summary"]["supplemental_same_day_primary_overlap_days"], 1)
+
+        feature_summary = payload["supplemental_nearby_features"]["markets"][0]
+        self.assertTrue(feature_summary["historical_only"])
+        self.assertFalse(feature_summary["live_serving_eligible"])
+        self.assertEqual(feature_summary["two_plus_source_day_delta"], 1)
+        self.assertEqual(feature_summary["redundant_source_day_delta"], 2)
+        parity = payload["supplemental_nearby_features"]["train_serve_parity"]
+        self.assertEqual(parity["status"], "historical_only_excluded_from_live_serving")
+        self.assertEqual(parity["serving_columns"], [])
+        self.assertIn("supplemental_source_available", parity["training_columns"])
+        ablation = payload["supplemental_nearby_features"]["ablation"]
+        self.assertEqual(ablation["status"], "diagnostic_ablation_ready")
+        self.assertEqual(
+            ablation["settlement_scored_replay_status"],
+            "not_run_historical_only_excluded_from_live_serving",
+        )
+        csv_row = list(truth_csv_rows(payload))[0]
+        self.assertEqual(csv_row["supplemental_source_ids"], "ghcnh_cyyz_nearby")
 
 
 if __name__ == "__main__":

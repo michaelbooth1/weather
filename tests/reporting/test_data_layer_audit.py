@@ -17,6 +17,7 @@ from data_layer_audit import (  # noqa: E402
     source_status_summary_for_folder,
     season_dates,
 )
+from supplemental_station_validation import source_fingerprint  # noqa: E402
 
 
 class TestDataLayerAudit(unittest.TestCase):
@@ -155,6 +156,28 @@ class TestDataLayerAudit(unittest.TestCase):
                 write_daily(Path("data/metar/kxxx/daily/daily_summary.csv"), reference_rows)
 
                 expected = [date(2020, 5, 20), date(2020, 5, 21), date(2020, 5, 22)]
+                source = {
+                    "market_id": "kxxx",
+                    "source_id": "ghcnh_kxxx_nearby",
+                    "source_type": "noaa_ghcnh",
+                    "source_role": "supplemental",
+                    "station_id": "USW00000001",
+                    "station_name": "Nearby AP",
+                    "root_path": str(Path("data/noaa_ghcnh/kxxx_alt_nearby").resolve()),
+                    "latitude": 10.0,
+                    "longitude": 20.0,
+                    "elevation_m": None,
+                    "distance_from_canonical_km": 0.0,
+                    "canonical_market_id": "kxxx",
+                    "canonical_station_id": "KXXX",
+                    "validation_status": "candidate",
+                    "adopted_date_windows": [{
+                        "start": "2020-05-21",
+                        "end": "2020-05-22",
+                        "reason": "unit test",
+                    }],
+                    "reason_for_adoption": "unit test registry entry",
+                }
                 out = nearby_history_audit(
                     spec,
                     {"ghcnh": {"target_season": {"covered_days": 1}}},
@@ -162,27 +185,25 @@ class TestDataLayerAudit(unittest.TestCase):
                     expected,
                     registry={
                         "schema_version": "supplemental_station_registry_v0.1",
+                        "sources": [source],
+                    },
+                    validation_report={
+                        "schema_version": "supplemental_station_validation_v0.1",
+                        "artifact_path": "unit-test.json",
                         "sources": [{
-                            "market_id": "kxxx",
                             "source_id": "ghcnh_kxxx_nearby",
-                            "source_type": "noaa_ghcnh",
-                            "source_role": "supplemental",
-                            "station_id": "USW00000001",
-                            "station_name": "Nearby AP",
-                            "root_path": str(Path("data/noaa_ghcnh/kxxx_alt_nearby").resolve()),
-                            "latitude": 10.0,
-                            "longitude": 20.0,
-                            "elevation_m": None,
-                            "distance_from_canonical_km": 0.0,
-                            "canonical_market_id": "kxxx",
-                            "canonical_station_id": "KXXX",
-                            "validation_status": "candidate",
-                            "adopted_date_windows": [{
-                                "start": "2020-05-21",
+                            "source_fingerprint": source_fingerprint(source),
+                            "promotion_state": "validated_supplemental",
+                            "validation_window": {
+                                "start": "2020-05-20",
                                 "end": "2020-05-22",
-                                "reason": "unit test",
+                            },
+                            "validated_weather_regimes": ["mild"],
+                            "gates": [{
+                                "name": "distance_from_canonical",
+                                "severity": "hard",
+                                "ok": True,
                             }],
-                            "reason_for_adoption": "unit test registry entry",
                         }],
                     },
                 )
@@ -195,6 +216,7 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(out["supplemental_sources"][0]["source_role"], "supplemental")
         self.assertEqual(out["supplemental_sources"][0]["reason_for_adoption"], "unit test registry entry")
         self.assertEqual(out["supplemental_sources"][0]["station"], "USW00000001")
+        self.assertEqual(out["supplemental_sources"][0]["promotion_state"], "validated_supplemental")
         self.assertEqual(out["supplemental_sources"][0]["bias_vs_wu"]["target_season"]["mae"], 0.1)
 
     def test_recommendations_use_validated_nearby_history_before_deep_fill(self):
@@ -353,6 +375,77 @@ class TestDataLayerAudit(unittest.TestCase):
 
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "PASS")
         self.assertIn("5 raw-only days are all-null source-lag", by_name["reanalysis_raw_only_days"]["evidence"])
+
+    def test_build_gates_fails_unvalidated_supplemental_sources(self):
+        snapshot = {
+            "folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "forecast_payloads": 1,
+            },
+            "source_status": {
+                "row_count": 1,
+                "stale_or_failed_rows": 0,
+                "stale_or_failed_rate": 0.0,
+            },
+        }
+        historical = {
+            "markets": [
+                {
+                    "market_id": "kxxx",
+                    "sources": {},
+                    "nearby_history": {
+                        "supplemental_sources": [{
+                            "source_id": "ghcnh_kxxx_nearby",
+                            "promotion_gate": {
+                                "ok": False,
+                                "promotion_state": "candidate",
+                                "reason": "missing current supplemental station validation report",
+                            },
+                        }],
+                    },
+                },
+            ],
+        }
+
+        gates = build_gates(snapshot, historical)
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["supplemental_station_validation"]["status"], "FAIL")
+        self.assertIn("kxxx:ghcnh_kxxx_nearby", by_name["supplemental_station_validation"]["evidence"])
+
+    def test_build_gates_fails_canonical_history_provenance_violations(self):
+        snapshot = {
+            "folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "forecast_payloads": 1,
+            },
+            "source_status": {
+                "row_count": 1,
+                "stale_or_failed_rows": 0,
+                "stale_or_failed_rate": 0.0,
+            },
+        }
+        historical = {
+            "markets": [],
+            "canonical_guardrails": {
+                "summary": {
+                    "status": "FAIL",
+                    "violation_count": 2,
+                },
+            },
+        }
+
+        gates = build_gates(snapshot, historical)
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["canonical_history_provenance"]["status"], "FAIL")
+        self.assertIn("2 canonical history", by_name["canonical_history_provenance"]["evidence"])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from weather.backtesting.backtest import (
     daily_first_score,
     last_pre_close_rows,
     score_rows,
+    winner_band_catchup,
 )
 from weather.backtesting.settlement_ledger import (
     band_value_hi,
@@ -31,6 +32,7 @@ from weather.model.model_constants import TORONTO_TZ
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_LABELS_CSV = Path("data") / "backtest" / "market_day_labels.csv"
 DEFAULT_HISTORY_CACHE = Path("data") / "backtest" / "model_history_cache.json"
+MODEL_HISTORY_CACHE_SCHEMA = "model_history_cache_v0.2"
 
 
 def safe_float(value):
@@ -147,7 +149,7 @@ def history_signature(root, selected_dates, specs, labels_csv=DEFAULT_LABELS_CSV
             files.append(_file_signature(folder / "snapshots_long.csv"))
             files.append(_file_signature(folder / "settlement.json"))
     return {
-        "schema_version": "model_history_cache_v0.1",
+        "schema_version": MODEL_HISTORY_CACHE_SCHEMA,
         "root": str(root.resolve()) if root.exists() else str(root),
         "dates": [item.isoformat() for item in selected_dates],
         "market_ids": [spec.id for spec in specs],
@@ -504,6 +506,7 @@ def summarize_market_day(folder, spec, target_date, label_index=None):
 
     score = score_rows(rows) or {}
     last_score = score_rows(last_pre_close_rows(rows)) or {}
+    catchup = winner_band_catchup(rows)
     row.update(
         {
             "status": "scored",
@@ -523,6 +526,7 @@ def summarize_market_day(folder, spec, target_date, label_index=None):
             "last_logloss_delta": last_score.get("logloss_delta"),
         }
     )
+    row.update(catchup)
     row.update(winning_bucket_stats(frame, settlement_bucket, target_date))
     row.update(final_top_stats(frame, settlement_bucket, target_date))
     if not row.get("winning_band"):
@@ -538,6 +542,7 @@ def _group_score_rows(scoring_rows_all, day_rows, key, label_key):
     output = []
     for group, rows in sorted(grouped_rows.items(), key=lambda item: str(item[0])):
         score = score_rows(rows) or {}
+        catchup = winner_band_catchup(rows)
         matching_days = [day for day in day_rows if day.get(key) == group and day.get("status") == "scored"]
         crossed = sum(1 for day in matching_days if day.get("winner_crossed_50"))
         final_hits = sum(1 for day in matching_days if day.get("final_top_was_winner"))
@@ -552,10 +557,44 @@ def _group_score_rows(scoring_rows_all, day_rows, key, label_key):
                 "market_brier": score.get("market_brier"),
                 "brier_skill_score": score.get("brier_skill_score"),
                 "logloss_delta": score.get("logloss_delta"),
+                **catchup,
                 "winners_crossed_50": crossed,
                 "winner_crossed_50_rate": crossed / len(matching_days) if matching_days else None,
                 "final_top_hits": final_hits,
                 "final_top_hit_rate": final_hits / len(matching_days) if matching_days else None,
+            }
+        )
+    return output
+
+
+def _group_location_hour_rows(scoring_rows_all, day_rows):
+    city_by_market = {
+        day.get("market_id"): day.get("city")
+        for day in day_rows
+        if day.get("market_id") and day.get("city")
+    }
+    grouped_rows = defaultdict(list)
+    for row in scoring_rows_all:
+        grouped_rows[(row.get("market_id"), row.get("cutoff_hour"))].append(row)
+
+    output = []
+    for (market_id, cutoff_hour), rows in sorted(
+        grouped_rows.items(),
+        key=lambda item: (str(item[0][0]), -1 if item[0][1] is None else int(item[0][1])),
+    ):
+        score = score_rows(rows) or {}
+        catchup = winner_band_catchup(rows)
+        output.append(
+            {
+                "market_id": market_id,
+                "label": city_by_market.get(market_id) or market_id,
+                "cutoff_hour": cutoff_hour,
+                "scored_rows": len(rows),
+                "model_brier": score.get("model_brier"),
+                "market_brier": score.get("market_brier"),
+                "brier_skill_score": score.get("brier_skill_score"),
+                "logloss_delta": score.get("logloss_delta"),
+                **catchup,
             }
         )
     return output
@@ -601,6 +640,7 @@ def build_history_payload(
     aggregate = score_rows(all_rows) or {}
     last_score = score_rows(last_pre_close_rows(all_rows)) or {}
     daily = daily_first_score([{"score": day} for day in scored_days]) or {}
+    catchup = winner_band_catchup(all_rows)
     crossed = sum(1 for day in scored_days if day.get("winner_crossed_50"))
     final_hits = sum(1 for day in scored_days if day.get("final_top_was_winner"))
 
@@ -614,6 +654,7 @@ def build_history_payload(
         "daily_first_brier_skill_score": daily.get("brier_skill_score"),
         "last_pre_close_brier_skill_score": last_score.get("brier_skill_score"),
         "logloss_delta": aggregate.get("logloss_delta"),
+        **catchup,
         "winners_crossed_50": crossed,
         "winner_crossed_50_rate": crossed / len(scored_days) if scored_days else None,
         "final_top_hits": final_hits,
@@ -628,6 +669,7 @@ def build_history_payload(
         "overall": overall,
         "by_location": _group_score_rows(all_rows, scored_days, "market_id", "city"),
         "by_date": _group_score_rows(all_rows, scored_days, "target_date", "target_date"),
+        "by_location_hour": _group_location_hour_rows(all_rows, scored_days),
         "cache": {"hit": False, "path": str(cache_path) if use_cache else None},
     }
     if use_cache:
@@ -649,8 +691,11 @@ def format_day_table(rows):
                 "Model Brier": fmt_score(row.get("model_brier")),
                 "Market Brier": fmt_score(row.get("market_brier")),
                 "Brier Skill": fmt_signed_pct(row.get("brier_skill_score")),
+                "Winner Catch-Up": fmt_signed_pct(row.get("winner_catchup_gap")),
                 "Final Top Hit": "yes" if row.get("final_top_was_winner") else ("no" if row.get("status") == "scored" else "-"),
                 "Winner >50": row.get("winning_first_over_50_time") or "never",
+                "Winner Model P": fmt_pct(row.get("winner_model_probability")),
+                "Winner Market P": fmt_pct(row.get("winner_market_probability")),
                 "Winner Max P": fmt_pct(row.get("winning_max_probability")),
                 "Winner Final P": fmt_pct(row.get("winning_final_probability")),
                 "Final Market": fmt_pct(row.get("winning_final_market_price")),
@@ -673,9 +718,35 @@ def format_group_table(rows, group_label):
                 "Model Brier": fmt_score(row.get("model_brier")),
                 "Market Brier": fmt_score(row.get("market_brier")),
                 "Brier Skill": fmt_signed_pct(row.get("brier_skill_score")),
+                "Winner Catch-Up": fmt_signed_pct(row.get("winner_catchup_gap")),
                 "LogLoss Delta": fmt_signed(row.get("logloss_delta")),
+                "Winner Rows": row.get("winner_rows", 0),
+                "Winner Model P": fmt_pct(row.get("winner_model_probability")),
+                "Winner Market P": fmt_pct(row.get("winner_market_probability")),
                 "Winner >50 Rate": fmt_pct(row.get("winner_crossed_50_rate"), digits=0),
                 "Final Top Hit Rate": fmt_pct(row.get("final_top_hit_rate"), digits=0),
+            }
+        )
+    return pd.DataFrame(table)
+
+
+def format_location_hour_table(rows):
+    table = []
+    for row in rows:
+        hour = row.get("cutoff_hour")
+        table.append(
+            {
+                "Location": row.get("label") or row.get("market_id") or "-",
+                "Hour": f"{int(hour):02d}:00" if hour is not None else "-",
+                "Rows": row.get("scored_rows", 0),
+                "Winner Rows": row.get("winner_rows", 0),
+                "Brier Skill": fmt_signed_pct(row.get("brier_skill_score")),
+                "Winner Catch-Up": fmt_signed_pct(row.get("winner_catchup_gap")),
+                "Winner Model P": fmt_pct(row.get("winner_model_probability")),
+                "Winner Market P": fmt_pct(row.get("winner_market_probability")),
+                "Model >= Market": fmt_pct(row.get("winner_catchup_rate"), digits=0),
+                "Model >50": fmt_pct(row.get("winner_model_over_50_rate"), digits=0),
+                "Market >50": fmt_pct(row.get("winner_market_over_50_rate"), digits=0),
             }
         )
     return pd.DataFrame(table)

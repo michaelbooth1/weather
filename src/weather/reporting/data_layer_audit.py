@@ -22,12 +22,18 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from backtest import fmt_num, markdown_table
+from canonical_history_guardrails import canonical_guardrail_report
 from collection_health import summarize_folder
 from market_config import date_from_event_slug
 from market_registry import all_specs, spec_for_slug
 from market_microstructure import CLOB_LOOP_STATUS_PATH, clob_loop_health
 from reanalysis_history import ReanalysisStore
 from snapshot_tracker import LOOP_STATUS_PATH, loop_health
+from supplemental_station_validation import (
+    DEFAULT_OUT as DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
+    load_validation_report,
+    promotion_gate_for_source,
+)
 from supplemental_stations import guard_not_canonical_root, source_root, supplemental_sources
 from toronto_model import TORONTO_TZ
 
@@ -687,12 +693,20 @@ def compare_high_rows(candidate, reference, expected_dates=None):
     }
 
 
-def nearby_history_audit(spec, canonical_sources, expected_period, expected_season, registry=None):
+def nearby_history_audit(
+    spec,
+    canonical_sources,
+    expected_period,
+    expected_season,
+    registry=None,
+    validation_report=None,
+):
     canonical_ghcnh_dates = daily_dates_from_csv(source_daily_summary_path("ghcnh", spec))
     wu_highs = daily_value_rows_from_csv(source_daily_summary_path("wu", spec))
     metar_highs = daily_value_rows_from_csv(source_daily_summary_path("metar", spec))
     supplemental_sources = []
     supplemental_dates_union = set()
+    eligible_supplemental_dates_union = set()
     for source in supplemental_ghcnh_sources(spec, registry=registry):
         guard_not_canonical_root(source, spec)
         root = source_root(source)
@@ -705,6 +719,15 @@ def nearby_history_audit(spec, canonical_sources, expected_period, expected_seas
         added_period = sorted((dates - canonical_ghcnh_dates) & set(expected_period))
         added_season = sorted((dates - canonical_ghcnh_dates) & set(expected_season))
         supplemental_dates_union |= dates
+        promotion_gate = promotion_gate_for_source(
+            source,
+            validation_report=validation_report,
+            validation_path=DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
+            intended_start=min(expected_period) if expected_period else None,
+            intended_end=max(expected_period) if expected_period else None,
+        )
+        if promotion_gate.get("ok"):
+            eligible_supplemental_dates_union |= dates
         supplemental_sources.append({
             "source": "ghcnh_supplemental",
             "source_type": source.get("source_type"),
@@ -725,6 +748,10 @@ def nearby_history_audit(spec, canonical_sources, expected_period, expected_seas
                 else station_distance_km(spec, station)
             ),
             "validation_status": source.get("validation_status"),
+            "promotion_state": promotion_gate.get("promotion_state"),
+            "promotion_gate": promotion_gate,
+            "eligible_for_training": promotion_gate.get("eligible_for_training"),
+            "eligible_for_source_trust_features": promotion_gate.get("eligible_for_source_trust_features"),
             "adopted_date_windows": source.get("adopted_date_windows"),
             "reason_for_adoption": source.get("reason_for_adoption"),
             "daily_days": len(dates),
@@ -742,20 +769,31 @@ def nearby_history_audit(spec, canonical_sources, expected_period, expected_seas
                 "target_season": compare_high_rows(highs, metar_highs, expected_season),
             },
         })
-    composite_dates = canonical_ghcnh_dates | supplemental_dates_union
+    composite_dates = canonical_ghcnh_dates | eligible_supplemental_dates_union
     composite = {
-        "source": "ghcnh_canonical_plus_supplemental",
+        "source": "ghcnh_canonical_plus_validated_supplemental",
         "period": coverage_for_dates(composite_dates, expected_period),
         "target_season": coverage_for_dates(composite_dates, expected_season),
         "canonical_target_season_days": (
             (canonical_sources.get("ghcnh") or {}).get("target_season") or {}
         ).get("covered_days"),
-        "supplemental_target_season_added_days": len((supplemental_dates_union - canonical_ghcnh_dates) & set(expected_season)),
+        "supplemental_target_season_added_days": len(
+            (eligible_supplemental_dates_union - canonical_ghcnh_dates) & set(expected_season)
+        ),
+        "candidate_supplemental_target_season_added_days": len(
+            (supplemental_dates_union - canonical_ghcnh_dates) & set(expected_season)
+        ),
     }
     return {
         "supplemental_sources": supplemental_sources,
         "composite": composite,
-        "usefulness": "useful_if_validated" if supplemental_sources else "not_evaluated",
+        "usefulness": (
+            "validated_supplemental_available"
+            if eligible_supplemental_dates_union
+            else "blocked_until_validated"
+            if supplemental_sources
+            else "not_evaluated"
+        ),
     }
 
 
@@ -778,7 +816,7 @@ def historical_source_audit(spec, source, expected_period, expected_season):
     return row
 
 
-def historical_audit(start, end, registry=None):
+def historical_audit(start, end, registry=None, validation_report=None):
     expected_period = list(iter_dates(start, end))
     expected_season = season_dates(start, end)
     markets = []
@@ -787,7 +825,14 @@ def historical_audit(start, end, registry=None):
             source: historical_source_audit(spec, source, expected_period, expected_season)
             for source in ("wu", "metar", "ghcnh", "reanalysis")
         }
-        nearby_history = nearby_history_audit(spec, sources, expected_period, expected_season, registry=registry)
+        nearby_history = nearby_history_audit(
+            spec,
+            sources,
+            expected_period,
+            expected_season,
+            registry=registry,
+            validation_report=validation_report,
+        )
         markets.append({
             "market_id": spec.id,
             "city": spec.city_label,
@@ -803,6 +848,7 @@ def historical_audit(start, end, registry=None):
         "target_season_expected_days": len(expected_season),
         "target_season_window": "May 20 through June 30 each year",
         "markets": markets,
+        "canonical_guardrails": canonical_guardrail_report(registry=registry),
     }
 
 
@@ -1049,6 +1095,51 @@ def build_gates(snapshot, historical, thresholds=None):
         f"{quarantined} raw observations are quarantined by source manifests.",
         threshold=f"<= {thresholds['max_quarantined_impossible_observations']}",
         action="Review quarantines and data-auditor output; do not train on impossible raw rows.",
+    ))
+
+    supplemental_rows = []
+    for market in historical.get("markets") or []:
+        nearby = market.get("nearby_history") or {}
+        for source_row in nearby.get("supplemental_sources") or []:
+            supplemental_rows.append((market, source_row))
+    if supplemental_rows:
+        blocked = [
+            (market, source_row)
+            for market, source_row in supplemental_rows
+            if not ((source_row.get("promotion_gate") or {}).get("ok"))
+        ]
+        blocked_sample = ", ".join(
+            f"{market.get('market_id')}:{source_row.get('source_id')}"
+            for market, source_row in blocked[:6]
+        )
+        gates.append(gate(
+            "supplemental_station_validation",
+            "fail",
+            not blocked,
+            (
+                f"{len(supplemental_rows) - len(blocked)}/{len(supplemental_rows)} "
+                "registered supplemental nearby stations are validation-promoted"
+                + (f"; blocked sample: {blocked_sample}." if blocked_sample else ".")
+            ),
+            threshold="promotion_state == validated_supplemental with a current artifact",
+            action=(
+                "Run supplemental_station_validation and keep blocked nearby sources out of "
+                "training/source-trust features until their validation gates pass."
+            ),
+        ))
+
+    canonical_guardrails = historical.get("canonical_guardrails") or {}
+    canonical_violation_count = int((canonical_guardrails.get("summary") or {}).get("violation_count") or 0)
+    gates.append(gate(
+        "canonical_history_provenance",
+        "fail",
+        canonical_violation_count == 0,
+        f"{canonical_violation_count} canonical history provenance/station violations detected.",
+        threshold="0 violations",
+        action=(
+            "Keep supplemental station rows out of canonical daily summaries; rebuild canonical roots "
+            "from the registered canonical station and use explicit composite views for blended coverage."
+        ),
     ))
     return gates
 
@@ -1303,13 +1394,19 @@ def build_audit(
     historical_start=None,
     historical_end=None,
     thresholds=None,
+    supplemental_validation_path=DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
 ):
     historical_start = historical_start or date(1995, 5, 20)
     historical_end = historical_end or datetime.now(TORONTO_TZ).date()
     loop = loop_summary(interval_minutes=interval_minutes)
     clob_loop = clob_loop_summary(interval_seconds=60.0)
     snapshot = snapshot_audit(snapshots_root, interval_minutes=interval_minutes, tolerance=tolerance)
-    historical = historical_audit(historical_start, historical_end)
+    supplemental_validation = load_validation_report(supplemental_validation_path)
+    historical = historical_audit(
+        historical_start,
+        historical_end,
+        validation_report=supplemental_validation,
+    )
     historical_gap_investigation = latest_source_alternate_probe(backtest_root)
     gates = build_gates(snapshot, historical, thresholds=thresholds)
     payload = {
@@ -1321,6 +1418,11 @@ def build_audit(
         "snapshots": snapshot,
         "historical": historical,
         "historical_gap_investigation": historical_gap_investigation,
+        "supplemental_station_validation": supplemental_validation or {
+            "schema_version": None,
+            "artifact_path": str(supplemental_validation_path) if supplemental_validation_path else None,
+            "loaded": False,
+        },
         "gates": gates,
         "gate_summary": gate_summary(gates),
         "gate_thresholds": {**DEFAULT_AUDIT_THRESHOLDS, **(thresholds or {})},
@@ -1380,7 +1482,7 @@ def _nearby_composite_rows(historical):
         period = composite.get("period") or {}
         rows.append([
             market.get("market_id"),
-            "ghcnh canonical + supplemental",
+            "ghcnh canonical + validated supplemental",
             len(supplemental),
             composite.get("supplemental_target_season_added_days"),
             f"{season.get('covered_days', 0)}/{season.get('expected_days', 0)}",
@@ -1399,6 +1501,7 @@ def _nearby_source_rows(historical):
         for item in nearby.get("supplemental_sources") or []:
             wu_season = ((item.get("bias_vs_wu") or {}).get("target_season") or {})
             metar_season = ((item.get("bias_vs_metar") or {}).get("target_season") or {})
+            promotion_gate = item.get("promotion_gate") or {}
             rows.append([
                 market.get("market_id"),
                 item.get("source_id"),
@@ -1406,6 +1509,8 @@ def _nearby_source_rows(historical):
                 item.get("station_name") or "-",
                 fmt_num(item.get("distance_km"), 2),
                 item.get("validation_status") or "-",
+                item.get("promotion_state") or "-",
+                promotion_gate.get("status") or "-",
                 "; ".join(
                     f"{window.get('start')}..{window.get('end')}"
                     for window in item.get("adopted_date_windows") or []
@@ -1418,6 +1523,7 @@ def _nearby_source_rows(historical):
                 metar_season.get("days") or "-",
                 fmt_num(metar_season.get("mae"), 3),
                 _fmt_pct(metar_season.get("bucket_match_rate")),
+                promotion_gate.get("reason") or "-",
                 item.get("reason_for_adoption") or "-",
                 item.get("path"),
             ])
@@ -1598,10 +1704,10 @@ def write_report(path, payload):
             lines += markdown_table(
                 [
                     "Market", "Source ID", "Station", "Name", "Distance Km",
-                    "Validation", "Adopted Windows", "Season Added",
+                    "Validation", "Promotion", "Gate", "Adopted Windows", "Season Added",
                     "Daily Rows", "WU Days", "WU MAE", "WU Bucket Match",
                     "METAR Days", "METAR MAE", "METAR Bucket Match",
-                    "Reason", "Path",
+                    "Gate Reason", "Reason", "Path",
                 ],
                 nearby_source_rows,
             )
@@ -1684,6 +1790,11 @@ def main(argv=None):
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--historical-start", default="1995-05-20")
     parser.add_argument("--historical-end", default="")
+    parser.add_argument(
+        "--supplemental-validation",
+        default=str(DEFAULT_SUPPLEMENTAL_VALIDATION_OUT),
+        help="Supplemental nearby station validation JSON artifact.",
+    )
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--strict", action="store_true", help="Exit 2 when any audit gate fails.")
@@ -1697,6 +1808,7 @@ def main(argv=None):
         tolerance=args.tolerance,
         historical_start=parse_date(args.historical_start),
         historical_end=parse_date(args.historical_end),
+        supplemental_validation_path=Path(args.supplemental_validation) if args.supplemental_validation else None,
     )
     out_path = write_json(args.out, payload)
     report_path = write_report(args.report, payload)

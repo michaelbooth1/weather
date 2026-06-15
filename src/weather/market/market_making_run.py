@@ -87,6 +87,7 @@ SCHEMA_VERSION = "mm_run_v0.2"
 RUN_MODES = {"shadow", "paper-live-forward", "live-pilot"}
 DEFAULT_RUNS_ROOT = Path("data") / "mm_runs"
 DEFAULT_QUOTE_TTL_SECONDS = 120.0
+DEFAULT_DATA_LAYER_AUDIT = Path("data") / "backtest" / "data_layer_audit.json"
 
 RUN_EXTRA_COLUMNS = [
     "run_id",
@@ -399,6 +400,7 @@ def preflight_market(
     live_ready=False,
     live_confirmed=False,
     pilot=False,
+    data_layer_live_gate=None,
 ):
     gates = []
     blockers = []
@@ -443,6 +445,14 @@ def preflight_market(
     add_gate("observation_trigger", bool(observation.get("fresh")), "stale", observation.get("reason") or "observation watcher is stale")
     add_gate("promotion_state", bool(promotion.get("promotion_state")), "missing", "missing promotion state")
     add_gate("reward_metadata", reward_metadata.get("available"), "missing", "missing min-order-size or tick-size metadata")
+    data_layer_live_gate = data_layer_live_gate or {"required": False, "ok": True}
+    if data_layer_live_gate.get("required"):
+        add_gate(
+            "data_layer_live_gate",
+            bool(data_layer_live_gate.get("ok")),
+            "missing",
+            data_layer_live_gate.get("reason") or "latest data-layer audit does not prove live CLOB artifacts",
+        )
 
     live_gate = {
         "required": mode == "live-pilot",
@@ -495,6 +505,7 @@ def preflight_market(
         "promotion_action": promotion.get("action"),
         "reward_metadata": reward_metadata,
         "live_gate": live_gate,
+        "data_layer_live_gate": data_layer_live_gate,
     }
 
 
@@ -1121,6 +1132,66 @@ def load_live_readiness(path):
     }
 
 
+def load_data_layer_live_gate(path, target_date, mode):
+    required = mode == "live-pilot"
+    if not required:
+        return {"required": False, "ok": True, "reason": "not required outside live-pilot"}
+    path = Path(path) if path else None
+    if path is None:
+        return {"required": True, "ok": False, "path": None, "reason": "no data-layer audit path provided"}
+    if not path.exists():
+        return {"required": True, "ok": False, "path": str(path), "reason": "data-layer audit artifact missing"}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        return {"required": True, "ok": False, "path": str(path), "reason": f"invalid data-layer audit JSON: {exc}"}
+    snapshots = payload.get("snapshots") or {}
+    clob = snapshots.get("clob_features") or {}
+    target_text = ensure_date(target_date).isoformat()
+    target_folders = [
+        row for row in snapshots.get("folders") or []
+        if row.get("target_date") == target_text
+    ]
+    target_token_days = sum(
+        1 for row in target_folders
+        if int(row.get("rows_with_market_token_ids") or 0) > 0
+    )
+    target_clob_feature_days = sum(
+        1 for row in target_folders
+        if ((row.get("artifact_presence") or {}).get("clob_features"))
+    )
+    target_book_available_days = sum(
+        1 for row in target_folders
+        if int(((row.get("clob_features") or {}).get("book_available_rows")) or 0) > 0
+    )
+    checks = {
+        "has_market_token_ids": bool(snapshots.get("has_market_token_ids")),
+        "clob_feature_rows": int(clob.get("row_count") or 0) > 0,
+        "clob_book_available_rows": int(clob.get("book_available_rows") or 0) > 0,
+        "target_date_folder_present": bool(target_folders),
+        "target_date_token_ids": target_token_days > 0,
+        "target_date_clob_features": target_clob_feature_days > 0,
+        "target_date_book_available": target_book_available_days > 0,
+    }
+    missing = [name for name, ok in checks.items() if not ok]
+    return {
+        "required": True,
+        "ok": not missing,
+        "path": str(path),
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "gate_summary_status": (payload.get("gate_summary") or {}).get("status"),
+        "target_date": target_text,
+        "checks": checks,
+        "missing": missing,
+        "reason": "ok" if not missing else "data-layer audit missing live CLOB proof: " + ", ".join(missing),
+        "target_date_folder_count": len(target_folders),
+        "target_date_token_days": target_token_days,
+        "target_date_clob_feature_days": target_clob_feature_days,
+        "target_date_book_available_days": target_book_available_days,
+    }
+
+
 REMEDIATION_RULES = {
     "active_event": {
         "root_cause": "missing_active_event",
@@ -1210,6 +1281,13 @@ REMEDIATION_RULES = {
         "root_cause": "live_gate_blocked",
         "owner": "live account/platform readiness",
         "suggested_command": "review live-readiness JSON and run cancel-all probe",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
+    "data_layer_live_gate": {
+        "root_cause": "data_layer_live_gate_blocked",
+        "owner": "data-layer audit / CLOB capture",
+        "suggested_command": "python -m src.data_layer_audit --fleet --json",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -1494,6 +1572,7 @@ def build_run_once(
     pilot=False,
     confirm_live_orders=False,
     append=False,
+    data_layer_audit_path=DEFAULT_DATA_LAYER_AUDIT,
 ):
     mode = normalize_mode(mode)
     now = utc_now(now)
@@ -1511,6 +1590,7 @@ def build_run_once(
     observation = load_observation_status(observation_status_path, now=now, config=policy_config)
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
+    data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
 
     run_config = build_run_config_payload(
         run_id,
@@ -1556,6 +1636,7 @@ def build_run_once(
             live_ready=live_ready,
             live_confirmed=confirm_live_orders,
             pilot=pilot,
+            data_layer_live_gate=data_layer_live_gate,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -1614,6 +1695,7 @@ def build_run_once(
         "known_edge_map": known_edge_diag,
         "observation_status": observation,
         "live_readiness": live_readiness,
+        "data_layer_live_gate": data_layer_live_gate,
         "markets": preflight_rows,
     }
     remediation_path = run_folder / "preflight_remediation.json"
@@ -1763,6 +1845,7 @@ def main(argv=None):
     parser.add_argument("--pilot", action="store_true", help="Required for live-pilot mode.")
     parser.add_argument("--confirm-live-orders", action="store_true", help="Required for live-pilot mode.")
     parser.add_argument("--live-readiness", default=None, help="JSON file proving live account/platform gates.")
+    parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT), help="Latest data-layer audit JSON for live-pilot CLOB artifact gating.")
     parser.add_argument("--once", action="store_true", help="For paper-live-forward, run one tick instead of looping.")
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument("--until-utc", default=None)
@@ -1780,6 +1863,7 @@ def main(argv=None):
         "run_id": args.run_id,
         "policy_config": parse_config_overrides(args.config),
         "live_readiness_path": args.live_readiness,
+        "data_layer_audit_path": Path(args.data_layer_audit) if args.data_layer_audit else None,
         "pilot": args.pilot,
         "confirm_live_orders": args.confirm_live_orders,
     }

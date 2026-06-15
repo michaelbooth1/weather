@@ -7,6 +7,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.abspath("src"))
 
 from toronto_model import TorontoHighTempModel, TORONTO_TZ, _UNLOADED
+from model_distribution import DistributionPipelineState
 
 
 def _wu_row(time, temp, dew=10.0, hum=60.0, press=1015.0,
@@ -129,10 +130,40 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertEqual(model["model_explanation"]["feature_cutoff_hour"], 13)
         self.assertEqual(model["model_explanation"]["latest_wu_history_time"], "13:00")
 
+    def test_distribution_pipeline_state_payload_matches_returned_distribution(self):
+        rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), _wu_row("14:00", 22.0)]
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+
+        dist = self.model.estimate_distribution(_sources(rows, 22.0), now=now)
+
+        payload = self.model._last_distribution_components
+        self.assertIsInstance(self.model._last_distribution_pipeline_state, DistributionPipelineState)
+        self.assertEqual(payload["schema_version"], "toronto_distribution_components_v0.1")
+        self.assertEqual(payload["cutoff_hour"], 14)
+        self.assertEqual(payload["latest_wu_history_time"], "14:00")
+        self.assertEqual(payload["components"]["final_model"], dist)
+        self.assertIn("climatology_prior", payload["components"])
+        self.assertIn("post_live_signals", payload["components"])
+
 
 class TestDistributionHelpers(unittest.TestCase):
     def setUp(self):
         self.model = TorontoHighTempModel(target_date="2026-05-29")
+
+    def test_pipeline_state_records_named_snapshots_and_metadata(self):
+        state = DistributionPipelineState()
+
+        state.snapshot("raw", {20: 2.0})
+        state.snapshot_normalized("normalized", {20: 1.0, 21: 1.0}, self.model.normalize_scores)
+        state.update_metadata(cutoff_hour=14, active_model_kind="empirical")
+        payload = state.payload()
+
+        self.assertEqual(payload["schema_version"], "toronto_distribution_components_v0.1")
+        self.assertEqual(payload["cutoff_hour"], 14)
+        self.assertEqual(payload["active_model_kind"], "empirical")
+        self.assertEqual(payload["components"]["raw"], {20: 2.0})
+        self.assertAlmostEqual(payload["components"]["normalized"][20], 0.5)
+        self.assertAlmostEqual(payload["components"]["normalized"][21], 0.5)
 
     def test_blend_distribution_is_convex_combination(self):
         out = self.model.blend_distribution({20: 1.0}, {22: 1.0}, 0.5)
@@ -166,6 +197,76 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertAlmostEqual(scores[20], 0.001)
         self.assertAlmostEqual(scores[21], 0.001)
         self.assertAlmostEqual(scores[22], 1.0)
+
+    def test_feature_model_live_signal_stage_clusters_peak_sources(self):
+        signals = self.model.distribution_live_signals(
+            using_feature_model=True,
+            using_calibrated_empirical=False,
+            hour=14,
+            history_max=24.0,
+            current_temp=24.0,
+            current_max=24.0,
+            eccc_max=25.0,
+            metar_live_signal=(26.0, 0.3, 0.9),
+            weather_forecast_max=27.2,
+            open_meteo_max=26.6,
+            nws_forecast_max=None,
+            global_ensemble_max=None,
+            eccc_forecast_high=26.0,
+            observed_bucket=24,
+        )
+
+        self.assertEqual(signals[0], (27.2, 1.6, 1.0))
+        self.assertEqual(signals[1], (25.0, 0.6, 0.8))
+        self.assertEqual(signals[2], (26.0, 0.5, 1.2))
+
+    def test_calibrated_empirical_live_signal_stage_is_minimal(self):
+        signals = self.model.distribution_live_signals(
+            using_feature_model=False,
+            using_calibrated_empirical=True,
+            hour=15,
+            history_max=24.0,
+            current_temp=25.0,
+            current_max=26.0,
+            eccc_max=25.3,
+            metar_live_signal=None,
+            weather_forecast_max=27.0,
+            open_meteo_max=27.0,
+            nws_forecast_max=27.0,
+            global_ensemble_max=27.0,
+            eccc_forecast_high=27.0,
+            observed_bucket=24,
+        )
+
+        self.assertEqual(len(signals), 3)
+        self.assertEqual(signals[0], (24.0, self.model.history_signal_weight(15), 0.65))
+        self.assertEqual(signals[1], (25, 0.6, 0.9))
+        self.assertEqual(signals[2], (None, 0.0, 0.90))
+
+    def test_empirical_live_signal_stage_keeps_independent_sources(self):
+        signals = self.model.distribution_live_signals(
+            using_feature_model=False,
+            using_calibrated_empirical=False,
+            hour=12,
+            history_max=22.0,
+            current_temp=23.0,
+            current_max=24.0,
+            eccc_max=23.4,
+            metar_live_signal=(23.0, 0.2, 0.9),
+            weather_forecast_max=25.0,
+            open_meteo_max=25.4,
+            nws_forecast_max=26.1,
+            global_ensemble_max=24.7,
+            eccc_forecast_high=25.0,
+            observed_bucket=22,
+        )
+
+        self.assertEqual(len(signals), 10)
+        self.assertEqual(signals[0], (22.0, self.model.history_signal_weight(12), 0.65))
+        self.assertEqual(signals[1], (23.0, 1.8, 0.65))
+        self.assertEqual(signals[2], (24.0, 2.3, 0.75))
+        self.assertEqual(signals[4], (23.0, 0.2, 0.9))
+        self.assertEqual(signals[-1], (25.0, 0.5, 1.2))
 
     def test_effective_cutoff_uses_first_trained_hour_when_only_pre_cutoff_rows_printed(self):
         now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)

@@ -110,6 +110,62 @@ class TestApplyLateDayLockin(unittest.TestCase):
         self.assertAlmostEqual(out[24] / out[25], 0.2 / 0.4)
 
 
+class TestLateDayContinuationBlend(unittest.TestCase):
+    def test_feature_path_blends_late_day_continuation_tail(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        model.calibrated_weights = None
+        model.probability_calibration = None
+        model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
+            {20: 0.70, 21: 0.20, 22: 0.10},
+            "hgb",
+        )
+        model.predict_late_day_continuation = lambda sources, cutoff_hour, now: {
+            "active": True,
+            "continuation_probability": 0.85,
+        }
+        sources = {
+            "local_history": {
+                "ok": True,
+                "data": {
+                    "available": True,
+                    "analysis": {
+                        "target_window_count": 100,
+                        "bucket_probabilities": {"20": 0.50, "21": 0.30, "22": 0.20},
+                    },
+                },
+            },
+            "wu_history": {
+                "ok": True,
+                "data": {"max_c": 20.0, "rows": [{"time": "15:00", "temp_c": 20.0}]},
+            },
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0, "max_since_7am_c": 20.0}},
+            "eccc_swob": {"ok": True, "data": {}},
+            "eccc_citypage": {"ok": True, "data": {}},
+            "metar": {"ok": True, "data": {}},
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "open_meteo": {"ok": True, "data": {"rows": []}},
+        }
+
+        model.estimate_distribution(sources, now=datetime(2026, 5, 28, 15, 30))
+        components = model._last_distribution_components["components"]
+        before_tail = sum(
+            probability
+            for bucket, probability in components["wu_floor_residual"].items()
+            if bucket > 20
+        )
+        after_tail = sum(
+            probability
+            for bucket, probability in components["late_day_continuation_blend"].items()
+            if bucket > 20
+        )
+
+        self.assertGreater(after_tail, before_tail)
+        self.assertEqual(
+            model._last_distribution_components["late_day_continuation"]["continuation_probability"],
+            0.85,
+        )
+
+
 class TestHighHasStoodLockin(unittest.TestCase):
     def setUp(self):
         self.m = TorontoHighTempModel(target_date="2026-06-15", market_id="miami")

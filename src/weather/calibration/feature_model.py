@@ -25,6 +25,10 @@ from feature_store import (
     NATIVE_NAN_FEATURE_COLUMNS,
     build_historical_feature_record,
 )
+from feature_probability_calibration import (
+    fit_temperature_blend_grid,
+    temperature_scale_distribution,
+)
 
 # LOO must stay ON: without it the retrain exports artifacts with no
 # validation report AND flat 0.80 blend weights (the per-hour tuning only runs
@@ -32,7 +36,7 @@ from feature_store import (
 # the 45-year model unvalidated -- the 2026-06-09 audit's finding #6.
 RUN_LOO = True
 FEATURE_MODEL_COEFS_SCHEMA_VERSION = "feature_model_coefs_v0.1"
-FEATURE_MODEL_HGB_SCHEMA_VERSION = "feature_model_hgb_v0.1"
+FEATURE_MODEL_HGB_SCHEMA_VERSION = "feature_model_hgb_v0.2"
 LATE_DAY_MODEL_SCHEMA_VERSION = "late_day_model_coefs_v0.1"
 
 # Intra-hour wall offsets (item 40). Each (day, cutoff hour) trains at ONE
@@ -146,6 +150,11 @@ FEATURE_FAMILIES = {
         "pressure",
         "pressure_trend_3h",
         "wind_speed_kmh",
+    ],
+    "microclimate": [
+        "onshore_flow",
+        "onshore_wind_speed_kmh",
+        "lake_breeze_proxy",
     ],
     "forecast": [
         *FORECAST_FEATURE_COLUMNS,
@@ -703,6 +712,7 @@ def main(market_id="toronto"):
                 forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
+                microclimate_feature_fn=model.microclimate_features,
                 wall_minute=hour * 60 + offset,
             )
             if record:
@@ -731,6 +741,7 @@ def main(market_id="toronto"):
     overall_cc = {"baseline": [], "lr": [], "hgb": [], "hgb_tuned": []}
     # Per-hour climatology<->HGB blend weight, grid-searched by LOO log loss.
     tuned_blend_weight = {}
+    tuned_probability_temperature = {}
     calibration_rows = []
     ablation_rows = []
 
@@ -963,18 +974,23 @@ def main(market_id="toronto"):
             overall_cc["lr"].extend(cc_lr)
             overall_cc["hgb"].extend(cc_hgb)
 
-            # Grid-search the climatology<->HGB blend weight that minimizes LOO
-            # log loss for this hour. 0.80 (the old hardcoded value) is in the
-            # grid, so the tuned weight can never be worse on log loss.
+            # Grid-search the HGB probability temperature plus the
+            # climatology<->HGB blend weight that minimizes LOO log loss for
+            # this hour. temperature=1.00 and weight=0.80 (the old behavior)
+            # are in the grids, so the tuned pair can never be worse on log loss.
             WEIGHT_GRID = [0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.97]
-            best_w, best_w_ll = 0.80, float("inf")
-            for w in WEIGHT_GRID:
-                ll_w = np.mean([log_loss(blend(pc.copy(), hd, w), ya)
-                                for pc, hd, ya in hgb_fold_data])
-                if ll_w < best_w_ll - 1e-9:
-                    best_w_ll, best_w = ll_w, w
+            calibration = fit_temperature_blend_grid(
+                hgb_fold_data,
+                blend_weights=WEIGHT_GRID,
+            )
+            best_t = calibration["temperature"]
+            best_w = calibration["blend_weight"]
             tuned_blend_weight[str(hour)] = best_w
-            tuned_blended = [(blend(pc.copy(), hd, best_w), ya) for pc, hd, ya in hgb_fold_data]
+            tuned_probability_temperature[str(hour)] = best_t
+            tuned_blended = [
+                (blend(pc.copy(), temperature_scale_distribution(hd, best_t), best_w), ya)
+                for pc, hd, ya in hgb_fold_data
+            ]
             tuned_ll = np.mean([log_loss(pb, ya) for pb, ya in tuned_blended])
             tuned_brier = np.mean([brier_score(pb, ya) for pb, ya in tuned_blended])
             tuned_cc = [(pb[max(pb, key=pb.get)], 1.0 if max(pb, key=pb.get) == ya else 0.0)
@@ -983,7 +999,7 @@ def main(market_id="toronto"):
             hour_ece_fixed = expected_calibration_error(cc_hgb)
             hour_ece_tuned = expected_calibration_error(tuned_cc)
             calibration_rows.append(
-                f"| {hour:02d}:00 | {best_w:.2f} | {hgb_ll:.4f} | {tuned_ll:.4f} | "
+                f"| {hour:02d}:00 | {best_t:.2f} | {best_w:.2f} | {hgb_ll:.4f} | {tuned_ll:.4f} | "
                 f"{hgb_ll - tuned_ll:+.4f} | {hour_ece_fixed:.4f} | {hour_ece_tuned:.4f} |"
             )
             for family in sorted(feature_families):
@@ -1056,7 +1072,12 @@ def main(market_id="toronto"):
             "feature_names": feature_cols,
             "all_wind_groups": all_wind_groups,
             "all_cloud_groups": all_cloud_groups,
-            "blend_weight": tuned_blend_weight.get(str(hour), 0.80)
+            "blend_weight": tuned_blend_weight.get(str(hour), 0.80),
+            "probability_temperature": tuned_probability_temperature.get(str(hour), 1.0),
+            "probability_calibration": {
+                "method": "temperature",
+                "temperature": tuned_probability_temperature.get(str(hour), 1.0),
+            },
         }
         
     # Write coefficients json (per-unit artifact: '' for C, '_f' for F)
@@ -1095,11 +1116,13 @@ def main(market_id="toronto"):
         # Per-hour blend-weight calibration table.
         report_lines.append("\n## HGB climatology-blend calibration (tuned by LOO log loss)\n")
         report_lines.append(
-            "Blend weight = fraction on the HGB prediction vs the climatology prior. "
-            "Previously hardcoded at 0.80 for every hour and ignored at inference; now "
-            "grid-searched per hour and read from the model bundle.\n")
-        report_lines.append("| Cutoff | Tuned w | LogLoss @0.80 | LogLoss @tuned | Delta | ECE @0.80 | ECE @tuned |")
-        report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            "Temperature is multiclass probability-temperature scaling applied "
+            "to the raw HGB distribution before blending. Blend weight = fraction "
+            "on the calibrated HGB prediction vs the climatology prior. The legacy "
+            "temperature=1.00 / weight=0.80 pair remains in the grid; the selected "
+            "pair is stored in the serving bundle.\n")
+        report_lines.append("| Cutoff | Temperature | Tuned w | LogLoss legacy | LogLoss tuned | Delta | ECE legacy | ECE tuned |")
+        report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         report_lines.extend(calibration_rows)
 
         # Overall calibration (ECE) across all cutoff hours.

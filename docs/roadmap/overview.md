@@ -71,12 +71,16 @@ Can be done now, in implementation order:
    gauntlet-proven with per-market activation caveats documented. Item 60 is
    complete: range-band endpoints, replay compatibility, latest-row
    diagnostics, and stale-code collector guards are live.
-10. [partial] Items 61-64: turn the 2026-06-15 historical/nearby-station audit
+10. [done] Items 61-64: turn the 2026-06-15 historical/nearby-station audit
     into provenance-safe follow-up work. Item 61 is complete: registered
     supplemental station roots now carry source id, station provenance,
     distance, adopted windows, and canonical-plus-supplemental audit coverage.
-    Items 62-64 still own validation gates, source-trust feature integration,
-    and stronger canonical-history guardrails.
+    Item 62 is complete: supplemental station validation artifacts, promotion
+    states, and fail-closed audit gates are live. Item 63 is complete:
+    validated nearby rows now feed historical-only source-trust/redundancy
+    features without changing settlement labels or live-serving columns. Item
+    64 is complete: canonical history provenance guardrails and explicit
+    composite GHCNh views are live.
 
 Blocked or gated:
 
@@ -94,9 +98,6 @@ Blocked or gated:
 - Item 27, item 32, and the infrastructure families in item 50 are blocked from
   promotion until their historical/archive coverage exists and they pass
   replay-safe validation.
-- Items 62-64 are the remaining path for nearby-station data: validation gates
-  first, feature integration second, and stronger canonical-history guardrails
-  throughout. Item 61 has established the registry/provenance base.
 - Any feature or quote mode that relies on live-only data remains blocked from
   promotion until matching historical or live-forward evidence exists.
 - The Miami 2026-06-15 92-93 F audit package is closed by items 58-60:

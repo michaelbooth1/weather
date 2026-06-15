@@ -9,8 +9,9 @@ import csv
 import math
 from pathlib import Path
 
+from weather.schema_registry import schema_version
 
-WU_DAILY_SCHEMA_VERSION = "wu_daily_native_v2"
+WU_DAILY_SCHEMA_VERSION = schema_version("wu_daily")
 
 
 def to_float(value):

@@ -1,4 +1,4 @@
-# 37. MLOps And Always-On Production Hardening [PARTIAL 2026-06-15 - LIVE-FORWARD SLO GATE READY]
+# 37. MLOps And Always-On Production Hardening [PARTIAL 2026-06-15 - LIVE-FORWARD SLO + ARTIFACT REGISTRY READY]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
@@ -33,8 +33,8 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [ ] Isolate or throttle long replay/refresh jobs so active-day CLOB book
   capture stays inside the generated strict cadence threshold while live-forward
   evidence is being collected.
-- [ ] Model/artifact registry + versioning; scheduled nightly
-  retrain -> validate -> promote.
+- [x] Model/artifact registry + versioning.
+- [ ] Scheduled nightly retrain -> validate -> promote.
 - [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
   market.
 - [x] Clean supervised always-on capture (closes item 16); one market's failure
@@ -119,3 +119,16 @@ after all source artifacts have been regenerated, and
 evaluation status is `FAIL`. Focused coverage lives in
 `tests/reporting/test_snapshot_evaluation.py` and
 `tests/operations/test_daily_refresh.py`.
+
+Artifact-registry update (2026-06-15 UTC): `weather.artifacts` now writes a
+versioned model/calibration artifact registry (`model_artifact_registry_v0.1`)
+with artifact ids, paths, kind, bytes, SHA-256 fingerprint, modified time, and
+JSON-extracted schema/feature/model schema versions. The compatibility command
+`python -m src.artifacts registry` writes
+`artifacts/manifests/model_artifact_registry.json`; the current run fingerprinted
+93 artifacts (`calibration=51`, `coefs_model=24`, `hgb_model=17`,
+`manifest=1`). This completes the artifact registry/versioning part of the
+roadmap bullet, but the scheduled retrain -> validate -> promote loop remains
+open. Focused tests: `tests\test_artifacts.py` and
+`tests\operations\test_schema_registry.py` pass; strict schema audit reports
+`66` registered schemas, `125` discovered literals, and `0` unregistered.

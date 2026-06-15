@@ -31,9 +31,10 @@ from weather.reporting import promotion_refresh
 from weather.reporting import snapshot_evaluation
 from weather.market.market_registry import all_specs
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "daily_refresh_v0.4"
+SCHEMA_VERSION = schema_version("daily_refresh")
 DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"

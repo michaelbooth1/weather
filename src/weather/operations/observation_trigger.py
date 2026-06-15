@@ -26,10 +26,11 @@ from runtime_identity import get_runtime_identity
 from snapshot_tracker import capture_snapshot, pid_is_python
 from toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "observation_trigger_v0.1"
-REPLAY_SCHEMA_VERSION = "observation_trigger_replay_v0.1"
+SCHEMA_VERSION = schema_version("observation_trigger")
+REPLAY_SCHEMA_VERSION = schema_version("observation_trigger_replay")
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_FAST_STALE_SECONDS = 180.0
 DEFAULT_SUPPORT_MARGIN = 0.5
