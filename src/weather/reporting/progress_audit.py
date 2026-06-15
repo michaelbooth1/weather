@@ -28,6 +28,7 @@ DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_ROADMAP = Path("docs") / "roadmap" / "ROADMAP.md"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "progress_audit.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "progress_audit_report.md"
+ROADMAP_CORPUS_EXCLUDES = {"codebase-organization-audit.md"}
 
 POOLED_REPLAY_FILES = [
     ("pooled_v0_1", "pooled_candidate_replay.json"),
@@ -46,6 +47,42 @@ def read_text(path):
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def iter_roadmap_corpus_paths(path):
+    """Yield the markdown files that make up the split roadmap corpus."""
+    path = Path(path)
+    if path.is_dir():
+        candidates = sorted(path.rglob("*.md"))
+    elif path.name.lower() == "roadmap.md":
+        candidates = [path]
+        if path.parent.exists():
+            candidates.extend(
+                child
+                for child in sorted(path.parent.rglob("*.md"))
+                if child != path
+            )
+    else:
+        candidates = [path]
+
+    seen = set()
+    for candidate in candidates:
+        if candidate.name in ROADMAP_CORPUS_EXCLUDES:
+            continue
+        key = candidate.resolve() if candidate.exists() else candidate
+        if key in seen:
+            continue
+        seen.add(key)
+        yield candidate
+
+
+def read_roadmap_corpus_text(path):
+    parts = []
+    for roadmap_file in iter_roadmap_corpus_paths(path):
+        text = read_text(roadmap_file)
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
 
 
 def read_json(path, default=None):
@@ -199,7 +236,7 @@ def parse_backtest_report(path):
 
 
 def parse_roadmap_baselines(path):
-    text = read_text(path)
+    text = read_roadmap_corpus_text(path)
     number = r"([+-]?\d+(?:\.\d+)?)"
     baselines = {
         "path": str(path),

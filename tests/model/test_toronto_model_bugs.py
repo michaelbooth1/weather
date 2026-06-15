@@ -74,6 +74,113 @@ class TestLiveSourcesPreserveWuHistory(unittest.TestCase):
         )
 
 
+class TestSourceTargetDateFiltering(unittest.TestCase):
+    def setUp(self):
+        self.model = TorontoHighTempModel(target_date="2026-06-15")
+
+    def test_wu_history_previous_day_rows_are_not_settlement_evidence(self):
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        {
+                            "time": "00:00",
+                            "datetime": "2026-06-14T00:00:00-04:00",
+                            "temp_c": 24.0,
+                        }
+                    ],
+                    "latest": {"datetime": "2026-06-14T00:00:00-04:00", "temp_c": 24.0},
+                    "max_c": 24.0,
+                    "max_times": ["00:00"],
+                },
+            }
+        }
+
+        history = self.model.source_data(sources, "wu_history")
+
+        self.assertEqual(history["rows"], [])
+        self.assertIsNone(history["latest"])
+        self.assertIsNone(history["max_c"])
+        self.assertEqual(history["max_times"], [])
+        self.assertFalse(history["target_date_match"])
+
+    def test_wu_history_recalculates_after_filtering_mixed_rows(self):
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        {
+                            "time": "23:00",
+                            "datetime": "2026-06-14T23:00:00-04:00",
+                            "temp_c": 24.0,
+                        },
+                        {
+                            "time": "10:00",
+                            "datetime": "2026-06-15T10:00:00-04:00",
+                            "temp_c": 18.0,
+                        },
+                        {
+                            "time": "11:00",
+                            "datetime": "2026-06-15T11:00:00-04:00",
+                            "temp_c": 20.0,
+                        },
+                    ],
+                    "latest": {"datetime": "2026-06-14T23:00:00-04:00", "temp_c": 24.0},
+                    "max_c": 24.0,
+                    "max_times": ["23:00"],
+                },
+            }
+        }
+
+        history = self.model.source_data(sources, "wu_history")
+
+        self.assertEqual([row["time"] for row in history["rows"]], ["10:00", "11:00"])
+        self.assertEqual(history["latest"]["time"], "11:00")
+        self.assertEqual(history["max_c"], 20.0)
+        self.assertEqual(history["max_times"], ["11:00"])
+
+    def test_eccc_swob_previous_day_rows_are_not_live_support(self):
+        sources = {
+            "eccc_swob": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        {"local_date": "2026-06-14", "air_temp_c": 23.9},
+                    ],
+                    "latest": {"local_date": "2026-06-14", "air_temp_c": 15.5},
+                    "same_day_max_c": 23.9,
+                },
+            }
+        }
+
+        swob = self.model.source_data(sources, "eccc_swob")
+
+        self.assertEqual(swob["rows"], [])
+        self.assertIsNone(swob["latest"])
+        self.assertIsNone(swob["same_day_max_c"])
+        self.assertFalse(swob["target_date_match"])
+
+    def test_undated_reconstructed_rows_are_preserved(self):
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [{"time": "10:00", "temp_c": 18.0}],
+                    "latest": {"time": "10:00", "temp_c": 18.0},
+                    "max_c": 18.0,
+                    "max_times": ["10:00"],
+                },
+            }
+        }
+
+        history = self.model.source_data(sources, "wu_history")
+
+        self.assertEqual(history["rows"], [{"time": "10:00", "temp_c": 18.0}])
+        self.assertEqual(history["max_c"], 18.0)
+
+
 class TestFindAnalogDaysReturnShape(unittest.TestCase):
     """Bug 3: find_analog_days returned [] on early exits but a dict on
     success. It must always return the dict shape."""

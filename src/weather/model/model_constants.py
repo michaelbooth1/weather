@@ -82,11 +82,11 @@ SOURCE_CACHE_TTL_MINUTES = {
 # v0.5.5: forecast falsification bench -- a source that still claims >=1C
 # above a WU high that has stood unimproved 90+ minutes (past 13:00) loses
 # its forecast FLOOR vote (a falsified forecast must not prop up the bottom).
-# The pull keeps every source: it is a two-way uncertainty blend, and benching
-# it was measured to backfire (it had been SOFTENING the over-sharp model on
-# the 2026-06-09 bust day). Serving-side only; the trained HGB forecast
-# feature is untouched. The replay regate also confirmed the v0.5.1
-# FORECAST_AGREEMENT_SPREAD widening (5.0) beats reverting to 3.0.
+# The pull keeps every source; benching it was measured to backfire because it
+# had been softening the over-sharp model on the 2026-06-09 bust day.
+# Serving-side only; the trained HGB forecast feature is untouched. The replay
+# regate also confirmed the v0.5.1 FORECAST_AGREEMENT_SPREAD widening (5.0)
+# beats reverting to 3.0.
 # v0.5.7: intra-hour freshness (ROADMAP item 40, feature schema v0.3). The
 # minutes elapsed past the printed cutoff and the live wu_current reading are
 # TRAINED features (trained at sampled wall offsets with interpolated
@@ -108,7 +108,12 @@ SOURCE_CACHE_TTL_MINUTES = {
 # F-family had many over-final rows. Only markets in
 # VALIDATED_WU_MAX_HARD_FLOOR_MARKETS may promote that same-day value from soft
 # support to a hard lower bound.
-ML_MODEL_VERSION = "v0.5.9"
+# v0.5.10: source-access target-date guard for WU history/SWOB, source-provided
+# forecast daily maxima in the distribution path, and one-sided forecast pull.
+# Stale prior-day observations cannot act as same-day settlement evidence, and
+# the morning forecast pull can no longer inject fresh mass below the median
+# consensus forecast bucket.
+ML_MODEL_VERSION = "v0.5.10"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

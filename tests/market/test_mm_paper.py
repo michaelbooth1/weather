@@ -69,7 +69,31 @@ def write_promotion(path):
                     },
                 },
             ],
-        }
+        },
+        "candidate": {
+            "slices": {
+                "by_source_freshness": [
+                    {
+                        "group": "failed:wu_history",
+                        "n": 42,
+                        "candidate_brier": 0.08,
+                        "current_brier": 0.10,
+                        "market_brier": 0.05,
+                        "delta_vs_current": -0.02,
+                        "delta_vs_market": 0.03,
+                    },
+                    {
+                        "group": "failed:local_history",
+                        "n": 4,
+                        "candidate_brier": 0.03,
+                        "current_brier": 0.05,
+                        "market_brier": 0.06,
+                        "delta_vs_current": -0.02,
+                        "delta_vs_market": -0.03,
+                    },
+                ]
+            }
+        },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -350,6 +374,17 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(permission_by_market["atlanta"], "harvest_only")
             self.assertEqual(permission_by_market["chicago"], "harvest_only")
             self.assertEqual(permission_by_market["san-francisco"], "no_quote")
+            source_records = [
+                row for row in known_edge["records"]
+                if row.get("source_freshness_evidence")
+            ]
+            self.assertEqual(len(source_records), 1)
+            self.assertEqual(source_records[0]["source_freshness_state"], "failed:wu_history")
+            self.assertEqual(source_records[0]["reason"], "source_freshness_model_gap")
+            self.assertEqual(
+                known_edge["active_model_gap_cells"][0]["source_freshness_state"],
+                "failed:wu_history",
+            )
 
 
 if __name__ == "__main__":

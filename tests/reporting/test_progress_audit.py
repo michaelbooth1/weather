@@ -89,6 +89,36 @@ class TestProgressAudit(unittest.TestCase):
         self.assertAlmostEqual(parsed["pre_label_three_day"]["brier_skill"], -1.5)
         self.assertAlmostEqual(parsed["calibration_pre_label"]["skill_after"], -1.031)
 
+    def test_parse_roadmap_baselines_reads_split_roadmap_corpus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "roadmap"
+            items = root / "items"
+            items.mkdir(parents=True)
+            path = root / "ROADMAP.md"
+            path.write_text("# Roadmap\n\nSee the split files.\n", encoding="utf-8")
+            (root / "overview.md").write_text(
+                "\n".join([
+                    "The strict headline report therefore scores 1 clean market day and 704 band rows.",
+                    "The uncalibrated model Brier was 0.0583 versus market Brier 0.0394,",
+                    "for a Brier skill score of -0.478.",
+                ]),
+                encoding="utf-8",
+            )
+            (items / "item-21-market-bin-probability-calibration.md").write_text(
+                "\n".join([
+                    "over 3 settled-looking market days and 1760 band rows. All-snapshot Brier skill was -1.500;",
+                    "Brier improved from 0.0954 to 0.0775, log loss improved from 0.3705 to 0.2743,",
+                    "and Brier skill versus Polymarket improved from -1.500 to -1.031.",
+                ]),
+                encoding="utf-8",
+            )
+
+            parsed = parse_roadmap_baselines(path)
+
+        self.assertEqual(parsed["initial_strict_toronto"]["band_rows"], 704)
+        self.assertAlmostEqual(parsed["pre_label_three_day"]["brier_skill"], -1.5)
+        self.assertAlmostEqual(parsed["calibration_pre_label"]["skill_after"], -1.031)
+
     def test_load_market_day_labels_counts_quality_and_markets(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "market_day_labels.csv"

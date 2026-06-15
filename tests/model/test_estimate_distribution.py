@@ -46,7 +46,7 @@ def _sources(rows, max_c):
 
 class TestEstimateDistribution(unittest.TestCase):
     def setUp(self):
-        self.model = TorontoHighTempModel()
+        self.model = TorontoHighTempModel(target_date="2026-05-29")
 
     def _assert_valid_distribution(self, dist):
         self.assertIsInstance(dist, dict)

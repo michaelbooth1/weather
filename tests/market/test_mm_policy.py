@@ -414,6 +414,173 @@ class TestMmPolicy(unittest.TestCase):
             self.assertEqual(row["known_edge_permission"], "edge_allowed")
             self.assertTrue(row["known_edge_record_key"])
 
+    def test_policy_snapshot_prefers_source_freshness_gap_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "model_version",
+                    "range_label",
+                    "condition_id",
+                    "clob_yes_token_id",
+                    "bin_kind",
+                    "bin_value_c",
+                    "model_probability",
+                    "market_yes",
+                    "best_bid",
+                    "best_ask",
+                    "market_status",
+                ])
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-14T15:59:30+00:00",
+                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                    "model_version": "candidate",
+                    "range_label": "80-81 F",
+                    "condition_id": "c1",
+                    "clob_yes_token_id": "t1",
+                    "bin_kind": "eq",
+                    "bin_value_c": "80",
+                    "model_probability": "0.70",
+                    "market_yes": "0.50",
+                    "best_bid": "0.49",
+                    "best_ask": "0.51",
+                    "market_status": "active",
+                })
+            with (folder / "clob_features_long.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "market_id",
+                    "range_label",
+                    "bin_kind",
+                    "bin_value",
+                    "bin_value_hi",
+                    "clob_token_id",
+                    "clob_book_captured_at_utc",
+                    "clob_book_age_seconds",
+                    "clob_midpoint",
+                    "clob_spread",
+                    "clob_best_bid",
+                    "clob_best_ask",
+                    "clob_depth_1pct_total",
+                ])
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-14T15:59:30+00:00",
+                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                    "market_id": "atlanta",
+                    "range_label": "80-81 F",
+                    "bin_kind": "eq",
+                    "bin_value": "80",
+                    "bin_value_hi": "81",
+                    "clob_token_id": "t1",
+                    "clob_book_captured_at_utc": "2026-06-14T15:59:20+00:00",
+                    "clob_book_age_seconds": "10.0",
+                    "clob_midpoint": "0.50",
+                    "clob_spread": "0.02",
+                    "clob_best_bid": "0.49",
+                    "clob_best_ask": "0.51",
+                    "clob_depth_1pct_total": "100.0",
+                })
+            with (folder / "source_status_long.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=[
+                    "snapshot_id",
+                    "source",
+                    "ok",
+                    "status",
+                    "stale",
+                ])
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "source": "wu_history",
+                    "ok": "False",
+                    "status": "failed",
+                    "stale": "False",
+                })
+                writer.writerow({
+                    "snapshot_id": "s1",
+                    "source": "metar",
+                    "ok": "True",
+                    "status": "fresh",
+                    "stale": "False",
+                })
+            promotion = root / "promotion.json"
+            promotion.write_text(json.dumps({
+                "decisions": {
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "action": "PROMOTE_CANDIDATE",
+                            "verdict": "PASS",
+                        }
+                    ]
+                }
+            }), encoding="utf-8")
+            known_edge = write_known_edge_map(root / "known_edge.json", [
+                {
+                    "market_id": "atlanta",
+                    "cutoff": "*",
+                    "hour_utc": "*",
+                    "band_distance_bucket": "*",
+                    "band_type": "*",
+                    "casebook_taxonomy": "*",
+                    "regime": "*",
+                    "source_fresh": "*",
+                    "source_freshness_state": "*",
+                    "book_imbalance_bucket": "*",
+                    "permission": "edge_allowed",
+                    "reason": "live_forward_paper_gate_clear",
+                },
+                {
+                    "market_id": "*",
+                    "cutoff": "*",
+                    "hour_utc": "*",
+                    "band_distance_bucket": "*",
+                    "band_type": "*",
+                    "casebook_taxonomy": "*",
+                    "regime": "*",
+                    "source_fresh": "*",
+                    "source_freshness_state": "failed:wu_history",
+                    "book_imbalance_bucket": "*",
+                    "permission": "harvest_only",
+                    "reason": "source_freshness_model_gap",
+                },
+            ])
+            status = root / "observation_status.json"
+            status.write_text(json.dumps({
+                "last_heartbeat": "2026-06-14T15:59:50+00:00",
+                "consecutive_errors": 0,
+            }), encoding="utf-8")
+
+            payload = run_policy_snapshot(
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                snapshots_root=snapshots_root,
+                observation_status_path=status,
+                out=root / "quotes_long.csv",
+                json_out=root / "quotes.json",
+                markets=["atlanta"],
+                now=NOW,
+            )
+
+            row = payload["rows"][0]
+            self.assertEqual(row["source_freshness_state"], "failed:wu_history")
+            self.assertEqual(row["known_edge_permission"], "harvest_only")
+            self.assertEqual(row["known_edge_reason"], "source_freshness_model_gap")
+            self.assertFalse(row["known_edge_allowed"])
+            self.assertNotEqual(row["reason_code"], "QUOTE_EDGE_MODEL")
+
 
 if __name__ == "__main__":
     unittest.main()

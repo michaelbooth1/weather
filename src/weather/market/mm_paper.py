@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
 
 
 SCHEMA_VERSION = "mm_paper_v0.1"
-KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.1"
+KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
 
 DEFAULT_RUNS_ROOT = Path("data") / "mm_runs"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
@@ -120,6 +120,7 @@ FILL_COLUMNS = [
     "settlement_outcome",
     "regime",
     "source_fresh",
+    "source_freshness_state",
     "book_imbalance_bucket",
     "band_distance_bucket",
     "casebook_taxonomy",
@@ -366,6 +367,7 @@ def quote_legs(quote_rows, config):
             "market_mid": clamp01(row.get("market_mid") or row.get("market_yes")),
             "regime": row.get("regime") or "",
             "source_fresh": bool_value(row.get("source_fresh"), False),
+            "source_freshness_state": row.get("source_freshness_state") or "",
             "book_imbalance_bucket": book_imbalance_bucket(row.get("book_imbalance_1pct")),
             "band_distance_bucket": band_distance_bucket(row),
             "quote_age_seconds": None,
@@ -1002,6 +1004,7 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
                 "settlement_outcome": compact_float(financials["settlement_outcome"]),
                 "regime": leg["regime"],
                 "source_fresh": leg["source_fresh"],
+                "source_freshness_state": leg.get("source_freshness_state") or "",
                 "book_imbalance_bucket": leg["book_imbalance_bucket"],
                 "band_distance_bucket": leg["band_distance_bucket"],
                 "casebook_taxonomy": case.get("taxonomy") or "",
@@ -1057,6 +1060,7 @@ def slice_key(row):
         row.get("bin_kind") or "unknown",
         row.get("regime") or "unknown",
         str(row.get("source_fresh")),
+        row.get("source_freshness_state") or "unknown",
         row.get("book_imbalance_bucket") or "unknown",
         row.get("casebook_taxonomy") or "unmatched",
     )
@@ -1074,7 +1078,7 @@ def build_markout_slices(fill_rows, config):
         ci_low, ci_high = ci_bounds(values_30m, z=z)
         settlement_values = [finite_float(row.get("settlement_markout_per_share")) for row in rows]
         set_low, set_high = ci_bounds(settlement_values, z=z)
-        market_id, hour, band_distance, band_type, regime, source_fresh, imbalance, taxonomy = key
+        market_id, hour, band_distance, band_type, regime, source_fresh, source_freshness_state, imbalance, taxonomy = key
         slices.append({
             "market_id": market_id,
             "hour_utc": hour,
@@ -1082,6 +1086,7 @@ def build_markout_slices(fill_rows, config):
             "band_type": band_type,
             "regime": regime,
             "source_fresh": source_fresh,
+            "source_freshness_state": source_freshness_state,
             "book_imbalance_bucket": imbalance,
             "casebook_taxonomy": taxonomy,
             "fill_count": len(rows),
@@ -1313,6 +1318,7 @@ def render_paper_report(payload):
             row.get("band_type"),
             row.get("regime"),
             row.get("source_fresh"),
+            row.get("source_freshness_state"),
             row.get("book_imbalance_bucket"),
             row.get("casebook_taxonomy"),
             row.get("fill_count"),
@@ -1328,6 +1334,7 @@ def render_paper_report(payload):
             "Band Type",
             "Regime",
             "Fresh",
+            "Fresh State",
             "Imbalance",
             "Taxonomy",
             "Fills",
@@ -1429,11 +1436,41 @@ def permission_for_record(base_permission, paper_slice, promotion, paper_summary
     return "edge_research", "positive_paper_needs_live_forward_days"
 
 
+def source_freshness_gap_records(promotion_payload, paper_summary):
+    records = []
+    slices = ((promotion_payload.get("candidate") or {}).get("slices") or {}).get("by_source_freshness") or []
+    for item in slices:
+        delta_vs_market = finite_float(item.get("delta_vs_market"))
+        if delta_vs_market is None or delta_vs_market <= 0.0:
+            continue
+        group = item.get("group") or "unknown"
+        records.append({
+            "market_id": "*",
+            "cutoff": "*",
+            "hour_utc": "*",
+            "band_distance_bucket": "*",
+            "band_type": "*",
+            "casebook_taxonomy": "*",
+            "regime": "*",
+            "source_fresh": "*",
+            "source_freshness_state": group,
+            "book_imbalance_bucket": "*",
+            "base_permission": "SOURCE_FRESHNESS_GAP",
+            "permission": "harvest_only",
+            "reason": "source_freshness_model_gap",
+            "promotion": None,
+            "paper_evidence": None,
+            "source_freshness_evidence": item,
+            "requires_policy_hash": (paper_summary.get("anti_overfit") or {}).get("policy_hashes") or [],
+        })
+    return records
+
+
 def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFRESH, config=None, now=None):
     config = {**DEFAULT_CONFIG, **(config or {})}
     promotions, promotion_payload = load_promotion_records(promotion_refresh)
     paper_summary = paper_payload.get("summary") or {}
-    records = []
+    records = source_freshness_gap_records(promotion_payload, paper_summary)
     seen_markets = set()
     for item in paper_payload.get("markout_slices") or []:
         market_id = item.get("market_id") or "unknown"
@@ -1455,6 +1492,7 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "casebook_taxonomy": item.get("casebook_taxonomy"),
             "regime": item.get("regime"),
             "source_fresh": item.get("source_fresh"),
+            "source_freshness_state": item.get("source_freshness_state") or "*",
             "book_imbalance_bucket": item.get("book_imbalance_bucket"),
             "base_permission": promotion.get("base_permission", "BLOCK"),
             "permission": permission,
@@ -1482,6 +1520,7 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "casebook_taxonomy": "*",
             "regime": "*",
             "source_fresh": "*",
+            "source_freshness_state": "*",
             "book_imbalance_bucket": "*",
             "base_permission": promotion.get("base_permission", "BLOCK"),
             "permission": permission,
@@ -1497,6 +1536,9 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "base_permission": record["base_permission"],
             "permission": record["permission"],
             "delta_vs_market": (record.get("promotion") or {}).get("delta_vs_market"),
+            "source_freshness_state": record.get("source_freshness_state"),
+            "source_freshness_delta_vs_market": (record.get("source_freshness_evidence") or {}).get("delta_vs_market"),
+            "source_freshness_rows": (record.get("source_freshness_evidence") or {}).get("n"),
             "paper_fill_count": ((record.get("paper_evidence") or {}).get("fill_count") or 0),
         }
         for record in records
@@ -1554,6 +1596,36 @@ def render_known_edge_report(payload):
         ["Permission", "Records"],
         [[key, value] for key, value in sorted((summary.get("permission_counts") or {}).items())],
     ))
+    source_rows = []
+    for record in payload.get("records") or []:
+        evidence = record.get("source_freshness_evidence") or {}
+        if not evidence:
+            continue
+        source_rows.append([
+            record.get("source_freshness_state"),
+            evidence.get("n"),
+            fmt_num(evidence.get("candidate_brier"), 4),
+            fmt_num(evidence.get("market_brier"), 4),
+            fmt_num(evidence.get("delta_vs_current"), 4),
+            fmt_num(evidence.get("delta_vs_market"), 4),
+            record.get("permission"),
+            record.get("reason"),
+        ])
+    if source_rows:
+        lines.extend(["", "## Source Freshness Gap Cells", ""])
+        lines.extend(markdown_table(
+            [
+                "Freshness State",
+                "Rows",
+                "Candidate Brier",
+                "Market Brier",
+                "Delta Current",
+                "Delta Market",
+                "Permission",
+                "Reason",
+            ],
+            source_rows,
+        ))
     lines.extend(["", "## Records", ""])
     rows = []
     for record in (payload.get("records") or [])[:80]:
@@ -1565,13 +1637,27 @@ def render_known_edge_report(payload):
             record.get("casebook_taxonomy"),
             record.get("regime"),
             record.get("source_fresh"),
+            record.get("source_freshness_state"),
             record.get("base_permission"),
             record.get("permission"),
             record.get("reason"),
             ((record.get("paper_evidence") or {}).get("fill_count") or 0),
         ])
     lines.extend(markdown_table(
-        ["Market", "Hour", "Band Distance", "Band Type", "Taxonomy", "Regime", "Fresh", "Base", "Permission", "Reason", "Fills"],
+        [
+            "Market",
+            "Hour",
+            "Band Distance",
+            "Band Type",
+            "Taxonomy",
+            "Regime",
+            "Fresh",
+            "Fresh State",
+            "Base",
+            "Permission",
+            "Reason",
+            "Fills",
+        ],
         rows,
     ))
     lines.append("")

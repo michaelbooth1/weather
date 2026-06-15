@@ -82,6 +82,36 @@ class TestApplyForecastPull(unittest.TestCase):
                                         observed_bucket=22, current_observed_bucket=22)
         self.assertLess(abs(hi.get(28, 0) - lo.get(28, 0)), 0.03)  # was a hard bucket flip
 
+    def test_does_not_lift_buckets_below_consensus_anchor(self):
+        low_tail = {15: 0.02, 16: 0.03, 17: 0.30, 18: 0.35, 19: 0.30}
+        out = self.m.apply_forecast_pull(
+            dict(low_tail), forecasts=[16.2, 17, 17], hour=0,
+            observed_bucket=14, current_observed_bucket=14,
+        )
+        base = self._norm(low_tail)
+        self.assertLess(out[15], base[15])
+        self.assertLess(out[16], base[16])
+        self.assertGreaterEqual(out[17], base[17])
+
+    def test_forecast_floor_and_pull_deflate_bad_low_tail_spike(self):
+        spike = {
+            15: 0.55,
+            16: 0.015,
+            17: 0.012,
+            18: 0.014,
+            19: 0.036,
+            20: 0.051,
+            21: 0.081,
+            22: 0.241,
+        }
+        forecasts = [21, 21.4, 19.4, 20]
+        floored = self.m.apply_forecast_floor(dict(spike), forecasts, hour=8, observed_bucket=13)
+        out = self.m.apply_forecast_pull(
+            floored, forecasts=forecasts, hour=8,
+            observed_bucket=13, current_observed_bucket=13,
+        )
+        self.assertLess(sum(v for k, v in out.items() if k <= 15), 0.08)
+
     def test_deflates_single_bucket_overcall(self):
         spike = {26: 0.10, 27: 0.25, 28: 0.53, 29: 0.08, 30: 0.04}
         out = self.m.apply_forecast_pull(dict(spike), forecasts=[27.8, 26, 26], hour=12,

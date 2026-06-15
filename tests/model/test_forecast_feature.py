@@ -46,6 +46,15 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         self.assertIsNone(feats["forecast_high"])
         self.assertIsNone(feats["forecast_gap"])
 
+    def test_forecast_day_max_preferred_over_truncated_rows(self):
+        self.assertEqual(
+            self.m.forecast_day_max({
+                "day_max_c": 21.1,
+                "rows": [{"temp_c": 16.2}],
+            }),
+            21.1,
+        )
+
     def test_distribution_still_valid_with_forecast(self):
         rows = [_wu_row("07:00", 11.0), _wu_row("09:00", 13.0)]
         dist = self.m.estimate_distribution(_sources(rows, day_max_c=21.0))

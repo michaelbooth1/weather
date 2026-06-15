@@ -45,11 +45,11 @@ FORECAST_FLOOR_BASE = 0.5            # per-degree decay below the threshold (sof
 # high of 24 printed at 12:35 and never rose). A source loses its floor vote
 # when it is past the peak window, the printed high has stood unimproved for
 # the falsification window, and the source still claims a degree or more above
-# it. The PULL deliberately keeps every source: it is a two-way blend toward
-# forecast uncertainty, and replays measured that benching it backfires (it
-# was softening the over-sharp feature model on the bust day). Serving-side
-# only: the trained forecast FEATURE (resolve_forecast_high) is not benched,
-# so no train/serve skew is introduced.
+# it. The PULL deliberately keeps every source, but now only blends toward the
+# consensus forecast bucket and above; replays measured that benching sources
+# entirely backfires (it was softening the over-sharp feature model on the bust
+# day). Serving-side only: the trained forecast FEATURE (resolve_forecast_high)
+# is not benched, so no train/serve skew is introduced.
 FALSIFICATION_EARLIEST_HOUR = 13   # mornings plateau before the ramp; never bench early
 FALSIFICATION_STAND_MINUTES = 90   # the high must have stood unimproved this long
 FALSIFICATION_MARGIN = 1.0         # C above the standing high a claim must exceed
@@ -61,22 +61,24 @@ FALSIFICATION_MARGIN = 1.0         # C above the standing high a claim must exce
 # morning consensus actually being reached ~70% of the time while the model gave
 # it only ~45%. So early in the day, blend the distribution toward a SMOOTH
 # forecast density: a Gaussian of width ~RMSE around each source's CONTINUOUS
-# forecast value, averaged over sources. Spreading the forecast over its real
-# uncertainty -- instead of rounding it to one bucket and forcing 85% of the mass
-# above it -- keeps the result stable across the x.5 rounding boundary (a 0.5C
-# Open-Meteo wiggle no longer swings a bucket 40+ points) and caps how much any
-# single source concentrates one bucket. Time-decayed (the observed high takes
-# over by mid-afternoon); the downstream observed floors own the low side.
+# forecast value, averaged over sources, then kept on the consensus bucket and
+# above so it cannot inject fresh low-tail mass. Spreading the forecast over its
+# real uncertainty -- instead of rounding it to one bucket and forcing 85% of
+# the mass above it -- keeps the result stable across the x.5 rounding boundary
+# (a 0.5C Open-Meteo wiggle no longer swings a bucket 40+ points) and caps how
+# much any single source concentrates one bucket. Time-decayed (the observed
+# high takes over by mid-afternoon); the downstream observed floors own the low
+# side.
 FORECAST_SOFT_SIGMA = 1.5           # C; the forecast's real 1-sigma width (~Open-Meteo
                                     # RMSE 1.68). The mixture widens further on disagreement.
-FORECAST_PULL_BLEND_MAX = 0.6       # cap on the morning blend toward the forecast density
+FORECAST_PULL_BLEND_MAX = 0.75      # cap on the morning blend toward the forecast density
 FORECAST_PULL_START_HOUR = 12       # full strength through noon (the high usually is
                                     # not reached until mid-afternoon)
 FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 # NOTE (2026-06-12): fading this to 14 was tried to fix the measured 13-14h
 # winner under-call and FAILED a frozen 15-day Toronto A/B (14h Brier +0.0046,
-# aggregate +0.0003). The pull is a two-way blend that was SOFTENING an
-# over-sharp-but-wrong core distribution at 13-14h; removing it made the model
+# aggregate +0.0003). The pull was softening an over-sharp-but-wrong core
+# distribution at 13-14h; removing it made the model
 # more confident in its lagged call. The 13-14h under-call lives in the
 # HGB/observed-floor path (printed-cutoff lag), not here -- it needs an
 # item-40-style intra-hour ramp feature + retrain, not a distribution knob.
@@ -372,7 +374,12 @@ class DistributionMixin:
         spread = max(values) - min(values)
         if spread > agreement:
             return None
-        anchor = sum(values) / len(values)
+        ordered = sorted(values)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            anchor = ordered[mid]
+        else:
+            anchor = (ordered[mid - 1] + ordered[mid]) / 2.0
         spread_weight = max(0.5, 1.0 - spread / (2 * agreement))
         return self.round_half_up(anchor), spread_weight
 
@@ -403,9 +410,10 @@ class DistributionMixin:
 
     def apply_forecast_pull(self, scores, forecasts, hour, observed_bucket, current_observed_bucket):
         """Blend the distribution toward the SMOOTH forecast density early in the
-        day, instead of forcing mass above a rounded point-anchor. This raises an
-        under-called forecast region AND deflates a single-bucket over-call toward
-        the forecast's honest uncertainty, without the 0.5C-wiggle swings.
+        day, instead of forcing mass above a rounded point-anchor. The pull is
+        one-sided at the median consensus bucket, so it raises an under-called
+        forecast region without injecting fresh mass into buckets below the
+        agreed forecast.
 
         Time-decayed to zero by mid-afternoon (the observed high then owns the
         call), and the downstream observed floors handle the low side. No-op when
@@ -427,8 +435,23 @@ class DistributionMixin:
         if not density:
             return scores
         blend = min(FORECAST_PULL_BLEND_MAX, weight)
+        upper_density = {
+            bucket: probability
+            for bucket, probability in density.items()
+            if bucket >= anchor_bucket
+        }
+        upper_total = sum(upper_density.values())
+        if upper_total <= 0:
+            return scores
+        upper_density = {
+            bucket: probability / upper_total
+            for bucket, probability in upper_density.items()
+        }
         blended = {
-            bucket: (1.0 - blend) * scores.get(bucket, 0.0) + blend * density.get(bucket, 0.0)
+            bucket: (
+                (1.0 - blend) * scores.get(bucket, 0.0)
+                + blend * upper_density.get(bucket, 0.0)
+            )
             for bucket in scores
         }
         return self.normalize_scores(blended)
@@ -482,10 +505,10 @@ class DistributionMixin:
         current_max = current.get("max_since_7am_c")
         eccc_max = eccc.get("same_day_max_c")
         metar_temp = metar.get("temp_c")
-        weather_forecast_max = self.max_row_temp(weather_forecast.get("rows"))
-        open_meteo_max = self.max_row_temp(open_meteo.get("rows"))
-        nws_forecast_max = self.max_row_temp(nws_hourly.get("rows"))
-        global_ensemble_max = self.max_row_temp(global_ensemble.get("rows"))
+        weather_forecast_max = self.forecast_day_max(weather_forecast)
+        open_meteo_max = self.forecast_day_max(open_meteo)
+        nws_forecast_max = self.forecast_day_max(nws_hourly)
+        global_ensemble_max = self.forecast_day_max(global_ensemble)
         eccc_forecast_high = eccc_city.get("forecast_high_c")
         forecast_values = [
             weather_forecast_max,
@@ -809,10 +832,9 @@ class DistributionMixin:
         # reach near them, so suppress mass far below the forecast (soft, and
         # only while there's still daytime to warm up). Sources the observed
         # day has falsified lose their FLOOR vote: a stale forecast must not
-        # keep propping up the bottom. The pull keeps every source -- it is a
-        # two-way blend toward the forecast's uncertainty (it softens an
-        # over-sharp model as much as it lifts an under-called one), and
-        # benching it was measured to backfire on the 2026-06-09 bust day.
+        # keep propping up the bottom. The pull keeps every source, but only
+        # blends toward the median consensus bucket and above; benching whole
+        # sources was measured to backfire on the 2026-06-09 bust day.
         if not using_calibrated_empirical:
             floor_votes = self.unfalsified_forecasts(
                 forecast_values,

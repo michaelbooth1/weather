@@ -223,6 +223,6 @@ work through compatibility wrappers in `src/`.
 
 ## Documentation
 
-- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - feature roadmap and audit history.
+- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - roadmap index, item links, and maintenance conventions.
 - [docs/operations/HISTORY_DATA_DESIGN.md](docs/operations/HISTORY_DATA_DESIGN.md) - the Wunderground history data layer.
 - [docs/roadmap/codebase-organization-audit.md](docs/roadmap/codebase-organization-audit.md) - file and folder organization audit.

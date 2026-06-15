@@ -1,0 +1,145 @@
+# Roadmap Deep Dive (2026-05-31)
+
+### North Star
+
+The project goal is to project the daily high-temperature settlement bucket
+better than Polymarket. The durable accuracy target is therefore not "does the
+weather forecast look right?" but:
+
+- model Brier/log loss better than Polymarket yes prices on settlement-scored
+  snapshot tapes,
+- positive Brier skill score versus the market,
+- calibrated probability buckets across market bands and cutoff hours,
+- realized edge/P&L that survives thresholding, first-entry scoring, and
+  out-of-sample market days.
+
+The latest settlement-scored report (`data/backtest/backtest_report.md`,
+regenerated 2026-05-31) is the most important evidence. After adding
+coverage-aware market-day labels, only May 28 currently passes the
+`complete,manual_override` quality filter; May 27 starts too late and May 30
+has a 74-minute collection gap. The strict headline report therefore scores 1
+clean market day and 704 band rows. The uncalibrated model Brier was 0.0583
+versus market Brier 0.0394, and model log loss was 0.1850 versus market log
+loss 0.1230, for a Brier skill score of -0.478. The older 3-day calibration
+sample remains useful as provisional research, but two of those tapes are now
+partial. The correct roadmap posture is clear: we need more clean settled
+market days before claiming the model beats Polymarket.
+
+Audit refresh (2026-06-14 UTC): the settlement ledger had fallen behind the
+available snapshot folders. A later refresh reconciled 105 settled folders with
+Polymarket (`match=105`) and raised the label ledger to `complete=54`,
+`partial=51`. The missed days were not absent from capture; they were recent
+fleet tapes that had not yet been finalized into the ledger/promotion corpus.
+Promotion evidence improved after refresh, but the current
+`data/backtest/f_family_promotion_refresh_report.md` still does not prove broad
+edge versus Polymarket: the F-family corpus has 51 market-days, aggregate
+candidate Brier is `0.0436` versus market Brier `0.0379`, Atlanta, Denver, and
+Houston are `PROMOTE_CANDIDATE`, eight F markets remain shadow, and no
+candidate markets are blocked.
+
+### Roadmap Triage (2026-06-15 UTC)
+
+Can be done now, in implementation order:
+
+1. [done] Item 47: wire `mm_known_edge_map.json` into `mm_policy` and
+   `market_making_run` so every quote-intent row carries generated permission
+   fields and model-skewed edge quoting only unlocks on `edge_allowed`.
+2. [done] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
+   change to Miami only, and clear the current-serving Miami `BLOCK`.
+3. [code-ready] Item 49: add `forecast_high` and `forecast_gap` to late-day
+   continuation training, validation, serving parity, and explanations.
+4. [done] Item 37: define/enforce the live-forward SLO and gap-free active-day
+   tape gates in software; final clearance still requires a clean future active
+   day, and the current strict report blocks on snapshot and CLOB tape gaps.
+5. [partial] Item 39 cleanup: finish the remaining data/artifact hygiene tasks
+   that do not require new external evidence, especially artifact paths, schema
+   migration tooling, and ingest quality gates.
+
+Blocked or gated:
+
+- Item 45 and live MM-2 orders are blocked until the platform/account/wallet
+  gates are verified and the 14 locked live-forward paper-day gate clears.
+- Item 48 promotion readiness is blocked as a readiness claim until aggregate
+  candidate Brier is market-or-better and remaining shadow markets have
+  generated, resolved blockers; decomposition work remains actionable.
+- Item 49's generated artifact refresh is gated behind a full validated late-day
+  retrain and settlement-scored replay; the code path is ready, but the tracked
+  `late_day_model_coefs*.json` files still need regeneration.
+- Item 37 live-forward gate credit is still gated by future evidence: the
+  software gate now fails closed, but the current strict report is `CRITICAL`
+  for both snapshot collection gaps and CLOB book-capture gaps, so a paper/live
+  day counts only when a future active day clears both in real time.
+- Item 35 continuous density is gated behind stronger settlement-scored proof
+  from the current F-family and failure-slice work.
+- Item 27, item 32, and the infrastructure families in item 50 are blocked from
+  promotion until their historical/archive coverage exists and they pass
+  replay-safe validation.
+- Any feature or quote mode that relies on live-only data remains blocked from
+  promotion until matching historical or live-forward evidence exists.
+
+### Current Work That Needed Roadmap Reconciliation
+
+- `docs/operations/AGENT_CONTEXT.md` captures the current
+  mission, architecture, settlement hierarchy, commands, risks, and best next
+  work.
+- The test suite is much larger than the 2026-05-28 audit stated. Current
+  verification on 2026-06-01: `pytest -q` passed with 141 tests, and
+  `python -m compileall src tests` passed.
+- The feature model now includes Open-Meteo forecast daily-max features
+  (`forecast_high`, `forecast_gap`) in training and live extraction, and
+  `src/feature_model.py` has `RUN_LOO = True`.
+- The feature-model report now includes log loss, Brier, accuracy, ECE,
+  per-hour HGB climatology-blend weights, and feature-family ablations. This
+  updates old item-6/item-24 audit notes that said forecast max, Brier/ECE, and
+  ablation visibility were absent.
+- Market-day labels are now coverage-aware: settlement labels include capture
+  ratio, max gap, and coverage reason, and the headline backtest excludes
+  partial tapes by quality grade.
+- The snapshot loop now has a managed runner, PID/start/heartbeat/error status,
+  `--status`, pause flag handling, and diagnostics logging. Item 16 is now
+  partial rather than not-started; clean stop/restart remains open.
+- Live fetches now have retry/backoff and last-good source caching with a
+  90-minute age cap. Item 17 is now partial; separate per-source TTLs and
+  structured source-level diagnostics remain open.
+- Several "COMPLETE" roadmap items were really implemented prototypes with
+  accuracy-grade follow-up work. This roadmap now distinguishes "visible in the
+  app" from "calibrated enough to improve edge versus Polymarket."
+
+### Best Path To A More Accurate Model
+
+1. Make the evaluation target unambiguous. Every model improvement should be
+   scored against Polymarket prices, by target day and cutoff hour, with
+   correlated intraday snapshots handled conservatively. This is item 20.
+2. Increase clean market-day capture. Better models need more settled market
+   tapes, not just more historical weather rows. This depends on items 16, 17,
+   20, and 25.
+2a. Capture market microstructure now, not later. The 2026-06-12 data-layer
+   audit found that the weather/model loop is healthy, but the market data tape
+   was shallow: Gamma best bid was only 48.0% filled and no CLOB token ids,
+   order-book depth, or trade stream were persisted. `src.market_microstructure`
+   now provides the fast capture path, but historical order-book depth from
+   before this ship cannot be recreated, so keeping the new loop running is a
+   data-retention priority before final trading-model work.
+3. Calibrate before adding complexity. The HGB model has useful signal, but
+   the live model can be overconfident versus market prices. Add a market-bin
+   calibration layer and shrink high-confidence exact buckets unless history
+   and live settlement-source evidence justify them. This is item 21 and is now
+   complete; it reduced overconfidence but did not close the gap to Polymarket.
+4. Replace heuristic forecast caps/floors with learned forecast-error
+   distributions by source, horizon, and regime. This is item 22 and is now
+   complete for the first artifact-backed forecast component.
+5. Explicitly model WU settlement lag and revisions. Non-resolution sources
+   should update probability through a learned catch-up process, not through
+   ad-hoc confidence. This is item 23.
+6. Use one feature-generation path for training, backtesting, live inference,
+   and explanations. This prevents train/serve skew and makes model changes
+   auditable. This is item 24 and is now complete.
+7. Build the ensemble/ablation framework on top of those shared features, with
+   fast sampled validation and separate no-market versus market-informed
+   scores. This is item 26 and is now complete as a framework; the strict
+   sample is still too small to promote an ensemble.
+8. Add physically meaningful weather-regime and microclimate features only when
+   item-20/item-26 reports can prove their value. This is item 27.
+9. Only then expand model classes, other markets, or trading automation.
+   Sophistication without a stronger evaluation harness will create attractive
+   but unproven probabilities.

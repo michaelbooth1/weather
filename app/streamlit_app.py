@@ -23,7 +23,7 @@ LIVE_CACHE_TTL_SECONDS = 55
 
 st.set_page_config(page_title="Weather Markets", layout="wide")
 
-_MARKET_LABELS = {"Overview": "overview", "Operations": "ops"}
+_MARKET_LABELS = {"Overview": "overview", "Operations": "ops", "Market Making": "mm"}
 _MARKET_LABELS.update({spec.city_label: spec.id for spec in all_specs()})
 
 # Allow query params to dictate default selection
@@ -52,6 +52,11 @@ if MARKET_ID == "overview":
     from app.views.overview import render_overview_page
 
     render_overview_page(LIVE_REFRESH_SECONDS)
+
+if MARKET_ID == "mm":
+    from app.views.market_making import render_market_making_page
+
+    render_market_making_page(LIVE_REFRESH_SECONDS)
 
 SPEC = spec_for_id(MARKET_ID)
 
