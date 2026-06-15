@@ -1,4 +1,4 @@
-# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK SIM LIVE]
+# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE LIVE]
 
 Goal: define the sizing and operational gates that must be green before any
 real-money market-making pilot.
@@ -27,7 +27,7 @@ the current `data/backtest/data_layer_audit_report.md` still reported
 - [x] Complete full negative-risk market simulation for simultaneous YES/NO
   orders, including conversion, partial fills, open order reductions, pUSD
   collateral, and redemption after settlement.
-- [ ] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
+- [x] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
   token IDs, condition IDs, order-book depth, and trade tapes are verified in
   current active-day artifacts, not just described in roadmap text.
 - [ ] Verify the exact operating platform before live keys: Polymarket global
@@ -59,8 +59,7 @@ account for backed balance minus open-order reserves and pending allowances.
 Focused tests: `pytest tests\market\test_mm_risk.py
 tests\market\test_mm_policy.py tests\market\test_market_making_run.py -q`
 passed (`28` tests). This does not authorize live trading: platform/account
-verification, day-one protocol, live runbook, and the latest-data-layer live
-gate remain open.
+verification, day-one protocol, and live runbook remain open.
 
 Negative-risk simulation update (2026-06-15 UTC): `mm_risk` now includes a
 pure negative-risk account lifecycle simulator (`mm_negative_risk_simulation_v0.1`).
@@ -71,3 +70,11 @@ all mutually exclusive outcomes back to pUSD collateral, and settles remaining
 YES/NO positions into final redemption/P&L. Focused tests cover partial fills,
 open-order reductions, complete-set conversion, unbacked-order rejection,
 cancel-all reserve release, and settlement redemption.
+
+Data-layer live-gate update (2026-06-15 UTC): `market_making_run` now requires
+the latest data-layer audit for `live-pilot` preflight. The gate checks that the
+audit proves CLOB token IDs, current target-date token rows, CLOB feature rows,
+and book-available rows before any live-pilot start can pass. Missing or invalid
+audit proof emits the `data_layer_live_gate` preflight blocker and corresponding
+remediation root cause. Focused tests prove shadow mode does not require the
+gate and live-pilot blocks when the audit lacks current CLOB proof.

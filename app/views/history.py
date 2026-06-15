@@ -22,6 +22,7 @@ def render_history_page(days=3):
     fmt_signed_pct = history_model.fmt_signed_pct
     format_day_table = history_model.format_day_table
     format_group_table = history_model.format_group_table
+    format_location_hour_table = history_model.format_location_hour_table
     format_timeline_table = history_model.format_timeline_table
 
     @st.cache_data(ttl=300, show_spinner="Scoring recent model history...")
@@ -88,6 +89,10 @@ def render_history_page(days=3):
     timeline = format_timeline_table(payload.get("days") or [])
     st.subheader("Winning-Bucket Confidence Timing")
     st.dataframe(timeline, width="stretch", hide_index=True)
+
+    location_hour = format_location_hour_table(payload.get("by_location_hour") or [])
+    st.subheader("Winner-Band Catch-Up By Location/Hour")
+    st.dataframe(location_hour, width="stretch", hide_index=True)
 
     if not by_location.empty and "Brier Skill" in by_location:
         chart_source = by_location.copy()

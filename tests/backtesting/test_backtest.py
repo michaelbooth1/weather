@@ -15,6 +15,7 @@ from backtest import (
     brier,
     binary_log_loss,
     score_rows,
+    winner_band_catchup,
     trade_pnl,
     pnl_trades,
     settlement_for_tape,
@@ -67,6 +68,23 @@ class TestScoring(unittest.TestCase):
         self.assertAlmostEqual(s["model_brier"], 0.0)
         self.assertAlmostEqual(s["market_brier"], 0.25)
         self.assertEqual(s["brier_skill_score"], 1.0)  # model perfectly beats market
+
+    def test_winner_band_catchup_tracks_model_vs_market_on_winner_rows(self):
+        rows = [
+            {"model_probability": 0.40, "market_yes": 0.60, "outcome": 1},
+            {"model_probability": 0.70, "market_yes": 0.50, "outcome": 1},
+            {"model_probability": 0.10, "market_yes": 0.20, "outcome": 0},
+        ]
+
+        catchup = winner_band_catchup(rows)
+
+        self.assertEqual(catchup["winner_rows"], 2)
+        self.assertAlmostEqual(catchup["winner_model_probability"], 0.55)
+        self.assertAlmostEqual(catchup["winner_market_probability"], 0.55)
+        self.assertAlmostEqual(catchup["winner_catchup_gap"], 0.0)
+        self.assertAlmostEqual(catchup["winner_catchup_rate"], 0.5)
+        self.assertAlmostEqual(catchup["winner_model_over_50_rate"], 0.5)
+        self.assertAlmostEqual(catchup["winner_market_over_50_rate"], 0.5)
 
 
 class TestPnl(unittest.TestCase):

@@ -7,7 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from model_history import build_history_payload, recent_completed_dates  # noqa: E402
+from model_history import (  # noqa: E402
+    build_history_payload,
+    format_group_table,
+    format_location_hour_table,
+    recent_completed_dates,
+)
 
 
 SLUG = "highest-temperature-in-toronto-on-july-1-2026"
@@ -159,3 +164,37 @@ def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path):
     assert day["winner_crossed_50"] is True
     assert day["final_top_was_winner"] is True
     assert day["scored_rows"] == 6
+    assert day["winner_rows"] == 2
+    assert round(day["winner_model_probability"], 3) == 0.545
+    assert round(day["winner_market_probability"], 3) == 0.425
+    assert round(day["winner_catchup_gap"], 3) == 0.120
+    assert day["winner_catchup_rate"] == 1.0
+    assert day["winner_model_over_50_rate"] == 0.5
+    assert day["winner_market_over_50_rate"] == 0.0
+
+    assert round(payload["overall"]["winner_catchup_gap"], 3) == 0.120
+    by_location = payload["by_location"][0]
+    assert by_location["winner_rows"] == 2
+    assert round(by_location["winner_catchup_gap"], 3) == 0.120
+
+    by_hour = {
+        row["cutoff_hour"]: row
+        for row in payload["by_location_hour"]
+    }
+    assert sorted(by_hour) == [10, 11]
+    assert by_hour[10]["winner_rows"] == 1
+    assert by_hour[10]["winner_model_probability"] == 0.49
+    assert by_hour[10]["winner_market_probability"] == 0.40
+    assert round(by_hour[10]["winner_catchup_gap"], 2) == 0.09
+    assert by_hour[11]["winner_model_probability"] == 0.60
+    assert by_hour[11]["winner_market_probability"] == 0.45
+    assert round(by_hour[11]["winner_catchup_gap"], 2) == 0.15
+
+    group_table = format_group_table(payload["by_location"], "Location")
+    assert "Winner Catch-Up" in group_table.columns
+    assert group_table.iloc[0]["Winner Catch-Up"] == "+12.0%"
+
+    hour_table = format_location_hour_table(payload["by_location_hour"])
+    assert list(hour_table["Hour"]) == ["10:00", "11:00"]
+    assert "Brier Skill" in hour_table.columns
+    assert list(hour_table["Winner Catch-Up"]) == ["+9.0%", "+15.0%"]

@@ -103,7 +103,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 42 | [Fast Observation-Triggered Recompute Path [PARTIAL 2026-06-14 - WATCHER SHIPPED]](items/item-42-fast-observation-triggered-recompute-path.md) |
 | 43 | [Market-Making Policy And Quote Intent Tape [COMPLETE 2026-06-14 - SHADOW POLICY LIVE]](items/item-43-market-making-policy-and-quote-intent-tape.md) |
 | 44 | [Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [COMPLETE 2026-06-15 - PAPER SCORER LIVE]](items/item-44-paper-trading-queue-simulation-markouts-and-incentive-accounting.md) |
-| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK SIM LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
+| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
 | 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |

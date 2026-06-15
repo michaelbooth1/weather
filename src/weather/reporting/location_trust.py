@@ -43,6 +43,7 @@ from backtest import (
     load_market_day_label,
     score_rows,
     settlement_for_tape,
+    winner_band_catchup,
 )
 from market_config import date_from_event_slug
 from market_registry import all_specs, spec_for_slug
@@ -149,6 +150,7 @@ def score_market(market_id, root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_D
     rows = collect_scored_rows(folders, daily_index)
     ece = expected_calibration_error(rows, "model_probability") if rows else None
     scored = score_rows(rows) if rows else None
+    catchup = winner_band_catchup(rows)
 
     components = trust_from_components(n_settled, ece)
     return {
@@ -160,6 +162,31 @@ def score_market(market_id, root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_D
         "model_brier": round(scored["model_brier"], 4) if scored else None,
         "market_brier": round(scored["market_brier"], 4) if scored else None,
         "brier_skill_vs_market": round(scored["brier_skill_score"], 3) if scored else None,
+        "winner_rows": catchup["winner_rows"],
+        "winner_model_probability": (
+            round(catchup["winner_model_probability"], 4)
+            if catchup["winner_model_probability"] is not None else None
+        ),
+        "winner_market_probability": (
+            round(catchup["winner_market_probability"], 4)
+            if catchup["winner_market_probability"] is not None else None
+        ),
+        "winner_catchup_gap": (
+            round(catchup["winner_catchup_gap"], 4)
+            if catchup["winner_catchup_gap"] is not None else None
+        ),
+        "winner_catchup_rate": (
+            round(catchup["winner_catchup_rate"], 4)
+            if catchup["winner_catchup_rate"] is not None else None
+        ),
+        "winner_model_over_50_rate": (
+            round(catchup["winner_model_over_50_rate"], 4)
+            if catchup["winner_model_over_50_rate"] is not None else None
+        ),
+        "winner_market_over_50_rate": (
+            round(catchup["winner_market_over_50_rate"], 4)
+            if catchup["winner_market_over_50_rate"] is not None else None
+        ),
         "rationale": _rationale(n_settled, ece, components),
     }
 
@@ -179,12 +206,16 @@ def main():
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(results, indent=2, sort_keys=True), encoding="utf-8")
 
-    print(f"{'Location':10} {'Trust':>6}  {'Grade':10} {'Days':>4} {'ECE':>7} {'vs-mkt':>7}  Why")
+    print(
+        f"{'Location':10} {'Trust':>6}  {'Grade':10} {'Days':>4} "
+        f"{'ECE':>7} {'vs-mkt':>7} {'win-gap':>8}  Why"
+    )
     for r in results:
         ece = f"{r['model_ece']:.3f}" if r["model_ece"] is not None else "-"
         skill = f"{r['brier_skill_vs_market']:+.2f}" if r["brier_skill_vs_market"] is not None else "-"
+        catchup = f"{r['winner_catchup_gap']:+.3f}" if r["winner_catchup_gap"] is not None else "-"
         print(f"{r['market']:10} {r['trust_score']:>5}/100 {r['grade']:10} "
-              f"{r['settled_days']:>4} {ece:>7} {skill:>7}  {r['rationale']}")
+              f"{r['settled_days']:>4} {ece:>7} {skill:>7} {catchup:>8}  {r['rationale']}")
     print(f"\nWritten to {args.out}")
 
 
