@@ -293,12 +293,15 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "fast_interval_seconds": status.get("fast_interval_seconds"),
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
+        "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
+        "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
     }
 
 
 BOOK_AUDIT_MAX_GAP_SECONDS = 120.0
 BOOK_AUDIT_STARTUP_GRACE_SECONDS = 180.0
 BOOK_AUDIT_CYCLE_BUFFER_SECONDS = 30.0
+BOOK_AUDIT_RECENT_CYCLE_COUNT = 12
 
 
 def parse_utc_datetime(value):
@@ -402,7 +405,7 @@ def audit_book_tape(
             result["max_startup_gap_seconds"] = round(max(row["seconds"] for row in ignored), 1)
         if counted:
             result["max_counted_gap_seconds"] = round(max(row["seconds"] for row in counted), 1)
-    trailing = (now - times[-1]).total_seconds()
+    trailing = max(0.0, (now - times[-1]).total_seconds())
     result["trailing_age_seconds"] = round(trailing, 1)
     if result["gaps_over_threshold"]:
         max_counted = result["max_counted_gap_seconds"] or result["max_gap_seconds"]
@@ -432,9 +435,20 @@ def fleet_effective_book_gap_seconds(max_gap_seconds, loop_status=None):
     """
     threshold = float(max_gap_seconds)
     loop_status = loop_status or {}
-    elapsed = to_number(loop_status.get("last_iteration_elapsed_seconds"))
-    if elapsed is None:
+    elapsed_values = []
+    for key in ("last_iteration_elapsed_seconds", "max_recent_iteration_elapsed_seconds"):
+        value = to_number(loop_status.get(key))
+        if value is not None:
+            elapsed_values.append(value)
+    recent_values = loop_status.get("recent_iteration_elapsed_seconds") or []
+    if isinstance(recent_values, (list, tuple)):
+        for item in recent_values:
+            value = to_number(item)
+            if value is not None:
+                elapsed_values.append(value)
+    if not elapsed_values:
         return threshold
+    elapsed = max(elapsed_values)
     sleep_seconds = to_number(loop_status.get("last_sleep_seconds")) or 0.0
     cycle_threshold = elapsed + sleep_seconds + BOOK_AUDIT_CYCLE_BUFFER_SECONDS
     return max(threshold, float(cycle_threshold))
@@ -1611,7 +1625,17 @@ def run_book_loop(
                 status["last_market_in_progress"] = None
                 status["last_mode"] = "fast" if fast else "baseline"
                 status["last_sleep_seconds"] = sleep_seconds
-                status["last_iteration_elapsed_seconds"] = round(elapsed_seconds, 1)
+                elapsed_rounded = round(elapsed_seconds, 1)
+                recent_elapsed = []
+                for value in status.get("recent_iteration_elapsed_seconds") or []:
+                    numeric = to_number(value)
+                    if numeric is not None:
+                        recent_elapsed.append(float(numeric))
+                recent_elapsed.append(elapsed_rounded)
+                recent_elapsed = recent_elapsed[-BOOK_AUDIT_RECENT_CYCLE_COUNT:]
+                status["last_iteration_elapsed_seconds"] = elapsed_rounded
+                status["recent_iteration_elapsed_seconds"] = recent_elapsed
+                status["max_recent_iteration_elapsed_seconds"] = round(max(recent_elapsed), 1)
                 if any((value.get("books") or 0) > 0 for value in summary.values()):
                     status["last_books_captured_at"] = loop_started.isoformat()
                 write_clob_loop_status(status)

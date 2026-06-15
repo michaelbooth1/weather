@@ -2,9 +2,11 @@ import os
 import sys
 import tempfile
 import unittest
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import requests
 import pandas as pd
@@ -12,8 +14,9 @@ import pandas as pd
 # Add src to the path
 sys.path.insert(0, os.path.abspath("src"))
 
+import snapshot_tracker as tracker  # noqa: E402
 from model_sources import request_with_retries, _is_retryable
-from snapshot_tracker import SnapshotStore, loop_health
+from snapshot_tracker import SnapshotStore, loop_health, run_loop
 from collection_health import (
     detect_gaps,
     coverage_summary,
@@ -89,6 +92,47 @@ class TestLoopHealth(unittest.TestCase):
 
     def test_paused(self):
         self.assertEqual(loop_health(self._status(paused=True), self.now)["state"], "PAUSED")
+
+    def test_run_loop_records_elapsed_cycle_and_sleeps_from_start(self):
+        current = datetime(2026, 6, 14, 12, 0)
+        slept = []
+
+        def now_fn():
+            return current
+
+        def capture_fn(force=False, market_id="toronto"):
+            nonlocal current
+            current = current + timedelta(minutes=4)
+            return {"written": True, "snapshot_id": f"{market_id}-snapshot"}
+
+        specs = [
+            SimpleNamespace(id="toronto"),
+            SimpleNamespace(id="nyc"),
+            SimpleNamespace(id="atlanta"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "all_specs", lambda: specs), \
+                    patch.object(tracker, "current_fleet_collection_health", lambda **kwargs: {"summary": {}, "markets": []}):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=1,
+                    capture_fn=capture_fn,
+                    sleep_fn=slept.append,
+                    now_fn=now_fn,
+                )
+                written = json.loads((tmp_path / "loop_status.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(slept, [])
+        self.assertEqual(status["last_iteration_elapsed_minutes"], 12.0)
+        self.assertEqual(status["max_recent_iteration_elapsed_minutes"], 12.0)
+        self.assertEqual(written["last_sleep_seconds"], 1.0)
+        self.assertEqual(written["last_snapshot_id"], "atlanta-snapshot")
+        self.assertEqual(written["last_market_in_progress"], None)
 
 
 class TestGapDetection(unittest.TestCase):

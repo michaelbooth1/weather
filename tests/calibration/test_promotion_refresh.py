@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from promotion_refresh import build_family_decisions, promotion_readiness  # noqa: E402
+from promotion_refresh import (  # noqa: E402
+    _candidate_gap_driver_rows,
+    _candidate_summary,
+    build_family_decisions,
+    promotion_readiness,
+)
 
 
 def _spec(market_id, city, unit="F"):
@@ -131,6 +136,57 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("candidate_market_skill", categories)
         self.assertIn("per_market_shadow", categories)
         self.assertIn("current_serving_gauntlet", categories)
+
+    def test_candidate_summary_preserves_gap_driver_slices(self):
+        summary = _candidate_summary(
+            {
+                "aggregate": {},
+                "by_hour": [{"group": 7, "n": 10, "delta_vs_market": 0.02}],
+                "by_bin_type": [{"group": "eq", "n": 20, "delta_vs_market": 0.01}],
+                "by_settlement_distance": [{"group": "0", "n": 5, "delta_vs_market": 0.20}],
+                "microstructure": {
+                    "gated": {
+                        "by_taxonomy": [{"group": "market_lead", "n": 3, "delta_vs_market": 0.30}],
+                    },
+                },
+            },
+            "candidate.json",
+            "candidate.md",
+        )
+
+        slices = summary["slices"]
+        self.assertEqual(slices["by_cutoff_hour"][0]["group"], 7)
+        self.assertEqual(slices["by_band_type"][0]["group"], "eq")
+        self.assertEqual(slices["by_settlement_distance"][0]["group"], "0")
+        self.assertEqual(slices["by_clob_taxonomy"][0]["group"], "market_lead")
+
+    def test_candidate_gap_driver_rows_rank_by_excess_brier(self):
+        rows = _candidate_gap_driver_rows({
+            "slices": {
+                "by_cutoff_hour": [
+                    {
+                        "group": 7,
+                        "n": 100,
+                        "candidate_brier": 0.10,
+                        "market_brier": 0.05,
+                        "delta_vs_current": -0.01,
+                        "delta_vs_market": 0.05,
+                    }
+                ],
+                "by_band_type": [
+                    {
+                        "group": "eq",
+                        "n": 10,
+                        "candidate_brier": 0.50,
+                        "market_brier": 0.10,
+                        "delta_vs_market": 0.40,
+                    }
+                ],
+            }
+        })
+
+        self.assertEqual(rows[0]["slice"], "cutoff_hour")
+        self.assertEqual(rows[0]["excess_brier_rows"], 5.0)
 
 
 if __name__ == "__main__":

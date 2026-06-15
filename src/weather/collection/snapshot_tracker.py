@@ -867,6 +867,7 @@ PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
+RECENT_LOOP_CYCLE_COUNT = 12
 
 from weather.paths import REPO_ROOT  # noqa: E402
 
@@ -1037,6 +1038,9 @@ def loop_health(status, now, interval_minutes=10.0):
         "consecutive_errors": errors,
         "last_error": status.get("last_error"),
         "started_at": status.get("started_at"),
+        "last_iteration_elapsed_minutes": status.get("last_iteration_elapsed_minutes"),
+        "max_recent_iteration_elapsed_minutes": status.get("max_recent_iteration_elapsed_minutes"),
+        "last_sleep_seconds": status.get("last_sleep_seconds"),
     }
 
 
@@ -1174,13 +1178,43 @@ def ensure_loop(interval_minutes=10.0, now=None):
     return result
 
 
-def run_loop(force=False, interval_minutes=10.0):
+def _numeric(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_recent_elapsed(status, elapsed_minutes):
+    elapsed_rounded = round(float(elapsed_minutes), 3)
+    recent = []
+    for value in status.get("recent_iteration_elapsed_minutes") or []:
+        numeric = _numeric(value)
+        if numeric is not None:
+            recent.append(float(numeric))
+    recent.append(elapsed_rounded)
+    recent = recent[-RECENT_LOOP_CYCLE_COUNT:]
+    status["last_iteration_elapsed_minutes"] = elapsed_rounded
+    status["recent_iteration_elapsed_minutes"] = recent
+    status["max_recent_iteration_elapsed_minutes"] = round(max(recent), 3)
+
+
+def run_loop(
+    force=False,
+    interval_minutes=10.0,
+    max_iterations=None,
+    capture_fn=None,
+    sleep_fn=time.sleep,
+    now_fn=None,
+):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
     heartbeat + diagnostics record is written every iteration."""
+    now_fn = now_fn or (lambda: datetime.now(TORONTO_TZ))
+    capture_fn = capture_fn or capture_snapshot
     status = {
         "pid": os.getpid(),
-        "started_at": datetime.now(TORONTO_TZ).isoformat(),
+        "started_at": now_fn().isoformat(),
         "runtime_identity": get_runtime_identity(),
         "interval_minutes": interval_minutes,
         "iterations": 0,
@@ -1191,7 +1225,8 @@ def run_loop(force=False, interval_minutes=10.0):
         "paused": False,
     }
     while True:
-        now = datetime.now(TORONTO_TZ)
+        now = now_fn()
+        iteration_started = now
         status["iterations"] += 1
         status["last_heartbeat"] = now.isoformat()
         status["paused"] = PAUSE_FLAG_PATH.exists()
@@ -1205,9 +1240,28 @@ def run_loop(force=False, interval_minutes=10.0):
             market_results = {}
             for spec in all_specs():
                 try:
-                    market_results[spec.id] = capture_snapshot(force=force, market_id=spec.id)
+                    status["last_market_in_progress"] = spec.id
+                    status["last_heartbeat"] = now_fn().isoformat()
+                    write_loop_status(status)
+                    result = capture_fn(force=force, market_id=spec.id)
+                    market_results[spec.id] = result
+                    progress_now = now_fn()
+                    status["last_heartbeat"] = progress_now.isoformat()
+                    if result.get("written"):
+                        status["last_snapshot_id"] = result.get("snapshot_id")
+                        status["last_snapshot_written_at"] = progress_now.isoformat()
                 except Exception as exc:  # noqa: BLE001 - keep the loop alive
                     market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
+                    status["last_heartbeat"] = now_fn().isoformat()
+                status["last_market_results"] = {
+                    mid: {
+                        "written": bool(result.get("written")),
+                        "snapshot_id": result.get("snapshot_id"),
+                        "error": result.get("error"),
+                    }
+                    for mid, result in market_results.items()
+                }
+                write_loop_status(status)
             errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
             if errors:
                 status["consecutive_errors"] += 1
@@ -1215,13 +1269,12 @@ def run_loop(force=False, interval_minutes=10.0):
             else:
                 status["consecutive_errors"] = 0
                 status["last_error"] = None
-            written = {mid: r.get("snapshot_id") for mid, r in market_results.items() if r.get("written")}
-            if written:
-                status["last_snapshot_id"] = next(iter(written.values()))
-                status["last_snapshot_written_at"] = now.isoformat()
+            status["last_market_in_progress"] = None
+            elapsed_minutes = (now_fn() - iteration_started).total_seconds() / 60.0
+            _record_recent_elapsed(status, elapsed_minutes)
             try:
                 fleet_health = current_fleet_collection_health(
-                    now=now,
+                    now=now_fn(),
                     interval_minutes=interval_minutes,
                 )
                 status["fleet_collection"] = {
@@ -1249,7 +1302,13 @@ def run_loop(force=False, interval_minutes=10.0):
                 "time": now.isoformat(),
                 "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
             }, sort_keys=True), flush=True)
-        time.sleep(max(1.0, interval_minutes * 60))
+        elapsed_seconds = (now_fn() - iteration_started).total_seconds()
+        sleep_seconds = max(1.0, interval_minutes * 60.0 - elapsed_seconds)
+        status["last_sleep_seconds"] = round(sleep_seconds, 1)
+        write_loop_status(status)
+        if max_iterations is not None and status["iterations"] >= max_iterations:
+            return status
+        sleep_fn(sleep_seconds)
 
 
 def main():

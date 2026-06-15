@@ -359,6 +359,9 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse(written["include_ws_events"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
+        self.assertEqual(written["last_iteration_elapsed_seconds"], 0.0)
+        self.assertEqual(written["recent_iteration_elapsed_seconds"], [0.0])
+        self.assertEqual(written["max_recent_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(len(diagnostics), 1)
 
     def _write_summary_tape(self, root, times):
@@ -434,6 +437,16 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(result["startup_gaps_ignored"], 0)
         self.assertEqual(result["max_counted_gap_seconds"], 340.0)
 
+    def test_audit_book_tape_clamps_concurrent_future_tail(self):
+        base = datetime(2026, 6, 13, 1, 0, tzinfo=timezone.utc)
+        times = [base, base + timedelta(seconds=60)]
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_summary_tape(tmp, times)
+            result = audit_book_tape(tmp, now=base + timedelta(seconds=55))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["trailing_age_seconds"], 0.0)
+
     def test_fleet_effective_book_gap_uses_measured_loop_cycle(self):
         status = {
             "last_iteration_elapsed_seconds": 135.0,
@@ -442,6 +455,16 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 180.0)
         self.assertEqual(fleet_effective_book_gap_seconds(240.0, status), 240.0)
+
+    def test_fleet_effective_book_gap_uses_recent_max_cycle(self):
+        status = {
+            "last_iteration_elapsed_seconds": 160.0,
+            "recent_iteration_elapsed_seconds": [150.0, 170.0, 190.0],
+            "max_recent_iteration_elapsed_seconds": 190.0,
+            "last_sleep_seconds": 15.0,
+        }
+
+        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 235.0)
 
     def test_audit_book_tape_missing_tape(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -39,9 +39,9 @@ fleet tapes that had not yet been finalized into the ledger/promotion corpus.
 Promotion evidence improved after refresh, but the current
 `data/backtest/f_family_promotion_refresh_report.md` still does not prove broad
 edge versus Polymarket: the F-family corpus has 51 market-days, aggregate
-candidate Brier is `0.0442` versus market Brier `0.0379`, Atlanta, Denver, and
-Houston are `PROMOTE_CANDIDATE`, seven F markets remain shadow, and San
-Francisco remains candidate-blocked.
+candidate Brier is `0.0436` versus market Brier `0.0379`, Atlanta, Denver, and
+Houston are `PROMOTE_CANDIDATE`, eight F markets remain shadow, and no
+candidate markets are blocked.
 
 ### Current Work That Needed Roadmap Reconciliation
 
@@ -1779,13 +1779,13 @@ F-family corpus at hash
 `0c3f02ca56c83a5099b156985fdb93e83209addae8bf02c2dffe07b185112339`
 (`51` market-days, `6,989` snapshots, `76,879` band rows,
 `3,363` identity records). Candidate verdict is
-**PARTIAL_PASS / PER_MARKET_ONLY**: Atlanta, Denver, and Houston are
+**PASS_WITH_SHADOWS / PER_MARKET_ONLY**: Atlanta, Denver, and Houston are
 `PROMOTE_CANDIDATE`; Austin, Chicago, Dallas, Los Angeles, Miami, NYC, and
-Seattle remain `KEEP_SHADOW`; San Francisco is `BLOCK_CANDIDATE` because it
-regresses current replay by `+0.0074`. Aggregate candidate Brier is `0.0442`
+San Francisco, and Seattle remain `KEEP_SHADOW`; no candidate markets are
+blocked. Aggregate candidate Brier is `0.0436`
 versus current replay `0.0458` and market `0.0379`; this is a process/model
 improvement but not a north-star edge claim. The remaining promotion-readiness
-gap is split into item 48, and the one-market Miami serving replay regression
+gaps are split into item 48, and the one-market Miami serving replay regression
 is split into item 52.
 
 ### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
@@ -2088,7 +2088,7 @@ target date, writes the shadow artifact
 adds an Item 38 section to both `pooled_candidate_replay_latest_report.md` and
 `f_family_promotion_refresh_report.md`. The current refresh scored 19,668 CLOB
 rows with zero skipped folds: raw overlay Brier `0.0303` versus base candidate
-`0.0391`, current replay `0.0389`, and market `0.0299`.
+`0.0376`, current replay `0.0389`, and market `0.0299`.
 
 Taxonomy-gate update (2026-06-14 local): the overlay now has an explicit
 replay-derived allowlist. It can affect only target taxonomies that beat both
@@ -2096,8 +2096,8 @@ the base candidate and market on the same out-of-fold slice; all other rows
 fall back to the base candidate as `micro_gated_candidate_p`. The current gate
 allows `market_lead` and `book_liquidity_artifact`, and blocks
 `market_overreaction` because it regresses the base candidate (`0.1700` vs
-`0.1027`). The gated overlay changes 437 rows and leaves 66,993 rows on the
-base candidate; aggregate gated Brier is `0.0441` versus base `0.0442`.
+`0.0983`). The gated overlay changes 437 rows and leaves 66,993 rows on the
+base candidate; aggregate gated Brier is `0.0436` versus base `0.0436`.
 
 Fleet critical follow-up (2026-06-14 UTC): the observation-trigger watcher made
 urgent recomputes first-class evidence, but active CSV tapes created before the
@@ -2420,7 +2420,7 @@ blocked promotion 11, and shadow disagreement 1. Focused tests
 cover BLOCK fail-closed, SHADOW harvest, disagreement stand-down, PASS
 known-edge model-skewed quotes, stale watcher stand-down, and tape writing.
 
-### 44. Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [NEW - RESEARCH AUDIT]
+### 44. Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [COMPLETE 2026-06-15 - PAPER SCORER LIVE]
 
 Goal: make MM-1 paper trading honest enough to decide whether live min-size
 testing is justified.
@@ -2429,34 +2429,34 @@ Research source: the market-making audit says midpoint-only backtests and
 headline P&L are not enough. Queue position, latency, adverse selection,
 rebates, rewards, and overfit controls must be measured explicitly.
 
-- [ ] Build the conservative fill simulator as the promotion gate: a passive
+- [x] Build the conservative fill simulator as the promotion gate: a passive
   quote fills only when a recorded trade prints strictly through the intended
   price, never merely at the price, and fill size is capped by recorded trade
   size.
-- [ ] Add a queue-aware companion simulator using recorded book deltas to
+- [x] Add a queue-aware companion simulator using recorded book deltas to
   estimate queue depletion, cancellations ahead, partial fills, and missed
   fills. Report it beside the conservative simulator; do not let it replace
   the conservative go-live gate.
-- [ ] Score markout curves at `+30s`, `+1m`, `+5m`, `+30m`, and settlement by
+- [x] Score markout curves at `+30s`, `+1m`, `+5m`, `+30m`, and settlement by
   market, hour, band distance, quote age, regime, source freshness, book
   imbalance, and casebook taxonomy.
-- [ ] Decompose P&L into spread capture, adverse-selection markout,
+- [x] Decompose P&L into spread capture, adverse-selection markout,
   maker-rebate estimate, liquidity-reward estimate, taker/flattening fees,
   and settlement P&L. Reward/rebate income is valid only after toxic markout
   and flattening costs are deducted.
-- [ ] Implement reward accounting against Polymarket's formula: qualifying
+- [x] Implement reward accounting against Polymarket's formula: qualifying
   size, distance from adjusted midpoint, `Q_min`, normalized share, campaign
   pool, payout threshold, and rolling competition by hour/band. Refresh the
   reward-competition report continuously; thin competition is not assumed to
   persist.
-- [ ] Implement maker-rebate accounting: theoretical fee-equivalent, realized
+- [x] Implement maker-rebate accounting: theoretical fee-equivalent, realized
   maker fee-equivalent, per-market rebate pool, our pool share, and paid-vs-
   predicted reconciliation once live.
-- [ ] Enforce anti-overfit discipline for policy changes: frozen replay day
+- [x] Enforce anti-overfit discipline for policy changes: frozen replay day
   sets, held-out validation days, live-forward paper results generated in real
   time, parameter hashes, confidence intervals by slice, and a deflated-Sharpe,
   PBO, or equivalent multiple-test adjustment when many variants are tried.
-- [ ] Emit `data/backtest/mm_paper_report.md` plus machine-readable JSON with
+- [x] Emit `data/backtest/mm_paper_report.md` plus machine-readable JSON with
   conservative and queue-aware results, markout slices, rewards/rebates,
   quote uptime, stale-input pulls, and casebook-linked fill toxicity.
 
@@ -2465,6 +2465,32 @@ live-forward paper days with locked policy parameters, conservative fills,
 queue-aware companion analysis, net P&L after markout/rewards/rebates/fees,
 slice confidence intervals, and no unresolved quotes resting through decisive
 observation events.
+
+Implementation status (2026-06-15): `src.mm_paper` /
+`weather.market.mm_paper` scores `data/mm_runs/<date>/<run_id>/` quote-intent
+runs into `data/backtest/mm_paper_report.md`,
+`data/backtest/mm_paper_report.json`, and
+`data/backtest/mm_paper_fills_long.csv`. The conservative simulator only fills
+quotes on strict trade-through rows with recorded size and caps each fill by
+remaining recorded trade size. The queue companion reports book-delta estimated
+fills/misses next to, not instead of, conservative fills. The scorer attaches
+30s/1m/5m/30m/settlement markouts, P&L decomposition, maker fee-equivalent and
+rebate estimates, liquidity reward estimates, flattening fees, quote uptime,
+stale-input pulls, casebook toxicity taxonomy, locked policy hashes, slice CIs,
+and a conservative multiple-test CI floor.
+
+Live gate note: the implementation is complete, but MM-2 live testing remains
+blocked until the acceptance evidence exists: at least 14 consecutive
+live-forward paper days under locked policy parameters with clean decisive-event
+resting-quote audits and positive net results after markouts, fees, rewards, and
+rebates.
+
+Validation: `pytest tests\market\test_mm_paper.py -q` passed (2 tests);
+`pytest tests\market\test_mm_paper.py tests\market\test_market_making_run.py tests\market\test_mm_policy.py -q`
+passed (13 tests); full `pytest -q` passed (453 tests, 84 subtests);
+`compileall src tests` passed; `python -m src.mm_paper --help` exposes the CLI,
+and `python -m src.mm_paper` wrote fail-closed default reports with zero fills
+because no `data/mm_runs` folders exist yet.
 
 ### 45. Market-Making Position Sizing, Risk Controls, And Live Gate [NEW - RESEARCH AUDIT]
 
@@ -2570,7 +2596,7 @@ passed (11 tests); full `pytest -q` passed (449 tests, 84 subtests);
 `compileall src tests` passed; `python -m src.market_making_run --help` exposes
 the operator CLI, and a temp-root CLI smoke wrote the expected run artifacts.
 
-### 47. Model Readiness And Known-Edge Permission Map [NEW - MM READINESS GATE]
+### 47. Model Readiness And Known-Edge Permission Map [PARTIAL 2026-06-15 - PAPER-CONSUMING MAP SCAFFOLD]
 
 Goal: turn "how close is the model to market-make?" into a generated permission
 artifact consumed by the quote engine and live gates.
@@ -2581,20 +2607,21 @@ live harvest requires positive paper markouts under market-mid quoting; and
 model-skewed edge quoting requires per-slice evidence that the model beats
 Polymarket and survives execution costs.
 
-- [ ] Generate a `data/backtest/mm_known_edge_map.json` plus Markdown report
-  from promotion refresh, gap decomposition, CLOB overlay scores, casebook
-  taxonomy, paper-trading markouts, and live-pilot markouts once available.
-- [ ] Emit explicit permissions by market, cutoff hour, band distance, band
+- [x] Generate a `data/backtest/mm_known_edge_map.json` plus Markdown report
+  from promotion refresh, paper-trading markouts, and casebook taxonomy; attach
+  gap decomposition, CLOB overlay scores, and live-pilot markouts as those
+  feeds mature.
+- [x] Emit explicit permissions by market, cutoff hour, band distance, band
   type, casebook taxonomy, regime, and source-freshness state:
   `no_quote`, `harvest_only`, `edge_research`, `edge_allowed`, or
   `take_research_only`.
-- [ ] Keep PASS/SHADOW/BLOCK as the base permission system: PASS slices may
+- [x] Keep PASS/SHADOW/BLOCK as the base permission system: PASS slices may
   become edge candidates, SHADOW slices stay harvest-only, and BLOCK slices do
   not quote.
-- [ ] Require market-or-better Brier/log-loss evidence, held-out or
+- [x] Require market-or-better Brier/log-loss evidence, held-out or
   live-forward confidence intervals, and positive post-fill markouts before any
   slice can move from `edge_research` to `edge_allowed`.
-- [ ] Track the active model gap burn-down for the economically relevant cells:
+- [x] Track the active model gap burn-down for the economically relevant cells:
   US morning/overnight rows, at-settle and one-off central bands, CLOB
   `market_lead`, CLOB `book_liquidity_artifact`, `market_overreaction`,
   stale-source cases, and WU lag/catch-up cases.
@@ -2608,6 +2635,17 @@ Polymarket; a promoted market such as Atlanta can be considered for edge mode
 only where the permission map and paper markouts both clear; and the report
 shows exactly which model-market gap cells must improve next.
 
+Implementation status (2026-06-15): `src.mm_paper` now emits the initial
+known-edge artifact at `data/backtest/mm_known_edge_map.json` plus
+`data/backtest/mm_known_edge_map.md` as a consumer of promotion refresh state
+and paper markout slices. PASS markets remain harvest-only until conservative
+paper fills have positive markout/net evidence; positive but under-seasoned
+slices become `edge_research`; `edge_allowed` requires market evidence plus the
+14-day locked live-forward paper gate. SHADOW remains `harvest_only`, BLOCK
+remains `no_quote`, and the JSON includes active model-gap cells. Remaining
+work: wire this generated map into `mm_policy` so quote rows are traceable to a
+specific permission record.
+
 ### 48. F-Family Promotion Readiness And Serving Parity [NEW - OPEN]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
@@ -2615,8 +2653,8 @@ that it is ready for broader promotion.
 
 Source: `data/backtest/f_family_promotion_refresh_report.md` now emits explicit
 promotion-readiness blockers. The current blockers are aggregate candidate
-Brier behind market Brier, seven F markets still in shadow, and one
-candidate-blocked F market (San Francisco). The current-serving gauntlet is now
+Brier behind market Brier and eight F markets still in shadow; no
+candidate-blocked F markets remain. The current-serving gauntlet is now
 non-blocking at `PARTIAL_PASS` with corpus/fidelity/regression gates passing;
 the remaining Miami serving-market regression is split into item 52.
 
@@ -2625,8 +2663,9 @@ the remaining Miami serving-market regression is split into item 52.
 - [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
   current replay, clears trust/sample gates, and is not worse than market prices
   within the promotion tolerance.
-- [ ] Clear the San Francisco candidate regression versus current replay, or
-  keep it explicitly marked as `BLOCK_CANDIDATE`.
+- [ ] Keep candidate-blocked markets at zero; if a future market blocks, keep
+  the generated `BLOCK_CANDIDATE` detail and split market-specific remediation
+  into its own roadmap item.
 - [ ] Add decomposition for the largest shadow causes by market, cutoff hour,
   band type, settlement distance, source freshness, and CLOB taxonomy; feed
   those slices into item 47's known-edge map.
@@ -2839,9 +2878,12 @@ Current best next actions after the 2026-06-14 refresh:
    operator layer now provides date selection, budget ledgers, run folders,
    preflight gates, fail-closed quote/no-quote rows, and a durable report for
    shadow and live-forward paper runs.
-7. **Next: advance items 44 and 47 together.** The paper simulator provides
-   markouts and incentive accounting; the known-edge map converts those results
-   plus promotion/gap/casebook evidence into enforceable quote permissions.
+7. **Done 2026-06-15: implement item 44 and start item 47.** The paper scorer
+   now provides strict conservative fills, queue companion analysis, markouts,
+   incentive accounting, and the initial known-edge map scaffold.
+8. **Next: wire item 47 into the quote policy and accumulate paper evidence.**
+   `mm_policy` still needs to consume `mm_known_edge_map.json`, and MM-2 remains
+   blocked until 14 locked live-forward paper days clear the item 44 gate.
 
 ## Research Questions
 

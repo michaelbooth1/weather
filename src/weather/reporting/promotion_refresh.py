@@ -170,6 +170,13 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             "target_slices": microstructure.get("target_slices") or [],
             "gated_target_slices": micro_gated.get("target_slices") or [],
         },
+        "slices": {
+            "by_cutoff_hour": candidate_report.get("by_hour") or [],
+            "by_band_type": candidate_report.get("by_bin_type") or [],
+            "by_settlement_distance": candidate_report.get("by_settlement_distance") or [],
+            "by_clob_taxonomy": micro_gated.get("by_taxonomy") or microstructure.get("by_taxonomy") or [],
+            "by_source_freshness": candidate_report.get("by_source_freshness") or [],
+        },
     }
 
 
@@ -363,6 +370,50 @@ def _readiness_table_rows(readiness):
     ]
 
 
+def _slice_delta_vs_market(row):
+    value = row.get("delta_vs_market")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _slice_brier(row):
+    if row.get("micro_brier") is not None:
+        return row.get("micro_brier")
+    return row.get("candidate_brier")
+
+
+def _candidate_gap_driver_rows(candidate, limit=12):
+    slices = (candidate or {}).get("slices") or {}
+    sources = [
+        ("cutoff_hour", slices.get("by_cutoff_hour") or []),
+        ("band_type", slices.get("by_band_type") or []),
+        ("settlement_distance", slices.get("by_settlement_distance") or []),
+        ("clob_taxonomy", slices.get("by_clob_taxonomy") or []),
+        ("source_freshness", slices.get("by_source_freshness") or []),
+    ]
+    rows = []
+    for slice_name, items in sources:
+        for item in items:
+            delta_market = _slice_delta_vs_market(item)
+            n = int(item.get("n") or item.get("rows") or 0)
+            if delta_market is None or delta_market <= 0 or n <= 0:
+                continue
+            rows.append({
+                "slice": slice_name,
+                "group": item.get("group"),
+                "rows": n,
+                "brier": _slice_brier(item),
+                "market_brier": item.get("market_brier"),
+                "delta_vs_current": item.get("delta_vs_current"),
+                "delta_vs_market": delta_market,
+                "excess_brier_rows": delta_market * n,
+            })
+    rows.sort(key=lambda row: row["excess_brier_rows"], reverse=True)
+    return rows[:limit]
+
+
 def _serving_table_rows(serving):
     rows = []
     for row in (serving or {}).get("market_rows") or []:
@@ -468,6 +519,42 @@ def write_report(path, payload):
             ["Delta vs market", fmt_signed(candidate_agg.get("delta_vs_market"), 4)],
         ],
     )
+    gap_drivers = _candidate_gap_driver_rows(candidate)
+    lines += [
+        "",
+        "### Candidate Gap Drivers",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Slice",
+            "Group",
+            "Rows",
+            "Candidate/Micro Brier",
+            "Market Brier",
+            "Delta Current",
+            "Delta Market",
+            "Excess Brier Rows",
+        ],
+        [
+            [
+                row.get("slice"),
+                row.get("group") if row.get("group") not in (None, "") else "-",
+                row.get("rows", 0),
+                fmt_num(row.get("brier")),
+                fmt_num(row.get("market_brier")),
+                fmt_signed(row.get("delta_vs_current"), 4),
+                fmt_signed(row.get("delta_vs_market"), 4),
+                fmt_num(row.get("excess_brier_rows")),
+            ]
+            for row in gap_drivers
+        ] or [["-", "-", 0, "-", "-", "-", "-", "-"]],
+    )
+    if not ((candidate.get("slices") or {}).get("by_source_freshness") or []):
+        lines += [
+            "",
+            "Source-freshness gap drivers are not available in the candidate replay rows yet.",
+        ]
     micro = candidate.get("microstructure") or {}
     micro_agg = micro.get("aggregate") or {}
     micro_gated_agg = micro.get("gated_aggregate") or {}
