@@ -46,14 +46,28 @@ Can be done now, in implementation order:
    fields and model-skewed edge quoting only unlocks on `edge_allowed`.
 2. [done] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
    change to Miami only, and clear the current-serving Miami `BLOCK`.
-3. [code-ready] Item 49: add `forecast_high` and `forecast_gap` to late-day
-   continuation training, validation, serving parity, and explanations.
+3. [done] Item 49: add `forecast_high` and `forecast_gap` to late-day
+   continuation training, regenerate all tracked late-day artifacts, and prove
+   the refresh on settlement-scored replay.
 4. [done] Item 37: define/enforce the live-forward SLO and gap-free active-day
    tape gates in software; final clearance still requires a clean future active
    day, and the current strict report blocks on snapshot and CLOB tape gaps.
-5. [partial] Item 39 cleanup: finish the remaining data/artifact hygiene tasks
-   that do not require new external evidence, especially artifact paths, schema
-   migration tooling, and ingest quality gates.
+5. [partial] Item 39 cleanup: source/truth/storage hygiene is reconciled;
+   remaining work is infrastructure-heavy, especially schema migration tooling
+   and ingest quality gates.
+6. [done] Item 55: reconcile quote lifecycle and budget reservation state before
+   treating the running market-making test's budget numbers as live-gate
+   evidence.
+7. [done] Item 57: turn the current `paper-live-forward` preflight blockers
+   into source-status/model/CLOB remediation incidents so a future active day
+   can count.
+8. [done] Item 56: upgrade the MM dashboard into an operator cockpit that
+   separates latest tick, cumulative run, paper corpus, and live-forward gate
+   state.
+9. [new] Items 58-60: turn the 2026-06-15 Miami 92-93 F audit into concrete
+   follow-up work. Item 58 owns the intra-hour WU print-lag feature parity bug;
+   item 59 owns the afternoon high-has-stood lock-in model; item 60 owns
+   range-band artifact schema and stale serving-version guards.
 
 Blocked or gated:
 
@@ -62,9 +76,6 @@ Blocked or gated:
 - Item 48 promotion readiness is blocked as a readiness claim until aggregate
   candidate Brier is market-or-better and remaining shadow markets have
   generated, resolved blockers; decomposition work remains actionable.
-- Item 49's generated artifact refresh is gated behind a full validated late-day
-  retrain and settlement-scored replay; the code path is ready, but the tracked
-  `late_day_model_coefs*.json` files still need regeneration.
 - Item 37 live-forward gate credit is still gated by future evidence: the
   software gate now fails closed, but the current strict report is `CRITICAL`
   for both snapshot collection gaps and CLOB book-capture gaps, so a paper/live
@@ -76,6 +87,10 @@ Blocked or gated:
   replay-safe validation.
 - Any feature or quote mode that relies on live-only data remains blocked from
   promotion until matching historical or live-forward evidence exists.
+- The Miami 2026-06-15 92-93 F disagreement remains a live model-quality
+  blocker until item 58 or item 59 produces a pinned-corpus-neutral fix. The
+  market-making policy should treat this as a stand-down/model-disagreement
+  case, not an edge quote.
 
 ### Current Work That Needed Roadmap Reconciliation
 

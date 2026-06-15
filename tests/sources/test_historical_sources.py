@@ -332,7 +332,29 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(coverage["missing_days"], 1)
             self.assertEqual(coverage["raw_only_days"], ["2026-06-02"])
             self.assertEqual(coverage["raw_only_day_count"], 1)
+            self.assertEqual(coverage["raw_only_normalizable_days"], [])
+            self.assertEqual(coverage["raw_only_normalizable_day_count"], 0)
+            self.assertEqual(coverage["raw_only_source_lag_days"], ["2026-06-02"])
+            self.assertEqual(coverage["raw_only_source_lag_day_count"], 1)
             self.assertEqual(ranges, [(date(2026, 6, 2), date(2026, 6, 2))])
+
+    def test_reanalysis_coverage_flags_normalizable_raw_only_days(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
+                "temperature_2m": [75.0, 76.0],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ReanalysisStore(NYC, tmp)
+            store.write_payload(date(2026, 6, 1), date(2026, 6, 2), payload)
+
+            coverage = store.coverage(date(2026, 6, 1), date(2026, 6, 2))
+
+            self.assertEqual(coverage["raw_only_days"], ["2026-06-01", "2026-06-02"])
+            self.assertEqual(coverage["raw_only_normalizable_days"], ["2026-06-01", "2026-06-02"])
+            self.assertEqual(coverage["raw_only_normalizable_day_count"], 2)
+            self.assertEqual(coverage["raw_only_source_lag_days"], [])
 
 
 if __name__ == "__main__":

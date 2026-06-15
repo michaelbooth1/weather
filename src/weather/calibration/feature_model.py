@@ -168,6 +168,9 @@ LATE_DAY_NUMERIC_FEATURES = [
     "forecast_gap",
 ]
 
+WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
+CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
+
 
 def late_day_feature_columns(all_wind_groups, all_cloud_groups):
     return (
@@ -388,6 +391,271 @@ def ablation_table_row(row, include_hour=False):
     )
 
 
+def train_late_day_continuation_models(
+    model,
+    daily,
+    by_date,
+    forecast_index,
+    all_wind_groups=None,
+    all_cloud_groups=None,
+    trained_at=None,
+):
+    all_wind_groups = list(all_wind_groups or WIND_GROUPS)
+    all_cloud_groups = list(all_cloud_groups or CLOUD_GROUPS)
+    trained_at = trained_at or datetime.now().isoformat()
+    late_day_info = {
+        "schema_version": LATE_DAY_MODEL_SCHEMA_VERSION,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "trained_at": trained_at,
+    }
+    late_day_validation_rows = []
+    late_day_ablation_rows = []
+    for H in [15, 16, 17]:
+        late_day_records = []
+        for local_date in sorted(daily.keys()):
+            rows = by_date.get(local_date, [])
+            if not rows:
+                continue
+            final_high = daily[local_date].get("max_temp_native")
+            if final_high is None:
+                continue
+
+            obs_7am_candidates = [
+                r for r in rows
+                if 360 <= r["minute_of_day"] <= 480 and r["temp_c"] is not None
+            ]
+            temp_7am = None
+            if obs_7am_candidates:
+                closest_obs_7am = min(
+                    obs_7am_candidates,
+                    key=lambda r: abs(r["minute_of_day"] - 420),
+                )
+                temp_7am = closest_obs_7am["temp_c"]
+
+            cutoff_minutes = H * 60
+            obs_before = [r for r in rows if r["minute_of_day"] <= cutoff_minutes]
+            if not obs_before:
+                continue
+            temps_before = [r["temp_c"] for r in obs_before if r["temp_c"] is not None]
+            if not temps_before:
+                continue
+            high_so_far = max(temps_before)
+            current_obs = obs_before[-1]
+            current_temp = current_obs.get("temp_c")
+
+            first_obs = None
+            for r in obs_before:
+                if r.get("temp_c") == high_so_far:
+                    first_obs = r
+                    break
+            if first_obs is None:
+                continue
+
+            wall_minute = cutoff_minutes + wall_offset_for(local_date, H)
+            time_since_reached = wall_minute - first_obs["minute_of_day"]
+
+            rise_from_7am = 0.0
+            if current_temp is not None and temp_7am is not None:
+                rise_from_7am = current_temp - temp_7am
+
+            dewpoint = current_obs.get("dewpoint_c")
+            humidity = current_obs.get("humidity")
+            pressure = current_obs.get("pressure")
+
+            obs_3h_candidates = [
+                r for r in rows
+                if (cutoff_minutes - 240) <= r["minute_of_day"] <= (cutoff_minutes - 120)
+                and r["pressure"] is not None
+            ]
+            pressure_trend_3h = 0.0
+            if pressure is not None and obs_3h_candidates:
+                closest_obs_3h = min(
+                    obs_3h_candidates,
+                    key=lambda r: abs(r["minute_of_day"] - (cutoff_minutes - 180)),
+                )
+                pressure_trend_3h = pressure - closest_obs_3h["pressure"]
+
+            wind_speed = current_obs.get("wind_kmh")
+            wind_group = model.wind_group(current_obs.get("wind"))
+            cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
+            forecast_high = forecast_index.get(local_date.isoformat())
+            forecast_gap = (
+                forecast_high - high_so_far
+                if forecast_high is not None and high_so_far is not None
+                else None
+            )
+
+            is_extended = 1.0 if final_high > high_so_far + 0.1 else 0.0
+
+            late_day_records.append({
+                "date_ordinal": local_date.toordinal(),
+                "time_since_reached": time_since_reached,
+                "high_so_far": high_so_far,
+                "current_temp": current_temp,
+                "rise_from_7am": rise_from_7am,
+                "dewpoint_c": dewpoint,
+                "humidity": humidity,
+                "pressure": pressure,
+                "pressure_trend_3h": pressure_trend_3h,
+                "wind_speed_kmh": wind_speed,
+                "forecast_high": forecast_high,
+                "forecast_gap": forecast_gap,
+                "wind_group": wind_group,
+                "cloud_group": cloud_group,
+                "is_extended": is_extended,
+            })
+
+        if not late_day_records:
+            continue
+
+        ld_df = pd.DataFrame(late_day_records)
+        for g in all_wind_groups:
+            ld_df[f"wind_{g}"] = (ld_df["wind_group"] == g).astype(float)
+        for g in all_cloud_groups:
+            ld_df[f"cloud_{g}"] = (ld_df["cloud_group"] == g).astype(float)
+
+        ld_feature_cols = late_day_feature_columns(all_wind_groups, all_cloud_groups)
+        ld_numeric_count = len(LATE_DAY_NUMERIC_FEATURES)
+
+        ld_X = ld_df[ld_feature_cols].copy()
+        ld_y = ld_df["is_extended"].copy()
+        validation, ablations = evaluate_late_day_records(
+            ld_df,
+            ld_feature_cols,
+            ld_numeric_count,
+        )
+        if validation:
+            validation["hour"] = H
+            late_day_validation_rows.append(validation)
+            for row in ablations:
+                copy = dict(row)
+                copy["hour"] = H
+                late_day_ablation_rows.append(copy)
+
+        ld_imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+        ld_X_imputed = ld_imputer.fit_transform(ld_X)
+        ld_scaler = StandardScaler()
+        ld_X_scaled = ld_X_imputed.copy()
+        ld_X_scaled[:, :ld_numeric_count] = ld_scaler.fit_transform(
+            ld_X_imputed[:, :ld_numeric_count]
+        )
+
+        ld_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
+        if len(np.unique(ld_y)) > 1:
+            ld_lr.fit(ld_X_scaled, ld_y)
+            coefs = ld_lr.coef_[0].tolist()
+            intercept = float(ld_lr.intercept_[0])
+        else:
+            coefs = [0.0] * len(ld_feature_cols)
+            intercept = -10.0 if ld_y.mean() == 0 else 10.0
+
+        prior_p = ld_y.mean()
+
+        late_day_info[str(H)] = {
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "feature_names": ld_feature_cols,
+            "numeric_feature_names": list(LATE_DAY_NUMERIC_FEATURES),
+            "numeric_feature_count": ld_numeric_count,
+            "coef": coefs,
+            "intercept": intercept,
+            "scaler_mean": ld_scaler.mean_[:ld_numeric_count].tolist(),
+            "scaler_scale": ld_scaler.scale_[:ld_numeric_count].tolist(),
+            "imputer_median": ld_imputer.statistics_.tolist(),
+            "empirical_prior": float(prior_p),
+        }
+        print(f"  Cutoff Hour {H:02d}:00 trained. Base continuation rate: {prior_p*100:.1f}%.")
+
+    return late_day_info, late_day_validation_rows, late_day_ablation_rows
+
+
+def write_late_day_continuation_report(spec, validation_rows, ablation_rows, report_path):
+    lines = [
+        "# Late-Day Continuation Model Validation",
+        "",
+        f"Market: `{spec.id}` ({spec.unit})",
+        f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "This report scores the 15:00, 16:00, and 17:00 continuation classifiers directly.",
+        "The trained feature set includes `forecast_high` and `forecast_gap`.",
+        "",
+    ]
+    if validation_rows:
+        lines += [
+            "| Cutoff | Rows | Continuation Rate | LogLoss | Brier | ECE |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for row in sorted(validation_rows, key=lambda item: item["hour"]):
+            lines.append(
+                f"| {row['hour']:02d}:00 | {row['n']} | "
+                f"{row['event_rate']:.3f} | {row['logloss']:.4f} | "
+                f"{row['brier']:.4f} | {row['ece']:.4f} |"
+            )
+    else:
+        lines.append("No late-day validation rows were available.")
+
+    if ablation_rows:
+        lines += [
+            "",
+            "## Feature-Family Ablation",
+            "",
+            "Positive deltas mean the feature family helped the continuation classifier.",
+            "",
+            "| Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for row in summarize_ablation_by_family(ablation_rows):
+            lines.append(ablation_table_row(row))
+        lines += [
+            "",
+            "## Ablation By Cutoff",
+            "",
+            "| Cutoff | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for row in sorted(ablation_rows, key=lambda item: (item["hour"], item["family"])):
+            lines.append(ablation_table_row(row, include_hour=True))
+
+    report_path = os.fspath(report_path)
+    os.makedirs(os.path.dirname(report_path), exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return report_path
+
+
+def main_late_day(market_id="toronto"):
+    model = TorontoHighTempModel(market_id=market_id)
+    spec = model.spec
+    suffix = spec.artifact_suffix
+    print(f"Training late-day continuation model for market '{spec.id}' "
+          f"(unit {spec.unit}, artifacts '*{suffix}').")
+    cache = model.historical_target_cache()
+    daily = cache["daily"]
+    by_date = cache["by_date"]
+    forecast_index = load_forecast_daily(daily_path_for(spec))
+    print(f"Loaded {len(daily)} target-season days and {len(forecast_index)} forecast-days.")
+
+    late_day_info, validation_rows, ablation_rows = train_late_day_continuation_models(
+        model,
+        daily,
+        by_date,
+        forecast_index,
+        WIND_GROUPS,
+        CLOUD_GROUPS,
+    )
+    ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
+    with open(ld_coefs_path, "w", encoding="utf-8") as f:
+        json.dump(late_day_info, f, indent=2, sort_keys=True)
+    print(f"Saved final late-day model coefficients to {ld_coefs_path}")
+
+    report_path = os.path.join(
+        str(spec.data_root),
+        "analysis",
+        f"late_day_continuation_report{suffix}.md",
+    )
+    write_late_day_continuation_report(spec, validation_rows, ablation_rows, report_path)
+    print(f"Saved late-day validation report to {report_path}")
+
+
 def main(market_id="toronto"):
     model = TorontoHighTempModel(market_id=market_id)
     spec = model.spec
@@ -441,8 +709,8 @@ def main(market_id="toronto"):
                 raw_data[hour].append(record)
 
     # Available wind and cloud categories for one-hot encoding consistency
-    all_wind_groups = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
-    all_cloud_groups = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
+    all_wind_groups = WIND_GROUPS
+    all_cloud_groups = CLOUD_GROUPS
 
     # We will build and validate models for each hour
     print("\n--- Model Evaluation and Leave-One-Out validation ---")
@@ -805,165 +1073,17 @@ def main(market_id="toronto"):
 
     # --- Train Late-Day Continuation Models ---
     print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
-    late_day_info = {
-        "schema_version": LATE_DAY_MODEL_SCHEMA_VERSION,
-        "feature_schema_version": FEATURE_SCHEMA_VERSION,
-        "trained_at": trained_at,
-    }
-    late_day_validation_rows = []
-    late_day_ablation_rows = []
-    for H in [15, 16, 17]:
-        late_day_records = []
-        for local_date in sorted(daily.keys()):
-            rows = by_date.get(local_date, [])
-            if not rows:
-                continue
-            final_high = daily[local_date].get("max_temp_native")
-            if final_high is None:
-                continue
-                
-            # Pre-find 7 AM temp
-            obs_7am_candidates = [r for r in rows if 360 <= r["minute_of_day"] <= 480 and r["temp_c"] is not None]
-            temp_7am = None
-            if obs_7am_candidates:
-                closest_obs_7am = min(obs_7am_candidates, key=lambda r: abs(r["minute_of_day"] - 420))
-                temp_7am = closest_obs_7am["temp_c"]
-                
-            cutoff_minutes = H * 60
-            obs_before = [r for r in rows if r["minute_of_day"] <= cutoff_minutes]
-            if not obs_before:
-                continue
-            temps_before = [r["temp_c"] for r in obs_before if r["temp_c"] is not None]
-            if not temps_before:
-                continue
-            high_so_far = max(temps_before)
-            current_obs = obs_before[-1]
-            current_temp = current_obs.get("temp_c")
-            
-            # find when high_so_far was first reached
-            first_obs = None
-            for r in obs_before:
-                if r.get("temp_c") == high_so_far:
-                    first_obs = r
-                    break
-            if first_obs is None:
-                continue
-
-            # Measure from the sampled intra-hour WALL minute, matching how
-            # serving computes it from the wall clock (the audited
-            # wall-vs-cutoff training skew, fixed with item 40). The late-day
-            # hours (15-17) are outside RAMP_CUTOFF_HOURS, so this stays the base
-            # offset set -- the lock-in window's training is unchanged.
-            wall_minute = cutoff_minutes + wall_offset_for(local_date, H)
-            time_since_reached = wall_minute - first_obs["minute_of_day"]
-            
-            # Rise from 7 AM
-            rise_from_7am = 0.0
-            if current_temp is not None and temp_7am is not None:
-                rise_from_7am = current_temp - temp_7am
-                
-            dewpoint = current_obs.get("dewpoint_c")
-            humidity = current_obs.get("humidity")
-            pressure = current_obs.get("pressure")
-            
-            # pressure trend
-            obs_3h_candidates = [r for r in rows if (cutoff_minutes - 240) <= r["minute_of_day"] <= (cutoff_minutes - 120) and r["pressure"] is not None]
-            pressure_trend_3h = 0.0
-            if pressure is not None and obs_3h_candidates:
-                closest_obs_3h = min(obs_3h_candidates, key=lambda r: abs(r["minute_of_day"] - (cutoff_minutes - 180)))
-                press_3h_ago = closest_obs_3h["pressure"]
-                pressure_trend_3h = pressure - press_3h_ago
-                
-            wind_speed = current_obs.get("wind_kmh")
-            wind_group = model.wind_group(current_obs.get("wind"))
-            cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
-            forecast_high = forecast_index.get(local_date.isoformat())
-            forecast_gap = (
-                forecast_high - high_so_far
-                if forecast_high is not None and high_so_far is not None
-                else None
-            )
-            
-            is_extended = 1.0 if final_high > high_so_far + 0.1 else 0.0
-            
-            late_day_records.append({
-                "date_ordinal": local_date.toordinal(),
-                "time_since_reached": time_since_reached,
-                "high_so_far": high_so_far,
-                "current_temp": current_temp,
-                "rise_from_7am": rise_from_7am,
-                "dewpoint_c": dewpoint,
-                "humidity": humidity,
-                "pressure": pressure,
-                "pressure_trend_3h": pressure_trend_3h,
-                "wind_speed_kmh": wind_speed,
-                "forecast_high": forecast_high,
-                "forecast_gap": forecast_gap,
-                "wind_group": wind_group,
-                "cloud_group": cloud_group,
-                "is_extended": is_extended
-            })
-            
-        if not late_day_records:
-            continue
-            
-        ld_df = pd.DataFrame(late_day_records)
-        # One-hot encode wind_group
-        for g in all_wind_groups:
-            ld_df[f"wind_{g}"] = (ld_df["wind_group"] == g).astype(float)
-        for g in all_cloud_groups:
-            ld_df[f"cloud_{g}"] = (ld_df["cloud_group"] == g).astype(float)
-            
-        ld_feature_cols = late_day_feature_columns(all_wind_groups, all_cloud_groups)
-        ld_numeric_count = len(LATE_DAY_NUMERIC_FEATURES)
-        
-        ld_X = ld_df[ld_feature_cols].copy()
-        ld_y = ld_df["is_extended"].copy()
-        validation, ablations = evaluate_late_day_records(
-            ld_df,
-            ld_feature_cols,
-            ld_numeric_count,
+    late_day_info, late_day_validation_rows, late_day_ablation_rows = (
+        train_late_day_continuation_models(
+            model,
+            daily,
+            by_date,
+            forecast_index,
+            all_wind_groups,
+            all_cloud_groups,
+            trained_at,
         )
-        if validation:
-            validation["hour"] = H
-            late_day_validation_rows.append(validation)
-            for row in ablations:
-                copy = dict(row)
-                copy["hour"] = H
-                late_day_ablation_rows.append(copy)
-        
-        ld_imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-        ld_X_imputed = ld_imputer.fit_transform(ld_X)
-        ld_scaler = StandardScaler()
-        ld_X_scaled = ld_X_imputed.copy()
-        ld_X_scaled[:, :ld_numeric_count] = ld_scaler.fit_transform(ld_X_imputed[:, :ld_numeric_count])
-        
-        ld_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
-        if len(np.unique(ld_y)) > 1:
-            ld_lr.fit(ld_X_scaled, ld_y)
-            coefs = ld_lr.coef_[0].tolist()
-            intercept = float(ld_lr.intercept_[0])
-        else:
-            # Only one class (no continuation or always continuation), zero out coefs
-            coefs = [0.0] * len(ld_feature_cols)
-            intercept = -10.0 if ld_y.mean() == 0 else 10.0
-        
-        prior_p = ld_y.mean()
-        
-        # Save coefficients
-        late_day_info[str(H)] = {
-            "feature_schema_version": FEATURE_SCHEMA_VERSION,
-            "feature_names": ld_feature_cols,
-            "numeric_feature_names": list(LATE_DAY_NUMERIC_FEATURES),
-            "numeric_feature_count": ld_numeric_count,
-            "coef": coefs,
-            "intercept": intercept,
-            "scaler_mean": ld_scaler.mean_[:ld_numeric_count].tolist(),
-            "scaler_scale": ld_scaler.scale_[:ld_numeric_count].tolist(),
-            "imputer_median": ld_imputer.statistics_.tolist(),
-            "empirical_prior": float(prior_p)
-        }
-        print(f"  Cutoff Hour {H:02d}:00 trained. Base continuation rate: {prior_p*100:.1f}%.")
+    )
         
     # Save late day coefficients JSON (per-unit artifact)
     ld_coefs_path = writable_artifact_path(f"late_day_model_coefs{suffix}.json")
@@ -1068,7 +1188,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skip-loo", action="store_true",
         help="Skip leave-one-out validation and only retrain final serving artifacts.")
+    parser.add_argument(
+        "--late-day-only", action="store_true",
+        help="Only retrain late-day continuation coefficients and validation report.")
     args = parser.parse_args()
+    if args.late_day_only:
+        main_late_day(market_id=args.market)
+        raise SystemExit(0)
     if args.skip_loo:
         RUN_LOO = False
     main(market_id=args.market)

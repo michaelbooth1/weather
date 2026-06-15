@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
@@ -18,6 +19,7 @@ from pooled_feature_model import (
     fit_adjacent_calibration,
     hard_floor_probability,
     late_lockin_strength_from_features,
+    market_source_reliability,
     support_floor_cap,
 )
 from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
@@ -76,6 +78,37 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertAlmostEqual(frame.loc[1, "high_so_far_anomaly"], 5.0)
         self.assertAlmostEqual(frame.loc[0, "source_redundant_streams"], 2.0)
         self.assertAlmostEqual(frame.loc[1, "source_best_bucket_match"], 0.90)
+
+    def test_market_source_reliability_populates_ghcnh_and_reanalysis_priors(self):
+        indexes = {
+            "wu": {
+                "2026-06-01": {"high": 80.0, "bucket": 80, "peak_minute": 900},
+                "2026-06-02": {"high": 82.0, "bucket": 82, "peak_minute": 960},
+            },
+            "metar": {},
+            "ghcnh": {
+                "2026-06-01": {"high": 81.0, "bucket": 81, "peak_minute": 840},
+                "2026-06-02": {"high": 83.0, "bucket": 83, "peak_minute": 900},
+            },
+            "reanalysis": {
+                "2026-06-01": {"high": 78.0, "bucket": 78, "peak_minute": 1020},
+                "2026-06-02": {"high": 82.0, "bucket": 82, "peak_minute": 960},
+            },
+        }
+
+        with patch("pooled_feature_model.source_daily_indexes", return_value=indexes):
+            reliability = market_source_reliability(NYC)
+
+        self.assertEqual(reliability["source_redundant_streams"], 2.0)
+        self.assertEqual(reliability["source_overlap_days"], 4.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_bias"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_mae"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_bucket_match"], 0.0)
+        self.assertAlmostEqual(reliability["source_reanalysis_bias"], -1.0)
+        self.assertAlmostEqual(reliability["source_reanalysis_mae"], 1.0)
+        self.assertAlmostEqual(reliability["source_reanalysis_bucket_match"], 0.5)
+        self.assertAlmostEqual(reliability["source_best_bucket_match"], 0.5)
+        self.assertAlmostEqual(reliability["source_best_mae"], 1.0)
 
     def test_band_prediction_record_adds_floor_and_band_context(self):
         record = add_city_features(self._base_record(), NYC, {

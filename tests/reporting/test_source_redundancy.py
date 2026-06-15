@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from source_redundancy import (  # noqa: E402
     build_payload,
     forecast_ensemble_features,
+    truth_csv_rows,
 )
 
 
@@ -46,6 +47,7 @@ class TestSourceRedundancy(unittest.TestCase):
             root = Path(tmp)
             wu_root = root / "wu"
             metar_root = root / "metar"
+            swob_root = root / "swob"
             ghcnh_root = root / "ghcnh"
             reanalysis_root = root / "reanalysis"
             snapshots_root = root / "snapshots"
@@ -72,6 +74,7 @@ class TestSourceRedundancy(unittest.TestCase):
                 source_roots={
                     "wu": wu_root,
                     "metar": metar_root,
+                    "swob": swob_root,
                     "ghcnh": ghcnh_root,
                     "reanalysis": reanalysis_root,
                 },
@@ -90,6 +93,65 @@ class TestSourceRedundancy(unittest.TestCase):
         self.assertAlmostEqual(market["source_bias_vs_wu"]["ghcnh"]["mean_peak_time_lead_minutes"], -60.0)
         commands = market["gap_fill"]["refetch_commands"]
         self.assertTrue(any(command["source"] == "wu" and command["start"] == "2026-06-02" for command in commands))
+
+    def test_daily_truth_includes_toronto_swob_and_consensus_high(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wu_root = root / "wu"
+            metar_root = root / "metar"
+            swob_root = root / "swob"
+            ghcnh_root = root / "ghcnh"
+            reanalysis_root = root / "reanalysis"
+            snapshots_root = root / "snapshots"
+            snapshots_root.mkdir()
+
+            write_daily(wu_root, "cyyz", [
+                {"local_date": "2026-06-01", "max_temp": 20.0, "max_temp_bucket": 20},
+            ])
+            write_daily(metar_root, "cyyz", [
+                {"local_date": "2026-06-01", "max_temp": 21.0, "max_temp_bucket": 21},
+            ])
+            write_daily(swob_root, "cyyz", [
+                {"local_date": "2026-06-01", "max_temp": 23.0, "max_temp_bucket": 23},
+            ])
+            write_daily(ghcnh_root, "cyyz", [
+                {"local_date": "2026-06-01", "max_temp": 22.0, "max_temp_bucket": 22},
+            ])
+            write_daily(reanalysis_root, "cyyz", [
+                {"local_date": "2026-06-01", "max_temp": 19.0, "max_temp_bucket": 19},
+            ])
+
+            payload = build_payload(
+                market_ids=["toronto"],
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 1),
+                source_roots={
+                    "wu": wu_root,
+                    "metar": metar_root,
+                    "swob": swob_root,
+                    "ghcnh": ghcnh_root,
+                    "reanalysis": reanalysis_root,
+                },
+                snapshots_root=snapshots_root,
+            )
+
+        row = payload["markets"]["toronto"]["daily_truth"][0]
+        self.assertEqual(row["schema_version"], "daily_source_truth_v0.2")
+        self.assertIn("swob", row["source_values"])
+        self.assertEqual(row["source_count"], 5)
+        self.assertEqual(row["consensus_source_count"], 5)
+        self.assertEqual(row["consensus_high"], 21.0)
+        self.assertEqual(row["consensus_bucket"], 21)
+        self.assertEqual(
+            row["consensus_sources"],
+            ["ghcnh", "metar", "reanalysis", "swob", "wu"],
+        )
+        self.assertAlmostEqual(
+            payload["markets"]["toronto"]["source_bias_vs_wu"]["swob"]["bias_source_minus_wu"],
+            3.0,
+        )
+        csv_row = list(truth_csv_rows(payload))[0]
+        self.assertEqual(csv_row["consensus_sources"], "ghcnh|metar|reanalysis|swob|wu")
 
     def test_forecast_ensemble_features_extract_source_count_and_disagreement(self):
         with tempfile.TemporaryDirectory() as tmp:

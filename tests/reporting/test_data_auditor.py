@@ -7,7 +7,7 @@ from pathlib import Path
 # Add src to the path
 sys.path.insert(0, os.path.abspath("src"))
 
-from data_auditor import audit_historical_data, audit_summary
+from data_auditor import audit_historical_data, audit_summary, has_corruption
 
 
 class TestDataAuditor(unittest.TestCase):
@@ -86,6 +86,33 @@ class TestDataAuditor(unittest.TestCase):
         self.assertEqual(summary["market_count"], 2)
         self.assertEqual(summary["markets_with_impossible_values"], 1)
         self.assertEqual(summary["corruption_markets"], ["miami"])
+
+    def test_schema_errors_are_corruption(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "daily").mkdir(parents=True)
+            (root / "daily" / "daily_summary.csv").write_text(
+                "\n".join([
+                    "schema_version,local_date,row_count",
+                    "bad_schema,2026-06-07,18",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            result = audit_historical_data(
+                data_root=root,
+                market_id="nyc",
+                target_month=6,
+                target_day=7,
+                years=[2026],
+                quiet=True,
+            )
+
+        self.assertTrue(result["schema_errors"])
+        self.assertTrue(has_corruption(result))
+        summary = audit_summary({"nyc": result})
+        self.assertEqual(summary["markets_with_schema_errors"], 1)
+        self.assertEqual(summary["corruption_markets"], ["nyc"])
 
 
 if __name__ == "__main__":

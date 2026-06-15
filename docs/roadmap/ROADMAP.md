@@ -83,7 +83,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
 | 32 | [Reanalysis And Synoptic Feature Layer [NEW - GATED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
-| 39 | [Data Layer Audit Findings (2026-06-09) [NEW - OPEN]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
+| 39 | [Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE CLEANUP DONE]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -104,12 +104,18 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
 | 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
-| 49 | [Late-Day Forecast-Gap Continuation Training [PARTIAL 2026-06-15 - CODE PATH READY]](items/item-49-late-day-forecast-gap-continuation-training.md) |
+| 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [NEW - OPEN]](items/item-50-scholarly-weather-input-gap-closure.md) |
 | 51 | [Model Architecture Health Refactor [NEW - OPEN]](items/item-51-model-architecture-health-refactor.md) |
 | 52 | [Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]](items/item-52-miami-current-serving-replay-regression-triage.md) |
 | 53 | [Candidate Source-Freshness Gap Attribution [COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE]](items/item-53-candidate-source-freshness-gap-attribution.md) |
 | 54 | [Source-Freshness Known-Edge Map Consumption [COMPLETE 2026-06-15 - PERMISSION CELLS LIVE]](items/item-54-source-freshness-known-edge-map-consumption.md) |
+| 55 | [Market-Making Order Lifecycle And Budget Reconciliation [COMPLETE 2026-06-15 - LIFECYCLE LEDGER LIVE]](items/item-55-market-making-order-lifecycle-and-budget-reconciliation.md) |
+| 56 | [Market-Making Test Cockpit And Drilldown Diagnostics [COMPLETE 2026-06-15 - COCKPIT LIVE]](items/item-56-market-making-test-cockpit-and-drilldown-diagnostics.md) |
+| 57 | [Market-Making Preflight Remediation And Active-Day Reliability [COMPLETE 2026-06-15 - REMEDIATION INCIDENTS LIVE]](items/item-57-market-making-preflight-remediation-and-active-day-reliability.md) |
+| 58 | [Miami Intra-Hour WU Print-Lag Feature Parity [NEW - AUDIT]](items/item-58-miami-intra-hour-wu-print-lag-feature-parity.md) |
+| 59 | [Afternoon High-Has-Stood Lock-In Model [NEW - AUDIT]](items/item-59-afternoon-high-has-stood-lock-in-model.md) |
+| 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [NEW - AUDIT]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 
 ## Maintenance Conventions
 

@@ -27,8 +27,8 @@ from market_registry import all_specs, spec_for_id, spec_for_slug  # noqa: E402
 from wu_history import parse_date  # noqa: E402
 
 
-SCHEMA_VERSION = "source_redundancy_v0.1"
-TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.1"
+SCHEMA_VERSION = "source_redundancy_v0.2"
+TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.2"
 FORECAST_ENSEMBLE_SCHEMA_VERSION = "forecast_ensemble_features_v0.1"
 
 DEFAULT_JSON_OUT = Path("data") / "backtest" / "source_redundancy.json"
@@ -36,18 +36,23 @@ DEFAULT_REPORT = Path("data") / "backtest" / "source_redundancy_report.md"
 DEFAULT_TRUTH_OUT = Path("data") / "backtest" / "source_truth_daily.csv"
 DEFAULT_FORECAST_OUT = Path("data") / "backtest" / "forecast_ensemble_features.csv"
 
-OBS_SOURCES = ("wu", "metar", "ghcnh", "reanalysis")
+OBS_SOURCES = ("wu", "metar", "swob", "ghcnh", "reanalysis")
 PRIMARY_SOURCE = "wu"
+# Keep this model-facing order stable: pooled_feature_model imports it for
+# static reliability priors and currently has trained columns for these sources.
 FALLBACK_ORDER = ("metar", "ghcnh", "reanalysis")
+TRUTH_FALLBACK_ORDER = ("metar", "swob", "ghcnh", "reanalysis")
 SOURCE_ROOTS = {
     "wu": Path("data") / "wunderground",
     "metar": Path("data") / "metar",
+    "swob": Path("data") / "eccc_swob",
     "ghcnh": Path("data") / "noaa_ghcnh",
     "reanalysis": Path("data") / "reanalysis",
 }
 SOURCE_LABELS = {
     "wu": "Weather.com/WU primary",
     "metar": "METAR/ASOS station",
+    "swob": "ECCC SWOB station",
     "ghcnh": "NOAA GHCNh station",
     "reanalysis": "Open-Meteo ERA5 reanalysis",
 }
@@ -114,6 +119,14 @@ def daily_path_for_source(spec, source, roots=None):
     return root_for_source(source, roots) / spec.icao.lower() / "daily" / "daily_summary.csv"
 
 
+def obs_sources_for_spec(spec):
+    declared = set(getattr(spec, "sources", ()) or ())
+    return tuple(
+        source for source in OBS_SOURCES
+        if source != "swob" or "eccc_swob" in declared
+    )
+
+
 def earliest_minute(times_text):
     minutes = []
     for part in str(times_text or "").split("|"):
@@ -162,7 +175,7 @@ def read_daily_source(spec, source, roots=None):
 def source_daily_indexes(spec, roots=None):
     return {
         source: read_daily_source(spec, source, roots=roots)
-        for source in OBS_SOURCES
+        for source in obs_sources_for_spec(spec)
     }
 
 
@@ -177,7 +190,7 @@ def source_values_for_day(indexes, local_date):
 def selected_truth(values):
     if PRIMARY_SOURCE in values:
         return values[PRIMARY_SOURCE], "primary"
-    for source in FALLBACK_ORDER:
+    for source in TRUTH_FALLBACK_ORDER:
         if source in values:
             return values[source], "filled_from_redundant"
     return None, "missing_all_sources"
@@ -202,6 +215,11 @@ def primary_disagreement(values):
     return max(diffs) if diffs else None
 
 
+def consensus_high(values):
+    highs = [row.get("high") for row in values.values() if row.get("high") is not None]
+    return statistics.median(highs) if highs else None
+
+
 def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRESHOLD):
     selected, status = selected_truth(values)
     spread = source_spread(values)
@@ -210,6 +228,11 @@ def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRE
     selected_source = selected.get("source") if selected else None
     selected_high = selected.get("high") if selected else None
     selected_bucket = selected.get("bucket") if selected else None
+    consensus = consensus_high(values)
+    consensus_sources = [
+        source for source, row in sorted(values.items())
+        if row.get("high") is not None
+    ]
     return {
         "schema_version": TRUTH_SCHEMA_VERSION,
         "market_id": spec.id,
@@ -220,6 +243,10 @@ def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRE
         "selected_source": selected_source,
         "selected_high": selected_high,
         "selected_bucket": selected_bucket,
+        "consensus_high": consensus,
+        "consensus_bucket": round_half_up(consensus),
+        "consensus_source_count": len(consensus_sources),
+        "consensus_sources": consensus_sources,
         "primary_available": PRIMARY_SOURCE in values,
         "source_count": len(values),
         "redundant_source_count": len(redundant_sources),
@@ -239,7 +266,7 @@ def truth_row(spec, local_date, values, disagreement_threshold=DISAGREEMENT_THRE
             primary_diff is not None and primary_diff > float(disagreement_threshold)
         ),
         "fill_candidate": status == "filled_from_redundant",
-        "missing_sources": [source for source in OBS_SOURCES if source not in values],
+        "missing_sources": [source for source in obs_sources_for_spec(spec) if source not in values],
     }
 
 
@@ -300,10 +327,11 @@ def bias_stats_for_source(rows, source):
     }
 
 
-def bias_stats(rows):
+def bias_stats(rows, sources=None):
+    sources = [source for source in (sources or TRUTH_FALLBACK_ORDER) if source != PRIMARY_SOURCE]
     return {
         source: bias_stats_for_source(rows, source)
-        for source in FALLBACK_ORDER
+        for source in sources
     }
 
 
@@ -325,6 +353,11 @@ def command_for_source(source, market_id, start_date, end_date):
         return (
             f".\\venv\\Scripts\\python.exe -m src.metar_history --market {market_id} "
             f"backfill --start {start_text} --end {end_text} --skip-existing"
+        )
+    if source == "swob":
+        return (
+            f".\\venv\\Scripts\\python.exe -m src.eccc_swob_history run "
+            f"--start {start_text} --end {end_text}"
         )
     if source == "reanalysis":
         return (
@@ -524,7 +557,7 @@ def build_payload(
             "city": spec.city_label,
             "unit": spec.display_unit,
             "summary": market_summary(rows),
-            "source_bias_vs_wu": bias_stats(rows),
+            "source_bias_vs_wu": bias_stats(rows, sources=obs_sources_for_spec(spec)),
             "gap_fill": gap_fill_plan(spec, rows),
             "daily_truth": rows,
         }
@@ -579,6 +612,7 @@ def truth_csv_rows(payload):
         for row in market.get("daily_truth") or []:
             out = dict(row)
             out["redundant_sources"] = "|".join(row.get("redundant_sources") or [])
+            out["consensus_sources"] = "|".join(row.get("consensus_sources") or [])
             out["missing_sources"] = "|".join(row.get("missing_sources") or [])
             out["source_values"] = json.dumps(row.get("source_values") or {}, sort_keys=True)
             yield out
@@ -604,6 +638,10 @@ TRUTH_COLUMNS = [
     "selected_source",
     "selected_high",
     "selected_bucket",
+    "consensus_high",
+    "consensus_bucket",
+    "consensus_source_count",
+    "consensus_sources",
     "primary_available",
     "source_count",
     "redundant_source_count",

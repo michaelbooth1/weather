@@ -2,8 +2,8 @@
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
    canonical-Celsius pooling, so it gates item 33/35. Plus the item 39 cleanup
-   tasks (orphan artifacts, forecast_history gaps, ERA5 normalize lag) are quick
-   and unblock clean validation.
+   tasks (orphan artifacts, forecast_history gaps, ERA5 normalize lag, and the
+   GHCNh/ERA5 use-or-drop decision) are quick and unblock clean validation.
 1. **Item 28 (settlement ledger)** and **item 33 (pooled F + city features)** in
    parallel — the foundation labels and the immediate model win, both unblocked
    now.
@@ -17,25 +17,32 @@
 4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
 5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are
    the long-tail accuracy and edge plays.
-   Item 49 is the scoped late-day forecast-gap cleanup split out of items 8 and
-   22; do it before claiming the late-day continuation model itself is
-   forecast-aware.
+   Item 49 was the scoped late-day forecast-gap cleanup split out of items 8 and
+   22; it is now complete, with forecast-gap-aware late-day artifacts and a
+   non-regressing settlement-scored replay.
 6. **41 (disagreement casebook)** now runs as the durable audit layer alongside
    model work: it converts every large live edge into supervised evidence
    instead of another one-off chat audit. **42 (fast observation-triggered
    recompute)** follows item 40's live-reading feature work, item 38's
    fast-book capture, and item 41's large-disagreement slices; it is the next
    latency fix before any quote engine trusts sub-10-minute edges.
-7. **43-47 are the market-making bridge.** After book capture, casebook, and
-   observation-trigger plumbing are stable, build the keyless quote policy
-   first, then paper-trade it with conservative and queue-aware fills, then
-   add the date/budget run orchestrator, define the known-edge permission map,
-   and wire position sizing plus live gates. Live MM-2 orders wait until the
-   policy, paper, orchestration, readiness-map, and live-risk gates pass;
-   reward/rebate yield is not treated as alpha until adverse-selection markout
-   is deducted.
+7. **43-57 are the market-making bridge and live-forward test loop.** After
+   book capture, casebook, and observation-trigger plumbing are stable, build
+   the keyless quote policy first, then paper-trade it with conservative and
+   queue-aware fills, then add the date/budget run orchestrator, define the
+   known-edge permission map, wire source-freshness permissions, and harden the
+   running live-forward test with order lifecycle reconciliation, a usable
+   operator cockpit, and actionable preflight recovery. Live MM-2 orders wait
+   until the policy, paper, orchestration, readiness-map, test-reliability, and
+   live-risk gates pass; reward/rebate yield is not treated as alpha until
+   adverse-selection markout is deducted.
+8. **58-60 are the Miami 2026-06-15 audit follow-ups.** Fix the WU intra-hour
+   feature parity bug first (58), add the afternoon high-has-stood lock-in
+   component only with pinned-corpus replay proof (59), and make range-band
+   artifacts/version identity auditable before trusting future one-off
+   disagreement investigations (60).
 
-Current best next actions after the 2026-06-14 refresh:
+Current best next actions after the 2026-06-15 MM test review:
 
 1. **Done 2026-06-14: automate the daily settlement-to-promotion refresh.** The biggest audit
    miss was not a model bug; it was a stale ledger/promotion corpus. Schedule
@@ -71,9 +78,17 @@ Current best next actions after the 2026-06-14 refresh:
    operator layer now provides date selection, budget ledgers, run folders,
    preflight gates, fail-closed quote/no-quote rows, and a durable report for
    shadow and live-forward paper runs.
-7. **Done 2026-06-15: implement item 44 and start item 47.** The paper scorer
-   now provides strict conservative fills, queue companion analysis, markouts,
-   incentive accounting, and the initial known-edge map scaffold.
-8. **Next: wire item 47 into the quote policy and accumulate paper evidence.**
-   `mm_policy` still needs to consume `mm_known_edge_map.json`, and MM-2 remains
-   blocked until 14 locked live-forward paper days clear the item 44 gate.
+7. **Done 2026-06-15: implement items 44, 47, and 54.** The paper scorer now
+   provides strict conservative fills, queue companion analysis, markouts, and
+   incentive accounting. The known-edge map is policy-consumed, and
+   source-freshness permission cells are live.
+8. **Done 2026-06-15: complete items 55-57 around the live-forward test.** The
+   run budget now reconciles against an order lifecycle ledger, preflight
+   blockers emit remediation incidents, and the `?market=mm` page shows
+   latest-tick versus cumulative state, blockers, lifecycle budget, and
+   live-forward gate progress.
+9. **Next: work items 58-60, then accumulate locked live-forward paper days and
+   work item 45.** MM-2
+   remains blocked until the live-forward paper gate has enough clean evidence,
+   lifecycle/remediation/cockpit artifacts stay green, and platform/account/
+   wallet/cancel-all readiness is verified.

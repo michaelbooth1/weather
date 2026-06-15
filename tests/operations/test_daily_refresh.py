@@ -10,7 +10,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from daily_refresh import load_status, run_daily_refresh, run_reanalysis_recent_refresh_step  # noqa: E402
+from daily_refresh import (  # noqa: E402
+    load_status,
+    run_daily_refresh,
+    run_ingest_quality_gate_step,
+    run_reanalysis_recent_refresh_step,
+)
 
 
 def _args(tmp, **overrides):
@@ -24,7 +29,11 @@ def _args(tmp, **overrides):
         "dry_run": False,
         "continue_on_error": False,
         "fail_on_fleet_critical": False,
+        "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
+        "fail_on_snapshot_evaluation": False,
+        "skip_ingest_quality_gate": False,
+        "ingest_quality_years": "",
         "skip_reanalysis_refresh": False,
         "reanalysis_lag_days": 10,
         "reanalysis_chunk_days": 5,
@@ -136,7 +145,20 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 7)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 9)
+
+    def test_fail_on_ingest_quality_marks_run_critical(self):
+        def ingest(_args):
+            return {"status": "FAIL", "summary": {"markets_with_schema_errors": 1}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_ingest_quality=True),
+                runners=[("ingest_quality_gate", ingest)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["ingest_quality_gate"]["status"], "FAIL")
 
     def test_fail_on_data_layer_audit_marks_run_critical(self):
         def audit(_args):
@@ -150,6 +172,19 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["data_layer_audit"]["gate_status"], "FAIL")
+
+    def test_fail_on_snapshot_evaluation_marks_run_critical(self):
+        def evaluation(_args):
+            return {"status": "FAIL", "gate_counts": {"status": "FAIL"}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_snapshot_evaluation=True),
+                runners=[("snapshot_evaluation", evaluation)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["snapshot_evaluation"]["status"], "FAIL")
 
     def test_reanalysis_recent_refresh_fetches_missing_ranges_without_raising(self):
         stores = []
@@ -202,6 +237,26 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["fetched_ranges"], 1)
         self.assertEqual(result["error_count"], 0)
         self.assertEqual(len(stores[0].writes), 1)
+
+    def test_ingest_quality_gate_writes_artifacts_and_warns_on_gaps(self):
+        fake_results = {
+            "nyc": {
+                "missing_days": [date(2026, 6, 1)],
+                "sparse_days": [],
+                "duplicate_timestamps": [],
+                "impossible_values": [],
+                "schema_errors": [],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("daily_refresh.data_auditor.audit_fleet_historical_data", return_value=fake_results):
+            result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
+
+        self.assertEqual(result["status"], "WARN")
+        self.assertTrue(Path(result["json_out"]).exists())
+        self.assertTrue(Path(result["report_out"]).exists())
+        self.assertEqual(result["summary"]["markets_with_missing_days"], 1)
 
 
 if __name__ == "__main__":

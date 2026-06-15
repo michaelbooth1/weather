@@ -816,17 +816,25 @@ def build_gates(snapshot, historical, thresholds=None):
         action="Use source-status rows to isolate persistent stale sources before training on the affected captures.",
     ))
 
-    reanalysis_raw_only = 0
+    reanalysis_raw_only_normalizable = 0
+    reanalysis_raw_only_source_lag = 0
     for market in historical.get("markets") or []:
         item = ((market.get("sources") or {}).get("reanalysis") or {}).get("archive_coverage") or {}
-        reanalysis_raw_only += int(item.get("raw_only_day_count") or 0)
+        reanalysis_raw_only_normalizable += int(
+            item.get("raw_only_normalizable_day_count", item.get("raw_only_day_count") or 0) or 0
+        )
+        reanalysis_raw_only_source_lag += int(item.get("raw_only_source_lag_day_count") or 0)
     gates.append(gate(
         "reanalysis_raw_only_days",
         "warn",
-        reanalysis_raw_only <= int(thresholds["max_reanalysis_raw_only_days"]),
-        f"{reanalysis_raw_only} reanalysis days have raw payloads but no normalized daily row.",
+        reanalysis_raw_only_normalizable <= int(thresholds["max_reanalysis_raw_only_days"]),
+        (
+            f"{reanalysis_raw_only_normalizable} normalizable reanalysis days have raw payloads "
+            f"but no normalized daily row; {reanalysis_raw_only_source_lag} raw-only days "
+            "are all-null source-lag payloads."
+        ),
         threshold=f"<= {thresholds['max_reanalysis_raw_only_days']}",
-        action="Keep the delayed reanalysis refresh enabled until raw-only archive-lag days normalize.",
+        action="Rebuild normalized reanalysis outputs when normalizable raw-only days appear.",
     ))
 
     quarantined = 0

@@ -98,11 +98,26 @@ def audit_historical_data(
 
     # 2. Read daily summary file
     summary_dates = {}
+    schema_errors = []
     with summary_path.open("r", encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
+        reader = csv.DictReader(handle)
+        fields = set(reader.fieldnames or [])
+        if "local_date" not in fields:
+            schema_errors.append(f"{spec.icao} daily summary missing required local_date column")
+        if "row_count" not in fields:
+            schema_errors.append(f"{spec.icao} daily summary missing required row_count column")
+        if not fields.intersection({"max_temp_native", "max_temp", "max_temp_c"}):
+            schema_errors.append(f"{spec.icao} daily summary missing max temperature column")
+        for row in reader:
             local_date_str = row.get("local_date")
             if local_date_str:
-                local_date = date.fromisoformat(local_date_str)
+                try:
+                    local_date = date.fromisoformat(local_date_str)
+                except ValueError:
+                    schema_errors.append(
+                        f"{spec.icao} daily summary invalid local_date {local_date_str!r}"
+                    )
+                    continue
                 unit = row_unit(row) or spec.display_unit
                 summary_dates[local_date] = {
                     "row_count": daily_row_count(row),
@@ -253,6 +268,7 @@ def audit_historical_data(
         "sparse_days": sparse_days,
         "duplicate_timestamps": duplicate_timestamps,
         "impossible_values": impossible_values,
+        "schema_errors": schema_errors,
         "hourly_days_audited": hourly_checked_days,
     }
 
@@ -278,7 +294,11 @@ def audit_fleet_historical_data(market_ids=None, target_month=None, target_day=N
 def has_corruption(result):
     if not result:
         return True
-    return bool(result.get("duplicate_timestamps") or result.get("impossible_values"))
+    return bool(
+        result.get("duplicate_timestamps")
+        or result.get("impossible_values")
+        or result.get("schema_errors")
+    )
 
 
 def audit_summary(results):
@@ -290,6 +310,7 @@ def audit_summary(results):
         "markets_with_sparse_days": sum(1 for result in markets.values() if result and result.get("sparse_days")),
         "markets_with_duplicates": sum(1 for result in markets.values() if result and result.get("duplicate_timestamps")),
         "markets_with_impossible_values": sum(1 for result in markets.values() if result and result.get("impossible_values")),
+        "markets_with_schema_errors": sum(1 for result in markets.values() if result and result.get("schema_errors")),
         "corruption_markets": [
             market_id for market_id, result in markets.items()
             if has_corruption(result)
@@ -328,6 +349,7 @@ def _print_fleet_summary(results):
             f"sparse={len(result.get('sparse_days') or [])}, "
             f"duplicates={len(result.get('duplicate_timestamps') or [])}, "
             f"impossible={len(result.get('impossible_values') or [])}, "
+            f"schema={len(result.get('schema_errors') or [])}, "
             f"hourly_days={result.get('hourly_days_audited')}"
         )
 

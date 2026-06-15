@@ -152,7 +152,7 @@ class TestDataLayerAudit(unittest.TestCase):
             "markets": [
                 {
                     "sources": {
-                        "reanalysis": {"archive_coverage": {"raw_only_day_count": 1}},
+                        "reanalysis": {"archive_coverage": {"raw_only_normalizable_day_count": 1}},
                         "wu": {"quality": {"quarantined_raw_observations": 1}},
                     },
                 },
@@ -167,6 +167,42 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(by_name["forecast_payload_artifact_rate"]["status"], "WARN")
         self.assertEqual(by_name["source_status_stale_or_failed_rate"]["status"], "WARN")
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "WARN")
+
+    def test_build_gates_allows_reanalysis_source_lag_raw_only_days(self):
+        snapshot = {
+            "folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "forecast_payloads": 1,
+            },
+            "source_status": {
+                "row_count": 1,
+                "stale_or_failed_rows": 0,
+                "stale_or_failed_rate": 0.0,
+            },
+        }
+        historical = {
+            "markets": [
+                {
+                    "sources": {
+                        "reanalysis": {
+                            "archive_coverage": {
+                                "raw_only_normalizable_day_count": 0,
+                                "raw_only_source_lag_day_count": 5,
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        gates = build_gates(snapshot, historical)
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "PASS")
+        self.assertIn("5 raw-only days are all-null source-lag", by_name["reanalysis_raw_only_days"]["evidence"])
 
 
 if __name__ == "__main__":

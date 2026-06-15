@@ -101,6 +101,7 @@ All run from the repo root with the venv interpreter:
 # Settlement labels and promotion refresh
 .\venv\Scripts\python.exe -m src.market_day_labels finalize
 .\venv\Scripts\python.exe -m src.promotion_refresh
+.\venv\Scripts\python.exe -m src.snapshot_evaluation
 .\venv\Scripts\python.exe -m src.daily_refresh run --continue-on-error
 .\venv\Scripts\python.exe -m src.daily_refresh status
 
@@ -154,12 +155,14 @@ The daily refresh task runs `src.daily_refresh run --continue-on-error` once per
 morning by default. It first retries the recent reanalysis archive-lag window
 (`--skip-reanalysis-refresh` disables that), then executes
 `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
-`disagreement_casebook`, `fleet_observability`, and `data_layer_audit` in order,
+`disagreement_casebook`, `fleet_observability`, `data_layer_audit`, and
+`snapshot_evaluation` in order,
 and writes `data/backtest/daily_refresh_status.json`,
 `data/backtest/daily_refresh_report.md`, `data/backtest/data_layer_audit.json`,
-and `data/backtest/data_layer_audit_report.md`. Use
-`--fail-on-data-layer-audit` when failed audit gates should mark the daily run
-critical.
+`data/backtest/data_layer_audit_report.md`, `data/backtest/snapshot_evaluation.json`,
+and `data/backtest/snapshot_evaluation_report.md`. Use
+`--fail-on-data-layer-audit` or `--fail-on-snapshot-evaluation` when failed
+audit gates should mark the daily run critical.
 
 For the operator dashboard, use the clickable launcher:
 

@@ -155,6 +155,19 @@ class ReanalysisStore:
             dates.update(iter_dates(start, end))
         return dates
 
+    def raw_normalizable_dates(self):
+        dates = set()
+        for payload in self.iter_raw_payloads():
+            hourly = payload.get("hourly") or {}
+            times = hourly.get("time") or []
+            for index, value in enumerate(times):
+                if value_at(hourly, "temperature_2m", index) is None:
+                    continue
+                local_dt = parse_local_datetime(value, self.spec.tz)
+                if local_dt:
+                    dates.add(local_dt.date())
+        return dates
+
     def normalized_daily_dates(self):
         path = self.daily_root / "daily_summary.csv"
         dates = set()
@@ -219,6 +232,7 @@ class ReanalysisStore:
 
     def coverage(self, start_date=None, end_date=None):
         raw_covered = self.raw_covered_dates()
+        raw_normalizable = self.raw_normalizable_dates()
         normalized_covered = self.normalized_daily_dates()
         covered = normalized_covered
         if start_date and end_date:
@@ -228,6 +242,8 @@ class ReanalysisStore:
         missing = sorted(expected - covered)
         raw_missing = sorted(expected - raw_covered)
         raw_only = sorted((raw_covered & expected) - covered)
+        raw_only_normalizable = sorted((raw_normalizable & expected) - covered)
+        raw_only_source_lag = sorted(set(raw_only) - set(raw_only_normalizable))
         return {
             "source": SOURCE,
             "market_id": self.spec.id,
@@ -235,14 +251,20 @@ class ReanalysisStore:
             "data_root": str(self.root),
             "covered_days": len(covered),
             "raw_covered_days": len(raw_covered),
+            "raw_normalizable_days": len(raw_normalizable),
             "normalized_daily_days": len(normalized_covered),
             "expected_days": len(expected),
             "missing_days": len(missing),
             "raw_missing_days": len(raw_missing),
             "raw_only_days": [day.isoformat() for day in raw_only],
             "raw_only_day_count": len(raw_only),
+            "raw_only_normalizable_days": [day.isoformat() for day in raw_only_normalizable],
+            "raw_only_normalizable_day_count": len(raw_only_normalizable),
+            "raw_only_source_lag_days": [day.isoformat() for day in raw_only_source_lag],
+            "raw_only_source_lag_day_count": len(raw_only_source_lag),
             "first_raw_date": min(raw_covered).isoformat() if raw_covered else None,
             "last_raw_date": max(raw_covered).isoformat() if raw_covered else None,
+            "last_raw_normalizable_date": max(raw_normalizable).isoformat() if raw_normalizable else None,
             "first_normalized_date": min(normalized_covered).isoformat() if normalized_covered else None,
             "last_normalized_date": max(normalized_covered).isoformat() if normalized_covered else None,
             "daily_summary_exists": (self.daily_root / "daily_summary.csv").exists(),

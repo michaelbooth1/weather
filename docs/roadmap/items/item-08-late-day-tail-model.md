@@ -2,7 +2,7 @@
 
 - [x] Learn a separate after-3 PM / after-4 PM / after-5 PM continuation model.
 - [x] Condition late-day tail on sun/cloud, wind direction, and whether the current high was first reached recently.
-- [ ] Add forecast remaining max / forecast gap to the late-day continuation model.
+- [x] Add forecast remaining max / forecast gap to the late-day continuation model.
 - [x] Make late-day extension risk visible in the dashboard.
 - [ ] Blend late-day continuation risk into the final distribution when the feature-model path is active.
 
@@ -24,3 +24,9 @@ forecast-error tail blend used by live late-day continuation. The remaining
 trained late-day work is narrower: put `forecast_high` / `forecast_gap` into the
 late-day logistic training artifact and validate that continuation component
 directly. That work is split into item 49.
+
+Item 49 completion (2026-06-15): the trained late-day continuation artifacts now
+include `forecast_high` and `forecast_gap` for all registered markets, and the
+pinned settlement replay improved rather than regressed the final distribution.
+The older final-distribution blend checkbox remains open as its own design
+question; this update closes only the forecast-gap training/validation split.

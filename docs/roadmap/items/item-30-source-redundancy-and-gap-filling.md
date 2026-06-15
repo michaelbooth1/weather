@@ -51,3 +51,9 @@ history has not printed yet; they are not promoted to clean WU settlements.
 Forecast ensemble extraction covered 8,193 snapshots; almost every F-market
 snapshot has two forecast sources, while Toronto averages 2.13 sources because
 ECCC joins Weather.com/Open-Meteo.
+
+Truth-table upgrade (2026-06-15): `source_truth_daily.csv` now uses
+`daily_source_truth_v0.2`, adds consensus high/bucket/source-count fields, and
+includes Toronto ECCC SWOB as a declared observation source. WU remains the
+selected settlement-primary source; SWOB is provenance-labelled support and bias
+evidence, not a hard settlement override.

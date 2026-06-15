@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from market_making_run import build_run_once
+from market_making_run import build_run_once, lifecycle_summary, load_open_lifecycle_orders, utc_now
 
 
 NOW = "2026-06-14T16:00:00+00:00"
@@ -263,8 +263,10 @@ class TestMarketMakingRun(unittest.TestCase):
             for name in [
                 "run_config.json",
                 "preflight.json",
+                "preflight_remediation.json",
                 "quote_intents_long.csv",
                 "budget_ledger.jsonl",
+                "order_lifecycle.jsonl",
                 "risk_events.jsonl",
                 "fills_long.csv",
                 "run_report.md",
@@ -284,6 +286,8 @@ class TestMarketMakingRun(unittest.TestCase):
             ]
             max_reserved = max(float(row.get("reserved_usdc") or 0.0) for row in budget_events)
             self.assertLessEqual(max_reserved, 5.0)
+            self.assertIn("order_lifecycle", payload)
+            self.assertGreaterEqual(payload["order_lifecycle"]["posted_this_tick_count"], 1)
 
     def test_stale_watcher_fails_closed_as_stale_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -313,7 +317,7 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual({row["reason_code"] for row in rows}, {"NO_QUOTE_STALE_INPUT"})
             self.assertEqual({row["orchestrator_reason_code"] for row in rows}, {"stale_input"})
 
-    def test_append_run_carries_budget_reserved_forward(self):
+    def test_append_same_tick_does_not_double_reserve_existing_lifecycle_orders(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshots_root, promotion = write_market_fixture(root)
@@ -323,7 +327,7 @@ class TestMarketMakingRun(unittest.TestCase):
 
             first = build_run_once(
                 TARGET_DATE,
-                5.0,
+                25.0,
                 mode="paper-live-forward",
                 markets=["atlanta"],
                 runs_root=root / "mm_runs",
@@ -336,7 +340,7 @@ class TestMarketMakingRun(unittest.TestCase):
             )
             second = build_run_once(
                 TARGET_DATE,
-                5.0,
+                25.0,
                 mode="paper-live-forward",
                 markets=["atlanta"],
                 runs_root=root / "mm_runs",
@@ -349,9 +353,10 @@ class TestMarketMakingRun(unittest.TestCase):
                 append=True,
             )
 
-            self.assertEqual(first["reason_counts"]["QUOTE_HARVEST_MID"], 1)
-            self.assertEqual(second["quote_permission_rows"], 0)
-            self.assertEqual(second["reason_counts"]["NO_QUOTE_BUDGET_EXHAUSTED"], 2)
+            self.assertEqual(first["reason_counts"]["QUOTE_HARVEST_MID"], 2)
+            self.assertEqual(second["quote_permission_rows"], 2)
+            self.assertEqual(second["budget_reserved_usdc"], first["budget_reserved_usdc"])
+            self.assertEqual(second["order_lifecycle"]["posted_this_tick_count"], 0)
             rows = read_csv(Path(second["quote_intents_path"]))
             self.assertEqual(len(rows), 4)
             budget_events = [
@@ -359,7 +364,282 @@ class TestMarketMakingRun(unittest.TestCase):
                 for line in (Path(second["run_folder"]) / "budget_ledger.jsonl").read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
-            self.assertLessEqual(max(float(row.get("reserved_usdc") or 0.0) for row in budget_events), 5.0)
+            self.assertLessEqual(max(float(row.get("reserved_usdc") or 0.0) for row in budget_events), 25.0)
+
+    def test_append_new_tick_replaces_quotes_without_budget_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            first = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="replace-run",
+                now=NOW,
+            )
+            second = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="replace-run",
+                now="2026-06-14T16:01:00+00:00",
+                append=True,
+            )
+
+            self.assertEqual(second["quote_permission_rows"], 2)
+            self.assertAlmostEqual(second["budget_reserved_usdc"], first["budget_reserved_usdc"])
+            self.assertGreater(second["budget_released_usdc"], 0.0)
+            transitions = [
+                json.loads(line)["transition"]
+                for line in (Path(second["run_folder"]) / "order_lifecycle.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn("replaced", transitions)
+
+    def test_expired_quotes_release_before_new_reservations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            first = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="expiry-run",
+                now=NOW,
+                policy_config={"quote_ttl_seconds": 30.0},
+            )
+            second = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="expiry-run",
+                now="2026-06-14T16:01:00+00:00",
+                append=True,
+                policy_config={"quote_ttl_seconds": 30.0},
+            )
+
+            self.assertAlmostEqual(second["budget_reserved_usdc"], first["budget_reserved_usdc"])
+            self.assertGreater(second["budget_released_usdc"], 0.0)
+            transitions = [
+                json.loads(line)["transition"]
+                for line in (Path(second["run_folder"]) / "order_lifecycle.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn("expired", transitions)
+
+    def test_lifecycle_summary_separates_same_market_and_cross_market_risk(self):
+        summary = lifecycle_summary(
+            {
+                "a": {"market_id": "atlanta", "event_slug": "event-atlanta", "remaining_risk_usdc": 4.0},
+                "b": {"market_id": "atlanta", "event_slug": "event-atlanta", "remaining_risk_usdc": 3.0},
+                "c": {"market_id": "nyc", "event_slug": "event-nyc", "remaining_risk_usdc": 5.0},
+            },
+            budget=20.0,
+            released_events=[],
+            posted_events=[],
+            now=utc_now(NOW),
+        )
+
+        self.assertEqual(summary["reserved_by_market"], {"atlanta": 7.0, "nyc": 5.0})
+        self.assertEqual(summary["reserved_by_event"], {"event-atlanta": 7.0, "event-nyc": 5.0})
+        self.assertTrue(summary["platform_balance_semantics"]["polymarket_cross_market_open_orders_may_exceed_wallet_balance"])
+        self.assertTrue(summary["platform_balance_semantics"]["same_market_open_orders_still_need_event_level_worst_case_backing"])
+
+    def test_append_releases_open_budget_when_preflight_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            first = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="release-run",
+                now=NOW,
+            )
+            folder = Path(first["run_folder"])
+            (snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026" / "source_status_long.csv").unlink()
+
+            second = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="release-run",
+                now="2026-06-14T16:01:00+00:00",
+                append=True,
+            )
+
+            self.assertGreater(first["budget_reserved_usdc"], 0.0)
+            self.assertEqual(second["quote_permission_rows"], 0)
+            self.assertEqual(second["budget_reserved_usdc"], 0.0)
+            self.assertGreater(second["budget_released_usdc"], 0.0)
+            transitions = [
+                json.loads(line)["transition"]
+                for line in (folder / "order_lifecycle.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn("blocked_by_preflight", transitions)
+
+    def test_cancel_all_flag_releases_and_prevents_reposting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            first = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="cancel-run",
+                now=NOW,
+            )
+            folder = Path(first["run_folder"])
+            (folder / "cancel_all.flag").write_text("1", encoding="utf-8")
+
+            second = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="cancel-run",
+                now="2026-06-14T16:01:00+00:00",
+                append=True,
+            )
+
+            self.assertEqual(second["quote_permission_rows"], 0)
+            self.assertEqual(second["reason_counts"]["NO_QUOTE_CANCEL_ALL"], 2)
+            self.assertEqual(second["budget_reserved_usdc"], 0.0)
+            transitions = [
+                json.loads(line)["transition"]
+                for line in (folder / "order_lifecycle.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn("canceled", transitions)
+
+    def test_partial_fill_lifecycle_event_reduces_open_risk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "order_lifecycle.jsonl"
+            opened = {
+                "transition": "paper_posted",
+                "lifecycle_key": "k1",
+                "run_id": "r1",
+                "market_id": "atlanta",
+                "size": 10.0,
+                "remaining_size": 10.0,
+                "open_risk_usdc": 5.0,
+                "remaining_risk_usdc": 5.0,
+            }
+            fill = {
+                "transition": "filled",
+                "lifecycle_key": "k1",
+                "fill_size": 4.0,
+                "generated_at_utc": "2026-06-14T16:02:00+00:00",
+            }
+            path.write_text("\n".join(json.dumps(row) for row in [opened, fill]) + "\n", encoding="utf-8")
+
+            open_orders = load_open_lifecycle_orders(path)
+
+            self.assertEqual(set(open_orders), {"k1"})
+            self.assertAlmostEqual(float(open_orders["k1"]["remaining_size"]), 6.0)
+            self.assertAlmostEqual(float(open_orders["k1"]["remaining_risk_usdc"]), 3.0)
+
+    def test_preflight_remediation_groups_missing_source_status_and_stale_clob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root, stale_book=True)
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            (folder / "source_status_long.csv").unlink()
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="remediate-run",
+                now=NOW,
+            )
+
+            remediation = json.loads(Path(payload["preflight_remediation_path"]).read_text(encoding="utf-8"))
+            roots = remediation["root_cause_counts"]
+            self.assertIn("missing_source_status_row", roots)
+            self.assertIn("stale_clob_book_tape", roots)
+            self.assertFalse(remediation["counts_toward_live_forward_gate"])
+            incidents = remediation["incidents"]
+            self.assertTrue(all(row["suggested_command"] for row in incidents))
+            risk_events = [
+                json.loads(line)
+                for line in Path(payload["risk_events_path"]).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertTrue(any(row.get("category") == "preflight_remediation" for row in risk_events))
 
     def test_missing_target_folder_keeps_selected_market_visible(self):
         with tempfile.TemporaryDirectory() as tmp:

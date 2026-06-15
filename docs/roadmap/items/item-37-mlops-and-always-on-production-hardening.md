@@ -7,9 +7,11 @@ Goal: make the fleet reproducible, self-retraining, and observable.
   serving gauntlet, and emits per-market actions for automation.
 - [x] Daily settlement-to-promotion automation: `src.daily_refresh run` executes
   `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
-  `disagreement_casebook`, and `fleet_observability` in order; writes
-  `data/backtest/daily_refresh_status.json` and
-  `data/backtest/daily_refresh_report.md`; and
+  `disagreement_casebook`, `fleet_observability`, `data_layer_audit`, and
+  `snapshot_evaluation` in order; writes
+  `data/backtest/daily_refresh_status.json`,
+  `data/backtest/daily_refresh_report.md`, and the consolidated
+  `data/backtest/snapshot_evaluation_report.md`; and
   `scripts/register_daily_refresh.ps1` installs the Windows daily task.
 - [x] Data-layer audit runner: `src.data_layer_audit` reports loop health,
   snapshot cadence/completeness, low-fill fields, historical source coverage,
@@ -105,3 +107,15 @@ markets (`max_counted_gap_seconds` roughly 229-236s versus the generated
 future active day is clean for both snapshot collection and CLOB book capture.
 The CLOB loop itself is running and heartbeating, so this is now a tape-quality
 gate, not a dead-loop diagnosis.
+
+Continuous snapshot evaluation update (2026-06-15 UTC):
+`src.snapshot_evaluation` now consolidates the latest snapshot inventory,
+replay-input coverage, promotion corpus, candidate replay, serving gauntlet,
+data-layer audit, fleet SLO, and generated improvement slices into
+`data/backtest/snapshot_evaluation.json` and
+`data/backtest/snapshot_evaluation_report.md`. `src.daily_refresh` runs it last,
+after all source artifacts have been regenerated, and
+`--fail-on-snapshot-evaluation` can mark the refresh critical when the
+evaluation status is `FAIL`. Focused coverage lives in
+`tests/reporting/test_snapshot_evaluation.py` and
+`tests/operations/test_daily_refresh.py`.

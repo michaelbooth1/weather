@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import pandas as pd
@@ -54,6 +55,23 @@ def _read_jsonl_tail(path, limit=20):
     return rows
 
 
+def _read_jsonl(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        lines = [line.strip() for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            rows.append({"raw": line})
+    return rows
+
+
 def _run_folders(runs_root=RUNS_ROOT):
     if not runs_root.exists():
         return []
@@ -69,6 +87,19 @@ def _latest_run():
         return None, {}
     folder = folders[0]
     return folder, _read_json(folder / "run_summary.json", {}) or {}
+
+
+def _run_label(folder):
+    folder = Path(folder)
+    return f"{folder.parent.name} / {folder.name}"
+
+
+def _select_run_folder(folders):
+    if not folders:
+        return None
+    labels = [_run_label(folder) for folder in folders]
+    selected = st.selectbox("Run", labels, index=0)
+    return folders[labels.index(selected)]
 
 
 def _format_num(value, digits=2):
@@ -98,12 +129,155 @@ def _permission_rows(permission_counts):
     ]
 
 
+def _latest_tick_rows(rows):
+    if not rows:
+        return []
+    latest = max(str(row.get("generated_at_utc") or "") for row in rows)
+    return [row for row in rows if str(row.get("generated_at_utc") or "") == latest]
+
+
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _open_lifecycle_orders(rows):
+    state = {}
+    for row in rows:
+        key = row.get("lifecycle_key")
+        if not key:
+            continue
+        transition = row.get("transition") or row.get("event")
+        if transition in {"paper_posted", "live_posted"}:
+            state[key] = row
+        elif transition == "filled" and key in state:
+            remaining = max(0.0, _float(state[key].get("remaining_size") or state[key].get("size")) - _float(row.get("fill_size")))
+            if remaining <= 1e-9:
+                state.pop(key, None)
+            else:
+                state[key]["remaining_size"] = remaining
+        elif transition in {"released", "replaced", "canceled", "expired", "blocked_by_preflight"}:
+            state.pop(key, None)
+    return state
+
+
+def _market_health_rows(markets, quote_rows, lifecycle_rows, remediation):
+    latest = _latest_tick_rows(quote_rows)
+    quote_counts = Counter(row.get("market_id") for row in latest if _truthy(row.get("quote_permission")))
+    permission_by_market = {}
+    freshness_by_market = {}
+    for row in latest:
+        market_id = row.get("market_id")
+        if market_id and market_id not in permission_by_market:
+            permission_by_market[market_id] = row.get("known_edge_permission") or "-"
+            freshness_by_market[market_id] = row.get("source_freshness_state") or "-"
+    open_orders = _open_lifecycle_orders(lifecycle_rows)
+    reservation_counts = Counter(row.get("market_id") for row in open_orders.values())
+    reserved_by_market = Counter()
+    for row in open_orders.values():
+        reserved_by_market[row.get("market_id") or "-"] += _float(row.get("remaining_risk_usdc") or row.get("open_risk_usdc"))
+    incidents_by_market = defaultdict(list)
+    for incident in (remediation or {}).get("incidents") or []:
+        incidents_by_market[incident.get("market_id")].append(incident)
+    rows = []
+    for market in markets or []:
+        audit = market.get("book_audit") or {}
+        incidents = incidents_by_market.get(market.get("market_id")) or []
+        top = incidents[0] if incidents else {}
+        gates = {gate.get("name"): gate for gate in market.get("gates") or []}
+        rows.append({
+            "Market": market.get("market_id"),
+            "Status": market.get("status"),
+            "Source rows": market.get("source_status_rows"),
+            "Source state": freshness_by_market.get(market.get("market_id"), "-"),
+            "Model age s": market.get("model_age_seconds"),
+            "CLOB age s": audit.get("trailing_age_seconds"),
+            "CLOB gaps": audit.get("gaps_over_threshold"),
+            "Watcher": "fresh" if (gates.get("observation_trigger") or {}).get("ok") else "-",
+            "Promotion": market.get("promotion_state"),
+            "Known edge": permission_by_market.get(market.get("market_id"), "-"),
+            "Quotes": quote_counts.get(market.get("market_id"), 0),
+            "Open orders": reservation_counts.get(market.get("market_id"), 0),
+            "Reserved USDC": round(reserved_by_market.get(market.get("market_id"), 0.0), 4),
+            "Top blocker": top.get("root_cause") or "; ".join(str(item) for item in (market.get("blocking_reasons") or market.get("stale_reasons") or ["ok"])),
+        })
+    return rows
+
+
+def _blocker_rows(quote_rows, remediation):
+    latest = _latest_tick_rows(quote_rows)
+    incidents = defaultdict(list)
+    for incident in (remediation or {}).get("incidents") or []:
+        incidents[incident.get("market_id")].append(incident)
+    grouped = {}
+    for row in latest:
+        reason = row.get("reason_code") or "-"
+        if not reason.startswith("NO_QUOTE"):
+            continue
+        market_id = row.get("market_id") or "-"
+        incident = (incidents.get(market_id) or [{}])[0]
+        key = (market_id, reason, incident.get("root_cause") or "-")
+        item = grouped.setdefault(key, {
+            "Market": market_id,
+            "Reason": reason,
+            "Root cause": incident.get("root_cause") or "-",
+            "Owner": incident.get("owner") or "-",
+            "Rows": 0,
+            "First seen": row.get("generated_at_utc"),
+            "Last seen": row.get("generated_at_utc"),
+            "Recoverable today": incident.get("recoverable_same_day", "-"),
+            "Command": incident.get("suggested_command") or "-",
+        })
+        item["Rows"] += 1
+        item["First seen"] = min(str(item["First seen"] or ""), str(row.get("generated_at_utc") or ""))
+        item["Last seen"] = max(str(item["Last seen"] or ""), str(row.get("generated_at_utc") or ""))
+    return sorted(grouped.values(), key=lambda row: (-row["Rows"], row["Market"], row["Reason"]))
+
+
+def _budget_lifecycle_rows(run_summary):
+    lifecycle = (run_summary or {}).get("order_lifecycle") or {}
+    semantics = lifecycle.get("platform_balance_semantics") or {}
+    return [
+        {"Metric": "Current open quote risk", "Value": _format_num(lifecycle.get("current_reserved_usdc"), 4)},
+        {"Metric": "Open orders", "Value": lifecycle.get("current_open_order_count", 0)},
+        {"Metric": "Released this tick", "Value": _format_num(lifecycle.get("released_this_tick_usdc"), 4)},
+        {"Metric": "Posted this tick", "Value": lifecycle.get("posted_this_tick_count", 0)},
+        {"Metric": "Stale open orders", "Value": lifecycle.get("stale_open_order_count", 0)},
+        {"Metric": "Run budget is binding", "Value": semantics.get("operator_run_budget_is_binding")},
+        {"Metric": "Cross-market gross can exceed wallet", "Value": semantics.get("polymarket_cross_market_open_orders_may_exceed_wallet_balance")},
+    ]
+
+
+def _gate_progress_rows(run_summary, paper):
+    summary = (paper or {}).get("summary") or {}
+    anti = summary.get("anti_overfit") or {}
+    remediation = (run_summary or {}).get("preflight_remediation") or {}
+    days = anti.get("live_forward_days") or []
+    return [
+        {"Metric": "Current run counts", "Value": remediation.get("counts_toward_live_forward_gate", False)},
+        {"Metric": "Current blocker incidents", "Value": remediation.get("incident_count", 0)},
+        {"Metric": "Locked paper days", "Value": len(days)},
+        {"Metric": "Paper gate", "Value": summary.get("gate_status") or "-"},
+        {"Metric": "Next live gate", "Value": "item 45 live-pilot readiness"},
+    ]
+
+
 def render_market_making_page(refresh_seconds=15):
     @st.fragment(run_every=f"{refresh_seconds}s")
     def render_live():
         st.title("Market Making")
 
-        run_folder, run_summary = _latest_run()
+        folders = _run_folders()
+        run_folder = _select_run_folder(folders)
+        run_summary = _read_json(run_folder / "run_summary.json", {}) if run_folder else {}
         paper = _read_json(BACKTEST_ROOT / "mm_paper_report.json", {}) or {}
         known_edge = _read_json(BACKTEST_ROOT / "mm_known_edge_map.json", {}) or {}
 
@@ -111,6 +285,9 @@ def render_market_making_page(refresh_seconds=15):
         pnl = summary.get("pnl") or {}
         anti = summary.get("anti_overfit") or {}
 
+        st.caption("Selected run: " + (_run_label(run_folder) if run_folder else "-"))
+
+        st.subheader("Latest Tick")
         top = st.columns(5)
         top[0].metric("Latest Run", run_summary.get("run_id") or "-")
         top[1].metric("Run Mode", run_summary.get("mode") or "-")
@@ -118,6 +295,7 @@ def render_market_making_page(refresh_seconds=15):
         top[3].metric("Quotes", run_summary.get("quote_permission_rows", 0))
         top[4].metric("Live Rows", run_summary.get("live_trade_permission_rows", 0))
 
+        st.subheader("Paper Corpus")
         score = st.columns(5)
         score[0].metric("Paper Runs", summary.get("run_folders", 0))
         score[1].metric("Quote Rows", summary.get("quote_rows", 0))
@@ -136,6 +314,8 @@ def render_market_making_page(refresh_seconds=15):
                 {"Metric": "Target date", "Value": run_summary.get("target_date")},
                 {"Metric": "Budget USDC", "Value": _format_num(run_summary.get("budget_usdc"), 2)},
                 {"Metric": "Reserved USDC", "Value": _format_num(run_summary.get("budget_reserved_usdc"), 2)},
+                {"Metric": "Released USDC", "Value": _format_num(run_summary.get("budget_released_usdc"), 2)},
+                {"Metric": "Open orders", "Value": run_summary.get("open_order_count")},
                 {"Metric": "Rows", "Value": run_summary.get("row_count")},
                 {"Metric": "Quote rows", "Value": run_summary.get("quote_permission_rows")},
                 {"Metric": "Live-trade rows", "Value": run_summary.get("live_trade_permission_rows")},
@@ -149,22 +329,20 @@ def render_market_making_page(refresh_seconds=15):
 
         if run_folder:
             preflight = _read_json(run_folder / "preflight.json", {}) or {}
+            remediation = _read_json(run_folder / "preflight_remediation.json", {}) or {}
+            lifecycle_rows = _read_jsonl(run_folder / "order_lifecycle.jsonl")
+            quote_rows_all = _read_csv(run_folder / "quote_intents_long.csv")
             markets = preflight.get("markets") or []
             if markets:
-                st.subheader("Preflight By Market")
-                visible = []
-                for row in markets:
-                    details = row.get("blocking_reasons") or row.get("stale_reasons") or ["ok"]
-                    visible.append({
-                        "Market": row.get("market_id"),
-                        "Status": row.get("status"),
-                        "Snapshot Rows": row.get("snapshot_rows"),
-                        "Quote Rows": row.get("quote_input_rows"),
-                        "Detail": "; ".join(str(item) for item in details),
-                    })
-                st.dataframe(_df(visible), width="stretch", hide_index=True)
+                st.subheader("Market Health")
+                st.dataframe(_df(_market_health_rows(markets, quote_rows_all, lifecycle_rows, remediation)), width="stretch", hide_index=True)
 
-            quote_rows = _read_csv(run_folder / "quote_intents_long.csv", limit=80)
+            blocker_rows = _blocker_rows(quote_rows_all, remediation)
+            if blocker_rows:
+                st.subheader("Blocker Drilldown")
+                st.dataframe(_df(blocker_rows), width="stretch", hide_index=True)
+
+            quote_rows = quote_rows_all[-80:]
             if quote_rows:
                 st.subheader("Recent Quote Intents")
                 cols = [
@@ -188,12 +366,20 @@ def render_market_making_page(refresh_seconds=15):
                     "generated_at_utc",
                     "market_id",
                     "range_label",
+                    "event",
                     "budget_action",
                     "reserved_usdc",
                     "remaining_usdc",
+                    "released_risk_usdc",
                     "quote_risk_usdc",
                 ]
                 st.dataframe(_df([{key: row.get(key) for key in ledger_cols} for row in ledger_rows]), width="stretch", hide_index=True)
+
+            st.subheader("Budget Lifecycle")
+            st.dataframe(_df(_budget_lifecycle_rows(run_summary)), width="stretch", hide_index=True)
+
+            st.subheader("Live-Forward Gate")
+            st.dataframe(_df(_gate_progress_rows(run_summary, paper)), width="stretch", hide_index=True)
 
         st.subheader("Paper Scoring")
         paper_rows = [

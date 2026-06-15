@@ -24,14 +24,16 @@ from weather.backtesting.settlement_ledger import (
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.reporting import disagreement_casebook
 from weather.reporting import data_layer_audit
+from weather.reporting import data_auditor
 from weather.reporting import fleet_observability
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.reporting import snapshot_evaluation
 from weather.market.market_registry import all_specs
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 
 
-SCHEMA_VERSION = "daily_refresh_v0.2"
+SCHEMA_VERSION = "daily_refresh_v0.4"
 DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"
@@ -40,12 +42,14 @@ DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
 DEFAULT_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
 STEP_ORDER = (
     "reanalysis_recent_refresh",
+    "ingest_quality_gate",
     "market_day_labels_finalize",
     "promotion_refresh",
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
     "data_layer_audit",
+    "snapshot_evaluation",
 )
 
 
@@ -184,6 +188,122 @@ def run_reanalysis_recent_refresh_step(args):
         "error_count": len(errors),
         "errors": errors,
         "markets": market_rows,
+    }
+
+
+def _year_list(value):
+    if not value:
+        return None
+    return [int(item) for item in str(value).split(",") if item.strip()]
+
+
+def ingest_quality_gate_status(summary):
+    summary = summary or {}
+    fail_reasons = []
+    warn_reasons = []
+    if summary.get("missing_market_audits"):
+        fail_reasons.append(f"{summary.get('missing_market_audits')} market audits missing")
+    if summary.get("markets_with_schema_errors"):
+        fail_reasons.append(f"{summary.get('markets_with_schema_errors')} markets have schema errors")
+    if summary.get("markets_with_duplicates"):
+        fail_reasons.append(f"{summary.get('markets_with_duplicates')} markets have duplicate timestamps")
+    if summary.get("markets_with_impossible_values"):
+        fail_reasons.append(f"{summary.get('markets_with_impossible_values')} markets have impossible values")
+    if summary.get("markets_with_missing_days"):
+        warn_reasons.append(f"{summary.get('markets_with_missing_days')} markets have missing target-window days")
+    if summary.get("markets_with_sparse_days"):
+        warn_reasons.append(f"{summary.get('markets_with_sparse_days')} markets have sparse target-window days")
+    if fail_reasons:
+        status = "FAIL"
+    elif warn_reasons:
+        status = "WARN"
+    else:
+        status = "PASS"
+    return {
+        "status": status,
+        "fail_reasons": fail_reasons,
+        "warn_reasons": warn_reasons,
+    }
+
+
+def render_ingest_quality_report(payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Ingest Quality Gate",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Status: **{payload.get('status')}**",
+        "",
+        "## Summary",
+        "",
+        "| Metric | Value |",
+        "| :--- | :--- |",
+    ]
+    for key in [
+        "market_count",
+        "missing_market_audits",
+        "markets_with_schema_errors",
+        "markets_with_duplicates",
+        "markets_with_impossible_values",
+        "markets_with_missing_days",
+        "markets_with_sparse_days",
+    ]:
+        lines.append(f"| {key} | {summary.get(key)} |")
+    lines += ["", "## Fail Reasons", ""]
+    for reason in payload.get("fail_reasons") or ["-"]:
+        lines.append(f"- {reason}")
+    lines += ["", "## Warn Reasons", ""]
+    for reason in payload.get("warn_reasons") or ["-"]:
+        lines.append(f"- {reason}")
+    lines += ["", "## Corruption Markets", ""]
+    for market_id in summary.get("corruption_markets") or ["-"]:
+        lines.append(f"- {market_id}")
+    return "\n".join(lines) + "\n"
+
+
+def write_ingest_quality_report(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_ingest_quality_report(payload), encoding="utf-8")
+    return path
+
+
+def run_ingest_quality_gate_step(args):
+    if getattr(args, "skip_ingest_quality_gate", False):
+        return {"skipped": True, "reason": "skip_ingest_quality_gate"}
+    years = _year_list(getattr(args, "ingest_quality_years", ""))
+    results = data_auditor.audit_fleet_historical_data(
+        target_month=getattr(args, "audit_target_month", None),
+        target_day=getattr(args, "audit_target_day", None),
+        years=years,
+        quiet=True,
+    )
+    summary = data_auditor.audit_summary(results)
+    gate = ingest_quality_gate_status(summary)
+    payload = {
+        "schema_version": "ingest_quality_gate_v0.1",
+        "generated_at_utc": utc_iso(),
+        "status": gate["status"],
+        "summary": summary,
+        "fail_reasons": gate["fail_reasons"],
+        "warn_reasons": gate["warn_reasons"],
+        "markets": {
+            market_id: data_auditor.jsonable_result(result)
+            for market_id, result in sorted((results or {}).items())
+        },
+    }
+    json_out = write_json(backtest_path(args, "ingest_quality_gate.json"), payload)
+    report_out = write_ingest_quality_report(
+        backtest_path(args, "ingest_quality_gate_report.md"),
+        payload,
+    )
+    return {
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "status": payload["status"],
+        "summary": summary,
+        "fail_reasons": gate["fail_reasons"],
+        "warn_reasons": gate["warn_reasons"],
     }
 
 
@@ -370,14 +490,41 @@ def run_data_layer_audit_step(args):
     }
 
 
+def run_snapshot_evaluation_step(args):
+    payload = snapshot_evaluation.build_evaluation(
+        backtest_root=args.backtest_root,
+        snapshots_root=args.snapshots_root,
+    )
+    json_out, report_out = snapshot_evaluation.write_outputs(
+        payload,
+        json_out=backtest_path(args, "snapshot_evaluation.json"),
+        report_out=backtest_path(args, "snapshot_evaluation_report.md"),
+    )
+    status = payload.get("status") or {}
+    inventory = payload.get("snapshot_inventory") or {}
+    backlog = payload.get("improvement_backlog") or {}
+    return {
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "status": status.get("status"),
+        "gate_counts": status,
+        "snapshot_folders": inventory.get("folder_count"),
+        "snapshots": inventory.get("snapshot_count"),
+        "band_rows": inventory.get("band_row_count"),
+        "top_gap_count": len(backlog.get("top_slices") or []),
+    }
+
+
 DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
+    ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("promotion_refresh", run_promotion_refresh_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
     ("data_layer_audit", run_data_layer_audit_step),
+    ("snapshot_evaluation", run_snapshot_evaluation_step),
 )
 
 
@@ -405,17 +552,25 @@ def run_step(name, runner, args):
 
 def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
+    ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
+    evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     return {
         "labels": {
             "total": finalize.get("label_count"),
             "quality_counts": finalize.get("quality_counts") or {},
             "reconciliation_counts": finalize.get("reconciliation_counts") or {},
+        },
+        "ingest_quality_gate": {
+            "status": ingest.get("status"),
+            "summary": ingest.get("summary") or {},
+            "fail_reasons": ingest.get("fail_reasons") or [],
+            "warn_reasons": ingest.get("warn_reasons") or [],
         },
         "promotion": {
             "candidate_verdict": promotion.get("candidate_verdict"),
@@ -439,6 +594,13 @@ def pipeline_summary(steps):
             "gate_status": audit.get("gate_status"),
             "gate_summary": audit.get("gate_summary") or {},
             "recommendation_counts": audit.get("recommendation_counts") or {},
+        },
+        "snapshot_evaluation": {
+            "status": evaluation.get("status"),
+            "gate_counts": evaluation.get("gate_counts") or {},
+            "snapshot_folders": evaluation.get("snapshot_folders"),
+            "snapshots": evaluation.get("snapshots"),
+            "top_gap_count": evaluation.get("top_gap_count"),
         },
     }
 
@@ -467,6 +629,19 @@ def render_report(payload):
                 detail = result.get("reason") or "skipped"
             else:
                 detail = f"fetched {result.get('fetched_ranges')} ranges; errors {result.get('error_count')}"
+        elif step.get("name") == "ingest_quality_gate":
+            if result.get("skipped"):
+                detail = result.get("reason") or "skipped"
+            else:
+                summary = result.get("summary") or {}
+                detail = (
+                    f"{result.get('status')}; "
+                    f"schema {summary.get('markets_with_schema_errors')}; "
+                    f"duplicates {summary.get('markets_with_duplicates')}; "
+                    f"impossible {summary.get('markets_with_impossible_values')}; "
+                    f"missing {summary.get('markets_with_missing_days')}; "
+                    f"sparse {summary.get('markets_with_sparse_days')}"
+                )
         elif step.get("name") == "promotion_refresh":
             detail = (
                 f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
@@ -486,6 +661,11 @@ def render_report(payload):
                 detail = result.get("reason") or "skipped"
             else:
                 detail = f"gates {result.get('gate_status')} {result.get('gate_summary')}"
+        elif step.get("name") == "snapshot_evaluation":
+            detail = (
+                f"{result.get('status')} {result.get('gate_counts')}; "
+                f"snapshots {result.get('snapshots')}; gaps {result.get('top_gap_count')}"
+            )
         else:
             detail = "-"
         lines.append(
@@ -561,10 +741,20 @@ def run_daily_refresh(args, runners=None):
             fleet_status = ((fleet_step.get("result") or {}).get("status"))
             if fleet_status == "CRITICAL" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        if getattr(args, "fail_on_ingest_quality", False):
+            ingest_step = next((step for step in payload["steps"] if step.get("name") == "ingest_quality_gate"), {})
+            ingest_status = ((ingest_step.get("result") or {}).get("status"))
+            if ingest_status == "FAIL" and payload["status"] == "ok":
+                payload["status"] = "critical"
         if args.fail_on_data_layer_audit:
             audit_step = next((step for step in payload["steps"] if step.get("name") == "data_layer_audit"), {})
             gate_status = ((audit_step.get("result") or {}).get("gate_status"))
             if gate_status == "FAIL" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        if getattr(args, "fail_on_snapshot_evaluation", False):
+            evaluation_step = next((step for step in payload["steps"] if step.get("name") == "snapshot_evaluation"), {})
+            evaluation_status = ((evaluation_step.get("result") or {}).get("status"))
+            if evaluation_status == "FAIL" and payload["status"] == "ok":
                 payload["status"] = "critical"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
@@ -600,7 +790,9 @@ def build_run_parser(parser):
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
+    parser.add_argument("--fail-on-ingest-quality", action="store_true")
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
+    parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--include-reconstructed", action="store_true")
@@ -622,6 +814,8 @@ def build_run_parser(parser):
     parser.add_argument("--audit-target-day", type=int, default=None)
     parser.add_argument("--audit-years", default="")
     parser.add_argument("--skip-historical-audits", action="store_true")
+    parser.add_argument("--skip-ingest-quality-gate", action="store_true")
+    parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")
     parser.add_argument("--skip-reanalysis-refresh", action="store_true")
     parser.add_argument("--reanalysis-lag-days", type=int, default=10)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=5)
