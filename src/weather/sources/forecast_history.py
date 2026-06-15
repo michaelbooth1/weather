@@ -35,7 +35,7 @@ from daily_summary import native_to_c
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
-RICH_SCHEMA_VERSION = "forecast_history_long_v1"
+RICH_SCHEMA_VERSION = "forecast_history_long_v2"
 DAILY_ISSUE_SCHEMA_VERSION = "forecast_history_daily_issue_v1"
 DEFAULT_PREVIOUS_RUN_LEADS = (1, 2, 3, 4, 5, 6, 7)
 DEFAULT_PREVIOUS_RUN_START_YEAR = 2021
@@ -56,6 +56,10 @@ RICH_FORECAST_COLUMNS = [
     "target_temp_native",
     "target_temp_c",
     "cloud_cover",
+    "low_cloud",
+    "mid_cloud",
+    "high_cloud",
+    "shortwave_radiation",
     "wind_speed_kmh",
     "source_url",
     "payload_hash",
@@ -143,6 +147,10 @@ def rich_row(
     issue_time_basis="",
     lead_days="",
     cloud_cover=None,
+    low_cloud=None,
+    mid_cloud=None,
+    high_cloud=None,
+    shortwave_radiation=None,
     wind_speed_kmh=None,
     source_url=HIST_FORECAST_URL,
 ):
@@ -166,6 +174,10 @@ def rich_row(
         "target_temp_native": target_temp_native,
         "target_temp_c": native_to_c(target_temp_native, spec.display_unit),
         "cloud_cover": cloud_cover,
+        "low_cloud": low_cloud,
+        "mid_cloud": mid_cloud,
+        "high_cloud": high_cloud,
+        "shortwave_radiation": shortwave_radiation,
         "wind_speed_kmh": wind_speed_kmh,
         "source_url": source_url,
     }
@@ -178,6 +190,10 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
     clouds = hourly.get("cloud_cover") or []
+    low_clouds = hourly.get("cloud_cover_low") or []
+    mid_clouds = hourly.get("cloud_cover_mid") or []
+    high_clouds = hourly.get("cloud_cover_high") or []
+    solar = hourly.get("shortwave_radiation") or []
     winds = hourly.get("wind_speed_10m") or []
     rows = []
     for index, raw_time in enumerate(times):
@@ -196,6 +212,10 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
             issue_time_basis="stitched_continuous_archive",
             lead_days="",
             cloud_cover=to_float(clouds[index] if index < len(clouds) else None),
+            low_cloud=to_float(low_clouds[index] if index < len(low_clouds) else None),
+            mid_cloud=to_float(mid_clouds[index] if index < len(mid_clouds) else None),
+            high_cloud=to_float(high_clouds[index] if index < len(high_clouds) else None),
+            shortwave_radiation=to_float(solar[index] if index < len(solar) else None),
             wind_speed_kmh=to_float(winds[index] if index < len(winds) else None),
             source_url=HIST_FORECAST_URL,
         ))
@@ -299,6 +319,46 @@ def compatibility_daily_from_rows(hourly_rows):
     return {d: v for d, v in daily.items() if v != float("-inf")}
 
 
+def load_forecast_profiles(path=None, source="open_meteo_historical_forecast"):
+    """target_date -> hourly forecast rows in the market's native unit.
+
+    This powers cutoff-specific forecast-shape features without leaking the
+    observed outcome. Old v1 files simply return ``None`` for newly added
+    radiation/cloud-layer fields until the archive is backfilled.
+    """
+    path = Path(path or long_path_for(TORONTO))
+    if not path.exists():
+        return {}
+    profiles = defaultdict(list)
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if source and row.get("source") != source:
+                continue
+            target_date = row.get("target_date")
+            if not target_date:
+                continue
+            minute = ""
+            valid_time = row.get("valid_time")
+            if valid_time:
+                try:
+                    valid_dt = datetime.fromisoformat(str(valid_time).replace("Z", "+00:00"))
+                    minute = valid_dt.hour * 60 + valid_dt.minute
+                except ValueError:
+                    minute = ""
+            profiles[target_date].append({
+                "minute_of_day": minute,
+                "time": valid_time,
+                "temp_c": to_float(row.get("target_temp_native") or row.get("target_temp_c")),
+                "cloud_cover": to_float(row.get("cloud_cover")),
+                "low_cloud": to_float(row.get("low_cloud") or row.get("cloud_cover_low")),
+                "mid_cloud": to_float(row.get("mid_cloud") or row.get("cloud_cover_mid")),
+                "high_cloud": to_float(row.get("high_cloud") or row.get("cloud_cover_high")),
+                "solar": to_float(row.get("shortwave_radiation") or row.get("solar")),
+                "wind_kmh": to_float(row.get("wind_speed_kmh")),
+            })
+    return dict(profiles)
+
+
 def write_csv(path, columns, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -316,7 +376,10 @@ def fetch_historical_forecast_payload(year, spec=TORONTO, timeout=30):
             "longitude": spec.lon,
             "start_date": start,
             "end_date": end,
-            "hourly": "temperature_2m,cloud_cover,wind_speed_10m",
+            "hourly": (
+                "temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,"
+                "cloud_cover_high,shortwave_radiation,wind_speed_10m"
+            ),
             "temperature_unit": spec.om_temperature_unit,
             "wind_speed_unit": "kmh",
             "timezone": spec.timezone,
@@ -465,7 +528,11 @@ def backfill(
         },
         "market": spec.id,
         "params": {"latitude": spec.lat, "longitude": spec.lon,
-                   "hourly": "temperature_2m,cloud_cover,wind_speed_10m", "timezone": spec.timezone},
+                   "hourly": (
+                       "temperature_2m,cloud_cover,cloud_cover_low,"
+                       "cloud_cover_mid,cloud_cover_high,shortwave_radiation,"
+                       "wind_speed_10m"
+                   ), "timezone": spec.timezone},
         "previous_runs": {
             "enabled": bool(include_previous_runs),
             "start_year": int(previous_runs_start_year),

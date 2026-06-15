@@ -32,18 +32,15 @@ partial. The correct roadmap posture is clear: we need more clean settled
 market days before claiming the model beats Polymarket.
 
 Audit refresh (2026-06-14 UTC): the settlement ledger had fallen behind the
-available snapshot folders. `src.settled_days.discover_settled_folders` saw 93
-eligible settled folders while `market_day_labels.csv` still held 69 rows. A
-fresh `src.market_day_labels finalize` reconciled all 93 with Polymarket
-(`match=93`) and raised clean labels from 15 to 27 (`complete=27`,
-`partial=66`). The missed days were not absent from capture; they were June 11
-and June 12 tapes that had not yet been finalized into the ledger/promotion
-corpus. Promotion evidence therefore improved immediately after refresh:
-the F-family corpus doubled from 12 to 24 market-days, all 11 F markets now
-have at least two clean days and trust above the minimum day gate, and the
-pooled v0.3 candidate now promotes Atlanta and Austin while keeping the other
-nine F markets in shadow. The north-star claim is still unproven because the
-aggregate candidate Brier remains behind market Brier.
+available snapshot folders. A later refresh reconciled 105 settled folders with
+Polymarket (`match=105`) and raised the label ledger to `complete=54`,
+`partial=51`. The missed days were not absent from capture; they were recent
+fleet tapes that had not yet been finalized into the ledger/promotion corpus.
+Promotion evidence improved after refresh, but the current
+`data/backtest/f_family_promotion_refresh_report.md` still does not prove broad
+edge versus Polymarket: the F-family corpus has 51 market-days, aggregate
+candidate Brier is `0.0508` versus market Brier `0.0379`, Atlanta is the only
+`PROMOTE_CANDIDATE`, and the other 10 F markets remain shadow.
 
 ### Current Work That Needed Roadmap Reconciliation
 
@@ -433,6 +430,12 @@ most cutoff-aligned features, but late-day coefficients still omit
 `forecast_high` / `forecast_gap`, the report does not score continuation model
 calibration, and the visible risk panel is not yet an accuracy-grade
 probability adjustment.
+
+Split clarification (2026-06-14): item 22 shipped the artifact-backed
+forecast-error tail blend used by live late-day continuation. The remaining
+trained late-day work is narrower: put `forecast_high` / `forecast_gap` into the
+late-day logistic training artifact and validate that continuation component
+directly. That work is split into item 49.
 
 ### 9. Analog Search [COMPLETE]
 
@@ -1503,13 +1506,13 @@ standalone `src\data_auditor.py --fleet --json --strict` path is now
 registry-aware and unit-aware, so F-market rows no longer trigger false Celsius
 impossible-value alerts.
 
-Fleet observability follow-up (2026-06-14 UTC): the report now exits strict with
-status `WARN` and zero critical alerts. Earlier reports correctly failed closed
-on June 11 collection gaps, Miami's true 2005-06-11 outlier (`171 F`), and
-active CLOB startup gaps. Miami is now quarantined/rebuilt, CLOB startup gaps
-are separated from post-start recorder failure, and remaining warnings are
-target-window missing/sparse historical days plus legacy core artifacts whose
-schema is represented in the external provenance manifest.
+Fleet observability follow-up (2026-06-14 UTC): the report distinguishes raw WU
+target-window holes from unresolved multi-source historical gaps. Current WU
+missing/sparse days are covered by redundant METAR/ASOS, GHCNh, or reanalysis
+daily rows, so they remain visible in the audit table without alerting as fleet
+data-integrity issues. Legacy LR/HGB/late-day artifacts are also recognized from
+their embedded per-hour feature schema, and future retrains stamp top-level
+artifact schema metadata.
 
 ### 32. Reanalysis And Synoptic Feature Layer [NEW - GATED]
 
@@ -1648,7 +1651,7 @@ Principle: one shared learning pipeline, split only at the unit/band I/O edges,
 validated by the improvement engine before anything ships, with per-market gating
 and automated retraining.
 
-### 33. Family-Pooled Model + City Features [OPEN - v0.3 SHADOW, REFRESH AUTOMATED]
+### 33. Family-Pooled Model + City Features [OPEN - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]
 
 Goal: train on all cities in a unit family, not one (audit Option A).
 
@@ -1764,17 +1767,19 @@ actions were `0` promote, `11` shadow, `0` blocked. Corpus pin passed, but
 cannot be required until future settled captures include replay identities.
 
 Ledger/promotion refresh (2026-06-14 UTC): `src.market_day_labels finalize`
-found the previously unfinalized June 11/12 fleet tapes and wrote 93 total
-labels (`complete=27`, `partial=66`) with Polymarket reconciliation
-`match=93`. `src.promotion_refresh` then rebuilt the F-family corpus at hash
-`3f6205575b8e9404cce01dbb7dfa9c591abf1db627221840913d4c4f47deb56a`
-(`24` market-days, `3,360` snapshots, `36,960` band rows,
-`1,680` identity records). Candidate verdict improved to
-**PASS_WITH_SHADOWS / PER_MARKET_ONLY**: Atlanta and Austin are
-`PROMOTE_CANDIDATE`, the other nine F markets remain `KEEP_SHADOW`, and no
-F market is blocked. Aggregate candidate Brier is `0.0538` versus current
-replay `0.0687` and market `0.0404`; this is a real model/process improvement
-but not yet proof of beating Polymarket overall.
+eventually reconciled 105 total labels (`complete=54`, `partial=51`) with
+Polymarket reconciliation `match=105`. `src.promotion_refresh` then rebuilt the
+F-family corpus at hash
+`0c3f02ca56c83a5099b156985fdb93e83209addae8bf02c2dffe07b185112339`
+(`51` market-days, `6,989` snapshots, `76,879` band rows,
+`3,363` identity records). Candidate verdict is
+**PASS_WITH_SHADOWS / PER_MARKET_ONLY**: Atlanta is `PROMOTE_CANDIDATE`; Austin,
+Chicago, Dallas, Denver, Houston, Los Angeles, Miami, NYC, San Francisco, and
+Seattle remain `KEEP_SHADOW`, mostly because the candidate is not yet proven
+better than market prices on pinned rows. Aggregate candidate Brier is `0.0508`
+versus current replay `0.0648` and market `0.0379`; this is a process/model
+improvement but not a north-star edge claim. The remaining promotion-readiness
+gap is split into item 48.
 
 ### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
 
@@ -1907,7 +1912,7 @@ Houston, NYC, San Francisco, Seattle, and Toronto; blocked markets are Atlanta,
 Denver, Los Angeles, and Miami. The largest positive code-effect slice is still
 market-specific rather than a corpus-pin issue.
 
-### 37. MLOps And Always-On Production Hardening [OPEN - CLOB/WATCHER SLO GATE]
+### 37. MLOps And Always-On Production Hardening [OPEN - SNAPSHOT/CLOB/WATCHER SLO GATE]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
@@ -1929,10 +1934,14 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Production-harden the CLOB book loop: heartbeat/status, diagnostics,
   detached start, stop, restart, ensure, and a Windows Task Scheduler
   registration script separate from the weather/model loop.
-- [ ] Define and enforce the market-making live-forward SLO gate for CLOB book
-  capture plus the observation-trigger watcher: automatic recovery, critical
-  alerting, strict freshness checks, and proof that both loops stay fresh before
-  any live-forward paper day or live order can count toward an MM gate.
+- [ ] Define and enforce the market-making live-forward SLO gate for main
+  snapshot collection, CLOB book capture, and the observation-trigger watcher:
+  automatic recovery, critical alerting, strict freshness checks, and proof that
+  all loops stay fresh before any live-forward paper day or live order can count
+  toward an MM gate.
+- [ ] Require a gap-free active-day snapshot tape across all registered markets
+  before fleet observability can clear strict mode; true same-day gaps remain
+  immutable data-quality blockers and should not be backfilled synthetically.
 - [ ] Model/artifact registry + versioning; scheduled nightly
   retrain -> validate -> promote.
 - [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
@@ -2031,8 +2040,9 @@ distinguishes loop startup gaps from ongoing recorder failure. Gaps ending
 before the CLOB loop's `started_at` plus a 180-second grace are recorded as
 `startup_gaps_ignored`; post-start gaps and stale trailing captures still fail
 strict mode. Live validation: `src.market_microstructure audit --strict` passes
-all 12 active markets, and `src.fleet_observability report --strict` now exits
-0 with fleet status `WARN` rather than `CRITICAL`.
+all 12 active markets. The fleet report no longer has CLOB, artifact-schema, or
+redundant historical-source blockers, but it still correctly fails strict when
+the main snapshot tapes have real active-day collection gaps.
 
 Feature-wiring update (2026-06-14 UTC): `src.market_microstructure_features`
 now converts the fast CLOB book tape into band-level model features for book
@@ -2078,8 +2088,11 @@ new cadence column could make scheduled captures appear gappy late at night.
 `SnapshotStore` now measures scheduled due time against the last scheduled
 capture, and `src.collection_health` scopes strict gap detection to the 12:00-
 18:00 settlement-decisive window while still requiring the tape to span that
-window. `src.fleet_observability report --strict` now exits 0 with fleet status
-`WARN`, zero critical alerts, and only historical/artifact metadata warnings.
+window. Covered WU historical gaps and recognized legacy artifact schemas no
+longer produce fleet warnings. `src.fleet_observability report --strict` remains
+critical, as intended, when the active day's immutable snapshot tapes contain
+true collection gaps; the 2026-06-14 report is collection-only critical after
+the CLOB loop was restarted and validated.
 
 ### 40. Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]
 
@@ -2561,6 +2574,110 @@ Polymarket; a promoted market such as Atlanta can be considered for edge mode
 only where the permission map and paper markouts both clear; and the report
 shows exactly which model-market gap cells must improve next.
 
+### 48. F-Family Promotion Readiness And Serving Parity [NEW - OPEN]
+
+Goal: separate the implemented family-pooled pipeline from the unresolved proof
+that it is ready for broader promotion.
+
+Source: `data/backtest/f_family_promotion_refresh_report.md` now emits explicit
+promotion-readiness blockers. The current blockers are aggregate candidate
+Brier behind market Brier, 10 F markets still in shadow, and a current-serving
+gauntlet `BLOCK` from replay regression versus recorded probabilities.
+
+- [ ] Turn the current-serving gauntlet from `BLOCK` to pass or document a
+  deliberate baseline reset with corpus-pin/fidelity evidence, per-market code
+  effects, and no hidden serving regression.
+- [ ] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
+  pinned rows, or keep the gap explicitly marked as a readiness blocker.
+- [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
+  current replay, clears trust/sample gates, and is not worse than market prices
+  within the promotion tolerance.
+- [ ] Add decomposition for the largest shadow causes by market, cutoff hour,
+  band type, settlement distance, source freshness, and CLOB taxonomy; feed
+  those slices into item 47's known-edge map.
+- [ ] Keep the promotion refresh report as the acceptance artifact: readiness is
+  not complete until `readiness.status` is `READY`, the current-serving gauntlet
+  is non-blocking, and no F market has an unexplained `KEEP_SHADOW`.
+
+Acceptance: the F-family promotion report has no readiness blockers, every
+promoted market has pinned market-or-better evidence, and any remaining shadow
+market has a concrete, generated blocker rather than ambiguous roadmap text.
+
+### 49. Late-Day Forecast-Gap Continuation Training [NEW - OPEN]
+
+Goal: finish the narrow late-day work that was ambiguous between item 8 and the
+completed forecast-error component in item 22.
+
+Source: item 22 completed the forecast-error distribution and live late-day tail
+blend, but `late_day_model_coefs*.json` still train without `forecast_high` and
+`forecast_gap` feature columns.
+
+- [ ] Add `forecast_high` and `forecast_gap` to the late-day continuation
+  training rows and exported coefficient artifacts for 15:00, 16:00, and 17:00.
+- [ ] Preserve train/serve parity by sourcing the same forecast-gap fields from
+  the feature store in training, replay, live inference, and explanation output.
+- [ ] Add a late-day continuation validation report with Brier/log loss,
+  calibration, and ablation rows for forecast-gap features.
+- [ ] Re-run settlement-scored replay to prove the trained continuation change
+  improves or at least does not regress the final distribution.
+
+Acceptance: late-day forecast-gap features are trained, served, explained, and
+validated as their own continuation-model improvement, not only as a live
+forecast-error tail heuristic.
+
+### 50. Scholarly Weather-Input Gap Closure [NEW - OPEN]
+
+Goal: turn the 2026-06-14 forecasting literature/source audit into a replay-safe
+feature roadmap.
+
+Task ledger: `docs/research/WEATHER_FORECASTING_INPUT_TASKS_2026-06-14.md`.
+
+Completed first slice (2026-06-14):
+
+- [x] Add already-fetched Open-Meteo forecast-profile features to the shared
+  train/serve schema: peak hour, peak timing, 12:00-16:00 hourly temperatures,
+  afternoon slope, and remaining heating degree-hours.
+- [x] Add already-fetched Open-Meteo radiation/cloud detail: remaining
+  shortwave, next-3h shortwave, total/low/mid/high cloud summaries, low/total
+  cloud maxima, and cloud trend.
+- [x] Add already-fetched GFS ensemble uncertainty: day mean member spread,
+  next-3h spread, daily high p10/p90, and p90-p10 spread.
+- [x] Persist those live fields in `forecasts_long.csv` and extend the
+  historical Open-Meteo forecast archive schema so future backfills store
+  low/mid/high cloud and shortwave.
+- [x] Keep old LR/HGB artifacts serving by selecting coefficient inputs by
+  trained feature names rather than by newest schema position.
+
+Open validation/data tasks:
+
+- [ ] Re-run per-market Open-Meteo forecast-history backfills so existing
+  `forecast_long.csv` files carry the v2 radiation/cloud-layer columns.
+- [ ] Retrain per-market and pooled feature models, then run settlement-scored
+  replay/gauntlet reports to prove the new feature family improves Brier/log
+  loss before promotion.
+
+Roadmapped infrastructure tasks:
+
+- [ ] Vertical thermal structure/advection: 850/925 hPa temperature, 1000-850
+  and 850-700 thickness, 500 hPa height, and warm/cold advection proxies.
+- [ ] Land-surface and energy budget: soil moisture/temp, snow cover/depth,
+  vegetation/LAI, surface roughness, latent/sensible heat flux, and PBL height.
+- [ ] Forecast uncertainty beyond GFS spread: NBM percentiles/probabilities,
+  forecast run age, and run-to-run high changes.
+- [ ] Realized-vs-forecast insolation: add a realized radiation source or
+  defensible proxy before training this feature.
+- [ ] Precipitation/convection interruption: radar/precip rate, QPF/PoP,
+  lightning/thunder proxies, CAPE/CIN, precipitable water, and post-rain
+  cooling flags.
+- [ ] Spatial/upstream context: nearby-station gradients, upstream temperature /
+  wind / dewpoint changes, sea/lake-breeze proxies, water temperature,
+  distance-to-water, and vetted station elevation.
+
+Acceptance: every new weather-input family is either trained and
+settlement-scored, or explicitly blocked behind a named source/archive/backfill
+task. No feature should be promoted from live-only availability without matching
+historical/reforecast coverage.
+
 ## Sequencing The Two Tracks
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
@@ -2572,10 +2689,15 @@ shows exactly which model-market gap cells must improve next.
    now.
 2. Then **31 (observability)** and **34 (F calibration + gating)** as F days
    settle.
+   Item 48 now owns the proof that the pooled F pipeline is promotion-ready,
+   rather than merely implemented and refreshed.
 3. Then **29-30 (deeper, redundant data)** feeding **35 (unified model)**.
 4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
 5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are
    the long-tail accuracy and edge plays.
+   Item 49 is the scoped late-day forecast-gap cleanup split out of items 8 and
+   22; do it before claiming the late-day continuation model itself is
+   forecast-aware.
 6. **41 (disagreement casebook)** now runs as the durable audit layer alongside
    model work: it converts every large live edge into supervised evidence
    instead of another one-off chat audit. **42 (fast observation-triggered
@@ -2604,15 +2726,16 @@ Current best next actions after the 2026-06-14 refresh:
    `src.observation_trigger replay` scores them directly on those case IDs once
    live triggered rows settle. Keep the watcher supervised so the acceptance
    report gains evidence.
-3. **Done 2026-06-14: clear the fleet observability criticals.** Miami's impossible
-   2005-06-11 WU value is quarantined and the rebuilt normalized daily high is
-   `86 F`; `data_auditor.py --fleet --json --strict` reports zero impossible
-   values. The CLOB audit now records startup gaps separately from post-start
-   recorder failures; `src.market_microstructure audit --strict` passes all 12
-   active markets. Main snapshot health now separates scheduled and triggered
-   cadence and checks strict gaps inside the settlement-decisive window.
-   `src.fleet_observability report --strict` is `WARN` with zero critical
-   alerts.
+3. **Mostly done 2026-06-14: clear false fleet observability criticals.** Miami's
+   impossible 2005-06-11 WU value is quarantined and the rebuilt normalized
+   daily high is `86 F`; `data_auditor.py --fleet --json --strict` reports zero
+   impossible values. The CLOB audit now records startup gaps separately from
+   post-start recorder failures; `src.market_microstructure audit --strict`
+   passes all 12 active markets. Main snapshot health now separates scheduled
+   and triggered cadence and checks strict gaps inside the settlement-decisive
+   window. The remaining `src.fleet_observability report --strict` criticals are
+   true 2026-06-14 active-day collection gaps, so they stay visible until item
+   37's live-forward SLO hardening prevents recurrence.
 4. **Done as shadow scoring 2026-06-14: score item 38's CLOB features behind
    the promotion gauntlet.** Market lead is now a measured losing family, and
    market overreaction is a measured winning family. The book-depth, stickiness,

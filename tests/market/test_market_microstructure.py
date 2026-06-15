@@ -320,8 +320,8 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         def capture_fn(**kwargs):
             self.assertEqual(kwargs["market_id"], "toronto")
-            self.assertTrue(kwargs["include_price_history"])
-            self.assertTrue(kwargs["include_ws_events"])
+            self.assertFalse(kwargs["include_price_history"])
+            self.assertFalse(kwargs["include_ws_events"])
             return {
                 "toronto": {
                     "books": 2,
@@ -354,8 +354,8 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(written["last_market_results"]["toronto"]["books"], 2)
         self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 4)
         self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 1)
-        self.assertTrue(written["include_price_history"])
-        self.assertTrue(written["include_ws_events"])
+        self.assertFalse(written["include_price_history"])
+        self.assertFalse(written["include_ws_events"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(len(diagnostics), 1)

@@ -35,7 +35,17 @@ FORECAST_COLUMNS = [
     "target_temp_c",
     "forecast_high_c",
     "cloud_cover",
+    "low_cloud",
+    "mid_cloud",
+    "high_cloud",
+    "shortwave_radiation",
     "wind_speed_kmh",
+    "ensemble_member_spread",
+    "ensemble_member_p10",
+    "ensemble_member_p90",
+    "ensemble_day_mean_spread",
+    "ensemble_day_high_p10",
+    "ensemble_day_high_p90",
     "condition",
     "source_url",
     "payload_hash",
@@ -111,6 +121,12 @@ def build_forecast_rows(
             wind_speed_kmh=raw.get("wind_kmh"),
             condition=f"solar {raw.get('solar', '-')} W/m2",
             source_url=open_meteo.get("url"),
+            extra_fields={
+                "low_cloud": raw.get("low_cloud"),
+                "mid_cloud": raw.get("mid_cloud"),
+                "high_cloud": raw.get("high_cloud"),
+                "shortwave_radiation": raw.get("solar"),
+            },
         )
         rows.append(row)
 
@@ -167,6 +183,14 @@ def build_forecast_rows(
                 else raw.get("condition")
             ),
             source_url=global_ensemble.get("url"),
+            extra_fields={
+                "ensemble_member_spread": raw.get("ensemble_member_spread"),
+                "ensemble_member_p10": raw.get("ensemble_member_p10"),
+                "ensemble_member_p90": raw.get("ensemble_member_p90"),
+                "ensemble_day_mean_spread": global_ensemble.get("day_mean_member_spread"),
+                "ensemble_day_high_p10": global_ensemble.get("day_member_high_p10"),
+                "ensemble_day_high_p90": global_ensemble.get("day_member_high_p90"),
+            },
         )
         rows.append(row)
 
@@ -219,6 +243,7 @@ def forecast_row(
     source_url,
     provider_issue_time=None,
     provider_update_time=None,
+    extra_fields=None,
 ):
     target_date = target_date_from_valid_time(valid_time)
     row = {
@@ -242,6 +267,7 @@ def forecast_row(
         "condition": condition,
         "source_url": source_url,
     }
+    row.update(extra_fields or {})
     row["payload_hash"] = payload_hash(row)
     row["is_changed"] = "true"
     return row
@@ -314,7 +340,17 @@ def payload_hash(row):
         "target_temp_c": row.get("target_temp_c"),
         "forecast_high_c": row.get("forecast_high_c"),
         "cloud_cover": row.get("cloud_cover"),
+        "low_cloud": row.get("low_cloud"),
+        "mid_cloud": row.get("mid_cloud"),
+        "high_cloud": row.get("high_cloud"),
+        "shortwave_radiation": row.get("shortwave_radiation"),
         "wind_speed_kmh": row.get("wind_speed_kmh"),
+        "ensemble_member_spread": row.get("ensemble_member_spread"),
+        "ensemble_member_p10": row.get("ensemble_member_p10"),
+        "ensemble_member_p90": row.get("ensemble_member_p90"),
+        "ensemble_day_mean_spread": row.get("ensemble_day_mean_spread"),
+        "ensemble_day_high_p10": row.get("ensemble_day_high_p10"),
+        "ensemble_day_high_p90": row.get("ensemble_day_high_p90"),
         "condition": row.get("condition"),
     }
     encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")

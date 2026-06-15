@@ -115,6 +115,23 @@ class TestReplayRoundTrip(unittest.TestCase):
         p = band_model_probability(model, dist, band)
         self.assertGreater(p, 0.90)   # 0.10 + 0.85, not just 0.10
 
+    def test_range_band_containing_observed_floor_is_not_hard_zeroed(self):
+        model = TorontoHighTempModel(target_date=NOW.date(), market_id="atlanta")
+        model._last_probability_calibration_context = {
+            "observed_floor_bucket": 93,
+            "cutoff_hour": 22,
+        }
+        dist = {92: 0.0002, 93: 0.9997, 94: 0.0001}
+        band = {
+            "bin_kind": "eq",
+            "bin_value_c": 92,
+            "range_label": "92-93°F",
+            "market_yes": 0.9995,
+            "market_no": 0.0005,
+        }
+
+        self.assertGreater(band_model_probability(model, dist, band), 0.99)
+
     def test_band_probabilities_are_valid(self):
         dist = self.model.estimate_distribution(make_sources(), now=NOW)
         p_all = band_model_probability(self.model, dist, {"bin_kind": "lte", "bin_value_c": 40})

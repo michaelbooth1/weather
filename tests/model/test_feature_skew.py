@@ -19,7 +19,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from feature_store import build_historical_feature_record, simulated_reading_at
+from feature_store import FEATURE_COLUMNS, build_historical_feature_record, simulated_reading_at
 from toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 CUTOFF_HOUR = 14
@@ -34,25 +34,7 @@ OBS = [
     (14, 0, 24.0, 11.0, 48.0, 1014.0, 18.0, "SW", "Fair"),
 ]
 
-SHARED_FEATURES = [
-    "high_so_far",
-    "current_temp",
-    "rise_from_7am",
-    "dewpoint_c",
-    "humidity",
-    "pressure",
-    "pressure_trend_3h",
-    "wind_speed_kmh",
-    "forecast_high",
-    "forecast_gap",
-    "forecast_source_count",
-    "forecast_disagreement",
-    "minutes_since_cutoff",
-    "live_reading_temp",
-    "live_reading_minus_high",
-    "wind_group",
-    "cloud_group",
-]
+SHARED_FEATURES = list(FEATURE_COLUMNS)
 
 
 def historical_rows():

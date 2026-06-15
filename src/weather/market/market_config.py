@@ -118,8 +118,8 @@ def config_from_event(event, fallback_date=None):
 
 
 def ensure_date(value):
-    if isinstance(value, date):
-        return value
     if isinstance(value, datetime):
         return value.date()
+    if isinstance(value, date):
+        return value
     return date.fromisoformat(str(value))

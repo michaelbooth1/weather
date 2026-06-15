@@ -105,12 +105,13 @@ def floor_distance_bucket(bin_value, floor_bucket):
     return "three_plus_above"
 
 
-def hard_bin_probability(bin_kind, bin_value, floor_bucket):
+def hard_bin_probability(bin_kind, bin_value, floor_bucket, bin_value_hi=None):
     """Return a hard probability when WU history has already settled that bin.
 
     A WU printed floor makes `gte` at/below the floor guaranteed YES and makes
-    exact/lte bins below the floor guaranteed NO. Exact at the floor is not hard:
-    the final high can still rise later.
+    exact/lte bins below the floor guaranteed NO. Exact/range bins containing
+    the floor are not hard: the final high can still rise later, and a range
+    like 92-93F is still live when the printed floor is 93F.
     """
     if floor_bucket is None or bin_value is None:
         return None
@@ -120,8 +121,11 @@ def hard_bin_probability(bin_kind, bin_value, floor_bucket):
         return 1.0
     if bin_kind == "lte" and floor_bucket > bin_value:
         return 0.0
-    if bin_kind not in {"gte", "lte"} and bin_value < floor_bucket:
-        return 0.0
+    if bin_kind not in {"gte", "lte"}:
+        upper = int(bin_value_hi) if bin_value_hi is not None else bin_value
+        if upper < floor_bucket:
+            return 0.0
+        return None
     return None
 
 
@@ -254,9 +258,10 @@ def calibrate_market_probability(
     context = context or {}
     bin_kind = bin_data.get("kind") or bin_data.get("bin_kind") or "eq"
     bin_value = bin_data.get("value", bin_data.get("bin_value_c"))
+    bin_value_hi = bin_data.get("value_hi", bin_data.get("bin_value_hi"))
     floor_bucket = context.get("observed_floor_bucket")
     cutoff_hour = context.get("cutoff_hour")
-    hard = hard_bin_probability(bin_kind, bin_value, floor_bucket)
+    hard = hard_bin_probability(bin_kind, bin_value, floor_bucket, bin_value_hi=bin_value_hi)
     if hard is not None:
         return hard
 

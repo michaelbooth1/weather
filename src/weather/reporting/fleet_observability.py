@@ -19,7 +19,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table  # noqa: E402
 from collection_health import fleet_collection_health  # noqa: E402
-from data_auditor import audit_fleet_historical_data, jsonable_result  # noqa: E402
+from data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result  # noqa: E402
 from location_trust import score_all_markets  # noqa: E402
 from market_microstructure import (  # noqa: E402
     BOOK_AUDIT_MAX_GAP_SECONDS,
@@ -28,6 +28,7 @@ from market_microstructure import (  # noqa: E402
     read_clob_loop_status,
 )
 from market_registry import all_specs  # noqa: E402
+from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, source_daily_indexes, source_values_for_day  # noqa: E402
 from weather.artifacts import resolve_artifact_path  # noqa: E402
 from weather.paths import relative_to_repo  # noqa: E402
 
@@ -57,6 +58,13 @@ FAMILY_ARTIFACTS = {
     "f_family_forecast_error": "forecast_error_model_f_family.json",
     "f_family_settlement_lag": "settlement_lag_model_f_family.json",
     "f_family_pooled_band_model": "feature_model_hgb_f_pooled_v0_2.pkl",
+}
+
+LEGACY_ARTIFACT_SCHEMA_BY_KIND = {
+    "calibrated_weights": "calibrated_weights_v0.1",
+    "feature_model_coefs": "feature_model_coefs_v0.1",
+    "feature_model_hgb": "feature_model_hgb_v0.1",
+    "late_day_model": "late_day_model_coefs_v0.1",
 }
 
 
@@ -92,6 +100,31 @@ def _artifact_payload(path):
     return {}
 
 
+def _first_nested_value(payload, key):
+    if not isinstance(payload, dict):
+        return None
+    if payload.get(key) not in (None, ""):
+        return payload.get(key)
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict) and metadata.get(key) not in (None, ""):
+        return metadata.get(key)
+    for value in payload.values():
+        if isinstance(value, dict) and value.get(key) not in (None, ""):
+            return value.get(key)
+    return None
+
+
+def _recognized_legacy_schema(payload, kind):
+    if not isinstance(payload, dict):
+        return None
+    if kind == "calibrated_weights" and isinstance(payload.get("hours"), dict):
+        return LEGACY_ARTIFACT_SCHEMA_BY_KIND[kind]
+    if kind in {"feature_model_coefs", "feature_model_hgb", "late_day_model"}:
+        if _first_nested_value(payload, "feature_schema_version"):
+            return LEGACY_ARTIFACT_SCHEMA_BY_KIND[kind]
+    return None
+
+
 def artifact_metadata(path, kind=None):
     path = Path(path)
     row = {
@@ -116,18 +149,16 @@ def artifact_metadata(path, kind=None):
     payload = _artifact_payload(path)
     if isinstance(payload, dict):
         row["load_error"] = payload.get("_load_error")
-        row["schema_version"] = payload.get("schema_version")
-        row["feature_schema_version"] = payload.get("feature_schema_version")
-        row["generated_at"] = payload.get("generated_at_utc") or payload.get("generated_at")
-        row["trained_at"] = payload.get("trained_at")
-        row["version"] = payload.get("version")
+        row["schema_version"] = payload.get("schema_version") or _recognized_legacy_schema(payload, kind)
+        row["feature_schema_version"] = _first_nested_value(payload, "feature_schema_version")
+        row["generated_at"] = _first_nested_value(payload, "generated_at_utc") or _first_nested_value(payload, "generated_at")
+        row["trained_at"] = _first_nested_value(payload, "trained_at")
+        row["version"] = _first_nested_value(payload, "version")
     if row["load_error"]:
         row["schema_status"] = "unreadable"
     elif row["schema_version"] or row["feature_schema_version"] or row["version"]:
         row["schema_status"] = "ok"
     else:
-        # Legacy artifacts are still fingerprinted in the external provenance
-        # manifest, but the alert keeps pressure on moving schemas inward.
         row["schema_status"] = "external_manifest_only"
     return row
 
@@ -168,12 +199,83 @@ def add_alert(alerts, severity, market_id, category, message, detail=None):
     })
 
 
-def audit_alerts(audits):
+def _issue_days(audit, key):
+    values = audit.get(key) or []
+    if key == "sparse_days":
+        return [row[0] for row in values if row]
+    return list(values)
+
+
+def _complete_redundant_sources(values, min_hourly_obs=MIN_HOURLY_OBS):
+    sources = []
+    for source in FALLBACK_ORDER:
+        row = values.get(source)
+        if not row:
+            continue
+        if row.get("high") is None:
+            continue
+        if int(row.get("row_count") or 0) < int(min_hourly_obs):
+            continue
+        sources.append(source)
+    return sources
+
+
+def historical_gap_coverage(audits, min_hourly_obs=MIN_HOURLY_OBS):
+    """Map raw WU audit gaps to unresolved multi-source historical gaps."""
+    markets = {}
+    for spec in all_specs():
+        audit = (audits or {}).get(spec.id) or {}
+        missing_days = sorted(set(_issue_days(audit, "missing_days")))
+        sparse_days = sorted(set(_issue_days(audit, "sparse_days")))
+        issue_days = sorted(set(missing_days) | set(sparse_days))
+        indexes = source_daily_indexes(spec)
+        day_rows = []
+        for day in issue_days:
+            values = source_values_for_day(indexes, day)
+            covering_sources = _complete_redundant_sources(values, min_hourly_obs=min_hourly_obs)
+            day_rows.append({
+                "local_date": day,
+                "wu_missing": day in missing_days,
+                "wu_sparse": day in sparse_days,
+                "covering_sources": covering_sources,
+                "covered": bool(covering_sources),
+                "primary_available": PRIMARY_SOURCE in values,
+            })
+        markets[spec.id] = {
+            "issue_days": len(issue_days),
+            "covered_issue_days": sum(1 for row in day_rows if row["covered"]),
+            "unresolved_issue_days": [row["local_date"] for row in day_rows if not row["covered"]],
+            "unresolved_missing_days": [
+                row["local_date"] for row in day_rows
+                if row["wu_missing"] and not row["covered"]
+            ],
+            "unresolved_sparse_days": [
+                row["local_date"] for row in day_rows
+                if row["wu_sparse"] and not row["covered"]
+            ],
+            "days": day_rows,
+        }
+    return {
+        "min_hourly_obs": int(min_hourly_obs),
+        "markets": markets,
+        "summary": {
+            "markets_with_unresolved_gaps": sum(
+                1 for row in markets.values() if row["unresolved_issue_days"]
+            ),
+            "unresolved_issue_days": sum(len(row["unresolved_issue_days"]) for row in markets.values()),
+            "covered_issue_days": sum(row["covered_issue_days"] for row in markets.values()),
+        },
+    }
+
+
+def audit_alerts(audits, gap_coverage=None):
     alerts = []
+    coverage = (gap_coverage or {}).get("markets") or {}
     for market_id, result in (audits or {}).items():
         if not result:
             add_alert(alerts, "critical", market_id, "data_audit", "historical audit missing")
             continue
+        coverage_row = coverage.get(market_id)
         if result.get("duplicate_timestamps"):
             add_alert(
                 alerts,
@@ -192,23 +294,29 @@ def audit_alerts(audits):
                 "impossible historical values",
                 {"count": len(result["impossible_values"])},
             )
-        if result.get("missing_days"):
+        if coverage_row is None:
+            unresolved_missing = result.get("missing_days") or []
+            unresolved_sparse = _issue_days(result, "sparse_days")
+        else:
+            unresolved_missing = coverage_row.get("unresolved_missing_days") or []
+            unresolved_sparse = coverage_row.get("unresolved_sparse_days") or []
+        if unresolved_missing:
             add_alert(
                 alerts,
                 "warning",
                 market_id,
                 "data_audit",
-                "missing target-window historical days",
-                {"count": len(result["missing_days"])},
+                "uncovered target-window historical missing days",
+                {"count": len(unresolved_missing), "days": unresolved_missing[:20]},
             )
-        if result.get("sparse_days"):
+        if unresolved_sparse:
             add_alert(
                 alerts,
                 "warning",
                 market_id,
                 "data_audit",
-                "sparse target-window historical days",
-                {"count": len(result["sparse_days"])},
+                "uncovered target-window historical sparse days",
+                {"count": len(unresolved_sparse), "days": unresolved_sparse[:20]},
             )
     return alerts
 
@@ -361,11 +469,12 @@ def build_observability_payload(
         for market_id, result in audits.items()
     }
     provenance = artifact_inventory()
+    gap_coverage = historical_gap_coverage(audits_json) if include_audits else {}
     trust = trust_readiness(score_all_markets(root=snapshots_root))
     clob = clob_summary(snapshots_root=snapshots_root)
     alerts = []
     alerts.extend(collection_alerts(collection))
-    alerts.extend(audit_alerts(audits_json))
+    alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
     alerts.extend(provenance_alerts(provenance))
     alerts.extend(clob_alerts(clob))
     payload = {
@@ -375,6 +484,7 @@ def build_observability_payload(
         "snapshots_root": str(snapshots_root),
         "collection": collection,
         "historical_audits": audits_json,
+        "historical_gap_coverage": gap_coverage,
         "artifact_provenance": provenance,
         "trust_readiness": trust,
         "clob": clob,
@@ -411,11 +521,15 @@ def write_markdown(path, payload):
             trust_row.get("settled_day_gap"),
         ])
     audit_rows = []
+    gap_coverage = (payload.get("historical_gap_coverage") or {}).get("markets") or {}
     for market_id, audit in sorted((payload.get("historical_audits") or {}).items()):
+        coverage_row = gap_coverage.get(market_id) or {}
         audit_rows.append([
             market_id,
             len(audit.get("missing_days") or []) if audit else "-",
             len(audit.get("sparse_days") or []) if audit else "-",
+            coverage_row.get("covered_issue_days", "-"),
+            len(coverage_row.get("unresolved_issue_days") or []),
             len(audit.get("duplicate_timestamps") or []) if audit else "-",
             len(audit.get("impossible_values") or []) if audit else "-",
             audit.get("hourly_days_audited") if audit else "-",
@@ -456,7 +570,10 @@ def write_markdown(path, payload):
     )
     lines += ["", "## Historical Data Audits", ""]
     lines += markdown_table(
-        ["Market", "Missing", "Sparse", "Duplicates", "Impossible", "Hourly Days"],
+        [
+            "Market", "WU Missing", "WU Sparse", "Redundant Covered",
+            "Unresolved", "Duplicates", "Impossible", "Hourly Days",
+        ],
         audit_rows,
     )
     lines += ["", "## Artifact Provenance", ""]

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from collection_health import fleet_collection_health  # noqa: E402
 from fleet_observability import (  # noqa: E402
     artifact_metadata,
+    audit_alerts,
     clob_alerts,
     overall_status,
     trust_readiness,
@@ -59,6 +60,65 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(meta["schema_version"], "demo_v1")
         self.assertEqual(meta["schema_status"], "ok")
         self.assertIsNotNone(meta["sha256"])
+
+    def test_artifact_metadata_recognizes_legacy_per_hour_feature_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "feature_model_coefs.json"
+            path.write_text(
+                json.dumps({"12": {"feature_schema_version": "feature_store_v1"}}),
+                encoding="utf-8",
+            )
+
+            meta = artifact_metadata(path, kind="feature_model_coefs")
+
+        self.assertEqual(meta["schema_status"], "ok")
+        self.assertEqual(meta["schema_version"], "feature_model_coefs_v0.1")
+        self.assertEqual(meta["feature_schema_version"], "feature_store_v1")
+
+    def test_audit_alerts_ignore_wu_gaps_covered_by_redundant_sources(self):
+        alerts = audit_alerts(
+            {
+                "nyc": {
+                    "missing_days": ["2000-06-07"],
+                    "sparse_days": [["2000-06-08", 1]],
+                    "duplicate_timestamps": [],
+                    "impossible_values": [],
+                }
+            },
+            gap_coverage={
+                "markets": {
+                    "nyc": {
+                        "unresolved_missing_days": [],
+                        "unresolved_sparse_days": [],
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(alerts, [])
+
+    def test_audit_alerts_warn_on_uncovered_historical_gaps(self):
+        alerts = audit_alerts(
+            {
+                "nyc": {
+                    "missing_days": ["2000-06-07"],
+                    "sparse_days": [],
+                    "duplicate_timestamps": [],
+                    "impossible_values": [],
+                }
+            },
+            gap_coverage={
+                "markets": {
+                    "nyc": {
+                        "unresolved_missing_days": ["2000-06-07"],
+                        "unresolved_sparse_days": [],
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("uncovered", alerts[0]["message"])
 
     def test_overall_status_uses_highest_alert_severity(self):
         self.assertEqual(overall_status([]), "OK")

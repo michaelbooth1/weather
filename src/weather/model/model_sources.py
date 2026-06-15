@@ -59,6 +59,19 @@ def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep):
     raise last
 
 
+def percentile(values, q):
+    values = sorted(value for value in values if value is not None)
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    pos = (len(values) - 1) * float(q)
+    lo = int(pos)
+    hi = min(lo + 1, len(values) - 1)
+    frac = pos - lo
+    return values[lo] * (1.0 - frac) + values[hi] * frac
+
+
 class SourceFetchMixin:
     """Live and local source fetching plus the response parsers they rely on."""
 
@@ -573,6 +586,7 @@ class SourceFetchMixin:
         })
         hourly = payload.get("hourly", {}) or {}
         rows = []
+        day_rows = []
         day_temps = []  # all of today's forecast hours, for the daily-max feature
         now = datetime.now(self.spec.tz).replace(tzinfo=None)
         for index, raw_time in enumerate(hourly.get("time", []) or []):
@@ -582,26 +596,29 @@ class SourceFetchMixin:
             temp = self.to_number(self.array_get(hourly, "temperature_2m", index))
             if temp is not None:
                 day_temps.append(temp)
-            if dt < now:
-                continue
             local_dt = dt.replace(tzinfo=self.spec.tz)
-            rows.append({
+            row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
-                "temp_c": self.array_get(hourly, "temperature_2m", index),
-                "cloud_cover": self.array_get(hourly, "cloud_cover", index),
-                "low_cloud": self.array_get(hourly, "cloud_cover_low", index),
-                "mid_cloud": self.array_get(hourly, "cloud_cover_mid", index),
-                "high_cloud": self.array_get(hourly, "cloud_cover_high", index),
-                "wind_kmh": self.array_get(hourly, "wind_speed_10m", index),
-                "solar": self.array_get(hourly, "shortwave_radiation", index),
-            })
+                "temp_c": temp,
+                "cloud_cover": self.to_number(self.array_get(hourly, "cloud_cover", index)),
+                "low_cloud": self.to_number(self.array_get(hourly, "cloud_cover_low", index)),
+                "mid_cloud": self.to_number(self.array_get(hourly, "cloud_cover_mid", index)),
+                "high_cloud": self.to_number(self.array_get(hourly, "cloud_cover_high", index)),
+                "wind_kmh": self.to_number(self.array_get(hourly, "wind_speed_10m", index)),
+                "solar": self.to_number(self.array_get(hourly, "shortwave_radiation", index)),
+            }
+            day_rows.append(row)
+            if dt < now:
+                continue
+            rows.append(row)
         # Forecasted daily max over ALL of today's hours (the canonical forecast
         # feature, matching the Open-Meteo historical-forecast training value).
         day_max_c = max(day_temps) if day_temps else None
         return {
             "url": url,
             "rows": rows[:12],
+            "day_rows": day_rows,
             "day_max_c": day_max_c,
             "raw_payload": payload,
         }
@@ -698,8 +715,10 @@ class SourceFetchMixin:
             if key.startswith("temperature_2m_member")
         ]
         rows = []
+        day_rows = []
         day_temps = []
         day_spreads = []
+        member_day_temps = {key: [] for key in member_keys}
         now = datetime.now(self.spec.tz).replace(tzinfo=None)
         for index, raw_time in enumerate(hourly.get("time", []) or []):
             dt = datetime.fromisoformat(raw_time)
@@ -712,25 +731,47 @@ class SourceFetchMixin:
             ]
             members = [value for value in members if value is not None]
             spread = max(members) - min(members) if len(members) >= 2 else None
+            for key in member_keys:
+                member_temp = self.to_number(self.array_get(hourly, key, index))
+                if member_temp is not None:
+                    member_day_temps[key].append(member_temp)
             if temp is not None:
                 day_temps.append(temp)
             if spread is not None:
                 day_spreads.append(spread)
-            if dt < now:
-                continue
             local_dt = dt.replace(tzinfo=self.spec.tz)
-            rows.append({
+            row = {
                 "time": dt.strftime("%H:%M"),
                 "valid_time": local_dt.isoformat(),
                 "temp_c": temp,
                 "ensemble_member_spread": spread,
+                "ensemble_member_p10": percentile(members, 0.10),
+                "ensemble_member_p90": percentile(members, 0.90),
                 "condition": "GFS ensemble mean",
-            })
+            }
+            day_rows.append(row)
+            if dt < now:
+                continue
+            rows.append(row)
+        member_highs = [
+            max(values) for values in member_day_temps.values()
+            if values
+        ]
+        member_high_p10 = percentile(member_highs, 0.10)
+        member_high_p90 = percentile(member_highs, 0.90)
         return {
             "url": url,
             "rows": rows[:12],
+            "day_rows": day_rows,
             "day_max_c": max(day_temps) if day_temps else None,
             "day_mean_member_spread": sum(day_spreads) / len(day_spreads) if day_spreads else None,
+            "day_member_high_p10": member_high_p10,
+            "day_member_high_p90": member_high_p90,
+            "day_member_high_spread_80": (
+                member_high_p90 - member_high_p10
+                if member_high_p10 is not None and member_high_p90 is not None
+                else None
+            ),
             "raw_payload": payload,
         }
 

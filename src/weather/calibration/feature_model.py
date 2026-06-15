@@ -12,10 +12,17 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.abspath("src"))
 from weather.artifacts import writable_artifact_path
 from toronto_model import TorontoHighTempModel, INTRADAY_CUTOFF_HOURS
-from forecast_history import load_forecast_daily, daily_path_for
+from forecast_history import (
+    daily_path_for,
+    load_forecast_daily,
+    load_forecast_profiles,
+    long_path_for,
+)
 from feature_store import (
     FEATURE_COLUMNS,
+    FORECAST_FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
+    NATIVE_NAN_FEATURE_COLUMNS,
     build_historical_feature_record,
 )
 
@@ -24,6 +31,9 @@ from feature_store import (
 # inside the LOO loop). The 2026-06-08 retrain ran with this False and shipped
 # the 45-year model unvalidated -- the 2026-06-09 audit's finding #6.
 RUN_LOO = True
+FEATURE_MODEL_COEFS_SCHEMA_VERSION = "feature_model_coefs_v0.1"
+FEATURE_MODEL_HGB_SCHEMA_VERSION = "feature_model_hgb_v0.1"
+LATE_DAY_MODEL_SCHEMA_VERSION = "late_day_model_coefs_v0.1"
 
 # Intra-hour wall offsets (item 40). Each (day, cutoff hour) trains at ONE
 # deterministic offset, rotated across days, so the live-reading features see a
@@ -138,10 +148,7 @@ FEATURE_FAMILIES = {
         "wind_speed_kmh",
     ],
     "forecast": [
-        "forecast_high",
-        "forecast_gap",
-        "forecast_source_count",
-        "forecast_disagreement",
+        *FORECAST_FEATURE_COLUMNS,
     ],
     "wind_regime": "wind_",
     "cloud_regime": "cloud_",
@@ -164,7 +171,7 @@ def neutralize_feature_family(row, train_matrix, feature_cols, family_columns):
     out = row.copy()
     for column in family_columns:
         idx = feature_cols.index(column)
-        if column in {"forecast_high", "forecast_gap"}:
+        if column in NATIVE_NAN_FEATURE_COLUMNS:
             out[idx] = np.nan
         elif column.startswith("wind_") or column.startswith("cloud_"):
             out[idx] = 0.0
@@ -225,8 +232,11 @@ def main(market_id="toronto"):
     # Archived Open-Meteo forecasts (non-leaky); absent before 2018 -> NaN.
     # Per-market path so the F family trains on its own native-unit forecasts.
     forecast_index = load_forecast_daily(daily_path_for(spec))
+    forecast_profiles = load_forecast_profiles(long_path_for(spec))
     print(f"Loaded {len(forecast_index)} historical forecast-days "
           f"(forecast feature present for those, NaN otherwise).")
+    print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
+          f"(profile/radiation/cloud features present where archived).")
 
     # Pre-extract features for all days and hours. Each (day, hour) trains at
     # ONE deterministic intra-hour wall offset (item 40): offsets are covered
@@ -248,6 +258,7 @@ def main(market_id="toronto"):
                 daily[local_date],
                 hour,
                 forecast_high=forecast_index.get(local_date.isoformat()),
+                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
                 wall_minute=hour * 60 + offset,
@@ -281,8 +292,17 @@ def main(market_id="toronto"):
     calibration_rows = []
     ablation_rows = []
 
-    trained_models_info = {}
-    hgb_models_info = {}
+    trained_at = datetime.now().isoformat()
+    trained_models_info = {
+        "schema_version": FEATURE_MODEL_COEFS_SCHEMA_VERSION,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "trained_at": trained_at,
+    }
+    hgb_models_info = {
+        "schema_version": FEATURE_MODEL_HGB_SCHEMA_VERSION,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "trained_at": trained_at,
+    }
 
     for hour in INTRADAY_CUTOFF_HOURS:
         records = raw_data[hour]
@@ -328,9 +348,16 @@ def main(market_id="toronto"):
         # archive) instead of median-filling, so the tree learns "forecast
         # unknown" rather than splitting on a fake value. (LR can't do NaN, so it
         # keeps the imputed+scaled matrix above.)
-        forecast_idx = [feature_cols.index("forecast_high"), feature_cols.index("forecast_gap")]
+        forecast_idx = [
+            feature_cols.index(column)
+            for column in NATIVE_NAN_FEATURE_COLUMNS
+            if column in feature_cols
+        ]
         X_hgb = X_imputed.copy()
-        X_hgb[:, forecast_idx] = X[["forecast_high", "forecast_gap"]].to_numpy(dtype=float)
+        if forecast_idx:
+            X_hgb[:, forecast_idx] = X[
+                [feature_cols[index] for index in forecast_idx]
+            ].to_numpy(dtype=float)
 
         # Run Leave-One-Out cross-validation
         n_samples = len(df)
@@ -572,7 +599,10 @@ def main(market_id="toronto"):
         # Fit final HistGradientBoostingClassifier (trees need no scaling; forecast
         # columns keep native NaN where absent, matching the LOO and inference).
         X_final_hgb = X_final_imputed.copy()
-        X_final_hgb[:, forecast_idx] = X[["forecast_high", "forecast_gap"]].to_numpy(dtype=float)
+        if forecast_idx:
+            X_final_hgb[:, forecast_idx] = X[
+                [feature_cols[index] for index in forecast_idx]
+            ].to_numpy(dtype=float)
         final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
         final_hgb.fit(X_final_hgb, y)
         
@@ -601,7 +631,11 @@ def main(market_id="toronto"):
 
     # --- Train Late-Day Continuation Models ---
     print("\n--- Training Late-Day Continuation Models (Roadmap Item 8) ---")
-    late_day_info = {}
+    late_day_info = {
+        "schema_version": LATE_DAY_MODEL_SCHEMA_VERSION,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "trained_at": trained_at,
+    }
     for H in [15, 16, 17]:
         late_day_records = []
         for local_date in sorted(daily.keys()):

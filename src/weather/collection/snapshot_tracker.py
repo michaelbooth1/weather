@@ -617,6 +617,7 @@ class SnapshotStore:
         if value is None:
             return None
         value = int(value)
+        value_hi = int(bin_data.get("value_hi", value))
         items = {
             int(float(bucket)): float(probability)
             for bucket, probability in distribution.items()
@@ -626,7 +627,7 @@ class SnapshotStore:
             return sum(prob for temp, prob in items.items() if temp <= value)
         if kind == "gte":
             return sum(prob for temp, prob in items.items() if temp >= value)
-        return items.get(value, 0.0)
+        return sum(prob for temp, prob in items.items() if value <= temp <= value_hi)
 
     def wide_columns(self, long_rows):
         columns = [

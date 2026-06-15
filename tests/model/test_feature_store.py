@@ -128,6 +128,92 @@ class TestFeatureStore(unittest.TestCase):
         for column in FEATURE_COLUMNS:
             self.assertEqual(historical[column], live[column], column)
 
+    def test_forecast_profile_features_match_between_train_and_live(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        obs_rows = [
+            {
+                "time": "07:00",
+                "minute_of_day": 420,
+                "temp_c": 17.0,
+                "dewpoint_c": 10.0,
+                "humidity": 60.0,
+                "pressure": 1015.0,
+                "wind": "W",
+                "wind_kmh": 12.0,
+                "condition": "Clear",
+                "clouds": "Clear",
+            },
+            {
+                "time": "12:00",
+                "minute_of_day": 720,
+                "temp_c": 20.0,
+                "dewpoint_c": 11.0,
+                "humidity": 55.0,
+                "pressure": 1014.0,
+                "wind": "W",
+                "wind_kmh": 14.0,
+                "condition": "Clear",
+                "clouds": "Clear",
+            },
+        ]
+        forecast_rows = [
+            {"time": "11:00", "temp_c": 21.0, "cloud_cover": 60.0, "low_cloud": 20.0, "mid_cloud": 30.0, "high_cloud": 40.0, "solar": 500.0},
+            {"time": "12:00", "temp_c": 22.0, "cloud_cover": 50.0, "low_cloud": 10.0, "mid_cloud": 25.0, "high_cloud": 50.0, "solar": 700.0},
+            {"time": "13:00", "temp_c": 24.0, "cloud_cover": 40.0, "low_cloud": 5.0, "mid_cloud": 20.0, "high_cloud": 60.0, "solar": 800.0},
+            {"time": "14:00", "temp_c": 25.0, "cloud_cover": 30.0, "low_cloud": 3.0, "mid_cloud": 15.0, "high_cloud": 55.0, "solar": 900.0},
+            {"time": "15:00", "temp_c": 26.0, "cloud_cover": 20.0, "low_cloud": 2.0, "mid_cloud": 10.0, "high_cloud": 40.0, "solar": 700.0},
+            {"time": "16:00", "temp_c": 24.0, "cloud_cover": 35.0, "low_cloud": 10.0, "mid_cloud": 15.0, "high_cloud": 35.0, "solar": 400.0},
+        ]
+        ensemble_rows = [
+            {"time": "12:00", "ensemble_member_spread": 2.0},
+            {"time": "13:00", "ensemble_member_spread": 3.0},
+            {"time": "14:00", "ensemble_member_spread": 4.0},
+        ]
+
+        live = model.extract_live_features({
+            "wu_history": {"ok": True, "data": {"rows": obs_rows}},
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "open_meteo": {
+                "ok": True,
+                "data": {"rows": forecast_rows[1:], "day_rows": forecast_rows, "day_max_c": 26.0},
+            },
+            "global_ensemble": {
+                "ok": True,
+                "data": {
+                    "rows": ensemble_rows,
+                    "day_rows": ensemble_rows,
+                    "day_mean_member_spread": 3.0,
+                    "day_member_high_p10": 24.0,
+                    "day_member_high_p90": 27.0,
+                },
+            },
+        }, cutoff_hour=12)
+        historical = build_historical_feature_record(
+            "2026-05-28",
+            obs_rows,
+            {"bucket": 26},
+            12,
+            forecast_high=26.0,
+            forecast_profile_rows=forecast_rows,
+            global_ensemble_profile_rows=ensemble_rows,
+            global_ensemble_day_mean_spread=3.0,
+            global_ensemble_day_high_p10=24.0,
+            global_ensemble_day_high_p90=27.0,
+            wind_group_fn=model.wind_group,
+            cloud_group_fn=model.cloud_group,
+        )
+
+        for column in FEATURE_COLUMNS:
+            self.assertEqual(historical[column], live[column], column)
+        self.assertEqual(live["forecast_peak_hour"], 15.0)
+        self.assertEqual(live["forecast_peak_after_cutoff_hours"], 3.0)
+        self.assertEqual(live["forecast_afternoon_slope"], 2.0)
+        self.assertEqual(live["forecast_remaining_degree_hours"], 21.0)
+        self.assertEqual(live["forecast_remaining_solar_sum"], 3500.0)
+        self.assertEqual(live["forecast_next_3h_solar_mean"], 800.0)
+        self.assertEqual(live["forecast_cloud_trend_3h"], -20.0)
+        self.assertEqual(live["forecast_global_ensemble_high_spread_80"], 3.0)
+
     def test_live_features_measure_forecast_source_disagreement(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
         features = model.extract_live_features({
@@ -220,6 +306,13 @@ class TestFeatureStore(unittest.TestCase):
             self.assertEqual(component_rows[0]["component_name"], "feature_model")
             self.assertAlmostEqual(float(component_rows[0]["component_probability"]), 0.5)
             self.assertAlmostEqual(float(component_rows[1]["component_probability"]), 0.3)
+
+    def test_snapshot_component_probability_sums_range_bands(self):
+        store = SnapshotStore(root=Path("."), event_slug="event")
+        distribution = {90: 0.10, 91: 0.85, 92: 0.05}
+        band = {"kind": "eq", "value": 90, "value_hi": 91}
+
+        self.assertAlmostEqual(store.raw_bin_probability(distribution, band), 0.95)
 
 
 if __name__ == "__main__":

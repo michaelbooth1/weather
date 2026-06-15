@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from promotion_refresh import build_family_decisions  # noqa: E402
+from promotion_refresh import build_family_decisions, promotion_readiness  # noqa: E402
 
 
 def _spec(market_id, city, unit="F"):
@@ -118,6 +118,19 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(decisions["shadow_markets"], ["austin"])
         self.assertEqual(decisions["markets"][0]["action"], "KEEP_SHADOW")
         self.assertIn("no pinned candidate rows", decisions["markets"][0]["reason"])
+
+    def test_promotion_readiness_surfaces_market_and_serving_blockers(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": 0.0123}},
+            {"verdict": "BLOCK"},
+            {"shadow_markets": ["austin"], "blocked_markets": []},
+        )
+
+        categories = {row["category"] for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("candidate_market_skill", categories)
+        self.assertIn("per_market_shadow", categories)
+        self.assertIn("current_serving_gauntlet", categories)
 
 
 if __name__ == "__main__":

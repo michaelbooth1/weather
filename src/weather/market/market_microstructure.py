@@ -33,6 +33,8 @@ DEFAULT_FAST_INTERVAL_SECONDS = 15.0
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_INCLUDE_PRICE_HISTORY = True
 DEFAULT_INCLUDE_WS_EVENTS = True
+DEFAULT_LOOP_INCLUDE_PRICE_HISTORY = False
+DEFAULT_LOOP_INCLUDE_WS_EVENTS = False
 DEFAULT_WS_SECONDS = 1.0
 DEFAULT_WS_MESSAGE_LIMIT = 5
 DEFAULT_WS_HEARTBEAT_SECONDS = 10
@@ -1276,8 +1278,8 @@ def _clob_loop_command(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
-    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
-    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    include_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
     ws_seconds=DEFAULT_WS_SECONDS,
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
@@ -1331,8 +1333,8 @@ def start_clob_loop_detached(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
-    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
-    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    include_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
     ws_seconds=DEFAULT_WS_SECONDS,
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
@@ -1413,8 +1415,8 @@ def ensure_clob_loop(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
-    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
-    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    include_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
     ws_seconds=DEFAULT_WS_SECONDS,
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
@@ -1484,8 +1486,8 @@ def run_book_loop(
     fast_on_mid_change_bps=500.0,
     outcomes="all",
     batch_size=DEFAULT_BATCH_SIZE,
-    include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
-    include_ws_events=DEFAULT_INCLUDE_WS_EVENTS,
+    include_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    include_ws_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
     ws_seconds=DEFAULT_WS_SECONDS,
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
@@ -1756,11 +1758,19 @@ def add_loop_options(parser):
     parser.add_argument("--fast-after-local-hour", type=float, default=15.0)
     parser.add_argument("--fast-on-mid-change-bps", type=float, default=500.0)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    add_capture_enrichment_options(parser)
+    add_capture_enrichment_options(
+        parser,
+        default_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+        default_websocket_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
+    )
 
 
-def add_capture_enrichment_options(parser):
-    parser.set_defaults(price_history=DEFAULT_INCLUDE_PRICE_HISTORY, websocket_events=DEFAULT_INCLUDE_WS_EVENTS)
+def add_capture_enrichment_options(
+    parser,
+    default_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
+    default_websocket_events=DEFAULT_INCLUDE_WS_EVENTS,
+):
+    parser.set_defaults(price_history=default_price_history, websocket_events=default_websocket_events)
     parser.add_argument("--price-history", dest="price_history", action="store_true",
                         help="Capture /prices-history for each token (default).")
     parser.add_argument("--no-price-history", dest="price_history", action="store_false",

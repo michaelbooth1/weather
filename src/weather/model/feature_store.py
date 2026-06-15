@@ -1,5 +1,11 @@
 """Versioned feature schema for live, training, and snapshot audits."""
 
+from datetime import datetime
+
+# v0.5 (ROADMAP item 50): forecast profile, radiation/cloud detail, and GFS
+# ensemble-spread features. Old artifacts keep serving because prediction code
+# selects by trained feature_names.
+#
 # v0.4 (ROADMAP item 30): source redundancy. Forecast source count and
 # disagreement are explicit features/audit fields. Existing artifacts keep
 # serving because HGB bundles select by feature_names and the LR path slices the
@@ -9,7 +15,49 @@
 # state is frozen; the live wu_current reading and the elapsed minutes are now
 # explicit TRAINED features instead of fabricated rows (the reverted v0.5.1
 # injection) or heuristic floors. high_so_far stays printed-only.
-FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.4"
+FEATURE_SCHEMA_VERSION = "toronto_feature_store_v0.5"
+
+FORECAST_PROFILE_COLUMNS = [
+    "forecast_peak_hour",
+    "forecast_peak_after_cutoff_hours",
+    "forecast_temp_12",
+    "forecast_temp_13",
+    "forecast_temp_14",
+    "forecast_temp_15",
+    "forecast_temp_16",
+    "forecast_afternoon_slope",
+    "forecast_remaining_degree_hours",
+    "forecast_remaining_solar_sum",
+    "forecast_next_3h_solar_mean",
+    "forecast_total_cloud_mean",
+    "forecast_total_cloud_max",
+    "forecast_low_cloud_mean",
+    "forecast_low_cloud_max",
+    "forecast_mid_cloud_mean",
+    "forecast_high_cloud_mean",
+    "forecast_cloud_trend_3h",
+    "forecast_global_ensemble_spread",
+    "forecast_next_3h_ensemble_spread",
+    "forecast_global_ensemble_high_p10",
+    "forecast_global_ensemble_high_p90",
+    "forecast_global_ensemble_high_spread_80",
+]
+
+FORECAST_FEATURE_COLUMNS = [
+    "forecast_high",
+    "forecast_gap",
+    "forecast_source_count",
+    "forecast_disagreement",
+    *FORECAST_PROFILE_COLUMNS,
+]
+
+NATIVE_NAN_FEATURE_COLUMNS = [
+    "forecast_high",
+    "forecast_gap",
+    *FORECAST_PROFILE_COLUMNS,
+    "live_reading_temp",
+    "live_reading_minus_high",
+]
 
 FEATURE_COLUMNS = [
     "high_so_far",
@@ -26,8 +74,9 @@ FEATURE_COLUMNS = [
     "forecast_gap",
     "forecast_source_count",
     "forecast_disagreement",
-    # Appended after forecast_gap so v0.2 artifacts (12 numerics) keep working:
-    # HGB bundles select by feature_names, the LR path slices len(scaler_mean).
+    *FORECAST_PROFILE_COLUMNS,
+    # Freshness features remain explicit trained inputs; serving old artifacts
+    # uses trained feature names rather than this newest schema order.
     "minutes_since_cutoff",
     "live_reading_temp",
     "live_reading_minus_high",
@@ -104,6 +153,179 @@ def closest_value(rows, target_minute, window_min, value_key):
     return row.get(value_key)
 
 
+def to_float(value):
+    if value in (None, "", "nan", "NaN"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def mean(values):
+    values = [value for value in values if value is not None]
+    return sum(values) / len(values) if values else None
+
+
+def row_minute_of_day(row):
+    minute = row.get("minute_of_day")
+    if minute is not None and minute != "":
+        try:
+            return int(float(minute))
+        except (TypeError, ValueError):
+            pass
+    value = row.get("time") or row.get("valid_time")
+    if not value:
+        return None
+    text = str(value)
+    if "T" in text:
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return parsed.hour * 60 + parsed.minute
+        except ValueError:
+            return None
+    if ":" in text:
+        try:
+            hour, minute = text[:5].split(":")
+            return int(hour) * 60 + int(minute)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def row_value(row, *keys):
+    for key in keys:
+        value = to_float(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def nearest_hour_value(profile, hour, key):
+    target = int(hour) * 60
+    candidates = [
+        item for item in profile
+        if item.get(key) is not None and abs(item["minute"] - target) <= 45
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: abs(item["minute"] - target)).get(key)
+
+
+def forecast_profile_features(
+    forecast_rows=None,
+    cutoff_hour=None,
+    high_so_far=None,
+    wall_minute=None,
+    ensemble_rows=None,
+    ensemble_day_mean_spread=None,
+    ensemble_day_high_p10=None,
+    ensemble_day_high_p90=None,
+):
+    """Derived forecast-shape features shared by training and serving.
+
+    ``forecast_rows`` should describe the target day in the market's native
+    temperature unit. Rows may be historical forecast-history rows or live
+    Open-Meteo rows; both shapes are normalized here.
+    """
+    features = {column: None for column in FORECAST_PROFILE_COLUMNS}
+    if cutoff_hour is None:
+        return features
+    cutoff_minute = int(cutoff_hour) * 60
+    remaining_start = max(int(wall_minute), cutoff_minute) if wall_minute is not None else cutoff_minute
+
+    profile = []
+    for row in forecast_rows or []:
+        minute = row_minute_of_day(row)
+        if minute is None:
+            continue
+        profile.append({
+            "minute": minute,
+            "temp": row_value(row, "temp_c", "target_temp_native", "target_temp_c"),
+            "solar": row_value(row, "solar", "shortwave_radiation"),
+            "cloud": row_value(row, "cloud_cover"),
+            "low_cloud": row_value(row, "low_cloud", "cloud_cover_low"),
+            "mid_cloud": row_value(row, "mid_cloud", "cloud_cover_mid"),
+            "high_cloud": row_value(row, "high_cloud", "cloud_cover_high"),
+        })
+    profile.sort(key=lambda item: item["minute"])
+
+    temp_profile = [item for item in profile if item["temp"] is not None]
+    if temp_profile:
+        peak = max(temp_profile, key=lambda item: item["temp"])
+        features["forecast_peak_hour"] = peak["minute"] / 60.0
+        features["forecast_peak_after_cutoff_hours"] = (peak["minute"] - cutoff_minute) / 60.0
+        for hour in (12, 13, 14, 15, 16):
+            features[f"forecast_temp_{hour}"] = nearest_hour_value(profile, hour, "temp")
+        t12 = features["forecast_temp_12"]
+        t16 = features["forecast_temp_16"]
+        if t12 is not None and t16 is not None:
+            features["forecast_afternoon_slope"] = t16 - t12
+        high = to_float(high_so_far)
+        if high is not None:
+            remaining_temps = [
+                item["temp"] for item in temp_profile
+                if item["minute"] >= remaining_start
+            ]
+            features["forecast_remaining_degree_hours"] = sum(
+                max(0.0, temp - high) for temp in remaining_temps
+            )
+
+    remaining = [item for item in profile if item["minute"] >= remaining_start]
+    next_3h = [
+        item for item in profile
+        if remaining_start <= item["minute"] < remaining_start + 180
+    ]
+    previous_3h = [
+        item for item in profile
+        if remaining_start - 180 <= item["minute"] < remaining_start
+    ]
+
+    solar_remaining = [item["solar"] for item in remaining if item["solar"] is not None]
+    if solar_remaining:
+        features["forecast_remaining_solar_sum"] = sum(solar_remaining)
+    features["forecast_next_3h_solar_mean"] = mean(
+        item["solar"] for item in next_3h
+    )
+
+    for source_key, mean_key in (
+        ("cloud", "forecast_total_cloud_mean"),
+        ("low_cloud", "forecast_low_cloud_mean"),
+        ("mid_cloud", "forecast_mid_cloud_mean"),
+        ("high_cloud", "forecast_high_cloud_mean"),
+    ):
+        values = [item[source_key] for item in remaining if item[source_key] is not None]
+        if values:
+            features[mean_key] = mean(values)
+    total_cloud_values = [item["cloud"] for item in remaining if item["cloud"] is not None]
+    if total_cloud_values:
+        features["forecast_total_cloud_max"] = max(total_cloud_values)
+    low_cloud_values = [item["low_cloud"] for item in remaining if item["low_cloud"] is not None]
+    if low_cloud_values:
+        features["forecast_low_cloud_max"] = max(low_cloud_values)
+    next_cloud = mean(item["cloud"] for item in next_3h)
+    previous_cloud = mean(item["cloud"] for item in previous_3h)
+    if next_cloud is not None and previous_cloud is not None:
+        features["forecast_cloud_trend_3h"] = next_cloud - previous_cloud
+
+    features["forecast_global_ensemble_spread"] = to_float(ensemble_day_mean_spread)
+    ensemble_spreads = []
+    for row in ensemble_rows or []:
+        minute = row_minute_of_day(row)
+        spread = row_value(row, "ensemble_member_spread")
+        if minute is not None and spread is not None and remaining_start <= minute < remaining_start + 180:
+            ensemble_spreads.append(spread)
+    if ensemble_spreads:
+        features["forecast_next_3h_ensemble_spread"] = mean(ensemble_spreads)
+    p10 = to_float(ensemble_day_high_p10)
+    p90 = to_float(ensemble_day_high_p90)
+    features["forecast_global_ensemble_high_p10"] = p10
+    features["forecast_global_ensemble_high_p90"] = p90
+    if p10 is not None and p90 is not None:
+        features["forecast_global_ensemble_high_spread_80"] = p90 - p10
+    return features
+
+
 def simulated_reading_at(rows, minute, value_key="temp_c", exact_window=10, max_lookback=75):
     """Simulate the live instantaneous reading at ``minute`` from historical
     observations: a real obs within ``exact_window`` minutes BEFORE wins;
@@ -147,6 +369,11 @@ def build_historical_feature_record(
     forecast_high=None,
     forecast_source_count=None,
     forecast_disagreement=None,
+    forecast_profile_rows=None,
+    global_ensemble_profile_rows=None,
+    global_ensemble_day_mean_spread=None,
+    global_ensemble_day_high_p10=None,
+    global_ensemble_day_high_p90=None,
     wind_group_fn=None,
     cloud_group_fn=None,
     wall_minute=None,
@@ -244,6 +471,16 @@ def build_historical_feature_record(
         if forecast_high is not None and high_so_far is not None
         else None
     )
+    forecast_profile = forecast_profile_features(
+        forecast_profile_rows,
+        cutoff_hour,
+        high_so_far=high_so_far,
+        wall_minute=wall_minute,
+        ensemble_rows=global_ensemble_profile_rows,
+        ensemble_day_mean_spread=global_ensemble_day_mean_spread,
+        ensemble_day_high_p10=global_ensemble_day_high_p10,
+        ensemble_day_high_p90=global_ensemble_day_high_p90,
+    )
     return {
         "date": local_date,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -265,6 +502,7 @@ def build_historical_feature_record(
             else (1 if forecast_high is not None else 0)
         ),
         "forecast_disagreement": forecast_disagreement if forecast_disagreement is not None else 0.0,
+        **forecast_profile,
         "minutes_since_cutoff": float(minutes_since_cutoff),
         "live_reading_temp": live_reading,
         "live_reading_minus_high": live_reading_minus_high,

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath("src"))
 from historical_backfill_plan import build_plan, split_ranges
 from market_registry import NYC, TORONTO
 from historical_coverage import fleet_coverage
-from forecast_history import daily_issue_rows, historical_forecast_rows, previous_run_rows
+from forecast_history import daily_issue_rows, historical_forecast_rows, load_forecast_profiles, previous_run_rows, write_csv, RICH_FORECAST_COLUMNS
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
 from wu_history import normalize_observation, summarize_daily
@@ -130,6 +130,10 @@ class TestHistoricalSources(unittest.TestCase):
                 "time": ["2026-06-11T14:00", "2026-06-11T15:00"],
                 "temperature_2m": [82, 85],
                 "cloud_cover": [20, 35],
+                "cloud_cover_low": [10, 15],
+                "cloud_cover_mid": [5, 10],
+                "cloud_cover_high": [30, 40],
+                "shortwave_radiation": [700, 800],
                 "wind_speed_10m": [8, 9],
                 "temperature_2m_previous_day1": [80, 83],
                 "temperature_2m_previous_day2": [79, 81],
@@ -142,6 +146,8 @@ class TestHistoricalSources(unittest.TestCase):
 
         self.assertEqual(stitched[0]["source"], "open_meteo_historical_forecast")
         self.assertEqual(stitched[0]["issue_time_basis"], "stitched_continuous_archive")
+        self.assertEqual(stitched[0]["low_cloud"], 10)
+        self.assertEqual(stitched[0]["shortwave_radiation"], 700)
         self.assertEqual(previous[0]["source"], "open_meteo_previous_runs")
         self.assertEqual(previous[0]["issue_time_basis"], "fixed_lead_day_offset")
         self.assertEqual(previous[0]["lead_days"], 1)
@@ -152,6 +158,29 @@ class TestHistoricalSources(unittest.TestCase):
         ][0]
         self.assertEqual(lead_two["forecast_high_native"], 81)
         self.assertEqual(lead_two["hourly_rows"], 2)
+
+    def test_forecast_profile_loader_reads_new_radiation_and_cloud_layers(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
+                "temperature_2m": [82, 85],
+                "cloud_cover": [20, 35],
+                "cloud_cover_low": [10, 15],
+                "cloud_cover_mid": [5, 10],
+                "cloud_cover_high": [30, 40],
+                "shortwave_radiation": [700, 800],
+                "wind_speed_10m": [8, 9],
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecast_long.csv"
+            write_csv(path, RICH_FORECAST_COLUMNS, historical_forecast_rows(payload, NYC))
+
+            profiles = load_forecast_profiles(path)
+
+        self.assertEqual(profiles["2026-06-11"][0]["minute_of_day"], 720)
+        self.assertEqual(profiles["2026-06-11"][0]["low_cloud"], 10.0)
+        self.assertEqual(profiles["2026-06-11"][1]["solar"], 800.0)
 
     def test_ghcnh_station_resolves_by_icao(self):
         station = resolve_station(NYC, [

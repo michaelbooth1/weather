@@ -83,6 +83,24 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertLess(below, 0.05)
         self.assertGreater(at_or_above, 0.80)
 
+    def test_printed_history_floor_is_applied_once(self):
+        rows = [
+            _wu_row("07:00", 18.0),
+            _wu_row("12:00", 26.0),
+            _wu_row("14:00", 25.0),
+        ]
+        calls = []
+        original_apply_floor = self.model.apply_floor
+
+        def recording_apply_floor(scores, floor_bucket, multiplier):
+            calls.append((floor_bucket, multiplier))
+            return original_apply_floor(scores, floor_bucket, multiplier)
+
+        self.model.apply_floor = recording_apply_floor
+        self.model.estimate_distribution(_sources(rows, 26.0))
+
+        self.assertEqual(calls, [(26, 0.000001)])
+
     def test_empty_sources_is_safe(self):
         dist = self.model.estimate_distribution({})
         self._assert_valid_distribution(dist)
@@ -146,6 +164,12 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertAlmostEqual(scores[20], 0.001)
         self.assertAlmostEqual(scores[21], 0.001)
         self.assertAlmostEqual(scores[22], 1.0)
+
+    def test_effective_cutoff_uses_first_trained_hour_when_only_pre_cutoff_rows_printed(self):
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+        rows = [_wu_row("06:50", 14.0)]
+
+        self.assertEqual(self.model.effective_intraday_cutoff_hour(now, rows), 7)
 
 
 class TestModelLoadCaching(unittest.TestCase):

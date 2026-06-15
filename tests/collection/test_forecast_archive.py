@@ -125,6 +125,63 @@ class TestForecastArchive(unittest.TestCase):
             self.assertEqual(rows[0]["forecast_kind"], "hourly")
             self.assertIn("payload_hash", rows[0])
 
+    def test_build_forecast_rows_persists_radiation_cloud_layers_and_ensemble_spread(self):
+        captured_at = datetime(2026, 5, 27, 12, 0, tzinfo=TORONTO_TZ)
+        sources = {
+            "open_meteo": {
+                "ok": True,
+                "data": {
+                    "url": "om-url",
+                    "rows": [
+                        {
+                            "valid_time": "2026-05-27T13:00:00-04:00",
+                            "temp_c": 24,
+                            "cloud_cover": 50,
+                            "low_cloud": 10,
+                            "mid_cloud": 20,
+                            "high_cloud": 30,
+                            "wind_kmh": 14,
+                            "solar": 800,
+                        }
+                    ],
+                },
+            },
+            "global_ensemble": {
+                "ok": True,
+                "data": {
+                    "url": "ens-url",
+                    "day_mean_member_spread": 3.5,
+                    "day_member_high_p10": 22,
+                    "day_member_high_p90": 27,
+                    "rows": [
+                        {
+                            "valid_time": "2026-05-27T13:00:00-04:00",
+                            "temp_c": 24,
+                            "ensemble_member_spread": 4.0,
+                            "ensemble_member_p10": 22.0,
+                            "ensemble_member_p90": 26.0,
+                        }
+                    ],
+                },
+            },
+        }
+
+        rows = build_forecast_rows(
+            sources,
+            FakeModelClient(),
+            captured_at,
+            "s1",
+            "event",
+        )
+
+        open_meteo = [row for row in rows if row["source"] == "open_meteo"][0]
+        ensemble = [row for row in rows if row["source"] == "global_ensemble"][0]
+        self.assertEqual(open_meteo["shortwave_radiation"], 800)
+        self.assertEqual(open_meteo["low_cloud"], 10)
+        self.assertEqual(ensemble["ensemble_member_spread"], 4.0)
+        self.assertEqual(ensemble["ensemble_day_mean_spread"], 3.5)
+        self.assertEqual(ensemble["ensemble_day_high_p90"], 27)
+
     def test_backfill_and_analyze_forecast_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "event"

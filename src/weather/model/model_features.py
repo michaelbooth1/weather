@@ -5,8 +5,11 @@ from collections import Counter
 
 from weather.artifacts import resolve_artifact_path
 from feature_store import (
+    FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
+    NATIVE_NAN_FEATURE_COLUMNS,
     build_live_feature_record,
+    forecast_profile_features,
 )
 from forecast_history import load_forecast_daily, daily_path_for
 from model_constants import _UNLOADED
@@ -275,11 +278,22 @@ class FeatureModelMixin:
                 )
             except (AttributeError, TypeError):
                 minutes_since_cutoff = 0.0
+        wall_minute = int(cutoff_hour * 60 + minutes_since_cutoff)
         live_reading = self.to_number(current.get("temp_c"))
         live_reading_minus_high = (
             live_reading - high_so_far
             if live_reading is not None and high_so_far is not None
             else None
+        )
+        forecast_profile = forecast_profile_features(
+            open_meteo.get("day_rows") or open_meteo.get("rows"),
+            cutoff_hour,
+            high_so_far=high_so_far,
+            wall_minute=wall_minute,
+            ensemble_rows=global_ensemble.get("day_rows") or global_ensemble.get("rows"),
+            ensemble_day_mean_spread=global_ensemble.get("day_mean_member_spread"),
+            ensemble_day_high_p10=global_ensemble.get("day_member_high_p10"),
+            ensemble_day_high_p90=global_ensemble.get("day_member_high_p90"),
         )
 
         return {
@@ -302,6 +316,7 @@ class FeatureModelMixin:
             "forecast_source_count": forecast_ensemble["forecast_source_count"],
             "forecast_disagreement": forecast_ensemble["forecast_disagreement"],
             "forecast_source_values": forecast_ensemble["forecast_source_values"],
+            **forecast_profile,
             "minutes_since_cutoff": minutes_since_cutoff,
             "live_reading_temp": live_reading,
             "live_reading_minus_high": live_reading_minus_high,
@@ -350,23 +365,9 @@ class FeatureModelMixin:
                 # artifact) are simply not selected, so old artifacts keep
                 # serving unchanged.
                 feat_dict = {
-                    "high_so_far": high_so_far,
-                    "current_temp": current_temp,
-                    "rise_from_7am": rise_from_7am,
-                    "warming_rate_2h": warming_rate_2h,
-                    "hours_at_peak": hours_at_peak,
-                    "dewpoint_c": dewpoint,
-                    "humidity": humidity,
-                    "pressure": pressure,
-                    "pressure_trend_3h": pressure_trend_3h,
-                    "wind_speed_kmh": wind_speed,
-                    "forecast_high": forecast_high,
-                    "forecast_gap": forecast_gap,
-                    "forecast_source_count": forecast_source_count,
-                    "forecast_disagreement": forecast_disagreement,
-                    "minutes_since_cutoff": feats["minutes_since_cutoff"],
-                    "live_reading_temp": feats["live_reading_temp"],
-                    "live_reading_minus_high": feats["live_reading_minus_high"],
+                    column: feats.get(column)
+                    for column in FEATURE_COLUMNS
+                    if column not in {"wind_group", "cloud_group"}
                 }
                 for g in all_wind:
                     feat_dict[f"wind_{g}"] = 1.0 if wind_group == g else 0.0
@@ -384,8 +385,7 @@ class FeatureModelMixin:
                 # (the model was trained with them un-imputed): a present value
                 # is used, a missing one stays NaN for the tree to handle.
                 fnames = list(bundle["feature_names"])
-                for col in ("forecast_high", "forecast_gap",
-                            "live_reading_temp", "live_reading_minus_high"):
+                for col in NATIVE_NAN_FEATURE_COLUMNS:
                     if col in fnames:
                         X_imputed[0, fnames.index(col)] = float(feat_dict[col]) if feat_dict[col] is not None else float("nan")
 
@@ -413,15 +413,8 @@ class FeatureModelMixin:
                 # Build raw numeric feature vector (count comes from the scaler so
                 # it tracks the trained feature set: a v0.2 artifact's 12-wide
                 # scaler ignores the appended v0.3 freshness entries).
-                raw_vec = [
-                    high_so_far, current_temp, rise_from_7am, warming_rate_2h,
-                    hours_at_peak, dewpoint, humidity, pressure,
-                    pressure_trend_3h, wind_speed, forecast_high, forecast_gap,
-                    forecast_source_count, forecast_disagreement,
-                    feats["minutes_since_cutoff"], feats["live_reading_temp"],
-                    feats["live_reading_minus_high"],
-                ]
                 n_num = len(scaler_mean)
+                raw_vec = [feats.get(name) for name in feature_names[:n_num]]
                 # Impute then scale the numeric elements.
                 for i in range(n_num):
                     if raw_vec[i] is None:

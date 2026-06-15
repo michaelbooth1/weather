@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from datetime import date
+from datetime import date, datetime
 
 
 sys.path.insert(0, os.path.abspath("src"))
@@ -17,6 +17,13 @@ class TestMarketConfig(unittest.TestCase):
 
         self.assertEqual(slug, "highest-temperature-in-toronto-on-may-28-2026")
         self.assertEqual(date_from_event_slug(slug), target)
+
+    def test_config_for_date_coerces_datetime_to_date(self):
+        target = datetime(2026, 5, 28, 14, 30)
+        config = config_for_date(target)
+
+        self.assertEqual(config.target_date, date(2026, 5, 28))
+        self.assertIs(type(config.target_date), date)
 
     def test_snapshot_store_defaults_to_event_slug_folder(self):
         config = config_for_date(date(2026, 5, 28))

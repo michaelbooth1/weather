@@ -25,6 +25,7 @@ WEIGHT_COMPONENTS = (
     "forecast_cap",
 )
 
+CALIBRATED_WEIGHTS_SCHEMA_VERSION = "calibrated_weights_v0.1"
 MIN_INTRADAY_MATCHES = 8
 MIN_REGIME_MATCHES = 20
 MARKET_BIN_MIN = 19
@@ -555,6 +556,7 @@ def calibrate(model):
     evaluations = build_leave_one_year_evaluations(records_by_hour, support)
 
     calibrated = {
+        "schema_version": CALIBRATED_WEIGHTS_SCHEMA_VERSION,
         "metadata": {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "support": [int(bucket) for bucket in support],

@@ -740,9 +740,6 @@ class DistributionMixin:
         scores = self.apply_live_signals(scores, live_signals)
         distribution_components["post_live_signals"] = dict(self.normalize_scores(scores))
 
-        history_bucket = self.round_half_up(history_max)
-        if history_bucket is not None:
-            self.apply_floor(scores, history_bucket, 0.001)
         if observed_bucket is not None:
             self.apply_floor(scores, observed_bucket, 0.000001)
             scores = self.normalize_scores(scores)
@@ -1020,7 +1017,7 @@ class DistributionMixin:
             cutoff for cutoff in INTRADAY_CUTOFF_HOURS
             if cutoff <= wall_cutoff and cutoff * 60 <= latest_minute
         ]
-        return eligible[-1] if eligible else wall_cutoff
+        return eligible[-1] if eligible else INTRADAY_CUTOFF_HOURS[0]
 
     def intraday_blend_weight(self, hour, sample_size):
         if hour >= 17:

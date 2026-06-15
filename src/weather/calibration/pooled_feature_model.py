@@ -25,7 +25,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from backtest import binary_log_loss, brier, fmt_num, markdown_table
 from feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_historical_feature_record
-from forecast_history import daily_path_for, load_forecast_daily
+from forecast_history import daily_path_for, load_forecast_daily, load_forecast_profiles, long_path_for
 from market_registry import all_specs
 from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from model_constants import INTRADAY_CUTOFF_HOURS
@@ -331,6 +331,7 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
     daily = cache.get("daily") or {}
     by_date = cache.get("by_date") or {}
     forecast_index = load_forecast_daily(daily_path_for(spec))
+    forecast_profiles = load_forecast_profiles(long_path_for(spec))
     climate = market_climate_stats(cache)
     source_reliability = market_source_reliability(spec)
     dates = sorted(daily.keys())
@@ -351,6 +352,7 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
                 daily[local_date],
                 int(hour),
                 forecast_high=forecast_index.get(local_date.isoformat()),
+                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
                 wall_minute=int(hour) * 60 + offset,

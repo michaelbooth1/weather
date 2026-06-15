@@ -308,6 +308,78 @@ def _decision_table_rows(decisions):
     return rows
 
 
+def promotion_readiness(candidate, serving, decisions):
+    blockers = []
+    aggregate = candidate.get("aggregate") or {}
+    delta_vs_market = aggregate.get("delta_vs_market")
+    if delta_vs_market is not None and delta_vs_market > 0:
+        blockers.append({
+            "category": "candidate_market_skill",
+            "severity": "open",
+            "detail": (
+                f"aggregate candidate trails market Brier by {delta_vs_market:+.4f}; "
+                "do not claim broad Polymarket edge"
+            ),
+        })
+    shadow_markets = decisions.get("shadow_markets") or []
+    if shadow_markets:
+        blockers.append({
+            "category": "per_market_shadow",
+            "severity": "open",
+            "detail": (
+                f"{len(shadow_markets)} F market(s) remain shadow: "
+                f"{', '.join(shadow_markets)}"
+            ),
+        })
+    blocked_markets = decisions.get("blocked_markets") or []
+    if blocked_markets:
+        blockers.append({
+            "category": "per_market_block",
+            "severity": "block",
+            "detail": (
+                f"{len(blocked_markets)} F market(s) are blocked: "
+                f"{', '.join(blocked_markets)}"
+            ),
+        })
+    if serving and serving.get("verdict") == "BLOCK":
+        blockers.append({
+            "category": "current_serving_gauntlet",
+            "severity": "block",
+            "detail": "current-serving gauntlet is BLOCK; inspect serving market rows before promotion",
+        })
+    return {
+        "status": "READY" if not blockers else "OPEN",
+        "blockers": blockers,
+    }
+
+
+def _readiness_table_rows(readiness):
+    blockers = (readiness or {}).get("blockers") or []
+    if not blockers:
+        return [["ready", "info", "no promotion readiness blockers"]]
+    return [
+        [row.get("category"), row.get("severity"), row.get("detail")]
+        for row in blockers
+    ]
+
+
+def _serving_table_rows(serving):
+    rows = []
+    for row in (serving or {}).get("market_rows") or []:
+        comp = row.get("comparison") or {}
+        rows.append([
+            row.get("market_id"),
+            row.get("verdict"),
+            row.get("rows", 0),
+            fmt_num(comp.get("replayed_brier")),
+            fmt_num(comp.get("recorded_brier")),
+            fmt_num(comp.get("market_brier")),
+            fmt_signed(comp.get("code_effect"), 4),
+            row.get("reason") or "-",
+        ])
+    return rows
+
+
 def write_report(path, payload):
     path = Path(path)
     corpus = payload.get("corpus") or {}
@@ -316,6 +388,7 @@ def write_report(path, payload):
     replay_gate = candidate.get("replay_gate") or {}
     decisions = payload.get("decisions") or {}
     serving = payload.get("serving_gauntlet")
+    readiness = payload.get("readiness") or {}
 
     lines = [
         "# F-Family Promotion Refresh",
@@ -332,10 +405,20 @@ def write_report(path, payload):
             ["Candidate verdict", candidate.get("verdict") or "-"],
             ["Candidate market-only verdict", candidate.get("candidate_market_verdict") or "-"],
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
+            ["Readiness status", readiness.get("status") or "-"],
             ["Promote", ", ".join(decisions.get("promote_markets") or []) or "-"],
             ["Shadow", ", ".join(decisions.get("shadow_markets") or []) or "-"],
             ["Blocked", ", ".join(decisions.get("blocked_markets") or []) or "-"],
         ],
+    )
+    lines += [
+        "",
+        "## Promotion Readiness Blockers",
+        "",
+    ]
+    lines += markdown_table(
+        ["Category", "Severity", "Detail"],
+        _readiness_table_rows(readiness),
     )
     lines += [
         "",
@@ -510,6 +593,14 @@ def write_report(path, payload):
                 ["Forecast tracker", (serving.get("forecast_tracker") or {}).get("message") or "-"],
             ],
         )
+        lines += ["", "### Serving Gauntlet Markets", ""]
+        lines += markdown_table(
+            [
+                "Market", "Verdict", "Rows", "Replayed Brier", "Recorded Brier",
+                "Market Brier", "Code Effect", "Reason",
+            ],
+            _serving_table_rows(serving),
+        )
     lines += [
         "",
         "## Per-Market Decisions",
@@ -598,24 +689,28 @@ def run_promotion_refresh(args):
         serving_report = run_promotion_gauntlet(_serving_gauntlet_args(args, corpus_path))
 
     family_ids = [spec.id for spec in _family_specs(args.family_unit)]
+    candidate_summary = _candidate_summary(candidate_report, args.candidate_json, args.candidate_report)
+    serving_summary = _serving_gauntlet_summary(
+        serving_report,
+        args.serving_gauntlet_report,
+        args.serving_replay_report,
+    )
+    decisions = build_family_decisions(
+        manifest,
+        trust_rows,
+        candidate_report,
+        family_unit=args.family_unit,
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": _utc_now(),
         "family_unit": args.family_unit,
         "corpus": _manifest_summary(manifest, corpus_path),
         "trust": _trust_summary(trust_rows, trust_path, family_ids),
-        "candidate": _candidate_summary(candidate_report, args.candidate_json, args.candidate_report),
-        "serving_gauntlet": _serving_gauntlet_summary(
-            serving_report,
-            args.serving_gauntlet_report,
-            args.serving_replay_report,
-        ),
-        "decisions": build_family_decisions(
-            manifest,
-            trust_rows,
-            candidate_report,
-            family_unit=args.family_unit,
-        ),
+        "candidate": candidate_summary,
+        "serving_gauntlet": serving_summary,
+        "decisions": decisions,
+        "readiness": promotion_readiness(candidate_summary, serving_summary, decisions),
     }
     out_path = _write_json(args.out, payload)
     report_path = write_report(args.report, payload)
