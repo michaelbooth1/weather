@@ -996,6 +996,32 @@ def train_pooled_models(records, holdout_year=None):
     return artifact, validation_rows
 
 
+def default_band_postprocess():
+    return {
+        "hard_floor_enabled": True,
+        "support_floor_enabled": True,
+        "support_floor_one_below_cap": 0.08,
+        "support_floor_decay": 0.25,
+        "late_lockin_enabled": True,
+        "late_lockin_max_strength": 0.85,
+        "adjacent_calibration_enabled": True,
+        "adjacent_calibration": {},
+        "partition_normalization_enabled": True,
+        "partition_normalization_gamma": 1.25,
+        "current_blend_enabled": True,
+        "current_blend_default_alpha": 1.0,
+        "current_blend_market_alpha": {
+            "dallas": 0.0,
+            "denver": 0.20,
+            "houston": 0.20,
+            "los-angeles": 0.20,
+            "nyc": 0.20,
+            "san-francisco": 0.0,
+            "seattle": 0.20,
+        },
+    }
+
+
 def train_pooled_band_models(records, holdout_year=None):
     by_hour = defaultdict(list)
     for row in records:
@@ -1011,28 +1037,7 @@ def train_pooled_band_models(records, holdout_year=None):
         "trained_at": datetime.now().isoformat(),
         "support": support,
         "models": {},
-        "postprocess": {
-            "hard_floor_enabled": True,
-            "support_floor_enabled": True,
-            "support_floor_one_below_cap": 0.08,
-            "support_floor_decay": 0.25,
-            "late_lockin_enabled": True,
-            "late_lockin_max_strength": 0.85,
-            "adjacent_calibration_enabled": True,
-            "adjacent_calibration": {},
-            "partition_normalization_enabled": True,
-            "partition_normalization_gamma": 1.25,
-            "current_blend_enabled": True,
-            "current_blend_default_alpha": 1.0,
-            "current_blend_market_alpha": {
-                "dallas": 0.0,
-                "denver": 0.20,
-                "houston": 0.20,
-                "los-angeles": 0.20,
-                "nyc": 0.20,
-                "seattle": 0.20,
-            },
-        },
+        "postprocess": default_band_postprocess(),
     }
     validation_rows = []
     calibration_rows = []

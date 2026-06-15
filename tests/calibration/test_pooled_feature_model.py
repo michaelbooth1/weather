@@ -13,6 +13,7 @@ from pooled_feature_model import (
     apply_adjacent_calibration,
     band_feature_frame,
     band_prediction_record,
+    default_band_postprocess,
     feature_frame,
     fit_adjacent_calibration,
     hard_floor_probability,
@@ -168,6 +169,13 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertEqual(adjacent_calibration_contexts(floor_band), [])
         self.assertAlmostEqual(adjacent_calibration_factor(above_floor, config), 0.50)
         self.assertAlmostEqual(apply_adjacent_calibration(0.40, above_floor, config), 0.20)
+
+    def test_default_band_postprocess_keeps_regressing_markets_on_current(self):
+        config = default_band_postprocess()
+
+        self.assertTrue(config["current_blend_enabled"])
+        self.assertEqual(config["current_blend_market_alpha"]["dallas"], 0.0)
+        self.assertEqual(config["current_blend_market_alpha"]["san-francisco"], 0.0)
 
     def test_fit_adjacent_calibration_smooths_context_factors(self):
         record = add_city_features(self._base_record(), NYC, {

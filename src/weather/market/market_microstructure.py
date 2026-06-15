@@ -298,6 +298,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
 
 BOOK_AUDIT_MAX_GAP_SECONDS = 120.0
 BOOK_AUDIT_STARTUP_GRACE_SECONDS = 180.0
+BOOK_AUDIT_CYCLE_BUFFER_SECONDS = 30.0
 
 
 def parse_utc_datetime(value):
@@ -421,6 +422,24 @@ def audit_book_tape(
     return result
 
 
+def fleet_effective_book_gap_seconds(max_gap_seconds, loop_status=None):
+    """Active fleet tapes are captured serially; use the measured loop cycle.
+
+    The per-market tape cadence can be longer than the nominal sleep interval
+    when all 12 markets are captured in one process. A completed loop iteration
+    records that elapsed capture time, so the active-day audit can distinguish a
+    healthy serial cycle from a genuinely stale book tape.
+    """
+    threshold = float(max_gap_seconds)
+    loop_status = loop_status or {}
+    elapsed = to_number(loop_status.get("last_iteration_elapsed_seconds"))
+    if elapsed is None:
+        return threshold
+    sleep_seconds = to_number(loop_status.get("last_sleep_seconds")) or 0.0
+    cycle_threshold = elapsed + sleep_seconds + BOOK_AUDIT_CYCLE_BUFFER_SECONDS
+    return max(threshold, float(cycle_threshold))
+
+
 def fleet_book_audit(
     market_id="all",
     snapshots_root=None,
@@ -437,8 +456,9 @@ def fleet_book_audit(
         uses_default_root = root.resolve() == SNAPSHOT_DATA_ROOT.resolve()
     except OSError:
         uses_default_root = snapshots_root is None
+    loop_status = read_clob_loop_status() if uses_default_root else None
+    max_gap_seconds = fleet_effective_book_gap_seconds(max_gap_seconds, loop_status)
     if ignore_cutoff is None and uses_default_root and startup_grace_seconds is not None:
-        loop_status = read_clob_loop_status()
         started_at = parse_utc_datetime((loop_status or {}).get("started_at"))
         if started_at is not None:
             ignore_cutoff = started_at + timedelta(seconds=float(startup_grace_seconds))
@@ -1160,6 +1180,7 @@ def capture_fleet_books(
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     websocket_factory=None,
+    progress_callback=None,
 ):
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
     results = {}
@@ -1184,6 +1205,8 @@ def capture_fleet_books(
             )
         except Exception as exc:  # noqa: BLE001 - one market should not stop the fleet
             results[item] = {"error": f"{type(exc).__name__}: {exc}"}
+        if progress_callback is not None:
+            progress_callback(item, results[item])
     return results
 
 
@@ -1539,6 +1562,14 @@ def run_book_loop(
             print(json.dumps({"status": "paused", "time": loop_started.isoformat()}), flush=True)
         else:
             try:
+                def progress_callback(item, result):
+                    progress_now = now_fn()
+                    status["last_heartbeat"] = progress_now.isoformat()
+                    status["last_market_in_progress"] = item
+                    if isinstance(result, dict) and (result.get("books") or 0) > 0:
+                        status["last_books_captured_at"] = progress_now.isoformat()
+                    write_clob_loop_status(status)
+
                 results = capture_fn(
                     market_id=market_id,
                     outcomes=outcomes,
@@ -1549,6 +1580,7 @@ def run_book_loop(
                     ws_heartbeat_seconds=ws_heartbeat_seconds,
                     ws_connect_timeout=ws_connect_timeout,
                     batch_size=batch_size,
+                    progress_callback=progress_callback,
                 )
                 current_midpoints = {}
                 for result in results.values():
@@ -1570,13 +1602,16 @@ def run_book_loop(
                     for item, value in summary.items()
                     if value.get("error")
                 }
+                elapsed_seconds = (now_fn() - loop_started).total_seconds()
                 full_error = bool(summary) and len(errors) == len(summary)
                 status["consecutive_errors"] = status["consecutive_errors"] + 1 if full_error else 0
                 status["error_markets"] = sorted(errors)
                 status["last_error"] = "; ".join(f"{item}: {err}" for item, err in errors.items()) or None
                 status["last_market_results"] = summary
+                status["last_market_in_progress"] = None
                 status["last_mode"] = "fast" if fast else "baseline"
                 status["last_sleep_seconds"] = sleep_seconds
+                status["last_iteration_elapsed_seconds"] = round(elapsed_seconds, 1)
                 if any((value.get("books") or 0) > 0 for value in summary.values()):
                     status["last_books_captured_at"] = loop_started.isoformat()
                 write_clob_loop_status(status)

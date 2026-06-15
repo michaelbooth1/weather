@@ -301,7 +301,10 @@ class PresentationMixin:
         # 3. ECCC SWOB
         swob_max = eccc.get("same_day_max_c")
         if swob_max is not None and swob_max >= kb:
-            impact = f"Floor validator. SWOB same-day max is {self.format_temp(swob_max)}, guaranteeing settlement >= {kb} {u}."
+            impact = (
+                f"Station support. SWOB same-day max is {self.format_temp(swob_max)}, "
+                f"supporting >= {kb} {u}; it remains non-resolution until WU history prints it."
+            )
         elif swob_max is not None:
             impact = f"Station SWOB max is {self.format_temp(swob_max)}, trailing {kb} {u} by {kb - swob_max:.1f} {u}."
         else:

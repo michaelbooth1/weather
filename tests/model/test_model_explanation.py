@@ -125,7 +125,8 @@ class TestDriverBreakdown(unittest.TestCase):
 
 
 class TestBucketAgnosticDeepDive(unittest.TestCase):
-    def _sources(self, wu_max=22.0):
+    def _sources(self, wu_max=22.0, swob_max=None):
+        swob_data = {"same_day_max_c": swob_max} if swob_max is not None else {}
         return {
             "wu_history": {"ok": True, "data": {"max_c": wu_max}},
             "wu_current": {"ok": True, "data": {}},
@@ -134,7 +135,7 @@ class TestBucketAgnosticDeepDive(unittest.TestCase):
                 "analysis": {"bucket_probabilities": {24: 0.30, 25: 0.50, 26: 0.20}},
             }},
             "eccc_citypage": {"ok": True, "data": {}},
-            "eccc_swob": {"ok": True, "data": {}},
+            "eccc_swob": {"ok": True, "data": swob_data},
             "weather_forecast": {"ok": True, "data": {"rows": []}},
             "open_meteo": {"ok": True, "data": {"rows": []}},
         }
@@ -168,6 +169,22 @@ class TestBucketAgnosticDeepDive(unittest.TestCase):
     def test_empty_distribution_falls_back_to_key_bucket(self):
         rows = self.model.deep_dive_rows(self._sources(), {}, analogs_data=self.analogs)
         self.assertIn("Impact on 25 C", rows[0])  # toronto key_bucket
+
+    def test_swob_support_is_not_described_as_settlement_guarantee(self):
+        rows = self.model.deep_dive_rows(
+            self._sources(wu_max=22.0, swob_max=26.0),
+            {24: 0.2, 25: 0.3, 26: 0.5},
+            analogs_data=self.analogs,
+            focus_bucket=26,
+        )
+        swob_row = next(
+            r for r in rows
+            if r["Question"] == "What does the official station (SWOB) support?"
+        )
+        impact = swob_row["Impact on 26 C"]
+        self.assertIn("supporting", impact)
+        self.assertIn("non-resolution", impact)
+        self.assertNotIn("guarantee", impact.lower())
 
 
 if __name__ == "__main__":

@@ -708,6 +708,10 @@ def gate(baseline_path, results, tol):
     base = baseline.get("aggregate_replayed_brier")
     base_corpus = baseline.get("corpus_hash")
     current_corpus = (results.get("promotion_corpus") or {}).get("corpus_hash")
+    if current_corpus and not base_corpus:
+        return False, (
+            f"baseline missing corpus hash for current corpus {current_corpus}"
+        )
     if base_corpus and current_corpus != base_corpus:
         return False, (
             f"corpus mismatch: baseline {base_corpus} vs current {current_corpus or '-'}"

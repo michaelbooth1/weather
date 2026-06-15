@@ -65,6 +65,19 @@ class TestProbabilityCalibration(unittest.TestCase):
             0.0,
         )
 
+    def test_market_calibration_keeps_range_containing_wu_floor_live(self):
+        artifact = _artifact(preserve_distribution_coherence=True)
+
+        self.assertAlmostEqual(
+            calibrate_market_probability(
+                0.88,
+                {"kind": "eq", "value": 24, "value_hi": 25},
+                artifact,
+                {"cutoff_hour": 13, "observed_floor_bucket": 25},
+            ),
+            0.88,
+        )
+
     def test_market_calibration_shrinks_non_hard_extremes_toward_base_rate(self):
         calibrated = calibrate_market_probability(
             0.95,

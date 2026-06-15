@@ -10,7 +10,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.abspath("src"))
 
 from promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
-from promotion_gauntlet import _overall_verdict, run_promotion_gauntlet
+from promotion_gauntlet import _baseline_gate_status, _overall_verdict, run_promotion_gauntlet
 from replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
 
@@ -147,6 +147,31 @@ class TestPromotionCorpus(unittest.TestCase):
         ]
         self.assertEqual(_overall_verdict(True, True, True, rows), "PARTIAL_PASS")
         self.assertEqual(_overall_verdict(False, True, True, rows), "BLOCK")
+
+    def test_gauntlet_falls_back_when_saved_baseline_lacks_current_corpus_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_path = Path(tmp) / "baseline.json"
+            baseline_path.write_text(
+                json.dumps({
+                    "aggregate_replayed_brier": 0.010,
+                    "corpus_hash": None,
+                }),
+                encoding="utf-8",
+            )
+            results = {
+                "aggregate": {
+                    "replayed_brier": 0.050,
+                    "recorded_brier": 0.049,
+                    "code_effect": 0.001,
+                },
+                "promotion_corpus": {"corpus_hash": "current-hash"},
+            }
+
+            passed, message = _baseline_gate_status(results, baseline_path, tol=0.003)
+
+            self.assertTrue(passed, message)
+            self.assertIn("falling back to recorded incumbent", message)
+            self.assertIn("saved baseline corpus hash is missing", message)
 
 
 if __name__ == "__main__":

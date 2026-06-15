@@ -85,6 +85,9 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m src.observation_trigger ensure --market all --interval-seconds 60
 .\venv\Scripts\python.exe -m src.observation_trigger replay
 
+# Keyless market-making operator run: target date + total risk budget
+.\venv\Scripts\python.exe -m src.market_making_run --date 2026-06-15 --budget-usdc 500 --mode shadow
+
 # Collection health and fleet observability
 .\venv\Scripts\python.exe -m src.collection_health
 .\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json

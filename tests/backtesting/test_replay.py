@@ -427,6 +427,25 @@ class TestRegressionGate(unittest.TestCase):
             self.assertFalse(passed)
             self.assertIn("corpus mismatch", message)
 
+    def test_gate_fails_when_pinned_current_corpus_has_unpinned_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_path = Path(tmp) / "baseline.json"
+            base_results = {
+                "aggregate": {"replayed_brier": 0.1000, "market_brier": 0.12},
+                "daily_first": {"replayed_brier": 0.1000},
+                "replayed_versions": ["v1"],
+                "snaps_scored": 10,
+            }
+            save_baseline(baseline_path, base_results)
+
+            current = {
+                "aggregate": {"replayed_brier": 0.1000},
+                "promotion_corpus": {"corpus_hash": "current"},
+            }
+            passed, message = gate(baseline_path, current, tol=0.003)
+            self.assertFalse(passed)
+            self.assertIn("baseline missing corpus hash", message)
+
 
 if __name__ == "__main__":
     unittest.main()

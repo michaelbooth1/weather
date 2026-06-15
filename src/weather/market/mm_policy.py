@@ -192,7 +192,7 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
     path = Path(path)
     if not path.exists():
         return {}, {"path": str(path), "exists": False}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     states = {}
     for row in ((payload.get("decisions") or {}).get("markets") or []):
         market_id = row.get("market_id")
@@ -226,7 +226,7 @@ def load_observation_status(path=DEFAULT_OBSERVATION_STATUS, now=None, config=No
             "watcher_age_seconds": None,
             "reason": "missing observation watcher status",
         }
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     watcher_age = age_seconds(payload.get("last_heartbeat"), now)
     consecutive_errors = int(payload.get("consecutive_errors") or 0)
     fresh = (

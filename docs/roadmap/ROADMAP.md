@@ -39,8 +39,9 @@ fleet tapes that had not yet been finalized into the ledger/promotion corpus.
 Promotion evidence improved after refresh, but the current
 `data/backtest/f_family_promotion_refresh_report.md` still does not prove broad
 edge versus Polymarket: the F-family corpus has 51 market-days, aggregate
-candidate Brier is `0.0508` versus market Brier `0.0379`, Atlanta is the only
-`PROMOTE_CANDIDATE`, and the other 10 F markets remain shadow.
+candidate Brier is `0.0442` versus market Brier `0.0379`, Atlanta, Denver, and
+Houston are `PROMOTE_CANDIDATE`, seven F markets remain shadow, and San
+Francisco remains candidate-blocked.
 
 ### Current Work That Needed Roadmap Reconciliation
 
@@ -948,7 +949,7 @@ auditable from one train/serve feature path.
 Goal: prevent future train/serve skew and make every feature explainable.
 
 - [x] Move shared feature schema into one module used by training,
-  backtests, live inference, analog search, and explanations.
+  backtests, live inference, and explanations.
 - [x] Version every live feature vector and future model artifact export with a
   shared feature schema.
 - [x] Add a feature parity test: historical/live feature extraction for the
@@ -963,6 +964,11 @@ Goal: prevent future train/serve skew and make every feature explainable.
 
 Acceptance: feature changes can be reviewed from one code path and tied to
 measured backtest deltas.
+
+Audit note (2026-06-14): analog search still has a deliberately stricter
+feature extraction path because it rejects missing data instead of filling
+train/serve defaults. Item 51 owns the replay-safe consolidation of that path
+onto shared primitives.
 
 Codex implementation status (2026-05-31): complete. `src/feature_store.py` now
 defines `toronto_feature_store_v0.1`, the canonical feature column order, audit
@@ -1773,13 +1779,14 @@ F-family corpus at hash
 `0c3f02ca56c83a5099b156985fdb93e83209addae8bf02c2dffe07b185112339`
 (`51` market-days, `6,989` snapshots, `76,879` band rows,
 `3,363` identity records). Candidate verdict is
-**PASS_WITH_SHADOWS / PER_MARKET_ONLY**: Atlanta is `PROMOTE_CANDIDATE`; Austin,
-Chicago, Dallas, Denver, Houston, Los Angeles, Miami, NYC, San Francisco, and
-Seattle remain `KEEP_SHADOW`, mostly because the candidate is not yet proven
-better than market prices on pinned rows. Aggregate candidate Brier is `0.0508`
-versus current replay `0.0648` and market `0.0379`; this is a process/model
+**PARTIAL_PASS / PER_MARKET_ONLY**: Atlanta, Denver, and Houston are
+`PROMOTE_CANDIDATE`; Austin, Chicago, Dallas, Los Angeles, Miami, NYC, and
+Seattle remain `KEEP_SHADOW`; San Francisco is `BLOCK_CANDIDATE` because it
+regresses current replay by `+0.0074`. Aggregate candidate Brier is `0.0442`
+versus current replay `0.0458` and market `0.0379`; this is a process/model
 improvement but not a north-star edge claim. The remaining promotion-readiness
-gap is split into item 48.
+gap is split into item 48, and the one-market Miami serving replay regression
+is split into item 52.
 
 ### 34. Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]
 
@@ -2044,6 +2051,16 @@ all 12 active markets. The fleet report no longer has CLOB, artifact-schema, or
 redundant historical-source blockers, but it still correctly fails strict when
 the main snapshot tapes have real active-day collection gaps.
 
+Serial fleet-cycle update (2026-06-15 UTC): the CLOB loop now heartbeats after
+each market inside a long all-market capture and records
+`last_iteration_elapsed_seconds`; the active-day book audit derives its fleet
+gap threshold from that measured cycle plus configured sleep and buffer. This
+prevents the supervisor and observability report from treating a healthy
+serial 12-market capture cycle as a dead loop while preserving strict stale
+tail and post-cycle gap checks. Validation:
+`src.market_microstructure audit --strict` passes all 12 active markets, and
+the fleet observability report is again collection-only critical.
+
 Feature-wiring update (2026-06-14 UTC): `src.market_microstructure_features`
 now converts the fast CLOB book tape into band-level model features for book
 age, midpoint, spread, depth, imbalance, liquidity, midpoint change, stickiness,
@@ -2069,9 +2086,9 @@ uses only replay rows with fresh book features, scores out-of-fold by held-out
 target date, writes the shadow artifact
 `artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl`, and
 adds an Item 38 section to both `pooled_candidate_replay_latest_report.md` and
-`f_family_promotion_refresh_report.md`. The 2026-06-14 refresh scored 19,668
-CLOB rows with zero skipped folds: raw overlay Brier `0.0303` versus base
-candidate `0.0486`, current replay `0.0658`, and market `0.0299`.
+`f_family_promotion_refresh_report.md`. The current refresh scored 19,668 CLOB
+rows with zero skipped folds: raw overlay Brier `0.0303` versus base candidate
+`0.0391`, current replay `0.0389`, and market `0.0299`.
 
 Taxonomy-gate update (2026-06-14 local): the overlay now has an explicit
 replay-derived allowlist. It can affect only target taxonomies that beat both
@@ -2079,8 +2096,8 @@ the base candidate and market on the same out-of-fold slice; all other rows
 fall back to the base candidate as `micro_gated_candidate_p`. The current gate
 allows `market_lead` and `book_liquidity_artifact`, and blocks
 `market_overreaction` because it regresses the base candidate (`0.1700` vs
-`0.1037`). The gated overlay changes 437 rows and leaves 66,993 rows on the
-base candidate; aggregate gated Brier is `0.0502` versus base `0.0508`.
+`0.1027`). The gated overlay changes 437 rows and leaves 66,993 rows on the
+base candidate; aggregate gated Brier is `0.0441` versus base `0.0442`.
 
 Fleet critical follow-up (2026-06-14 UTC): the observation-trigger watcher made
 urgent recomputes first-class evidence, but active CSV tapes created before the
@@ -2498,7 +2515,7 @@ artifacts are current, account/platform eligibility is verified, caps and
 balance math are tested, kill-switch drills pass, and the dedicated pilot
 wallet is funded only with isolated risk capital.
 
-### 46. Date/Budget Market-Making Run Orchestrator [NEW - OPERATOR WORKFLOW]
+### 46. Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]
 
 Goal: make the first market-making operator workflow a single target day plus
 total budget, without mixing orchestration concerns into the pure quote policy.
@@ -2509,25 +2526,25 @@ tracked weather markets for that day, call the pure `mm_policy`, enforce
 preflight gates, write run artifacts, and keep total run risk inside the
 operator budget.
 
-- [ ] Add a `src.market_making_run` wrapper around `src.mm_policy` /
+- [x] Add a `src.market_making_run` wrapper around `src.mm_policy` /
   `weather.market.mm_policy` with `--date`, `--budget-usdc`, `--mode`, market
   selection, and explicit live-confirmation flags.
-- [ ] Create one run folder per invocation under `data/mm_runs/<date>/<run_id>/`
+- [x] Create one run folder per invocation under `data/mm_runs/<date>/<run_id>/`
   with `run_config.json`, `preflight.json`, `quote_intents_long.csv`,
   `budget_ledger.jsonl`, `risk_events.jsonl`, `fills_long.csv`, and
   `run_report.md`.
-- [ ] Implement target-date market discovery through `market_registry.all_specs()`
+- [x] Implement target-date market discovery through `market_registry.all_specs()`
   and `config_for_date()`, resolving each tracked weather market to the correct
   event slug, snapshot folder, token IDs, condition IDs, reward config, min
   size, tick size, and current book state.
-- [ ] Add preflight gates for active events, current snapshot/model rows, current
+- [x] Add preflight gates for active events, current snapshot/model rows, current
   source-status rows, CLOB tokens/books, strict CLOB freshness, fresh
   observation-trigger state, promotion state, reward metadata, and, in live
   modes only, account/platform/wallet/allowance/heartbeat/user-WS readiness.
-- [ ] Write complete quote/no-quote rows for every eligible band and explicit
+- [x] Write complete quote/no-quote rows for every eligible band and explicit
   no-quote rows for ineligible bands, including `budget_exhausted`,
   `missing_preflight`, and `stale_input` reason codes.
-- [ ] Support `shadow` first, `paper-live-forward` as the all-day unattended
+- [x] Support `shadow` first, `paper-live-forward` as the all-day unattended
   mode, and later `live-pilot` only after item 45's live gate passes.
 
 Acceptance: an operator can run one command with only date, budget, and mode;
@@ -2535,6 +2552,23 @@ the keyless shadow run covers all selected tracked markets, writes a complete
 run folder, never emits live-trade permission in shadow, fails closed on stale
 CLOB/watcher inputs, and produces a report explaining selected markets,
 unquoted markets, quote counts, budget usage, and next gating status.
+
+Implementation status (2026-06-15): `src.market_making_run` /
+`weather.market.market_making_run` now orchestrates one target date plus a run
+risk budget around the pure `mm_policy`. It discovers selected markets through
+the registry and `config_for_date()`, writes `data/mm_runs/<date>/<run_id>/`,
+runs target-day preflight gates, calls the pure policy for current band rows,
+applies a conservative run-budget ledger, converts stale or missing-gate rows to
+explicit fail-closed no-quotes, and writes a durable report. Shadow and
+paper-live-forward never emit live-trade permission; live-pilot is accepted only
+as a gated mode requiring `--pilot`, `--confirm-live-orders`, and a passing
+live-readiness JSON while item 45 remains the real-money gate.
+
+Validation: `pytest tests\market\test_market_making_run.py -q` passed
+(4 tests); `pytest tests\market\test_mm_policy.py tests\market\test_market_making_run.py -q`
+passed (11 tests); full `pytest -q` passed (449 tests, 84 subtests);
+`compileall src tests` passed; `python -m src.market_making_run --help` exposes
+the operator CLI, and a temp-root CLI smoke wrote the expected run artifacts.
 
 ### 47. Model Readiness And Known-Edge Permission Map [NEW - MM READINESS GATE]
 
@@ -2581,23 +2615,25 @@ that it is ready for broader promotion.
 
 Source: `data/backtest/f_family_promotion_refresh_report.md` now emits explicit
 promotion-readiness blockers. The current blockers are aggregate candidate
-Brier behind market Brier, 10 F markets still in shadow, and a current-serving
-gauntlet `BLOCK` from replay regression versus recorded probabilities.
+Brier behind market Brier, seven F markets still in shadow, and one
+candidate-blocked F market (San Francisco). The current-serving gauntlet is now
+non-blocking at `PARTIAL_PASS` with corpus/fidelity/regression gates passing;
+the remaining Miami serving-market regression is split into item 52.
 
-- [ ] Turn the current-serving gauntlet from `BLOCK` to pass or document a
-  deliberate baseline reset with corpus-pin/fidelity evidence, per-market code
-  effects, and no hidden serving regression.
 - [ ] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
   pinned rows, or keep the gap explicitly marked as a readiness blocker.
 - [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
   current replay, clears trust/sample gates, and is not worse than market prices
   within the promotion tolerance.
+- [ ] Clear the San Francisco candidate regression versus current replay, or
+  keep it explicitly marked as `BLOCK_CANDIDATE`.
 - [ ] Add decomposition for the largest shadow causes by market, cutoff hour,
   band type, settlement distance, source freshness, and CLOB taxonomy; feed
   those slices into item 47's known-edge map.
 - [ ] Keep the promotion refresh report as the acceptance artifact: readiness is
-  not complete until `readiness.status` is `READY`, the current-serving gauntlet
-  is non-blocking, and no F market has an unexplained `KEEP_SHADOW`.
+  not complete until `readiness.status` is `READY`, serving parity is
+  non-blocking, and no F market has an unexplained `KEEP_SHADOW` or
+  `BLOCK_CANDIDATE`.
 
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow
@@ -2678,6 +2714,60 @@ settlement-scored, or explicitly blocked behind a named source/archive/backfill
 task. No feature should be promoted from live-only availability without matching
 historical/reforecast coverage.
 
+### 51. Model Architecture Health Refactor [NEW - OPEN]
+
+Goal: turn the 2026-06-14 model-logic audit into replay-gated structural
+cleanup, without hiding behavioral changes inside refactors.
+
+- [ ] Consolidate analog/today feature extraction with feature-store and live
+  extraction by returning a strict/no-default view from the same primitive,
+  rather than maintaining a second hand-rolled analog path.
+- [ ] Break `estimate_distribution()` into explicit named pipeline stages
+  backed by a shared distribution-state object so each live-signal transform is
+  individually testable and explainable.
+- [ ] Finish the native-unit naming cleanup by moving serving and source code to
+  `*_native` accessors, preserving legacy `temp_c` / `*_c` aliases only at I/O
+  compatibility boundaries.
+- [ ] Replace top-level compatibility imports and scattered `sys.path` mutation
+  with package imports and canonical CLI entry points, keeping old wrappers only
+  as thin user-facing shims during migration.
+- [ ] Keep every step gated by replay identity/fidelity checks and full pytest,
+  with any intentional probability deltas baselined before promotion.
+
+Acceptance: no hidden behavior change ships under the health-refactor label;
+exact replay deltas are zero or intentionally baselined, the full suite passes,
+and item 24 no longer overclaims analog-search consolidation.
+
+### 52. Miami Current-Serving Replay Regression Triage [NEW - OPEN]
+
+Goal: resolve the one remaining current-serving gauntlet `BLOCK` market without
+turning a live Weather.com support signal into an unverified settlement floor.
+
+Source: `data/backtest/promotion_gauntlet_latest_report.md` is now
+`PARTIAL_PASS`: corpus pin, fidelity, and regression gates pass after the stale
+unpinned baseline is ignored, but Miami's serving replay remains blocked at
+replayed Brier `0.0377` versus recorded `0.0331` (`+0.0046`, tolerance
+`0.0030`). The audit found tempting Miami rows where `wu_max_since_7am_c`
+would hard-zero below-current bands, but existing intraday tests and roadmap
+doctrine treat that source as a soft signal until it is validated against the
+official Weather Underground settlement high.
+
+- [ ] Build a WU `max_since_7am` validation slice by market/day/cutoff:
+  compare live captured `wu_max_since_7am_c` to final WU history high and
+  settlement labels before using it as a hard market-band support bound.
+- [ ] Add a Miami failure decomposition for the positive code-effect rows by
+  cutoff hour, settlement distance, band type, and source-freshness state.
+- [ ] Test any candidate fix on the exact Miami replay rows and the full pinned
+  promotion corpus; no fix can regress the aggregate gauntlet or turn other
+  serving markets back to `BLOCK`.
+- [ ] Keep current serving at `PARTIAL_PASS` until Miami is either below the
+  code-effect tolerance or explicitly documented as a market-specific shadow
+  blocker with a generated acceptance report.
+
+Acceptance: the current-serving gauntlet has no unexplained market-level
+`BLOCK`, or the Miami block is backed by a generated source-validation report
+and a scoped model-gap task rather than ambiguous F-family readiness text.
+
 ## Sequencing The Two Tracks
 
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
@@ -2745,11 +2835,11 @@ Current best next actions after the 2026-06-14 refresh:
    density is still the endgame, but today's highest value is using the new
    24-day F corpus and casebook slices to fix concrete, settlement-scored
    failure modes first.
-6. **Next: implement item 46's date/budget run orchestrator.** The pure quote
-   policy exists; the missing operator layer is date selection, budget ledgers,
-   run folders, preflight gates, and a durable report for shadow and
-   live-forward paper runs.
-7. **Then: advance items 44 and 47 together.** The paper simulator provides
+6. **Done 2026-06-15: implement item 46's date/budget run orchestrator.** The
+   operator layer now provides date selection, budget ledgers, run folders,
+   preflight gates, fail-closed quote/no-quote rows, and a durable report for
+   shadow and live-forward paper runs.
+7. **Next: advance items 44 and 47 together.** The paper simulator provides
    markouts and incentive accounting; the known-edge map converts those results
    plus promotion/gap/casebook evidence into enforceable quote permissions.
 

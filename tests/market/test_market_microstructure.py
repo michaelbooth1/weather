@@ -17,6 +17,7 @@ from market_microstructure import (  # noqa: E402
     clob_loop_health,
     capture_event_books,
     fleet_book_audit,
+    fleet_effective_book_gap_seconds,
     price_history_rows,
     record_market_websocket,
     run_book_loop,
@@ -432,6 +433,15 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(result["gaps_over_threshold"], 1)
         self.assertEqual(result["startup_gaps_ignored"], 0)
         self.assertEqual(result["max_counted_gap_seconds"], 340.0)
+
+    def test_fleet_effective_book_gap_uses_measured_loop_cycle(self):
+        status = {
+            "last_iteration_elapsed_seconds": 135.0,
+            "last_sleep_seconds": 15.0,
+        }
+
+        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 180.0)
+        self.assertEqual(fleet_effective_book_gap_seconds(240.0, status), 240.0)
 
     def test_audit_book_tape_missing_tape(self):
         with tempfile.TemporaryDirectory() as tmp:

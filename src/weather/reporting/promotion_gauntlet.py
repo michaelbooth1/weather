@@ -93,7 +93,7 @@ def _fidelity_by_market(fidelity_rows):
 
 
 def _baseline_gate_status(results, baseline_path, tol):
-    if not baseline_path:
+    def recorded_gate_status():
         aggregate = results.get("aggregate") or {}
         effect = aggregate.get("code_effect")
         if effect is None:
@@ -101,6 +101,26 @@ def _baseline_gate_status(results, baseline_path, tol):
         passed = effect <= tol
         verdict = "PASS" if passed else "FAIL"
         return passed, f"{verdict}: code effect {effect:+.4f} vs tolerance {tol:.4f}"
+
+    if not baseline_path:
+        return recorded_gate_status()
+
+    current_corpus = (results.get("promotion_corpus") or {}).get("corpus_hash")
+    if current_corpus:
+        try:
+            baseline = json.loads(Path(baseline_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return False, f"could not read baseline {baseline_path}: {exc}"
+        baseline_corpus = baseline.get("corpus_hash")
+        if baseline_corpus != current_corpus:
+            passed, message = recorded_gate_status()
+            baseline_label = baseline_corpus or "missing"
+            return passed, (
+                f"WARN: saved baseline corpus hash is {baseline_label}, "
+                f"current corpus is {current_corpus}; falling back to recorded incumbent. "
+                f"{message}"
+            )
+
     passed, message = gate(baseline_path, results, tol)
     return passed, message
 
