@@ -131,6 +131,8 @@ class TestFeatureModelAblation(unittest.TestCase):
                 "pressure": 1012.0,
                 "pressure_trend_3h": -0.5,
                 "wind_speed_kmh": 12.0,
+                "wind_gust_kmh": 18.0,
+                "wind_shift_3h_degrees": 45.0,
                 "forecast_high": high_so_far + forecast_gap,
                 "forecast_gap": forecast_gap,
                 "wind_W-NW": 1.0,

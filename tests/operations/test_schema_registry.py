@@ -17,7 +17,7 @@ from schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v0.6")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v0.7")
         self.assertEqual(schema_version("historical_coverage"), "historical_coverage_v1")
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
 

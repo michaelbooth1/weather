@@ -729,6 +729,19 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "eccc_citypage": {"ok": True, "data": {}},
             "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 22.0}},
         }
+        original_extract_live_features = model.extract_live_features
+        strict_calls = []
+
+        def recording_extract_live_features(sources_arg, cutoff_hour_arg, now=None, strict=False):
+            strict_calls.append(strict)
+            return original_extract_live_features(
+                sources_arg,
+                cutoff_hour_arg,
+                now=now,
+                strict=strict,
+            )
+
+        model.extract_live_features = recording_extract_live_features
 
         result = model.find_analog_days(
             sources,
@@ -743,6 +756,64 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         self.assertAlmostEqual(result["today_features"]["forecast_high"], 22.0)
         self.assertAlmostEqual(result["today_features"]["forecast_gap"], 4.0)
         self.assertIn("forecast_gap", result["analogs"][0])
+        self.assertIn(True, strict_calls)
+
+    def test_analog_search_rejects_today_default_features_when_cutoff_data_missing(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        model.historical_target_cache = lambda: {
+            "daily": {date(2020, 5, 28): {"max_temp_c": 21.0, "bucket": 21}},
+            "by_date": {
+                date(2020, 5, 28): [
+                    {
+                        "minute_of_day": 420,
+                        "temp_c": 13.0,
+                        "dewpoint_c": 8.0,
+                        "wind": "W",
+                        "condition": "Clear",
+                        "clouds": "Clear",
+                    },
+                    {
+                        "minute_of_day": 720,
+                        "temp_c": 18.0,
+                        "dewpoint_c": 10.0,
+                        "wind": "W",
+                        "condition": "Partly Cloudy",
+                        "clouds": "Partly Cloudy",
+                    },
+                ],
+            },
+        }
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        {
+                            "time": "12:00",
+                            "temp_c": 18.0,
+                            "dewpoint_c": 10.0,
+                            "wind": "W",
+                            "condition": "Partly Cloudy",
+                            "clouds": "Partly Cloudy",
+                        },
+                    ]
+                },
+            },
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "eccc_citypage": {"ok": True, "data": {}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 22.0}},
+        }
+
+        result = model.find_analog_days(
+            sources,
+            12,
+            datetime(2026, 5, 28, 12, 45),
+            limit=1,
+        )
+
+        self.assertEqual(result["today_features"], {})
+        self.assertEqual(result["analogs"], [])
 
     def test_last_good_cache_does_not_use_old_live_source(self):
         old_root = toronto_model.DEFAULT_DATA_ROOT

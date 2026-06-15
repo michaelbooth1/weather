@@ -36,11 +36,11 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "feature_store",
-        "toronto_feature_store_v0.6",
+        "toronto_feature_store_v0.7",
         "weather.model.feature_store",
         "active",
         "Shared train/serve feature vector schema.",
-        supersedes=("toronto_feature_store_v0.5",),
+        supersedes=("toronto_feature_store_v0.6",),
         migration_notes="Predictors must select by trained feature_names, not by newest column order.",
     ),
     SchemaSpec(
@@ -145,6 +145,12 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("mm_run", "mm_run_v0.2", "weather.market.market_making_run", "active"),
     SchemaSpec("model_artifact_registry", "model_artifact_registry_v0.1", "weather.artifacts", "active"),
     SchemaSpec(
+        "model_history_cache_legacy",
+        "model_history_cache_v0.1",
+        "weather.reporting.model_history",
+        "legacy",
+    ),
+    SchemaSpec(
         "model_history_cache",
         "model_history_cache_v0.2",
         "weather.reporting.model_history",
@@ -163,7 +169,8 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("supplemental_station_registry", "supplemental_station_registry_v0.1", "weather.sources.supplemental_stations", "active"),
     SchemaSpec("supplemental_station_validation", "supplemental_station_validation_v0.1", "weather.sources.supplemental_station_validation", "active"),
     SchemaSpec("distribution_components", "toronto_distribution_components_v0.1", "weather.model.model_distribution", "active"),
-    SchemaSpec("feature_store_legacy", "toronto_feature_store_v0.5", "weather.model.feature_store", "legacy"),
+    SchemaSpec("feature_store_legacy", "toronto_feature_store_v0.6", "weather.model.feature_store", "legacy"),
+    SchemaSpec("feature_store_legacy_v0_5", "toronto_feature_store_v0.5", "weather.model.feature_store", "legacy"),
     SchemaSpec("replay_inputs_reconstructed", "toronto_replay_inputs_reconstructed_v0.1", "weather.backtesting.replay", "active"),
     SchemaSpec("replay_inputs", "toronto_replay_inputs_v0.1", "weather.collection.snapshot_tracker", "active"),
     SchemaSpec("weather_model_replay_identity", "weather_model_replay_identity_v0.1", "weather.model.model_identity", "active"),

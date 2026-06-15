@@ -7,9 +7,22 @@ data-layer audit gate passes.
 
 Sources checked on 2026-06-15:
 
-- Polymarket global docs: CLOB overview, order creation, authentication,
-  liquidity rewards, order book, CLOB market info, and changelog.
-- Polymarket US docs: Orders API overview.
+- Polymarket global trading overview:
+  https://docs.polymarket.com/trading/overview
+- Polymarket global order creation:
+  https://docs.polymarket.com/trading/orders/create
+- Polymarket global authentication:
+  https://docs.polymarket.com/api-reference/authentication
+- Polymarket global CLOB market info:
+  https://docs.polymarket.com/api-reference/markets/get-clob-market-info
+- Polymarket global order book:
+  https://docs.polymarket.com/api-reference/market-data/get-order-book
+- Polymarket global liquidity rewards:
+  https://docs.polymarket.com/market-makers/liquidity-rewards
+- Polymarket global changelog:
+  https://docs.polymarket.com/changelog
+- Polymarket US orders API overview:
+  https://docs.polymarket.us/api-reference/orders/overview
 
 Relevant current facts from those docs:
 

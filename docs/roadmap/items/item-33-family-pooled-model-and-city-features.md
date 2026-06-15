@@ -1,4 +1,4 @@
-# 33. Family-Pooled Model + City Features [OPEN - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]
+# 33. Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]
 
 Goal: train on all cities in a unit family, not one (audit Option A).
 
@@ -18,6 +18,11 @@ Goal: train on all cities in a unit family, not one (audit Option A).
 
 Acceptance: the pooled F model beats the NYC-only HGB on per-market replay/trust
 without regressing NYC.
+
+Status update (2026-06-15 UTC): item 33 is complete as the family-pooled
+pipeline work item. The remaining proof that F-family markets are ready for
+broader promotion is explicitly tracked by item 48, so this item no longer
+owns those readiness blockers.
 
 Pooled F starter (2026-06-11): built `src.feature_model_hgb_f_pooled.pkl` as a
 non-serving research artifact plus

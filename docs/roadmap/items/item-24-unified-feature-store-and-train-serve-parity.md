@@ -19,10 +19,10 @@ Goal: prevent future train/serve skew and make every feature explainable.
 Acceptance: feature changes can be reviewed from one code path and tied to
 measured backtest deltas.
 
-Audit note (2026-06-14): analog search still has a deliberately stricter
-feature extraction path because it rejects missing data instead of filling
-train/serve defaults. Item 51 owns the replay-safe consolidation of that path
-onto shared primitives.
+Audit note resolved (2026-06-15): item 51 consolidated analog search onto the
+shared feature primitives by adding strict/no-default feature views for analog
+today and historical rows. Analog search still rejects missing cutoff-aligned
+inputs, but it no longer carries a separate hand-rolled extraction path.
 
 Codex implementation status (2026-05-31): complete. `src/feature_store.py` now
 defines `toronto_feature_store_v0.1`, the canonical feature column order, audit

@@ -1,4 +1,4 @@
-# 48. F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS LIVE]
+# 48. F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS + PERMISSION CELLS LIVE]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -26,7 +26,7 @@ item 54.
 - [x] Add generated decomposition for the largest candidate-vs-market gap
   drivers by market, cutoff hour, band type, settlement distance, and CLOB
   taxonomy in the promotion refresh `Candidate Gap Drivers` table.
-- [ ] Feed those generated gap-driver cells into item 47's known-edge map and
+- [x] Feed those generated gap-driver cells into item 47's known-edge map and
   paper permission report; tracked by item 54.
 - [x] Add source-freshness gap attribution once replay rows carry freshness
   state; completed in item 53.
@@ -44,6 +44,13 @@ bands, the aggregate `all_fresh` source-freshness cohort, 07:00 rows, and
 market-level gaps for Seattle/NYC/Miami. The source-freshness slice also
 surfaces failed/stale groups including `failed:wu_history`,
 `failed:wu_history;stale:metar`, and `stale:metar`.
+
+Permission-cell update (2026-06-15 UTC): item 54 completed the consumption path
+from generated source-freshness gap rows into `mm_known_edge_map.json`,
+`mm_known_edge_map.md`, quote-intent permission records, and market-making run
+preflight diagnostics. Item 48 remains open for the underlying promotion
+readiness blockers: aggregate candidate-vs-market Brier, per-market shadow
+actions, and unexplained `KEEP_SHADOW` / `BLOCK_CANDIDATE` cells.
 
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow

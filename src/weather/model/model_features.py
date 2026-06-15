@@ -8,8 +8,13 @@ from feature_store import (
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
     NATIVE_NAN_FEATURE_COLUMNS,
+    build_historical_feature_record,
     build_live_feature_record,
+    closest_wind_direction,
     forecast_profile_features,
+    row_value,
+    row_wind_direction,
+    wind_direction_delta_degrees,
 )
 from forecast_history import load_forecast_daily, daily_path_for
 from feature_probability_calibration import temperature_scale_distribution
@@ -143,7 +148,7 @@ class FeatureModelMixin:
             "forecast_source_values": {name: value for name, value in values},
         }
 
-    def extract_live_features(self, sources, cutoff_hour, now=None):
+    def extract_live_features(self, sources, cutoff_hour, now=None, strict=False):
         """Build the cutoff-aligned feature vector shared by the feature model
         (HGB/LR) and the late-day continuation model.
 
@@ -157,8 +162,9 @@ class FeatureModelMixin:
         reading, modeled explicitly instead of fabricated into history rows.
         Without ``now`` they degrade to the at-print state (0 elapsed).
 
-        Note: ``find_analog_days`` deliberately keeps its own extraction because
-        it bails out on missing data instead of substituting seasonal defaults.
+        ``strict`` is used by analog search: it returns ``None`` instead of
+        substituting seasonal defaults for cutoff-aligned fields that drive
+        analog distance.
         """
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
@@ -181,9 +187,13 @@ class FeatureModelMixin:
         # current_temp
         if current_temp is None:
             current_temp = current.get("temp_c")
+        if current_temp is None and strict:
+            return None
         if current_temp is None:
             current_temp = rows[-1]["temp_c"] if rows else 17.0
         high_so_far = self.max_value(high_so_far, current_temp)
+        if high_so_far is None and strict:
+            return None
         if high_so_far is None:
             high_so_far = 17.0 # fallback
 
@@ -193,6 +203,8 @@ class FeatureModelMixin:
         if obs_7am_candidates:
             closest_7am = min(obs_7am_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - 420))
             temp_7am = closest_7am["temp_c"]
+        if temp_7am is None and strict:
+            return None
         if temp_7am is None:
             temp_7am = 17.0 # default seasonal fallback
         rise_from_7am = current_temp - temp_7am
@@ -218,11 +230,15 @@ class FeatureModelMixin:
 
         # dewpoint_c, humidity, pressure
         dewpoint = feature_latest.get("dewpoint_c") if feature_latest else current.get("dewpoint_c")
+        if dewpoint is None and strict:
+            return None
         if dewpoint is None:
             dewpoint = rows[-1]["dewpoint_c"] if rows else 10.0 # fallback
         humidity = feature_latest.get("humidity") if feature_latest else current.get("humidity")
         if humidity is None:
-            humidity = rows[-1]["humidity"] if rows else 60.0
+            humidity = rows[-1].get("humidity") if rows else 60.0
+        if humidity is None:
+            humidity = 60.0
         pressure = feature_latest.get("pressure") if feature_latest else current.get("pressure")
         if pressure is None:
             pressures = [r["pressure"] for r in rows if r.get("pressure") is not None]
@@ -240,6 +256,16 @@ class FeatureModelMixin:
         wind_speed = feature_latest.get("wind_kmh") if feature_latest else current.get("wind_kmh")
         if wind_speed is None:
             wind_speed = rows[-1].get("wind_kmh") if rows else 15.0
+        wind_gust = (
+            feature_latest.get("gust_kmh")
+            if feature_latest else row_value(current, "gust_kmh", "wind_gust_kmh", "wind_gust")
+        )
+        if wind_gust is None and rows:
+            wind_gust = row_value(rows[-1], "gust_kmh", "wind_gust_kmh", "wind_gust")
+        wind_shift_3h = wind_direction_delta_degrees(
+            row_wind_direction(feature_latest or current),
+            closest_wind_direction(rows, cutoff_minutes - 180, 60),
+        )
 
         # wind_group and cloud_group
         wind_group = (
@@ -249,6 +275,8 @@ class FeatureModelMixin:
             self.cloud_group(feature_latest.get("condition"), feature_latest.get("clouds"))
             if feature_latest else None
         ) or self.live_cloud_group(current, eccc_city, weather_forecast)
+        if strict and (wind_group is None or cloud_group is None):
+            return None
         microclimate = self.microclimate_features(wind_group, wind_speed)
 
         # Forecast features: forecasted daily max (matching the archived-forecast
@@ -319,6 +347,8 @@ class FeatureModelMixin:
             "pressure": pressure,
             "pressure_trend_3h": pressure_trend_3h,
             "wind_speed_kmh": wind_speed,
+            "wind_gust_kmh": wind_gust,
+            "wind_shift_3h_degrees": wind_shift_3h if wind_shift_3h is not None else 0.0,
             **microclimate,
             "wind_group": wind_group,
             "cloud_group": cloud_group,
@@ -353,6 +383,8 @@ class FeatureModelMixin:
         pressure = feats["pressure"]
         pressure_trend_3h = feats["pressure_trend_3h"]
         wind_speed = feats["wind_speed_kmh"]
+        wind_gust = feats.get("wind_gust_kmh")
+        wind_shift = feats.get("wind_shift_3h_degrees")
         wind_group = feats["wind_group"]
         cloud_group = feats["cloud_group"]
         forecast_high = feats["forecast_high"]
@@ -697,6 +729,8 @@ class FeatureModelMixin:
         pressure = feats["pressure"]
         pressure_trend_3h = feats["pressure_trend_3h"]
         wind_speed = feats["wind_speed_kmh"]
+        wind_gust = feats.get("wind_gust_kmh")
+        wind_shift = feats.get("wind_shift_3h_degrees")
         wind_group = feats["wind_group"]
         cloud_group = feats["cloud_group"]
         feature_rows = feats["feature_rows"]
@@ -745,6 +779,8 @@ class FeatureModelMixin:
                 "pressure": pressure,
                 "pressure_trend_3h": pressure_trend_3h,
                 "wind_speed_kmh": wind_speed,
+                "wind_gust_kmh": wind_gust,
+                "wind_shift_3h_degrees": wind_shift,
                 "forecast_high": forecast_high,
                 "forecast_gap": forecast_gap,
             }
@@ -811,6 +847,50 @@ class FeatureModelMixin:
             print(f"Error predicting late-day continuation: {e}")
             return None
 
+    def analog_feature_view(self, features):
+        if not features:
+            return None
+        required = (
+            "high_so_far",
+            "rise_from_7am",
+            "dewpoint_c",
+            "wind_group",
+            "cloud_group",
+        )
+        if any(features.get(name) is None for name in required):
+            return None
+        return {
+            "high_so_far": features["high_so_far"],
+            "rise_from_7am": features["rise_from_7am"],
+            "dewpoint_c": features["dewpoint_c"],
+            "wind_group": features["wind_group"],
+            "cloud_group": features["cloud_group"],
+            "forecast_high": features.get("forecast_high"),
+            "forecast_gap": features.get("forecast_gap"),
+        }
+
+    def analog_temperature_path(self, rows):
+        temp_path = {}
+        for hour in range(7, 21):
+            target_minute = hour * 60
+            candidates = [row for row in rows if row.get("temp_c") is not None]
+            if candidates:
+                closest = min(
+                    candidates,
+                    key=lambda row: abs(self.minute_of_day(row.get("time")) - target_minute)
+                    if row.get("time") else abs(int(row["minute_of_day"]) - target_minute),
+                )
+                closest_minute = (
+                    self.minute_of_day(closest.get("time"))
+                    if closest.get("time") else int(closest["minute_of_day"])
+                )
+                temp_path[f"{hour:02d}:00"] = (
+                    closest["temp_c"] if abs(closest_minute - target_minute) <= 60 else None
+                )
+            else:
+                temp_path[f"{hour:02d}:00"] = None
+        return temp_path
+
     def find_analog_days(self, sources, cutoff_hour, now, limit=5):
         # Always return this shape so callers never have to type-check the result.
         empty_result = {"cutoff_hour": cutoff_hour, "today_features": {}, "analogs": []}
@@ -819,74 +899,21 @@ class FeatureModelMixin:
         if not cache or not cache.get("daily"):
             return empty_result
 
-        # 2. Extract today's live features
+        # 2. Extract today's cutoff-aligned features from the shared live path,
+        # rejecting rows that would need analog-specific defaults.
         history = self.source_data(sources, "wu_history")
-        current = self.source_data(sources, "wu_current")
-        weather_forecast = self.source_data(sources, "weather_forecast")
-        eccc_city = self.source_data(sources, "eccc_citypage")
-        open_meteo = self.source_data(sources, "open_meteo")
-
         rows = history.get("rows") or []
-        feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
-        feature_latest = feature_rows[-1] if feature_rows else None
-        
-        # Today's high_so_far
-        temps = [r["temp_c"] for r in feature_rows if r.get("temp_c") is not None]
-        today_current_temp = feature_latest.get("temp_c") if feature_latest else current.get("temp_c")
-        if temps:
-            today_high = max(temps)
-        else:
-            today_high = None
-
-        # Today's current_temp
-        if today_current_temp is None:
-            today_current_temp = current.get("temp_c")
-        if today_current_temp is None:
-            today_current_temp = feature_latest.get("temp_c") if feature_latest else today_high
-        if today_current_temp is None:
-            today_current_temp = today_high
-        today_high = self.max_value(today_high, today_current_temp)
-        if today_high is None:
-            today_high = current.get("max_since_7am_c")
-        if today_high is None:
+        today_full = self.extract_live_features(
+            sources,
+            cutoff_hour,
+            now=now,
+            strict=True,
+        )
+        today_features = self.analog_feature_view(today_full)
+        if not today_features:
             return empty_result
 
-        # Today's rise_from_7am
-        obs_7am_candidates = [r for r in rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and r.get("temp_c") is not None]
-        temp_7am = None
-        if obs_7am_candidates:
-            closest_7am = min(obs_7am_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - 420))
-            temp_7am = closest_7am["temp_c"]
-        if temp_7am is None:
-            temp_7am = today_current_temp
-        today_rise = today_current_temp - temp_7am
-
-        # Today's dewpoint
-        today_dewpoint = feature_latest.get("dewpoint_c") if feature_latest else current.get("dewpoint_c")
-        if today_dewpoint is None:
-            today_dewpoint = current.get("dewpoint_c")
-        if today_dewpoint is None:
-            today_dewpoint = feature_latest.get("dewpoint_c") if feature_latest else 10.0
-        if today_dewpoint is None:
-            today_dewpoint = 10.0
-
-        # Today's wind_group and cloud_group
-        today_wind = (
-            self.wind_group(feature_latest.get("wind")) if feature_latest else None
-        ) or self.live_wind_group(current, weather_forecast)
-        today_cloud = (
-            self.cloud_group(feature_latest.get("condition"), feature_latest.get("clouds"))
-            if feature_latest else None
-        ) or self.live_cloud_group(current, eccc_city, weather_forecast)
-        today_forecast_high, _ = self.resolve_forecast_high(open_meteo, weather_forecast, eccc_city)
-        today_forecast_gap = (
-            today_forecast_high - today_high
-            if today_forecast_high is not None and today_high is not None
-            else None
-        )
-
         # 3. Extract historical features at same cutoff hour
-        cutoff_minutes = cutoff_hour * 60
         hist_days_features = []
         forecast_index = load_forecast_daily(daily_path_for(self.spec))
         
@@ -894,60 +921,25 @@ class FeatureModelMixin:
             day_obs = cache["by_date"].get(local_date, [])
             if not day_obs:
                 continue
-
-            obs_before = [r for r in day_obs if r["minute_of_day"] <= cutoff_minutes]
-            if not obs_before:
-                continue
-            
-            # high_so_far
-            h_temps = [r["temp_c"] for r in obs_before if r.get("temp_c") is not None]
-            if not h_temps:
-                continue
-            h_high = max(h_temps)
-
-            # current_temp
-            h_curr_obs = obs_before[-1]
-            h_curr_temp = h_curr_obs.get("temp_c")
-            if h_curr_temp is None:
-                h_curr_temp = h_high
-
-            # temp at 7 AM
-            h_obs_7am_candidates = [r for r in day_obs if 360 <= r["minute_of_day"] <= 480 and r.get("temp_c") is not None]
-            h_temp_7am = None
-            if h_obs_7am_candidates:
-                closest_h_7am = min(h_obs_7am_candidates, key=lambda r: abs(r["minute_of_day"] - 420))
-                h_temp_7am = closest_h_7am["temp_c"]
-            if h_temp_7am is None:
-                h_temp_7am = h_curr_temp
-
-            h_rise = h_curr_temp - h_temp_7am
-
-            # dewpoint
-            h_dewpoint = h_curr_obs.get("dewpoint_c")
-            if h_dewpoint is None:
-                h_dews = [r["dewpoint_c"] for r in obs_before if r.get("dewpoint_c") is not None]
-                h_dewpoint = h_dews[-1] if h_dews else 10.0
-
-            # wind and cloud groups
-            h_wind = self.wind_group(h_curr_obs.get("wind"))
-            h_cloud = self.cloud_group(h_curr_obs.get("condition"), h_curr_obs.get("clouds"))
-            h_forecast_high = forecast_index.get(local_date.isoformat())
-            h_forecast_gap = (
-                h_forecast_high - h_high
-                if h_forecast_high is not None and h_high is not None
-                else None
+            historical_full = build_historical_feature_record(
+                local_date,
+                day_obs,
+                daily,
+                cutoff_hour,
+                forecast_high=forecast_index.get(local_date.isoformat()),
+                wind_group_fn=self.wind_group,
+                cloud_group_fn=self.cloud_group,
+                microclimate_feature_fn=self.microclimate_features,
+                strict=True,
             )
+            h_features = self.analog_feature_view(historical_full)
+            if not h_features:
+                continue
 
             hist_days_features.append({
                 "date": local_date,
-                "high_so_far": h_high,
-                "rise_from_7am": h_rise,
-                "dewpoint_c": h_dewpoint,
-                "wind_group": h_wind,
-                "cloud_group": h_cloud,
-                "forecast_high": h_forecast_high,
-                "forecast_gap": h_forecast_gap,
-                "final_high": daily.get("max_temp_native"),
+                **h_features,
+                "final_high": daily.get("max_temp_native", daily.get("max_temp_c")),
                 "final_bucket": daily["bucket"],
                 "observations": day_obs
             })
@@ -987,14 +979,14 @@ class FeatureModelMixin:
 
         analogs = []
         for d in hist_days_features:
-            d_high = ((d["high_so_far"] - today_high) / std_high) ** 2
-            d_rise = ((d["rise_from_7am"] - today_rise) / std_rise) ** 2
-            d_dew = ((d["dewpoint_c"] - today_dewpoint) / std_dew) ** 2
+            d_high = ((d["high_so_far"] - today_features["high_so_far"]) / std_high) ** 2
+            d_rise = ((d["rise_from_7am"] - today_features["rise_from_7am"]) / std_rise) ** 2
+            d_dew = ((d["dewpoint_c"] - today_features["dewpoint_c"]) / std_dew) ** 2
 
-            d_wind = 1.0 if d["wind_group"] != today_wind else 0.0
-            d_cloud = 1.0 if d["cloud_group"] != today_cloud else 0.0
-            if today_forecast_gap is not None and d.get("forecast_gap") is not None:
-                d_forecast_gap = ((d["forecast_gap"] - today_forecast_gap) / std_forecast_gap) ** 2
+            d_wind = 1.0 if d["wind_group"] != today_features["wind_group"] else 0.0
+            d_cloud = 1.0 if d["cloud_group"] != today_features["cloud_group"] else 0.0
+            if today_features.get("forecast_gap") is not None and d.get("forecast_gap") is not None:
+                d_forecast_gap = ((d["forecast_gap"] - today_features["forecast_gap"]) / std_forecast_gap) ** 2
             else:
                 d_forecast_gap = 0.0
 
@@ -1009,20 +1001,6 @@ class FeatureModelMixin:
 
             similarity = 100.0 * math.exp(-dist / 3.0)
 
-            # Extract temperature path (hourly from 7 AM to 8 PM)
-            temp_path = {}
-            for h in range(7, 21):
-                target_min = h * 60
-                obs_candidates = [r for r in d["observations"] if r.get("temp_c") is not None]
-                if obs_candidates:
-                    closest_obs = min(obs_candidates, key=lambda r: abs(r["minute_of_day"] - target_min))
-                    if abs(closest_obs["minute_of_day"] - target_min) <= 60:
-                        temp_path[f"{h:02d}:00"] = closest_obs["temp_c"]
-                    else:
-                        temp_path[f"{h:02d}:00"] = None
-                else:
-                    temp_path[f"{h:02d}:00"] = None
-
             analogs.append({
                 "date": d["date"].isoformat(),
                 "distance": dist,
@@ -1036,36 +1014,17 @@ class FeatureModelMixin:
                 "cloud_group": d["cloud_group"],
                 "forecast_high": d["forecast_high"],
                 "forecast_gap": d["forecast_gap"],
-                "temp_path": temp_path
+                "temp_path": self.analog_temperature_path(d["observations"]),
             })
 
         analogs.sort(key=lambda x: x["distance"])
 
         # Also get today's temperature path
-        today_temp_path = {}
-        for h in range(7, 21):
-            target_min = h * 60
-            obs_candidates = [r for r in rows if r.get("temp_c") is not None]
-            if obs_candidates:
-                closest_obs = min(obs_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - target_min))
-                if abs(self.minute_of_day(closest_obs["time"]) - target_min) <= 60:
-                    today_temp_path[f"{h:02d}:00"] = closest_obs["temp_c"]
-                else:
-                    today_temp_path[f"{h:02d}:00"] = None
-            else:
-                today_temp_path[f"{h:02d}:00"] = None
-        
         return {
             "cutoff_hour": cutoff_hour,
             "today_features": {
-                "high_so_far": today_high,
-                "rise_from_7am": today_rise,
-                "dewpoint_c": today_dewpoint,
-                "wind_group": today_wind,
-                "cloud_group": today_cloud,
-                "forecast_high": today_forecast_high,
-                "forecast_gap": today_forecast_gap,
-                "temp_path": today_temp_path
+                **today_features,
+                "temp_path": self.analog_temperature_path(rows),
             },
             "analogs": analogs[:limit]
         }

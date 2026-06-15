@@ -4,6 +4,8 @@ from datetime import datetime
 
 from weather.schema_registry import schema_version
 
+# v0.7 (ROADMAP item 27): wind-gust and wind-shift features.
+#
 # v0.6 (ROADMAP item 27): microclimate/onshore-flow features.
 #
 # v0.5 (ROADMAP item 50): forecast profile, radiation/cloud detail, and GFS
@@ -74,6 +76,8 @@ FEATURE_COLUMNS = [
     "pressure",
     "pressure_trend_3h",
     "wind_speed_kmh",
+    "wind_gust_kmh",
+    "wind_shift_3h_degrees",
     "onshore_flow",
     "onshore_wind_speed_kmh",
     "lake_breeze_proxy",
@@ -223,6 +227,76 @@ def row_value(row, *keys):
         if value is not None:
             return value
     return None
+
+
+COMPASS_DEGREES = {
+    "N": 0.0,
+    "NNE": 22.5,
+    "NE": 45.0,
+    "ENE": 67.5,
+    "E": 90.0,
+    "ESE": 112.5,
+    "SE": 135.0,
+    "SSE": 157.5,
+    "S": 180.0,
+    "SSW": 202.5,
+    "SW": 225.0,
+    "WSW": 247.5,
+    "W": 270.0,
+    "WNW": 292.5,
+    "NW": 315.0,
+    "NNW": 337.5,
+}
+
+
+def wind_direction_degrees(value):
+    if value in (None, "", "nan", "NaN"):
+        return None
+    numeric = to_float(value)
+    if numeric is not None:
+        return numeric % 360.0
+    text = str(value).strip().upper()
+    text = text.replace("°", "").replace("DEG", "").strip()
+    if text in {"CALM", "VRB", "VARIABLE", "VAR"}:
+        return None
+    numeric = to_float(text)
+    if numeric is not None:
+        return numeric % 360.0
+    return COMPASS_DEGREES.get(text)
+
+
+def wind_direction_delta_degrees(current, previous):
+    current_degrees = wind_direction_degrees(current)
+    previous_degrees = wind_direction_degrees(previous)
+    if current_degrees is None or previous_degrees is None:
+        return None
+    delta = abs((current_degrees - previous_degrees + 180.0) % 360.0 - 180.0)
+    return float(delta)
+
+
+def row_wind_direction(row):
+    return (
+        row.get("wind_dir")
+        or row.get("wind_direction")
+        or row.get("wind_degrees")
+        or row.get("wind")
+    )
+
+
+def closest_wind_direction(rows, target_minute, window_min):
+    candidates = []
+    for row in rows:
+        minute = row_minute_of_day(row)
+        if minute is None:
+            continue
+        direction = row_wind_direction(row)
+        if wind_direction_degrees(direction) is None:
+            continue
+        if abs(minute - target_minute) <= window_min:
+            candidates.append((abs(minute - target_minute), direction))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[0])[1]
 
 
 def nearest_hour_value(profile, hour, key):
@@ -402,6 +476,7 @@ def build_historical_feature_record(
     cloud_group_fn=None,
     microclimate_feature_fn=None,
     wall_minute=None,
+    strict=False,
 ):
     """One training record at printed-cutoff ``cutoff_hour``. ``wall_minute``
     (>= the cutoff minute) simulates the intra-hour serve state: the printed
@@ -434,7 +509,11 @@ def build_historical_feature_record(
         live_reading - high_so_far if live_reading is not None else None
     )
     current_temp = current_obs.get("temp_c")
+    if current_temp is None and strict:
+        return None
     temp_7am = closest_value(rows, 420, 60, "temp_c")
+    if temp_7am is None and strict:
+        return None
     rise_from_7am = (
         current_temp - temp_7am
         if current_temp is not None and temp_7am is not None
@@ -461,6 +540,9 @@ def build_historical_feature_record(
         else 0.0
     )
 
+    dewpoint = current_obs.get("dewpoint_c")
+    if dewpoint is None and strict:
+        return None
     pressure = current_obs.get("pressure")
     pressure_window = []
     for row in rows:
@@ -486,11 +568,24 @@ def build_historical_feature_record(
         if wind_group_fn is not None
         else current_obs.get("wind_group")
     )
+    if wind_group is None and strict:
+        return None
+    wind_3h_direction = closest_wind_direction(
+        rows,
+        cutoff_minutes - 180,
+        60,
+    )
+    wind_shift_3h = wind_direction_delta_degrees(
+        row_wind_direction(current_obs),
+        wind_3h_direction,
+    )
     cloud_group = (
         cloud_group_fn(current_obs.get("condition"), current_obs.get("clouds"))
         if cloud_group_fn is not None
         else current_obs.get("cloud_group")
     )
+    if cloud_group is None and strict:
+        return None
     microclimate = (
         microclimate_feature_fn(wind_group, current_obs.get("wind_kmh"))
         if microclimate_feature_fn is not None
@@ -519,11 +614,13 @@ def build_historical_feature_record(
         "rise_from_7am": rise_from_7am,
         "warming_rate_2h": warming_rate_2h,
         "hours_at_peak": hours_at_peak,
-        "dewpoint_c": current_obs.get("dewpoint_c"),
+        "dewpoint_c": dewpoint,
         "humidity": current_obs.get("humidity"),
         "pressure": pressure,
         "pressure_trend_3h": pressure_trend_3h,
         "wind_speed_kmh": current_obs.get("wind_kmh"),
+        "wind_gust_kmh": row_value(current_obs, "gust_kmh", "wind_gust_kmh", "wind_gust"),
+        "wind_shift_3h_degrees": wind_shift_3h if wind_shift_3h is not None else 0.0,
         **microclimate,
         "forecast_high": forecast_high,
         "forecast_gap": forecast_gap,

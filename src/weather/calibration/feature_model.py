@@ -24,6 +24,10 @@ from feature_store import (
     FEATURE_SCHEMA_VERSION,
     NATIVE_NAN_FEATURE_COLUMNS,
     build_historical_feature_record,
+    closest_wind_direction,
+    row_value,
+    row_wind_direction,
+    wind_direction_delta_degrees,
 )
 from feature_probability_calibration import (
     fit_temperature_blend_grid,
@@ -150,6 +154,8 @@ FEATURE_FAMILIES = {
         "pressure",
         "pressure_trend_3h",
         "wind_speed_kmh",
+        "wind_gust_kmh",
+        "wind_shift_3h_degrees",
     ],
     "microclimate": [
         "onshore_flow",
@@ -173,6 +179,8 @@ LATE_DAY_NUMERIC_FEATURES = [
     "pressure",
     "pressure_trend_3h",
     "wind_speed_kmh",
+    "wind_gust_kmh",
+    "wind_shift_3h_degrees",
     "forecast_high",
     "forecast_gap",
 ]
@@ -485,6 +493,11 @@ def train_late_day_continuation_models(
                 pressure_trend_3h = pressure - closest_obs_3h["pressure"]
 
             wind_speed = current_obs.get("wind_kmh")
+            wind_gust = row_value(current_obs, "gust_kmh", "wind_gust_kmh", "wind_gust")
+            wind_shift_3h = wind_direction_delta_degrees(
+                row_wind_direction(current_obs),
+                closest_wind_direction(rows, cutoff_minutes - 180, 60),
+            )
             wind_group = model.wind_group(current_obs.get("wind"))
             cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
             forecast_high = forecast_index.get(local_date.isoformat())
@@ -507,6 +520,8 @@ def train_late_day_continuation_models(
                 "pressure": pressure,
                 "pressure_trend_3h": pressure_trend_3h,
                 "wind_speed_kmh": wind_speed,
+                "wind_gust_kmh": wind_gust,
+                "wind_shift_3h_degrees": wind_shift_3h if wind_shift_3h is not None else 0.0,
                 "forecast_high": forecast_high,
                 "forecast_gap": forecast_gap,
                 "wind_group": wind_group,

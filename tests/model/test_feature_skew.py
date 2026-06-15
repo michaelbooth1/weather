@@ -29,9 +29,9 @@ FORECAST_HIGH = 26.0
 # row shapes, so we render the same obs into each shape from this source.
 OBS = [
     # (hh, mm, temp_c, dewpoint_c, humidity, pressure, wind_kmh, wind, condition)
-    (7, 0, 16.0, 10.0, 70.0, 1016.0, 10.0, "SW", "Fair"),
-    (11, 0, 22.0, 11.0, 55.0, 1015.0, 14.0, "SW", "Fair"),
-    (14, 0, 24.0, 11.0, 48.0, 1014.0, 18.0, "SW", "Fair"),
+    (7, 0, 16.0, 10.0, 70.0, 1016.0, 10.0, "W", "Fair"),
+    (11, 0, 22.0, 11.0, 55.0, 1015.0, 14.0, "W", "Fair"),
+    (14, 0, 24.0, 11.0, 48.0, 1014.0, 18.0, "S", "Fair"),
 ]
 
 SHARED_FEATURES = list(FEATURE_COLUMNS)
@@ -43,6 +43,7 @@ def historical_rows():
             "minute_of_day": hh * 60 + mm,
             "temp_c": temp, "dewpoint_c": dew, "humidity": hum,
             "pressure": pres, "wind_kmh": wind_kmh,
+            "gust_kmh": wind_kmh + 5.0,
             "wind": wind, "condition": cond, "clouds": None,
         }
         for (hh, mm, temp, dew, hum, pres, wind_kmh, wind, cond) in OBS
@@ -55,6 +56,7 @@ def live_sources():
             "time": f"{hh:02d}:{mm:02d}",
             "temp_c": temp, "dewpoint_c": dew, "humidity": hum,
             "pressure": pres, "wind_kmh": wind_kmh,
+            "gust_kmh": wind_kmh + 5.0,
             "wind": wind, "condition": cond, "clouds": None,
         }
         for (hh, mm, temp, dew, hum, pres, wind_kmh, wind, cond) in OBS
@@ -104,6 +106,7 @@ class TestFeatureSkew(unittest.TestCase):
         hist_rows = historical_rows() + [{
             "minute_of_day": 15 * 60, "temp_c": 26.0, "dewpoint_c": 11.0,
             "humidity": 45.0, "pressure": 1013.0, "wind_kmh": 18.0,
+            "gust_kmh": 23.0,
             "wind": "SW", "condition": "Fair", "clouds": None,
         }]
         train = build_historical_feature_record(
@@ -220,6 +223,8 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["high_so_far"], 24.0)
         self.assertEqual(serve["rise_from_7am"], 8.0)          # 24 - 16
         self.assertEqual(serve["pressure_trend_3h"], -1.0)     # 1014 - 1015
+        self.assertEqual(serve["wind_gust_kmh"], 23.0)
+        self.assertEqual(serve["wind_shift_3h_degrees"], 90.0)  # W -> S
         self.assertEqual(serve["forecast_gap"], 2.0)           # 26 - 24
         self.assertEqual(serve["forecast_source_count"], 1)
         self.assertEqual(serve["forecast_disagreement"], 0.0)

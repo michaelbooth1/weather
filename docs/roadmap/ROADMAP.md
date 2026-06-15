@@ -72,7 +72,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 24 | [Unified Feature Store And Train/Serve Parity [COMPLETE]](items/item-24-unified-feature-store-and-train-serve-parity.md) |
 | 25 | [Market-Day Data Collection And Label Quality [COMPLETE]](items/item-25-market-day-data-collection-and-label-quality.md) |
 | 26 | [Model Ensemble And Ablation Framework [COMPLETE - AWAITING MORE CLEAN DAYS]](items/item-26-model-ensemble-and-ablation-framework.md) |
-| 27 | [Weather Regime And Microclimate Features [PARTIAL - MICROCLIMATE FEATURES PLUMBED]](items/item-27-weather-regime-and-microclimate-features.md) |
+| 27 | [Weather Regime And Microclimate Features [PARTIAL 2026-06-15 - WIND SHIFT/GUST FEATURES PLUMBED]](items/item-27-weather-regime-and-microclimate-features.md) |
 
 ### [Track A — From Basic To Best-Possible Data Layer](tracks/track-a-data-layer.md)
 
@@ -92,7 +92,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 
 | Item | File |
 | ---: | --- |
-| 33 | [Family-Pooled Model + City Features [OPEN - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
+| 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
 | 35 | [Unified Continuous-Density Model [NEW - ENDGAME]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
@@ -103,13 +103,13 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 42 | [Fast Observation-Triggered Recompute Path [PARTIAL 2026-06-14 - WATCHER SHIPPED]](items/item-42-fast-observation-triggered-recompute-path.md) |
 | 43 | [Market-Making Policy And Quote Intent Tape [COMPLETE 2026-06-14 - SHADOW POLICY LIVE]](items/item-43-market-making-policy-and-quote-intent-tape.md) |
 | 44 | [Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [COMPLETE 2026-06-15 - PAPER SCORER LIVE]](items/item-44-paper-trading-queue-simulation-markouts-and-incentive-accounting.md) |
-| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
+| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE + RUNBOOK LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS + PERMISSION CELLS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [NEW - OPEN]](items/item-50-scholarly-weather-input-gap-closure.md) |
-| 51 | [Model Architecture Health Refactor [PARTIAL 2026-06-15 - DISTRIBUTION PIPELINE STATE]](items/item-51-model-architecture-health-refactor.md) |
+| 51 | [Model Architecture Health Refactor [PARTIAL 2026-06-15 - ANALOG FEATURE VIEW]](items/item-51-model-architecture-health-refactor.md) |
 | 52 | [Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]](items/item-52-miami-current-serving-replay-regression-triage.md) |
 | 53 | [Candidate Source-Freshness Gap Attribution [COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE]](items/item-53-candidate-source-freshness-gap-attribution.md) |
 | 54 | [Source-Freshness Known-Edge Map Consumption [COMPLETE 2026-06-15 - PERMISSION CELLS LIVE]](items/item-54-source-freshness-known-edge-map-consumption.md) |

@@ -1,4 +1,4 @@
-# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE LIVE]
+# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE + RUNBOOK LIVE]
 
 Goal: define the sizing and operational gates that must be green before any
 real-money market-making pilot.
@@ -33,12 +33,12 @@ the current `data/backtest/data_layer_audit_report.md` still reported
 - [ ] Verify the exact operating platform before live keys: Polymarket global
   versus Polymarket US eligibility, current fees, current reward/rebate rules,
   account jurisdiction, wallet type, allowances, and API semantics.
-- [ ] Write the MM-2 day-one protocol: heartbeat-lapse drill with a throwaway
+- [x] Write the MM-2 day-one protocol: heartbeat-lapse drill with a throwaway
   far-from-mid order, min-size/tick/post-only rejection probes, one tiny
   two-sided quote on one band, user WebSocket lifecycle verification,
   balance-reserve verification, and next payout-cycle reward/rebate
   reconciliation before scaling beyond one event.
-- [ ] Write the live runbook: start, pause, cancel-all, flatten, redeem,
+- [x] Write the live runbook: start, pause, cancel-all, flatten, redeem,
   reconcile, rotate keys, handle failed user WebSocket, handle CLOB outage,
   handle stale observation watcher, and recover after process death.
 
@@ -78,3 +78,10 @@ and book-available rows before any live-pilot start can pass. Missing or invalid
 audit proof emits the `data_layer_live_gate` preflight blocker and corresponding
 remediation root cause. Focused tests prove shadow mode does not require the
 gate and live-pilot blocks when the audit lacks current CLOB proof.
+
+Runbook update (2026-06-15 UTC): `docs/research/MARKET_MAKING_LIVE_RUNBOOK_2026-06-15.md`
+now records the MM-2 day-one protocol and live operating runbook, with official
+Polymarket global and Polymarket US documentation links checked on 2026-06-15.
+The account/platform verification checkbox remains open because it depends on
+the actual operating account, jurisdiction, wallet type, API base URL,
+allowances, fee/reward settings, and live-key semantics immediately before use.
