@@ -271,6 +271,7 @@ def _decomposition(results, market_rows):
             "by_forecast_gap": _slice_table(rows, "feature_forecast_gap_bucket"),
             "by_live_reading_gap": _slice_table(rows, "feature_live_reading_gap_bucket"),
             "by_settlement_distance": _slice_table(rows, "settlement_distance_bucket"),
+            "by_source_freshness": _slice_table(rows, "source_freshness_state"),
         },
         "blocking_markets": {},
     }
@@ -282,6 +283,7 @@ def _decomposition(results, market_rows):
             "by_forecast_gap": _slice_table(market_rows_only, "feature_forecast_gap_bucket", limit=6),
             "by_live_reading_gap": _slice_table(market_rows_only, "feature_live_reading_gap_bucket", limit=6),
             "by_settlement_distance": _slice_table(market_rows_only, "settlement_distance_bucket", limit=6),
+            "by_source_freshness": _slice_table(market_rows_only, "source_freshness_state", limit=6),
         }
     return output
 
@@ -494,6 +496,7 @@ def write_report(report, out_path):
     lines += _slice_markdown("Overall By Forecast Gap", overall.get("by_forecast_gap") or [])
     lines += _slice_markdown("Overall By Live Reading Gap", overall.get("by_live_reading_gap") or [])
     lines += _slice_markdown("Overall By Settlement Distance", overall.get("by_settlement_distance") or [])
+    lines += _slice_markdown("Overall By Source Freshness", overall.get("by_source_freshness") or [])
 
     blocking = decomp.get("blocking_markets") or {}
     if blocking:
@@ -506,6 +509,7 @@ def write_report(report, out_path):
                 ("Forecast Gap", "by_forecast_gap"),
                 ("Live Reading Gap", "by_live_reading_gap"),
                 ("Settlement Distance", "by_settlement_distance"),
+                ("Source Freshness", "by_source_freshness"),
             ]:
                 lines += _slice_markdown(label, slices.get(key) or [])
     warnings = results.get("corpus_warnings") or []

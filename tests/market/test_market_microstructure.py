@@ -361,6 +361,7 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(written["last_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["recent_iteration_elapsed_seconds"], [0.0])
+        self.assertEqual(written["max_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["max_recent_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(len(diagnostics), 1)
 
@@ -453,7 +454,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             "last_sleep_seconds": 15.0,
         }
 
-        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 180.0)
+        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 210.0)
         self.assertEqual(fleet_effective_book_gap_seconds(240.0, status), 240.0)
 
     def test_fleet_effective_book_gap_uses_recent_max_cycle(self):
@@ -464,7 +465,18 @@ class TestMarketMicrostructure(unittest.TestCase):
             "last_sleep_seconds": 15.0,
         }
 
-        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 235.0)
+        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 265.0)
+
+    def test_fleet_effective_book_gap_uses_persisted_max_cycle(self):
+        status = {
+            "last_iteration_elapsed_seconds": 130.0,
+            "recent_iteration_elapsed_seconds": [120.0, 150.0],
+            "max_iteration_elapsed_seconds": 225.0,
+            "max_recent_iteration_elapsed_seconds": 150.0,
+            "last_sleep_seconds": 15.0,
+        }
+
+        self.assertEqual(fleet_effective_book_gap_seconds(120.0, status), 300.0)
 
     def test_audit_book_tape_missing_tape(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,7 +10,7 @@ import json
 import math
 import pickle
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -50,6 +50,7 @@ from pooled_feature_model import (
 )
 from promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS, entry_for_folder, folders_from_manifest, load_manifest
 from replay import index_records_by_snapshot, is_reconstructed, load_replay_records, parse_built_at, record_target_date
+from replay import source_freshness_group
 from replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
 from settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
 from toronto_model import TorontoHighTempModel
@@ -90,7 +91,6 @@ MICROSTRUCTURE_CATEGORICAL_FEATURES = [
     "bin_type",
     "candidate_cutoff_hour_bucket",
 ]
-
 
 def load_artifact(path):
     path = Path(path)
@@ -539,6 +539,39 @@ def build_clob_feature_index(manifest, snapshots_root, family_unit, max_age_seco
     return output, diagnostics
 
 
+def build_source_freshness_index(manifest, snapshots_root, family_unit):
+    """Return (market_id, snapshot_id) -> compact source freshness group."""
+    output = {}
+    counts = Counter()
+    diagnostics = {
+        "source_freshness_snapshots": 0,
+        "source_freshness_missing_records": 0,
+        "source_freshness_states": {},
+    }
+    include_reconstructed = bool(manifest.get("include_reconstructed"))
+    for folder in folders_from_manifest(manifest, snapshots_root):
+        market_id = folder_market_id(folder)
+        spec = REGISTRY.get(market_id)
+        if not spec or spec.display_unit != family_unit:
+            continue
+        entry = entry_for_folder(manifest, folder)
+        records = index_records_by_snapshot(load_replay_records(folder))
+        pinned_ids = [str(item) for item in (entry or {}).get("snapshot_ids") or records.keys()]
+        for snapshot_id in pinned_ids:
+            record = records.get(str(snapshot_id))
+            if not record:
+                diagnostics["source_freshness_missing_records"] += 1
+                continue
+            if is_reconstructed(record) and not include_reconstructed:
+                continue
+            group = source_freshness_group(record)
+            output[(market_id, str(snapshot_id))] = group
+            counts[group] += 1
+    diagnostics["source_freshness_snapshots"] = len(output)
+    diagnostics["source_freshness_states"] = dict(sorted(counts.items()))
+    return output, diagnostics
+
+
 def build_candidate_distributions(manifest, snapshots_root, artifact):
     """Return (market_id, snapshot_id) -> pooled candidate distribution."""
     family_unit = artifact.get("family_unit") or "F"
@@ -573,7 +606,7 @@ def build_candidate_distributions(manifest, snapshots_root, artifact):
     return predictions, diagnostics
 
 
-def attach_candidate_probabilities(replay_results, predictions, family_unit):
+def attach_candidate_probabilities(replay_results, predictions, family_unit, source_freshness=None):
     rows = []
     coverage = {
         "family_unit": family_unit,
@@ -591,7 +624,12 @@ def attach_candidate_probabilities(replay_results, predictions, family_unit):
             continue
         coverage["family_rows"] += 1
         copy = dict(row)
-        candidate = predictions.get((market_id, str(row.get("snapshot_id"))))
+        snapshot_id = str(row.get("snapshot_id"))
+        copy["source_freshness_state"] = (source_freshness or {}).get(
+            (market_id, snapshot_id),
+            "missing_source_status",
+        )
+        candidate = predictions.get((market_id, snapshot_id))
         if candidate:
             kind, value, value_hi = snapshot_band_key(row)
             copy["candidate_cutoff_hour"] = candidate.get("cutoff_hour")
@@ -612,7 +650,14 @@ def attach_candidate_probabilities(replay_results, predictions, family_unit):
     return rows, coverage
 
 
-def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, family_unit, clob_features=None):
+def attach_band_candidate_probabilities(
+    replay_results,
+    feature_rows,
+    artifact,
+    family_unit,
+    clob_features=None,
+    source_freshness=None,
+):
     rows = []
     coverage = {
         "family_unit": family_unit,
@@ -634,7 +679,12 @@ def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, 
         copy = dict(row)
         copy["candidate_p"] = None
         copy["candidate_cutoff_hour"] = None
-        feature_row = feature_rows.get((market_id, str(row.get("snapshot_id"))))
+        snapshot_id = str(row.get("snapshot_id"))
+        copy["source_freshness_state"] = (source_freshness or {}).get(
+            (market_id, snapshot_id),
+            "missing_source_status",
+        )
+        feature_row = feature_rows.get((market_id, snapshot_id))
         if feature_row:
             kind, value, value_hi = snapshot_band_key(row)
             band_row = band_prediction_record(
@@ -643,7 +693,7 @@ def attach_band_candidate_probabilities(replay_results, feature_rows, artifact, 
                 value,
                 value_hi=value_hi,
             )
-            clob_key = (market_id, str(row.get("snapshot_id")), kind, value, value_hi)
+            clob_key = (market_id, snapshot_id, kind, value, value_hi)
             clob_row = (clob_features or {}).get(clob_key)
             if clob_row:
                 for column in CLOB_MODEL_FEATURE_COLUMNS:
@@ -1257,17 +1307,35 @@ def run_pooled_candidate_replay(args):
             family_unit,
             max_age_seconds=args.clob_max_age_seconds,
         )
+        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
+            manifest,
+            args.snapshots_root,
+            family_unit,
+        )
         diagnostics.update(clob_diagnostics)
+        diagnostics.update(source_freshness_diagnostics)
         candidate_rows, coverage = attach_band_candidate_probabilities(
             replay_results,
             feature_rows,
             artifact,
             family_unit,
             clob_features=clob_features,
+            source_freshness=source_freshness,
         )
     else:
         predictions, diagnostics = build_candidate_distributions(manifest, args.snapshots_root, artifact)
-        candidate_rows, coverage = attach_candidate_probabilities(replay_results, predictions, family_unit)
+        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
+            manifest,
+            args.snapshots_root,
+            family_unit,
+        )
+        diagnostics.update(source_freshness_diagnostics)
+        candidate_rows, coverage = attach_candidate_probabilities(
+            replay_results,
+            predictions,
+            family_unit,
+            source_freshness=source_freshness,
+        )
 
     trust_rows = score_all_markets(
         root=args.snapshots_root,
@@ -1281,6 +1349,7 @@ def run_pooled_candidate_replay(args):
     by_hour = grouped_candidate_comparison(candidate_rows, "candidate_cutoff_hour")
     by_bin_type = grouped_candidate_comparison(candidate_rows, "bin_type")
     by_settlement_distance = grouped_candidate_comparison(candidate_rows, "settlement_distance_bucket")
+    by_source_freshness = grouped_candidate_comparison(candidate_rows, "source_freshness_state")
     microstructure = None
     if not getattr(args, "skip_microstructure_overlay", False):
         microstructure = microstructure_shadow_report(
@@ -1325,6 +1394,7 @@ def run_pooled_candidate_replay(args):
         "by_hour": by_hour,
         "by_bin_type": by_bin_type,
         "by_settlement_distance": by_settlement_distance,
+        "by_source_freshness": by_source_freshness,
         "microstructure": microstructure,
         "replay_summary": {
             "snaps_scored": replay_results.get("snaps_scored"),
@@ -1552,6 +1622,7 @@ def write_report(report, out_path):
             ["Missing candidate rows", coverage.get("missing_candidate_rows", 0)],
             ["Candidate snapshots", diagnostics.get("candidate_snapshots", 0)],
             ["Predicted snapshots", diagnostics.get("predicted_snapshots", 0)],
+            ["Source-freshness snapshots", diagnostics.get("source_freshness_snapshots", 0)],
             ["CLOB feature folders", diagnostics.get("clob_feature_folders", 0)],
             ["CLOB feature rows", diagnostics.get("clob_feature_rows", 0)],
             ["CLOB available rows", diagnostics.get("clob_feature_available_rows", 0)],
@@ -1655,6 +1726,7 @@ def write_report(report, out_path):
     lines += _slice_markdown("By Candidate Cutoff Hour", report.get("by_hour") or [])
     lines += _slice_markdown("By Band Type", report.get("by_bin_type") or [])
     lines += _slice_markdown("By Settlement Distance", report.get("by_settlement_distance") or [])
+    lines += _slice_markdown("By Source Freshness", report.get("by_source_freshness") or [])
 
     warnings = (report.get("replay_summary") or {}).get("corpus_warnings") or []
     if warnings:

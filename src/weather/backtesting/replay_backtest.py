@@ -77,6 +77,7 @@ from replay import (
     replay_distribution,
     replay_model_identity,
     replay_model_version,
+    source_freshness_group,
 )
 from settled_days import folder_market_id
 from toronto_model import TorontoHighTempModel
@@ -430,6 +431,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                     "settlement_bucket": bucket,
                     "settlement_distance": distance,
                     "settlement_distance_bucket": settlement_distance_bucket(distance),
+                    "source_freshness_state": source_freshness_group(record),
                 }
                 attach_feature_vector(scoring_row, feature_index.get(str(snapshot_id)))
                 day_rows.append(scoring_row)

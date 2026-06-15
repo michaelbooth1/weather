@@ -125,6 +125,25 @@ class TestLiveObservedFloor(unittest.TestCase):
         )
         self.assertAlmostEqual(out[18], out[19])
 
+    def test_validated_wu_max_hard_floor_is_miami_only(self):
+        miami = TorontoHighTempModel(market_id="miami")
+        atlanta = TorontoHighTempModel(market_id="atlanta")
+
+        self.assertEqual(
+            miami.validated_current_max_floor_bucket(current_max=90.0, history_max=88.0),
+            90,
+        )
+        self.assertIsNone(
+            atlanta.validated_current_max_floor_bucket(current_max=90.0, history_max=88.0)
+        )
+
+    def test_validated_wu_max_hard_floor_noops_when_history_covers_it(self):
+        miami = TorontoHighTempModel(market_id="miami")
+
+        self.assertIsNone(
+            miami.validated_current_max_floor_bucket(current_max=88.0, history_max=90.0)
+        )
+
     def test_noop_when_swob_not_ahead_of_wu(self):
         scores = {t: 1.0 for t in range(16, 22)}
         out = self.m.apply_live_observed_floor(scores, swob_max=18.0, history_max=19.0)

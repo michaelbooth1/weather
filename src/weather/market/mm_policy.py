@@ -28,6 +28,7 @@ from market_registry import REGISTRY, spec_for_slug
 SCHEMA_VERSION = "mm_quote_intent_v0.1"
 POLICY_VERSION = "mm_policy_v0.1"
 DEFAULT_PROMOTION_REFRESH = Path("data") / "backtest" / "f_family_promotion_refresh.json"
+DEFAULT_KNOWN_EDGE_MAP = Path("data") / "backtest" / "mm_known_edge_map.json"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
 DEFAULT_OBSERVATION_STATUS = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_status.json"
 DEFAULT_OUT = Path("data") / "backtest" / "quotes_long.csv"
@@ -76,6 +77,9 @@ QUOTE_COLUMNS = [
     "promotion_state",
     "known_edge_taxonomy",
     "known_edge_allowed",
+    "known_edge_permission",
+    "known_edge_reason",
+    "known_edge_record_key",
     "range_label",
     "bin_kind",
     "bin_value",
@@ -102,6 +106,7 @@ QUOTE_COLUMNS = [
     "model_age_seconds",
     "watcher_age_seconds",
     "source_fresh",
+    "source_freshness_state",
     "heartbeat_ok",
     "latency_budget_status",
     "expected_reward_score",
@@ -186,6 +191,208 @@ def promotion_state_from_action(action, verdict=None):
     if action == "KEEP_SHADOW" or verdict == "SHADOW":
         return "SHADOW"
     return "BLOCK"
+
+
+def normalize_token(value):
+    if value in (None, ""):
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip().lower()
+
+
+def load_known_edge_map(path=DEFAULT_KNOWN_EDGE_MAP):
+    path = Path(path) if path else None
+    if path is None:
+        return [], {"path": None, "exists": False, "record_count": 0}
+    if not path.exists():
+        return [], {"path": str(path), "exists": False, "record_count": 0}
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    records = payload.get("records") or []
+    return records, {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "record_count": len(records),
+        "summary": payload.get("summary") or {},
+    }
+
+
+def known_edge_record_key(record):
+    fields = [
+        "market_id",
+        "cutoff",
+        "hour_utc",
+        "band_distance_bucket",
+        "band_type",
+        "casebook_taxonomy",
+        "regime",
+        "source_fresh",
+        "source_freshness_state",
+        "book_imbalance_bucket",
+    ]
+    return "|".join(normalize_token(record.get(field)) or "*" for field in fields)
+
+
+def _wildcard(value):
+    return normalize_token(value) in {"", "*", "any", "all"}
+
+
+def _row_hour_utc(row):
+    value = first_present(row, "hour_utc", "utc_hour")
+    if value not in (None, ""):
+        return normalize_token(value)
+    parsed = parse_time(first_present(row, "captured_at_utc", "generated_at_utc"))
+    if parsed is None:
+        return ""
+    return str(parsed.hour)
+
+
+def _row_cutoff(row):
+    return normalize_token(first_present(row, "cutoff", "cutoff_hour", "effective_cutoff_hour"))
+
+
+def _row_source_fresh(row):
+    if "source_fresh" not in row:
+        return ""
+    return "true" if bool_value(row.get("source_fresh"), False) else "false"
+
+
+def _row_source_freshness_state(row):
+    value = first_present(row, "source_freshness_state", "known_edge_source_freshness_state")
+    if value not in (None, ""):
+        return normalize_token(value)
+    source_fresh = _row_source_fresh(row)
+    if source_fresh == "true":
+        return "all_fresh"
+    if source_fresh == "false":
+        return "stale_or_failed"
+    return ""
+
+
+def known_edge_row_dimensions(row):
+    return {
+        "market_id": normalize_token(row.get("market_id")),
+        "cutoff": _row_cutoff(row),
+        "hour_utc": _row_hour_utc(row),
+        "band_distance_bucket": normalize_token(row.get("band_distance_bucket")),
+        "band_type": normalize_token(first_present(row, "band_type", "bin_kind", "bin_type")),
+        "casebook_taxonomy": normalize_token(first_present(row, "casebook_taxonomy", "known_edge_taxonomy")),
+        "regime": normalize_token(row.get("regime")),
+        "source_fresh": _row_source_fresh(row),
+        "source_freshness_state": _row_source_freshness_state(row),
+        "book_imbalance_bucket": normalize_token(row.get("book_imbalance_bucket")),
+    }
+
+
+def _record_matches_dimensions(record, dimensions):
+    market_id = normalize_token(record.get("market_id"))
+    if market_id not in {"*", dimensions.get("market_id")}:
+        return False
+    for field in (
+        "hour_utc",
+        "band_distance_bucket",
+        "band_type",
+        "casebook_taxonomy",
+        "regime",
+        "source_fresh",
+        "source_freshness_state",
+        "book_imbalance_bucket",
+    ):
+        record_value = record.get(field)
+        if _wildcard(record_value):
+            continue
+        row_value = dimensions.get(field)
+        if not row_value or normalize_token(record_value) != row_value:
+            return False
+    cutoff = normalize_token(record.get("cutoff"))
+    if cutoff and cutoff not in {"*", "paper_slice"}:
+        row_cutoff = dimensions.get("cutoff")
+        if not row_cutoff or cutoff != row_cutoff:
+            return False
+    return True
+
+
+def _record_specificity(record):
+    fields = [
+        "market_id",
+        "cutoff",
+        "hour_utc",
+        "band_distance_bucket",
+        "band_type",
+        "casebook_taxonomy",
+        "regime",
+        "source_fresh",
+        "source_freshness_state",
+        "book_imbalance_bucket",
+    ]
+    score = 0
+    for field in fields:
+        value = normalize_token(record.get(field))
+        if value and value not in {"*", "paper_slice"}:
+            score += 1
+    return score
+
+
+def _permission_rank(record):
+    ranks = {
+        "no_quote": 0,
+        "harvest_only": 1,
+        "edge_research": 2,
+        "edge_allowed": 3,
+    }
+    return ranks.get(normalize_token(record.get("permission")), 0)
+
+
+def resolve_known_edge_record(row, records):
+    dimensions = known_edge_row_dimensions(row)
+    matches = [
+        record for record in records
+        if _record_matches_dimensions(record, dimensions)
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda record: (-_record_specificity(record), _permission_rank(record)))[0]
+
+
+def apply_known_edge_permission(row, record=None, map_loaded=False):
+    out = dict(row)
+    if record is None:
+        if map_loaded:
+            out.update({
+                "known_edge_allowed": False,
+                "known_edge_permission": "no_quote",
+                "known_edge_reason": "missing_known_edge_record",
+                "known_edge_record_key": "",
+            })
+        else:
+            out.update({
+                "known_edge_allowed": False,
+                "known_edge_permission": "harvest_only",
+                "known_edge_reason": "known_edge_map_missing",
+                "known_edge_record_key": "",
+            })
+        return out
+    permission = normalize_token(record.get("permission")) or "no_quote"
+    taxonomy = record.get("casebook_taxonomy")
+    out.update({
+        "known_edge_allowed": permission == "edge_allowed",
+        "known_edge_permission": permission,
+        "known_edge_reason": record.get("reason") or "",
+        "known_edge_record_key": known_edge_record_key(record),
+    })
+    if not _wildcard(taxonomy):
+        out["known_edge_taxonomy"] = taxonomy
+    return out
+
+
+def known_edge_allowed_from_row(row):
+    permission = normalize_token(row.get("known_edge_permission"))
+    if permission:
+        return permission == "edge_allowed"
+    return bool_value(row.get("known_edge_allowed"), False)
 
 
 def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
@@ -328,7 +535,10 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "model_version": row.get("model_version") or "",
         "promotion_state": row.get("promotion_state") or "BLOCK",
         "known_edge_taxonomy": row.get("known_edge_taxonomy") or row.get("casebook_taxonomy") or "",
-        "known_edge_allowed": bool_value(row.get("known_edge_allowed"), False),
+        "known_edge_allowed": known_edge_allowed_from_row(row),
+        "known_edge_permission": row.get("known_edge_permission") or "",
+        "known_edge_reason": row.get("known_edge_reason") or "",
+        "known_edge_record_key": row.get("known_edge_record_key") or "",
         "range_label": row.get("range_label") or "",
         "bin_kind": row.get("bin_kind") or row.get("bin_type") or "",
         "bin_value": row.get("bin_value") or row.get("bin_value_c") or "",
@@ -355,6 +565,7 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "model_age_seconds": model_age,
         "watcher_age_seconds": watcher_age,
         "source_fresh": bool_value(row.get("source_fresh"), False),
+        "source_freshness_state": row.get("source_freshness_state") or "",
         "heartbeat_ok": bool_value(row.get("heartbeat_ok"), False),
         "latency_budget_status": "blocked",
         "expected_reward_score": 0.0,
@@ -396,6 +607,15 @@ def decide_quote(row, config=None, now=None):
     config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
     now = utc_now(now)
     promotion_state = str(row.get("promotion_state") or "BLOCK").upper()
+    known_edge_permission = normalize_token(row.get("known_edge_permission"))
+    if known_edge_permission == "no_quote":
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+            row.get("known_edge_reason") or "known-edge map permission is no_quote",
+        )
     if promotion_state == "BLOCK":
         return _no_quote(row, config, now, "NO_QUOTE_BLOCKED_PROMOTION", "promotion state is BLOCK")
     if not bool_value(row.get("heartbeat_ok"), False):
@@ -435,7 +655,7 @@ def decide_quote(row, config=None, now=None):
     tick = float(config["tick_size"])
     min_price = float(config["min_price"])
     max_price = float(config["max_price"])
-    known_edge_allowed = bool_value(row.get("known_edge_allowed"), False)
+    known_edge_allowed = known_edge_allowed_from_row(row)
     edge_threshold = (
         float(config["edge_min_advantage"])
         + float(config["edge_fee_buffer"])
@@ -486,6 +706,49 @@ def _band_key_without_token(row):
     return (row.get("snapshot_id"), kind, value, value_hi)
 
 
+def source_status_kind(item):
+    item = item or {}
+    status = normalize_token(item.get("status"))
+    ok = None
+    if item.get("ok") not in (None, ""):
+        ok = bool_value(item.get("ok"), None)
+    stale = None
+    if item.get("stale") not in (None, ""):
+        stale = bool_value(item.get("stale"), None)
+    if ok is False or status in {"failed", "error", "missing"}:
+        return "failed"
+    if stale is True or status in {"stale", "stale_cache", "expired"}:
+        return "stale"
+    if ok is True or status in {"fresh", "ok", "available"}:
+        return "fresh"
+    return "unknown"
+
+
+def source_list_label(sources, limit=3):
+    names = sorted(str(source) for source in sources if source not in (None, ""))
+    if len(names) <= limit:
+        return ",".join(names)
+    head = ",".join(names[:limit])
+    return f"{head},+{len(names) - limit}"
+
+
+def source_freshness_state_from_rows(rows):
+    if not rows:
+        return "missing_sources"
+    by_state = {}
+    for row in rows:
+        source = row.get("source") or "unknown"
+        state = source_status_kind(row)
+        if state == "fresh":
+            continue
+        by_state.setdefault(state, []).append(source)
+    parts = []
+    for state in ("failed", "stale", "unknown"):
+        if by_state.get(state):
+            parts.append(f"{state}:{source_list_label(by_state[state])}")
+    return ";".join(parts) if parts else "all_fresh"
+
+
 def load_latest_snapshot_rows(folder):
     path = Path(folder) / "snapshots_long.csv"
     if not path.exists():
@@ -512,6 +775,18 @@ def load_clob_feature_index(folder):
     return by_token, by_band
 
 
+def load_source_status_rows(folder, snapshot_id):
+    path = Path(folder) / "source_status_long.csv"
+    if not path.exists() or not snapshot_id:
+        return []
+    rows = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("snapshot_id") == snapshot_id:
+                rows.append(row)
+    return rows
+
+
 def latest_folders_by_market(root=DEFAULT_SNAPSHOTS_ROOT, markets=None):
     root = Path(root)
     wanted = set(markets or REGISTRY.keys())
@@ -533,6 +808,8 @@ def latest_folders_by_market(root=DEFAULT_SNAPSHOTS_ROOT, markets=None):
 def assemble_policy_inputs(
     promotion_states,
     observation_status,
+    known_edge_records=None,
+    known_edge_map_loaded=False,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     markets=None,
     now=None,
@@ -541,6 +818,10 @@ def assemble_policy_inputs(
     rows = []
     for market_id, folder in sorted(latest_folders_by_market(snapshots_root, markets=markets).items()):
         snapshot_rows = load_latest_snapshot_rows(folder)
+        snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
+        source_freshness_state = source_freshness_state_from_rows(
+            load_source_status_rows(folder, snapshot_id)
+        )
         clob_by_token, clob_by_band = load_clob_feature_index(folder)
         promotion = promotion_states.get(market_id, {"promotion_state": "BLOCK"})
         for snapshot_row in snapshot_rows:
@@ -560,7 +841,13 @@ def assemble_policy_inputs(
             merged["watcher_age_seconds"] = observation_status.get("watcher_age_seconds")
             merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
             merged["source_fresh"] = observation_status.get("fresh", False)
-            merged["known_edge_allowed"] = False
+            merged["source_freshness_state"] = source_freshness_state
+            record = resolve_known_edge_record(merged, known_edge_records or [])
+            merged = apply_known_edge_permission(
+                merged,
+                record=record,
+                map_loaded=known_edge_map_loaded,
+            )
             rows.append(merged)
     return rows
 
@@ -578,6 +865,7 @@ def write_quote_csv(path, rows):
 
 def run_policy_snapshot(
     promotion_refresh=DEFAULT_PROMOTION_REFRESH,
+    known_edge_map=DEFAULT_KNOWN_EDGE_MAP,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     observation_status_path=DEFAULT_OBSERVATION_STATUS,
     out=DEFAULT_OUT,
@@ -589,10 +877,13 @@ def run_policy_snapshot(
     config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
     now = utc_now(now)
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
+    known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
     observation = load_observation_status(observation_status_path, now=now, config=config)
     inputs = assemble_policy_inputs(
         promotion_states,
         observation,
+        known_edge_records=known_edge_records,
+        known_edge_map_loaded=known_edge_diag.get("exists", False),
         snapshots_root=snapshots_root,
         markets=markets,
         now=now,
@@ -608,6 +899,7 @@ def run_policy_snapshot(
         "policy_hash": policy_hash(config),
         "shadow_mode": True,
         "promotion": promotion_diag,
+        "known_edge_map": known_edge_diag,
         "observation_status": observation,
         "snapshots_root": str(snapshots_root),
         "csv_out": csv_path,
@@ -646,6 +938,7 @@ def parse_config_overrides(items):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Write keyless shadow market-making quote intents.")
     parser.add_argument("--promotion-refresh", default=str(DEFAULT_PROMOTION_REFRESH))
+    parser.add_argument("--known-edge-map", default=str(DEFAULT_KNOWN_EDGE_MAP))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--observation-status", default=str(DEFAULT_OBSERVATION_STATUS))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
@@ -660,6 +953,7 @@ def main(argv=None):
         markets = [item.strip() for item in args.markets.split(",") if item.strip()]
     payload = run_policy_snapshot(
         promotion_refresh=args.promotion_refresh,
+        known_edge_map=args.known_edge_map,
         snapshots_root=args.snapshots_root,
         observation_status_path=args.observation_status,
         out=args.out,

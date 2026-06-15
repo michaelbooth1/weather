@@ -23,17 +23,20 @@ try:
     from .market_registry import all_specs, spec_for_id
     from .mm_policy import (
         DEFAULT_OBSERVATION_STATUS,
+        DEFAULT_KNOWN_EDGE_MAP,
         DEFAULT_POLICY_CONFIG,
         DEFAULT_PROMOTION_REFRESH,
         DEFAULT_SNAPSHOTS_ROOT,
         POLICY_VERSION,
         QUOTE_COLUMNS,
         SCHEMA_VERSION as POLICY_SCHEMA_VERSION,
+        apply_known_edge_permission,
         bool_value,
         clamp_probability,
         decide_quote,
         first_present,
         load_clob_feature_index,
+        load_known_edge_map,
         load_latest_snapshot_rows,
         load_observation_status,
         load_promotion_states,
@@ -41,6 +44,7 @@ try:
         parse_config_overrides,
         parse_time,
         policy_hash,
+        resolve_known_edge_record,
         utc_now,
     )
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
@@ -50,17 +54,20 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
     from market_registry import all_specs, spec_for_id
     from mm_policy import (
         DEFAULT_OBSERVATION_STATUS,
+        DEFAULT_KNOWN_EDGE_MAP,
         DEFAULT_POLICY_CONFIG,
         DEFAULT_PROMOTION_REFRESH,
         DEFAULT_SNAPSHOTS_ROOT,
         POLICY_VERSION,
         QUOTE_COLUMNS,
         SCHEMA_VERSION as POLICY_SCHEMA_VERSION,
+        apply_known_edge_permission,
         bool_value,
         clamp_probability,
         decide_quote,
         first_present,
         load_clob_feature_index,
+        load_known_edge_map,
         load_latest_snapshot_rows,
         load_observation_status,
         load_promotion_states,
@@ -68,6 +75,7 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
         parse_config_overrides,
         parse_time,
         policy_hash,
+        resolve_known_edge_record,
         utc_now,
     )
 
@@ -261,6 +269,8 @@ def assemble_policy_inputs_for_market(
     snapshot_rows,
     promotion,
     observation_status,
+    known_edge_records=None,
+    known_edge_map_loaded=False,
 ):
     clob_by_token, clob_by_band = load_clob_feature_index(folder)
     rows = []
@@ -289,7 +299,12 @@ def assemble_policy_inputs_for_market(
         merged["watcher_age_seconds"] = observation_status.get("watcher_age_seconds")
         merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
         merged["source_fresh"] = observation_status.get("fresh", False)
-        merged["known_edge_allowed"] = False
+        record = resolve_known_edge_record(merged, known_edge_records or [])
+        merged = apply_known_edge_permission(
+            merged,
+            record=record,
+            map_loaded=known_edge_map_loaded,
+        )
         rows.append(merged)
     return rows
 
@@ -698,6 +713,7 @@ def build_run_config_payload(
     run_folder,
     snapshots_root,
     promotion_refresh,
+    known_edge_map,
     observation_status_path,
     policy_config,
     now,
@@ -713,6 +729,7 @@ def build_run_config_payload(
         "run_folder": str(run_folder),
         "snapshots_root": str(snapshots_root),
         "promotion_refresh": str(promotion_refresh),
+        "known_edge_map": str(known_edge_map),
         "observation_status_path": str(observation_status_path),
         "policy_version": policy_config.get("policy_version", POLICY_VERSION),
         "policy_hash": policy_hash(policy_config),
@@ -801,6 +818,7 @@ def build_run_once(
     runs_root=DEFAULT_RUNS_ROOT,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     promotion_refresh=DEFAULT_PROMOTION_REFRESH,
+    known_edge_map=DEFAULT_KNOWN_EDGE_MAP,
     observation_status_path=DEFAULT_OBSERVATION_STATUS,
     run_id=None,
     policy_config=None,
@@ -821,6 +839,7 @@ def build_run_once(
     policy_config["max_daily_loss"] = min(float(policy_config.get("max_daily_loss", budget_usdc)), float(budget_usdc))
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
+    known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
     observation = load_observation_status(observation_status_path, now=now, config=policy_config)
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
@@ -834,6 +853,7 @@ def build_run_once(
         run_folder,
         snapshots_root,
         promotion_refresh,
+        known_edge_map,
         observation_status_path,
         policy_config,
         now,
@@ -887,6 +907,8 @@ def build_run_once(
                 snapshot_rows,
                 promotion,
                 observation,
+                known_edge_records=known_edge_records,
+                known_edge_map_loaded=known_edge_diag.get("exists", False),
             )
             if preflight["status"] == "PASS":
                 raw_quote_rows.extend(decide_quote(row, config=policy_config, now=now) for row in policy_inputs)
@@ -920,6 +942,7 @@ def build_run_once(
         "mode": mode,
         "status": preflight_status,
         "promotion": promotion_diag,
+        "known_edge_map": known_edge_diag,
         "observation_status": observation,
         "live_readiness": live_readiness,
         "markets": preflight_rows,
@@ -1038,6 +1061,7 @@ def main(argv=None):
     parser.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--promotion-refresh", default=str(DEFAULT_PROMOTION_REFRESH))
+    parser.add_argument("--known-edge-map", default=str(DEFAULT_KNOWN_EDGE_MAP))
     parser.add_argument("--observation-status", default=str(DEFAULT_OBSERVATION_STATUS))
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--now", default=None, help="Testing/replay timestamp.")
@@ -1057,6 +1081,7 @@ def main(argv=None):
         "runs_root": Path(args.runs_root),
         "snapshots_root": Path(args.snapshots_root),
         "promotion_refresh": Path(args.promotion_refresh),
+        "known_edge_map": Path(args.known_edge_map),
         "observation_status_path": Path(args.observation_status),
         "run_id": args.run_id,
         "policy_config": parse_config_overrides(args.config),

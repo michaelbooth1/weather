@@ -102,7 +102,13 @@ SOURCE_CACHE_TTL_MINUTES = {
 # and 15h+ lock-in hours keep base offsets. Clean control-vs-treatment A/B
 # (seeded, today-cache): hours outside 12-14 byte-identical, hour 14 -0.0088,
 # hour 13 -0.0020, zero regression elsewhere; aggregate 0.0410 -> 0.0405.
-ML_MODEL_VERSION = "v0.5.8"
+# v0.5.9: Miami-only validation-gated WU max-since-7am hard floor. The pinned
+# corpus validation found Miami's Weather.com max-since-7am never exceeded the
+# final WU settlement high (555/555 comparable rows safe), while the full
+# F-family had many over-final rows. Only markets in
+# VALIDATED_WU_MAX_HARD_FLOOR_MARKETS may promote that same-day value from soft
+# support to a hard lower bound.
+ML_MODEL_VERSION = "v0.5.9"
 MODEL_VERSION_HGB = f"{ML_MODEL_VERSION} HGBC feature-based ML model"
 MODEL_VERSION_LR = f"{ML_MODEL_VERSION} LogisticRegression feature-based ML model"
 MODEL_VERSION_EMPIRICAL = "v0.3.1 empirical lookup baseline"

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.abspath("src"))
 
 from promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
-from promotion_gauntlet import _baseline_gate_status, _overall_verdict, run_promotion_gauntlet
+from promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
 from replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
 
@@ -147,6 +147,35 @@ class TestPromotionCorpus(unittest.TestCase):
         ]
         self.assertEqual(_overall_verdict(True, True, True, rows), "PARTIAL_PASS")
         self.assertEqual(_overall_verdict(False, True, True, rows), "BLOCK")
+
+    def test_gauntlet_decomposition_includes_source_freshness_for_blockers(self):
+        results = {
+            "all_rows": [
+                {
+                    "market_id": "miami",
+                    "source_freshness_state": "failed:wu_history",
+                    "replayed_p": 0.9,
+                    "recorded_p": 0.1,
+                    "market_yes": 0.2,
+                    "outcome": 0,
+                },
+                {
+                    "market_id": "miami",
+                    "source_freshness_state": "all_fresh",
+                    "replayed_p": 0.1,
+                    "recorded_p": 0.1,
+                    "market_yes": 0.2,
+                    "outcome": 0,
+                },
+            ]
+        }
+        market_rows = [{"market_id": "miami", "verdict": "BLOCK"}]
+
+        decomp = _decomposition(results, market_rows)
+
+        blocking = decomp["blocking_markets"]["miami"]["by_source_freshness"]
+        self.assertEqual(blocking[0]["group"], "failed:wu_history")
+        self.assertIn("by_source_freshness", decomp["overall"])
 
     def test_gauntlet_falls_back_when_saved_baseline_lacks_current_corpus_hash(self):
         with tempfile.TemporaryDirectory() as tmp:

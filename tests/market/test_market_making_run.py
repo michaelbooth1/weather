@@ -215,6 +215,27 @@ def write_observation_status(path, heartbeat="2026-06-14T15:59:50+00:00"):
     }), encoding="utf-8")
 
 
+def write_known_edge_map(path, permission="harvest_only", reason="promotion_shadow"):
+    path.write_text(json.dumps({
+        "schema_version": "mm_known_edge_map_v0.1",
+        "records": [{
+            "market_id": "atlanta",
+            "cutoff": "*",
+            "hour_utc": "*",
+            "band_distance_bucket": "*",
+            "band_type": "*",
+            "casebook_taxonomy": "*",
+            "regime": "*",
+            "source_fresh": "*",
+            "book_imbalance_bucket": "*",
+            "permission": permission,
+            "reason": reason,
+        }],
+        "summary": {"record_count": 1},
+    }), encoding="utf-8")
+    return path
+
+
 class TestMarketMakingRun(unittest.TestCase):
     def test_shadow_run_writes_complete_artifacts_and_budget_exhaustion(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -222,6 +243,7 @@ class TestMarketMakingRun(unittest.TestCase):
             snapshots_root, promotion = write_market_fixture(root)
             status = root / "observation_status.json"
             write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
 
             payload = build_run_once(
                 TARGET_DATE,
@@ -231,6 +253,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 runs_root=root / "mm_runs",
                 snapshots_root=snapshots_root,
                 promotion_refresh=promotion,
+                known_edge_map=known_edge,
                 observation_status_path=status,
                 run_id="run-1",
                 now=NOW,
@@ -268,6 +291,7 @@ class TestMarketMakingRun(unittest.TestCase):
             snapshots_root, promotion = write_market_fixture(root)
             status = root / "observation_status.json"
             write_observation_status(status, heartbeat="2026-06-14T15:00:00+00:00")
+            known_edge = write_known_edge_map(root / "known_edge.json")
 
             payload = build_run_once(
                 TARGET_DATE,
@@ -277,6 +301,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 runs_root=root / "mm_runs",
                 snapshots_root=snapshots_root,
                 promotion_refresh=promotion,
+                known_edge_map=known_edge,
                 observation_status_path=status,
                 run_id="run-stale",
                 now=NOW,
@@ -294,6 +319,7 @@ class TestMarketMakingRun(unittest.TestCase):
             snapshots_root, promotion = write_market_fixture(root)
             status = root / "observation_status.json"
             write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
 
             first = build_run_once(
                 TARGET_DATE,
@@ -303,6 +329,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 runs_root=root / "mm_runs",
                 snapshots_root=snapshots_root,
                 promotion_refresh=promotion,
+                known_edge_map=known_edge,
                 observation_status_path=status,
                 run_id="paper-run",
                 now=NOW,
@@ -315,6 +342,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 runs_root=root / "mm_runs",
                 snapshots_root=snapshots_root,
                 promotion_refresh=promotion,
+                known_edge_map=known_edge,
                 observation_status_path=status,
                 run_id="paper-run",
                 now=NOW,
@@ -342,6 +370,7 @@ class TestMarketMakingRun(unittest.TestCase):
             promotion.write_text(json.dumps({"decisions": {"markets": []}}), encoding="utf-8")
             status = root / "observation_status.json"
             write_observation_status(status)
+            known_edge = root / "missing_known_edge.json"
 
             payload = build_run_once(
                 TARGET_DATE,
@@ -351,6 +380,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 runs_root=root / "mm_runs",
                 snapshots_root=snapshots_root,
                 promotion_refresh=promotion,
+                known_edge_map=known_edge,
                 observation_status_path=status,
                 run_id="run-missing",
                 now=NOW,
@@ -362,6 +392,38 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(rows[0]["market_id"], "toronto")
             self.assertEqual(rows[0]["event_slug"], "highest-temperature-in-toronto-on-june-14-2026")
             self.assertEqual(rows[0]["reason_code"], "NO_QUOTE_MISSING_PREFLIGHT")
+
+    def test_known_edge_no_quote_record_blocks_orchestrated_quotes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(
+                root / "known_edge.json",
+                permission="no_quote",
+                reason="promotion_block",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="shadow",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="run-known-edge-block",
+                now=NOW,
+            )
+
+            self.assertEqual(payload["quote_permission_rows"], 0)
+            self.assertEqual(payload["reason_counts"]["NO_QUOTE_KNOWN_EDGE_PERMISSION"], 2)
+            rows = read_csv(Path(payload["quote_intents_path"]))
+            self.assertEqual({row["known_edge_permission"] for row in rows}, {"no_quote"})
+            self.assertEqual({row["known_edge_reason"] for row in rows}, {"promotion_block"})
 
 
 if __name__ == "__main__":

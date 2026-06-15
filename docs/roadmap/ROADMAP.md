@@ -43,6 +43,46 @@ candidate Brier is `0.0436` versus market Brier `0.0379`, Atlanta, Denver, and
 Houston are `PROMOTE_CANDIDATE`, eight F markets remain shadow, and no
 candidate markets are blocked.
 
+### Roadmap Triage (2026-06-15 UTC)
+
+Can be done now, in implementation order:
+
+1. [done] Item 47: wire `mm_known_edge_map.json` into `mm_policy` and
+   `market_making_run` so every quote-intent row carries generated permission
+   fields and model-skewed edge quoting only unlocks on `edge_allowed`.
+2. [done] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
+   change to Miami only, and clear the current-serving Miami `BLOCK`.
+3. [code-ready] Item 49: add `forecast_high` and `forecast_gap` to late-day
+   continuation training, validation, serving parity, and explanations.
+4. [done] Item 37: define/enforce the live-forward SLO and gap-free active-day
+   tape gates in software; final clearance still requires a clean future active
+   day, and the current strict report blocks on snapshot and CLOB tape gaps.
+5. [partial] Item 39 cleanup: finish the remaining data/artifact hygiene tasks
+   that do not require new external evidence, especially artifact paths, schema
+   migration tooling, and ingest quality gates.
+
+Blocked or gated:
+
+- Item 45 and live MM-2 orders are blocked until the platform/account/wallet
+  gates are verified and the 14 locked live-forward paper-day gate clears.
+- Item 48 promotion readiness is blocked as a readiness claim until aggregate
+  candidate Brier is market-or-better and remaining shadow markets have
+  generated, resolved blockers; decomposition work remains actionable.
+- Item 49's generated artifact refresh is gated behind a full validated late-day
+  retrain and settlement-scored replay; the code path is ready, but the tracked
+  `late_day_model_coefs*.json` files still need regeneration.
+- Item 37 live-forward gate credit is still gated by future evidence: the
+  software gate now fails closed, but the current strict report is `CRITICAL`
+  for both snapshot collection gaps and CLOB book-capture gaps, so a paper/live
+  day counts only when a future active day clears both in real time.
+- Item 35 continuous density is gated behind stronger settlement-scored proof
+  from the current F-family and failure-slice work.
+- Item 27, item 32, and the infrastructure families in item 50 are blocked from
+  promotion until their historical/archive coverage exists and they pass
+  replay-safe validation.
+- Any feature or quote mode that relies on live-only data remains blocked from
+  promotion until matching historical or live-forward evidence exists.
+
 ### Current Work That Needed Roadmap Reconciliation
 
 - `docs/operations/AGENT_CONTEXT.md` captures the current
@@ -1631,6 +1671,16 @@ Acceptance: the `_c` lie is resolved (pooled training unblocked), every market
 has working validation, idle sources are either integrated or dropped, and the
 repo no longer carries multi-GB regenerable artifacts.
 
+Artifact-path guard update (2026-06-15 UTC): `weather.artifacts` now has focused
+unit coverage proving model artifacts route to `artifacts/models/hgb`,
+`artifacts/models/coefs`, `artifacts/calibration`, or `artifacts/manifests`
+rather than the source tree, with legacy `src/` paths retained only as read
+fallback candidates. The `artifact_candidates()` annotation now reflects that
+absolute/explicit paths return a variable-length tuple. This does not close the
+remaining storage-hygiene decisions: GHCNh/ERA5 integration, derived hourly
+partition policy, full model-artifact migration, central schema registry, and CI
+ingest gates remain open.
+
 P0 unit-contract fix (2026-06-11): `src.daily_summary` now centralizes
 native-vs-Celsius daily-summary reads, `src.wu_history` writes
 `wu_daily_native_v2` with explicit `*_native` columns and true Celsius `*_c`
@@ -1919,7 +1969,7 @@ Houston, NYC, San Francisco, Seattle, and Toronto; blocked markets are Atlanta,
 Denver, Los Angeles, and Miami. The largest positive code-effect slice is still
 market-specific rather than a corpus-pin issue.
 
-### 37. MLOps And Always-On Production Hardening [OPEN - SNAPSHOT/CLOB/WATCHER SLO GATE]
+### 37. MLOps And Always-On Production Hardening [PARTIAL 2026-06-15 - LIVE-FORWARD SLO GATE READY]
 
 Goal: make the fleet reproducible, self-retraining, and observable.
 
@@ -1941,14 +1991,17 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Production-harden the CLOB book loop: heartbeat/status, diagnostics,
   detached start, stop, restart, ensure, and a Windows Task Scheduler
   registration script separate from the weather/model loop.
-- [ ] Define and enforce the market-making live-forward SLO gate for main
+- [x] Define and enforce the market-making live-forward SLO gate for main
   snapshot collection, CLOB book capture, and the observation-trigger watcher:
   automatic recovery, critical alerting, strict freshness checks, and proof that
   all loops stay fresh before any live-forward paper day or live order can count
   toward an MM gate.
-- [ ] Require a gap-free active-day snapshot tape across all registered markets
+- [x] Require a gap-free active-day snapshot tape across all registered markets
   before fleet observability can clear strict mode; true same-day gaps remain
   immutable data-quality blockers and should not be backfilled synthetically.
+- [ ] Isolate or throttle long replay/refresh jobs so active-day CLOB book
+  capture stays inside the generated strict cadence threshold while live-forward
+  evidence is being collected.
 - [ ] Model/artifact registry + versioning; scheduled nightly
   retrain -> validate -> promote.
 - [ ] Shadow / A-B deployment; monitoring + alerting + drift detection per
@@ -1973,8 +2026,9 @@ rest of the fleet. A supervisor lock guards `ensure`, `start-detached`, and
 `restart` against duplicate loop starts when a manual command lands on the same
 minute as Task Scheduler. `src.data_layer_audit` schema `v0.2` now reports the
 CLOB loop next to the weather/model loop and raises P0 when book capture is not
-managed or fresh. Item 37 remains open only for the broader model/artifact
-registry and shadow/A-B drift-monitoring work.
+managed or fresh. Item 37 remains open for the broader live-forward SLO gate,
+gap-free active snapshot-tape requirement, model/artifact registry, and
+shadow/A-B drift-monitoring work.
 
 Operational registration update (2026-06-14 UTC): the daily refresh and
 observation-trigger supervisor tasks are now registered in Windows Task
@@ -1982,6 +2036,46 @@ Scheduler as `WeatherDailySettlementPromotionRefresh` and
 `WeatherObservationTriggerSupervisor`, alongside the existing snapshot and CLOB
 supervisors. The daily task runs `src.daily_refresh run --continue-on-error`;
 the observation task runs `src.observation_trigger ensure`.
+
+Weather snapshot-loop update (2026-06-15 UTC): `src.snapshot_tracker` now
+heartbeats/status-writes before and after each market capture in the serial
+all-market loop, records `last_iteration_elapsed_minutes`,
+`max_recent_iteration_elapsed_minutes`, and `last_sleep_seconds`, and sleeps
+from the iteration start instead of adding a full interval after the capture
+cycle. This prevents future 12-market weather/model captures from mechanically
+creating cadence gaps. The June 14 active-day snapshot holes are still real
+immutable tape gaps, so `src.fleet_observability report --strict` remains
+collection-critical until a clean active day clears the snapshot tape gate; the
+current refreshed strict report also blocks on CLOB book-capture tape gaps.
+
+Live-forward SLO gate update (2026-06-15 UTC): `src.fleet_observability` now
+adds observation-trigger watcher health and a generated `live_forward_slo`
+verdict to the fleet payload/report. The gate combines three fail-closed inputs:
+fleet snapshot collection health, CLOB book-loop/book-tape health, and
+observation-trigger watcher health. It emits
+`counts_toward_live_forward_gate=false` whenever any of those inputs has a
+warning or critical alert, so live-forward paper or live-order evidence cannot
+be counted while weather snapshots, CLOB books, or trigger freshness are stale,
+gappy, paused, dead, or erroring. Focused coverage in
+`tests/reporting/test_fleet_observability.py` proves the gate passes only when
+all capture loops are clean and blocks on snapshot gaps, CLOB gaps, or watcher
+failure. Remaining item-37 work is the broader model/artifact registry,
+scheduled retrain/validate/promote flow, and shadow/A-B drift monitoring.
+Validation: `pytest tests\collection\test_collection_robustness.py -q`
+passes.
+
+CLOB tape-audit update (2026-06-15 UTC): the fleet CLOB audit now uses the
+measured serial 12-market loop cadence with a wider jitter buffer and persists
+`max_iteration_elapsed_seconds` in loop status so successful slow cycles do not
+turn into retroactive false CLOB tape gaps after the recent window rolls forward.
+The current `data/backtest/fleet_observability_report.md`, regenerated at
+`2026-06-15T04:08:04Z`, is still `CRITICAL`: snapshot collection has immutable
+active-day gaps, and the CLOB book tape also has post-startup gaps on eight
+markets (`max_counted_gap_seconds` roughly 229-236s versus the generated
+204.7s threshold). The live-forward SLO gate correctly blocks credit until a
+future active day is clean for both snapshot collection and CLOB book capture.
+The CLOB loop itself is running and heartbeating, so this is now a tape-quality
+gate, not a dead-loop diagnosis.
 
 ### 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - TAXONOMY-GATED CLOB OVERLAY]
 
@@ -2058,8 +2152,11 @@ gap threshold from that measured cycle plus configured sleep and buffer. This
 prevents the supervisor and observability report from treating a healthy
 serial 12-market capture cycle as a dead loop while preserving strict stale
 tail and post-cycle gap checks. Validation:
-`src.market_microstructure audit --strict` passes all 12 active markets, and
-the fleet observability report is again collection-only critical.
+`src.market_microstructure audit --strict` passed all 12 active markets during
+that validation window, and the then-current fleet observability report was
+collection-only critical. The later strict report regenerated at
+`2026-06-15T04:08:04Z` found post-startup CLOB book-tape gaps too; the current
+state is recorded in the CLOB tape-audit update below.
 
 Feature-wiring update (2026-06-14 UTC): `src.market_microstructure_features`
 now converts the fast CLOB book tape into band-level model features for book
@@ -2596,7 +2693,7 @@ passed (11 tests); full `pytest -q` passed (449 tests, 84 subtests);
 `compileall src tests` passed; `python -m src.market_making_run --help` exposes
 the operator CLI, and a temp-root CLI smoke wrote the expected run artifacts.
 
-### 47. Model Readiness And Known-Edge Permission Map [PARTIAL 2026-06-15 - PAPER-CONSUMING MAP SCAFFOLD]
+### 47. Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]
 
 Goal: turn "how close is the model to market-make?" into a generated permission
 artifact consumed by the quote engine and live gates.
@@ -2625,7 +2722,7 @@ Polymarket and survives execution costs.
   US morning/overnight rows, at-settle and one-off central bands, CLOB
   `market_lead`, CLOB `book_liquidity_artifact`, `market_overreaction`,
   stale-source cases, and WU lag/catch-up cases.
-- [ ] Expose the known-edge map to `mm_policy` so model-skewed quoting cannot be
+- [x] Expose the known-edge map to `mm_policy` so model-skewed quoting cannot be
   enabled by hand-editing policy parameters or relying on aggregate model
   optimism.
 
@@ -2642,11 +2739,21 @@ and paper markout slices. PASS markets remain harvest-only until conservative
 paper fills have positive markout/net evidence; positive but under-seasoned
 slices become `edge_research`; `edge_allowed` requires market evidence plus the
 14-day locked live-forward paper gate. SHADOW remains `harvest_only`, BLOCK
-remains `no_quote`, and the JSON includes active model-gap cells. Remaining
-work: wire this generated map into `mm_policy` so quote rows are traceable to a
-specific permission record.
+remains `no_quote`, and the JSON includes active model-gap cells.
 
-### 48. F-Family Promotion Readiness And Serving Parity [NEW - OPEN]
+Policy consumption update (2026-06-15 UTC): `src.mm_policy` /
+`weather.market.mm_policy` now loads `data/backtest/mm_known_edge_map.json`,
+resolves the best generated permission record for each quote input, and emits
+`known_edge_permission`, `known_edge_reason`, and `known_edge_record_key` in
+the quote-intent tape. `edge_allowed` is the only map permission that can enable
+model-skewed edge quoting; `edge_research` and `harvest_only` stay in harvest
+mode, and `no_quote` fails closed with `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+`src.market_making_run` accepts the same `--known-edge-map` input and records
+map diagnostics in run preflight artifacts. Validation:
+`pytest tests\market\test_mm_policy.py tests\market\test_market_making_run.py tests\market\test_mm_paper.py -q`
+passed (16 tests).
+
+### 48. F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS LIVE]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -2655,8 +2762,13 @@ Source: `data/backtest/f_family_promotion_refresh_report.md` now emits explicit
 promotion-readiness blockers. The current blockers are aggregate candidate
 Brier behind market Brier and eight F markets still in shadow; no
 candidate-blocked F markets remain. The current-serving gauntlet is now
-non-blocking at `PARTIAL_PASS` with corpus/fidelity/regression gates passing;
-the remaining Miami serving-market regression is split into item 52.
+non-blocking at `PASS_WITH_SHADOWS` with corpus/fidelity/regression gates
+passing; Miami is `SHADOW` with code effect `-0.0004`, so the remaining Miami
+gap is market-skill evidence rather than a serving replay regression. The
+promotion report now ranks generated candidate gap drivers by market, cutoff
+hour, band type, settlement distance, source freshness, and CLOB taxonomy;
+feeding those generated cells into the known-edge permission map is split into
+item 54.
 
 - [ ] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
   pinned rows, or keep the gap explicitly marked as a readiness blocker.
@@ -2666,19 +2778,33 @@ the remaining Miami serving-market regression is split into item 52.
 - [ ] Keep candidate-blocked markets at zero; if a future market blocks, keep
   the generated `BLOCK_CANDIDATE` detail and split market-specific remediation
   into its own roadmap item.
-- [ ] Add decomposition for the largest shadow causes by market, cutoff hour,
-  band type, settlement distance, source freshness, and CLOB taxonomy; feed
-  those slices into item 47's known-edge map.
+- [x] Add generated decomposition for the largest candidate-vs-market gap
+  drivers by market, cutoff hour, band type, settlement distance, and CLOB
+  taxonomy in the promotion refresh `Candidate Gap Drivers` table.
+- [ ] Feed those generated gap-driver cells into item 47's known-edge map and
+  paper permission report; tracked by item 54.
+- [x] Add source-freshness gap attribution once replay rows carry freshness
+  state; completed in item 53.
 - [ ] Keep the promotion refresh report as the acceptance artifact: readiness is
   not complete until `readiness.status` is `READY`, serving parity is
   non-blocking, and no F market has an unexplained `KEEP_SHADOW` or
   `BLOCK_CANDIDATE`.
 
+Implementation update (2026-06-15 UTC): `src.promotion_refresh` preserves
+candidate replay slices and writes a `Candidate Gap Drivers` table plus a
+dedicated `Source Freshness Slice` table to
+`data/backtest/f_family_promotion_refresh_report.md`. The current top generated
+drivers include at-settlement rows, CLOB taxonomy `wu_lag_catchup_miss`, exact
+bands, the aggregate `all_fresh` source-freshness cohort, 07:00 rows, and
+market-level gaps for Seattle/NYC/Miami. The source-freshness slice also
+surfaces failed/stale groups including `failed:wu_history`,
+`failed:wu_history;stale:metar`, and `stale:metar`.
+
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow
 market has a concrete, generated blocker rather than ambiguous roadmap text.
 
-### 49. Late-Day Forecast-Gap Continuation Training [NEW - OPEN]
+### 49. Late-Day Forecast-Gap Continuation Training [PARTIAL 2026-06-15 - CODE PATH READY]
 
 Goal: finish the narrow late-day work that was ambiguous between item 8 and the
 completed forecast-error component in item 22.
@@ -2687,11 +2813,12 @@ Source: item 22 completed the forecast-error distribution and live late-day tail
 blend, but `late_day_model_coefs*.json` still train without `forecast_high` and
 `forecast_gap` feature columns.
 
-- [ ] Add `forecast_high` and `forecast_gap` to the late-day continuation
-  training rows and exported coefficient artifacts for 15:00, 16:00, and 17:00.
-- [ ] Preserve train/serve parity by sourcing the same forecast-gap fields from
+- [x] Add `forecast_high` and `forecast_gap` to the late-day continuation
+  training rows and exported coefficient artifact schema for 15:00, 16:00, and
+  17:00.
+- [x] Preserve train/serve parity by sourcing the same forecast-gap fields from
   the feature store in training, replay, live inference, and explanation output.
-- [ ] Add a late-day continuation validation report with Brier/log loss,
+- [x] Add a late-day continuation validation report with Brier/log loss,
   calibration, and ablation rows for forecast-gap features.
 - [ ] Re-run settlement-scored replay to prove the trained continuation change
   improves or at least does not regress the final distribution.
@@ -2699,6 +2826,22 @@ blend, but `late_day_model_coefs*.json` still train without `forecast_high` and
 Acceptance: late-day forecast-gap features are trained, served, explained, and
 validated as their own continuation-model improvement, not only as a live
 forecast-error tail heuristic.
+
+Implementation update (2026-06-15 UTC): `src.weather.calibration.feature_model`
+now centralizes late-day numeric features, adds `forecast_high` and
+`forecast_gap` to the 15:00/16:00/17:00 continuation training rows, scales those
+features with the other numeric late-day inputs, and writes
+`numeric_feature_names` / `numeric_feature_count` into newly exported
+`late_day_model_coefs*.json` artifacts. The feature-model report gains a
+late-day continuation validation section with day-split log loss, Brier, ECE,
+and feature-family ablation rows, including the forecast family. Serving reads
+late-day artifacts by exported feature name, so old 9-numeric artifacts and new
+forecast-gap-aware artifacts both remain compatible; explanation output already
+returns `forecast_high`, `forecast_gap`, and `forecast_tail_probability`.
+Focused tests cover the late-day feature list, validation/ablation helper, old
+artifact compatibility, and a new artifact whose forecast-gap coefficient moves
+the continuation probability. Remaining generated-artifact work: retrain the
+tracked `late_day_model_coefs*.json` files and rerun settlement-scored replay.
 
 ### 50. Scholarly Weather-Input Gap Closure [NEW - OPEN]
 
@@ -2777,35 +2920,120 @@ Acceptance: no hidden behavior change ships under the health-refactor label;
 exact replay deltas are zero or intentionally baselined, the full suite passes,
 and item 24 no longer overclaims analog-search consolidation.
 
-### 52. Miami Current-Serving Replay Regression Triage [NEW - OPEN]
+### 52. Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]
 
 Goal: resolve the one remaining current-serving gauntlet `BLOCK` market without
 turning a live Weather.com support signal into an unverified settlement floor.
 
 Source: `data/backtest/promotion_gauntlet_latest_report.md` is now
-`PARTIAL_PASS`: corpus pin, fidelity, and regression gates pass after the stale
-unpinned baseline is ignored, but Miami's serving replay remains blocked at
-replayed Brier `0.0377` versus recorded `0.0331` (`+0.0046`, tolerance
-`0.0030`). The audit found tempting Miami rows where `wu_max_since_7am_c`
-would hard-zero below-current bands, but existing intraday tests and roadmap
-doctrine treat that source as a soft signal until it is validated against the
-official Weather Underground settlement high.
+`PASS_WITH_SHADOWS`: corpus pin, fidelity, and regression gates pass, and no
+serving market is blocked. Miami is `SHADOW`, not `BLOCK`, with replayed Brier
+`0.0327` versus recorded `0.0331` (code effect `-0.0004`) and market Brier
+`0.0238`. The remaining Miami gap is not a serving regression; it is the
+ordinary market-skill shadow evidence tracked by item 48.
 
-- [ ] Build a WU `max_since_7am` validation slice by market/day/cutoff:
+- [x] Build a WU `max_since_7am` validation slice by market/day/cutoff:
   compare live captured `wu_max_since_7am_c` to final WU history high and
   settlement labels before using it as a hard market-band support bound.
-- [ ] Add a Miami failure decomposition for the positive code-effect rows by
+- [x] Add a Miami failure decomposition for the positive code-effect rows by
   cutoff hour, settlement distance, band type, and source-freshness state.
-- [ ] Test any candidate fix on the exact Miami replay rows and the full pinned
+- [x] Test any candidate fix on the exact Miami replay rows and the full pinned
   promotion corpus; no fix can regress the aggregate gauntlet or turn other
   serving markets back to `BLOCK`.
-- [ ] Keep current serving at `PARTIAL_PASS` until Miami is either below the
-  code-effect tolerance or explicitly documented as a market-specific shadow
-  blocker with a generated acceptance report.
+- [x] Keep current serving conservative after the block clears: Miami remains
+  `SHADOW` until it is market-better on pinned rows, and item 48 owns that
+  readiness proof.
 
 Acceptance: the current-serving gauntlet has no unexplained market-level
 `BLOCK`, or the Miami block is backed by a generated source-validation report
 and a scoped model-gap task rather than ambiguous F-family readiness text.
+
+Implementation update (2026-06-15 UTC): added
+`src.weather.reporting.wu_max_since_7_validation` and the
+`src.wu_max_since_7_validation` CLI wrapper. The generated
+`data/backtest/wu_max_since_7_validation_report.md` validates 6,989 pinned
+snapshots against corpus settlement labels. Miami has 557 pinned snapshots, 555
+comparable WU max rows, **100.0% safe-as-support-bound**, and **0 above-final
+WU max rows**; source-freshness state is derived from pinned replay input
+metadata (`all_fresh` 533 snapshots, `failed:wu_history` 24 snapshots). The
+current-serving replay path now carries `source_freshness_state`, and the
+promotion gauntlet renders source-freshness slices for overall and blocking
+market drilldowns. Unit coverage: `tests/reporting/test_wu_max_since_7_validation.py`
+and the gauntlet decomposition test in `tests/reporting/test_promotion_corpus.py`.
+`src.weather.model.model_distribution` now applies `wu_current.max_since_7am_c`
+as a hard support floor only for markets in
+`VALIDATED_WU_MAX_HARD_FLOOR_MARKETS`, currently Miami, and only when the
+current max exceeds the WU history floor; `ML_MODEL_VERSION` is bumped to
+`v0.5.9` for that serving behavior. The full F-family validation was not
+promoted because non-Miami/all-family WU max rows still include over-final
+cases.
+
+Acceptance update (2026-06-15 UTC): the refreshed
+`data/backtest/promotion_gauntlet_latest_report.md` and
+`data/backtest/f_family_promotion_refresh_report.md` show current serving at
+`PASS_WITH_SHADOWS` with no blocked markets. Miami serving replay is `SHADOW`
+with replayed Brier `0.0327`, recorded Brier `0.0331`, market Brier `0.0238`,
+and code effect `-0.0004`; all other serving markets are either `PASS` or
+`SHADOW`. Item 48 remains open for aggregate candidate market skill and shadow
+markets, not for the cleared Miami serving block.
+
+### 53. Candidate Source-Freshness Gap Attribution [COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE]
+
+Goal: make stale/failed/fresh weather-source state a first-class replay slice
+for candidate promotion reports.
+
+Source: `data/backtest/f_family_promotion_refresh_report.md` now generates
+candidate gap drivers for market, cutoff hour, band type, settlement distance,
+source freshness, and CLOB taxonomy. The old "source-freshness gap drivers are
+not available" note is gone.
+
+- [x] Persist or derive per-row freshness state from `source_status_long.csv`,
+  replay input source metadata, source-cache age, or source TTL diagnostics into
+  candidate replay rows.
+- [x] Add `by_source_freshness` to
+  `data/backtest/pooled_candidate_replay_latest.json` and include those rows in
+  the promotion refresh `Candidate Gap Drivers` table.
+- [x] Add tests proving fresh/stale/failed source states are grouped, ranked by
+  excess Brier rows, and emitted in both JSON and Markdown reports.
+
+Acceptance: the F-family promotion refresh report includes source-freshness gap
+rows when they contribute positive candidate-vs-market error, and no longer
+emits the "not available in the candidate replay rows yet" note.
+
+Implementation update (2026-06-15 UTC): `src.pooled_candidate_replay` now
+groups replay-input source states into `source_freshness_state`, scores
+`by_source_freshness`, and renders a `By Source Freshness` candidate report
+slice; `src.promotion_refresh` preserves the slice and can rank it in
+`Candidate Gap Drivers` plus a dedicated `Source Freshness Slice` table.
+The refreshed live-corpus candidate replay has seven source-freshness groups
+over 6,130 pinned F-family snapshots and zero missing source records; the
+largest positive stale/failed groups are `failed:wu_history` (+0.0107 versus
+market on 2,695 rows), `failed:wu_history;stale:metar` (+0.0119 on 253 rows),
+and `stale:metar` (+0.0040 on 616 rows). Validation:
+`pytest tests\calibration\test_pooled_candidate_replay.py tests\calibration\test_promotion_refresh.py -q`
+passed.
+
+### 54. Source-Freshness Known-Edge Map Consumption [NEW - OPEN]
+
+Goal: feed the generated source-freshness model-gap cells into the quote
+permission layer rather than leaving them as report-only diagnostics.
+
+Source: item 53 now emits source-freshness rows in
+`pooled_candidate_replay_latest.json` and
+`f_family_promotion_refresh_report.md`; item 47's known-edge map already has a
+source-freshness dimension, but it does not yet consume the new promotion
+gap cells as explicit model-gap evidence.
+
+- [ ] Load promotion-refresh `by_source_freshness` rows into
+  `mm_known_edge_map.json` generation as active model-gap cells.
+- [ ] Show the source-freshness gap rows in `mm_known_edge_map.md`, including
+  stale/failed cohorts and their candidate-vs-market deltas.
+- [ ] Add tests proving a quote permission record can trace back to a
+  source-freshness gap cell when source freshness is the limiting evidence.
+
+Acceptance: every source-freshness permission-map cell can cite the generated
+promotion source-freshness row that justifies `edge_research`,
+`harvest_only`, or `no_quote`.
 
 ## Sequencing The Two Tracks
 
@@ -2819,7 +3047,9 @@ and a scoped model-gap task rather than ambiguous F-family readiness text.
 2. Then **31 (observability)** and **34 (F calibration + gating)** as F days
    settle.
    Item 48 now owns the proof that the pooled F pipeline is promotion-ready,
-   rather than merely implemented and refreshed.
+   rather than merely implemented and refreshed; item 53 closed the missing
+   source-freshness attribution slice, and item 54 owns downstream
+   permission-map consumption of those cells.
 3. Then **29-30 (deeper, redundant data)** feeding **35 (unified model)**.
 4. **36-37 (gating + MLOps)** harden whatever 33/35 produce.
 5. **32 (reanalysis features)** and **38 (cross-market / microstructure)** are

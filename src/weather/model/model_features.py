@@ -657,17 +657,41 @@ class FeatureModelMixin:
             scaler_mean = model_data["scaler_mean"]
             scaler_scale = model_data["scaler_scale"]
             imputer_median = model_data["imputer_median"]
-            
-            raw_vec = [
-                float(time_since_reached), high_so_far, current_temp, rise_from_7am,
-                dewpoint, humidity, pressure, pressure_trend_3h, wind_speed
-            ]
-            for i in range(9):
-                if raw_vec[i] is None:
-                    raw_vec[i] = imputer_median[i]
-            scaled_vec = [(raw_vec[i] - scaler_mean[i]) / scaler_scale[i] for i in range(9)]
-            
-            for name in feature_names[9:]:
+            numeric_feature_names = model_data.get("numeric_feature_names")
+            if not numeric_feature_names:
+                numeric_feature_names = [
+                    name for name in feature_names
+                    if not name.startswith("wind_") and not name.startswith("cloud_")
+                ]
+            raw_by_name = {
+                "time_since_reached": float(time_since_reached),
+                "high_so_far": high_so_far,
+                "current_temp": current_temp,
+                "rise_from_7am": rise_from_7am,
+                "dewpoint_c": dewpoint,
+                "humidity": humidity,
+                "pressure": pressure,
+                "pressure_trend_3h": pressure_trend_3h,
+                "wind_speed_kmh": wind_speed,
+                "forecast_high": forecast_high,
+                "forecast_gap": forecast_gap,
+            }
+            scaled_numeric = {}
+            for i, name in enumerate(numeric_feature_names):
+                value = raw_by_name.get(name)
+                if value is None:
+                    value = imputer_median[i] if i < len(imputer_median) else 0.0
+                mean = scaler_mean[i] if i < len(scaler_mean) else 0.0
+                scale = scaler_scale[i] if i < len(scaler_scale) else 1.0
+                if not scale:
+                    scale = 1.0
+                scaled_numeric[name] = (float(value) - mean) / scale
+
+            scaled_vec = []
+            for name in feature_names:
+                if name in scaled_numeric:
+                    scaled_vec.append(scaled_numeric[name])
+                    continue
                 if name.startswith("wind_"):
                     g = name[5:]
                     scaled_vec.append(1.0 if wind_group == g else 0.0)

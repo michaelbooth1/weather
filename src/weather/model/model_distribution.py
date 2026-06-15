@@ -120,6 +120,7 @@ LATE_LOCKIN_BASE = 0.15        # per-degree decay for buckets further above
 LEARNED_LOCKIN_START_HOUR = 17   # the unconditional rate is trustworthy from here
 LEARNED_LOCKIN_STAND_MINUTES = 90  # a just-reached high keeps the heuristic only
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
+VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
 
 
 class DistributionMixin:
@@ -159,6 +160,24 @@ class DistributionMixin:
         if catchup_probability is None:
             return LIVE_FLOOR_HEDGE
         return max(LIVE_FLOOR_HEDGE_MIN, min(LIVE_FLOOR_HEDGE_MAX, 1.0 - catchup_probability))
+
+    def validated_current_max_floor_bucket(self, current_max, history_max=None):
+        """Market-scoped hard floor for Weather.com max-since-7am validation.
+
+        Most markets still use max-since-7am only as soft support because the
+        pinned validation found over-final rows. Miami's pinned source check had
+        zero over-final comparable rows, so it can use the same-day WU current
+        max as a hard lower bound when it leads printed WU history.
+        """
+        if getattr(self.spec, "id", None) not in VALIDATED_WU_MAX_HARD_FLOOR_MARKETS:
+            return None
+        current_bucket = self.round_half_up(current_max)
+        if current_bucket is None:
+            return None
+        history_bucket = self.round_half_up(history_max)
+        if history_bucket is not None and current_bucket <= history_bucket:
+            return None
+        return current_bucket
 
     def apply_current_observed_floor(self, scores, current_temp, metar_temp, history_max, hour=None):
         """Suppress buckets below the highest live current-temperature reading,
@@ -501,10 +520,19 @@ class DistributionMixin:
             eccc_forecast_high,
         ]
         observed_bucket = self.round_half_up(history_max)
+        validated_current_max_floor = self.validated_current_max_floor_bucket(
+            current_max,
+            history_max=history_max,
+        )
+        hard_floor_bucket = max(
+            [bucket for bucket in (observed_bucket, validated_current_max_floor) if bucket is not None],
+            default=None,
+        )
         current_observed_bucket = self.round_half_up(self.max_value(
             history_max,
             current_temp,
             metar_temp,
+            validated_current_max_floor,
         ))
         observed_support_bucket = self.round_half_up(self.max_value(
             history_max,
@@ -521,7 +549,7 @@ class DistributionMixin:
             return {}
 
         low = min(min(scores), round(self.spec.c_to_native(8)),
-                  (observed_bucket or max_signal or round(self.spec.c_to_native(16))) - round(self.spec.scale_delta(5)))
+                  (hard_floor_bucket or observed_bucket or max_signal or round(self.spec.c_to_native(16))) - round(self.spec.scale_delta(5)))
         high = max(max(scores), round(self.spec.c_to_native(34)),
                    (max_signal or observed_bucket or round(self.spec.c_to_native(30))) + round(self.spec.scale_delta(4)))
         for temp in range(low, high + 1):
@@ -537,7 +565,9 @@ class DistributionMixin:
         )
         self._last_probability_calibration_context = {
             "cutoff_hour": cutoff_hour,
-            "observed_floor_bucket": observed_bucket,
+            "observed_floor_bucket": hard_floor_bucket,
+            "wu_history_floor_bucket": observed_bucket,
+            "validated_current_max_floor_bucket": validated_current_max_floor,
             "current_observed_bucket": current_observed_bucket,
             "observed_support_bucket": observed_support_bucket,
             "target_date": getattr(self, "target_date_str", TARGET_DATE_STR),
@@ -740,8 +770,8 @@ class DistributionMixin:
         scores = self.apply_live_signals(scores, live_signals)
         distribution_components["post_live_signals"] = dict(self.normalize_scores(scores))
 
-        if observed_bucket is not None:
-            self.apply_floor(scores, observed_bucket, 0.000001)
+        if hard_floor_bucket is not None:
+            self.apply_floor(scores, hard_floor_bucket, 0.000001)
             scores = self.normalize_scores(scores)
 
         if intraday and observed_bucket is not None:
@@ -806,6 +836,11 @@ class DistributionMixin:
             )
             distribution_components["forecast_pull"] = dict(self.normalize_scores(scores))
 
+        if validated_current_max_floor is not None:
+            self.apply_floor(scores, validated_current_max_floor, 0.000001)
+            scores = self.normalize_scores(scores)
+            distribution_components["validated_current_max_floor"] = dict(scores)
+
         # Live-observed floor: react to SWOB leading the lagging WU history,
         # instead of waiting hours for WU to print what already happened.
         scores = self.apply_live_observed_floor(scores, eccc_max, history_max, hour=now.hour)
@@ -843,7 +878,7 @@ class DistributionMixin:
         calibrated_scores = apply_exact_distribution_calibration(
             scores,
             getattr(self, "probability_calibration", None),
-            floor_bucket=observed_bucket,
+            floor_bucket=hard_floor_bucket,
             resolution_weight=lockin_strength,
             cutoff_hour=cutoff_hour,
         )
@@ -853,7 +888,9 @@ class DistributionMixin:
             "cutoff_hour": cutoff_hour,
             "active_model_kind": getattr(self, "active_model_kind", "empirical"),
             "family_secondary_gate": getattr(self, "_last_family_secondary_gate", {}),
-            "observed_floor_bucket": observed_bucket,
+            "observed_floor_bucket": hard_floor_bucket,
+            "wu_history_floor_bucket": observed_bucket,
+            "validated_current_max_floor_bucket": validated_current_max_floor,
             "current_observed_bucket": current_observed_bucket,
             "observed_support_bucket": observed_support_bucket,
             "components": distribution_components,

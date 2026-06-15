@@ -23,6 +23,8 @@ from pooled_candidate_replay import (
     out_of_fold_microstructure_predictions,
     normalize_partition_probabilities,
     replay_gate_status,
+    source_freshness_group,
+    write_report,
 )
 
 
@@ -141,6 +143,21 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.35)
         self.assertAlmostEqual(rows[1]["candidate_p"], 0.80)
 
+    def test_source_freshness_group_surfaces_failed_and_stale_sources(self):
+        group = source_freshness_group({
+            "sources": {
+                "wu_history": {"ok": False, "status": "failed"},
+                "wu_current": {"ok": True, "stale": True, "status": "stale_cache"},
+                "open_meteo": {"ok": True, "stale": False},
+            }
+        })
+
+        self.assertEqual(group, "failed:wu_history;stale:wu_current")
+        self.assertEqual(
+            source_freshness_group({"sources": {"open_meteo": {"ok": True, "stale": False}}}),
+            "all_fresh",
+        )
+
     def test_replay_gate_blocks_corpus_pin_warnings(self):
         status = replay_gate_status(
             {
@@ -213,16 +230,63 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 artifact,
                 "F",
                 clob_features=clob_features,
+                source_freshness={("nyc", "s1"): "stale:wu_current"},
             )
 
         self.assertEqual(coverage["candidate_rows"], 1)
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.72)
+        self.assertEqual(rows[0]["source_freshness_state"], "stale:wu_current")
         self.assertEqual(rows[0]["clob_feature_available"], 1.0)
         self.assertAlmostEqual(rows[0]["clob_midpoint"], 0.39)
         band_rows = predict.call_args.args[1]
         self.assertEqual(band_rows[0]["band_value_hi"], 83.0)
         self.assertEqual(band_rows[0]["clob_feature_available"], 1.0)
         self.assertAlmostEqual(band_rows[0]["clob_liquidity_score"], 2.5)
+
+    def test_candidate_report_writes_source_freshness_slice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "report.md"
+            write_report(
+                {
+                    "generated_at": "2026-06-15T00:00:00",
+                    "verdict": "PASS_WITH_SHADOWS",
+                    "candidate_market_verdict": "PASS_WITH_SHADOWS",
+                    "cutover_decision": "PER_MARKET_ONLY",
+                    "artifact": {},
+                    "corpus": {},
+                    "coverage": {},
+                    "diagnostics": {"source_freshness_snapshots": 1},
+                    "replay_gate": {"corpus_ok": True, "fidelity_ok": True},
+                    "aggregate": None,
+                    "daily_first": None,
+                    "microstructure": None,
+                    "market_rows": [],
+                    "by_market": [],
+                    "by_hour": [],
+                    "by_bin_type": [],
+                    "by_settlement_distance": [],
+                    "by_source_freshness": [
+                        {
+                            "group": "failed:wu_history",
+                            "n": 2,
+                            "candidate_brier": 0.20,
+                            "current_brier": 0.15,
+                            "market_brier": 0.10,
+                            "delta_vs_current": 0.05,
+                            "delta_vs_market": 0.10,
+                            "candidate_skill": -1.0,
+                            "base_rate": 0.5,
+                        }
+                    ],
+                    "replay_summary": {},
+                },
+                out,
+            )
+
+            text = out.read_text(encoding="utf-8")
+
+        self.assertIn("### By Source Freshness", text)
+        self.assertIn("failed:wu_history", text)
 
     def test_microstructure_feature_frame_includes_clob_and_context_columns(self):
         frame = microstructure_feature_frame([

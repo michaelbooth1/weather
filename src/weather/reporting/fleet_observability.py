@@ -28,6 +28,9 @@ from market_microstructure import (  # noqa: E402
     read_clob_loop_status,
 )
 from market_registry import all_specs  # noqa: E402
+from observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH  # noqa: E402
+from observation_trigger import read_status as read_observation_status  # noqa: E402
+from observation_trigger import watcher_health  # noqa: E402
 from source_redundancy import FALLBACK_ORDER, PRIMARY_SOURCE, source_daily_indexes, source_values_for_day  # noqa: E402
 from weather.artifacts import resolve_artifact_path  # noqa: E402
 from weather.paths import relative_to_repo  # noqa: E402
@@ -419,6 +422,85 @@ def clob_alerts(clob):
     return alerts
 
 
+def observation_summary(status_path=OBSERVATION_STATUS_PATH, now=None):
+    return watcher_health(read_observation_status(status_path), now=now)
+
+
+def observation_alerts(observation):
+    alerts = []
+    observation = observation or {}
+    state = observation.get("state")
+    detail = {
+        "state": state,
+        "pid": observation.get("pid"),
+        "heartbeat_age_seconds": observation.get("heartbeat_age_seconds"),
+        "consecutive_errors": observation.get("consecutive_errors"),
+        "last_error": observation.get("last_error"),
+    }
+    if state in ("DEAD", "UNKNOWN", "ERRORING"):
+        add_alert(
+            alerts,
+            "critical",
+            "fleet",
+            "observation_trigger",
+            f"observation trigger watcher is {state}",
+            detail,
+        )
+    elif state in ("PAUSED", "DEGRADED"):
+        add_alert(
+            alerts,
+            "warning",
+            "fleet",
+            "observation_trigger",
+            f"observation trigger watcher is {state}",
+            detail,
+        )
+    return alerts
+
+
+def _gate_from_alerts(name, alerts):
+    if any(row.get("severity") == "critical" for row in alerts):
+        severity = "critical"
+    elif alerts:
+        severity = "warning"
+    else:
+        severity = "ok"
+    return {
+        "name": name,
+        "ok": not alerts,
+        "severity": severity,
+        "messages": [row.get("message") for row in alerts],
+    }
+
+
+def live_forward_slo_gate(collection, clob, observation):
+    """Single fail-closed gate for live-forward MM evidence.
+
+    A paper/live day can count only when the slow weather snapshot tape, fast
+    CLOB book tape, and observation-trigger watcher are all fresh and gap-free.
+    """
+    gates = [
+        _gate_from_alerts("snapshot_collection", collection_alerts(collection)),
+        _gate_from_alerts("clob_book_capture", clob_alerts(clob)),
+        _gate_from_alerts("observation_trigger", observation_alerts(observation)),
+    ]
+    blockers = [
+        message
+        for gate in gates
+        if not gate["ok"]
+        for message in gate.get("messages") or []
+    ]
+    ok = not blockers
+    return {
+        "schema_version": "live_forward_slo_v0.1",
+        "status": "PASS" if ok else "BLOCK",
+        "ok": ok,
+        "counts_toward_live_forward_gate": ok,
+        "gates": gates,
+        "blockers": blockers,
+    }
+
+
 def trust_readiness(trust_rows, min_trust=DEFAULT_MIN_TRUST, min_days=DEFAULT_MIN_SETTLED_DAYS):
     rows = {}
     for row in trust_rows:
@@ -472,11 +554,14 @@ def build_observability_payload(
     gap_coverage = historical_gap_coverage(audits_json) if include_audits else {}
     trust = trust_readiness(score_all_markets(root=snapshots_root))
     clob = clob_summary(snapshots_root=snapshots_root)
+    observation = observation_summary()
+    live_forward_slo = live_forward_slo_gate(collection, clob, observation)
     alerts = []
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
     alerts.extend(provenance_alerts(provenance))
     alerts.extend(clob_alerts(clob))
+    alerts.extend(observation_alerts(observation))
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -488,11 +573,14 @@ def build_observability_payload(
         "artifact_provenance": provenance,
         "trust_readiness": trust,
         "clob": clob,
+        "observation_trigger": observation,
+        "live_forward_slo": live_forward_slo,
         "alerts": alerts,
         "summary": {
             "market_count": len(collection.get("markets") or []),
             "critical_alerts": sum(1 for row in alerts if row.get("severity") == "critical"),
             "warning_alerts": sum(1 for row in alerts if row.get("severity") == "warning"),
+            "live_forward_slo_status": live_forward_slo.get("status"),
         },
     }
     return payload
@@ -608,6 +696,31 @@ def write_markdown(path, payload):
     lines += markdown_table(
         ["Market", "Tape", "Captures", "Median Gap s", "Max Gap s", "Startup Ignored", "Trailing s", "Reason"],
         clob_rows,
+    )
+    observation = payload.get("observation_trigger") or {}
+    live_forward_slo = payload.get("live_forward_slo") or {}
+    slo_rows = [
+        [
+            row.get("name"),
+            "PASS" if row.get("ok") else "BLOCK",
+            row.get("severity"),
+            "; ".join(row.get("messages") or []) or "ok",
+        ]
+        for row in live_forward_slo.get("gates") or []
+    ]
+    lines += [
+        "",
+        "## Live-Forward SLO Gate",
+        "",
+        f"Status: **{live_forward_slo.get('status')}**",
+        f"Counts toward live-forward gate: `{live_forward_slo.get('counts_toward_live_forward_gate')}`",
+        f"Observation watcher: **{observation.get('state')}** "
+        f"(heartbeat age {observation.get('heartbeat_age_seconds')}s)",
+        "",
+    ]
+    lines += markdown_table(
+        ["Gate", "Verdict", "Severity", "Detail"],
+        slo_rows,
     )
     lines += ["", "## Alerts", ""]
     lines += markdown_table(

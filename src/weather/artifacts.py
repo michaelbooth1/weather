@@ -39,7 +39,7 @@ def legacy_artifact_path(filename: str | Path) -> Path:
     return SRC_ROOT / Path(filename).name
 
 
-def artifact_candidates(filename: str | Path) -> tuple[Path, Path]:
+def artifact_candidates(filename: str | Path) -> tuple[Path, ...]:
     path = Path(filename)
     if path.is_absolute() or path.parent != Path("."):
         return (path,)
@@ -75,4 +75,3 @@ def artifact_metadata_path(filename: str | Path) -> dict:
         "exists": path.exists(),
         "is_legacy": path == legacy_artifact_path(filename),
     }
-

@@ -33,6 +33,7 @@ REPLAY_INPUTS_FILENAME = "replay_inputs.jsonl"
 RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 REPLAY_STATUS_FILENAME = "replay_input_status.json"
 REPLAY_STATUS_LONG_FILENAME = "replay_input_status_long.csv"
+SOURCE_FRESHNESS_SOURCE_LIMIT = 3
 
 REPLAY_STATUS_COLUMNS = [
     "snapshot_id",
@@ -113,6 +114,58 @@ def record_target_date(record):
 
 def is_reconstructed(record):
     return (record.get("source") or "").lower() == "reconstructed"
+
+
+def _boolish(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return None
+
+
+def source_status_kind(item):
+    item = item or {}
+    status = str(item.get("status") or "").strip().lower()
+    ok = _boolish(item.get("ok"))
+    stale = _boolish(item.get("stale"))
+    if ok is False or status in {"failed", "error", "missing"}:
+        return "failed"
+    if stale is True or status in {"stale", "stale_cache", "expired"}:
+        return "stale"
+    if ok is True or status in {"fresh", "ok", "available"}:
+        return "fresh"
+    return "unknown"
+
+
+def _source_list_label(sources):
+    names = sorted(str(source) for source in sources if source not in (None, ""))
+    if len(names) <= SOURCE_FRESHNESS_SOURCE_LIMIT:
+        return ",".join(names)
+    head = ",".join(names[:SOURCE_FRESHNESS_SOURCE_LIMIT])
+    return f"{head},+{len(names) - SOURCE_FRESHNESS_SOURCE_LIMIT}"
+
+
+def source_freshness_group(record):
+    sources = (record or {}).get("sources") or {}
+    if not sources:
+        return "missing_sources"
+    by_state = {}
+    for source, item in sorted(sources.items()):
+        state = source_status_kind(item)
+        if state == "fresh":
+            continue
+        by_state.setdefault(state, []).append(source)
+    parts = []
+    for state in ("failed", "stale", "unknown"):
+        if by_state.get(state):
+            parts.append(f"{state}:{_source_list_label(by_state[state])}")
+    return ";".join(parts) if parts else "all_fresh"
 
 
 # --- Distribution helpers ---------------------------------------------------

@@ -185,6 +185,81 @@ class TestForecastErrorModel(unittest.TestCase):
         self.assertGreater(result["continuation_probability"], 0.20)
         self.assertEqual(result["forecast_high"], 25.0)
 
+    def test_late_day_continuation_uses_forecast_gap_coefficient(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        model.forecast_error_component_distribution = lambda *args, **kwargs: None
+        numeric = [
+            "time_since_reached",
+            "high_so_far",
+            "current_temp",
+            "rise_from_7am",
+            "dewpoint_c",
+            "humidity",
+            "pressure",
+            "pressure_trend_3h",
+            "wind_speed_kmh",
+            "forecast_high",
+            "forecast_gap",
+        ]
+        model.load_late_day_model_coefs = lambda: {
+            "15": {
+                "feature_names": numeric,
+                "numeric_feature_names": numeric,
+                "numeric_feature_count": len(numeric),
+                "coef": [0.0] * (len(numeric) - 1) + [1.0],
+                "intercept": -2.0,
+                "scaler_mean": [0.0] * len(numeric),
+                "scaler_scale": [1.0] * len(numeric),
+                "imputer_median": [0.0] * len(numeric),
+                "empirical_prior": 0.20,
+            }
+        }
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "max_c": 20.0,
+                    "rows": [
+                        {
+                            "time": "07:00",
+                            "temp_c": 15.0,
+                            "dewpoint_c": 10.0,
+                            "humidity": 60.0,
+                            "pressure": 1015.0,
+                            "wind": "W",
+                            "wind_kmh": 12.0,
+                            "condition": "Clear",
+                            "clouds": "Clear",
+                        },
+                        {
+                            "time": "15:00",
+                            "temp_c": 20.0,
+                            "dewpoint_c": 11.0,
+                            "humidity": 55.0,
+                            "pressure": 1014.0,
+                            "wind": "W",
+                            "wind_kmh": 14.0,
+                            "condition": "Clear",
+                            "clouds": "Clear",
+                        },
+                    ],
+                },
+            },
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 25.0}},
+            "eccc_citypage": {"ok": True, "data": {}},
+        }
+
+        result = model.predict_late_day_continuation(
+            sources,
+            15,
+            datetime(2026, 5, 28, 15, 30),
+        )
+
+        self.assertEqual(result["forecast_gap"], 5.0)
+        self.assertGreater(result["continuation_probability"], 0.90)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,15 +1,20 @@
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath("src"))
 
 from promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
+    _candidate_source_freshness_rows,
     _candidate_summary,
+    _serving_blocking_source_freshness_rows,
     build_family_decisions,
     promotion_readiness,
+    write_report,
 )
 
 
@@ -144,6 +149,18 @@ class TestPromotionRefresh(unittest.TestCase):
                 "by_hour": [{"group": 7, "n": 10, "delta_vs_market": 0.02}],
                 "by_bin_type": [{"group": "eq", "n": 20, "delta_vs_market": 0.01}],
                 "by_settlement_distance": [{"group": "0", "n": 5, "delta_vs_market": 0.20}],
+                "market_rows": [
+                    {
+                        "market_id": "miami",
+                        "rows": 30,
+                        "comparison": {
+                            "candidate_brier": 0.07,
+                            "market_brier": 0.04,
+                            "delta_vs_current": -0.01,
+                            "delta_vs_market": 0.03,
+                        },
+                    },
+                ],
                 "microstructure": {
                     "gated": {
                         "by_taxonomy": [{"group": "market_lead", "n": 3, "delta_vs_market": 0.30}],
@@ -155,6 +172,8 @@ class TestPromotionRefresh(unittest.TestCase):
         )
 
         slices = summary["slices"]
+        self.assertEqual(slices["by_market"][0]["group"], "miami")
+        self.assertEqual(slices["by_market"][0]["n"], 30)
         self.assertEqual(slices["by_cutoff_hour"][0]["group"], 7)
         self.assertEqual(slices["by_band_type"][0]["group"], "eq")
         self.assertEqual(slices["by_settlement_distance"][0]["group"], "0")
@@ -163,6 +182,15 @@ class TestPromotionRefresh(unittest.TestCase):
     def test_candidate_gap_driver_rows_rank_by_excess_brier(self):
         rows = _candidate_gap_driver_rows({
             "slices": {
+                "by_market": [
+                    {
+                        "group": "miami",
+                        "n": 25,
+                        "candidate_brier": 0.20,
+                        "market_brier": 0.10,
+                        "delta_vs_market": 0.10,
+                    }
+                ],
                 "by_cutoff_hour": [
                     {
                         "group": 7,
@@ -187,6 +215,106 @@ class TestPromotionRefresh(unittest.TestCase):
 
         self.assertEqual(rows[0]["slice"], "cutoff_hour")
         self.assertEqual(rows[0]["excess_brier_rows"], 5.0)
+        self.assertEqual(rows[2]["slice"], "market")
+
+    def test_candidate_source_freshness_rows_include_failed_and_stale_groups(self):
+        rows = _candidate_source_freshness_rows({
+            "slices": {
+                "by_source_freshness": [
+                    {"group": "all_fresh", "n": 100, "candidate_brier": 0.08, "market_brier": 0.04, "delta_vs_market": 0.04},
+                    {"group": "failed:wu_history", "n": 20, "candidate_brier": 0.30, "market_brier": 0.10, "delta_vs_market": 0.20},
+                    {"group": "stale:metar", "n": 10, "candidate_brier": 0.05, "market_brier": 0.07, "delta_vs_market": -0.02},
+                ],
+            }
+        })
+
+        self.assertEqual(rows[0]["group"], "all_fresh")
+        self.assertEqual(rows[1]["group"], "failed:wu_history")
+        self.assertEqual(rows[2]["group"], "stale:metar")
+
+    def test_write_report_emits_source_freshness_slice_when_available(self):
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "family_unit": "F",
+            "corpus": {},
+            "candidate": {
+                "verdict": "PASS_WITH_SHADOWS",
+                "candidate_market_verdict": "PASS_WITH_SHADOWS",
+                "cutover_decision": "PER_MARKET_ONLY",
+                "aggregate": {},
+                "slices": {
+                    "by_source_freshness": [
+                        {
+                            "group": "failed:wu_history",
+                            "n": 20,
+                            "candidate_brier": 0.30,
+                            "market_brier": 0.10,
+                            "delta_vs_current": -0.01,
+                            "delta_vs_market": 0.20,
+                        }
+                    ],
+                },
+            },
+            "readiness": {"status": "OPEN", "blockers": []},
+            "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "serving_gauntlet": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_report(Path(tmp) / "report.md", payload)
+            text = path.read_text(encoding="utf-8")
+
+        self.assertIn("### Source Freshness Slice", text)
+        self.assertIn("failed:wu_history", text)
+        self.assertNotIn("not available in the candidate replay rows yet", text)
+
+    def test_write_report_emits_serving_blocking_source_freshness(self):
+        serving = {
+            "verdict": "PARTIAL_PASS",
+            "market_rows": [
+                {
+                    "market_id": "miami",
+                    "verdict": "BLOCK",
+                    "rows": 11,
+                    "comparison": {"code_effect": 0.01},
+                    "reason": "code regression",
+                }
+            ],
+            "decomposition": {
+                "blocking_markets": {
+                    "miami": {
+                        "by_source_freshness": [
+                            {
+                                "group": "failed:wu_history",
+                                "n": 11,
+                                "replayed_brier": 0.30,
+                                "recorded_brier": 0.10,
+                                "market_brier": 0.20,
+                                "code_effect": 0.20,
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+        rows = _serving_blocking_source_freshness_rows(serving)
+        self.assertEqual(rows[0][0], "miami")
+        self.assertEqual(rows[0][1], "failed:wu_history")
+
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "family_unit": "F",
+            "corpus": {},
+            "candidate": {"aggregate": {}, "slices": {}},
+            "readiness": {"status": "OPEN", "blockers": []},
+            "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "serving_gauntlet": serving,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_report(Path(tmp) / "report.md", payload)
+            text = path.read_text(encoding="utf-8")
+
+        self.assertIn("### Serving Blocking Source Freshness", text)
+        self.assertIn("failed:wu_history", text)
 
 
 if __name__ == "__main__":

@@ -294,13 +294,14 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
         "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
+        "max_iteration_elapsed_seconds": status.get("max_iteration_elapsed_seconds"),
         "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
     }
 
 
 BOOK_AUDIT_MAX_GAP_SECONDS = 120.0
 BOOK_AUDIT_STARTUP_GRACE_SECONDS = 180.0
-BOOK_AUDIT_CYCLE_BUFFER_SECONDS = 30.0
+BOOK_AUDIT_CYCLE_BUFFER_SECONDS = 60.0
 BOOK_AUDIT_RECENT_CYCLE_COUNT = 12
 
 
@@ -436,7 +437,11 @@ def fleet_effective_book_gap_seconds(max_gap_seconds, loop_status=None):
     threshold = float(max_gap_seconds)
     loop_status = loop_status or {}
     elapsed_values = []
-    for key in ("last_iteration_elapsed_seconds", "max_recent_iteration_elapsed_seconds"):
+    for key in (
+        "last_iteration_elapsed_seconds",
+        "max_iteration_elapsed_seconds",
+        "max_recent_iteration_elapsed_seconds",
+    ):
         value = to_number(loop_status.get(key))
         if value is not None:
             elapsed_values.append(value)
@@ -1635,6 +1640,13 @@ def run_book_loop(
                 recent_elapsed = recent_elapsed[-BOOK_AUDIT_RECENT_CYCLE_COUNT:]
                 status["last_iteration_elapsed_seconds"] = elapsed_rounded
                 status["recent_iteration_elapsed_seconds"] = recent_elapsed
+                prior_max_elapsed = to_number(status.get("max_iteration_elapsed_seconds"))
+                if prior_max_elapsed is None:
+                    prior_max_elapsed = 0.0
+                status["max_iteration_elapsed_seconds"] = round(
+                    max(float(prior_max_elapsed), elapsed_rounded),
+                    1,
+                )
                 status["max_recent_iteration_elapsed_seconds"] = round(max(recent_elapsed), 1)
                 if any((value.get("books") or 0) > 0 for value in summary.values()):
                     status["last_books_captured_at"] = loop_started.isoformat()

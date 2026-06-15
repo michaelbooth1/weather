@@ -15,6 +15,8 @@ from fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
     clob_alerts,
+    live_forward_slo_gate,
+    observation_alerts,
     overall_status,
     trust_readiness,
 )
@@ -184,6 +186,61 @@ class TestFleetObservability(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["severity"], "warning")
+
+    def test_observation_alerts_dead_watcher_is_critical(self):
+        alerts = observation_alerts({
+            "state": "DEAD",
+            "heartbeat_age_seconds": 999.0,
+            "consecutive_errors": 0,
+        })
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["severity"], "critical")
+        self.assertEqual(alerts[0]["category"], "observation_trigger")
+
+    def test_live_forward_slo_passes_only_when_all_capture_loops_are_clean(self):
+        collection = {"markets": [{"market_id": "toronto", "action_required": False}]}
+        clob = {
+            "loop": {"state": "RUNNING", "heartbeat_age_seconds": 10.0},
+            "books": {"markets": [{"market_id": "toronto", "ok": True, "captures": 100}]},
+        }
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertTrue(gate["ok"])
+        self.assertTrue(gate["counts_toward_live_forward_gate"])
+        self.assertEqual(gate["status"], "PASS")
+
+    def test_live_forward_slo_blocks_on_snapshot_gap_clob_gap_or_watcher_failure(self):
+        collection = {
+            "markets": [{
+                "market_id": "toronto",
+                "action_required": True,
+                "state": "AT_RISK",
+                "reason": "latest capture is 40 min old",
+            }]
+        }
+        clob = {
+            "loop": {"state": "RUNNING"},
+            "books": {"markets": [{
+                "market_id": "toronto",
+                "ok": False,
+                "captures": 100,
+                "reason": "book tape gap",
+            }]},
+        }
+        observation = {"state": "DEAD", "heartbeat_age_seconds": 999.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertFalse(gate["ok"])
+        self.assertFalse(gate["counts_toward_live_forward_gate"])
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(
+            {row["name"] for row in gate["gates"] if not row["ok"]},
+            {"snapshot_collection", "clob_book_capture", "observation_trigger"},
+        )
 
 
 if __name__ == "__main__":

@@ -154,6 +154,180 @@ FEATURE_FAMILIES = {
     "cloud_regime": "cloud_",
 }
 
+LATE_DAY_NUMERIC_FEATURES = [
+    "time_since_reached",
+    "high_so_far",
+    "current_temp",
+    "rise_from_7am",
+    "dewpoint_c",
+    "humidity",
+    "pressure",
+    "pressure_trend_3h",
+    "wind_speed_kmh",
+    "forecast_high",
+    "forecast_gap",
+]
+
+
+def late_day_feature_columns(all_wind_groups, all_cloud_groups):
+    return (
+        list(LATE_DAY_NUMERIC_FEATURES)
+        + [f"wind_{g}" for g in all_wind_groups]
+        + [f"cloud_{g}" for g in all_cloud_groups]
+    )
+
+
+def binary_log_loss(probs, y):
+    if len(probs) == 0:
+        return None
+    losses = []
+    for prob, actual in zip(probs, y):
+        p = min(1.0 - 1e-15, max(1e-15, float(prob)))
+        losses.append(-(actual * math.log(p) + (1.0 - actual) * math.log(1.0 - p)))
+    return float(np.mean(losses))
+
+
+def binary_brier(probs, y):
+    if len(probs) == 0:
+        return None
+    return float(np.mean([(float(prob) - float(actual)) ** 2 for prob, actual in zip(probs, y)]))
+
+
+def binary_ece(probs, y, n_bins=10):
+    if len(probs) == 0:
+        return None
+    bins = [[] for _ in range(n_bins)]
+    for prob, actual in zip(probs, y):
+        p = min(1.0, max(0.0, float(prob)))
+        idx = min(n_bins - 1, int(p * n_bins))
+        bins[idx].append((p, float(actual)))
+    ece = 0.0
+    n = len(probs)
+    for bucket in bins:
+        if not bucket:
+            continue
+        avg_p = sum(prob for prob, _ in bucket) / len(bucket)
+        avg_y = sum(actual for _, actual in bucket) / len(bucket)
+        ece += (len(bucket) / n) * abs(avg_p - avg_y)
+    return float(ece)
+
+
+def _predict_binary_lr(model, matrix):
+    classes = list(model.classes_)
+    if 1 in classes:
+        return model.predict_proba(matrix)[:, classes.index(1)]
+    return np.zeros(matrix.shape[0])
+
+
+def _constant_probs(value, n):
+    p = min(1.0 - 1e-15, max(1e-15, float(value)))
+    return np.full(n, p)
+
+
+def _late_day_validation_folds(ld_df, n_splits=5):
+    if "date_ordinal" not in ld_df or len(ld_df) < 2:
+        return [np.arange(len(ld_df))]
+    max_splits = max(2, min(n_splits, len(ld_df)))
+    folds = []
+    for fold in range(max_splits):
+        idx = np.flatnonzero((ld_df["date_ordinal"].astype(int).to_numpy() % max_splits) == fold)
+        if len(idx):
+            folds.append(idx)
+    return folds or [np.arange(len(ld_df))]
+
+
+def evaluate_late_day_records(ld_df, feature_cols, numeric_feature_count, n_splits=5):
+    if ld_df.empty:
+        return None, []
+    X = ld_df[feature_cols].to_numpy(dtype=float)
+    y = ld_df["is_extended"].to_numpy(dtype=float)
+    if len(y) < 2:
+        prior = float(np.mean(y)) if len(y) else 0.0
+        probs = _constant_probs(prior, len(y))
+        summary = {
+            "n": int(len(y)),
+            "event_rate": prior,
+            "logloss": binary_log_loss(probs, y),
+            "brier": binary_brier(probs, y),
+            "ece": binary_ece(probs, y),
+        }
+        return summary, []
+
+    full_probs = np.full(len(y), np.nan)
+    ablated = {family: np.full(len(y), np.nan) for family in feature_family_columns(feature_cols)}
+    folds = _late_day_validation_folds(ld_df, n_splits=n_splits)
+    for val_idx in folds:
+        train_idx = np.setdiff1d(np.arange(len(y)), val_idx)
+        if len(train_idx) == 0:
+            train_idx = val_idx
+        X_train = X[train_idx]
+        y_train = y[train_idx]
+        X_val = X[val_idx]
+
+        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+        X_train_imp = imputer.fit_transform(X_train)
+        X_val_imp = imputer.transform(X_val)
+        scaler = StandardScaler()
+        X_train_scaled = X_train_imp.copy()
+        X_val_scaled = X_val_imp.copy()
+        X_train_scaled[:, :numeric_feature_count] = scaler.fit_transform(
+            X_train_imp[:, :numeric_feature_count]
+        )
+        X_val_scaled[:, :numeric_feature_count] = scaler.transform(
+            X_val_imp[:, :numeric_feature_count]
+        )
+
+        if len(np.unique(y_train)) > 1:
+            lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
+            lr.fit(X_train_scaled, y_train)
+            full_probs[val_idx] = _predict_binary_lr(lr, X_val_scaled)
+            families = feature_family_columns(feature_cols)
+            for family, columns in families.items():
+                X_val_ablated = np.vstack([
+                    neutralize_feature_family(row.copy(), X_train, feature_cols, columns)
+                    for row in X_val
+                ])
+                X_val_ablated_imp = imputer.transform(X_val_ablated)
+                X_val_ablated_scaled = X_val_ablated_imp.copy()
+                X_val_ablated_scaled[:, :numeric_feature_count] = scaler.transform(
+                    X_val_ablated_imp[:, :numeric_feature_count]
+                )
+                ablated[family][val_idx] = _predict_binary_lr(lr, X_val_ablated_scaled)
+        else:
+            prior = float(np.mean(y_train))
+            full_probs[val_idx] = _constant_probs(prior, len(val_idx))
+            for family in ablated:
+                ablated[family][val_idx] = full_probs[val_idx]
+
+    valid = ~np.isnan(full_probs)
+    summary = {
+        "n": int(np.sum(valid)),
+        "event_rate": float(np.mean(y[valid])) if np.any(valid) else None,
+        "logloss": binary_log_loss(full_probs[valid], y[valid]),
+        "brier": binary_brier(full_probs[valid], y[valid]),
+        "ece": binary_ece(full_probs[valid], y[valid]),
+    }
+    ablation_rows = []
+    for family, probs in ablated.items():
+        valid_family = valid & ~np.isnan(probs)
+        if not np.any(valid_family):
+            continue
+        full_logloss = binary_log_loss(full_probs[valid_family], y[valid_family])
+        ablated_logloss = binary_log_loss(probs[valid_family], y[valid_family])
+        full_brier = binary_brier(full_probs[valid_family], y[valid_family])
+        ablated_brier = binary_brier(probs[valid_family], y[valid_family])
+        ablation_rows.append({
+            "family": family,
+            "n": int(np.sum(valid_family)),
+            "full_logloss": full_logloss,
+            "ablated_logloss": ablated_logloss,
+            "delta_logloss": ablated_logloss - full_logloss,
+            "full_brier": full_brier,
+            "ablated_brier": ablated_brier,
+            "delta_brier": ablated_brier - full_brier,
+        })
+    return summary, sorted(ablation_rows, key=lambda row: row["delta_logloss"], reverse=True)
+
 
 def feature_family_columns(feature_cols):
     families = {}
@@ -636,6 +810,8 @@ def main(market_id="toronto"):
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "trained_at": trained_at,
     }
+    late_day_validation_rows = []
+    late_day_ablation_rows = []
     for H in [15, 16, 17]:
         late_day_records = []
         for local_date in sorted(daily.keys()):
@@ -701,10 +877,17 @@ def main(market_id="toronto"):
             wind_speed = current_obs.get("wind_kmh")
             wind_group = model.wind_group(current_obs.get("wind"))
             cloud_group = model.cloud_group(current_obs.get("condition"), current_obs.get("clouds"))
+            forecast_high = forecast_index.get(local_date.isoformat())
+            forecast_gap = (
+                forecast_high - high_so_far
+                if forecast_high is not None and high_so_far is not None
+                else None
+            )
             
             is_extended = 1.0 if final_high > high_so_far + 0.1 else 0.0
             
             late_day_records.append({
+                "date_ordinal": local_date.toordinal(),
                 "time_since_reached": time_since_reached,
                 "high_so_far": high_so_far,
                 "current_temp": current_temp,
@@ -714,6 +897,8 @@ def main(market_id="toronto"):
                 "pressure": pressure,
                 "pressure_trend_3h": pressure_trend_3h,
                 "wind_speed_kmh": wind_speed,
+                "forecast_high": forecast_high,
+                "forecast_gap": forecast_gap,
                 "wind_group": wind_group,
                 "cloud_group": cloud_group,
                 "is_extended": is_extended
@@ -729,20 +914,29 @@ def main(market_id="toronto"):
         for g in all_cloud_groups:
             ld_df[f"cloud_{g}"] = (ld_df["cloud_group"] == g).astype(float)
             
-        ld_feature_cols = [
-            "time_since_reached", "high_so_far", "current_temp", "rise_from_7am",
-            "dewpoint_c", "humidity", "pressure", "pressure_trend_3h",
-            "wind_speed_kmh"
-        ] + [f"wind_{g}" for g in all_wind_groups] + [f"cloud_{g}" for g in all_cloud_groups]
+        ld_feature_cols = late_day_feature_columns(all_wind_groups, all_cloud_groups)
+        ld_numeric_count = len(LATE_DAY_NUMERIC_FEATURES)
         
         ld_X = ld_df[ld_feature_cols].copy()
         ld_y = ld_df["is_extended"].copy()
+        validation, ablations = evaluate_late_day_records(
+            ld_df,
+            ld_feature_cols,
+            ld_numeric_count,
+        )
+        if validation:
+            validation["hour"] = H
+            late_day_validation_rows.append(validation)
+            for row in ablations:
+                copy = dict(row)
+                copy["hour"] = H
+                late_day_ablation_rows.append(copy)
         
         ld_imputer = SimpleImputer(strategy="median", keep_empty_features=True)
         ld_X_imputed = ld_imputer.fit_transform(ld_X)
         ld_scaler = StandardScaler()
         ld_X_scaled = ld_X_imputed.copy()
-        ld_X_scaled[:, :9] = ld_scaler.fit_transform(ld_X_imputed[:, :9])
+        ld_X_scaled[:, :ld_numeric_count] = ld_scaler.fit_transform(ld_X_imputed[:, :ld_numeric_count])
         
         ld_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
         if len(np.unique(ld_y)) > 1:
@@ -760,10 +954,12 @@ def main(market_id="toronto"):
         late_day_info[str(H)] = {
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": ld_feature_cols,
+            "numeric_feature_names": list(LATE_DAY_NUMERIC_FEATURES),
+            "numeric_feature_count": ld_numeric_count,
             "coef": coefs,
             "intercept": intercept,
-            "scaler_mean": ld_scaler.mean_[:9].tolist(),
-            "scaler_scale": ld_scaler.scale_[:9].tolist(),
+            "scaler_mean": ld_scaler.mean_[:ld_numeric_count].tolist(),
+            "scaler_scale": ld_scaler.scale_[:ld_numeric_count].tolist(),
             "imputer_median": ld_imputer.statistics_.tolist(),
             "empirical_prior": float(prior_p)
         }
@@ -819,6 +1015,40 @@ def main(market_id="toronto"):
         report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         for row in sorted(ablation_rows, key=lambda item: (item["hour"], item["family"])):
             report_lines.append(ablation_table_row(row, include_hour=True))
+
+        if late_day_validation_rows:
+            report_lines.append("\n## Late-day continuation validation\n")
+            report_lines.append(
+                "Five-fold day-split validation for the 15:00, 16:00, and 17:00 "
+                "continuation classifiers. These rows score the trained "
+                "continuation component directly, including `forecast_high` and "
+                "`forecast_gap` as late-day features.\n"
+            )
+            report_lines.append("| Cutoff | Rows | Event Rate | LogLoss | Brier | ECE |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in sorted(late_day_validation_rows, key=lambda item: item["hour"]):
+                report_lines.append(
+                    f"| {row['hour']:02d}:00 | {row['n']} | "
+                    f"{row['event_rate']:.3f} | {row['logloss']:.4f} | "
+                    f"{row['brier']:.4f} | {row['ece']:.4f} |"
+                )
+
+        if late_day_ablation_rows:
+            report_lines.append("\n### Late-day continuation feature-family ablation\n")
+            report_lines.append(
+                "Positive deltas mean the family helped the continuation "
+                "validation score; negative deltas mean neutralizing it improved "
+                "the score for this fast sensitivity test.\n"
+            )
+            report_lines.append("| Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in summarize_ablation_by_family(late_day_ablation_rows):
+                report_lines.append(ablation_table_row(row))
+            report_lines.append("\n#### Late-day continuation ablation by cutoff hour\n")
+            report_lines.append("| Cutoff | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in sorted(late_day_ablation_rows, key=lambda item: (item["hour"], item["family"])):
+                report_lines.append(ablation_table_row(row, include_hour=True))
 
         # Save Report file
         report_path = os.path.join(str(spec.data_root), "analysis", f"feature_model_report{suffix}.md")
