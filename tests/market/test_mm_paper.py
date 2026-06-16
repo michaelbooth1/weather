@@ -91,6 +91,15 @@ def write_promotion(path):
                         "delta_vs_current": -0.02,
                         "delta_vs_market": -0.03,
                     },
+                    {
+                        "group": "failed:metar",
+                        "n": 3,
+                        "candidate_brier": 0.05,
+                        "current_brier": 0.05,
+                        "market_brier": 0.04,
+                        "delta_vs_current": 0.0,
+                        "delta_vs_market": 0.01,
+                    },
                 ]
             }
         },
@@ -431,15 +440,236 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(permission_by_market["san-francisco"], "no_quote")
             source_records = [
                 row for row in known_edge["records"]
-                if row.get("source_freshness_evidence")
+                if row.get("reason") == "source_freshness_model_gap"
             ]
-            self.assertEqual(len(source_records), 1)
-            self.assertEqual(source_records[0]["source_freshness_state"], "failed:wu_history")
-            self.assertEqual(source_records[0]["reason"], "source_freshness_model_gap")
+            self.assertEqual(
+                {row["source_freshness_state"] for row in source_records},
+                {"failed:wu_history", "failed:metar"},
+            )
+            self.assertTrue(all(row["reason"] == "source_freshness_model_gap" for row in source_records))
             self.assertEqual(
                 known_edge["active_model_gap_cells"][0]["source_freshness_state"],
                 "failed:wu_history",
             )
+            success_records = [
+                row for row in known_edge["records"]
+                if row.get("reason") == "dynamic_source_state_replay_gate_clear"
+            ]
+            self.assertEqual(
+                {row["source_freshness_state"] for row in success_records},
+                {"failed:wu_history", "failed:local_history"},
+            )
+            self.assertNotIn(
+                "failed:metar",
+                {row["source_freshness_state"] for row in success_records},
+            )
+            self.assertTrue(all(row["permission"] == "edge_research" for row in success_records))
+            self.assertTrue(all(row["uses_market_features"] is False for row in success_records))
+
+    def test_clob_overlay_gate_feeds_market_informed_known_edge_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            promotion = root / "backtest" / "promotion.json"
+            write_promotion(promotion)
+            payload = json.loads(promotion.read_text(encoding="utf-8"))
+            payload["candidate"]["microstructure"] = {
+                "gate": {
+                    "schema_version": "clob_microstructure_taxonomy_gate_v0.1",
+                    "policy": "target_taxonomy_replay_allowlist",
+                    "min_rows": 25,
+                    "max_delta_vs_candidate": 0.0,
+                    "max_delta_vs_market": 0.0,
+                    "max_logloss_delta_vs_candidate": 0.0,
+                    "max_ece": 0.12,
+                    "max_overconfident_error_rate": 0.25,
+                    "decisions": [
+                        {
+                            "taxonomy": "market_lead",
+                            "allowed": True,
+                            "rows": 75,
+                            "micro_brier": 0.00001,
+                            "candidate_brier": 0.0136,
+                            "market_brier": 0.0007,
+                            "micro_logloss": 0.0028,
+                            "candidate_logloss": 0.0811,
+                            "micro_ece": 0.0028,
+                            "micro_overconfident_error_rate": 0.0,
+                            "delta_vs_candidate": -0.0136,
+                            "delta_vs_market": -0.0006,
+                            "reason": "replay-proven improvement",
+                        },
+                        {
+                            "taxonomy": "market_overreaction",
+                            "allowed": False,
+                            "rows": 645,
+                            "delta_vs_candidate": 0.0718,
+                            "reason": "candidate regression",
+                        },
+                    ],
+                }
+            }
+            promotion.write_text(json.dumps(payload), encoding="utf-8")
+
+            known_edge = build_known_edge_map(
+                {
+                    "schema_version": "mm_paper_v0.1",
+                    "summary": {"anti_overfit": {"policy_hashes": ["policy-1"]}},
+                },
+                promotion_refresh=promotion,
+            )
+
+        clob_records = [
+            row for row in known_edge["records"]
+            if row.get("base_permission") == "CLOB_OVERLAY_MARKET_INFORMED"
+        ]
+        self.assertEqual(len(clob_records), 1)
+        record = clob_records[0]
+        self.assertEqual(record["casebook_taxonomy"], "market_lead")
+        self.assertEqual(record["permission"], "edge_research")
+        self.assertEqual(record["source_fresh"], "*")
+        self.assertTrue(record["uses_market_features"])
+        self.assertTrue(record["market_informed"])
+        self.assertTrue(record["quote_time_only"])
+        self.assertFalse(record["weather_model_promotion_evidence"])
+        self.assertEqual(record["requires_policy_hash"], ["policy-1"])
+        self.assertEqual(record["clob_overlay_gate"]["max_logloss_delta_vs_candidate"], 0.0)
+        self.assertTrue(known_edge["summary"]["clob_overlay_quote_guardrails_present"])
+        self.assertEqual(known_edge["summary"]["clob_overlay_allowed_taxonomy_count"], 1)
+        self.assertEqual(known_edge["summary"]["clob_overlay_blocked_taxonomy_count"], 1)
+
+        del payload["candidate"]["microstructure"]["gate"]["max_logloss_delta_vs_candidate"]
+        with tempfile.TemporaryDirectory() as tmp:
+            stale_promotion = Path(tmp) / "backtest" / "promotion.json"
+            stale_promotion.parent.mkdir(parents=True)
+            stale_promotion.write_text(json.dumps(payload), encoding="utf-8")
+            stale_gate = build_known_edge_map(
+                {
+                    "schema_version": "mm_paper_v0.1",
+                    "summary": {"anti_overfit": {"policy_hashes": ["policy-1"]}},
+                },
+                promotion_refresh=stale_promotion,
+            )
+        self.assertFalse(any(
+            row.get("base_permission") == "CLOB_OVERLAY_MARKET_INFORMED"
+            for row in stale_gate["records"]
+        ))
+        self.assertFalse(stale_gate["summary"]["clob_overlay_quote_guardrails_present"])
+
+    def test_event_gate_score_tracks_suppressed_opportunity_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root = root / "mm_runs"
+            run_folder = runs_root / TARGET_DATE / "event-gate-run"
+            run_folder.mkdir(parents=True)
+            (run_folder / "run_config.json").write_text(json.dumps({
+                "schema_version": "mm_run_v0.2",
+                "run_id": "event-gate-run",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+            }), encoding="utf-8")
+            (run_folder / "run_summary.json").write_text(json.dumps({
+                "schema_version": "mm_run_v0.2",
+                "run_id": "event-gate-run",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+                "preflight_status": "PASS",
+            }), encoding="utf-8")
+            quote_row = {
+                "run_id": "event-gate-run",
+                "target_date": TARGET_DATE,
+                "run_mode": "paper-live-forward",
+                "generated_at_utc": "2026-06-14T15:52:00+00:00",
+                "captured_at_utc": "2026-06-14T15:51:30+00:00",
+                "policy_hash": "locked-policy",
+                "quote_permission": "False",
+                "reason_code": "NO_QUOTE_INFORMATION_EVENT",
+                "market_id": "atlanta",
+                "event_slug": EVENT,
+                "range_label": "80-81 F",
+                "fair_probability": "0.54",
+                "market_mid": "0.50",
+                "edge": "0.04",
+                "quote_size": "5",
+                "event_gate_status": "PULL",
+                "event_gate_action": "suppress",
+                "event_gate_event_class": "metar_print_window",
+                "event_gate_reason_code": "INFO_EVENT_METAR_PRINT",
+            }
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+
+            score = payload["summary"]["event_gate_score"]
+            self.assertEqual(score["suppressed_rows"], 1)
+            self.assertAlmostEqual(score["suppressed_opportunity_cost_usdc"], 0.2)
+            self.assertEqual(score["narrowing_gate"], "NEEDS_MARKOUT_EVIDENCE")
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+            self.assertIn("## Information Event Gate", report)
+
+    def test_clob_recon_summary_feeds_paper_report_and_known_edge_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            recon = root / "backtest" / "clob_book_recon.json"
+            recon.parent.mkdir(parents=True)
+            recon.write_text(json.dumps({
+                "schema_version": "clob_book_recon_v0.1",
+                "summary": {
+                    "book_rows": 2,
+                    "slice_rows": 1,
+                    "mean_reward_qualifying_size": 80.0,
+                    "mean_spread": 0.02,
+                    "mean_passive_markout_300s": -0.01,
+                    "policy_parameter_suggestions": {"quote_size": 2.0},
+                },
+                "policy_parameter_suggestions": {"quote_size": 2.0},
+                "slices": [
+                    {
+                        "market_id": "atlanta",
+                        "hour_utc": "15:00Z",
+                        "side": "YES_BID",
+                        "recommended_permission": "harvest_only",
+                        "permission_reason": "passive_flow_toxic",
+                    }
+                ],
+            }), encoding="utf-8")
+
+            payload = build_paper_payload(
+                runs_root=root / "missing_mm_runs",
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                clob_recon_path=recon,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+
+            self.assertEqual(payload["summary"]["clob_recon"]["slice_rows"], 1)
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+            self.assertIn("## CLOB Recon", report)
+            self.assertTrue(any(row.get("clob_recon_evidence") for row in known_edge["records"]))
 
     def test_incompatible_schema_is_quarantined_and_non_countable_run_does_not_lock_day(self):
         with tempfile.TemporaryDirectory() as tmp:

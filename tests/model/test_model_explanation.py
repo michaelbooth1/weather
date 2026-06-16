@@ -201,6 +201,47 @@ class TestBucketAgnosticDeepDive(unittest.TestCase):
         self.assertEqual(wu_row["Answer"], "26 C")
         self.assertIn("Guaranteed floor", wu_row["Impact on 26 C"])
 
+    def test_gated_marine_context_surfaces_in_source_rows_and_explanation(self):
+        sources = self._sources()
+        sources["wu_current"]["data"]["temp_native"] = 18.0
+        sources["marine_context"] = {"ok": True, "data": {
+            "market": "toronto",
+            "stations": [{
+                "station_id": "45159",
+                "usable": True,
+                "latest_age_minutes": 15,
+                "missing_sensors": [],
+                "distance_km": 43,
+                "onshore_direction_min": 60.0,
+                "onshore_direction_max": 160.0,
+                "latest": {
+                    "water_temp_native": 14.0,
+                    "air_temp_native": 18.0,
+                    "wind_speed_kmh": 16.0,
+                    "wind_direction_degrees": 120.0,
+                },
+                "rows": [],
+            }],
+        }}
+
+        source_rows = self.model.source_rows(sources)
+        explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
+
+        marine_row = next(row for row in source_rows if row["Source"] == "Marine/lake-breeze context")
+        self.assertEqual(marine_row["Signal"], "breeze risk")
+        self.assertEqual(explanation["marine_context"]["regime"], "breeze_risk")
+
+    def test_unusable_marine_context_stays_out_of_explanation(self):
+        sources = self._sources()
+        sources["marine_context"] = {"ok": True, "data": {
+            "market": "toronto",
+            "stations": [{"station_id": "45159", "usable": False, "latest": {}}],
+        }}
+
+        self.assertFalse(any(row["Source"] == "Marine/lake-breeze context" for row in self.model.source_rows(sources)))
+        explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
+        self.assertNotIn("marine_context", explanation)
+
 
 if __name__ == "__main__":
     unittest.main()

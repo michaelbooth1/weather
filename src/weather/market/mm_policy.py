@@ -16,12 +16,23 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market.clob_recon import (
+    DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON,
+    policy_overrides_from_recon,
+)
+from weather.market.info_event_calendar import (
+    DEFAULT_CONFIG_PATH as DEFAULT_INFORMATION_EVENT_CALENDAR,
+    event_gate_for_row,
+    load_calendar_config,
+    quote_event_gate_fields,
+    summarize_event_gate_rows,
+)
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import REGISTRY, spec_for_slug
 
 
-SCHEMA_VERSION = "mm_quote_intent_v0.1"
-POLICY_VERSION = "mm_policy_v0.1"
+SCHEMA_VERSION = "mm_quote_intent_v0.2"
+POLICY_VERSION = "mm_policy_v0.2"
 DEFAULT_PROMOTION_REFRESH = Path("data") / "backtest" / "f_family_promotion_refresh.json"
 DEFAULT_KNOWN_EDGE_MAP = Path("data") / "backtest" / "mm_known_edge_map.json"
 DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
@@ -49,6 +60,16 @@ DEFAULT_POLICY_CONFIG = {
     "max_event_notional": 25.0,
     "max_band_notional": 10.0,
     "max_daily_loss": 25.0,
+    "information_event_calendar_enabled": True,
+    "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
+    "event_gate_widen_buffer": 0.01,
+    "event_gate_exception_enabled": False,
+    "event_gate_exception_event_classes": "",
+    "event_gate_exception_evidence_status": "",
+    "event_gate_exception_evidence_id": "",
+    "event_gate_exception_risk_cap_usdc": 0.0,
+    "clob_recon_policy_enabled": True,
+    "clob_recon_path": str(DEFAULT_CLOB_RECON),
 }
 
 QUOTE_COLUMNS = [
@@ -64,6 +85,21 @@ QUOTE_COLUMNS = [
     "side",
     "reason_code",
     "reason_detail",
+    "event_gate_schema_version",
+    "event_gate_status",
+    "event_gate_action",
+    "event_gate_reason_code",
+    "event_gate_reason_detail",
+    "event_gate_event_id",
+    "event_gate_event_class",
+    "event_gate_source",
+    "event_gate_starts_at_utc",
+    "event_gate_ends_at_utc",
+    "event_gate_next_event_id",
+    "event_gate_next_event_class",
+    "event_gate_next_event_at_utc",
+    "event_gate_exception_id",
+    "event_gate_exception_risk_cap_usdc",
     "market_id",
     "event_slug",
     "snapshot_id",
@@ -167,6 +203,37 @@ def bool_value(value, default=False):
 def policy_hash(config):
     payload = json.dumps(config, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def calendar_config_for_policy(config):
+    if isinstance(config.get("_information_event_calendar_config"), dict):
+        return config["_information_event_calendar_config"]
+    overrides = {
+        "enabled": bool_value(config.get("information_event_calendar_enabled"), True),
+    }
+    return load_calendar_config(
+        config.get("information_event_calendar_path") or DEFAULT_INFORMATION_EVENT_CALENDAR,
+        overrides=overrides,
+    )
+
+
+def row_with_event_gate(row, config, now):
+    calendar_config = calendar_config_for_policy(config)
+    gate = event_gate_for_row(row, now=now, config=calendar_config, policy_config=config)
+    merged = dict(row)
+    merged["_event_gate"] = gate
+    return merged, gate
+
+
+def config_with_clob_recon(config):
+    enabled = bool_value(config.get("clob_recon_policy_enabled"), True)
+    overrides, diagnostics = policy_overrides_from_recon(
+        config.get("clob_recon_path") or DEFAULT_CLOB_RECON,
+        enabled=enabled,
+    )
+    if overrides:
+        config = {**config, **overrides}
+    return config, diagnostics
 
 
 def age_seconds(timestamp, now):
@@ -494,6 +561,10 @@ def _risk_limited_size(row, config, price):
         ("band_notional_cap", band_remaining / price),
         ("daily_loss_cap", loss_remaining / price),
     ]
+    exception = ((row.get("_event_gate") or {}).get("exception") or {})
+    exception_cap = maybe_float(exception.get("risk_cap_usdc"))
+    if exception_cap is not None:
+        candidates.append(("event_gate_exception_risk_cap", max(0.0, exception_cap) / price))
     limiter, size = min(candidates, key=lambda item: item[1])
     return max(0.0, size), limiter, event_remaining
 
@@ -510,7 +581,7 @@ def _base_output(row, config, now, reason_code, reason_detail):
     if model_age is None:
         model_age = age_seconds(row.get("captured_at_utc"), now)
     watcher_age = maybe_float(row.get("watcher_age_seconds"))
-    return {
+    output = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
         "policy_version": config.get("policy_version", POLICY_VERSION),
@@ -568,6 +639,8 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "adverse_selection_buffer": float(config["adverse_selection_buffer"]),
         "final_size_limiter": "-",
     }
+    output.update(quote_event_gate_fields(row.get("_event_gate")))
+    return output
 
 
 def _no_quote(row, config, now, reason_code, reason_detail):
@@ -576,7 +649,13 @@ def _no_quote(row, config, now, reason_code, reason_detail):
 
 def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_price=None):
     output = _base_output(row, config, now, reason_code, "quote permitted by shadow policy")
-    price_for_size = bid_price if bid_price is not None else ask_price
+    price_for_size = 0.0
+    if bid_price is not None:
+        price_for_size += max(0.0, float(bid_price))
+    if ask_price is not None:
+        price_for_size += max(0.0, 1.0 - float(ask_price))
+    if price_for_size <= 0:
+        price_for_size = bid_price if bid_price is not None else ask_price
     size, limiter, event_remaining = _risk_limited_size(row, config, price_for_size)
     if size <= 0:
         return _no_quote(row, config, now, "NO_QUOTE_RISK_CAP", f"{limiter} leaves no quote size")
@@ -601,6 +680,7 @@ def decide_quote(row, config=None, now=None):
     """Pure policy function: one input band -> one quote/no-quote intent."""
     config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
     now = utc_now(now)
+    row, event_gate = row_with_event_gate(row, config, now)
     promotion_state = str(row.get("promotion_state") or "BLOCK").upper()
     known_edge_permission = normalize_token(row.get("known_edge_permission"))
     if known_edge_permission == "no_quote":
@@ -621,6 +701,22 @@ def decide_quote(row, config=None, now=None):
         return _no_quote(row, config, now, "NO_QUOTE_NEAR_DECISIVE_WINDOW", "decisive observation window")
     if str(row.get("market_status") or "active").lower() not in {"active", "open", ""}:
         return _no_quote(row, config, now, "NO_QUOTE_MARKET_INACTIVE", "market is not active")
+    if event_gate.get("action") == "suppress":
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_INFORMATION_EVENT",
+            event_gate.get("reason_detail") or "information-event quote-pull window",
+        )
+    if event_gate.get("action") == "widen":
+        config = {
+            **config,
+            "adverse_selection_buffer": (
+                float(config["adverse_selection_buffer"])
+                + float(config.get("event_gate_widen_buffer") or 0.0)
+            ),
+        }
 
     fair = clamp_probability(first_present(row, "fair_probability", "model_probability", "candidate_p"))
     mid = _midpoint(row)
@@ -870,6 +966,7 @@ def run_policy_snapshot(
     now=None,
 ):
     config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
+    config, clob_recon_diag = config_with_clob_recon(config)
     now = utc_now(now)
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
@@ -887,6 +984,7 @@ def run_policy_snapshot(
     csv_path = write_quote_csv(out, quote_rows)
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
     regime_counts = Counter(row.get("regime") for row in quote_rows)
+    event_gate = summarize_event_gate_rows(quote_rows)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -895,6 +993,7 @@ def run_policy_snapshot(
         "shadow_mode": True,
         "promotion": promotion_diag,
         "known_edge_map": known_edge_diag,
+        "clob_recon": clob_recon_diag,
         "observation_status": observation,
         "snapshots_root": str(snapshots_root),
         "csv_out": csv_path,
@@ -903,6 +1002,7 @@ def run_policy_snapshot(
         "live_trade_permission_rows": sum(1 for row in quote_rows if row.get("live_trade_permission")),
         "reason_counts": dict(sorted(reason_counts.items())),
         "regime_counts": dict(sorted(regime_counts.items())),
+        "information_event_gate": event_gate,
         "rows": quote_rows,
     }
     json_out = Path(json_out)

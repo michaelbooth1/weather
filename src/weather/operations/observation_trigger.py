@@ -34,6 +34,11 @@ from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.schema_registry import schema_version
+from weather.sources.asos_one_minute import (
+    DEFAULT_ROOT as DEFAULT_ASOS_1MIN_ROOT,
+    compare_daily_summary_to_wu_print,
+    load_daily_summary,
+)
 
 
 SCHEMA_VERSION = schema_version("observation_trigger")
@@ -51,6 +56,8 @@ PAUSE_FLAG_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_pause.flag"
 SUPERVISOR_LOCK_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_supervisor.lock"
 DEFAULT_REPLAY_JSON = DEFAULT_BACKTEST_ROOT / "observation_trigger_replay.json"
 DEFAULT_REPLAY_REPORT = DEFAULT_BACKTEST_ROOT / "observation_trigger_replay_report.md"
+DEFAULT_TRIGGER_POLICY_MIN_ROWS = 30
+DEFAULT_TRIGGER_POLICY_MAX_DELTA = 0.0
 TASK_NAME = "WeatherObservationTriggerSupervisor"
 
 OBSERVATION_SOURCES = ("wu_history", "wu_current", "metar", "eccc_swob")
@@ -424,19 +431,73 @@ def trigger_is_live_fresh(trigger_context, now=None, stale_seconds=DEFAULT_FAST_
     return age is not None and age <= stale_seconds
 
 
-def latest_trade_permission(status, now=None, stale_seconds=DEFAULT_FAST_STALE_SECONDS):
+def trigger_direction(previous_value, current_value):
+    previous_value = to_float(previous_value)
+    current_value = to_float(current_value)
+    if previous_value is None or current_value is None:
+        return "unknown"
+    if current_value > previous_value:
+        return "up"
+    if current_value < previous_value:
+        return "down"
+    return "same"
+
+
+def trigger_context_direction(trigger_context):
+    primary = (trigger_context or {}).get("primary_trigger") or {}
+    return trigger_direction(primary.get("previous_value"), primary.get("current_value"))
+
+
+def trigger_policy_key(reason, direction):
+    return f"{reason or 'unknown'}|{direction or 'unknown'}"
+
+
+def load_trigger_permission_policy(path=DEFAULT_REPLAY_JSON):
+    payload = read_json(path)
+    if not payload:
+        return None
+    summary = payload.get("summary") or {}
+    return summary.get("trigger_permission_policy")
+
+
+def trigger_context_allowed_by_policy(trigger_context, policy):
+    if not policy:
+        return False, "missing_trigger_permission_policy"
+    allowed = set(policy.get("allowed_reason_directions") or [])
+    reason = (trigger_context or {}).get("reason") or "unknown"
+    direction = trigger_context_direction(trigger_context)
+    key = trigger_policy_key(reason, direction)
+    if key in allowed:
+        return True, key
+    return False, key
+
+
+def latest_trade_permission(status, now=None, stale_seconds=DEFAULT_FAST_STALE_SECONDS, policy_path=DEFAULT_REPLAY_JSON):
     now = now or utc_now()
     health = watcher_health(status, now=now)
     latest = (status or {}).get("latest_triggered") or {}
+    policy = load_trigger_permission_policy(policy_path)
     fresh_markets = {
         market_id: trigger_is_live_fresh((item or {}).get("trigger_context") or {}, now, stale_seconds)
         for market_id, item in latest.items()
     }
+    permissioned_markets = {}
+    blocked_reasons = {}
+    for market_id, item in latest.items():
+        context = (item or {}).get("trigger_context") or {}
+        allowed, reason = trigger_context_allowed_by_policy(context, policy)
+        permissioned_markets[market_id] = bool(fresh_markets.get(market_id)) and allowed
+        if fresh_markets.get(market_id) and not allowed:
+            blocked_reasons[market_id] = reason
     return {
         "watcher_state": health.get("state"),
         "watcher_fresh": health.get("state") in {"RUNNING", "DEGRADED"},
         "fresh_markets": fresh_markets,
-        "trade_permissioned": health.get("state") in {"RUNNING", "DEGRADED"} and any(fresh_markets.values()),
+        "permissioned_markets": permissioned_markets,
+        "blocked_reasons": blocked_reasons,
+        "policy_path": str(policy_path) if policy_path else None,
+        "policy_status": (policy or {}).get("acceptance_status") or "missing",
+        "trade_permissioned": health.get("state") in {"RUNNING", "DEGRADED"} and any(permissioned_markets.values()),
         "stale_after_seconds": stale_seconds,
     }
 
@@ -545,7 +606,12 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "last_poll_results": poll_results,
         "last_trigger_count": trigger_count,
         "paused": PAUSE_FLAG_PATH.exists(),
-        "trade_permission": latest_trade_permission(status, now=now, stale_seconds=getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS)),
+        "trade_permission": latest_trade_permission(
+            status,
+            now=now,
+            stale_seconds=getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
+            policy_path=getattr(args, "trigger_policy", DEFAULT_REPLAY_JSON),
+        ),
     })
     write_status(status, status_path)
     append_diagnostic({
@@ -792,12 +858,39 @@ def read_jsonl(path):
 
 def band_key(row):
     kind = row.get("bin_kind")
-    value = to_int(row.get("bin_value_c"))
+    value = to_int(row.get("bin_value_c") or row.get("bin_value"))
+    value_hi = to_int(row.get("bin_value_hi_c") or row.get("bin_value_hi"))
+    encoded = row.get("band_key") or row.get("band_key_text")
+    if encoded and (not kind or value is None):
+        match = re.match(r"^(eq|lte|gte):(\d+)(?:-(\d+))?$", str(encoded))
+        if match:
+            kind = kind or match.group(1)
+            value = value if value is not None else to_int(match.group(2))
+            value_hi = value_hi if value_hi is not None else to_int(match.group(3))
     label = row.get("range_label") or ""
     numbers = [to_int(item) for item in re.findall(r"\d+", str(label))]
     numbers = [item for item in numbers if item is not None]
-    value_hi = numbers[-1] if len(numbers) >= 2 else value
+    if not kind and numbers:
+        label_lower = str(label).lower()
+        if "below" in label_lower or "under" in label_lower:
+            kind = "lte"
+        elif "higher" in label_lower or "above" in label_lower:
+            kind = "gte"
+        else:
+            kind = "eq"
+    if value is None and numbers:
+        value = numbers[0]
+    if value_hi is None:
+        value_hi = numbers[-1] if len(numbers) >= 2 else value
     return kind, value, value_hi
+
+
+def same_band(left, right):
+    left_key = band_key(left)
+    right_key = band_key(right)
+    if left_key[0] is not None and left_key[1] is not None and right_key[0] is not None and right_key[1] is not None:
+        return left_key == right_key
+    return (left.get("range_label") or "") == (right.get("range_label") or "")
 
 
 def band_outcome(row, settlement_bucket):
@@ -852,10 +945,20 @@ def load_snapshot_rows(folder):
     }
     for row in rows:
         record = replay_index.get(str(row.get("snapshot_id"))) or {}
+        trigger_context = record.get("trigger_context") or {}
+        primary_trigger = trigger_context.get("primary_trigger") or {}
         if not row.get("snapshot_cadence"):
             row["snapshot_cadence"] = record.get("snapshot_cadence") or "scheduled"
-        if not row.get("trigger_reason") and record.get("trigger_context"):
-            row["trigger_reason"] = (record.get("trigger_context") or {}).get("reason")
+        if not row.get("trigger_reason") and trigger_context:
+            row["trigger_reason"] = trigger_context.get("reason")
+        if not row.get("trigger_source"):
+            row["trigger_source"] = primary_trigger.get("source")
+        if not row.get("trigger_previous_value"):
+            row["trigger_previous_value"] = primary_trigger.get("previous_value")
+        if not row.get("trigger_current_value"):
+            row["trigger_current_value"] = primary_trigger.get("current_value")
+        if not row.get("trigger_observed_at"):
+            row["trigger_observed_at"] = primary_trigger.get("observed_at")
     return rows
 
 
@@ -878,7 +981,7 @@ def case_window(case):
 def matches_case(row, case):
     if row.get("event_slug") != case.get("event_slug"):
         return False
-    if row.get("range_label") != case.get("range_label"):
+    if not same_band(row, case):
         return False
     captured = row.get("_captured_dt")
     start, end = case_window(case)
@@ -891,14 +994,14 @@ def nearest_rows(rows, trigger_row):
     captured = trigger_row.get("_captured_dt")
     if captured is None:
         return None, None
-    same_band = [
+    same_band_rows = [
         row for row in rows
-        if row.get("range_label") == trigger_row.get("range_label")
+        if same_band(row, trigger_row)
         and row.get("snapshot_cadence") != "triggered"
         and row.get("_captured_dt") is not None
     ]
-    before = [row for row in same_band if row["_captured_dt"] < captured]
-    after = [row for row in same_band if row["_captured_dt"] > captured]
+    before = [row for row in same_band_rows if row["_captured_dt"] < captured]
+    after = [row for row in same_band_rows if row["_captured_dt"] > captured]
     return (
         max(before, key=lambda row: row["_captured_dt"]) if before else None,
         min(after, key=lambda row: row["_captured_dt"]) if after else None,
@@ -914,13 +1017,78 @@ def score_row(row, settlement_bucket):
     }
 
 
+def replay_metric_summary(rows):
+    triggered_brier = mean(row.get("triggered_model_brier") for row in rows)
+    pre_brier = mean(row.get("pre_model_brier") for row in rows)
+    next_brier = mean(row.get("next_model_brier") for row in rows)
+    market_brier = mean(row.get("triggered_market_brier") for row in rows)
+    delta = triggered_brier - pre_brier if triggered_brier is not None and pre_brier is not None else None
+    return {
+        "rows": len(rows),
+        "triggered_model_brier": triggered_brier,
+        "pre_model_brier": pre_brier,
+        "next_model_brier": next_brier,
+        "triggered_market_brier": market_brier,
+        "delta_triggered_vs_pre": delta,
+    }
+
+
+def build_trigger_permission_policy(
+    scored_rows,
+    min_rows=DEFAULT_TRIGGER_POLICY_MIN_ROWS,
+    max_delta=DEFAULT_TRIGGER_POLICY_MAX_DELTA,
+):
+    reason_direction_rows = defaultdict(list)
+    reason_rows = defaultdict(list)
+    for row in scored_rows:
+        reason = row.get("trigger_reason") or "unknown"
+        direction = row.get("trigger_direction") or "unknown"
+        reason_direction_rows[trigger_policy_key(reason, direction)].append(row)
+        reason_rows[reason].append(row)
+
+    def summarize_groups(groups):
+        output = {}
+        for key, rows in sorted(groups.items()):
+            metrics = replay_metric_summary(rows)
+            delta = metrics.get("delta_triggered_vs_pre")
+            metrics["passes_policy"] = (
+                metrics.get("rows", 0) >= min_rows
+                and delta is not None
+                and delta <= max_delta
+            )
+            output[key] = metrics
+        return output
+
+    reason_direction_metrics = summarize_groups(reason_direction_rows)
+    reason_metrics = summarize_groups(reason_rows)
+    allowed = [
+        key for key, metrics in reason_direction_metrics.items()
+        if metrics.get("passes_policy")
+    ]
+    blocked = [
+        key for key, metrics in reason_direction_metrics.items()
+        if not metrics.get("passes_policy")
+    ]
+    return {
+        "schema_version": REPLAY_SCHEMA_VERSION,
+        "minimum_rows": min_rows,
+        "maximum_delta_triggered_vs_pre": max_delta,
+        "allowed_reason_directions": allowed,
+        "blocked_reason_directions": blocked,
+        "reason_direction_cohorts": reason_direction_metrics,
+        "reason_cohorts": reason_metrics,
+    }
+
+
 def build_triggered_replay_report(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     backtest_root=DEFAULT_BACKTEST_ROOT,
     casebook_path=None,
+    asos_1min_root=None,
 ):
     snapshots_root = Path(snapshots_root)
     backtest_root = Path(backtest_root)
+    asos_1min_root = Path(asos_1min_root) if asos_1min_root else DEFAULT_ASOS_1MIN_ROOT
     labels = load_labels(backtest_root / "market_day_labels.csv")
     casebook_path = Path(casebook_path) if casebook_path else backtest_root / "disagreement_casebook.json"
     cases = load_casebook_wu_lag(casebook_path)
@@ -958,6 +1126,14 @@ def build_triggered_replay_report(
             before_score = score_row(before, settlement_bucket) if before else {}
             after_score = score_row(after, settlement_bucket) if after else {}
             spec = spec_for_slug(event_slug)
+            target_date = date_from_event_slug(event_slug) if event_slug else None
+            asos_daily = load_daily_summary(asos_1min_root, spec, target_date) if spec and target_date else None
+            asos_comparison = compare_daily_summary_to_wu_print(
+                asos_daily,
+                settlement_bucket=settlement_bucket,
+                wu_print_time=row.get("_captured_dt"),
+                spec=spec,
+            ) if spec else {}
             scored.append({
                 "event_slug": event_slug,
                 "market_id": spec.id if spec else None,
@@ -965,6 +1141,10 @@ def build_triggered_replay_report(
                 "captured_at_utc": row.get("captured_at_utc"),
                 "range_label": row.get("range_label"),
                 "trigger_reason": row.get("trigger_reason"),
+                "trigger_source": row.get("trigger_source"),
+                "trigger_previous_value": to_float(row.get("trigger_previous_value")),
+                "trigger_current_value": to_float(row.get("trigger_current_value")),
+                "trigger_direction": trigger_direction(row.get("trigger_previous_value"), row.get("trigger_current_value")),
                 "case_ids": [case.get("case_id") for case in matching_cases],
                 "settlement_bucket": settlement_bucket,
                 "triggered_model_probability": to_float(row.get("model_probability")),
@@ -974,7 +1154,34 @@ def build_triggered_replay_report(
                 "pre_model_brier": before_score.get("model_brier"),
                 "next_model_brier": after_score.get("model_brier"),
                 "triggered_market_brier": trigger_score.get("market_brier"),
+                **asos_comparison,
             })
+
+    policy = build_trigger_permission_policy(scored)
+    allowed_reason_directions = set(policy.get("allowed_reason_directions") or [])
+    for row in scored:
+        permission_key = trigger_policy_key(row.get("trigger_reason"), row.get("trigger_direction"))
+        row["trigger_permission_key"] = permission_key
+        row["trigger_permissioned"] = permission_key in allowed_reason_directions
+
+    all_metrics = replay_metric_summary(scored)
+    permissioned = [row for row in scored if row.get("trigger_permissioned")]
+    permissioned_metrics = replay_metric_summary(permissioned)
+    all_delta = all_metrics.get("delta_triggered_vs_pre")
+    permissioned_delta = permissioned_metrics.get("delta_triggered_vs_pre")
+    if len(scored) == 0:
+        acceptance_status = "WAITING_FOR_SETTLED_TRIGGER_ROWS"
+    elif all_delta is not None and all_delta <= DEFAULT_TRIGGER_POLICY_MAX_DELTA:
+        acceptance_status = "PASS_ALL_TRIGGERED"
+    elif (
+        permissioned_metrics.get("rows", 0) >= DEFAULT_TRIGGER_POLICY_MIN_ROWS
+        and permissioned_delta is not None
+        and permissioned_delta <= DEFAULT_TRIGGER_POLICY_MAX_DELTA
+    ):
+        acceptance_status = "PASS_WITH_PERMISSION_POLICY"
+    else:
+        acceptance_status = "BLOCKED_BY_TRIGGER_REPLAY_REGRESSION"
+    policy["acceptance_status"] = acceptance_status
 
     summary = {
         "schema_version": REPLAY_SCHEMA_VERSION,
@@ -983,15 +1190,25 @@ def build_triggered_replay_report(
         "triggered_rows_on_settled_wu_lag_events": trigger_rows,
         "matched_triggered_rows": matched_trigger_rows,
         "scored_rows": len(scored),
-        "triggered_model_brier": mean(row.get("triggered_model_brier") for row in scored),
-        "pre_model_brier": mean(row.get("pre_model_brier") for row in scored),
-        "next_model_brier": mean(row.get("next_model_brier") for row in scored),
-        "triggered_market_brier": mean(row.get("triggered_market_brier") for row in scored),
+        "trigger_acceptance_status": acceptance_status,
+        "triggered_model_brier": all_metrics.get("triggered_model_brier"),
+        "pre_model_brier": all_metrics.get("pre_model_brier"),
+        "next_model_brier": all_metrics.get("next_model_brier"),
+        "triggered_market_brier": all_metrics.get("triggered_market_brier"),
+        "trigger_permissioned_rows": permissioned_metrics.get("rows"),
+        "trigger_permissioned_model_brier": permissioned_metrics.get("triggered_model_brier"),
+        "trigger_permissioned_pre_brier": permissioned_metrics.get("pre_model_brier"),
+        "trigger_permissioned_next_brier": permissioned_metrics.get("next_model_brier"),
+        "trigger_permissioned_market_brier": permissioned_metrics.get("triggered_market_brier"),
+        "trigger_permissioned_delta_triggered_vs_pre": permissioned_metrics.get("delta_triggered_vs_pre"),
+        "trigger_permission_policy": policy,
+        "asos_1min_rows_with_evidence": sum(1 for row in scored if row.get("asos_1min_available")),
+        "asos_1min_mean_minus_settlement": mean(row.get("asos_1min_minus_settlement_bucket") for row in scored),
+        "asos_1min_mean_minutes_from_first_high_to_wu_print": mean(
+            row.get("asos_1min_minutes_from_first_high_to_wu_print") for row in scored
+        ),
     }
-    if summary["triggered_model_brier"] is not None and summary["pre_model_brier"] is not None:
-        summary["delta_triggered_vs_pre"] = summary["triggered_model_brier"] - summary["pre_model_brier"]
-    else:
-        summary["delta_triggered_vs_pre"] = None
+    summary["delta_triggered_vs_pre"] = all_metrics.get("delta_triggered_vs_pre")
     return {"summary": summary, "rows": scored}
 
 
@@ -1031,11 +1248,19 @@ def write_replay_outputs(payload, json_out=DEFAULT_REPLAY_JSON, report_out=DEFAU
                 ["Triggered rows on settled WU-lag events", summary.get("triggered_rows_on_settled_wu_lag_events")],
                 ["Matched triggered rows", summary.get("matched_triggered_rows")],
                 ["Scored rows", summary.get("scored_rows")],
+                ["Acceptance status", summary.get("trigger_acceptance_status")],
                 ["Triggered model Brier", fmt_num(summary.get("triggered_model_brier"))],
                 ["Pre-trigger model Brier", fmt_num(summary.get("pre_model_brier"))],
                 ["Next scheduled model Brier", fmt_num(summary.get("next_model_brier"))],
                 ["Triggered market Brier", fmt_num(summary.get("triggered_market_brier"))],
                 ["Delta triggered vs pre", fmt_num(summary.get("delta_triggered_vs_pre"))],
+                ["Permissioned triggered rows", summary.get("trigger_permissioned_rows")],
+                ["Permissioned triggered Brier", fmt_num(summary.get("trigger_permissioned_model_brier"))],
+                ["Permissioned pre-trigger Brier", fmt_num(summary.get("trigger_permissioned_pre_brier"))],
+                ["Permissioned delta vs pre", fmt_num(summary.get("trigger_permissioned_delta_triggered_vs_pre"))],
+                ["Rows with ASOS 1-min evidence", summary.get("asos_1min_rows_with_evidence")],
+                ["ASOS 1-min mean minus settlement", fmt_num(summary.get("asos_1min_mean_minus_settlement"))],
+                ["ASOS 1-min mean minutes high before WU print", fmt_num(summary.get("asos_1min_mean_minutes_from_first_high_to_wu_print"))],
             ],
         ),
         "",
@@ -1051,7 +1276,11 @@ def write_replay_outputs(payload, json_out=DEFAULT_REPLAY_JSON, report_out=DEFAU
             "## Rows",
             "",
             markdown_table(
-                ["Event", "Band", "Snapshot", "Reason", "Triggered Brier", "Pre Brier", "Next Brier", "Cases"],
+                [
+                    "Event", "Band", "Snapshot", "Reason", "Triggered Brier",
+                    "Direction", "Permissioned", "Pre Brier", "Next Brier",
+                    "ASOS Max", "ASOS-Settle", "ASOS->WU min", "Cases",
+                ],
                 [
                     [
                         row.get("event_slug"),
@@ -1059,8 +1288,13 @@ def write_replay_outputs(payload, json_out=DEFAULT_REPLAY_JSON, report_out=DEFAU
                         row.get("snapshot_id"),
                         row.get("trigger_reason"),
                         fmt_num(row.get("triggered_model_brier")),
+                        row.get("trigger_direction"),
+                        row.get("trigger_permissioned"),
                         fmt_num(row.get("pre_model_brier")),
                         fmt_num(row.get("next_model_brier")),
+                        fmt_num(row.get("asos_1min_max_so_far")),
+                        fmt_num(row.get("asos_1min_minus_settlement_bucket")),
+                        fmt_num(row.get("asos_1min_minutes_from_first_high_to_wu_print")),
                         ", ".join(row.get("case_ids") or []),
                     ]
                     for row in payload.get("rows", [])[:200]
@@ -1068,6 +1302,31 @@ def write_replay_outputs(payload, json_out=DEFAULT_REPLAY_JSON, report_out=DEFAU
             ),
             "",
         ])
+        policy = summary.get("trigger_permission_policy") or {}
+        cohorts = policy.get("reason_direction_cohorts") or {}
+        if cohorts:
+            lines.extend([
+                "## Trigger Permission Cohorts",
+                "",
+                markdown_table(
+                    [
+                        "Reason|Direction", "Rows", "Delta", "Triggered Brier",
+                        "Pre Brier", "Allowed",
+                    ],
+                    [
+                        [
+                            key,
+                            metrics.get("rows"),
+                            fmt_num(metrics.get("delta_triggered_vs_pre")),
+                            fmt_num(metrics.get("triggered_model_brier")),
+                            fmt_num(metrics.get("pre_model_brier")),
+                            metrics.get("passes_policy"),
+                        ]
+                        for key, metrics in sorted(cohorts.items())
+                    ],
+                ),
+                "",
+            ])
     report_path = Path(report_out)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("\n".join(lines), encoding="utf-8")
@@ -1087,6 +1346,7 @@ def build_parser():
         p.add_argument("--stale-after-seconds", type=float, default=DEFAULT_FAST_STALE_SECONDS)
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--trigger-on-first", action="store_true")
+        p.add_argument("--trigger-policy", default=str(DEFAULT_REPLAY_JSON))
 
     once = sub.add_parser("once", help="Poll observations once and trigger recomputes if needed.")
     add_common(once)
@@ -1100,6 +1360,7 @@ def build_parser():
     status.add_argument("--status-out", default=str(STATUS_PATH))
     status.add_argument("--interval-seconds", type=float, default=DEFAULT_INTERVAL_SECONDS)
     status.add_argument("--stale-after-seconds", type=float, default=DEFAULT_FAST_STALE_SECONDS)
+    status.add_argument("--trigger-policy", default=str(DEFAULT_REPLAY_JSON))
 
     start = sub.add_parser("start-detached", help="Start the watcher as a detached background process.")
     start.add_argument("--market", default="all")
@@ -1122,6 +1383,7 @@ def build_parser():
     replay.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     replay.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     replay.add_argument("--casebook", default=None)
+    replay.add_argument("--asos-1min-root", default=str(DEFAULT_ASOS_1MIN_ROOT))
     replay.add_argument("--json-out", default=str(DEFAULT_REPLAY_JSON))
     replay.add_argument("--report-out", default=str(DEFAULT_REPLAY_REPORT))
     return parser
@@ -1145,7 +1407,11 @@ def main(argv=None):
         status = read_status(args.status_out)
         payload = {
             "health": watcher_health(status, interval_seconds=args.interval_seconds),
-            "trade_permission": latest_trade_permission(status, stale_seconds=args.stale_after_seconds),
+            "trade_permission": latest_trade_permission(
+                status,
+                stale_seconds=args.stale_after_seconds,
+                policy_path=args.trigger_policy,
+            ),
             "status": status,
         }
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
@@ -1181,6 +1447,7 @@ def main(argv=None):
             snapshots_root=args.snapshots_root,
             backtest_root=args.backtest_root,
             casebook_path=args.casebook,
+            asos_1min_root=args.asos_1min_root,
         )
         json_out, report_out = write_replay_outputs(payload, args.json_out, args.report_out)
         print(f"Observation-triggered replay rows: {payload['summary']['scored_rows']}")

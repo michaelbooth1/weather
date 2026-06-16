@@ -19,6 +19,7 @@ from fleet_observability import (  # noqa: E402
     observation_alerts,
     overall_status,
     trust_readiness,
+    write_markdown,
 )
 
 
@@ -241,6 +242,40 @@ class TestFleetObservability(unittest.TestCase):
             {row["name"] for row in gate["gates"] if not row["ok"]},
             {"snapshot_collection", "clob_book_capture", "observation_trigger"},
         )
+
+    def test_markdown_surfaces_tape_backup_status(self):
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "status": "CRITICAL",
+            "summary": {"critical_alerts": 1, "warning_alerts": 0},
+            "collection": {"markets": []},
+            "historical_audits": {},
+            "historical_gap_coverage": {"markets": {}},
+            "artifact_provenance": {"markets": {}},
+            "trust_readiness": {},
+            "clob": {"loop": {}, "books": {"markets": []}},
+            "observation_trigger": {},
+            "live_forward_slo": {"gates": []},
+            "tape_backup": {
+                "status": "MISSING_CRITICAL_CLASS",
+                "backup_root": "Z:/weather-tapes",
+                "age_hours": 1.5,
+                "file_count": 10,
+                "missing_critical_classes": ["clob_tapes"],
+                "checksum_failures": [{"path": "x", "reason": "sha256_mismatch"}],
+                "last_restore_drill": {"status": "PASS", "generated_at_utc": "2026-06-15T01:00:00+00:00"},
+            },
+            "alerts": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "fleet.md"
+            write_markdown(report, payload)
+            text = report.read_text(encoding="utf-8")
+
+        self.assertIn("## Tape Backup And Restore", text)
+        self.assertIn("MISSING_CRITICAL_CLASS", text)
+        self.assertIn("clob_tapes", text)
 
 
 if __name__ == "__main__":

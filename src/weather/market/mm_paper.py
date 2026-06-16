@@ -21,8 +21,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
+    from .info_event_calendar import score_event_gate_decisions
+    from .clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
     from .mm_policy import bool_value, maybe_float, parse_time
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
+    from weather.market.info_event_calendar import score_event_gate_decisions
+    from weather.market.clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
     from weather.market.mm_policy import bool_value, maybe_float, parse_time
 
 try:
@@ -359,6 +363,13 @@ def quote_legs(quote_rows, config):
             "source_freshness_state": row.get("source_freshness_state") or "",
             "book_imbalance_bucket": book_imbalance_bucket(row.get("book_imbalance_1pct")),
             "band_distance_bucket": band_distance_bucket(row),
+            "event_gate_status": row.get("event_gate_status") or "",
+            "event_gate_action": row.get("event_gate_action") or "",
+            "event_gate_reason_code": row.get("event_gate_reason_code") or "",
+            "event_gate_event_class": row.get("event_gate_event_class") or "",
+            "event_gate_event_id": row.get("event_gate_event_id") or "",
+            "event_gate_next_event_at_utc": row.get("event_gate_next_event_at_utc") or "",
+            "event_gate_exception_id": row.get("event_gate_exception_id") or "",
             "quote_age_seconds": None,
             "reward_estimate_usdc": 0.0,
             "reward_q_min": 0.0,
@@ -994,6 +1005,12 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
                 "regime": leg["regime"],
                 "source_fresh": leg["source_fresh"],
                 "source_freshness_state": leg.get("source_freshness_state") or "",
+                "event_gate_status": leg.get("event_gate_status") or "",
+                "event_gate_action": leg.get("event_gate_action") or "",
+                "event_gate_reason_code": leg.get("event_gate_reason_code") or "",
+                "event_gate_event_class": leg.get("event_gate_event_class") or "",
+                "event_gate_event_id": leg.get("event_gate_event_id") or "",
+                "event_gate_exception_id": leg.get("event_gate_exception_id") or "",
                 "book_imbalance_bucket": leg["book_imbalance_bucket"],
                 "band_distance_bucket": leg["band_distance_bucket"],
                 "casebook_taxonomy": case.get("taxonomy") or "",
@@ -1174,6 +1191,7 @@ def build_paper_payload(
     config=None,
     now=None,
     ledger_root=None,
+    clob_recon_path=DEFAULT_CLOB_RECON,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
     candidate_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
@@ -1191,6 +1209,8 @@ def build_paper_payload(
     queue_summary = Counter(row.get("status") for row in queue_rows)
     slices = build_markout_slices(fill_rows, config)
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
+    event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
+    clob_recon = load_recon_payload(clob_recon_path)
     summary = {
         "run_folders": len(run_folders),
         "candidate_run_folders": len(candidate_run_folders),
@@ -1211,6 +1231,8 @@ def build_paper_payload(
         "pnl": summarize_pnl(fill_rows),
         "anti_overfit": anti_overfit,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
+        "event_gate_score": event_gate_score,
+        "clob_recon": clob_recon.get("summary") or {},
         "decisive_resting_audit": decisive_resting_check(legs, diagnostics),
         "gate_status": "OPEN" if len(anti_overfit.get("live_forward_days") or []) < int(config["min_edge_allowed_live_days"]) else "PAPER_DAYS_READY",
     }
@@ -1224,6 +1246,7 @@ def build_paper_payload(
         "casebook_path": str(casebook_path),
         "config": config,
         "summary": summary,
+        "clob_recon": clob_recon,
         "event_diagnostics": diagnostics,
         "run_configs": run_configs,
         "run_folder_eligibility": eligibility_by_folder,

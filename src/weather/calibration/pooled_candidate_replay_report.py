@@ -127,14 +127,81 @@ def _microstructure_gate_rows(gate):
     return rows
 
 
+def _bridge_summary_rows(bridge):
+    comp = (bridge or {}).get("aggregate") or {}
+    if not comp:
+        return []
+    return [[
+        "Conservative bridge rows",
+        comp.get("n", 0),
+        fmt_num(comp.get("bridge_brier")),
+        fmt_num(comp.get("candidate_brier")),
+        fmt_num(comp.get("current_brier")),
+        fmt_num(comp.get("market_brier")),
+        _fmt_delta(comp.get("delta_vs_candidate")),
+        _fmt_delta(comp.get("delta_vs_current")),
+        _fmt_delta(comp.get("delta_vs_market")),
+        fmt_signed(comp.get("bridge_skill"), 3),
+        fmt_pct(comp.get("base_rate")),
+    ]]
+
+
+def _bridge_group_rows(items):
+    return [
+        [
+            str(item.get("group")) if item.get("group") not in (None, "") else "-",
+            item.get("n", 0),
+            fmt_num(item.get("bridge_brier")),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            _fmt_delta(item.get("delta_vs_candidate")),
+            _fmt_delta(item.get("delta_vs_current")),
+            _fmt_delta(item.get("delta_vs_market")),
+            fmt_signed(item.get("bridge_skill"), 3),
+            fmt_pct(item.get("base_rate")),
+        ]
+        for item in items
+    ]
+
+
+def _bridge_slice_markdown(title, items):
+    lines = ["", f"### {title}", ""]
+    lines += markdown_table(
+        ["Group", "Rows", "Bridge Brier", "Base Candidate Brier", "Current Brier",
+         "Market Brier", "Delta vs Base", "Delta vs Current", "Delta vs Market",
+         "Bridge Skill", "Base Rate"],
+        _bridge_group_rows(items),
+    )
+    return lines
+
+
 def _market_list(rows, verdict):
     return ", ".join(row["market_id"] for row in rows if row["verdict"] == verdict) or "-"
+
+
+def _family_scope_label(report):
+    artifact = report.get("artifact") or {}
+    coverage = report.get("coverage") or {}
+    family_unit = artifact.get("family_unit") or coverage.get("family_unit") or "F"
+    if str(family_unit).lower() == "all":
+        return "All market rows"
+    return f"{family_unit}-family rows"
+
+
+def _excluded_scope_label(report):
+    artifact = report.get("artifact") or {}
+    coverage = report.get("coverage") or {}
+    family_unit = artifact.get("family_unit") or coverage.get("family_unit") or "F"
+    if str(family_unit).lower() == "all":
+        return "Excluded non-market rows"
+    return f"Excluded non-{family_unit} rows"
 
 
 def _comparison_summary_rows(report):
     rows = []
     for label, comp in [
-        ("All F-family rows", report.get("aggregate")),
+        (_family_scope_label(report), report.get("aggregate")),
         ("Daily-first equal-day average", report.get("daily_first")),
     ]:
         if not comp:
@@ -165,13 +232,58 @@ def _slice_markdown(title, items):
     return lines
 
 
+def _exact_winner_scope_rows(items):
+    rows = []
+    for item in items:
+        exact = item.get("exact_winner") or {}
+        rows.append([
+            item.get("slice") or item.get("group") or "-",
+            item.get("n", 0),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            _fmt_delta(item.get("delta_vs_current")),
+            _fmt_delta(item.get("delta_vs_market")),
+            fmt_num(item.get("candidate_ece")),
+            fmt_num(item.get("current_ece")),
+            fmt_num(item.get("market_ece")),
+            exact.get("winner_rows", 0),
+            fmt_num(exact.get("candidate_mean_probability")),
+            fmt_num(exact.get("current_mean_probability")),
+            fmt_num(exact.get("market_mean_probability")),
+        ])
+    return rows
+
+
+def _exact_winner_day_rows(items):
+    return [
+        [
+            item.get("group") or "-",
+            item.get("n", 0),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            _fmt_delta(item.get("delta_vs_current")),
+            _fmt_delta(item.get("delta_vs_market")),
+            fmt_num(item.get("candidate_ece")),
+            fmt_pct(item.get("base_rate")),
+        ]
+        for item in items
+    ]
+
+
 def write_report(report, out_path):
     artifact = report.get("artifact") or {}
     corpus = report.get("corpus") or {}
     coverage = report.get("coverage") or {}
     diagnostics = report.get("diagnostics") or {}
+    title = (
+        "Pooled All-Market Candidate Replay"
+        if str(artifact.get("family_unit") or "").lower() == "all"
+        else "Pooled F-Family Candidate Replay"
+    )
     lines = [
-        "# Pooled F-Family Candidate Replay",
+        f"# {title}",
         "",
         f"Generated: {report['generated_at']}",
         f"Validation verdict: **{report['verdict']}**",
@@ -216,9 +328,9 @@ def write_report(report, out_path):
             ["Pinned snapshots", corpus.get("snapshot_count") or 0],
             ["Pinned band rows", corpus.get("band_row_count") or 0],
             ["Replay rows", coverage.get("total_replay_rows", 0)],
-            ["F-family rows", coverage.get("family_rows", 0)],
+            [_family_scope_label(report), coverage.get("family_rows", 0)],
             ["Candidate-scored rows", coverage.get("candidate_rows", 0)],
-            ["Excluded non-F rows", coverage.get("excluded_non_family_rows", 0)],
+            [_excluded_scope_label(report), coverage.get("excluded_non_family_rows", 0)],
             ["Missing candidate rows", coverage.get("missing_candidate_rows", 0)],
             ["Candidate snapshots", diagnostics.get("candidate_snapshots", 0)],
             ["Predicted snapshots", diagnostics.get("predicted_snapshots", 0)],
@@ -244,6 +356,63 @@ def write_report(report, out_path):
          "Delta vs Market", "Candidate Skill", "Base Rate"],
         _comparison_summary_rows(report),
     )
+    candidate_shadow = report.get("candidate_shadow_variants")
+    if candidate_shadow:
+        lines += ["", "## Candidate Shadow Variant", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Variant", candidate_shadow.get("variant_id") or "-"],
+                ["Family", candidate_shadow.get("variant_family") or "-"],
+                ["Uses market features", candidate_shadow.get("uses_market_features")],
+                ["Control", candidate_shadow.get("is_control")],
+                ["Shadow variant rows", candidate_shadow.get("rows", 0)],
+                ["Shadow variant CSV", candidate_shadow.get("path") or "-"],
+            ],
+        )
+    exact_winner = report.get("exact_winner_diagnostics")
+    if exact_winner:
+        daily = exact_winner.get("daily_first") or {}
+        lines += [
+            "",
+            "## Exact-Winner Catch-Up Diagnostics",
+            "",
+            "These no-market diagnostics target item 70's failure slices and",
+            "the one-above guardrail before any promotion decision.",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Slice", "Rows", "Candidate Brier", "Current Brier", "Market Brier",
+                "Delta vs Current", "Delta vs Market", "Candidate ECE",
+                "Current ECE", "Market ECE", "Exact Winner Rows",
+                "Exact Winner Candidate P", "Exact Winner Current P",
+                "Exact Winner Market P",
+            ],
+            _exact_winner_scope_rows(exact_winner.get("scopes") or []),
+        )
+        lines += ["", "### Daily-First Paired Brier", ""]
+        lines += markdown_table(
+            ["Scope", "Days", "Rows", "Candidate Brier", "Current Brier",
+             "Market Brier", "Delta vs Current", "Delta vs Market"],
+            [[
+                "Daily-first equal-day average",
+                daily.get("n_days", "-"),
+                daily.get("n", 0),
+                fmt_num(daily.get("candidate_brier")),
+                fmt_num(daily.get("current_brier")),
+                fmt_num(daily.get("market_brier")),
+                _fmt_delta(daily.get("delta_vs_current")),
+                _fmt_delta(daily.get("delta_vs_market")),
+            ]] if daily else [],
+        )
+        lines += ["", "### Worst Daily Current Regressions", ""]
+        lines += markdown_table(
+            ["Market Day", "Rows", "Candidate Brier", "Current Brier",
+             "Market Brier", "Delta vs Current", "Delta vs Market",
+             "Candidate ECE", "Base Rate"],
+            _exact_winner_day_rows(exact_winner.get("worst_daily_current_regressions") or []),
+        )
     microstructure = report.get("microstructure")
     if microstructure:
         micro_diag = microstructure.get("diagnostics") or {}
@@ -301,6 +470,37 @@ def write_report(report, out_path):
             "By Casebook Taxonomy",
             microstructure.get("by_taxonomy") or [],
         )
+    bridge = report.get("conservative_bridge")
+    if bridge:
+        bridge_diag = bridge.get("diagnostics") or {}
+        bridge_policy = bridge.get("policy") or {}
+        lines += [
+            "",
+            "## Conservative Bridge Shadow Policy",
+            "",
+            "This is a non-serving per-market blend of the pooled candidate and",
+            "current serving probabilities. It is scored as an operational policy",
+            "variant and does not replace the model diagnostics above.",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Schema", bridge.get("schema_version") or "-"],
+                ["Policy", bridge_policy.get("policy_id") or "-"],
+                ["Alpha schedule", json.dumps(bridge_policy.get("alpha_by_market") or {}, sort_keys=True)],
+                ["Shadow variant rows", bridge_diag.get("shadow_variant_rows", 0)],
+                ["Shadow variant CSV", bridge_diag.get("shadow_variant_path") or "-"],
+            ],
+        )
+        lines += ["", "### Aggregate", ""]
+        lines += markdown_table(
+            ["Scope", "Rows", "Bridge Brier", "Base Candidate Brier", "Current Brier",
+             "Market Brier", "Delta vs Base", "Delta vs Current", "Delta vs Market",
+             "Bridge Skill", "Base Rate"],
+            _bridge_summary_rows(bridge),
+        )
+        lines += _bridge_slice_markdown("Bridge By Market", bridge.get("by_market") or [])
     lines += [
         "",
         "## Per-Market Action",

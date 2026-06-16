@@ -19,6 +19,7 @@ from pathlib import Path
 
 try:
     from .market_config import config_for_date, ensure_date
+    from .info_event_calendar import summarize_event_gate_rows
     from .market_microstructure import audit_book_tape
     from .market_microstructure_features import snapshot_band_key
     from .market_registry import all_specs, spec_for_id
@@ -34,6 +35,7 @@ try:
         apply_known_edge_permission,
         bool_value,
         clamp_probability,
+        config_with_clob_recon,
         decide_quote,
         first_present,
         load_clob_feature_index,
@@ -51,6 +53,7 @@ try:
     )
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
     from weather.market.market_config import config_for_date, ensure_date
+    from weather.market.info_event_calendar import summarize_event_gate_rows
     from weather.market.market_microstructure import audit_book_tape
     from weather.market.market_microstructure_features import snapshot_band_key
     from weather.market.market_registry import all_specs, spec_for_id
@@ -66,6 +69,7 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
         apply_known_edge_permission,
         bool_value,
         clamp_probability,
+        config_with_clob_recon,
         decide_quote,
         first_present,
         load_clob_feature_index,
@@ -87,9 +91,11 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
 try:
     from .market_making_run_constants import (  # noqa: E402
         DEFAULT_DATA_LAYER_AUDIT,
+        DEFAULT_PLATFORM_VERIFICATION,
         DEFAULT_QUOTE_TTL_SECONDS,
         DEFAULT_RUNS_ROOT,
         FILL_COLUMNS,
+        PLATFORM_VERIFICATION_SCHEMA_VERSION,
         RUN_EXTRA_COLUMNS,
         RUN_MODES,
         RUN_QUOTE_COLUMNS,
@@ -139,9 +145,11 @@ try:
 except ImportError:  # pragma: no cover - direct src compatibility
     from weather.market.market_making_run_constants import (  # noqa: E402
         DEFAULT_DATA_LAYER_AUDIT,
+        DEFAULT_PLATFORM_VERIFICATION,
         DEFAULT_QUOTE_TTL_SECONDS,
         DEFAULT_RUNS_ROOT,
         FILL_COLUMNS,
+        PLATFORM_VERIFICATION_SCHEMA_VERSION,
         RUN_EXTRA_COLUMNS,
         RUN_MODES,
         RUN_QUOTE_COLUMNS,
@@ -270,6 +278,7 @@ def cumulative_run_summary(run_folder, fallback_quote_rows=None, fallback_lifecy
         "quote_permission_rows": sum(1 for row in quote_rows if bool_value(row.get("quote_permission"))),
         "live_trade_permission_rows": sum(1 for row in quote_rows if bool_value(row.get("live_trade_permission"))),
         "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
+        "information_event_gate": summarize_event_gate_rows(quote_rows),
         "first_tick_utc": generated_times[0] if generated_times else None,
         "last_tick_utc": generated_times[-1] if generated_times else None,
         "order_lifecycle_transition_counts": dict(sorted(transition_counts.items())),
@@ -344,6 +353,150 @@ def load_data_layer_live_gate(path, target_date, mode):
         "target_date_token_days": target_token_days,
         "target_date_clob_feature_days": target_clob_feature_days,
         "target_date_book_available_days": target_book_available_days,
+    }
+
+
+SECRET_FIELD_NAMES = {
+    "api_secret",
+    "mnemonic",
+    "password",
+    "private_key",
+    "secret",
+    "seed",
+    "seed_phrase",
+}
+SUPPORTED_PLATFORM_IDS = {"polymarket_global", "polymarket_us"}
+SUPPORTED_SIGNATURE_TYPES = {"EOA", "POLY_PROXY", "GNOSIS_SAFE", "POLY_1271"}
+SUPPORTED_SIGNATURE_TYPE_IDS = {0, 1, 2, 3}
+
+
+def contains_secret_material(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if str(key).lower() in SECRET_FIELD_NAMES and child not in (None, "", False):
+                return True
+            if contains_secret_material(child):
+                return True
+    elif isinstance(value, list):
+        return any(contains_secret_material(child) for child in value)
+    return False
+
+
+def non_empty_text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def recent_utc_timestamp(value, now, max_age_hours):
+    parsed = parse_time(value)
+    if parsed is None:
+        return False
+    if parsed > now + timedelta(minutes=5):
+        return False
+    return (now - parsed) <= timedelta(hours=max_age_hours)
+
+
+def supported_signature_type(payload):
+    raw_type = payload.get("signature_type")
+    if isinstance(raw_type, str) and raw_type.strip().upper() in SUPPORTED_SIGNATURE_TYPES:
+        return True
+    raw_id = payload.get("signature_type_id")
+    try:
+        return int(raw_id) in SUPPORTED_SIGNATURE_TYPE_IDS
+    except (TypeError, ValueError):
+        return False
+
+
+def load_platform_verification_gate(path, target_date, mode, now=None):
+    required = mode == "live-pilot"
+    if not required:
+        return {"required": False, "ok": True, "reason": "not required outside live-pilot"}
+    path = Path(path) if path else None
+    if path is None:
+        return {"required": True, "ok": False, "path": None, "reason": "no platform-verification path provided"}
+    if not path.exists():
+        return {"required": True, "ok": False, "path": str(path), "reason": "platform-verification artifact missing"}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        return {"required": True, "ok": False, "path": str(path), "reason": f"invalid platform-verification JSON: {exc}"}
+
+    now = utc_now(now)
+    target_text = ensure_date(target_date).isoformat()
+    evidence_target = payload.get("verified_for_target_date") or payload.get("target_date")
+    max_age_hours = maybe_float(payload.get("max_age_hours"))
+    if max_age_hours is None or max_age_hours <= 0:
+        max_age_hours = 24.0
+    fee_model = payload.get("fee_model") or payload.get("weather_fee_model") or {}
+    source_urls = payload.get("source_urls") or []
+    if isinstance(source_urls, str):
+        source_urls = [source_urls]
+    pilot_wallet_cap = maybe_float(payload.get("pilot_wallet_max_funding_usdc"))
+    fee_rate = maybe_float(
+        fee_model.get("taker_fee_rate")
+        or fee_model.get("theta")
+        or payload.get("weather_taker_fee_rate")
+    )
+    maker_rebate_rate = maybe_float(
+        fee_model.get("maker_rebate_rate")
+        or payload.get("maker_rebate_rate")
+    )
+    checks = {
+        "schema_version_supported": payload.get("schema_version") == PLATFORM_VERIFICATION_SCHEMA_VERSION,
+        "target_date_matches": evidence_target == target_text,
+        "verified_at_recent": recent_utc_timestamp(payload.get("verified_at_utc"), now, max_age_hours),
+        "docs_checked_recent": recent_utc_timestamp(payload.get("docs_checked_at_utc"), now, max_age_hours),
+        "platform_supported": payload.get("platform") in SUPPORTED_PLATFORM_IDS,
+        "account_jurisdiction_recorded": non_empty_text(payload.get("account_jurisdiction")),
+        "eligibility_verified": bool_value(payload.get("eligibility_verified"), False),
+        "api_base_url_recorded": non_empty_text(payload.get("api_base_url")),
+        "clob_host_recorded": non_empty_text(payload.get("clob_host")),
+        "wallet_type_recorded": non_empty_text(payload.get("wallet_type")),
+        "signature_type_supported": supported_signature_type(payload),
+        "funder_address_recorded": non_empty_text(payload.get("funder_address")),
+        "allowances_verified": bool_value(payload.get("allowances_verified"), False),
+        "balance_verified": bool_value(payload.get("balance_verified"), False),
+        "fees_verified": bool_value(payload.get("fees_verified"), False),
+        "fee_parameters_recorded": fee_rate is not None and maker_rebate_rate is not None,
+        "reward_rules_verified": bool_value(payload.get("reward_rules_verified"), False),
+        "rebate_rules_verified": bool_value(payload.get("rebate_rules_verified"), False),
+        "order_semantics_verified": bool_value(payload.get("order_semantics_verified"), False),
+        "limit_order_semantics_verified": bool_value(payload.get("limit_order_semantics_verified"), False),
+        "market_order_semantics_verified": bool_value(payload.get("market_order_semantics_verified"), False),
+        "cancel_semantics_verified": bool_value(payload.get("cancel_semantics_verified"), False),
+        "tick_size_verified": bool_value(payload.get("tick_size_verified"), False),
+        "min_order_size_verified": bool_value(payload.get("min_order_size_verified"), False),
+        "user_websocket_verified": bool_value(payload.get("user_websocket_verified"), False),
+        "cancel_all_verified": bool_value(payload.get("cancel_all_verified"), False),
+        "isolated_pilot_wallet": bool_value(payload.get("isolated_pilot_wallet"), False),
+        "pilot_wallet_cap_recorded": pilot_wallet_cap is not None and pilot_wallet_cap > 0,
+        "backend_only_signing": bool_value(payload.get("backend_only_signing"), False),
+        "private_key_storage_recorded": non_empty_text(payload.get("private_key_storage")),
+        "secrets_not_committed": bool_value(payload.get("secrets_not_committed"), False),
+        "no_secret_material": not contains_secret_material(payload),
+        "source_urls_recorded": any(non_empty_text(url) for url in source_urls),
+    }
+    missing = [name for name, ok in checks.items() if not ok]
+    return {
+        "required": True,
+        "ok": not missing,
+        "path": str(path),
+        "schema_version": payload.get("schema_version"),
+        "target_date": target_text,
+        "verified_for_target_date": evidence_target,
+        "verified_at_utc": payload.get("verified_at_utc"),
+        "docs_checked_at_utc": payload.get("docs_checked_at_utc"),
+        "max_age_hours": max_age_hours,
+        "platform": payload.get("platform"),
+        "account_jurisdiction": payload.get("account_jurisdiction"),
+        "wallet_type": payload.get("wallet_type"),
+        "signature_type": payload.get("signature_type"),
+        "signature_type_id": payload.get("signature_type_id"),
+        "api_base_url": payload.get("api_base_url"),
+        "clob_host": payload.get("clob_host"),
+        "pilot_wallet_max_funding_usdc": pilot_wallet_cap,
+        "checks": checks,
+        "missing": missing,
+        "reason": "ok" if not missing else "platform verification missing live account proof: " + ", ".join(missing),
     }
 
 
@@ -443,6 +596,13 @@ REMEDIATION_RULES = {
         "root_cause": "data_layer_live_gate_blocked",
         "owner": "data-layer audit / CLOB capture",
         "suggested_command": "python -m src.data_layer_audit --fleet --json",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
+    "platform_verification_gate": {
+        "root_cause": "platform_verification_gate_blocked",
+        "owner": "live account/platform readiness",
+        "suggested_command": "refresh platform-verification JSON from current platform docs and account probes",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -608,7 +768,7 @@ def build_run_config_payload(
     }
 
 
-def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=None, remediation=None, cumulative=None):
+def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=None, remediation=None, cumulative=None, event_gate=None):
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
     quote_rows_count = sum(1 for row in quote_rows if row.get("quote_permission"))
     live_rows = sum(1 for row in quote_rows if row.get("live_trade_permission"))
@@ -686,6 +846,44 @@ def build_report(run_config, preflight, quote_rows, budget_ledger, lifecycle=Non
             f"| Released legs | {cumulative.get('released_count', 0)} |",
             f"| Blocked-by-preflight legs | {cumulative.get('blocked_by_preflight_count', 0)} |",
         ])
+    event_gate = event_gate or {}
+    if event_gate:
+        lines.extend([
+            "",
+            "## Information Event Gate",
+            "",
+            "| Metric | Value |",
+            "| :--- | :--- |",
+            f"| Pull rows | {event_gate.get('pull_rows', 0)} |",
+            f"| Widen rows | {event_gate.get('widen_rows', 0)} |",
+            f"| Exception rows | {event_gate.get('exception_rows', 0)} |",
+            f"| Quote rows during event | {event_gate.get('quote_rows_during_event', 0)} |",
+        ])
+        active = event_gate.get("active_events") or []
+        if active:
+            lines.extend([
+                "",
+                "| Active event | Market | Class | Action | Ends |",
+                "| :--- | :--- | :--- | :--- | :--- |",
+            ])
+            for event in active[:12]:
+                lines.append(
+                    f"| {event.get('event_id')} | {event.get('market_id')} | "
+                    f"{event.get('event_class')} | {event.get('action')} | "
+                    f"{event.get('ends_at_utc')} |"
+                )
+        next_events = event_gate.get("next_events") or []
+        if next_events:
+            lines.extend([
+                "",
+                "| Next event | Market | Class | Starts |",
+                "| :--- | :--- | :--- | :--- |",
+            ])
+            for event in next_events[:12]:
+                lines.append(
+                    f"| {event.get('event_id')} | {event.get('market_id')} | "
+                    f"{event.get('event_class')} | {event.get('starts_at_utc')} |"
+                )
     if lifecycle:
         lines.extend([
             "",
@@ -749,6 +947,7 @@ def build_run_once(
     confirm_live_orders=False,
     append=False,
     data_layer_audit_path=DEFAULT_DATA_LAYER_AUDIT,
+    platform_verification_path=DEFAULT_PLATFORM_VERIFICATION,
 ):
     mode = normalize_mode(mode)
     now = utc_now(now)
@@ -760,6 +959,7 @@ def build_run_once(
     policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
     policy_config["max_daily_loss"] = min(float(policy_config.get("max_daily_loss", budget_usdc)), float(budget_usdc))
     policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
+    policy_config, clob_recon_diag = config_with_clob_recon(policy_config)
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
@@ -768,6 +968,7 @@ def build_run_once(
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
+    platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
 
     run_config = build_run_config_payload(
         run_id,
@@ -783,6 +984,9 @@ def build_run_once(
         policy_config,
         now,
     )
+    run_config["clob_recon"] = clob_recon_diag
+    run_config["data_layer_live_gate"] = data_layer_live_gate
+    run_config["platform_verification_gate"] = platform_verification_gate
     write_json(run_folder / "run_config.json", run_config)
 
     raw_quote_rows = []
@@ -795,7 +999,13 @@ def build_run_once(
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
         source_rows = source_status_for_snapshot(folder, snapshot_id)
         book_rows = latest_book_rows(folder)
-        clob_feature_rows = latest_clob_feature_rows(folder, snapshot_id)
+        clob_feature_rows = latest_clob_feature_rows(
+            folder,
+            snapshot_id,
+            build_if_missing=True,
+            max_age_seconds=float(policy_config["max_book_age_seconds"]),
+            market_id=spec.id,
+        )
         promotion = promotion_states.get(spec.id, {"promotion_state": "BLOCK"})
         preflight = preflight_market(
             spec,
@@ -814,6 +1024,7 @@ def build_run_once(
             live_confirmed=confirm_live_orders,
             pilot=pilot,
             data_layer_live_gate=data_layer_live_gate,
+            platform_verification_gate=platform_verification_gate,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -836,6 +1047,7 @@ def build_run_once(
                 observation,
                 known_edge_records=known_edge_records,
                 known_edge_map_loaded=known_edge_diag.get("exists", False),
+                clob_feature_rows=clob_feature_rows,
             )
             if preflight["status"] == "PASS":
                 raw_quote_rows.extend(decide_quote(row, config=policy_config, now=now) for row in policy_inputs)
@@ -870,10 +1082,12 @@ def build_run_once(
         "status": preflight_status,
         "promotion": promotion_diag,
         "known_edge_map": known_edge_diag,
+        "clob_recon": clob_recon_diag,
         "observation_status": observation,
         "runtime_identity": runtime_identity,
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
+        "platform_verification_gate": platform_verification_gate,
         "markets": preflight_rows,
     }
     remediation_path = run_folder / "preflight_remediation.json"
@@ -905,6 +1119,7 @@ def build_run_once(
     risk_events.extend(budget_risk_events)
     if any(row.get("live_trade_permission") for row in quote_rows) and mode != "live-pilot":
         raise RuntimeError("shadow/paper run attempted to emit live-trade permission")
+    event_gate_summary = summarize_event_gate_rows(quote_rows)
 
     quote_path = run_folder / "quote_intents_long.csv"
     if append:
@@ -925,6 +1140,7 @@ def build_run_once(
         lifecycle=lifecycle,
         remediation=remediation_payload,
         cumulative=cumulative,
+        event_gate=event_gate_summary,
     )
     (run_folder / "run_report.md").write_text(report, encoding="utf-8")
 
@@ -948,6 +1164,7 @@ def build_run_once(
         "quote_permission_rows": sum(1 for row in quote_rows if row.get("quote_permission")),
         "live_trade_permission_rows": sum(1 for row in quote_rows if row.get("live_trade_permission")),
         "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
+        "information_event_gate": event_gate_summary,
         "budget_reserved_usdc": lifecycle.get("current_reserved_usdc", 0.0),
         "budget_released_usdc": lifecycle.get("released_this_tick_usdc", 0.0),
         "open_order_count": lifecycle.get("current_open_order_count", 0),
@@ -957,6 +1174,7 @@ def build_run_once(
             "quote_permission_rows": sum(1 for row in quote_rows if row.get("quote_permission")),
             "live_trade_permission_rows": sum(1 for row in quote_rows if row.get("live_trade_permission")),
             "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
+            "information_event_gate": event_gate_summary,
         },
         "cumulative": cumulative,
         "cumulative_tick_count": cumulative.get("tick_count", 0),
@@ -967,6 +1185,7 @@ def build_run_once(
         "cumulative_lifecycle_transition_counts": cumulative.get("order_lifecycle_transition_counts", {}),
         "runtime_identity": runtime_identity,
         "order_lifecycle": lifecycle,
+        "clob_recon": clob_recon_diag,
         "preflight_remediation": {
             "status": remediation_payload.get("status"),
             "incident_count": remediation_payload.get("incident_count", 0),
@@ -1047,6 +1266,7 @@ def main(argv=None):
     parser.add_argument("--confirm-live-orders", action="store_true", help="Required for live-pilot mode.")
     parser.add_argument("--live-readiness", default=None, help="JSON file proving live account/platform gates.")
     parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT), help="Latest data-layer audit JSON for live-pilot CLOB artifact gating.")
+    parser.add_argument("--platform-verification", default=str(DEFAULT_PLATFORM_VERIFICATION), help="Current account/platform verification JSON required for live-pilot.")
     parser.add_argument("--once", action="store_true", help="For paper-live-forward, run one tick instead of looping.")
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument("--until-utc", default=None)
@@ -1065,6 +1285,7 @@ def main(argv=None):
         "policy_config": parse_config_overrides(args.config),
         "live_readiness_path": args.live_readiness,
         "data_layer_audit_path": Path(args.data_layer_audit) if args.data_layer_audit else None,
+        "platform_verification_path": Path(args.platform_verification) if args.platform_verification else None,
         "pilot": args.pilot,
         "confirm_live_orders": args.confirm_live_orders,
     }

@@ -1,7 +1,7 @@
 import json
 import math
 import statistics
-from collections import Counter
+from collections import Counter, defaultdict
 
 from weather.artifacts import resolve_artifact_path
 from weather.model.feature_store import (
@@ -11,12 +11,20 @@ from weather.model.feature_store import (
     build_historical_feature_record,
     build_live_feature_record,
     closest_wind_direction,
+    empty_eccc_gridded_features,
+    empty_marine_context_features,
+    empty_mrms_precip_features,
+    empty_reanalysis_synoptic_features,
+    empty_us_guidance_features,
     forecast_profile_features,
     row_value,
     row_wind_direction,
     wind_direction_delta_degrees,
 )
 from weather.sources.forecast_history import load_forecast_daily, daily_path_for
+from weather.sources.eccc_gridded import derive_eccc_gridded_features
+from weather.sources.marine_context import derive_marine_context_features
+from weather.sources.mrms_precip import derive_mrms_precip_features
 from weather.calibration.feature_probability_calibration import temperature_scale_distribution
 from weather.model.model_constants import _UNLOADED
 
@@ -147,6 +155,179 @@ class FeatureModelMixin:
             "forecast_disagreement": max(highs) - min(highs) if len(highs) >= 2 else 0.0,
             "forecast_source_values": {name: value for name, value in values},
         }
+
+    def us_guidance_features(
+        self,
+        nws_grid=None,
+        open_meteo_multimodel=None,
+        forecast_high=None,
+        cutoff_hour=None,
+        wall_minute=None,
+    ):
+        features = empty_us_guidance_features()
+        cutoff_minute = int(cutoff_hour) * 60 if cutoff_hour is not None else 0
+        remaining_start = max(int(wall_minute), cutoff_minute) if wall_minute is not None else cutoff_minute
+
+        nws_grid = nws_grid or {}
+        nws_high = self.forecast_day_max(nws_grid)
+        features["nws_grid_high"] = nws_high
+        if nws_high is not None and forecast_high is not None:
+            features["nws_grid_vs_forecast_high"] = nws_high - forecast_high
+        remaining_rows = [
+            row for row in (nws_grid.get("day_rows") or nws_grid.get("rows") or [])
+            for minute in [self.minute_of_day(row.get("time") or row.get("valid_time"))]
+            if minute is not None and minute >= remaining_start
+        ]
+        pop_values = [
+            row_value(row, "precipitation_probability")
+            for row in remaining_rows
+            if row_value(row, "precipitation_probability") is not None
+        ]
+        if pop_values:
+            features["nws_grid_pop_after_cutoff_max"] = max(pop_values)
+        qpf_values = [
+            row_value(row, "quantitative_precipitation")
+            for row in remaining_rows
+            if row_value(row, "quantitative_precipitation") is not None
+        ]
+        if qpf_values:
+            features["nws_grid_qpf_after_cutoff_sum"] = sum(qpf_values)
+        sky_values = [
+            row_value(row, "sky_cover", "cloud_cover")
+            for row in remaining_rows
+            if row_value(row, "sky_cover", "cloud_cover") is not None
+        ]
+        if sky_values:
+            features["nws_grid_sky_cover_after_cutoff_mean"] = sum(sky_values) / len(sky_values)
+        hazard_counts = [
+            row_value(row, "hazards_count")
+            for row in remaining_rows
+            if row_value(row, "hazards_count") is not None
+        ]
+        if hazard_counts:
+            features["nws_grid_hazard_count"] = sum(hazard_counts)
+        run_age = row_value(nws_grid, "run_age_hours", "model_run_age_hours")
+        if run_age is not None:
+            features["nws_grid_run_age_hours"] = run_age
+
+        multimodel = open_meteo_multimodel or {}
+        highs = multimodel.get("day_model_highs") or {}
+        high_values = [value for value in highs.values() if value is not None]
+        if len(high_values) >= 2:
+            features["open_meteo_multimodel_high_spread"] = max(high_values) - min(high_values)
+        model_aliases = {
+            "gfs": "gfs_seamless",
+            "hrrr": "ncep_hrrr_conus",
+            "nbm": "ncep_nbm_conus",
+            "nam": "ncep_nam_conus",
+        }
+        reference_high = forecast_high if forecast_high is not None else (
+            statistics.median(high_values) if high_values else None
+        )
+        for alias, model_name in model_aliases.items():
+            high = highs.get(model_name)
+            if high is not None and reference_high is not None:
+                features[f"open_meteo_{alias}_high_delta"] = high - reference_high
+        nbm_high = highs.get("ncep_nbm_conus")
+        hrrr_high = highs.get("ncep_hrrr_conus")
+        if nbm_high is not None and hrrr_high is not None:
+            features["open_meteo_nbm_hrrr_disagreement"] = abs(nbm_high - hrrr_high)
+        run_age = row_value(multimodel, "model_run_age_hours", "run_age_hours")
+        if run_age is not None:
+            features["open_meteo_multimodel_run_age_hours"] = run_age
+        run_change = row_value(multimodel, "run_to_run_high_change")
+        previous_highs = multimodel.get("previous_day_model_highs") or {}
+        previous_values = [value for value in previous_highs.values() if value is not None]
+        if run_change is None and high_values and previous_values:
+            run_change = statistics.median(high_values) - statistics.median(previous_values)
+        if run_change is not None:
+            features["open_meteo_multimodel_run_to_run_high_change"] = run_change
+
+        next_spreads = []
+        nbm_hrrr_diffs_after_cutoff = []
+        for row in multimodel.get("day_rows") or multimodel.get("rows") or []:
+            minute = self.minute_of_day(row.get("time") or row.get("valid_time"))
+            if minute is None or minute < remaining_start:
+                continue
+            models = row.get("models") or {}
+            nbm = row_value(models.get("ncep_nbm_conus"), "temp_native", "temp_c")
+            hrrr = row_value(models.get("ncep_hrrr_conus"), "temp_native", "temp_c")
+            if nbm is not None and hrrr is not None:
+                nbm_hrrr_diffs_after_cutoff.append(abs(nbm - hrrr))
+            if minute >= remaining_start + 180:
+                continue
+            model_values = [
+                (payload or {}).get("temp_native")
+                for payload in models.values()
+            ]
+            model_values = [value for value in model_values if value is not None]
+            if len(model_values) >= 2:
+                next_spreads.append(max(model_values) - min(model_values))
+        if next_spreads:
+            features["open_meteo_multimodel_next_3h_spread"] = sum(next_spreads) / len(next_spreads)
+        if nbm_hrrr_diffs_after_cutoff:
+            features["open_meteo_nbm_hrrr_disagreement_after_cutoff"] = max(nbm_hrrr_diffs_after_cutoff)
+        return features
+
+    def marine_context_features(
+        self,
+        marine_context=None,
+        current_temp_native=None,
+        cutoff_hour=None,
+        wall_minute=None,
+    ):
+        if not marine_context:
+            return empty_marine_context_features()
+        return derive_marine_context_features(
+            marine_context,
+            current_temp_native=current_temp_native,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+        )
+
+    def mrms_precip_features(
+        self,
+        mrms_precip=None,
+        cutoff_hour=None,
+        wall_minute=None,
+        forecast_profile=None,
+        warming_rate_2h=None,
+    ):
+        if not mrms_precip:
+            return empty_mrms_precip_features()
+        forecast_profile = forecast_profile or {}
+        return derive_mrms_precip_features(
+            mrms_precip,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+            forecast_next_3h_cape_max=forecast_profile.get("forecast_next_3h_cape_max"),
+            forecast_next_3h_precip_probability_max=forecast_profile.get(
+                "forecast_next_3h_precipitation_probability_max"
+            ),
+            warming_rate_2h=warming_rate_2h,
+        )
+
+    def eccc_gridded_features(
+        self,
+        eccc_gem=None,
+        forecast_high=None,
+        open_meteo_high=None,
+        weather_high=None,
+        eccc_city_high=None,
+        cutoff_hour=None,
+        wall_minute=None,
+    ):
+        if not eccc_gem:
+            return empty_eccc_gridded_features()
+        return derive_eccc_gridded_features(
+            eccc_gem,
+            forecast_high=forecast_high,
+            open_meteo_high=open_meteo_high,
+            weather_high=weather_high,
+            eccc_city_high=eccc_city_high,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+        )
 
     def extract_live_features(self, sources, cutoff_hour, now=None, strict=False):
         """Build the cutoff-aligned feature vector shared by the feature model
@@ -286,7 +467,12 @@ class FeatureModelMixin:
         # anchored to a modest morning high-so-far). See resolve_forecast_high.
         open_meteo = self.source_data(sources, "open_meteo")
         nws_hourly = self.source_data(sources, "nws_hourly")
+        nws_grid = self.source_data(sources, "nws_grid")
+        open_meteo_multimodel = self.source_data(sources, "open_meteo_multimodel")
         global_ensemble = self.source_data(sources, "global_ensemble")
+        marine_context_source = self.source_data(sources, "marine_context")
+        mrms_precip_source = self.source_data(sources, "mrms_precip")
+        eccc_gem = self.source_data(sources, "eccc_gem")
         forecast_ensemble = self.forecast_ensemble_metrics(
             open_meteo,
             weather_forecast,
@@ -296,6 +482,9 @@ class FeatureModelMixin:
         )
         forecast_high = forecast_ensemble["forecast_high"]
         forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
+        open_meteo_high = self.forecast_day_max(open_meteo)
+        weather_high = self.max_row_temp(weather_forecast.get("rows"))
+        eccc_city_high = self.row_forecast_high_native(eccc_city)
 
         # Intra-hour freshness (schema v0.3): the live wu_current reading and
         # the minutes elapsed since the printed cutoff, as explicit features.
@@ -325,6 +514,35 @@ class FeatureModelMixin:
             ensemble_day_mean_spread=global_ensemble.get("day_mean_member_spread"),
             ensemble_day_high_p10=global_ensemble.get("day_member_high_p10"),
             ensemble_day_high_p90=global_ensemble.get("day_member_high_p90"),
+        )
+        us_guidance = self.us_guidance_features(
+            nws_grid=nws_grid,
+            open_meteo_multimodel=open_meteo_multimodel,
+            forecast_high=forecast_high,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+        )
+        marine_context = self.marine_context_features(
+            marine_context=marine_context_source,
+            current_temp_native=current_temp,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+        )
+        mrms_precip = self.mrms_precip_features(
+            mrms_precip=mrms_precip_source,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+            forecast_profile=forecast_profile,
+            warming_rate_2h=warming_rate_2h,
+        )
+        eccc_gridded = self.eccc_gridded_features(
+            eccc_gem=eccc_gem,
+            forecast_high=forecast_high,
+            open_meteo_high=open_meteo_high,
+            weather_high=weather_high,
+            eccc_city_high=eccc_city_high,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
         )
 
         return {
@@ -358,6 +576,11 @@ class FeatureModelMixin:
             "forecast_disagreement": forecast_ensemble["forecast_disagreement"],
             "forecast_source_values": forecast_ensemble["forecast_source_values"],
             **forecast_profile,
+            **us_guidance,
+            **marine_context,
+            **mrms_precip,
+            **eccc_gridded,
+            **empty_reanalysis_synoptic_features(),
             "minutes_since_cutoff": minutes_since_cutoff,
             "live_reading_temp": live_reading,
             "live_reading_minus_high": live_reading_minus_high,
@@ -1028,3 +1251,127 @@ class FeatureModelMixin:
             },
             "analogs": analogs[:limit]
         }
+
+
+def _mean(values):
+    values = [value for value in values if value is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _feature_row_market(row):
+    return str((row or {}).get("market_id") or (row or {}).get("market") or "unknown").lower()
+
+
+def _feature_row_regime(row):
+    return str((row or {}).get("weather_regime") or (row or {}).get("regime") or "all")
+
+
+def _feature_row_settlement(row):
+    return row_value(row, "settlement_high", "settlement", "observed_high", "actual_high")
+
+
+def _guidance_highs(row):
+    forecast_high = row_value(row, "forecast_high")
+    highs = {}
+    nws_high = row_value(row, "nws_grid_high")
+    if nws_high is not None:
+        highs["nws_grid"] = nws_high
+    if forecast_high is None:
+        return highs
+    for source, delta_key in (
+        ("open_meteo_gfs", "open_meteo_gfs_high_delta"),
+        ("open_meteo_hrrr", "open_meteo_hrrr_high_delta"),
+        ("open_meteo_nbm", "open_meteo_nbm_high_delta"),
+        ("open_meteo_nam", "open_meteo_nam_high_delta"),
+    ):
+        delta = row_value(row, delta_key)
+        if delta is not None:
+            highs[source] = forecast_high + delta
+    return highs
+
+
+def build_us_guidance_replay_diagnostics(rows):
+    """Summarize US official-grid/multi-model guidance against settlement rows."""
+    groups = defaultdict(list)
+    input_rows = list(rows or [])
+    for row in input_rows:
+        key = (
+            _feature_row_market(row),
+            str((row or {}).get("cutoff_hour") or "unknown"),
+            _feature_row_regime(row),
+        )
+        groups[key].append(row)
+    diagnostics = []
+    for (market_id, cutoff_hour, regime), group_rows in sorted(groups.items()):
+        source_scores = defaultdict(lambda: {
+            "rows": 0,
+            "mean_abs_error": [],
+            "mean_abs_error_improvement_vs_forecast": [],
+        })
+        forecast_errors = []
+        for row in group_rows:
+            settlement = _feature_row_settlement(row)
+            forecast_high = row_value(row, "forecast_high")
+            if settlement is None or forecast_high is None:
+                continue
+            forecast_error = abs(forecast_high - settlement)
+            forecast_errors.append(forecast_error)
+            for source, high in _guidance_highs(row).items():
+                error = abs(high - settlement)
+                source_scores[source]["rows"] += 1
+                source_scores[source]["mean_abs_error"].append(error)
+                source_scores[source]["mean_abs_error_improvement_vs_forecast"].append(
+                    forecast_error - error
+                )
+        diagnostics.append({
+            "market_id": market_id,
+            "cutoff_hour": cutoff_hour,
+            "weather_regime": regime,
+            "rows": len(group_rows),
+            "scored_rows": len(forecast_errors),
+            "forecast_mean_abs_error": _mean(forecast_errors),
+            "sources": {
+                source: {
+                    "rows": values["rows"],
+                    "mean_abs_error": _mean(values["mean_abs_error"]),
+                    "mean_abs_error_improvement_vs_forecast": _mean(
+                        values["mean_abs_error_improvement_vs_forecast"]
+                    ),
+                }
+                for source, values in sorted(source_scores.items())
+            },
+        })
+    return {
+        "schema_version": FEATURE_SCHEMA_VERSION,
+        "report_type": "us_guidance_replay_diagnostics",
+        "summary": {
+            "input_rows": len(input_rows),
+            "groups": len(diagnostics),
+            "scored_rows": sum(row["scored_rows"] for row in diagnostics),
+        },
+        "groups": diagnostics,
+    }
+
+
+def render_us_guidance_replay_diagnostics_markdown(payload):
+    lines = [
+        "# US Guidance Replay Diagnostics",
+        "",
+        "| Market | Cutoff | Regime | Source | Rows | Mean Error | Improvement vs Forecast |",
+        "| --- | ---: | --- | --- | ---: | ---: | ---: |",
+    ]
+    for group in (payload or {}).get("groups") or []:
+        for source, values in (group.get("sources") or {}).items():
+            lines.append(
+                "| {market_id} | {cutoff_hour} | {weather_regime} | {source} | "
+                "{rows} | {mean_abs_error} | {improvement} |".format(
+                    market_id=group.get("market_id"),
+                    cutoff_hour=group.get("cutoff_hour"),
+                    weather_regime=group.get("weather_regime"),
+                    source=source,
+                    rows=values.get("rows"),
+                    mean_abs_error=values.get("mean_abs_error"),
+                    improvement=values.get("mean_abs_error_improvement_vs_forecast"),
+                )
+            )
+    return "\n".join(lines) + "\n"

@@ -50,6 +50,7 @@ from weather.operations.runtime_identity import format_runtime_identity, get_run
 SNAPSHOT_TASK_NAME = "WeatherSnapshotLoopSupervisor"
 CLOB_TASK_NAME = "WeatherClobBookLoopSupervisor"
 DAILY_REFRESH_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
+MARKET_MAKING_DAILY_ROLL_TASK_NAME = "WeatherMarketMakingDailyRoll"
 
 
 def _code_state(runtime_identity, current_identity):
@@ -355,4 +356,5 @@ def scheduled_task_rows():
         scheduled_task_status(CLOB_TASK_NAME),
         scheduled_task_status(OBSERVATION_TASK_NAME),
         scheduled_task_status(DAILY_REFRESH_TASK_NAME),
+        scheduled_task_status(MARKET_MAKING_DAILY_ROLL_TASK_NAME),
     ]

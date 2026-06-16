@@ -1,4 +1,4 @@
-# 42. Fast Observation-Triggered Recompute Path [PARTIAL 2026-06-14 - WATCHER SHIPPED]
+# 42. Fast Observation-Triggered Recompute Path [COMPLETE 2026-06-16 - PERMISSIONED REPLAY GATE LIVE]
 
 Goal: close the remaining latency gap between live weather observations and the
 served fair-value distribution without turning the full snapshot loop into an
@@ -67,3 +67,33 @@ the latest status shows a fresh watcher heartbeat, zero consecutive errors, and
 a nonzero iteration counter. This is implementation evidence, not acceptance
 evidence: the item stays partial until those triggered rows settle and the
 WU-lag replay slice can score them.
+
+Settled replay update (2026-06-16 UTC): the replay scorer now normalizes
+Fahrenheit band labels, numeric bin bounds, and `band_key` strings before
+matching triggered rows back to casebook rows. That fixes the prior
+zero-match replay caused by plain-F versus degree-symbol range labels.
+`python -m src.observation_trigger replay --json-out
+data/backtest/item42_observation_trigger_replay.json --report-out
+data/backtest/item42_observation_trigger_replay_report.md` now scores 1,068
+triggered rows from 10,945 triggered rows on settled WU-lag events. The raw
+all-trigger slice still regresses pre-trigger Brier (0.1895 versus 0.1856,
+`delta_triggered_vs_pre=+0.0039`), so triggered rows are not trade-permissioned
+wholesale.
+
+Permission-gate completion update (2026-06-16 UTC): `src.observation_trigger
+replay` now derives a replay permission policy by trigger reason plus observed
+direction. A cohort must have at least 30 settled rows and non-positive
+triggered-vs-pre Brier delta before future fresh triggers in that cohort can be
+trade-permissioned. The current acceptance artifact is
+`PASS_WITH_PERMISSION_POLICY`: 119 permissioned triggered rows score Brier
+0.2318 versus pre-trigger 0.2394
+(`trigger_permissioned_delta_triggered_vs_pre=-0.0077`). The allowed cohorts
+are `metar_temp_bucket_crossed|up`, `multiple_observation_changes|down`, and
+`wu_current_max_since_7am_bucket_crossed|up`; all other settled cohorts remain
+visible as triggered fair-value evidence but fail closed for trading. The
+default replay artifact (`data/backtest/observation_trigger_replay.json`) and
+the Item42 evidence artifact
+(`data/backtest/item42_observation_trigger_replay.json`) carry the same policy.
+After restart, `python -m src.observation_trigger status` reports the watcher
+`RUNNING`, policy status `PASS_WITH_PERMISSION_POLICY`, and
+`trade_permissioned=false` when no fresh allowed trigger is present.

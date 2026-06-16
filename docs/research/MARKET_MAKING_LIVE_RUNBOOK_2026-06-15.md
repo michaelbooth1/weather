@@ -1,9 +1,9 @@
 # Market-Making Live Readiness Protocol And Runbook
 
 Status: operational design only. This document does not authorize live orders.
-Live trading remains blocked until item 45's account/platform verification is
-complete, items 43 and 44 pass, the live-readiness file is true, and the latest
-data-layer audit gate passes.
+Live trading remains blocked unless items 43 and 44 pass, the live-readiness
+file is true, the latest data-layer audit gate passes, and the current
+platform-verification artifact passes.
 
 Sources checked on 2026-06-15:
 
@@ -23,6 +23,8 @@ Sources checked on 2026-06-15:
   https://docs.polymarket.com/changelog
 - Polymarket US orders API overview:
   https://docs.polymarket.us/api-reference/orders/overview
+- Platform verification gate design:
+  docs/research/MARKET_MAKING_PLATFORM_VERIFICATION_2026-06-16.md
 
 Relevant current facts from those docs:
 
@@ -49,13 +51,18 @@ No live-pilot order may be attempted unless all of these are true:
 
 - Items 43 and 44 have passed their acceptance gates.
 - `python -m src.market_making_run ... --mode live-pilot` preflight is `PASS`.
-- `--pilot`, `--confirm-live-orders`, and `--live-readiness` are supplied.
+- `--pilot`, `--confirm-live-orders`, `--live-readiness`, and
+  `--platform-verification` are supplied.
 - The live-readiness JSON proves:
   `account_platform_verified`, `wallet_ready`, `allowance_ready`,
   `heartbeat_ready`, `user_websocket_ready`, and `cancel_all_ready`.
 - The `data_layer_live_gate` proves the current target date has CLOB token IDs,
   condition IDs, CLOB feature rows, and book-available rows in the latest
   data-layer audit.
+- The `platform_verification_gate` proves the current target date has fresh
+  platform/account eligibility, jurisdiction, wallet/signature/funder,
+  allowance/balance, fee/rebate/reward, order/cancel/tick/min-size, user
+  WebSocket, cancel-all, and isolated-wallet evidence.
 - Fleet SLO is pass/fresh for weather snapshots, CLOB book capture, and the
   observation-trigger watcher.
 - The dedicated pilot wallet is funded only with isolated risk capital.
@@ -79,7 +86,7 @@ Use one market, one central band, and one dedicated pilot wallet.
    - Record API base URL, account jurisdiction, wallet type, signer/funder,
      collateral token, minimum order size, tick size, maker/taker fee fields,
      reward settings, balance endpoint, allowance endpoint, and cancel-all
-     endpoint in the live-readiness evidence file.
+     endpoint in the platform-verification evidence file.
    - Confirm read-only order/book/user/order-query calls work before any
      mutating call.
 
@@ -126,7 +133,8 @@ Start:
 1. Confirm the current target date and market list.
 2. Regenerate data-layer audit, fleet observability, promotion refresh, and
    snapshot evaluation.
-3. Confirm live-readiness JSON and data-layer live gate are current.
+3. Confirm live-readiness JSON, data-layer live gate, and platform-verification
+   gate are current.
 4. Run one shadow tick.
 5. Run live-pilot only with explicit `--pilot --confirm-live-orders`.
 6. Monitor `run_report.md`, `preflight.json`, `risk_events.jsonl`,

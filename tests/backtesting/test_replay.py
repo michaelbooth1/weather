@@ -25,6 +25,7 @@ from replay import (
 )
 from model_identity import model_replay_identity
 from replay_backtest import fidelity_summary, gate, run_replay_backtest, save_baseline
+from weather.model.continuous_density import continuous_density_payload
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"
@@ -149,6 +150,19 @@ class TestReplayRoundTrip(unittest.TestCase):
         self.assertGreater(p_all, 0.98)
         p_none = band_model_probability(self.model, dist, {"bin_kind": "gte", "bin_value_c": 40})
         self.assertLess(p_none, 0.02)
+
+    def test_band_probability_accepts_continuous_density_payload(self):
+        model = TorontoHighTempModel(target_date=NOW.date(), market_id="nyc")
+        density = continuous_density_payload({
+            89.49: 0.1,
+            89.50: 0.2,
+            90.00: 0.3,
+            90.49: 0.2,
+            90.50: 0.2,
+        })
+        band = {"bin_kind": "eq", "bin_value_c": 90, "range_label": "90 F"}
+
+        self.assertAlmostEqual(band_model_probability(model, density, band), 0.7)
 
 
 def _build_corpus_day(folder):

@@ -16,7 +16,10 @@ from feature_store import (
     audit_row,
     build_historical_feature_record,
     build_live_feature_record,
+    expanded_open_meteo_promotion_gate,
+    forecast_profile_missing_zero_report,
     forecast_profile_features,
+    render_forecast_profile_missing_zero_markdown,
     row_air_temp_native,
     row_dewpoint_native,
     row_forecast_high_native,
@@ -103,6 +106,54 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(features["forecast_temp_12"], 90.0)
         self.assertEqual(features["forecast_temp_16"], 94.0)
         self.assertEqual(features["forecast_afternoon_slope"], 4.0)
+
+    def test_forecast_profile_missing_zero_report_separates_missing_from_zero(self):
+        report = forecast_profile_missing_zero_report(
+            [
+                {
+                    "source": "open_meteo_historical_forecast",
+                    "direct_radiation": 0.0,
+                    "diffuse_radiation": None,
+                    "precipitation_probability": 0.0,
+                },
+                {
+                    "source": "open_meteo_historical_forecast",
+                    "direct_radiation": None,
+                    "diffuse_radiation": 120.0,
+                    "precipitation_probability": 30.0,
+                },
+            ],
+            fields=["direct_radiation", "diffuse_radiation", "precipitation_probability"],
+        )
+        by_field = {row["field"]: row for row in report["fields"]}
+        markdown = render_forecast_profile_missing_zero_markdown(report)
+
+        self.assertEqual(by_field["direct_radiation"]["present_rows"], 1)
+        self.assertEqual(by_field["direct_radiation"]["missing_rows"], 1)
+        self.assertEqual(by_field["direct_radiation"]["zero_rows"], 1)
+        self.assertEqual(by_field["diffuse_radiation"]["nonzero_rows"], 1)
+        self.assertEqual(by_field["precipitation_probability"]["zero_rows"], 1)
+        self.assertEqual(by_field["precipitation_probability"]["nonzero_rows"], 1)
+        self.assertIn("direct_radiation", markdown)
+
+    def test_expanded_open_meteo_promotion_gate_requires_backfill_retrain_and_replay_lift(self):
+        blocked = expanded_open_meteo_promotion_gate(
+            backfill_status={"all_active_markets_backfilled": True},
+            replay_report={"summary": {"scored_rows": 40}, "baseline": {"brier": 0.20}, "candidate": {"brier": 0.19}},
+        )
+        ok = expanded_open_meteo_promotion_gate(
+            backfill_status={
+                "all_active_markets_backfilled": True,
+                "per_market_candidates_retrained": True,
+                "pooled_candidate_retrained": True,
+            },
+            replay_report={"summary": {"scored_rows": 40}, "baseline": {"brier": 0.20}, "candidate": {"brier": 0.19}},
+        )
+
+        self.assertFalse(blocked["ok"])
+        self.assertIn("per_market_retrain_not_complete", blocked["reasons"])
+        self.assertTrue(ok["ok"])
+        self.assertEqual(ok["status"], "promotable")
 
     def test_historical_builder_uses_native_temperature_aliases_for_anchors(self):
         rows = [
@@ -254,12 +305,144 @@ class TestFeatureStore(unittest.TestCase):
             },
         ]
         forecast_rows = [
-            {"time": "11:00", "temp_c": 21.0, "cloud_cover": 60.0, "low_cloud": 20.0, "mid_cloud": 30.0, "high_cloud": 40.0, "solar": 500.0},
-            {"time": "12:00", "temp_c": 22.0, "cloud_cover": 50.0, "low_cloud": 10.0, "mid_cloud": 25.0, "high_cloud": 50.0, "solar": 700.0},
-            {"time": "13:00", "temp_c": 24.0, "cloud_cover": 40.0, "low_cloud": 5.0, "mid_cloud": 20.0, "high_cloud": 60.0, "solar": 800.0},
-            {"time": "14:00", "temp_c": 25.0, "cloud_cover": 30.0, "low_cloud": 3.0, "mid_cloud": 15.0, "high_cloud": 55.0, "solar": 900.0},
-            {"time": "15:00", "temp_c": 26.0, "cloud_cover": 20.0, "low_cloud": 2.0, "mid_cloud": 10.0, "high_cloud": 40.0, "solar": 700.0},
-            {"time": "16:00", "temp_c": 24.0, "cloud_cover": 35.0, "low_cloud": 10.0, "mid_cloud": 15.0, "high_cloud": 35.0, "solar": 400.0},
+            {
+                "time": "11:00",
+                "temp_c": 21.0,
+                "cloud_cover": 60.0,
+                "low_cloud": 20.0,
+                "mid_cloud": 30.0,
+                "high_cloud": 40.0,
+                "solar": 500.0,
+                "direct_radiation": 400.0,
+                "diffuse_radiation": 100.0,
+                "precipitation": 0.0,
+                "precipitation_probability": 5.0,
+                "cape": 10.0,
+                "temperature_925hpa": 18.0,
+                "temperature_850hpa": 12.0,
+                "geopotential_height_500hpa": 5700.0,
+                "wind_gust_kmh": 20.0,
+                "visibility": 20000.0,
+                "soil_temperature_0cm": 19.0,
+                "soil_moisture_0_to_1cm": 0.20,
+                "vapour_pressure_deficit": 0.5,
+                "et0_fao_evapotranspiration": 0.1,
+            },
+            {
+                "time": "12:00",
+                "temp_c": 22.0,
+                "cloud_cover": 50.0,
+                "low_cloud": 10.0,
+                "mid_cloud": 25.0,
+                "high_cloud": 50.0,
+                "solar": 700.0,
+                "direct_radiation": 500.0,
+                "diffuse_radiation": 150.0,
+                "precipitation": 0.0,
+                "precipitation_probability": 0.0,
+                "cape": 30.0,
+                "temperature_925hpa": 19.0,
+                "temperature_850hpa": 13.0,
+                "geopotential_height_500hpa": 5710.0,
+                "wind_gust_kmh": 22.0,
+                "visibility": 20000.0,
+                "soil_temperature_0cm": 20.0,
+                "soil_moisture_0_to_1cm": 0.21,
+                "vapour_pressure_deficit": 0.6,
+                "et0_fao_evapotranspiration": 0.2,
+            },
+            {
+                "time": "13:00",
+                "temp_c": 24.0,
+                "cloud_cover": 40.0,
+                "low_cloud": 5.0,
+                "mid_cloud": 20.0,
+                "high_cloud": 60.0,
+                "solar": 800.0,
+                "direct_radiation": 600.0,
+                "diffuse_radiation": 160.0,
+                "precipitation": 0.2,
+                "precipitation_probability": 20.0,
+                "cape": 60.0,
+                "temperature_925hpa": 20.0,
+                "temperature_850hpa": 14.0,
+                "geopotential_height_500hpa": 5720.0,
+                "wind_gust_kmh": 28.0,
+                "visibility": 15000.0,
+                "soil_temperature_0cm": 21.0,
+                "soil_moisture_0_to_1cm": 0.22,
+                "vapour_pressure_deficit": 0.7,
+                "et0_fao_evapotranspiration": 0.3,
+            },
+            {
+                "time": "14:00",
+                "temp_c": 25.0,
+                "cloud_cover": 30.0,
+                "low_cloud": 3.0,
+                "mid_cloud": 15.0,
+                "high_cloud": 55.0,
+                "solar": 900.0,
+                "direct_radiation": 700.0,
+                "diffuse_radiation": 170.0,
+                "precipitation": 0.0,
+                "precipitation_probability": 40.0,
+                "cape": 90.0,
+                "temperature_925hpa": 21.0,
+                "temperature_850hpa": 15.0,
+                "geopotential_height_500hpa": 5730.0,
+                "wind_gust_kmh": 32.0,
+                "visibility": 10000.0,
+                "soil_temperature_0cm": 22.0,
+                "soil_moisture_0_to_1cm": 0.23,
+                "vapour_pressure_deficit": 0.8,
+                "et0_fao_evapotranspiration": 0.4,
+            },
+            {
+                "time": "15:00",
+                "temp_c": 26.0,
+                "cloud_cover": 20.0,
+                "low_cloud": 2.0,
+                "mid_cloud": 10.0,
+                "high_cloud": 40.0,
+                "solar": 700.0,
+                "direct_radiation": 500.0,
+                "diffuse_radiation": 180.0,
+                "precipitation": 0.1,
+                "precipitation_probability": 30.0,
+                "cape": 120.0,
+                "temperature_925hpa": 22.0,
+                "temperature_850hpa": 16.0,
+                "geopotential_height_500hpa": 5740.0,
+                "wind_gust_kmh": 35.0,
+                "visibility": 12000.0,
+                "soil_temperature_0cm": 23.0,
+                "soil_moisture_0_to_1cm": 0.24,
+                "vapour_pressure_deficit": 0.9,
+                "et0_fao_evapotranspiration": 0.5,
+            },
+            {
+                "time": "16:00",
+                "temp_c": 24.0,
+                "cloud_cover": 35.0,
+                "low_cloud": 10.0,
+                "mid_cloud": 15.0,
+                "high_cloud": 35.0,
+                "solar": 400.0,
+                "direct_radiation": 250.0,
+                "diffuse_radiation": 190.0,
+                "precipitation": 0.0,
+                "precipitation_probability": 10.0,
+                "cape": 80.0,
+                "temperature_925hpa": 21.0,
+                "temperature_850hpa": 15.0,
+                "geopotential_height_500hpa": 5750.0,
+                "wind_gust_kmh": 30.0,
+                "visibility": 18000.0,
+                "soil_temperature_0cm": 22.0,
+                "soil_moisture_0_to_1cm": 0.25,
+                "vapour_pressure_deficit": 1.0,
+                "et0_fao_evapotranspiration": 0.2,
+            },
         ]
         ensemble_rows = [
             {"time": "12:00", "ensemble_member_spread": 2.0},
@@ -309,6 +492,27 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(live["forecast_remaining_solar_sum"], 3500.0)
         self.assertEqual(live["forecast_next_3h_solar_mean"], 800.0)
         self.assertEqual(live["forecast_cloud_trend_3h"], -20.0)
+        self.assertEqual(live["forecast_remaining_direct_radiation_sum"], 2550.0)
+        self.assertEqual(live["forecast_remaining_diffuse_radiation_sum"], 850.0)
+        self.assertEqual(live["forecast_next_3h_direct_radiation_mean"], 600.0)
+        self.assertEqual(live["forecast_next_3h_diffuse_radiation_mean"], 160.0)
+        self.assertAlmostEqual(live["forecast_remaining_precipitation_sum"], 0.3)
+        self.assertAlmostEqual(live["forecast_next_3h_precipitation_sum"], 0.2)
+        self.assertEqual(live["forecast_next_3h_precipitation_probability_max"], 40.0)
+        self.assertEqual(live["forecast_remaining_cape_mean"], 76.0)
+        self.assertEqual(live["forecast_next_3h_cape_max"], 90.0)
+        self.assertEqual(live["forecast_cape_trend_3h"], 50.0)
+        self.assertEqual(live["forecast_temperature_925hpa_mean"], 20.6)
+        self.assertEqual(live["forecast_temperature_850hpa_mean"], 14.6)
+        self.assertAlmostEqual(live["forecast_surface_to_925_lapse_proxy"], 3.6)
+        self.assertAlmostEqual(live["forecast_925_to_850_lapse_proxy"], 6.0)
+        self.assertEqual(live["forecast_geopotential_height_500hpa_mean"], 5730.0)
+        self.assertEqual(live["forecast_wind_gust_max"], 35.0)
+        self.assertEqual(live["forecast_visibility_min"], 10000.0)
+        self.assertEqual(live["forecast_soil_temperature_0cm_mean"], 21.6)
+        self.assertAlmostEqual(live["forecast_soil_moisture_0_to_1cm_mean"], 0.23)
+        self.assertAlmostEqual(live["forecast_vapour_pressure_deficit_mean"], 0.8)
+        self.assertAlmostEqual(live["forecast_et0_fao_evapotranspiration_sum"], 1.6)
         self.assertEqual(live["forecast_global_ensemble_high_spread_80"], 3.0)
 
     def test_live_features_measure_forecast_source_disagreement(self):

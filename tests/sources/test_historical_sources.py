@@ -14,18 +14,21 @@ from historical_backfill_plan import build_plan, split_ranges
 from market_registry import NYC, TORONTO
 from historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
 from forecast_history import (
+    FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
     RICH_FORECAST_COLUMNS,
     daily_issue_rows,
+    forecast_history_coverage,
     historical_forecast_rows,
     load_forecast_daily,
     load_forecast_profiles,
+    render_forecast_history_coverage_markdown,
     previous_run_rows,
     write_csv,
 )
 from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
 from reanalysis_history import ReanalysisStore, normalize_payload
 from supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
-from wu_history import normalize_observation, summarize_daily
+from wu_history import normalize_observation, redact_api_key, summarize_daily
 
 
 GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|LONGITUDE|ELEVATION|temperature|temperature_Quality_Code|temperature_Report_Type|dew_point_temperature|dew_point_temperature_Quality_Code|station_level_pressure|sea_level_pressure|wind_direction|wind_speed|relative_humidity
@@ -218,6 +221,74 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(item["command"][item["command"].index("--start") + 1], "2026-01-01")
         self.assertEqual(item["command"][item["command"].index("--end") + 1], "2026-01-05")
 
+    def test_backfill_plan_records_pre_2015_us_wu_as_source_limited(self):
+        class FakeStore:
+            def missing_ranges(self, start_date, end_date, chunk_days=14):
+                return [(date(2000, 1, 1), date(2014, 12, 31))]
+
+        probe = {
+            "generated_at_utc": "2026-06-14T22:20:37+00:00",
+            "us_wu_candidates": [
+                {"market_id": "nyc", "candidates": [{"available": False, "history_id": "KLGA:9:US"}]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "source_alternate_probe_2026-06-14.json").write_text(
+                json.dumps(probe),
+                encoding="utf-8",
+            )
+            with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+                plan = build_plan(
+                    market_ids=["nyc"],
+                    sources=["wu"],
+                    start_date=date(2000, 1, 1),
+                    end_date=date(2014, 12, 31),
+                    python="python",
+                    backtest_root=tmp,
+                )
+
+        self.assertEqual(plan["queue_count"], 0)
+        self.assertEqual(plan["source_limited_count"], 1)
+        limited = plan["source_limited"][0]
+        self.assertEqual(limited["market_id"], "nyc")
+        self.assertTrue(limited["source_limited"])
+        self.assertIn("provider-unavailable", limited["reason"])
+
+    def test_backfill_plan_splits_mixed_pre_2015_us_wu_window(self):
+        class FakeStore:
+            def missing_ranges(self, start_date, end_date, chunk_days=14):
+                return [
+                    (date(2000, 1, 1), date(2014, 12, 31)),
+                    (date(2020, 11, 8), date(2020, 11, 8)),
+                ]
+
+        probe = {
+            "generated_at_utc": "2026-06-14T22:20:37+00:00",
+            "us_wu_candidates": [
+                {"market_id": "nyc", "candidates": [{"available": False, "history_id": "KLGA:9:US"}]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "source_alternate_probe_2026-06-14.json").write_text(
+                json.dumps(probe),
+                encoding="utf-8",
+            )
+            with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+                plan = build_plan(
+                    market_ids=["nyc"],
+                    sources=["wu"],
+                    start_date=date(2000, 1, 1),
+                    end_date=date(2020, 11, 8),
+                    python="python",
+                    backtest_root=tmp,
+                )
+
+        self.assertEqual(plan["source_limited_count"], 1)
+        self.assertEqual(plan["queue_count"], 1)
+        queued = plan["queue"][0]
+        self.assertEqual(queued["command"][queued["command"].index("--start") + 1], "2015-01-01")
+        self.assertTrue(queued["detail"]["source_limited_prefix_removed"])
+
     def test_split_ranges_chunks_contiguous_missing_days(self):
         ranges = split_ranges(
             [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 5)],
@@ -268,6 +339,18 @@ class TestHistoricalSources(unittest.TestCase):
         daily = summarize_daily([row])
         self.assertEqual(daily[0]["max_temp_bucket"], 86)
 
+    def test_wu_error_redaction_removes_api_key_from_url_text(self):
+        text = (
+            "400 Client Error for url: "
+            "https://api.weather.com/v1/location/KLGA:9:US/observations/"
+            "historical.json?apiKey=secret123&units=e"
+        )
+
+        redacted = redact_api_key(text)
+
+        self.assertNotIn("secret123", redacted)
+        self.assertIn("apiKey=<redacted>", redacted)
+
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {
             "hourly": {
@@ -279,6 +362,20 @@ class TestHistoricalSources(unittest.TestCase):
                 "cloud_cover_high": [30, 40],
                 "shortwave_radiation": [700, 800],
                 "wind_speed_10m": [8, 9],
+                "direct_radiation": [500, 600],
+                "diffuse_radiation": [120, 130],
+                "cape": [10, 40],
+                "temperature_925hPa": [76, 78],
+                "temperature_850hPa": [68, 69],
+                "geopotential_height_500hPa": [5740, 5750],
+                "wind_gusts_10m": [15, 18],
+                "visibility": [20000, 18000],
+                "precipitation_probability": [0, 30],
+                "precipitation": [0.0, 0.2],
+                "soil_temperature_0cm": [74, 75],
+                "soil_moisture_0_to_1cm": [0.22, 0.23],
+                "vapour_pressure_deficit": [0.8, 1.0],
+                "et0_fao_evapotranspiration": [0.1, 0.2],
                 "temperature_2m_previous_day1": [80, 83],
                 "temperature_2m_previous_day2": [79, 81],
             }
@@ -292,6 +389,14 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(stitched[0]["issue_time_basis"], "stitched_continuous_archive")
         self.assertEqual(stitched[0]["low_cloud"], 10)
         self.assertEqual(stitched[0]["shortwave_radiation"], 700)
+        self.assertEqual(stitched[0]["direct_radiation"], 500)
+        self.assertEqual(stitched[0]["cape"], 10)
+        self.assertEqual(stitched[0]["temperature_925hpa"], 76)
+        self.assertEqual(stitched[0]["geopotential_height_500hpa"], 5740)
+        self.assertEqual(stitched[0]["wind_gust_kmh"], 15)
+        self.assertEqual(stitched[0]["precipitation_probability"], 0)
+        self.assertEqual(stitched[0]["precipitation"], 0.0)
+        self.assertEqual(stitched[0]["vapour_pressure_deficit"], 0.8)
         self.assertEqual(previous[0]["source"], "open_meteo_previous_runs")
         self.assertEqual(previous[0]["issue_time_basis"], "fixed_lead_day_offset")
         self.assertEqual(previous[0]["lead_days"], 1)
@@ -314,6 +419,20 @@ class TestHistoricalSources(unittest.TestCase):
                 "cloud_cover_high": [30, 40],
                 "shortwave_radiation": [700, 800],
                 "wind_speed_10m": [8, 9],
+                "direct_radiation": [500, 600],
+                "diffuse_radiation": [120, 130],
+                "cape": [10, 40],
+                "temperature_925hPa": [76, 78],
+                "temperature_850hPa": [68, 69],
+                "geopotential_height_500hPa": [5740, 5750],
+                "wind_gusts_10m": [15, 18],
+                "visibility": [20000, 18000],
+                "precipitation_probability": [0, 30],
+                "precipitation": [0.0, 0.2],
+                "soil_temperature_0cm": [74, 75],
+                "soil_moisture_0_to_1cm": [0.22, 0.23],
+                "vapour_pressure_deficit": [0.8, 1.0],
+                "et0_fao_evapotranspiration": [0.1, 0.2],
             }
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -324,7 +443,67 @@ class TestHistoricalSources(unittest.TestCase):
 
         self.assertEqual(profiles["2026-06-11"][0]["minute_of_day"], 720)
         self.assertEqual(profiles["2026-06-11"][0]["low_cloud"], 10.0)
+        self.assertEqual(profiles["2026-06-11"][0]["direct_radiation"], 500.0)
+        self.assertEqual(profiles["2026-06-11"][0]["precipitation_probability"], 0.0)
+        self.assertEqual(profiles["2026-06-11"][0]["wind_gust_kmh"], 15.0)
         self.assertEqual(profiles["2026-06-11"][1]["solar"], 800.0)
+        self.assertEqual(profiles["2026-06-11"][1]["cape"], 40.0)
+        self.assertEqual(profiles["2026-06-11"][1]["temperature_850hpa"], 69.0)
+        self.assertEqual(profiles["2026-06-11"][1]["vapour_pressure_deficit"], 1.0)
+
+    def test_forecast_history_coverage_reports_rich_field_completeness(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-11T12:00", "2026-06-11T13:00"],
+                "temperature_2m": [82, 85],
+                "cloud_cover": [20, 35],
+                "cloud_cover_low": [10, 15],
+                "cloud_cover_mid": [5, 10],
+                "cloud_cover_high": [30, 40],
+                "shortwave_radiation": [700, 800],
+                "wind_speed_10m": [8, 9],
+                "direct_radiation": [500, 600],
+                "diffuse_radiation": [120, 130],
+                "cape": [10, 40],
+                "temperature_925hPa": [76, 78],
+                "temperature_850hPa": [68, 69],
+                "geopotential_height_500hPa": [5740, 5750],
+                "wind_gusts_10m": [15, 18],
+                "visibility": [20000, 18000],
+                "precipitation_probability": [0, 30],
+                "precipitation": [0.0, 0.2],
+                "soil_temperature_0cm": [74, 75],
+                "soil_moisture_0_to_1cm": [0.22, 0.23],
+                "vapour_pressure_deficit": [0.8, 1.0],
+                "et0_fao_evapotranspiration": [0.1, 0.2],
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecast_long.csv"
+            write_csv(path, RICH_FORECAST_COLUMNS, historical_forecast_rows(payload, NYC))
+
+            coverage = forecast_history_coverage(
+                NYC,
+                path=path,
+                required_fields=("low_cloud", "shortwave_radiation", "cape"),
+            )
+
+        fleet_payload = {
+            "schema_version": FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
+            "summary": {
+                "market_count": 1,
+                "ok_market_count": 1,
+                "all_active_markets_backfilled": True,
+            },
+            "markets": [coverage],
+        }
+        markdown = render_forecast_history_coverage_markdown(fleet_payload)
+
+        self.assertEqual(coverage["status"], "OK")
+        self.assertEqual(coverage["historical_rows"], 2)
+        self.assertEqual(coverage["nonnull_fields"]["cape"], 2)
+        self.assertFalse(coverage["missing_nonnull_fields"])
+        self.assertIn("nyc", markdown)
 
     def test_forecast_loaders_prefer_native_temperature_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -545,7 +724,7 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(coverage["raw_only_normalizable_day_count"], 0)
             self.assertEqual(coverage["raw_only_source_lag_days"], ["2026-06-02"])
             self.assertEqual(coverage["raw_only_source_lag_day_count"], 1)
-            self.assertEqual(ranges, [(date(2026, 6, 2), date(2026, 6, 2))])
+            self.assertEqual(ranges, [])
 
     def test_reanalysis_coverage_flags_normalizable_raw_only_days(self):
         payload = {
@@ -564,6 +743,10 @@ class TestHistoricalSources(unittest.TestCase):
             self.assertEqual(coverage["raw_only_normalizable_days"], ["2026-06-01", "2026-06-02"])
             self.assertEqual(coverage["raw_only_normalizable_day_count"], 2)
             self.assertEqual(coverage["raw_only_source_lag_days"], [])
+            self.assertEqual(
+                store.missing_ranges(date(2026, 6, 1), date(2026, 6, 2)),
+                [(date(2026, 6, 1), date(2026, 6, 2))],
+            )
 
 
 if __name__ == "__main__":

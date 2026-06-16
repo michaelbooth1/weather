@@ -1,26 +1,25 @@
-# 48. F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS + PERMISSION CELLS LIVE]
+# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-16 - SHADOW BLOCKERS EXPLAINED]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
 
 Source: `data/backtest/f_family_promotion_refresh_report.md` now emits explicit
-promotion-readiness blockers. The current blockers are aggregate candidate
-Brier behind market Brier and eight F markets still in shadow; no
-candidate-blocked F markets remain. The current-serving gauntlet is now
-non-blocking at `PASS_WITH_SHADOWS` with corpus/fidelity/regression gates
-passing; Miami is `SHADOW` with code effect `-0.0004`, so the remaining Miami
-gap is market-skill evidence rather than a serving replay regression. The
-promotion report now ranks generated candidate gap drivers by market, cutoff
-hour, band type, settlement distance, source freshness, and CLOB taxonomy;
-feeding those generated cells into the known-edge permission map is split into
-item 54.
+promotion-readiness blockers. The current report generated
+`2026-06-16T05:44:55Z` keeps readiness `OPEN`: aggregate candidate Brier trails
+market Brier by `+0.0042`, seven F markets remain `KEEP_SHADOW`, and no F
+market is `BLOCK_CANDIDATE`. Miami's candidate-block remediation was completed
+in item 82 by holding Miami on current-serving probabilities. The refreshed
+promotion report ranks generated candidate gap drivers by market, cutoff hour,
+band type, settlement distance, and source freshness; the latest canonical
+refresh intentionally skipped the serving gauntlet and CLOB overlay, while the
+Item 82 full replay preserves the CLOB-taxonomy diagnostic evidence.
 
-- [ ] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
+- [x] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
   pinned rows, or keep the gap explicitly marked as a readiness blocker.
 - [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
   current replay, clears trust/sample gates, and is not worse than market prices
   within the promotion tolerance.
-- [ ] Keep candidate-blocked markets at zero; if a future market blocks, keep
+- [x] Keep candidate-blocked markets at zero; if a future market blocks, keep
   the generated `BLOCK_CANDIDATE` detail and split market-specific remediation
   into its own roadmap item.
 - [x] Add generated decomposition for the largest candidate-vs-market gap
@@ -51,6 +50,34 @@ from generated source-freshness gap rows into `mm_known_edge_map.json`,
 preflight diagnostics. Item 48 remains open for the underlying promotion
 readiness blockers: aggregate candidate-vs-market Brier, per-market shadow
 actions, and unexplained `KEEP_SHADOW` / `BLOCK_CANDIDATE` cells.
+
+Miami block update (2026-06-16 UTC): item 82 cleared the Miami
+`BLOCK_CANDIDATE` cell with an explicit current-serving fallback. The canonical
+promotion refresh generated `2026-06-16T05:44:55Z` now reports 4 promote, 7
+shadow, and 0 blocked F markets. Miami remains `KEEP_SHADOW` with candidate
+Brier equal to current Brier (`0.025046`, delta `+0.000000`) and still trails
+market Brier (`0.023776`). Item 48 remains open for readiness because the
+aggregate candidate still trails market by `+0.0042` and seven F markets remain
+shadow.
+
+Readiness-detail update (2026-06-16 UTC): `src.promotion_refresh` now carries
+generated `shadow_market_details` / `blocked_market_details` in
+`readiness`, and the Markdown report renders `Shadow/Block Explanation Detail`
+directly under `Promotion Readiness Blockers`. The refreshed artifact generated
+`2026-06-16T08:32:56Z` still reports 4 promote, 7 shadow, and 0 blocked F
+markets, with aggregate candidate-vs-market Brier still blocked at `+0.0042`.
+The seven shadow markets now have explicit generated blockers in the readiness
+section:
+
+- Austin, Chicago, NYC, and Seattle: not proven better than market on pinned
+  rows.
+- Dallas and Miami: not proven better than current replay.
+- San Francisco: not proven better than current replay and not proven better
+  than market on pinned rows.
+
+Item 48 remains open for empirical readiness: the candidate must either clear
+the aggregate market-price gap and move shadow markets through the gates, or
+continue to report those blockers without serving promotion.
 
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow

@@ -476,6 +476,8 @@ def run_fleet_observability_step(args):
         target_day=args.audit_target_day,
         years=years,
         include_audits=not args.skip_historical_audits,
+        tape_backup_root=getattr(args, "tape_backup_root", fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT),
+        verify_tape_backup_checksums=getattr(args, "verify_tape_backup_checksums", False),
     )
     json_out = fleet_observability.write_json(backtest_path(args, "fleet_observability.json"), payload)
     report_out = fleet_observability.write_markdown(backtest_path(args, "fleet_observability_report.md"), payload)
@@ -489,6 +491,7 @@ def run_fleet_observability_step(args):
         "provenance_out": as_path(provenance_out),
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
+        "tape_backup_status": ((payload.get("tape_backup") or {}).get("status")),
         "collection_states": ((payload.get("collection") or {}).get("summary") or {}).get("states") or {},
     }
 
@@ -880,6 +883,8 @@ def build_run_parser(parser):
     parser.add_argument("--audit-target-day", type=int, default=None)
     parser.add_argument("--audit-years", default="")
     parser.add_argument("--skip-historical-audits", action="store_true")
+    parser.add_argument("--tape-backup-root", default=str(fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT))
+    parser.add_argument("--verify-tape-backup-checksums", action="store_true")
     parser.add_argument("--skip-ingest-quality-gate", action="store_true")
     parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")
     parser.add_argument("--skip-reanalysis-refresh", action="store_true")

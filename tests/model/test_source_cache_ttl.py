@@ -27,8 +27,13 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(m.source_cache_ttl_minutes("wu_history"), 30)
         self.assertEqual(m.source_cache_ttl_minutes("eccc_swob"), 30)
         self.assertEqual(m.source_cache_ttl_minutes("metar"), 75)
+        self.assertEqual(m.source_cache_ttl_minutes("marine_context"), 75)
+        self.assertEqual(m.source_cache_ttl_minutes("mrms_precip"), 20)
         self.assertEqual(m.source_cache_ttl_minutes("open_meteo"), 90)
+        self.assertEqual(m.source_cache_ttl_minutes("nws_grid"), 90)
         self.assertEqual(m.source_cache_ttl_minutes("eccc_citypage"), 120)
+        self.assertEqual(m.source_cache_ttl_minutes("eccc_gem"), 120)
+        self.assertEqual(m.source_cache_ttl_minutes("open_meteo_multimodel"), 120)
         # Unknown source falls back to the global cap.
         self.assertEqual(m.source_cache_ttl_minutes("mystery"), 90)
 
@@ -127,6 +132,39 @@ class TestSourceCacheTtl(unittest.TestCase):
         diags = m.source_diagnostics(blended)
         self.assertEqual(diags[0]["status"], "stale_cache")
         self.assertEqual(diags[0]["ttl_minutes"], 75)
+
+    def test_marine_context_diagnostics_include_only_gated_active_state(self):
+        m = TorontoHighTempModel()
+        blended = {
+            "marine_context": {"ok": True, "stale": False, "status": "fresh", "data": {
+                "market": "toronto",
+                "stations": [{
+                    "station_id": "45159",
+                    "usable": True,
+                    "latest_age_minutes": 12,
+                    "missing_sensors": [],
+                    "distance_km": 43,
+                    "onshore_direction_min": 60.0,
+                    "onshore_direction_max": 160.0,
+                    "latest": {
+                        "water_temp_native": 14.0,
+                        "air_temp_native": 18.0,
+                        "wind_speed_kmh": 16.0,
+                        "wind_direction_degrees": 120.0,
+                    },
+                    "rows": [],
+                }],
+            }},
+        }
+
+        by_source = {row["source"]: row for row in m.source_diagnostics(blended)}
+        inactive = m.source_diagnostics({"marine_context": {"ok": True, "stale": False, "status": "fresh", "data": {
+            "market": "toronto",
+            "stations": [{"station_id": "45159", "usable": False, "latest": {}}],
+        }}})
+
+        self.assertEqual(by_source["marine_context"]["marine_context"]["regime"], "breeze_risk")
+        self.assertNotIn("marine_context", inactive[0])
 
 
 if __name__ == "__main__":

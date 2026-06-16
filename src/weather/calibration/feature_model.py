@@ -32,6 +32,10 @@ from weather.sources.forecast_history import (
     load_forecast_profiles,
     long_path_for,
 )
+from weather.sources.reanalysis_synoptic import (
+    REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
+    load_reanalysis_synoptic_features,
+)
 
 # LOO must stay ON: without it the retrain exports artifacts with no
 # validation report AND flat 0.80 blend weights (the per-hour tuning only runs
@@ -163,6 +167,9 @@ FEATURE_FAMILIES = {
     ],
     "forecast": [
         *FORECAST_FEATURE_COLUMNS,
+    ],
+    "reanalysis_synoptic": [
+        *REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     ],
     "wind_regime": "wind_",
     "cloud_regime": "cloud_",
@@ -397,6 +404,75 @@ def summarize_ablation_by_family(rows):
     return sorted(summary, key=lambda row: row["delta_logloss"], reverse=True)
 
 
+def _as_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if hasattr(value, "date"):
+        try:
+            return value.date()
+        except (TypeError, ValueError):
+            pass
+    return date.fromisoformat(str(value)[:10])
+
+
+MONTH_LABELS = {
+    1: "01-Jan",
+    2: "02-Feb",
+    3: "03-Mar",
+    4: "04-Apr",
+    5: "05-May",
+    6: "06-Jun",
+    7: "07-Jul",
+    8: "08-Aug",
+    9: "09-Sep",
+    10: "10-Oct",
+    11: "11-Nov",
+    12: "12-Dec",
+}
+
+
+def ablation_month_label(value):
+    return MONTH_LABELS[_as_date(value).month]
+
+
+def ablation_season_label(value):
+    month = _as_date(value).month
+    if month in (12, 1, 2):
+        return "winter"
+    if month in (3, 4, 5):
+        return "spring"
+    if month in (6, 7, 8):
+        return "summer"
+    return "fall"
+
+
+def summarize_ablation_by_group(rows, group_keys):
+    grouped = defaultdict(list)
+    for row in rows:
+        key = tuple(row.get(group_key) for group_key in group_keys) + (row["family"],)
+        grouped[key].append(row)
+    summary = []
+    for key, group_rows in sorted(grouped.items()):
+        n = sum(row["n"] for row in group_rows)
+        if n <= 0:
+            continue
+        group_values = dict(zip(group_keys, key[:-1]))
+        summary.append({
+            **group_values,
+            "family": key[-1],
+            "n": n,
+            "full_logloss": sum(row["full_logloss"] * row["n"] for row in group_rows) / n,
+            "ablated_logloss": sum(row["ablated_logloss"] * row["n"] for row in group_rows) / n,
+            "delta_logloss": sum(row["delta_logloss"] * row["n"] for row in group_rows) / n,
+            "full_brier": sum(row["full_brier"] * row["n"] for row in group_rows) / n,
+            "ablated_brier": sum(row["ablated_brier"] * row["n"] for row in group_rows) / n,
+            "delta_brier": sum(row["delta_brier"] * row["n"] for row in group_rows) / n,
+        })
+    return sorted(summary, key=lambda row: tuple(row.get(key) for key in group_keys) + (row["family"],))
+
+
 def ablation_table_row(row, include_hour=False):
     prefix = f"| {row['hour']:02d}:00 | " if include_hour else "| "
     return (
@@ -405,6 +481,450 @@ def ablation_table_row(row, include_hour=False):
         f"{row['delta_logloss']:+.4f} | {row['full_brier']:.4f} | "
         f"{row['ablated_brier']:.4f} | {row['delta_brier']:+.4f} |"
     )
+
+
+def ablation_group_table_row(row, group_keys):
+    prefix = "".join(f"| {row.get(key)} " for key in group_keys)
+    return (
+        f"{prefix}| {row['family']} | {row['n']} | "
+        f"{row['full_logloss']:.4f} | {row['ablated_logloss']:.4f} | "
+        f"{row['delta_logloss']:+.4f} | {row['full_brier']:.4f} | "
+        f"{row['ablated_brier']:.4f} | {row['delta_brier']:+.4f} |"
+    )
+
+
+def ablation_observation(hour, val_date, family, full_loss, ablated_loss, full_brier, ablated_brier):
+    return {
+        "hour": int(hour),
+        "month": ablation_month_label(val_date),
+        "season": ablation_season_label(val_date),
+        "family": family,
+        "n": 1,
+        "full_logloss": full_loss,
+        "ablated_logloss": ablated_loss,
+        "delta_logloss": ablated_loss - full_loss,
+        "full_brier": full_brier,
+        "ablated_brier": ablated_brier,
+        "delta_brier": ablated_brier - full_brier,
+    }
+
+
+def feature_model_columns(all_wind_groups, all_cloud_groups):
+    numeric_cols = [
+        column for column in FEATURE_COLUMNS
+        if column not in {"wind_group", "cloud_group"}
+    ]
+    feature_cols = (
+        numeric_cols
+        + [f"wind_{g}" for g in all_wind_groups]
+        + [f"cloud_{g}" for g in all_cloud_groups]
+    )
+    return numeric_cols, feature_cols
+
+
+def feature_model_frame(records, all_wind_groups, all_cloud_groups):
+    df = pd.DataFrame(records).copy()
+    numeric_cols, feature_cols = feature_model_columns(
+        all_wind_groups,
+        all_cloud_groups,
+    )
+    for column in numeric_cols:
+        if column not in df:
+            df[column] = np.nan
+    if "wind_group" not in df:
+        df["wind_group"] = None
+    if "cloud_group" not in df:
+        df["cloud_group"] = None
+    for group in all_wind_groups:
+        df[f"wind_{group}"] = (df["wind_group"] == group).astype(float)
+    for group in all_cloud_groups:
+        df[f"cloud_{group}"] = (df["cloud_group"] == group).astype(float)
+    return df, feature_cols
+
+
+def feature_validation_folds(df, n_splits=5):
+    if "date" not in df or len(df) < 2:
+        return [np.arange(len(df))]
+    ordinals = np.array([_as_date(value).toordinal() for value in df["date"]])
+    max_splits = max(2, min(int(n_splits), len(set(ordinals))))
+    folds = []
+    for fold in range(max_splits):
+        idx = np.flatnonzero((ordinals % max_splits) == fold)
+        if len(idx):
+            folds.append(idx)
+    return folds or [np.arange(len(df))]
+
+
+def hgb_matrices_for_split(x_frame, train_idx, val_idx, feature_cols):
+    train_frame = x_frame.iloc[train_idx]
+    val_frame = x_frame.iloc[val_idx]
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+    x_train = imputer.fit_transform(train_frame)
+    x_val = imputer.transform(val_frame)
+    native_nan_cols = [
+        column for column in NATIVE_NAN_FEATURE_COLUMNS
+        if column in feature_cols
+    ]
+    if native_nan_cols:
+        native_idx = [feature_cols.index(column) for column in native_nan_cols]
+        x_train[:, native_idx] = train_frame[native_nan_cols].to_numpy(dtype=float)
+        x_val[:, native_idx] = val_frame[native_nan_cols].to_numpy(dtype=float)
+    return x_train, x_val
+
+
+def evaluate_feature_family_segments(
+    raw_data,
+    all_wind_groups,
+    all_cloud_groups,
+    bucket_space,
+    n_splits=5,
+):
+    validation_rows = []
+    observation_rows = []
+    for hour in sorted(raw_data):
+        records = raw_data[hour]
+        if len(records) < 3:
+            continue
+        df, feature_cols = feature_model_frame(
+            records,
+            all_wind_groups,
+            all_cloud_groups,
+        )
+        feature_families = feature_family_columns(feature_cols)
+        x_frame = df[feature_cols].copy()
+        y = df["final_bucket"].astype(int).reset_index(drop=True)
+        folds = feature_validation_folds(df, n_splits=n_splits)
+        all_idx = np.arange(len(df))
+
+        losses = []
+        briers = []
+        baseline_losses = []
+        baseline_briers = []
+        skipped_folds = 0
+
+        for val_idx in folds:
+            train_idx = np.setdiff1d(all_idx, val_idx, assume_unique=True)
+            if len(train_idx) < 2 or len(set(y.iloc[train_idx])) < 2:
+                skipped_folds += 1
+                continue
+
+            x_train, x_val = hgb_matrices_for_split(
+                x_frame,
+                train_idx,
+                val_idx,
+                feature_cols,
+            )
+            y_train = y.iloc[train_idx]
+            train_records = [records[int(idx)] for idx in train_idx]
+            p_clim = smoothed_dist(
+                [record["final_bucket"] for record in train_records],
+                bucket_space,
+                alpha=0.10,
+            )
+
+            hgb = HistGradientBoostingClassifier(
+                max_iter=50,
+                max_leaf_nodes=15,
+                learning_rate=0.05,
+                random_state=42,
+            )
+            hgb.fit(x_train, y_train)
+            hgb_classes = hgb.classes_
+            full_probs = hgb.predict_proba(x_val)
+
+            full_distributions = []
+            full_losses = []
+            full_briers = []
+            for row_offset, probs_raw in enumerate(full_probs):
+                val_actual = int(y.iloc[val_idx[row_offset]])
+                prob_dict = {
+                    int(cls): float(prob)
+                    for cls, prob in zip(hgb_classes, probs_raw)
+                }
+                full = blend(p_clim.copy(), prob_dict, 0.80)
+                full_distributions.append(full)
+                full_loss = log_loss(full, val_actual)
+                full_brier = brier_score(full, val_actual)
+                losses.append(full_loss)
+                briers.append(full_brier)
+                full_losses.append(full_loss)
+                full_briers.append(full_brier)
+                baseline_losses.append(log_loss(p_clim, val_actual))
+                baseline_briers.append(brier_score(p_clim, val_actual))
+
+            for family, family_columns in feature_families.items():
+                x_val_ablated = np.vstack([
+                    neutralize_feature_family(
+                        row,
+                        x_train,
+                        feature_cols,
+                        family_columns,
+                    )
+                    for row in x_val
+                ])
+                ablated_probs = hgb.predict_proba(x_val_ablated)
+                for row_offset, probs_raw in enumerate(ablated_probs):
+                    val_actual = int(y.iloc[val_idx[row_offset]])
+                    val_date = df.iloc[val_idx[row_offset]]["date"]
+                    prob_dict = {
+                        int(cls): float(prob)
+                        for cls, prob in zip(hgb_classes, probs_raw)
+                    }
+                    ablated = blend(p_clim.copy(), prob_dict, 0.80)
+                    observation_rows.append(
+                        ablation_observation(
+                            hour,
+                            val_date,
+                            family,
+                            full_losses[row_offset],
+                            log_loss(ablated, val_actual),
+                            full_briers[row_offset],
+                            brier_score(ablated, val_actual),
+                        )
+                    )
+
+        if losses:
+            validation_rows.append({
+                "hour": hour,
+                "n": len(losses),
+                "baseline_logloss": float(np.mean(baseline_losses)),
+                "full_logloss": float(np.mean(losses)),
+                "delta_logloss_vs_baseline": float(np.mean(baseline_losses) - np.mean(losses)),
+                "baseline_brier": float(np.mean(baseline_briers)),
+                "full_brier": float(np.mean(briers)),
+                "delta_brier_vs_baseline": float(np.mean(baseline_briers) - np.mean(briers)),
+                "folds": len(folds),
+                "skipped_folds": skipped_folds,
+            })
+    return validation_rows, observation_rows
+
+
+def feature_family_promotion_decisions(rows, min_rows=100):
+    decisions = []
+    for row in summarize_ablation_by_family(rows):
+        if row["n"] < min_rows:
+            decision = "shadow"
+            reason = f"needs at least {min_rows} held-out rows"
+        elif row["delta_logloss"] > 0.0 and row["delta_brier"] > 0.0:
+            decision = "promote"
+            reason = "positive held-out log-loss and Brier deltas"
+        else:
+            decision = "block"
+            reason = "non-positive held-out log-loss or Brier delta"
+        decisions.append({
+            **row,
+            "decision": decision,
+            "reason": reason,
+        })
+    return decisions
+
+
+def _fmt_metric(value):
+    if value is None:
+        return "-"
+    return f"{float(value):.4f}"
+
+
+def write_item27_feature_value_report(
+    spec,
+    validation_rows,
+    ablation_rows,
+    report_path,
+    json_path=None,
+    n_splits=5,
+):
+    decisions = feature_family_promotion_decisions(ablation_rows)
+    lines = [
+        "# Roadmap Item 27: Weather Feature Value Gate",
+        "",
+        f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Market: `{spec.id}`",
+        f"Unit: `{spec.unit}`",
+        f"Feature schema: `{FEATURE_SCHEMA_VERSION}`",
+        f"Validation: {n_splits}-fold deterministic day split by target date ordinal",
+        "",
+        "This report scores held-out target days with settlement-style log-loss "
+        "and Brier metrics, then neutralizes one feature family at a time. "
+        "Positive ablation deltas mean the family improved held-out score.",
+        "",
+        "## Held-Out Model Score By Cutoff",
+        "",
+        "| Cutoff | Rows | Baseline LogLoss | HGB LogLoss | Skill | Baseline Brier | HGB Brier | Skill | Folds | Skipped |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in sorted(validation_rows, key=lambda item: item["hour"]):
+        lines.append(
+            f"| {row['hour']:02d}:00 | {row['n']} | "
+            f"{_fmt_metric(row['baseline_logloss'])} | {_fmt_metric(row['full_logloss'])} | "
+            f"{row['delta_logloss_vs_baseline']:+.4f} | "
+            f"{_fmt_metric(row['baseline_brier'])} | {_fmt_metric(row['full_brier'])} | "
+            f"{row['delta_brier_vs_baseline']:+.4f} | {row['folds']} | {row['skipped_folds']} |"
+        )
+
+    lines += [
+        "",
+        "## Feature-Family Promotion Decisions",
+        "",
+        "Decision is `promote` only when the feature family improves both "
+        "held-out log-loss and Brier over the neutralized-family variant.",
+        "",
+        "| Family | Decision | Rows | Delta LogLoss | Delta Brier | Reason |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in decisions:
+        lines.append(
+            f"| {row['family']} | {row['decision']} | {row['n']} | "
+            f"{row['delta_logloss']:+.4f} | {row['delta_brier']:+.4f} | "
+            f"{row['reason']} |"
+        )
+
+    lines += [
+        "",
+        "## Feature-Family Value By Month",
+        "",
+        "| Month | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in summarize_ablation_by_group(ablation_rows, ["month"]):
+        lines.append(ablation_group_table_row(row, ["month"]))
+
+    lines += [
+        "",
+        "## Feature-Family Value By Season",
+        "",
+        "| Season | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in summarize_ablation_by_group(ablation_rows, ["season"]):
+        lines.append(ablation_group_table_row(row, ["season"]))
+
+    lines += [
+        "",
+        "## Feature-Family Value By Cutoff And Month",
+        "",
+        "| Cutoff | Month | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in summarize_ablation_by_group(ablation_rows, ["hour", "month"]):
+        lines.append(ablation_group_table_row(row, ["hour", "month"]))
+
+    report_path = os.fspath(report_path)
+    os.makedirs(os.path.dirname(report_path), exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    payload = {
+        "schema_version": "item27_feature_value_gate_v0.1",
+        "generated_at": datetime.now().isoformat(),
+        "market": spec.id,
+        "unit": spec.unit,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "validation": {
+            "method": "deterministic_day_fold",
+            "n_splits": n_splits,
+        },
+        "validation_rows": validation_rows,
+        "promotion_decisions": decisions,
+        "by_month": summarize_ablation_by_group(ablation_rows, ["month"]),
+        "by_season": summarize_ablation_by_group(ablation_rows, ["season"]),
+        "by_hour_month": summarize_ablation_by_group(ablation_rows, ["hour", "month"]),
+    }
+    if json_path is not None:
+        json_path = os.fspath(json_path)
+        os.makedirs(os.path.dirname(json_path), exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+    return payload
+
+
+def build_feature_records_for_model(
+    model,
+    daily,
+    by_date,
+    forecast_index,
+    forecast_profiles,
+    reanalysis_synoptic_index=None,
+):
+    raw_data = defaultdict(list)
+    reanalysis_synoptic_index = reanalysis_synoptic_index or {}
+    for local_date in sorted(daily.keys()):
+        rows = by_date.get(local_date, [])
+        if not rows:
+            continue
+        for hour in INTRADAY_CUTOFF_HOURS:
+            offset = wall_offset_for(local_date, hour)
+            record = build_historical_feature_record(
+                local_date,
+                rows,
+                daily[local_date],
+                hour,
+                forecast_high=forecast_index.get(local_date.isoformat()),
+                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
+                reanalysis_synoptic_features=reanalysis_synoptic_index.get(local_date.isoformat()),
+                wind_group_fn=model.wind_group,
+                cloud_group_fn=model.cloud_group,
+                microclimate_feature_fn=model.microclimate_features,
+                wall_minute=hour * 60 + offset,
+            )
+            if record:
+                raw_data[hour].append(record)
+    return raw_data
+
+
+def main_item27_feature_value_report(market_id="toronto", n_splits=5):
+    model = TorontoHighTempModel(market_id=market_id)
+    spec = model.spec
+    suffix = spec.artifact_suffix
+    print(f"Building Item 27 feature-value report for market '{spec.id}'.")
+    cache = model.historical_target_cache()
+    daily = cache["daily"]
+    by_date = cache["by_date"]
+    bucket_space = cache["bucket_space"]
+    forecast_index = load_forecast_daily(daily_path_for(spec))
+    forecast_profiles = load_forecast_profiles(long_path_for(spec))
+    reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
+    raw_data = build_feature_records_for_model(
+        model,
+        daily,
+        by_date,
+        forecast_index,
+        forecast_profiles,
+        reanalysis_synoptic_index=reanalysis_synoptic_index,
+    )
+    validation_rows, ablation_rows = evaluate_feature_family_segments(
+        raw_data,
+        WIND_GROUPS,
+        CLOUD_GROUPS,
+        bucket_space,
+        n_splits=n_splits,
+    )
+    report_path = os.path.join(
+        str(spec.data_root),
+        "analysis",
+        f"item27_feature_value_report{suffix}.md",
+    )
+    json_path = os.path.join(
+        str(spec.data_root),
+        "analysis",
+        f"item27_feature_value_gate{suffix}.json",
+    )
+    payload = write_item27_feature_value_report(
+        spec,
+        validation_rows,
+        ablation_rows,
+        report_path,
+        json_path=json_path,
+        n_splits=n_splits,
+    )
+    print(f"Saved Item 27 feature-value report to {report_path}")
+    print(f"Saved Item 27 feature-value gate to {json_path}")
+    for row in payload["promotion_decisions"]:
+        print(
+            f"  {row['family']}: {row['decision']} "
+            f"(delta_logloss={row['delta_logloss']:+.4f}, "
+            f"delta_brier={row['delta_brier']:+.4f})"
+        )
+    return payload
 
 
 def train_late_day_continuation_models(
@@ -702,35 +1222,23 @@ def main(market_id="toronto"):
           f"(forecast feature present for those, NaN otherwise).")
     print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
           f"(profile/radiation/cloud features present where archived).")
+    reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
+    print(f"Loaded {len(reanalysis_synoptic_index)} gated reanalysis/synoptic days "
+          "(feature present where sidecar is built).")
 
     # Pre-extract features for all days and hours. Each (day, hour) trains at
     # ONE deterministic intra-hour wall offset (item 40): offsets are covered
     # across days without multiplying the row count, so the O(n^2) LOO cost
     # stays identical to the at-print-only training.
     print("Extracting features at each cutoff hour (sampled intra-hour offsets)...")
-    raw_data = defaultdict(list)
-
-    for local_date in sorted(daily.keys()):
-        rows = by_date.get(local_date, [])
-        if not rows:
-            continue
-
-        for hour in INTRADAY_CUTOFF_HOURS:
-            offset = wall_offset_for(local_date, hour)
-            record = build_historical_feature_record(
-                local_date,
-                rows,
-                daily[local_date],
-                hour,
-                forecast_high=forecast_index.get(local_date.isoformat()),
-                forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
-                wind_group_fn=model.wind_group,
-                cloud_group_fn=model.cloud_group,
-                microclimate_feature_fn=model.microclimate_features,
-                wall_minute=hour * 60 + offset,
-            )
-            if record:
-                raw_data[hour].append(record)
+    raw_data = build_feature_records_for_model(
+        model,
+        daily,
+        by_date,
+        forecast_index,
+        forecast_profiles,
+        reanalysis_synoptic_index=reanalysis_synoptic_index,
+    )
 
     # Available wind and cloud categories for one-hot encoding consistency
     all_wind_groups = WIND_GROUPS
@@ -758,6 +1266,7 @@ def main(market_id="toronto"):
     tuned_probability_temperature = {}
     calibration_rows = []
     ablation_rows = []
+    ablation_observation_rows = []
 
     trained_at = datetime.now().isoformat()
     trained_models_info = {
@@ -947,10 +1456,12 @@ def main(market_id="toronto"):
             hgb_prob_dict = {int(c): float(p) for c, p in zip(hgb_classes, hgb_probs_raw)}
             hgb_prob_blended = blend(p_clim.copy(), hgb_prob_dict, 0.80)
             
-            losses_hgb.append(log_loss(hgb_prob_blended, val_actual))
+            hgb_loss = log_loss(hgb_prob_blended, val_actual)
+            hgb_brier = brier_score(hgb_prob_blended, val_actual)
+            losses_hgb.append(hgb_loss)
             hgb_top = max(hgb_prob_blended, key=hgb_prob_blended.get)
             accs_hgb.append(1.0 if hgb_top == val_actual else 0.0)
-            briers_hgb.append(brier_score(hgb_prob_blended, val_actual))
+            briers_hgb.append(hgb_brier)
             cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
             hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
 
@@ -967,8 +1478,21 @@ def main(market_id="toronto"):
                     for c, p in zip(hgb_classes, ablated_probs_raw)
                 }
                 ablated_blended = blend(p_clim.copy(), ablated_prob_dict, 0.80)
-                ablation_losses[family].append(log_loss(ablated_blended, val_actual))
-                ablation_briers[family].append(brier_score(ablated_blended, val_actual))
+                ablated_loss = log_loss(ablated_blended, val_actual)
+                ablated_brier = brier_score(ablated_blended, val_actual)
+                ablation_losses[family].append(ablated_loss)
+                ablation_briers[family].append(ablated_brier)
+                ablation_observation_rows.append(
+                    ablation_observation(
+                        hour,
+                        val_date,
+                        family,
+                        hgb_loss,
+                        ablated_loss,
+                        hgb_brier,
+                        ablated_brier,
+                    )
+                )
 
         if RUN_LOO:
             # Print metrics summary
@@ -1173,6 +1697,35 @@ def main(market_id="toronto"):
         for row in sorted(ablation_rows, key=lambda item: (item["hour"], item["family"])):
             report_lines.append(ablation_table_row(row, include_hour=True))
 
+        if ablation_observation_rows:
+            report_lines.append("\n### Feature-family ablation by target-season month\n")
+            report_lines.append(
+                "These rows reuse the same leave-one-out folds as the overall "
+                "ablation and group held-out days by calendar month. Positive "
+                "deltas mean the family helped that month's validation score.\n"
+            )
+            report_lines.append("| Month | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in summarize_ablation_by_group(ablation_observation_rows, ["month"]):
+                report_lines.append(ablation_group_table_row(row, ["month"]))
+
+            report_lines.append("\n### Feature-family ablation by meteorological season\n")
+            report_lines.append(
+                "The current Toronto target-season corpus spans spring and summer "
+                "market days. Future non-summer markets will appear here without "
+                "changing the report shape.\n"
+            )
+            report_lines.append("| Season | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in summarize_ablation_by_group(ablation_observation_rows, ["season"]):
+                report_lines.append(ablation_group_table_row(row, ["season"]))
+
+            report_lines.append("\n### Feature-family ablation by cutoff hour and month\n")
+            report_lines.append("| Cutoff | Month | Family | Rows | Full LogLoss | Ablated LogLoss | Delta | Full Brier | Ablated Brier | Delta |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in summarize_ablation_by_group(ablation_observation_rows, ["hour", "month"]):
+                report_lines.append(ablation_group_table_row(row, ["hour", "month"]))
+
         if late_day_validation_rows:
             report_lines.append("\n## Late-day continuation validation\n")
             report_lines.append(
@@ -1228,7 +1781,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--late-day-only", action="store_true",
         help="Only retrain late-day continuation coefficients and validation report.")
+    parser.add_argument(
+        "--item27-report-only", action="store_true",
+        help="Write the Item 27 held-out weather feature-value gate report only.")
+    parser.add_argument(
+        "--item27-folds", type=int, default=5,
+        help="Day-fold count for --item27-report-only validation.")
     args = parser.parse_args()
+    if args.item27_report_only:
+        main_item27_feature_value_report(
+            market_id=args.market,
+            n_splits=args.item27_folds,
+        )
+        raise SystemExit(0)
     if args.late_day_only:
         main_late_day(market_id=args.market)
         raise SystemExit(0)

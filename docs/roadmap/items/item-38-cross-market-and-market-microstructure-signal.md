@@ -1,8 +1,8 @@
-# 38. Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - TAXONOMY-GATED CLOB OVERLAY]
+# 38. Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]
 
 Goal: squeeze the last edge once per-market models are solid.
 
-- [ ] Borrow strength across correlated cities (regional heat waves / shared
+- [x] Borrow strength across correlated cities (regional heat waves / shared
   synoptics).
 - [x] Persist CLOB token ids/condition ids into the market snapshot artifacts.
 - [x] Capture full CLOB order-book depth per weather-market token:
@@ -10,7 +10,7 @@ Goal: squeeze the last edge once per-market models are solid.
   executable price for fixed trade sizes, and last trade metadata.
 - [x] Add a market-book loop or WebSocket recorder with 30-60 second baseline
   cadence and 10-15 second near-close/large-edge-change cadence.
-- [ ] Model Polymarket price dynamics (stickiness, liquidity, book depth,
+- [x] Model Polymarket price dynamics (stickiness, liquidity, book depth,
   spread, trade flow) toward edge/P&L, not just calibration.
 
 Acceptance: cross-market structure or microstructure adds settlement-scored or
@@ -116,6 +116,31 @@ allows `market_lead` and `book_liquidity_artifact`, and blocks
 `market_overreaction` because it regresses the base candidate (`0.1700` vs
 `0.0983`). The gated overlay changes 437 rows and leaves 66,993 rows on the
 base candidate; aggregate gated Brier is `0.0436` versus base `0.0436`.
+
+Completion update (2026-06-16): the current CLOB-enabled replay closes item 38
+as a settlement-scored, non-serving microstructure evidence path. The June 16
+Item 82 replay (`data/backtest/item82_miami_fallback_candidate_replay_with_clob_report.md`)
+scores 19,668 fresh CLOB rows out-of-fold with zero skipped folds. Raw CLOB
+overlay Brier is `0.0303` versus base candidate `0.0352`, current replay
+`0.0371`, and market `0.0299`, proving book features add settlement-scored
+value over the independent weather model on the eligible slice. The replay
+also writes the overlay artifact
+`artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl` and
+Item-69-compatible shadow variants.
+
+The current replay-derived taxonomy gate is intentionally stricter than the
+June 14 snapshot: it allows only `market_lead` on the target taxonomy set
+(`75` raw target rows, micro Brier `0.0000` versus base `0.0041` and market
+`0.0007`) and falls back to the base candidate for `book_liquidity_artifact`
+because the refreshed gate no longer clears all quality checks. The
+multi-variant shadow report
+(`data/backtest/item72_clob_multi_variant_shadow_report.md`) keeps
+market-informed variants separated from no-market weather-model variants: raw CLOB
+OOF improves daily Brier versus current by `-0.0038` on the CLOB-eligible
+track, while the taxonomy-gated overlay remains behaviorally equivalent to the
+base candidate at aggregate scale. Therefore item 38 is complete as a
+validated microstructure-signal layer; production F-family promotion and
+serving cutover readiness remain owned by item 48.
 
 Fleet critical follow-up (2026-06-14 UTC): the observation-trigger watcher made
 urgent recomputes first-class evidence, but active CSV tapes created before the

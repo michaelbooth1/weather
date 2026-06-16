@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -9,11 +10,17 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from feature_model import (
     LATE_DAY_NUMERIC_FEATURES,
+    ablation_month_label,
+    ablation_observation,
+    ablation_season_label,
+    evaluate_feature_family_segments,
     evaluate_late_day_records,
     feature_family_columns,
+    feature_family_promotion_decisions,
     late_day_feature_columns,
     neutralize_feature_family,
     summarize_ablation_by_family,
+    summarize_ablation_by_group,
     train_late_day_continuation_models,
 )
 from toronto_model import TorontoHighTempModel
@@ -107,6 +114,84 @@ class TestFeatureModelAblation(unittest.TestCase):
         self.assertEqual(summary[0]["family"], "forecast")
         self.assertAlmostEqual(summary[0]["delta_logloss"], (0.5 * 2 + 0.3) / 3)
         self.assertAlmostEqual(summary[0]["delta_brier"], 0.2)
+
+    def test_ablation_observations_group_by_month_and_season(self):
+        may_row = ablation_observation(
+            12,
+            "2026-05-27",
+            "microclimate",
+            full_loss=1.0,
+            ablated_loss=1.2,
+            full_brier=0.2,
+            ablated_brier=0.3,
+        )
+        june_row = ablation_observation(
+            12,
+            pd.Timestamp("2026-06-03"),
+            "microclimate",
+            full_loss=2.0,
+            ablated_loss=2.1,
+            full_brier=0.4,
+            ablated_brier=0.5,
+        )
+
+        by_month = summarize_ablation_by_group([may_row, june_row], ["month"])
+        by_season = summarize_ablation_by_group([may_row, june_row], ["season"])
+        by_hour_month = summarize_ablation_by_group([may_row, june_row], ["hour", "month"])
+
+        self.assertEqual(ablation_month_label("2026-05-27"), "05-May")
+        self.assertEqual(ablation_season_label("2026-05-27"), "spring")
+        self.assertEqual(ablation_season_label("2026-06-03"), "summer")
+        self.assertEqual([row["month"] for row in by_month], ["05-May", "06-Jun"])
+        self.assertEqual({row["season"] for row in by_season}, {"spring", "summer"})
+        self.assertEqual(by_hour_month[0]["hour"], 12)
+        self.assertAlmostEqual(by_month[0]["delta_logloss"], 0.2)
+
+    def test_item27_day_fold_segment_evaluation_reports_promotion_decisions(self):
+        records = []
+        start = date(2026, 5, 20)
+        for i in range(18):
+            local_date = start + timedelta(days=i)
+            warm_signal = float(i % 2)
+            final_bucket = 26 if warm_signal else 24
+            records.append({
+                "date": local_date,
+                "final_bucket": final_bucket,
+                "high_so_far": 23.0 + warm_signal,
+                "current_temp": 22.0 + warm_signal,
+                "rise_from_7am": 5.0 + warm_signal,
+                "dewpoint_c": 14.0 + warm_signal,
+                "humidity": 55.0,
+                "pressure": 1012.0,
+                "pressure_trend_3h": -0.2,
+                "wind_speed_kmh": 9.0 + warm_signal,
+                "wind_gust_kmh": 15.0 + warm_signal,
+                "wind_shift_3h_degrees": 20.0 + warm_signal,
+                "onshore_flow": warm_signal,
+                "onshore_wind_speed_kmh": 9.0 * warm_signal,
+                "lake_breeze_proxy": warm_signal,
+                "wind_group": "W-NW" if warm_signal else "N-NE",
+                "cloud_group": "Fair/clear",
+            })
+
+        validation_rows, ablation_rows = evaluate_feature_family_segments(
+            {12: records},
+            ["W-NW", "N-NE"],
+            ["Fair/clear"],
+            [24, 26],
+            n_splits=3,
+        )
+        decisions = feature_family_promotion_decisions(ablation_rows, min_rows=1)
+
+        self.assertEqual(validation_rows[0]["hour"], 12)
+        self.assertGreater(validation_rows[0]["n"], 0)
+        self.assertIn("month", ablation_rows[0])
+        self.assertIn("season", ablation_rows[0])
+        self.assertIn("microclimate", {row["family"] for row in ablation_rows})
+        self.assertIn(
+            "decision",
+            {key for row in decisions for key in row.keys()},
+        )
 
     def test_late_day_features_include_forecast_gap_before_one_hot_columns(self):
         columns = late_day_feature_columns(["W-NW"], ["Fair/clear"])

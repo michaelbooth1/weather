@@ -1,4 +1,4 @@
-# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE + RUNBOOK LIVE]
+# 45. Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]
 
 Goal: define the sizing and operational gates that must be green before any
 real-money market-making pilot.
@@ -30,7 +30,7 @@ the current `data/backtest/data_layer_audit_report.md` still reported
 - [x] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
   token IDs, condition IDs, order-book depth, and trade tapes are verified in
   current active-day artifacts, not just described in roadmap text.
-- [ ] Verify the exact operating platform before live keys: Polymarket global
+- [x] Verify the exact operating platform before live keys: Polymarket global
   versus Polymarket US eligibility, current fees, current reward/rebate rules,
   account jurisdiction, wallet type, allowances, and API semantics.
 - [x] Write the MM-2 day-one protocol: heartbeat-lapse drill with a throwaway
@@ -82,6 +82,28 @@ gate and live-pilot blocks when the audit lacks current CLOB proof.
 Runbook update (2026-06-15 UTC): `docs/research/MARKET_MAKING_LIVE_RUNBOOK_2026-06-15.md`
 now records the MM-2 day-one protocol and live operating runbook, with official
 Polymarket global and Polymarket US documentation links checked on 2026-06-15.
-The account/platform verification checkbox remains open because it depends on
+The account/platform verification checkbox remained open because it depended on
 the actual operating account, jurisdiction, wallet type, API base URL,
 allowances, fee/reward settings, and live-key semantics immediately before use.
+
+Platform verification gate update (2026-06-16 UTC): `market_making_run` now
+requires a current `mm_platform_verification_v0.1` artifact for `live-pilot`.
+The default `data/backtest/mm_platform_verification.json` is a fail-closed
+runtime artifact path, with tracked template
+`docs/research/mm_platform_verification_template.json`; operators must refresh
+the runtime artifact within 24 hours for the target date before preflight can
+pass. The gate validates platform surface
+(`polymarket_global` versus `polymarket_us`), account jurisdiction, eligibility,
+API base URL, CLOB host, wallet type, signature type/funder, allowances,
+balance, fee parameters, rebate/reward rules, order/cancel/tick/min-size
+semantics, user WebSocket, cancel-all, isolated wallet cap, backend-only
+signing, secret hygiene, and source URLs. It emits a
+`platform_verification_gate` blocker and `platform_verification_gate_blocked`
+remediation incident when missing, stale, target-mismatched, incomplete, or
+containing exact secret fields. Shadow and paper-live-forward remain keyless and
+do not require the artifact. Supporting doc:
+`docs/research/MARKET_MAKING_PLATFORM_VERIFICATION_2026-06-16.md`. Focused
+tests: `python -m pytest tests/market/test_market_making_run.py -q` passed
+(`17` tests). This completes item 45's software gate; it still does not
+authorize live trading unless a real operator-owned verification artifact
+passes immediately before use.

@@ -15,14 +15,17 @@ from market_microstructure import (  # noqa: E402
     audit_book_tape,
     clob_ensure_decision,
     clob_loop_health,
+    clob_loop_command_matches,
     capture_event_books,
     fleet_book_audit,
     fleet_effective_book_gap_seconds,
     price_history_rows,
     record_market_websocket,
     run_book_loop,
+    running_clob_loop_processes,
     should_use_fast_interval,
     start_clob_loop_detached,
+    stop_clob_loop_processes,
     summarize_order_book,
     token_rows_from_event,
 )
@@ -327,6 +330,41 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(clob_ensure_decision("ERRORING", True), "noop")
         self.assertEqual(clob_ensure_decision("DEAD", True), "restart")
         self.assertEqual(clob_ensure_decision("UNKNOWN", False), "start")
+        self.assertEqual(clob_ensure_decision("RUNNING", True, has_orphan_processes=True), "restart")
+        self.assertEqual(clob_ensure_decision("RUNNING", True, runtime_matches_current=False), "restart")
+
+    def test_running_clob_loop_processes_filters_loop_commands(self):
+        rows = [
+            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
+            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure ensure --market all"},
+            {"pid": 102, "name": "python.exe", "command_line": "python.exe app.py"},
+            {"pid": 103, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market toronto"},
+        ]
+
+        matches = running_clob_loop_processes(process_rows=rows, current_pid=999)
+
+        self.assertTrue(clob_loop_command_matches(rows[0]["command_line"]))
+        self.assertFalse(clob_loop_command_matches(rows[1]["command_line"]))
+        self.assertEqual([row["pid"] for row in matches], [100, 103])
+
+    def test_stop_clob_loop_processes_stops_matching_orphans(self):
+        stopped = []
+        rows = [
+            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
+            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
+            {"pid": 102, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure ensure --market all"},
+        ]
+
+        result = stop_clob_loop_processes(
+            process_rows=rows,
+            keep_pids={101},
+            terminate_fn=lambda pid: stopped.append(pid) or {"pid": pid, "stopped": True},
+        )
+
+        self.assertEqual(stopped, [100])
+        self.assertEqual(result["matched_process_count"], 2)
+        self.assertEqual(result["stopped_count"], 1)
+        self.assertEqual(result["kept_pids"], [101])
 
     def test_run_book_loop_writes_status_and_diagnostics(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
@@ -497,6 +535,20 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["captures"], 0)
         self.assertEqual(result["reason"], "no book captures")
+
+    def test_audit_book_tape_tolerates_legacy_degree_byte(self):
+        now = datetime(2026, 6, 16, 13, 40, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "order_books_summary.csv"
+            path.write_bytes(
+                b"captured_at_utc,range_label,clob_token_id\n"
+                b"2026-06-16T13:39:30+00:00,\xb0F,yes-token\n"
+            )
+
+            result = audit_book_tape(tmp, now=now)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["captures"], 1)
 
     def test_fleet_book_audit_resolves_active_day_folders(self):
         now = datetime(2026, 6, 12, 18, 0, tzinfo=timezone.utc)

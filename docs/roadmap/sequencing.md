@@ -41,6 +41,18 @@
    component only with pinned-corpus replay proof (59), and make range-band
    artifacts/version identity auditable before trusting future one-off
    disagreement investigations (60).
+9. **69-73 are the multi-variant shadow-testing track.** Build the paired
+   shadow harness and governance first (69), then add no-market variants for
+   exact-winner catch-up (70) and dynamic source freshness (71). The full item
+   70/71 replays are research evidence, not promotion approvals: exact-winner
+   now clears its no-market whitelist guardrails, while dynamic source
+   freshness clears a source-state gate by improving the combined failed/stale
+   bucket and falling back to current for sparse unproven failed-source cells.
+   Keep the CLOB overlay as a
+   separate
+   market-informed quote-time track (72), and use the conservative per-market
+   bridge (73) only as an operational policy candidate, not as a substitute for
+   model-learning fixes.
 
 Current best next actions after the 2026-06-15 MM test review:
 
@@ -87,8 +99,15 @@ Current best next actions after the 2026-06-15 MM test review:
    blockers emit remediation incidents, and the `?market=mm` page shows
    latest-tick versus cumulative state, blockers, lifecycle budget, and
    live-forward gate progress.
-9. **Next: work items 58-60, then accumulate locked live-forward paper days and
-   work item 45.** MM-2
-   remains blocked until the live-forward paper gate has enough clean evidence,
-   lifecycle/remediation/cockpit artifacts stay green, and platform/account/
-   wallet/cancel-all readiness is verified.
+9. **Done 2026-06-16: complete item 45's live-gate software.** MM-2 adapter
+   work can start behind the completed gates, but real live orders remain
+   blocked until the live-forward paper gate has enough clean evidence,
+   lifecycle/remediation/cockpit artifacts stay green, and current
+   live-readiness, data-layer, and platform-verification artifacts pass.
+10. **Partial 2026-06-16: item 67 signed adapter and pilot report.** The
+    adapter boundary now verifies item-45 gates, redacts credential
+    diagnostics, builds platform-specific signed-request plans, provides
+    injected-signer HTTP adapters for global/US paths, reconciles fixture/
+    read-only exchange events into lifecycle, budget, fill, and risk artifacts,
+    and emits MM-2 probe/pilot-report artifacts. Real MM-2 probes and final
+    paid-vs-predicted settlement reconciliation remain open.

@@ -18,7 +18,7 @@ from weather.market.market_microstructure_features import write_clob_feature_row
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
-from weather.operations.runtime_identity import get_runtime_identity
+from weather.operations.runtime_identity import get_runtime_identity, identities_match
 from weather.paths import REPO_ROOT
 
 
@@ -292,9 +292,9 @@ def book_capture_times(folder):
     path = Path(folder) / "order_books_summary.csv"
     if not path.exists():
         return []
-    times = set()
-    try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
+    def _read(errors=None):
+        times = set()
+        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
             for row in csv.DictReader(handle):
                 value = row.get("captured_at_utc")
                 if not value:
@@ -306,9 +306,16 @@ def book_capture_times(folder):
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 times.add(parsed)
+        return sorted(times)
+    try:
+        return _read()
+    except UnicodeDecodeError:
+        try:
+            return _read(errors="replace")
+        except (OSError, csv.Error):
+            return []
     except (OSError, csv.Error):
         return []
-    return sorted(times)
 
 
 def audit_book_tape(
@@ -488,6 +495,128 @@ def pid_is_python(pid):
         return False
 
 
+def _process_query_creationflags():
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def python_process_rows():
+    if os.name == "nt":
+        script = """
+Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" |
+    Select-Object ProcessId,Name,CommandLine |
+    ConvertTo-Json -Compress
+"""
+        command = ["powershell", "-NoProfile", "-Command", script]
+    else:
+        command = ["ps", "-eo", "pid=,comm=,args="]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            creationflags=_process_query_creationflags(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        return []
+    if os.name == "nt":
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(payload, dict):
+            payload = [payload]
+        return [
+            {
+                "pid": row.get("ProcessId"),
+                "name": row.get("Name"),
+                "command_line": row.get("CommandLine") or "",
+            }
+            for row in payload
+            if isinstance(row, dict)
+        ]
+    rows = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, name, command_line = parts
+        if "python" not in name.lower():
+            continue
+        rows.append({"pid": pid, "name": name, "command_line": command_line})
+    return rows
+
+
+def clob_loop_command_matches(command_line):
+    text = str(command_line or "").lower()
+    return "market_microstructure" in text and " loop" in text
+
+
+def running_clob_loop_processes(process_rows=None, current_pid=None):
+    current_pid = int(current_pid or os.getpid())
+    rows = process_rows if process_rows is not None else python_process_rows()
+    matches = []
+    for row in rows or []:
+        try:
+            pid = int(row.get("pid") if isinstance(row, dict) else row[0])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if pid == current_pid:
+            continue
+        command_line = row.get("command_line") if isinstance(row, dict) else ""
+        if not clob_loop_command_matches(command_line):
+            continue
+        matches.append({
+            "pid": pid,
+            "name": row.get("name") if isinstance(row, dict) else None,
+            "command_line": command_line,
+        })
+    return sorted(matches, key=lambda row: row["pid"])
+
+
+def expected_clob_loop_process_count():
+    # On Windows a venv pythonw launch commonly leaves both the venv launcher
+    # and the base interpreter visible with the same command line.
+    return 2 if os.name == "nt" else 1
+
+
+def terminate_pid(pid):
+    if not pid_is_python(pid):
+        return {"pid": pid, "stopped": False, "reason": "pid is not a live python process"}
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except (OSError, ValueError) as exc:
+        return {"pid": pid, "stopped": False, "reason": str(exc)}
+    return {"pid": int(pid), "stopped": True}
+
+
+def stop_clob_loop_processes(process_rows=None, keep_pids=(), terminate_fn=terminate_pid):
+    keep = {int(pid) for pid in keep_pids or [] if pid is not None}
+    rows = running_clob_loop_processes(process_rows=process_rows)
+    stopped = []
+    for row in rows:
+        if row["pid"] in keep:
+            continue
+        result = terminate_fn(row["pid"])
+        result["command_line"] = row.get("command_line")
+        stopped.append(result)
+    return {
+        "matched_process_count": len(rows),
+        "stopped_count": sum(1 for row in stopped if row.get("stopped")),
+        "kept_pids": sorted(keep),
+        "stopped": stopped,
+    }
+
+
+def clob_runtime_matches_current(status, current_identity=None):
+    if not status or not status.get("runtime_identity"):
+        return True
+    current_identity = current_identity or get_runtime_identity()
+    return identities_match(status.get("runtime_identity"), current_identity)
+
+
 
 
 def target_close_time(config):
@@ -548,7 +677,16 @@ def summarize_loop_results(results):
     return summary
 
 
-def clob_ensure_decision(health_state, pid_alive):
+def clob_ensure_decision(
+    health_state,
+    pid_alive,
+    has_orphan_processes=False,
+    runtime_matches_current=True,
+):
+    if has_orphan_processes:
+        return "restart"
+    if not runtime_matches_current and health_state in ("RUNNING", "PAUSED", "DEGRADED", "ERRORING") and pid_alive:
+        return "restart"
     if health_state in ("RUNNING", "PAUSED", "DEGRADED", "ERRORING") and pid_alive:
         return "noop"
     if pid_alive:
@@ -562,14 +700,21 @@ def stop_clob_loop(now=None):
     now = now or utc_now()
     status = read_clob_loop_status()
     pid = (status or {}).get("pid")
-    if not pid_is_python(pid):
-        return {"stopped": False, "reason": f"no live CLOB loop process (pid={pid})"}
-    os.kill(int(pid), signal.SIGTERM)
+    cleanup = stop_clob_loop_processes()
+    if not cleanup["stopped_count"] and not pid_is_python(pid):
+        return {
+            "stopped": False,
+            "reason": f"no live CLOB loop process (pid={pid})",
+            "cleanup": cleanup,
+        }
+    if not cleanup["stopped_count"] and pid_is_python(pid):
+        cleanup["stopped"].append(terminate_pid(pid))
+        cleanup["stopped_count"] = sum(1 for row in cleanup["stopped"] if row.get("stopped"))
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_clob_loop_status(status)
-    append_clob_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid})
-    return {"stopped": True, "pid": pid}
+    append_clob_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "cleanup": cleanup})
+    return {"stopped": bool(cleanup["stopped_count"]), "pid": pid, "cleanup": cleanup}
 
 
 def _clob_loop_command(
@@ -734,8 +879,24 @@ def ensure_clob_loop(
         status = read_clob_loop_status()
         health = clob_loop_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
-        action = clob_ensure_decision(health["state"], alive)
-        result = {"action": action, "state": health["state"], "pid": health.get("pid")}
+        loop_processes = running_clob_loop_processes()
+        has_orphans = len(loop_processes) > expected_clob_loop_process_count()
+        runtime_matches_current = clob_runtime_matches_current(status)
+        action = clob_ensure_decision(
+            health["state"],
+            alive,
+            has_orphan_processes=has_orphans,
+            runtime_matches_current=runtime_matches_current,
+        )
+        result = {
+            "action": action,
+            "state": health["state"],
+            "pid": health.get("pid"),
+            "running_process_count": len(loop_processes),
+            "running_pids": [row["pid"] for row in loop_processes],
+            "orphan_processes_detected": has_orphans,
+            "runtime_identity_matches_current": runtime_matches_current,
+        }
         if action == "restart":
             result["stop"] = stop_clob_loop(now=now)
             result["start"] = start_clob_loop_detached(

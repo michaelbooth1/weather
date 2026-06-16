@@ -16,8 +16,15 @@ try:
         RUN_MODES,
         SCHEMA_VERSION,
     )
-    from .market_microstructure import audit_book_tape
-    from .market_microstructure_features import snapshot_band_key
+    from .market_microstructure import (
+        BOOK_AUDIT_STARTUP_GRACE_SECONDS,
+        SNAPSHOT_DATA_ROOT,
+        audit_book_tape,
+        fleet_effective_book_gap_seconds,
+        parse_utc_datetime,
+        read_clob_loop_status,
+    )
+    from .market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
     from .market_registry import all_specs, spec_for_id
     from .mm_policy import (
         DEFAULT_POLICY_CONFIG,
@@ -40,8 +47,15 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
         RUN_MODES,
         SCHEMA_VERSION,
     )
-    from weather.market.market_microstructure import audit_book_tape
-    from weather.market.market_microstructure_features import snapshot_band_key
+    from weather.market.market_microstructure import (
+        BOOK_AUDIT_STARTUP_GRACE_SECONDS,
+        SNAPSHOT_DATA_ROOT,
+        audit_book_tape,
+        fleet_effective_book_gap_seconds,
+        parse_utc_datetime,
+        read_clob_loop_status,
+    )
+    from weather.market.market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
     from weather.market.market_registry import all_specs, spec_for_id
     from weather.market.mm_policy import (
         DEFAULT_POLICY_CONFIG,
@@ -62,8 +76,12 @@ def read_csv_rows(path):
     path = Path(path)
     if not path.exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except UnicodeDecodeError:
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            return list(csv.DictReader(handle))
 
 
 def write_json(path, payload):
@@ -218,13 +236,34 @@ def source_status_for_snapshot(folder, snapshot_id):
     return latest_rows_for_snapshot(read_csv_rows(Path(folder) / "source_status_long.csv"), snapshot_id)
 
 
-def latest_clob_feature_rows(folder, snapshot_id):
-    return latest_rows_for_snapshot(read_csv_rows(Path(folder) / "clob_features_long.csv"), snapshot_id)
+def latest_clob_feature_rows(folder, snapshot_id, build_if_missing=False, max_age_seconds=180.0, market_id=None):
+    rows = latest_rows_for_snapshot(read_csv_rows(Path(folder) / "clob_features_long.csv"), snapshot_id)
+    if rows or not build_if_missing or not snapshot_id:
+        return rows
+    generated = clob_feature_rows_for_folder(
+        folder,
+        max_age_seconds=max_age_seconds,
+        market_id=market_id,
+    )
+    return latest_rows_for_snapshot(generated, snapshot_id)
 
 
 def row_key_without_token(row):
     kind, value, value_hi = snapshot_band_key(row)
     return row.get("snapshot_id"), kind, value, value_hi
+
+
+def clob_feature_index_from_rows(rows):
+    by_token = {}
+    by_band = {}
+    for row in rows or []:
+        kind, value, value_hi = snapshot_band_key(row)
+        token = row.get("clob_token_id") or row.get("clob_yes_token_id") or ""
+        snapshot_id = row.get("snapshot_id")
+        by_band[(snapshot_id, kind, value, value_hi)] = row
+        if token:
+            by_token[(snapshot_id, kind, value, value_hi, str(token))] = row
+    return by_token, by_band
 
 
 def assemble_policy_inputs_for_market(
@@ -236,8 +275,12 @@ def assemble_policy_inputs_for_market(
     observation_status,
     known_edge_records=None,
     known_edge_map_loaded=False,
+    clob_feature_rows=None,
 ):
-    clob_by_token, clob_by_band = load_clob_feature_index(folder)
+    if clob_feature_rows is None:
+        clob_by_token, clob_by_band = load_clob_feature_index(folder)
+    else:
+        clob_by_token, clob_by_band = clob_feature_index_from_rows(clob_feature_rows)
     source_freshness_state = source_freshness_state_from_rows(source_rows)
     rows = []
     for snapshot_row in snapshot_rows:
@@ -312,6 +355,32 @@ def metadata_from_books(rows):
     }
 
 
+def uses_default_snapshot_root(folder):
+    try:
+        folder_path = Path(folder).resolve()
+        default_root = SNAPSHOT_DATA_ROOT.resolve()
+        return folder_path == default_root or default_root in folder_path.parents
+    except OSError:
+        return False
+
+
+def preflight_book_audit(folder, now, max_gap_seconds, loop_status=None):
+    """Audit active-day CLOB books with the same loop-aware policy as fleet checks."""
+    loop_status = read_clob_loop_status() if loop_status is None and uses_default_snapshot_root(folder) else loop_status
+    effective_gap_seconds = fleet_effective_book_gap_seconds(max_gap_seconds, loop_status)
+    ignore_cutoff = None
+    if loop_status:
+        started_at = parse_utc_datetime(loop_status.get("started_at"))
+        if started_at is not None:
+            ignore_cutoff = started_at + timedelta(seconds=BOOK_AUDIT_STARTUP_GRACE_SECONDS)
+    return audit_book_tape(
+        folder,
+        now=now,
+        max_gap_seconds=effective_gap_seconds,
+        ignore_gaps_before=ignore_cutoff,
+    )
+
+
 def preflight_market(
     spec,
     config,
@@ -329,6 +398,7 @@ def preflight_market(
     live_confirmed=False,
     pilot=False,
     data_layer_live_gate=None,
+    platform_verification_gate=None,
 ):
     gates = []
     blockers = []
@@ -336,7 +406,7 @@ def preflight_market(
     folder = Path(folder)
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
     model_age = (now - latest_capture).total_seconds() if latest_capture else None
-    book_audit = audit_book_tape(
+    book_audit = preflight_book_audit(
         folder,
         now=now,
         max_gap_seconds=float(policy_config["max_book_age_seconds"]),
@@ -381,16 +451,30 @@ def preflight_market(
             "missing",
             data_layer_live_gate.get("reason") or "latest data-layer audit does not prove live CLOB artifacts",
         )
+    platform_verification_gate = platform_verification_gate or {"required": False, "ok": True}
+    if platform_verification_gate.get("required"):
+        add_gate(
+            "platform_verification_gate",
+            bool(platform_verification_gate.get("ok")),
+            "missing",
+            platform_verification_gate.get("reason") or "platform/account verification is not current",
+        )
 
     live_gate = {
         "required": mode == "live-pilot",
         "pilot_flag": bool(pilot),
         "confirm_live_orders": bool(live_confirmed),
         "live_ready": bool(live_ready),
-        "ok": mode != "live-pilot" or (pilot and live_confirmed and live_ready),
+        "platform_verified": bool(platform_verification_gate.get("ok")),
+        "ok": mode != "live-pilot" or (
+            pilot and live_confirmed and live_ready and bool(platform_verification_gate.get("ok"))
+        ),
     }
     if mode == "live-pilot" and not live_gate["ok"]:
-        blockers.append("live-pilot requires --pilot, --confirm-live-orders, and a passing live-readiness file")
+        blockers.append(
+            "live-pilot requires --pilot, --confirm-live-orders, "
+            "a passing live-readiness file, and passing platform verification"
+        )
         gates.append({
             "name": "live_account_gate",
             "ok": False,
@@ -434,6 +518,7 @@ def preflight_market(
         "reward_metadata": reward_metadata,
         "live_gate": live_gate,
         "data_layer_live_gate": data_layer_live_gate,
+        "platform_verification_gate": platform_verification_gate,
     }
 
 
@@ -509,6 +594,7 @@ TERMINAL_LIFECYCLE_TRANSITIONS = {
     "canceled",
     "expired",
     "blocked_by_preflight",
+    "rejected",
 }
 
 

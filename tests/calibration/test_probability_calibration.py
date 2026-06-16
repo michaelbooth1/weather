@@ -6,9 +6,11 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from probability_calibration import (
     apply_exact_distribution_calibration,
+    apply_continuous_density_calibration,
     calibrate_market_probability,
     prepare_training_row,
 )
+from weather.model.continuous_density import continuous_density_payload
 from toronto_model import TorontoHighTempModel
 
 
@@ -48,6 +50,27 @@ class TestProbabilityCalibration(unittest.TestCase):
         self.assertEqual(calibrated[23], 0.0)
         self.assertGreater(calibrated[24], 0.0)
         self.assertGreater(calibrated[25], 0.0)
+
+    def test_continuous_density_calibration_respects_native_floor(self):
+        payload = continuous_density_payload({
+            66.9: 0.30,
+            67.1: 0.20,
+            70.0: 0.50,
+        })
+
+        calibrated = apply_continuous_density_calibration(
+            payload,
+            _artifact(),
+            floor_bucket=20,
+            unit="C",
+        )
+
+        density = calibrated["density_f"]
+        self.assertAlmostEqual(sum(density.values()), 1.0, places=6)
+        self.assertEqual(density[66.9], 0.0)
+        self.assertGreater(density[67.1], 0.0)
+        self.assertGreater(density[70.0], 0.0)
+        self.assertEqual(calibrated["continuous_calibration"]["floor_unit"], "C")
 
     def test_market_calibration_uses_hard_wu_floor_for_settled_bins(self):
         artifact = _artifact()
@@ -201,6 +224,30 @@ class TestProbabilityCalibration(unittest.TestCase):
 
         self.assertLess(calibrated, 0.95)
         self.assertGreater(calibrated, 0.30)
+
+    def test_model_bin_probability_applies_continuous_floor_before_projection(self):
+        model = TorontoHighTempModel()
+        model.probability_calibration = {
+            "exact_distribution": {
+                "enabled": True,
+                "temperature": 1.0,
+                "prior_weight": 0.0,
+            },
+            "market_bin": {"enabled": False},
+        }
+        model._last_probability_calibration_context = {
+            "cutoff_hour": 13,
+            "observed_floor_bucket": 20,
+        }
+        density = continuous_density_payload({
+            66.9: 0.80,
+            67.1: 0.20,
+        })
+
+        self.assertEqual(
+            model.bin_probability(density, {"kind": "lte", "value": 19}),
+            0.0,
+        )
 
 
 if __name__ == "__main__":

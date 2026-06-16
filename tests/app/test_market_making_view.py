@@ -2,6 +2,7 @@ from app.views.market_making import (
     _df,
     _blocker_rows,
     _budget_lifecycle_rows,
+    _event_gate_rows,
     _gate_progress_rows,
     _market_health_rows,
     _runtime_identity_rows,
@@ -34,6 +35,8 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
             "reason_code": "QUOTE_HARVEST_MID",
             "known_edge_permission": "harvest_only",
             "source_freshness_state": "all_fresh",
+            "event_gate_status": "CLEAR",
+            "event_gate_next_event_at_utc": "2026-06-15T15:52:00+00:00",
         },
         {
             "generated_at_utc": "2026-06-15T15:01:00+00:00",
@@ -42,6 +45,8 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
             "reason_code": "NO_QUOTE_MISSING_PREFLIGHT",
             "known_edge_permission": "harvest_only",
             "source_freshness_state": "failed:wu_history",
+            "event_gate_status": "PULL",
+            "event_gate_next_event_at_utc": "2026-06-15T16:52:00+00:00",
         },
     ]
     lifecycle_rows = [
@@ -78,11 +83,35 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
             },
         },
         "preflight_remediation": remediation,
+        "information_event_gate": {
+            "pull_rows": 1,
+            "widen_rows": 0,
+            "exception_rows": 0,
+            "active_events": [
+                {
+                    "event_id": "atlanta:metar_print_window:20260615T160000Z",
+                    "market_id": "atlanta",
+                    "event_class": "metar_print_window",
+                    "action": "suppress",
+                    "starts_at_utc": "2026-06-15T15:47:00+00:00",
+                    "ends_at_utc": "2026-06-15T15:59:00+00:00",
+                }
+            ],
+            "next_events": [
+                {
+                    "event_id": "atlanta:metar_print_window:20260615T170000Z",
+                    "market_id": "atlanta",
+                    "event_class": "metar_print_window",
+                    "starts_at_utc": "2026-06-15T16:47:00+00:00",
+                }
+            ],
+        },
     }
     paper = {
         "summary": {
             "gate_status": "OPEN",
             "anti_overfit": {"live_forward_days": ["2026-06-14"]},
+            "event_gate_score": {"narrowing_gate": "NEEDS_MARKOUT_EVIDENCE"},
         }
     }
 
@@ -90,15 +119,19 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
     blockers = _blocker_rows(quote_rows, remediation)
     budget = _budget_lifecycle_rows(run_summary)
     gate = _gate_progress_rows(run_summary, paper)
+    event_gate = _event_gate_rows(run_summary, paper)
 
     assert health[0]["Top blocker"] == "missing_source_status_row"
     assert health[0]["Open orders"] == 1
     assert health[0]["Reserved USDC"] == 4.9
+    assert health[0]["Event gate"] == "PULL"
     assert blockers[0]["Owner"] == "snapshot source-status writer"
     assert blockers[0]["Rows"] == 1
     assert any(row["Metric"] == "Cross-market gross can exceed wallet" and row["Value"] is True for row in budget)
     assert any(row["Metric"] == "Current run counts" and row["Value"] is False for row in gate)
     assert any(row["Metric"] == "Locked paper days" and row["Value"] == 1 for row in gate)
+    assert any(row["Kind"] == "Active" and row["Class"] == "metar_print_window" for row in event_gate)
+    assert any(row["Event"] == "Narrowing gate" and row["Ends"] == "NEEDS_MARKOUT_EVIDENCE" for row in event_gate)
 
 
 def test_market_making_value_tables_are_arrow_safe_and_runtime_identity_rows_render():

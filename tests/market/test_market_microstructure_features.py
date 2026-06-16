@@ -226,6 +226,55 @@ class TestMarketMicrostructureFeatures(unittest.TestCase):
         self.assertEqual(stale["clob_feature_available"], 0.0)
         self.assertIn(("nyc", "s1", "eq", 80, 81), index)
 
+    def test_clob_feature_rows_tolerates_legacy_degree_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_csv(
+                root / "snapshots_long.csv",
+                [
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "event_slug",
+                    "range_label",
+                    "bin_kind",
+                    "bin_value_c",
+                    "bin_value_hi",
+                    "model_probability",
+                    "market_yes",
+                ],
+                [
+                    {
+                        "snapshot_id": "miami-s1",
+                        "captured_at_utc": "2026-06-16T13:40:00+00:00",
+                        "event_slug": "highest-temperature-in-miami-on-june-16-2026",
+                        "range_label": "94-95 F",
+                        "bin_kind": "eq",
+                        "bin_value_c": "94",
+                        "bin_value_hi": "95",
+                        "model_probability": "0.40",
+                        "market_yes": "0.30",
+                    }
+                ],
+            )
+            header = (
+                "captured_at_utc,event_slug,market_id,range_label,bin_kind,bin_value,bin_value_hi,"
+                "outcome,clob_token_id,best_bid,best_ask,spread,midpoint,bid_depth_1pct,"
+                "ask_depth_1pct,bid_depth_5pct,ask_depth_5pct,bid_depth_all,ask_depth_all,"
+                "imbalance_1pct,imbalance_5pct\n"
+            ).encode("ascii")
+            row = (
+                b"2026-06-16T13:39:30+00:00,highest-temperature-in-miami-on-june-16-2026,"
+                b"miami,\xb0F,eq,94,95,Yes,yes-token,0.25,0.31,0.06,0.28,10,15,20,30,100,200,-0.2,-0.1\n"
+            )
+            (root / "order_books_summary.csv").write_bytes(header + row)
+
+            rows = clob_feature_rows_for_folder(root, market_id="miami")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["snapshot_id"], "miami-s1")
+        self.assertEqual(rows[0]["clob_feature_available"], 1.0)
+        self.assertAlmostEqual(rows[0]["clob_midpoint"], 0.28)
+
 
 if __name__ == "__main__":
     unittest.main()

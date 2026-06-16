@@ -1,4 +1,4 @@
-# 51. Model Architecture Health Refactor [PARTIAL 2026-06-15 - NATIVE CLEANUP COMPLETE]
+# 51. Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]
 
 Goal: turn the 2026-06-14 model-logic audit into replay-gated structural
 cleanup, without hiding behavioral changes inside refactors.
@@ -17,7 +17,7 @@ cleanup, without hiding behavioral changes inside refactors.
 - [x] Replace top-level compatibility imports and scattered `sys.path` mutation
   with package imports and canonical CLI entry points, keeping old wrappers only
   as thin user-facing shims during migration.
-- [ ] Keep every step gated by replay identity/fidelity checks and full pytest,
+- [x] Keep every step gated by replay identity/fidelity checks and full pytest,
   with any intentional probability deltas baselined before promotion.
 
 Acceptance: no hidden behavior change ships under the health-refactor label;
@@ -195,10 +195,9 @@ src.replay_backtest --market toronto --corpus data/backtest/promotion_corpus.jso
 --out data/backtest/item51_native_runtime_calibration_replay_report.md
 --disable-long-job-guard` scored `7` days, `859` snapshots, and `9449` band rows
 with all-snapshot replayed Brier `0.0369` vs recorded `0.0414` and market
-`0.0334`. The exact replay-identity canary remains unavailable for this older
-corpus, and broader historical/source/reporting compatibility readers still
-need review, so the native-unit cleanup and replay-fidelity checkbox remain
-open.
+`0.0334`. At that checkpoint, the exact replay-identity canary remained
+unavailable for this older corpus, and broader historical/source/reporting
+compatibility readers still needed review.
 
 Native replay/source-adapter update (2026-06-15 UTC): reconstructed replay
 records now translate legacy snapshot tape fields into native-first internal
@@ -262,5 +261,35 @@ src.replay_backtest --market toronto --corpus data/backtest/promotion_corpus.jso
 --out data/backtest/item51_native_reader_adapters_replay_report.md
 --disable-long-job-guard` scored `7` days, `859` snapshots, and `9449` band rows
 with all-snapshot replayed Brier `0.0369` vs recorded `0.0414` and market
-`0.0334`. The exact replay-identity canary remains unavailable for this older
-corpus, so the replay-fidelity checkbox remains open.
+`0.0334`. The final replay-fidelity closure below baselines this older corpus
+and gates the current replay against that pinned baseline.
+
+Replay-fidelity closure update (2026-06-15 UTC): Item 51's structural changes
+are now covered by both the synthetic exact-identity replay canary and an
+explicit pinned-corpus replay baseline. `tests/backtesting/test_replay.py`
+continues to build a same-identity corpus and asserts `same_identity_n=1`,
+faithful L1 near zero, and zero code effect when replayed with unchanged code.
+For the real Toronto promotion corpus, which was captured under older replay
+identities, `python -m src.replay_backtest --market toronto --corpus
+data/backtest/promotion_corpus.json --out
+data/backtest/item51_replay_fidelity_baseline_report.md --save-baseline
+data/backtest/item51_replay_fidelity_baseline.json --disable-long-job-guard`
+saved a baseline with corpus hash
+`0c3f02ca56c83a5099b156985fdb93e83209addae8bf02c2dffe07b185112339`,
+`859` scored snapshots, all-snapshot replayed Brier `0.03692513421175182`,
+market Brier `0.03342659503651565`, and daily-first replayed Brier
+`0.0324949201181032`. A second run with `--gate
+data/backtest/item51_replay_fidelity_baseline.json` wrote
+`data/backtest/item51_replay_fidelity_gate_report.md` and passed:
+`replayed Brier 0.0369 vs baseline 0.0369 (delta +0.0000, tol 0.0030)`.
+Full-suite validation for the completed native/import/architecture refactor
+passed earlier in this closure slice with `python -m pytest` (`623` tests),
+`python -m src.schema_registry audit --strict` (`registered=72 discovered=134
+unregistered_versions=0`), and `git diff --check` reporting only CRLF
+normalization warnings. Item 24's overclaim is resolved by its 2026-06-15 audit
+note documenting that analog search now consumes the shared feature primitives
+through strict/no-default views. Acceptance is satisfied: no hidden behavior
+change is shipping without replay measurement; the real-corpus deltas are
+baselined before promotion; and exact-identity behavior is covered by the
+canary test until newly captured live corpus rows carry the current replay
+identity.

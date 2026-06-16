@@ -70,6 +70,8 @@ def render_paper_report(payload):
     pnl = summary.get("pnl") or {}
     evidence = summary.get("trade_evidence_gaps") or {}
     anti = summary.get("anti_overfit") or {}
+    event_gate = summary.get("event_gate_score") or {}
+    clob_recon = summary.get("clob_recon") or {}
     lines = [
         "# Market-Making Paper Report",
         "",
@@ -119,6 +121,32 @@ def render_paper_report(payload):
     lines.extend(markdown_table(
         ["Status", "Legs"],
         [[key, value] for key, value in sorted((summary.get("queue_status_counts") or {}).items())],
+    ))
+    lines.extend(["", "## CLOB Recon", ""])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Book rows", clob_recon.get("book_rows", 0)],
+            ["Recon slices", clob_recon.get("slice_rows", 0)],
+            ["Mean reward qualifying size", fmt_num(clob_recon.get("mean_reward_qualifying_size"), 4)],
+            ["Mean spread", fmt_num(clob_recon.get("mean_spread"), 4)],
+            ["Mean 300s passive markout", fmt_num(clob_recon.get("mean_passive_markout_300s"), 4)],
+            ["Policy suggestions", json.dumps(clob_recon.get("policy_parameter_suggestions") or {}, sort_keys=True)],
+        ],
+    ))
+    lines.extend(["", "## Information Event Gate", ""])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Suppressed rows", event_gate.get("suppressed_rows", 0)],
+            ["Widen rows", event_gate.get("widen_rows", 0)],
+            ["Exception rows", event_gate.get("exception_rows", 0)],
+            ["Suppressed opportunity cost USDC", fmt_num(event_gate.get("suppressed_opportunity_cost_usdc"), 4)],
+            ["Avoided toxicity USDC", fmt_num(event_gate.get("avoided_toxicity_usdc"), 4)],
+            ["Avoided-toxicity evidence rows", event_gate.get("avoided_toxicity_evidence_rows", 0)],
+            ["Exception negative-markout fills", event_gate.get("exception_negative_markout_fills", 0)],
+            ["Narrowing gate", event_gate.get("narrowing_gate") or "-"],
+        ],
     ))
     lines.extend(["", "## Markout Slices", ""])
     slice_rows = []
@@ -268,6 +296,11 @@ def permission_for_record(base_permission, paper_slice, promotion, paper_summary
     return "edge_research", "positive_paper_needs_live_forward_days"
 
 
+def _is_degraded_source_freshness_state(group):
+    group = str(group or "")
+    return group != "all_fresh" and any(token in group for token in ("failed", "stale", "unknown"))
+
+
 def source_freshness_gap_records(promotion_payload, paper_summary):
     records = []
     slices = ((promotion_payload.get("candidate") or {}).get("slices") or {}).get("by_source_freshness") or []
@@ -276,6 +309,8 @@ def source_freshness_gap_records(promotion_payload, paper_summary):
         if delta_vs_market is None or delta_vs_market <= 0.0:
             continue
         group = item.get("group") or "unknown"
+        if not _is_degraded_source_freshness_state(group):
+            continue
         records.append({
             "market_id": "*",
             "cutoff": "*",
@@ -298,11 +333,173 @@ def source_freshness_gap_records(promotion_payload, paper_summary):
     return records
 
 
+def dynamic_source_success_records(promotion_payload, paper_summary):
+    records = []
+    slices = ((promotion_payload.get("candidate") or {}).get("slices") or {}).get("by_source_freshness") or []
+    for item in slices:
+        group = item.get("group") or "unknown"
+        if not _is_degraded_source_freshness_state(group):
+            continue
+        delta_vs_current = finite_float(item.get("delta_vs_current"))
+        if delta_vs_current is None or delta_vs_current >= 0.0:
+            continue
+        records.append({
+            "market_id": "*",
+            "cutoff": "*",
+            "hour_utc": "*",
+            "band_distance_bucket": "*",
+            "band_type": "*",
+            "casebook_taxonomy": "*",
+            "regime": "*",
+            "source_fresh": "*",
+            "source_freshness_state": group,
+            "book_imbalance_bucket": "*",
+            "base_permission": "DYNAMIC_SOURCE_REPLAY_CLEAR",
+            "permission": "edge_research",
+            "reason": "dynamic_source_state_replay_gate_clear",
+            "promotion": None,
+            "paper_evidence": None,
+            "source_freshness_evidence": item,
+            "uses_market_features": False,
+            "market_informed": False,
+            "weather_model_promotion_evidence": True,
+            "requires_policy_hash": (paper_summary.get("anti_overfit") or {}).get("policy_hashes") or [],
+        })
+    return records
+
+
+def _clob_overlay_gate_has_quote_guardrails(gate):
+    return all(
+        gate.get(key) not in (None, "")
+        for key in (
+            "max_logloss_delta_vs_candidate",
+            "max_ece",
+            "max_overconfident_error_rate",
+        )
+    )
+
+
+def _clob_overlay_decision_passes_quote_guardrails(decision, gate):
+    if not decision.get("allowed"):
+        return False
+    rows = int(decision.get("rows") or 0)
+    if rows < int(gate.get("min_rows") or 0):
+        return False
+
+    checks = [
+        ("delta_vs_candidate", "max_delta_vs_candidate"),
+        ("delta_vs_market", "max_delta_vs_market"),
+        ("micro_ece", "max_ece"),
+        ("micro_overconfident_error_rate", "max_overconfident_error_rate"),
+    ]
+    for metric_key, limit_key in checks:
+        value = finite_float(decision.get(metric_key))
+        limit = finite_float(gate.get(limit_key))
+        if value is None or limit is None or value > limit + 1e-12:
+            return False
+
+    micro_logloss = finite_float(decision.get("micro_logloss"))
+    candidate_logloss = finite_float(decision.get("candidate_logloss"))
+    max_logloss_delta = finite_float(gate.get("max_logloss_delta_vs_candidate"))
+    if micro_logloss is None or candidate_logloss is None or max_logloss_delta is None:
+        return False
+    return (micro_logloss - candidate_logloss) <= max_logloss_delta + 1e-12
+
+
+def clob_overlay_gate_records(promotion_payload, paper_summary):
+    records = []
+    gate = (((promotion_payload.get("candidate") or {}).get("microstructure") or {}).get("gate") or {})
+    diagnostics = {
+        "gate_present": bool(gate),
+        "quote_guardrails_present": _clob_overlay_gate_has_quote_guardrails(gate),
+        "allowed_taxonomies": [],
+        "blocked_taxonomies": [
+            item.get("taxonomy")
+            for item in gate.get("decisions") or []
+            if item.get("taxonomy") and not item.get("allowed")
+        ],
+    }
+    if not gate or not diagnostics["quote_guardrails_present"]:
+        return records, diagnostics
+
+    gate_evidence = {
+        "schema_version": gate.get("schema_version"),
+        "policy": gate.get("policy"),
+        "min_rows": gate.get("min_rows"),
+        "max_delta_vs_candidate": gate.get("max_delta_vs_candidate"),
+        "max_delta_vs_market": gate.get("max_delta_vs_market"),
+        "max_logloss_delta_vs_candidate": gate.get("max_logloss_delta_vs_candidate"),
+        "max_ece": gate.get("max_ece"),
+        "max_overconfident_error_rate": gate.get("max_overconfident_error_rate"),
+        "target_taxonomies": gate.get("target_taxonomies") or [],
+    }
+    for item in gate.get("decisions") or []:
+        taxonomy = item.get("taxonomy")
+        if not taxonomy or not _clob_overlay_decision_passes_quote_guardrails(item, gate):
+            continue
+        diagnostics["allowed_taxonomies"].append(taxonomy)
+        records.append({
+            "market_id": "*",
+            "cutoff": "*",
+            "hour_utc": "*",
+            "band_distance_bucket": "*",
+            "band_type": "*",
+            "casebook_taxonomy": taxonomy,
+            "regime": "*",
+            "source_fresh": "*",
+            "source_freshness_state": "*",
+            "book_imbalance_bucket": "*",
+            "base_permission": "CLOB_OVERLAY_MARKET_INFORMED",
+            "permission": "edge_research",
+            "reason": "clob_overlay_market_informed_replay_gate_clear",
+            "promotion": None,
+            "paper_evidence": None,
+            "clob_overlay_evidence": item,
+            "clob_overlay_gate": gate_evidence,
+            "uses_market_features": True,
+            "market_informed": True,
+            "quote_time_only": True,
+            "weather_model_promotion_evidence": False,
+            "requires_policy_hash": (paper_summary.get("anti_overfit") or {}).get("policy_hashes") or [],
+        })
+    return records, diagnostics
+
+
 def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFRESH, config=None, now=None):
     config = {**DEFAULT_CONFIG, **(config or {})}
     promotions, promotion_payload = load_promotion_records(promotion_refresh)
     paper_summary = paper_payload.get("summary") or {}
     records = source_freshness_gap_records(promotion_payload, paper_summary)
+    dynamic_source_records = dynamic_source_success_records(promotion_payload, paper_summary)
+    records.extend(dynamic_source_records)
+    clob_overlay_records, clob_overlay_diag = clob_overlay_gate_records(
+        promotion_payload,
+        paper_summary,
+    )
+    records.extend(clob_overlay_records)
+    clob_recon_payload = paper_payload.get("clob_recon") or {}
+    for item in (clob_recon_payload.get("slices") or [])[:200]:
+        market_id = item.get("market_id") or "unknown"
+        permission = item.get("recommended_permission") or "harvest_only"
+        records.append({
+            "market_id": market_id,
+            "cutoff": "clob_recon",
+            "hour_utc": item.get("hour_utc") or "*",
+            "band_distance_bucket": "*",
+            "band_type": item.get("side") or "*",
+            "casebook_taxonomy": "*",
+            "regime": "*",
+            "source_fresh": "*",
+            "source_freshness_state": "*",
+            "book_imbalance_bucket": "*",
+            "base_permission": "CLOB_RECON",
+            "permission": permission,
+            "reason": "clob_recon_" + str(item.get("permission_reason") or "measured_book"),
+            "promotion": promotions.get(market_id),
+            "paper_evidence": None,
+            "clob_recon_evidence": item,
+            "requires_policy_hash": (paper_summary.get("anti_overfit") or {}).get("policy_hashes") or [],
+        })
     seen_markets = set()
     for item in paper_payload.get("markout_slices") or []:
         market_id = item.get("market_id") or "unknown"
@@ -370,7 +567,13 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "delta_vs_market": (record.get("promotion") or {}).get("delta_vs_market"),
             "source_freshness_state": record.get("source_freshness_state"),
             "source_freshness_delta_vs_market": (record.get("source_freshness_evidence") or {}).get("delta_vs_market"),
+            "source_freshness_delta_vs_current": (record.get("source_freshness_evidence") or {}).get("delta_vs_current"),
             "source_freshness_rows": (record.get("source_freshness_evidence") or {}).get("n"),
+            "clob_overlay_taxonomy": (record.get("clob_overlay_evidence") or {}).get("taxonomy"),
+            "clob_overlay_rows": (record.get("clob_overlay_evidence") or {}).get("rows"),
+            "clob_overlay_delta_vs_candidate": (record.get("clob_overlay_evidence") or {}).get("delta_vs_candidate"),
+            "clob_overlay_delta_vs_market": (record.get("clob_overlay_evidence") or {}).get("delta_vs_market"),
+            "market_informed": record.get("market_informed", False),
             "paper_fill_count": ((record.get("paper_evidence") or {}).get("fill_count") or 0),
         }
         for record in records
@@ -387,6 +590,10 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "shadow": "SHADOW promotion maps to harvest_only.",
             "pass": "PASS promotion needs positive conservative paper markouts before edge_research and 14 locked live-forward days before edge_allowed.",
             "edge_allowed_disabled_when_market_gap_open": True,
+            "clob_recon_consumed": bool((paper_payload.get("clob_recon") or {}).get("exists")),
+            "clob_overlay_market_informed_consumed": bool(clob_overlay_records),
+            "clob_overlay_records_do_not_count_as_no_market_promotion": True,
+            "dynamic_source_success_cells_are_research_only": True,
         },
         "summary": {
             "record_count": len(records),
@@ -394,9 +601,17 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "active_model_gap_cell_count": len(active_gap_cells),
             "promotion_market_count": len(promotions),
             "paper_fill_count": paper_summary.get("conservative_fills", 0),
+            "clob_overlay_quote_guardrails_present": clob_overlay_diag.get("quote_guardrails_present", False),
+            "clob_overlay_allowed_taxonomy_count": len(clob_overlay_diag.get("allowed_taxonomies") or []),
+            "clob_overlay_blocked_taxonomy_count": len(clob_overlay_diag.get("blocked_taxonomies") or []),
+            "clob_overlay_allowed_taxonomies": clob_overlay_diag.get("allowed_taxonomies") or [],
+            "clob_overlay_blocked_taxonomies": clob_overlay_diag.get("blocked_taxonomies") or [],
+            "dynamic_source_success_cell_count": len(dynamic_source_records),
+            "clob_recon_slice_count": ((paper_payload.get("clob_recon") or {}).get("summary") or {}).get("slice_rows", 0),
         },
         "records": records,
         "active_model_gap_cells": active_gap_cells,
+        "clob_overlay_summary": clob_overlay_diag,
         "promotion_summary": {
             "verdict": ((promotion_payload.get("decisions") or {}).get("verdict")),
             "action_counts": ((promotion_payload.get("decisions") or {}).get("action_counts")),
@@ -444,7 +659,7 @@ def render_known_edge_report(payload):
             record.get("reason"),
         ])
     if source_rows:
-        lines.extend(["", "## Source Freshness Gap Cells", ""])
+        lines.extend(["", "## Source Freshness Replay Cells", ""])
         lines.extend(markdown_table(
             [
                 "Freshness State",
@@ -457,6 +672,42 @@ def render_known_edge_report(payload):
                 "Reason",
             ],
             source_rows,
+        ))
+    clob_overlay_rows = []
+    for record in payload.get("records") or []:
+        evidence = record.get("clob_overlay_evidence") or {}
+        if not evidence:
+            continue
+        clob_overlay_rows.append([
+            evidence.get("taxonomy"),
+            evidence.get("rows"),
+            fmt_num(evidence.get("micro_brier"), 4),
+            fmt_num(evidence.get("candidate_brier"), 4),
+            fmt_num(evidence.get("market_brier"), 4),
+            fmt_num(evidence.get("delta_vs_candidate"), 4),
+            fmt_num(evidence.get("delta_vs_market"), 4),
+            fmt_num(evidence.get("micro_ece"), 4),
+            fmt_num(evidence.get("micro_logloss"), 4),
+            record.get("permission"),
+            record.get("reason"),
+        ])
+    if clob_overlay_rows:
+        lines.extend(["", "## CLOB Overlay Quote Permissions", ""])
+        lines.extend(markdown_table(
+            [
+                "Taxonomy",
+                "Rows",
+                "Overlay Brier",
+                "Candidate Brier",
+                "Market Brier",
+                "Delta Candidate",
+                "Delta Market",
+                "ECE",
+                "Log Loss",
+                "Permission",
+                "Reason",
+            ],
+            clob_overlay_rows,
         ))
     lines.extend(["", "## Records", ""])
     rows = []

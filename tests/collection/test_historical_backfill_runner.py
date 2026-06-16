@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from historical_backfill_runner import item_key, run_plan, status_summary
+from historical_backfill_runner import item_key, run_plan, status_summary, tail_text
 
 
 def write_plan(path, items):
@@ -93,6 +93,14 @@ class TestHistoricalBackfillRunner(unittest.TestCase):
             self.assertEqual(result["selected_count"], 1)
             self.assertEqual(result["rows"][0]["item_key"], item_key(wu_item))
             self.assertFalse(state.exists())
+
+    def test_output_tail_redacts_weather_api_key_query_param(self):
+        text = "failed url https://api.weather.com/v1/history?apiKey=secret123&units=e"
+
+        redacted = tail_text(text)
+
+        self.assertNotIn("secret123", redacted)
+        self.assertIn("apiKey=<redacted>", redacted)
 
 
 if __name__ == "__main__":

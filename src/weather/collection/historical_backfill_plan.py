@@ -23,6 +23,8 @@ DEFAULT_WU_CHUNK_DAYS = 14
 DEFAULT_REANALYSIS_CHUNK_DAYS = 31
 DEFAULT_SOURCES = ("wu", "ghcnh", "reanalysis")
 DEFAULT_QUEUE_MODE = "market_source"
+DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+US_WU_PROVIDER_UNAVAILABLE_BEFORE = date(2015, 1, 1)
 
 
 def iter_dates(start_date, end_date):
@@ -92,6 +94,61 @@ def queue_item(source, spec, command, detail):
     }
 
 
+def source_limited_item(item, reason, evidence_path=None):
+    limited = dict(item)
+    limited["source_limited"] = True
+    limited["reason"] = reason
+    if evidence_path:
+        limited["evidence_path"] = str(evidence_path)
+    return limited
+
+
+def replace_command_arg(command, flag, value):
+    command = list(command or [])
+    try:
+        index = command.index(flag)
+    except ValueError:
+        return command
+    if index + 1 < len(command):
+        command[index + 1] = value
+    return command
+
+
+def latest_us_wu_provider_probe(backtest_root=DEFAULT_BACKTEST_ROOT):
+    root = Path(backtest_root)
+    probes = sorted(root.glob("source_alternate_probe_*.json"))
+    if not probes:
+        return {
+            "exists": False,
+            "path": None,
+            "us_market_count": 0,
+            "available_candidate_count": 0,
+        }
+    path = probes[-1]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "exists": False,
+            "path": str(path),
+            "us_market_count": 0,
+            "available_candidate_count": 0,
+        }
+    available = 0
+    markets = payload.get("us_wu_candidates") or []
+    for market in markets:
+        for candidate in market.get("candidates") or []:
+            if candidate.get("available"):
+                available += 1
+    return {
+        "exists": True,
+        "path": str(path),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "us_market_count": len(markets),
+        "available_candidate_count": available,
+    }
+
+
 def days_in_ranges(ranges):
     return sum((end - start).days + 1 for start, end in ranges)
 
@@ -100,6 +157,61 @@ def window_from_ranges(ranges):
     if not ranges:
         return None, None
     return min(start for start, _end in ranges), max(end for _start, end in ranges)
+
+
+def item_window(item):
+    detail = item.get("detail") or {}
+    start = detail.get("start")
+    end = detail.get("end")
+    if start and end:
+        return parse_date(start), parse_date(end)
+    return None, None
+
+
+def classify_source_limited_items(items, backtest_root=DEFAULT_BACKTEST_ROOT):
+    probe = latest_us_wu_provider_probe(backtest_root)
+    source_limited = []
+    executable = []
+    wu_unavailable_reason = (
+        "pre-2015 US Weather.com full-history gap is provider-unavailable; "
+        "alternate-ID probe found no available ICAO:9:US candidates"
+    )
+    for item in items:
+        start, end = item_window(item)
+        is_pre_2015_us_wu = (
+            item.get("source") == "wu"
+            and item.get("market_id") != "toronto"
+            and start is not None
+            and end is not None
+            and start < US_WU_PROVIDER_UNAVAILABLE_BEFORE
+            and probe.get("exists")
+            and int(probe.get("available_candidate_count") or 0) == 0
+        )
+        if is_pre_2015_us_wu:
+            limited = source_limited_item(
+                item,
+                wu_unavailable_reason,
+                evidence_path=probe.get("path"),
+            )
+            limited_detail = dict(limited.get("detail") or {})
+            limited_detail["end"] = min(end, US_WU_PROVIDER_UNAVAILABLE_BEFORE - timedelta(days=1)).isoformat()
+            limited["detail"] = limited_detail
+            source_limited.append(limited)
+            if end >= US_WU_PROVIDER_UNAVAILABLE_BEFORE:
+                retained = dict(item)
+                retained["command"] = replace_command_arg(
+                    retained.get("command"),
+                    "--start",
+                    US_WU_PROVIDER_UNAVAILABLE_BEFORE.isoformat(),
+                )
+                retained_detail = dict(retained.get("detail") or {})
+                retained_detail["start"] = US_WU_PROVIDER_UNAVAILABLE_BEFORE.isoformat()
+                retained_detail["source_limited_prefix_removed"] = True
+                retained["detail"] = retained_detail
+                executable.append(retained)
+            continue
+        executable.append(item)
+    return executable, source_limited, {"us_wu_provider_probe": probe}
 
 
 def wu_chunk_queue(spec, start_date, end_date, python, chunk_days):
@@ -334,6 +446,7 @@ def build_plan(
     wu_chunk_days=DEFAULT_WU_CHUNK_DAYS,
     reanalysis_chunk_days=DEFAULT_REANALYSIS_CHUNK_DAYS,
     queue_mode=DEFAULT_QUEUE_MODE,
+    backtest_root=DEFAULT_BACKTEST_ROOT,
 ):
     end_date = end_date or date.today()
     if scope == "deep" and start_date == DEFAULT_MINIMUM_START:
@@ -352,10 +465,15 @@ def build_plan(
                 reanalysis_chunk_days,
                 queue_mode,
             ))
+    items, source_limited, policy = classify_source_limited_items(items, backtest_root=backtest_root)
     counts = {}
     for item in items:
         key = item["source"]
         counts[key] = counts.get(key, 0) + 1
+    limited_counts = {}
+    for item in source_limited:
+        key = item["source"]
+        limited_counts[key] = limited_counts.get(key, 0) + 1
     return {
         "schema_version": "historical_backfill_plan_v1",
         "scope": scope,
@@ -366,6 +484,10 @@ def build_plan(
         "market_count": len(spec_list(market_ids)),
         "queue_count": len(items),
         "queue_count_by_source": counts,
+        "source_limited_count": len(source_limited),
+        "source_limited_count_by_source": limited_counts,
+        "source_limited_policy": policy,
+        "source_limited": source_limited,
         "queue": items,
     }
 
@@ -398,6 +520,7 @@ def cmd_plan(args):
         wu_chunk_days=args.wu_chunk_days,
         reanalysis_chunk_days=args.reanalysis_chunk_days,
         queue_mode=args.queue_mode,
+        backtest_root=args.backtest_root,
     )
     write_plan(plan, args.out)
     print(f"Wrote historical backfill plan to {args.out}")
@@ -418,6 +541,7 @@ def build_parser():
     parser.add_argument("--wu-chunk-days", type=int, default=DEFAULT_WU_CHUNK_DAYS)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=DEFAULT_REANALYSIS_CHUNK_DAYS)
     parser.add_argument("--queue-mode", choices=("market_source", "chunk"), default=DEFAULT_QUEUE_MODE)
+    parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--limit-items", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")

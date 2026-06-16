@@ -25,6 +25,7 @@ from weather.market.market_registry import all_specs
 from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
 from weather.operations.observation_trigger import read_status as read_observation_status
 from weather.operations.observation_trigger import watcher_health
+from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo
 from weather.reporting.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
@@ -531,6 +532,8 @@ def build_observability_payload(
     target_day=None,
     years=None,
     include_audits=True,
+    tape_backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
+    verify_tape_backup_checksums=False,
 ):
     collection = fleet_collection_health(
         snapshots_root=snapshots_root,
@@ -557,12 +560,17 @@ def build_observability_payload(
     clob = clob_summary(snapshots_root=snapshots_root)
     observation = observation_summary()
     live_forward_slo = live_forward_slo_gate(collection, clob, observation)
+    tape_backup_status = tape_backup.backup_status(
+        backup_root=tape_backup_root,
+        verify_checksums=verify_tape_backup_checksums,
+    )
     alerts = []
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
     alerts.extend(provenance_alerts(provenance))
     alerts.extend(clob_alerts(clob))
     alerts.extend(observation_alerts(observation))
+    alerts.extend(tape_backup.backup_alerts(tape_backup_status))
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -576,12 +584,14 @@ def build_observability_payload(
         "clob": clob,
         "observation_trigger": observation,
         "live_forward_slo": live_forward_slo,
+        "tape_backup": tape_backup_status,
         "alerts": alerts,
         "summary": {
             "market_count": len(collection.get("markets") or []),
             "critical_alerts": sum(1 for row in alerts if row.get("severity") == "critical"),
             "warning_alerts": sum(1 for row in alerts if row.get("severity") == "warning"),
             "live_forward_slo_status": live_forward_slo.get("status"),
+            "tape_backup_status": tape_backup_status.get("status"),
         },
     }
     return payload
@@ -723,6 +733,20 @@ def write_markdown(path, payload):
         ["Gate", "Verdict", "Severity", "Detail"],
         slo_rows,
     )
+    backup = payload.get("tape_backup") or {}
+    restore = backup.get("last_restore_drill") or {}
+    backup_rows = [
+        ["Status", backup.get("status")],
+        ["Backup root", backup.get("backup_root")],
+        ["Manifest age hours", backup.get("age_hours")],
+        ["Files", backup.get("file_count")],
+        ["Missing critical classes", ", ".join(backup.get("missing_critical_classes") or []) or "-"],
+        ["Checksum failures", len(backup.get("checksum_failures") or [])],
+        ["Last restore drill", restore.get("status") or "-"],
+        ["Restore generated", restore.get("generated_at_utc") or "-"],
+    ]
+    lines += ["", "## Tape Backup And Restore", ""]
+    lines += markdown_table(["Metric", "Value"], backup_rows)
     lines += ["", "## Alerts", ""]
     lines += markdown_table(
         ["Severity", "Market", "Category", "Message"],
@@ -744,6 +768,8 @@ def cmd_report(args):
         target_day=args.target_day,
         years=years,
         include_audits=not args.skip_audits,
+        tape_backup_root=args.tape_backup_root,
+        verify_tape_backup_checksums=args.verify_tape_backup_checksums,
     )
     json_path = write_json(args.out, payload)
     report_path = write_markdown(args.report, payload)
@@ -767,6 +793,8 @@ def build_parser():
     report.add_argument("--target-day", type=int, default=None)
     report.add_argument("--years", default="", help="Comma-separated audit years; default 2000-2025.")
     report.add_argument("--skip-audits", action="store_true")
+    report.add_argument("--tape-backup-root", default=str(tape_backup.DEFAULT_BACKUP_ROOT))
+    report.add_argument("--verify-tape-backup-checksums", action="store_true")
     report.add_argument("--strict", action="store_true", help="Exit 2 when critical alerts are present.")
     report.add_argument("--out", default=str(DEFAULT_JSON_OUT))
     report.add_argument("--report", default=str(DEFAULT_REPORT))

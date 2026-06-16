@@ -29,10 +29,23 @@ HOURLY_VARIABLES = (
     "relative_humidity_2m",
     "dew_point_2m",
     "pressure_msl",
+    "surface_pressure",
     "wind_speed_10m",
     "wind_direction_10m",
     "wind_gusts_10m",
+    "wind_speed_100m",
+    "wind_direction_100m",
     "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+    "shortwave_radiation",
+    "direct_radiation",
+    "diffuse_radiation",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+    "soil_temperature_0_to_7cm",
+    "soil_moisture_0_to_7cm",
 )
 
 
@@ -178,7 +191,10 @@ class ReanalysisStore:
 
     def covered_dates_for_queue(self):
         normalized = self.normalized_daily_dates()
-        return normalized if normalized else self.raw_covered_dates()
+        raw_covered = self.raw_covered_dates()
+        raw_normalizable = self.raw_normalizable_dates()
+        source_lag = raw_covered - raw_normalizable
+        return normalized | source_lag
 
     def missing_ranges(self, start_date, end_date, chunk_days=31):
         covered = self.covered_dates_for_queue()

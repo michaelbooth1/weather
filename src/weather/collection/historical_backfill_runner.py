@@ -7,6 +7,7 @@ append-only JSONL ledger so interrupted backfills can continue without guessing.
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -22,6 +23,9 @@ DEFAULT_STATE = Path("data") / "backtest" / "historical_backfill_runs.jsonl"
 DEFAULT_SUMMARY = Path("data") / "backtest" / "historical_backfill_run_summary.json"
 SUCCESS = "success"
 FAILED = "failed"
+SECRET_PATTERNS = [
+    (re.compile(r"(apiKey=)[^&\s)]+"), r"\1<redacted>"),
+]
 
 
 def utc_now():
@@ -40,6 +44,13 @@ def command_text(command):
     return subprocess.list2cmdline([str(part) for part in command])
 
 
+def redact_text(value):
+    text = value or ""
+    for pattern, replacement in SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def item_key(item):
     stable = {
         "source": item.get("source"),
@@ -53,7 +64,7 @@ def item_key(item):
 
 
 def tail_text(value, max_chars=4000):
-    text = value or ""
+    text = redact_text(value)
     if len(text) <= max_chars:
         return text
     return text[-max_chars:]

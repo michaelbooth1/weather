@@ -36,6 +36,12 @@ from weather.backtesting.backtest import (
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
+from weather.model.continuous_density import (
+    continuous_density_payload,
+    density_f_from_payload,
+    native_to_f,
+    normalize_density,
+)
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
@@ -232,6 +238,103 @@ def apply_exact_distribution_calibration(distribution, artifact, floor_bucket=No
             if bucket < floor_bucket:
                 kept[bucket] = 0.0
     return normalize(kept)
+
+
+def continuous_floor_threshold_f(floor_bucket, unit):
+    """Lowest canonical-F grid value allowed by a rounded native floor bucket."""
+    if floor_bucket is None:
+        return None
+    try:
+        return native_to_f(float(floor_bucket) - 0.5, unit)
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_continuous_density_calibration(
+    density_payload,
+    artifact,
+    floor_bucket=None,
+    unit="F",
+    resolution_weight=0.0,
+    cutoff_hour=None,
+):
+    """Apply exact-distribution calibration semantics to a canonical-F density.
+
+    The bucket path zeroes all exact buckets below the printed WU floor. For a
+    continuous density, the equivalent floor is the lower edge of that rounded
+    native bucket: ``floor_bucket - 0.5`` in the market's unit, converted to the
+    canonical Fahrenheit grid.
+    """
+    density = density_f_from_payload(density_payload)
+    if density is None:
+        return density_payload
+    payload = dict(density_payload or {})
+    cfg = (artifact or {}).get("exact_distribution") or {}
+    if not cfg.get("enabled", True):
+        payload["density_f"] = normalize_density(density)
+        return payload
+
+    resolution_weight = max(0.0, min(1.0, float(resolution_weight or 0.0)))
+    floor_threshold_f = continuous_floor_threshold_f(floor_bucket, unit)
+    kept = {}
+    for grid_value, probability in (density or {}).items():
+        grid_value = float(grid_value)
+        if floor_threshold_f is not None and grid_value < floor_threshold_f:
+            kept[grid_value] = 0.0
+        else:
+            kept[grid_value] = max(0.0, float(probability))
+    kept = normalize_density(kept)
+    if not kept:
+        payload["density_f"] = {}
+        return payload
+
+    base_temperature = float(cfg.get("temperature", 1.0))
+    by_hour = cfg.get("temperature_by_hour") or {}
+    if cutoff_hour is not None and str(int(cutoff_hour)) in by_hour:
+        base_temperature = float(by_hour[str(int(cutoff_hour))])
+    temperature = max(0.05, base_temperature)
+    if resolution_weight > 0:
+        temperature = 1.0 + (temperature - 1.0) * (1.0 - resolution_weight)
+    if abs(temperature - 1.0) > 1e-9:
+        kept = normalize_density({
+            grid_value: (probability ** (1.0 / temperature)) if probability > 0 else 0.0
+            for grid_value, probability in kept.items()
+        })
+
+    prior_weight = max(0.0, min(1.0, float(cfg.get("prior_weight", 0.0))))
+    prior_weight *= (1.0 - resolution_weight)
+    if prior_weight > 0 and kept:
+        eligible = [
+            grid_value for grid_value in kept
+            if floor_threshold_f is None or grid_value >= floor_threshold_f
+        ]
+        if eligible:
+            uniform = 1.0 / len(eligible)
+            kept = normalize_density({
+                grid_value: (
+                    0.0 if floor_threshold_f is not None and grid_value < floor_threshold_f
+                    else (1.0 - prior_weight) * kept.get(grid_value, 0.0) + prior_weight * uniform
+                )
+                for grid_value in kept
+            })
+
+    payload = continuous_density_payload(
+        kept,
+        **{key: value for key, value in payload.items() if key not in {"kind", "density_f"}}
+    )
+    if payload["density_f"]:
+        payload["mean_f"] = sum(
+            grid_value * probability
+            for grid_value, probability in payload["density_f"].items()
+        )
+    payload["continuous_calibration"] = {
+        "floor_bucket": floor_bucket,
+        "floor_unit": unit,
+        "floor_threshold_f": floor_threshold_f,
+        "cutoff_hour": cutoff_hour,
+        "resolution_weight": resolution_weight,
+    }
+    return payload
 
 
 def calibrate_market_probability(

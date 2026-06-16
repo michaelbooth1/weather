@@ -8,7 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from mm_policy import decide_quote, run_policy_snapshot
+from mm_policy import (
+    apply_known_edge_permission,
+    config_with_clob_recon,
+    decide_quote,
+    resolve_known_edge_record,
+    run_policy_snapshot,
+)
 
 
 NOW = "2026-06-14T16:00:00+00:00"
@@ -54,6 +60,23 @@ def write_known_edge_map(path, records):
     return path
 
 
+def manual_event_calendar(action="suppress"):
+    return {
+        "manual_events": [
+            {
+                "event_id": "platform-maintenance-1",
+                "market_id": "atlanta",
+                "event_class": "platform_maintenance",
+                "label": "platform maintenance",
+                "starts_at_utc": "2026-06-14T15:59:00+00:00",
+                "ends_at_utc": "2026-06-14T16:01:00+00:00",
+                "action": action,
+                "reason_code": "INFO_EVENT_PLATFORM_MAINTENANCE",
+            }
+        ],
+    }
+
+
 class TestMmPolicy(unittest.TestCase):
     def test_blocked_promotion_fails_closed(self):
         quote = decide_quote(fresh_row(promotion_state="BLOCK"), now=NOW)
@@ -70,6 +93,67 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(quote["regime"], "harvest")
         self.assertEqual(quote["reason_code"], "QUOTE_HARVEST_MID")
         self.assertLess(quote["bid_price"], quote["ask_price"])
+        self.assertIn(quote["event_gate_status"], {"CLEAR", "WIDEN"})
+
+    def test_information_event_gate_suppresses_quote(self):
+        quote = decide_quote(
+            fresh_row(),
+            config={"_information_event_calendar_config": manual_event_calendar()},
+            now=NOW,
+        )
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_INFORMATION_EVENT")
+        self.assertEqual(quote["event_gate_status"], "PULL")
+        self.assertEqual(quote["event_gate_action"], "suppress")
+        self.assertEqual(quote["event_gate_event_class"], "platform_maintenance")
+        self.assertEqual(quote["event_gate_reason_code"], "INFO_EVENT_PLATFORM_MAINTENANCE")
+
+    def test_information_event_exception_requires_evidence_and_caps_size(self):
+        quote = decide_quote(
+            fresh_row(),
+            config={
+                "_information_event_calendar_config": manual_event_calendar(),
+                "event_gate_exception_enabled": True,
+                "event_gate_exception_event_classes": "platform_maintenance",
+                "event_gate_exception_evidence_status": "PAPER_PASS",
+                "event_gate_exception_evidence_id": "paper-slice-1",
+                "event_gate_exception_risk_cap_usdc": 1.0,
+            },
+            now=NOW,
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["event_gate_status"], "EXCEPTION")
+        self.assertEqual(quote["event_gate_action"], "allow_exception")
+        self.assertEqual(quote["event_gate_exception_id"], "paper-slice-1")
+        self.assertEqual(quote["final_size_limiter"], "event_gate_exception_risk_cap")
+        self.assertLess(float(quote["bid_size"]), 2.0)
+
+    def test_clob_recon_policy_overrides_apply_when_artifact_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clob_recon.json"
+            path.write_text(json.dumps({
+                "schema_version": "clob_book_recon_v0.1",
+                "policy_parameter_suggestions": {
+                    "quote_size": 2.0,
+                    "harvest_half_spread": 0.02,
+                    "min_depth_1pct_total": 4.0,
+                    "reward_competitor_q": 50.0,
+                },
+                "summary": {"slice_rows": 3},
+            }), encoding="utf-8")
+
+            config, diag = config_with_clob_recon({
+                "clob_recon_policy_enabled": True,
+                "clob_recon_path": str(path),
+                "quote_size": 5.0,
+            })
+
+        self.assertTrue(diag["exists"])
+        self.assertEqual(config["quote_size"], 2.0)
+        self.assertEqual(config["harvest_half_spread"], 0.02)
+        self.assertNotIn("reward_competitor_q", config)
 
     def test_shadow_large_disagreement_stands_down(self):
         quote = decide_quote(fresh_row(fair_probability=0.70, market_mid=0.50), now=NOW)
@@ -98,6 +182,44 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(quote["regime"], "edge")
         self.assertEqual(quote["side"], "YES_BID")
         self.assertEqual(quote["reason_code"], "QUOTE_EDGE_MODEL")
+
+    def test_clob_overlay_market_informed_record_does_not_enable_edge_quote(self):
+        row = fresh_row(
+            promotion_state="PASS",
+            casebook_taxonomy="market_lead",
+            fair_probability=0.60,
+            market_mid=0.50,
+            clob_best_bid=0.49,
+            clob_best_ask=0.56,
+        )
+        records = [
+            {
+                "market_id": "*",
+                "cutoff": "*",
+                "hour_utc": "*",
+                "band_distance_bucket": "*",
+                "band_type": "*",
+                "casebook_taxonomy": "market_lead",
+                "regime": "*",
+                "source_fresh": "*",
+                "source_freshness_state": "*",
+                "book_imbalance_bucket": "*",
+                "base_permission": "CLOB_OVERLAY_MARKET_INFORMED",
+                "permission": "edge_research",
+                "reason": "clob_overlay_market_informed_replay_gate_clear",
+            }
+        ]
+
+        record = resolve_known_edge_record(row, records)
+        merged = apply_known_edge_permission(row, record=record, map_loaded=True)
+        quote = decide_quote(merged, now=NOW)
+
+        self.assertFalse(quote["known_edge_allowed"])
+        self.assertEqual(quote["known_edge_taxonomy"], "market_lead")
+        self.assertEqual(quote["known_edge_reason"], "clob_overlay_market_informed_replay_gate_clear")
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["regime"], "none")
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_DISAGREEMENT_SHADOW")
 
     def test_no_quote_known_edge_permission_fails_closed(self):
         quote = decide_quote(

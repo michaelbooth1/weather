@@ -72,22 +72,28 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 24 | [Unified Feature Store And Train/Serve Parity [COMPLETE]](items/item-24-unified-feature-store-and-train-serve-parity.md) |
 | 25 | [Market-Day Data Collection And Label Quality [COMPLETE]](items/item-25-market-day-data-collection-and-label-quality.md) |
 | 26 | [Model Ensemble And Ablation Framework [COMPLETE - AWAITING MORE CLEAN DAYS]](items/item-26-model-ensemble-and-ablation-framework.md) |
-| 27 | [Weather Regime And Microclimate Features [PARTIAL 2026-06-15 - WIND SHIFT/GUST FEATURES PLUMBED]](items/item-27-weather-regime-and-microclimate-features.md) |
+| 27 | [Weather Regime And Microclimate Features [COMPLETE 2026-06-15 - FEATURE-VALUE GATE LIVE]](items/item-27-weather-regime-and-microclimate-features.md) |
 
 ### [Track A — From Basic To Best-Possible Data Layer](tracks/track-a-data-layer.md)
 
 | Item | File |
 | ---: | --- |
 | 28 | [Settlement Ground-Truth Ledger [COMPLETE - LEDGER LIVE]](items/item-28-settlement-ground-truth-ledger.md) |
-| 29 | [Deepen And Widen The Historical Record [PARTIAL - WU SEASONAL STRONG, REDUNDANT SOURCES SHALLOW]](items/item-29-deepen-and-widen-the-historical-record.md) |
+| 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE CLOSED]](items/item-29-deepen-and-widen-the-historical-record.md) |
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
-| 32 | [Reanalysis And Synoptic Feature Layer [NEW - GATED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
-| 39 | [Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE/SCHEMA/DASHBOARD CLEANUP DONE]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
+| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-16 - TORONTO CANDIDATE BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
+| 39 | [Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
 | 64 | [Canonical Settlement History Provenance Guardrails [COMPLETE 2026-06-15 - CANONICAL GUARDRAILS LIVE]](items/item-64-canonical-settlement-history-provenance-guardrails.md) |
-| 65 | [Irreplaceable Tape Retention, Backup, And Restore [NEW - OPEN]](items/item-65-irreplaceable-tape-retention-backup-and-restore.md) |
+| 65 | [Irreplaceable Tape Retention, Backup, And Restore [COMPLETE 2026-06-15 - BACKUP + RESTORE DRILL LIVE]](items/item-65-irreplaceable-tape-retention-backup-and-restore.md) |
+| 76 | [GRIB Subset Extraction Foundation [COMPLETE 2026-06-16 - GRIB CACHE POLICY LIVE]](items/item-76-grib-subset-extraction-foundation.md) |
+| 77 | [One-Minute ASOS Spike And High-Timing Layer [COMPLETE 2026-06-16 - ASOS 1-MIN GATE LIVE]](items/item-77-one-minute-asos-spike-and-high-timing-layer.md) |
+| 78 | [Coastal Marine And Lake-Breeze Context Features [COMPLETE 2026-06-16 - MARINE CONTEXT REPORTING LIVE]](items/item-78-coastal-marine-and-lake-breeze-context-features.md) |
+| 79 | [MRMS Radar Precipitation Interruption Layer [COMPLETE 2026-06-16 - MRMS INTERRUPTION REPORTING LIVE]](items/item-79-mrms-radar-precipitation-interruption-layer.md) |
+| 80 | [ECCC HRDPS And GEM Toronto Gridded Forecast Layer [COMPLETE 2026-06-16 - TORONTO ECCC GRIDDED SCORING LIVE]](items/item-80-eccc-hrdps-and-gem-toronto-gridded-forecast-layer.md) |
+| 81 | [Meteostat And NASA POWER Historical Fallback Sources [COMPLETE 2026-06-16 - SUPPLEMENTAL FALLBACK GATES LIVE]](items/item-81-meteostat-and-nasa-power-historical-fallback-sources.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -95,22 +101,22 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | ---: | --- |
 | 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
-| 35 | [Unified Continuous-Density Model [NEW - ENDGAME]](items/item-35-unified-continuous-density-model.md) |
+| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-16 - FULL DENSITY REPLAY BLOCKED]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
 | 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
-| 38 | [Cross-Market And Market-Microstructure Signal [PARTIAL 2026-06-14 - TAXONOMY-GATED CLOB OVERLAY]](items/item-38-cross-market-and-market-microstructure-signal.md) |
+| 38 | [Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]](items/item-38-cross-market-and-market-microstructure-signal.md) |
 | 40 | [Intra-Hour Feature Freshness [COMPLETE 2026-06-11 - FLEET REFRESHED]](items/item-40-intra-hour-feature-freshness.md) |
 | 41 | [Model-Market Disagreement Casebook [COMPLETE 2026-06-14 - CASEBOOK LIVE]](items/item-41-model-market-disagreement-casebook.md) |
-| 42 | [Fast Observation-Triggered Recompute Path [PARTIAL 2026-06-14 - WATCHER SHIPPED]](items/item-42-fast-observation-triggered-recompute-path.md) |
+| 42 | [Fast Observation-Triggered Recompute Path [COMPLETE 2026-06-16 - PERMISSIONED REPLAY GATE LIVE]](items/item-42-fast-observation-triggered-recompute-path.md) |
 | 43 | [Market-Making Policy And Quote Intent Tape [COMPLETE 2026-06-14 - SHADOW POLICY LIVE]](items/item-43-market-making-policy-and-quote-intent-tape.md) |
 | 44 | [Paper Trading, Queue Simulation, Markouts, And Incentive Accounting [COMPLETE 2026-06-15 - PAPER SCORER LIVE]](items/item-44-paper-trading-queue-simulation-markouts-and-incentive-accounting.md) |
-| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [PARTIAL 2026-06-15 - RISK + NEG-RISK + AUDIT GATE + RUNBOOK LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
+| 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [OPEN - GAP DRIVERS + PERMISSION CELLS LIVE]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-16 - SHADOW BLOCKERS EXPLAINED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
-| 50 | [Scholarly Weather-Input Gap Closure [NEW - OPEN]](items/item-50-scholarly-weather-input-gap-closure.md) |
-| 51 | [Model Architecture Health Refactor [PARTIAL 2026-06-15 - NATIVE CLEANUP COMPLETE]](items/item-51-model-architecture-health-refactor.md) |
+| 50 | [Scholarly Weather-Input Gap Closure [COMPLETE 2026-06-16 - CORE BACKFILL AND SHADOW EVIDENCE]](items/item-50-scholarly-weather-input-gap-closure.md) |
+| 51 | [Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]](items/item-51-model-architecture-health-refactor.md) |
 | 52 | [Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]](items/item-52-miami-current-serving-replay-regression-triage.md) |
 | 53 | [Candidate Source-Freshness Gap Attribution [COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE]](items/item-53-candidate-source-freshness-gap-attribution.md) |
 | 54 | [Source-Freshness Known-Edge Map Consumption [COMPLETE 2026-06-15 - PERMISSION CELLS LIVE]](items/item-54-source-freshness-known-edge-map-consumption.md) |
@@ -121,9 +127,17 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 59 | [Afternoon High-Has-Stood Lock-In Model [COMPLETE 2026-06-15 - HIGH-HAS-STOOD LOCK-IN LIVE]](items/item-59-afternoon-high-has-stood-lock-in-model.md) |
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
-| 66 | [CLOB Book Recon And Reward-Competition Analytics [NEW - OPEN]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [NEW - BLOCKED BY ITEM 45]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
-| 68 | [Information-Event Calendar And Quote-Pull Gates [NEW - OPEN]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
+| 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-16 - FINANCIAL RECONCILIATION ADDED]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
+| 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
+| 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
+| 71 | [Dynamic Source-Freshness Model Variant [COMPLETE 2026-06-16 - SOURCE-STATE GATE PASSED]](items/item-71-dynamic-source-freshness-model-variant.md) |
+| 72 | [Market-Aware CLOB Overlay Variant [COMPLETE 2026-06-16 - MARKET-INFORMED QUOTE GATES LIVE]](items/item-72-market-aware-clob-overlay-variant.md) |
+| 73 | [Conservative Per-Market Candidate Bridge [COMPLETE 2026-06-16 - PAIRED SHADOW SCORING LIVE]](items/item-73-conservative-per-market-candidate-bridge.md) |
+| 74 | [Open-Meteo Expanded Environmental Forecast Features [COMPLETE 2026-06-16 - PROMOTION GATE AND MISSING-ZERO REPORT LIVE]](items/item-74-open-meteo-expanded-environmental-forecast-features.md) |
+| 75 | [US Official Forecast Grid And Multi-Model Guidance [COMPLETE 2026-06-16 - US GUIDANCE REPLAY DIAGNOSTICS LIVE]](items/item-75-us-official-forecast-grid-and-multimodel-guidance.md) |
+| 82 | [Miami Candidate Block Regression Remediation [COMPLETE 2026-06-16 - CURRENT FALLBACK CLEARS BLOCK]](items/item-82-miami-candidate-block-regression-remediation.md) |
 
 ## Maintenance Conventions
 

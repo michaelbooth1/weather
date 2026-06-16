@@ -15,6 +15,7 @@ from observation_trigger import (  # noqa: E402
     build_triggered_replay_report,
     detect_observation_triggers,
     ensure_decision,
+    latest_trade_permission,
     observation_state_from_sources,
     run_loop,
     run_once,
@@ -380,12 +381,209 @@ class ObservationTriggerTests(unittest.TestCase):
                 writer.writerow({"snapshot_id": "pre", "captured_at_utc": "2026-06-13T16:00:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.2", "market_yes": "0.5"})
                 writer.writerow({"snapshot_id": "trig", "captured_at_utc": "2026-06-13T16:01:00+00:00", "event_slug": folder.name, "snapshot_cadence": "triggered", "trigger_reason": "wu_history_high_increased", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.8", "market_yes": "0.5"})
                 writer.writerow({"snapshot_id": "next", "captured_at_utc": "2026-06-13T16:10:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.6", "market_yes": "0.5"})
+            daily_root = root / "sources" / "asos_1min" / "toronto" / "daily"
+            daily_root.mkdir(parents=True)
+            with (daily_root / "daily_summary.csv").open("w", encoding="utf-8", newline="") as handle:
+                fieldnames = [
+                    "schema_version", "source", "market", "station", "iem_station",
+                    "local_date", "row_count", "temp_row_count", "expected_minutes",
+                    "coverage_ratio", "max_temp_native", "first_reached_minute",
+                    "high_duration_minutes", "spike_persistence_minutes",
+                    "first_valid_utc", "last_valid_utc", "source_lag_minutes",
+                    "payload_hashes",
+                ]
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerow({
+                    "schema_version": "asos_1min_v0.1",
+                    "source": "asos_1min",
+                    "market": "toronto",
+                    "station": "CYYZ",
+                    "iem_station": "CYYZ",
+                    "local_date": "2026-06-13",
+                    "row_count": "4",
+                    "temp_row_count": "4",
+                    "expected_minutes": "1440",
+                    "coverage_ratio": "0.9",
+                    "max_temp_native": "21",
+                    "first_reached_minute": "720",
+                    "high_duration_minutes": "2",
+                    "spike_persistence_minutes": "2",
+                    "first_valid_utc": "2026-06-13T16:00:00+00:00",
+                    "last_valid_utc": "2026-06-13T16:03:00+00:00",
+                    "source_lag_minutes": "15",
+                    "payload_hashes": "abc",
+                })
 
-            payload = build_triggered_replay_report(snapshots_root=snapshots, backtest_root=backtest)
+            payload = build_triggered_replay_report(
+                snapshots_root=snapshots,
+                backtest_root=backtest,
+                asos_1min_root=root / "sources" / "asos_1min",
+            )
 
         self.assertEqual(payload["summary"]["scored_rows"], 1)
         self.assertLess(payload["summary"]["triggered_model_brier"], payload["summary"]["pre_model_brier"])
         self.assertEqual(payload["rows"][0]["case_ids"], ["case_1"])
+        self.assertEqual(payload["summary"]["asos_1min_rows_with_evidence"], 1)
+        self.assertTrue(payload["rows"][0]["asos_1min_available"])
+        self.assertEqual(payload["rows"][0]["asos_1min_max_so_far"], 21.0)
+        self.assertEqual(payload["rows"][0]["asos_1min_minus_settlement_bucket"], 1.0)
+        self.assertEqual(payload["rows"][0]["asos_1min_minutes_from_first_high_to_wu_print"], 1.0)
+
+    def test_triggered_replay_matches_normalized_fahrenheit_band_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            backtest = root / "backtest"
+            folder = snapshots / "highest-temperature-in-atlanta-on-june-14-2026"
+            folder.mkdir(parents=True)
+            backtest.mkdir()
+
+            with (backtest / "market_day_labels.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["event_slug", "settlement_bucket"])
+                writer.writeheader()
+                writer.writerow({"event_slug": folder.name, "settlement_bucket": "89"})
+            (backtest / "disagreement_casebook.json").write_text(json.dumps({
+                "cases": [{
+                    "case_id": "case_f",
+                    "taxonomy": "wu_lag_catchup_miss",
+                    "model_result": "model_loss",
+                    "event_slug": folder.name,
+                    "range_label": "88-89 F",
+                    "band_key": "eq:88-89",
+                    "start_time_utc": "2026-06-14T16:00:00+00:00",
+                    "end_time_utc": "2026-06-14T16:03:00+00:00",
+                }]
+            }), encoding="utf-8")
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                fieldnames = [
+                    "snapshot_id", "captured_at_utc", "event_slug", "snapshot_cadence",
+                    "trigger_reason", "range_label", "bin_kind", "bin_value_c",
+                    "bin_value_hi_c", "model_probability", "market_yes",
+                ]
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerow({"snapshot_id": "pre", "captured_at_utc": "2026-06-14T16:00:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "88-89\u00b0F", "bin_kind": "eq", "bin_value_c": "88", "bin_value_hi_c": "", "model_probability": "0.2", "market_yes": "0.5"})
+                writer.writerow({"snapshot_id": "trig", "captured_at_utc": "2026-06-14T16:01:00+00:00", "event_slug": folder.name, "snapshot_cadence": "triggered", "trigger_reason": "wu_current_temp_bucket_crossed", "range_label": "88-89\u00b0F", "bin_kind": "eq", "bin_value_c": "88", "bin_value_hi_c": "", "model_probability": "0.8", "market_yes": "0.5"})
+                writer.writerow({"snapshot_id": "next", "captured_at_utc": "2026-06-14T16:10:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "88-89\u00b0F", "bin_kind": "eq", "bin_value_c": "88", "bin_value_hi_c": "", "model_probability": "0.6", "market_yes": "0.5"})
+
+            payload = build_triggered_replay_report(
+                snapshots_root=snapshots,
+                backtest_root=backtest,
+                asos_1min_root=root / "sources" / "asos_1min",
+            )
+
+        self.assertEqual(payload["summary"]["scored_rows"], 1)
+        self.assertEqual(payload["rows"][0]["case_ids"], ["case_f"])
+        self.assertLess(payload["summary"]["triggered_model_brier"], payload["summary"]["pre_model_brier"])
+
+    def test_triggered_replay_builds_permission_policy_by_reason_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            backtest = root / "backtest"
+            folder = snapshots / "highest-temperature-in-toronto-on-june-15-2026"
+            folder.mkdir(parents=True)
+            backtest.mkdir()
+
+            with (backtest / "market_day_labels.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["event_slug", "settlement_bucket"])
+                writer.writeheader()
+                writer.writerow({"event_slug": folder.name, "settlement_bucket": "20"})
+            (backtest / "disagreement_casebook.json").write_text(json.dumps({
+                "cases": [
+                    {
+                        "case_id": "case_down",
+                        "taxonomy": "wu_lag_catchup_miss",
+                        "model_result": "model_loss",
+                        "event_slug": folder.name,
+                        "range_label": "20 C",
+                        "start_time_utc": "2026-06-15T16:00:00+00:00",
+                        "end_time_utc": "2026-06-15T16:40:00+00:00",
+                    },
+                    {
+                        "case_id": "case_up",
+                        "taxonomy": "wu_lag_catchup_miss",
+                        "model_result": "model_loss",
+                        "event_slug": folder.name,
+                        "range_label": "21 C",
+                        "start_time_utc": "2026-06-15T16:00:00+00:00",
+                        "end_time_utc": "2026-06-15T16:40:00+00:00",
+                    },
+                ]
+            }), encoding="utf-8")
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                fieldnames = [
+                    "snapshot_id", "captured_at_utc", "event_slug", "snapshot_cadence",
+                    "trigger_reason", "trigger_previous_value", "trigger_current_value",
+                    "range_label", "bin_kind", "bin_value_c", "model_probability", "market_yes",
+                ]
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerow({"snapshot_id": "pre_down", "captured_at_utc": "2026-06-15T15:59:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.2", "market_yes": "0.5"})
+                writer.writerow({"snapshot_id": "next_down", "captured_at_utc": "2026-06-15T17:00:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.7", "market_yes": "0.5"})
+                writer.writerow({"snapshot_id": "pre_up", "captured_at_utc": "2026-06-15T15:59:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "21 C", "bin_kind": "eq", "bin_value_c": "21", "model_probability": "0.1", "market_yes": "0.5"})
+                writer.writerow({"snapshot_id": "next_up", "captured_at_utc": "2026-06-15T17:00:00+00:00", "event_slug": folder.name, "snapshot_cadence": "scheduled", "range_label": "21 C", "bin_kind": "eq", "bin_value_c": "21", "model_probability": "0.1", "market_yes": "0.5"})
+                for index in range(30):
+                    minute = f"{index + 1:02d}"
+                    writer.writerow({"snapshot_id": f"trig_down_{index}", "captured_at_utc": f"2026-06-15T16:{minute}:00+00:00", "event_slug": folder.name, "snapshot_cadence": "triggered", "trigger_reason": "wu_current_temp_bucket_crossed", "trigger_previous_value": "21", "trigger_current_value": "20", "range_label": "20 C", "bin_kind": "eq", "bin_value_c": "20", "model_probability": "0.8", "market_yes": "0.5"})
+                    writer.writerow({"snapshot_id": f"trig_up_{index}", "captured_at_utc": f"2026-06-15T16:{minute}:30+00:00", "event_slug": folder.name, "snapshot_cadence": "triggered", "trigger_reason": "wu_current_temp_bucket_crossed", "trigger_previous_value": "20", "trigger_current_value": "21", "range_label": "21 C", "bin_kind": "eq", "bin_value_c": "21", "model_probability": "0.9", "market_yes": "0.5"})
+
+            payload = build_triggered_replay_report(
+                snapshots_root=snapshots,
+                backtest_root=backtest,
+                asos_1min_root=root / "sources" / "asos_1min",
+            )
+
+        summary = payload["summary"]
+        policy = summary["trigger_permission_policy"]
+        self.assertEqual(summary["trigger_acceptance_status"], "PASS_WITH_PERMISSION_POLICY")
+        self.assertGreater(summary["delta_triggered_vs_pre"], 0)
+        self.assertEqual(summary["trigger_permissioned_rows"], 30)
+        self.assertLess(summary["trigger_permissioned_delta_triggered_vs_pre"], 0)
+        self.assertIn("wu_current_temp_bucket_crossed|down", policy["allowed_reason_directions"])
+        self.assertNotIn("wu_current_temp_bucket_crossed|up", policy["allowed_reason_directions"])
+
+    def test_latest_trade_permission_requires_allowed_fresh_policy_cohort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "observation_trigger_replay.json"
+            policy_path.write_text(json.dumps({
+                "summary": {
+                    "trigger_permission_policy": {
+                        "acceptance_status": "PASS_WITH_PERMISSION_POLICY",
+                        "allowed_reason_directions": ["wu_current_temp_bucket_crossed|down"],
+                    }
+                }
+            }), encoding="utf-8")
+            now = datetime(2026, 6, 15, 16, 10, tzinfo=timezone.utc)
+            status = {
+                "last_heartbeat": now.isoformat(),
+                "interval_seconds": 60,
+                "consecutive_errors": 0,
+                "latest_triggered": {
+                    "toronto": {
+                        "trigger_context": {
+                            "reason": "wu_current_temp_bucket_crossed",
+                            "created_at_utc": now.isoformat(),
+                            "primary_trigger": {"previous_value": 21, "current_value": 20},
+                        }
+                    },
+                    "nyc": {
+                        "trigger_context": {
+                            "reason": "wu_current_temp_bucket_crossed",
+                            "created_at_utc": now.isoformat(),
+                            "primary_trigger": {"previous_value": 20, "current_value": 21},
+                        }
+                    },
+                },
+            }
+
+            permission = latest_trade_permission(status, now=now, policy_path=policy_path)
+
+        self.assertTrue(permission["permissioned_markets"]["toronto"])
+        self.assertFalse(permission["permissioned_markets"]["nyc"])
+        self.assertTrue(permission["trade_permissioned"])
+        self.assertEqual(permission["blocked_reasons"]["nyc"], "wu_current_temp_bucket_crossed|up")
 
 
 if __name__ == "__main__":

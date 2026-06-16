@@ -81,11 +81,33 @@ Can be done now, in implementation order:
     features without changing settlement labels or live-serving columns. Item
     64 is complete: canonical history provenance guardrails and explicit
     composite GHCNh views are live.
+11. [done] Items 69-73: turn the multi-variant shadow-testing research note into
+    concrete model work. Item 69 is complete: the paired shadow harness and
+    experiment governance are live. Item 70 is complete: the exact-winner
+    candidate now uses a no-market per-market alpha whitelist, clears the broad
+    replay and item-69 harness gates, improves settlement-distance-0,
+    exact-band, and 7-15 target slices, and no longer regresses one-above or
+    Miami.
+    Item 71 is complete as a guarded no-market shadow variant: dynamic
+    source-state features are replay/live model inputs, the full artifact now
+    improves the combined failed/stale source bucket and all-fresh rows, and
+    sparse unproven failed-source states fall back to current instead of
+    becoming noisy evidence. Item 72 is complete: raw and
+    gated CLOB overlay lanes now score through item 69 as market-informed shadow
+    variants with log-loss/ECE/overconfidence gates; the refreshed known-edge
+    map emits only a `market_lead` `edge_research` quote-time record and keeps
+    `book_liquidity_artifact` blocked on log-loss regression, so it remains
+    separate from no-market promotion evidence. Item 73 is complete: the
+    conservative bridge alpha schedule
+    and no-market item-69 policy-shadow export are live; paired scoring improves
+    both current serving and the pooled candidate control, while still trailing
+    market and leaving future alpha changes behind deliberate readiness updates.
 
 Blocked or gated:
 
-- Item 45 and live MM-2 orders are blocked until the platform/account/wallet
-  gates are verified and the 14 locked live-forward paper-day gate clears.
+- Item 45's software gates are complete. Live MM-2 orders remain blocked until
+  the platform-verification artifact, live-readiness file, data-layer live gate,
+  and 14 locked live-forward paper-day gate all pass for a real pilot.
 - Item 48 promotion readiness is blocked as a readiness claim until aggregate
   candidate Brier is market-or-better and remaining shadow markets have
   generated, resolved blockers; decomposition work remains actionable.
@@ -103,6 +125,10 @@ Blocked or gated:
 - The Miami 2026-06-15 92-93 F audit package is closed by items 58-60:
   print-lag parity, afternoon high-has-stood lock-in, and range-band/version
   artifact guards are now implemented.
+- Multi-variant testing is gated by item 69. Variants from items 70-73 should
+  not be promoted from ad hoc reruns or raw row-count wins; they need paired
+  shadow evidence, no-market versus market-informed separation, and per-market
+  promotion checks.
 
 ### Current Work That Needed Roadmap Reconciliation
 

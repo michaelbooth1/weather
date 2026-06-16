@@ -17,8 +17,11 @@ from schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v0.7")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.5")
+        self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.2")
         self.assertEqual(schema_version("historical_coverage"), "historical_coverage_v1")
+        self.assertEqual(schema_version("forecast_history_coverage"), "forecast_history_coverage_v0.1")
+        self.assertEqual(schema_version("forecast_history_long"), "forecast_history_long_v3")
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
 
     def test_registry_payload_has_stable_schema(self):

@@ -7,6 +7,7 @@ from datetime import date, datetime
 sys.path.insert(0, os.path.abspath("src"))
 
 from toronto_model import TorontoHighTempModel
+from weather.model.continuous_density import continuous_density_payload
 
 
 class TestNativeBinProbability(unittest.TestCase):
@@ -27,6 +28,36 @@ class TestNativeBinProbability(unittest.TestCase):
         self.assertAlmostEqual(m.bin_probability(dist, {"kind": "eq", "value": 88, "value_hi": 89}), 0.2)
         self.assertAlmostEqual(m.bin_probability(dist, {"kind": "lte", "value": 89}), 0.2)
         self.assertAlmostEqual(m.bin_probability(dist, {"kind": "gte", "value": 90}), 0.8)
+
+    def test_canonical_density_projects_to_celsius_band_at_serve_time(self):
+        m = TorontoHighTempModel()
+        density = continuous_density_payload({
+            67.09: 0.1,
+            67.10: 0.2,
+            68.00: 0.3,
+            68.89: 0.2,
+            68.90: 0.2,
+        })
+
+        self.assertAlmostEqual(
+            m.bin_probability(density, {"kind": "eq", "value": 20}),
+            0.7,
+        )
+
+    def test_canonical_density_projects_to_fahrenheit_range_at_serve_time(self):
+        m = TorontoHighTempModel(market_id="nyc")
+        density = continuous_density_payload({
+            89.49: 0.1,
+            89.50: 0.2,
+            90.00: 0.3,
+            90.49: 0.2,
+            90.50: 0.2,
+        })
+
+        self.assertAlmostEqual(
+            m.bin_probability(density, {"kind": "eq", "value": 90, "value_hi": 90}),
+            0.7,
+        )
 
 
 class TestMarketBinsParsing(unittest.TestCase):

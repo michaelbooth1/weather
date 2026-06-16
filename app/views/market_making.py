@@ -180,11 +180,15 @@ def _market_health_rows(markets, quote_rows, lifecycle_rows, remediation):
     quote_counts = Counter(row.get("market_id") for row in latest if _truthy(row.get("quote_permission")))
     permission_by_market = {}
     freshness_by_market = {}
+    event_gate_by_market = {}
+    next_event_by_market = {}
     for row in latest:
         market_id = row.get("market_id")
         if market_id and market_id not in permission_by_market:
             permission_by_market[market_id] = row.get("known_edge_permission") or "-"
             freshness_by_market[market_id] = row.get("source_freshness_state") or "-"
+            event_gate_by_market[market_id] = row.get("event_gate_status") or "-"
+            next_event_by_market[market_id] = row.get("event_gate_next_event_at_utc") or "-"
     open_orders = _open_lifecycle_orders(lifecycle_rows)
     reservation_counts = Counter(row.get("market_id") for row in open_orders.values())
     reserved_by_market = Counter()
@@ -210,6 +214,8 @@ def _market_health_rows(markets, quote_rows, lifecycle_rows, remediation):
             "Watcher": "fresh" if (gates.get("observation_trigger") or {}).get("ok") else "-",
             "Promotion": market.get("promotion_state"),
             "Known edge": permission_by_market.get(market.get("market_id"), "-"),
+            "Event gate": event_gate_by_market.get(market.get("market_id"), "-"),
+            "Next event": next_event_by_market.get(market.get("market_id"), "-"),
             "Quotes": quote_counts.get(market.get("market_id"), 0),
             "Open orders": reservation_counts.get(market.get("market_id"), 0),
             "Reserved USDC": round(reserved_by_market.get(market.get("market_id"), 0.0), 4),
@@ -274,6 +280,47 @@ def _gate_progress_rows(run_summary, paper):
         {"Metric": "Paper gate", "Value": summary.get("gate_status") or "-"},
         {"Metric": "Next live gate", "Value": "item 45 live-pilot readiness"},
     ]
+
+
+def _event_gate_rows(run_summary, paper=None):
+    gate = (run_summary or {}).get("information_event_gate") or ((run_summary or {}).get("latest_tick") or {}).get("information_event_gate") or {}
+    score = (((paper or {}).get("summary") or {}).get("event_gate_score") or {})
+    rows = [
+        {"Kind": "Metric", "Market": "-", "Event": "Pull rows", "Class": "-", "Action": "-", "Starts": "-", "Ends": str(gate.get("pull_rows", 0))},
+        {"Kind": "Metric", "Market": "-", "Event": "Widen rows", "Class": "-", "Action": "-", "Starts": "-", "Ends": str(gate.get("widen_rows", 0))},
+        {"Kind": "Metric", "Market": "-", "Event": "Exception rows", "Class": "-", "Action": "-", "Starts": "-", "Ends": str(gate.get("exception_rows", 0))},
+    ]
+    if score:
+        rows.append({
+            "Kind": "Metric",
+            "Market": "-",
+            "Event": "Narrowing gate",
+            "Class": "-",
+            "Action": "-",
+            "Starts": "-",
+            "Ends": score.get("narrowing_gate") or "-",
+        })
+    for event in gate.get("active_events") or []:
+        rows.append({
+            "Kind": "Active",
+            "Market": event.get("market_id") or "-",
+            "Event": event.get("event_id") or "-",
+            "Class": event.get("event_class") or "-",
+            "Action": event.get("action") or "-",
+            "Starts": event.get("starts_at_utc") or "-",
+            "Ends": event.get("ends_at_utc") or "-",
+        })
+    for event in gate.get("next_events") or []:
+        rows.append({
+            "Kind": "Next",
+            "Market": event.get("market_id") or "-",
+            "Event": event.get("event_id") or "-",
+            "Class": event.get("event_class") or "-",
+            "Action": "-",
+            "Starts": event.get("starts_at_utc") or "-",
+            "Ends": "-",
+        })
+    return rows
 
 
 def _runtime_identity_rows(identity):
@@ -353,6 +400,10 @@ def render_market_making_page(refresh_seconds=15):
             if reason_rows:
                 st.subheader("Quote Reasons")
                 st.dataframe(_df(reason_rows), width="stretch", hide_index=True)
+            event_gate_rows = _event_gate_rows(run_summary, paper)
+            if event_gate_rows:
+                st.subheader("Information Event Gate")
+                st.dataframe(_df(event_gate_rows), width="stretch", hide_index=True)
 
         if run_folder:
             preflight = _read_json(run_folder / "preflight.json", {}) or {}
@@ -386,6 +437,9 @@ def render_market_making_page(refresh_seconds=15):
                     "reason_code",
                     "known_edge_permission",
                     "known_edge_reason",
+                    "event_gate_status",
+                    "event_gate_reason_code",
+                    "event_gate_next_event_at_utc",
                     "source_freshness_state",
                     "budget_reserved_usdc",
                 ]

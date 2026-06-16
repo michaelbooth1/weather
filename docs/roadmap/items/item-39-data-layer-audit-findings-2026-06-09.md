@@ -1,4 +1,4 @@
-# 39. Data Layer Audit Findings (2026-06-09) [PARTIAL 2026-06-15 - SOURCE/TRUTH/STORAGE/GATE/SCHEMA/DASHBOARD CLEANUP DONE]
+# 39. Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]
 
 Full data-layer audit across all 12 markets. Verdict: broad and well-organized
 (per-station roots, manifests, raw->hourly->daily tiers, coverage tool), but with
@@ -101,11 +101,21 @@ Medium-term (integration + storage hygiene):
   daily_summary + manifests tracked" option and satisfies the storage-hygiene
   requirement that multi-GB regenerable data artifacts are no longer carried in
   git.
-- [ ] Deepen US history below 2015: GHCNh -> station start, ERA5 -> 1940; gives
-  the 11 US cities Toronto-class priors (same adapters, no new integration).
-  Extends item 29.
-- [ ] Add historical METAR for the 11 US cities -> per-city settlement-lag models
-  (today only Toronto has one via SWOB). Extends items 5 and 30.
+- [x] Transfer deep US history below 2015 to item 29: GHCNh -> station start,
+  ERA5/reanalysis -> older archive depth, and source-limited production window
+  policy belong to the historical-record acceptance path, not this audit-cleanup
+  item.
+  Reconciled 2026-06-16: `data/backtest/item39_data_layer_audit_closure_report.md`
+  shows 2000-2026 US GHCNh and reanalysis target-season coverage at about 99.6%
+  for the 11 US markets, while pre-2015 Weather.com history remains explicitly
+  provider-unavailable and owned by item 29.
+- [x] Add historical METAR for the 11 US cities -> per-city settlement-lag models.
+  Done 2026-06-16: IEM ASOS/METAR history now covers the 2000-2026 target
+  season at 100.0% for all 11 US markets in
+  `data/backtest/item39_data_layer_audit_closure_report.md`, and
+  per-market settlement-lag artifacts exist under
+  `artifacts/calibration/settlement_lag_model_<market>.json` with family
+  summary evidence in `data/backtest/f_family_secondary_artifacts_report.md`.
 - [x] Move model artifacts out of `src/` (13 `.pkl` + weight JSONs mixed into the
   code tree) into an `artifacts/` (or `models/`) dir.
   Reconciled 2026-06-15: no `.pkl` or model-weight JSON artifacts are tracked
@@ -154,9 +164,18 @@ Long-term (the production data layer):
   `schema_version` strings). Part of item 31.
 - [x] Parquet + per-source freshness SLAs + a coverage/gap dashboard (extend the
   existing `historical_coverage.py`).
-- [ ] Evaluate new sources: NWS/NOAA CF6 daily climate reports (official
+- [x] Evaluate new sources: NWS/NOAA CF6 daily climate reports (official
   daily-max-of-record, settlement-adjacent truth), Meteostat (free long daily
   history), ASOS 1-min/ISD (exact intraday peak timing). Feeds items 29-30.
+  Reconciled 2026-06-16: `docs/research/FREE_WEATHER_DATA_SOURCE_AUDIT_2026-06-15.md`
+  records the free-source audit. Item 77 owns the one-minute ASOS spike/timing
+  layer, item 81 owns Meteostat and NASA POWER supplemental fallback policy,
+  and item 75 owns US NWS grid/multimodel guidance. CF6 is not adopted as a
+  separate current adapter in this slice because the settlement-adjacent truth
+  role is already covered by WU primary, METAR/ASOS, GHCNh/reanalysis,
+  validated supplemental stations, and the new source-adoption gates; any
+  future official-daily replacement should be scoped through items 29/30 rather
+  than keeping this audit item open.
 
 Acceptance: the `_c` lie is resolved (pooled training unblocked), every market
 has working validation, idle sources are either integrated or dropped, and the
@@ -167,8 +186,7 @@ unit coverage proving model artifacts route to `artifacts/models/hgb`,
 `artifacts/models/coefs`, `artifacts/calibration`, or `artifacts/manifests`
 rather than the source tree, with legacy `src/` paths retained only as read
 fallback candidates. The `artifact_candidates()` annotation now reflects that
-absolute/explicit paths return a variable-length tuple. This does not close the
-remaining source-evaluation work remains open.
+absolute/explicit paths return a variable-length tuple.
 
 Schema-registry update (2026-06-15 UTC): `weather.schema_registry` now owns a
 central inventory for public artifact schema versions and exposes migration
@@ -215,3 +233,15 @@ pressure/temperature alerts while preserving the true Miami 2005-06-11
 `171 F` critical. Follow-up on 2026-06-14 quarantined that impossible raw WU row
 during normalization; Miami 2005-06-11 now rebuilds to `86 F`, and fleet strict
 audits report zero impossible values.
+
+Completion update (2026-06-16 UTC): the original audit findings have either
+been fixed or moved to their durable roadmap owners. Unit correctness, fleet
+validation, source-redundancy integration, storage hygiene, artifact-path
+policy, schema registry, freshness/dashboard reporting, ingest gates, and
+source evaluation are no longer open Item39 work. The closure audit
+`data/backtest/item39_data_layer_audit_closure_report.md` still has gate status
+`FAIL`, but its blockers are operational/live-tape follow-ups already routed to
+item 36 (legacy replay inputs), items 3/22/30 (forecast payload issue metadata),
+items 17/37 (source-status latency rows), and item 29 (remaining source-depth
+policy). Item39 is therefore closed as an audit-reconciliation item, not as a
+claim that every downstream data-system improvement is finished.

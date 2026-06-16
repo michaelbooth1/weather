@@ -40,12 +40,17 @@ SOURCE_CACHE_TTL_MINUTES = {
     "wu_current": 30,
     "eccc_swob": 30,
     "metar": 75,            # METAR prints ~hourly; allow one cycle plus buffer
+    "marine_context": 75,   # coastal stations are observational and can lag
+    "mrms_precip": 20,      # MRMS precip-rate objects are expected every few minutes
     # Forecasts -- slow-moving, a longer stale window is acceptable.
     "weather_forecast": 90,
     "open_meteo": 90,
     "nws_hourly": 90,
+    "nws_grid": 90,
     "eccc_citypage": 120,   # public city-page forecast updates a few times/day
+    "eccc_gem": 120,
     "global_ensemble": 120,
+    "open_meteo_multimodel": 120,
 }
 
 # Model-version labels — the single source of truth shared with snapshot_tracker.

@@ -12,6 +12,7 @@ sides.
 CLI:
   python -m src.forecast_history backfill [--start-year 2015] [--end-year 2026]
   python -m src.forecast_history coverage
+  python -m src.forecast_history fleet-coverage --json-out data/backtest/forecast_history_coverage.json
 """
 import argparse
 import csv
@@ -24,17 +25,42 @@ from pathlib import Path
 
 import requests
 
-from weather.market.market_registry import TORONTO, spec_for_id
+from weather.market.market_registry import TORONTO, all_specs, spec_for_id
 from weather.model.feature_store import row_forecast_high_native, row_temp_native
 from weather.model.model_sources import request_with_retries
 from weather.sources.daily_summary import native_to_c
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
-RICH_SCHEMA_VERSION = "forecast_history_long_v2"
+RICH_SCHEMA_VERSION = "forecast_history_long_v3"
 DAILY_ISSUE_SCHEMA_VERSION = "forecast_history_daily_issue_v1"
+FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION = "forecast_history_coverage_v0.1"
 DEFAULT_PREVIOUS_RUN_LEADS = (1, 2, 3, 4, 5, 6, 7)
 DEFAULT_PREVIOUS_RUN_START_YEAR = 2021
+OPEN_METEO_HOURLY_FIELDS = (
+    "temperature_2m",
+    "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+    "shortwave_radiation",
+    "wind_speed_10m",
+    "cape",
+    "temperature_925hPa",
+    "temperature_850hPa",
+    "geopotential_height_500hPa",
+    "direct_radiation",
+    "diffuse_radiation",
+    "wind_gusts_10m",
+    "visibility",
+    "precipitation_probability",
+    "precipitation",
+    "soil_temperature_0cm",
+    "soil_moisture_0_to_1cm",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+)
+OPEN_METEO_HOURLY_PARAM = ",".join(OPEN_METEO_HOURLY_FIELDS)
 RICH_FORECAST_COLUMNS = [
     "schema_version",
     "market",
@@ -57,9 +83,46 @@ RICH_FORECAST_COLUMNS = [
     "high_cloud",
     "shortwave_radiation",
     "wind_speed_kmh",
+    "direct_radiation",
+    "diffuse_radiation",
+    "cape",
+    "temperature_925hpa",
+    "temperature_850hpa",
+    "geopotential_height_500hpa",
+    "wind_gust_kmh",
+    "visibility",
+    "precipitation_probability",
+    "precipitation",
+    "soil_temperature_0cm",
+    "soil_moisture_0_to_1cm",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
     "source_url",
     "payload_hash",
 ]
+RICH_CORE_REQUIRED_NON_NULL_FIELDS = (
+    "cloud_cover",
+    "low_cloud",
+    "mid_cloud",
+    "high_cloud",
+    "shortwave_radiation",
+    "direct_radiation",
+    "diffuse_radiation",
+)
+RICH_AUDIT_NON_NULL_FIELDS = RICH_CORE_REQUIRED_NON_NULL_FIELDS + (
+    "cape",
+    "temperature_925hpa",
+    "temperature_850hpa",
+    "geopotential_height_500hpa",
+    "wind_gust_kmh",
+    "visibility",
+    "precipitation_probability",
+    "precipitation",
+    "soil_temperature_0cm",
+    "soil_moisture_0_to_1cm",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+)
 DAILY_ISSUE_COLUMNS = [
     "schema_version",
     "market",
@@ -125,6 +188,19 @@ def to_float(value):
         return None
 
 
+def first_present(row, *keys):
+    for key in keys:
+        value = (row or {}).get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def hourly_value(hourly, key, index):
+    values = (hourly or {}).get(key) or []
+    return to_float(values[index] if index < len(values) else None)
+
+
 def local_valid_datetime(raw_time, spec):
     dt = datetime.fromisoformat(str(raw_time))
     if dt.tzinfo is None:
@@ -148,6 +224,20 @@ def rich_row(
     high_cloud=None,
     shortwave_radiation=None,
     wind_speed_kmh=None,
+    direct_radiation=None,
+    diffuse_radiation=None,
+    cape=None,
+    temperature_925hpa=None,
+    temperature_850hpa=None,
+    geopotential_height_500hpa=None,
+    wind_gust_kmh=None,
+    visibility=None,
+    precipitation_probability=None,
+    precipitation=None,
+    soil_temperature_0cm=None,
+    soil_moisture_0_to_1cm=None,
+    vapour_pressure_deficit=None,
+    et0_fao_evapotranspiration=None,
     source_url=HIST_FORECAST_URL,
 ):
     lead_hours = ""
@@ -175,6 +265,20 @@ def rich_row(
         "high_cloud": high_cloud,
         "shortwave_radiation": shortwave_radiation,
         "wind_speed_kmh": wind_speed_kmh,
+        "direct_radiation": direct_radiation,
+        "diffuse_radiation": diffuse_radiation,
+        "cape": cape,
+        "temperature_925hpa": temperature_925hpa,
+        "temperature_850hpa": temperature_850hpa,
+        "geopotential_height_500hpa": geopotential_height_500hpa,
+        "wind_gust_kmh": wind_gust_kmh,
+        "visibility": visibility,
+        "precipitation_probability": precipitation_probability,
+        "precipitation": precipitation,
+        "soil_temperature_0cm": soil_temperature_0cm,
+        "soil_moisture_0_to_1cm": soil_moisture_0_to_1cm,
+        "vapour_pressure_deficit": vapour_pressure_deficit,
+        "et0_fao_evapotranspiration": et0_fao_evapotranspiration,
         "source_url": source_url,
     }
     row["payload_hash"] = forecast_payload_hash(row)
@@ -185,12 +289,6 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
     hourly = payload.get("hourly", {}) or {}
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
-    clouds = hourly.get("cloud_cover") or []
-    low_clouds = hourly.get("cloud_cover_low") or []
-    mid_clouds = hourly.get("cloud_cover_mid") or []
-    high_clouds = hourly.get("cloud_cover_high") or []
-    solar = hourly.get("shortwave_radiation") or []
-    winds = hourly.get("wind_speed_10m") or []
     rows = []
     for index, raw_time in enumerate(times):
         temp = to_float(temps[index] if index < len(temps) else None)
@@ -207,12 +305,26 @@ def historical_forecast_rows(payload, spec=TORONTO, source_model="best_match"):
             issue_time="",
             issue_time_basis="stitched_continuous_archive",
             lead_days="",
-            cloud_cover=to_float(clouds[index] if index < len(clouds) else None),
-            low_cloud=to_float(low_clouds[index] if index < len(low_clouds) else None),
-            mid_cloud=to_float(mid_clouds[index] if index < len(mid_clouds) else None),
-            high_cloud=to_float(high_clouds[index] if index < len(high_clouds) else None),
-            shortwave_radiation=to_float(solar[index] if index < len(solar) else None),
-            wind_speed_kmh=to_float(winds[index] if index < len(winds) else None),
+            cloud_cover=hourly_value(hourly, "cloud_cover", index),
+            low_cloud=hourly_value(hourly, "cloud_cover_low", index),
+            mid_cloud=hourly_value(hourly, "cloud_cover_mid", index),
+            high_cloud=hourly_value(hourly, "cloud_cover_high", index),
+            shortwave_radiation=hourly_value(hourly, "shortwave_radiation", index),
+            wind_speed_kmh=hourly_value(hourly, "wind_speed_10m", index),
+            direct_radiation=hourly_value(hourly, "direct_radiation", index),
+            diffuse_radiation=hourly_value(hourly, "diffuse_radiation", index),
+            cape=hourly_value(hourly, "cape", index),
+            temperature_925hpa=hourly_value(hourly, "temperature_925hPa", index),
+            temperature_850hpa=hourly_value(hourly, "temperature_850hPa", index),
+            geopotential_height_500hpa=hourly_value(hourly, "geopotential_height_500hPa", index),
+            wind_gust_kmh=hourly_value(hourly, "wind_gusts_10m", index),
+            visibility=hourly_value(hourly, "visibility", index),
+            precipitation_probability=hourly_value(hourly, "precipitation_probability", index),
+            precipitation=hourly_value(hourly, "precipitation", index),
+            soil_temperature_0cm=hourly_value(hourly, "soil_temperature_0cm", index),
+            soil_moisture_0_to_1cm=hourly_value(hourly, "soil_moisture_0_to_1cm", index),
+            vapour_pressure_deficit=hourly_value(hourly, "vapour_pressure_deficit", index),
+            et0_fao_evapotranspiration=hourly_value(hourly, "et0_fao_evapotranspiration", index),
             source_url=HIST_FORECAST_URL,
         ))
     return rows
@@ -348,11 +460,37 @@ def load_forecast_profiles(path=None, source="open_meteo_historical_forecast"):
                 "temp_native": temp_native,
                 "temp_c": temp_native,
                 "cloud_cover": to_float(row.get("cloud_cover")),
-                "low_cloud": to_float(row.get("low_cloud") or row.get("cloud_cover_low")),
-                "mid_cloud": to_float(row.get("mid_cloud") or row.get("cloud_cover_mid")),
-                "high_cloud": to_float(row.get("high_cloud") or row.get("cloud_cover_high")),
-                "solar": to_float(row.get("shortwave_radiation") or row.get("solar")),
+                "low_cloud": to_float(first_present(row, "low_cloud", "cloud_cover_low")),
+                "mid_cloud": to_float(first_present(row, "mid_cloud", "cloud_cover_mid")),
+                "high_cloud": to_float(first_present(row, "high_cloud", "cloud_cover_high")),
+                "solar": to_float(first_present(row, "shortwave_radiation", "solar")),
                 "wind_kmh": to_float(row.get("wind_speed_kmh")),
+                "direct_radiation": to_float(row.get("direct_radiation")),
+                "diffuse_radiation": to_float(row.get("diffuse_radiation")),
+                "cape": to_float(row.get("cape")),
+                "temperature_925hpa": to_float(first_present(
+                    row,
+                    "temperature_925hpa",
+                    "temperature_925hPa",
+                )),
+                "temperature_850hpa": to_float(first_present(
+                    row,
+                    "temperature_850hpa",
+                    "temperature_850hPa",
+                )),
+                "geopotential_height_500hpa": to_float(first_present(
+                    row,
+                    "geopotential_height_500hpa",
+                    "geopotential_height_500hPa",
+                )),
+                "wind_gust_kmh": to_float(first_present(row, "wind_gust_kmh", "wind_gusts_10m")),
+                "visibility": to_float(row.get("visibility")),
+                "precipitation_probability": to_float(row.get("precipitation_probability")),
+                "precipitation": to_float(row.get("precipitation")),
+                "soil_temperature_0cm": to_float(row.get("soil_temperature_0cm")),
+                "soil_moisture_0_to_1cm": to_float(row.get("soil_moisture_0_to_1cm")),
+                "vapour_pressure_deficit": to_float(row.get("vapour_pressure_deficit")),
+                "et0_fao_evapotranspiration": to_float(row.get("et0_fao_evapotranspiration")),
             })
     return dict(profiles)
 
@@ -374,10 +512,7 @@ def fetch_historical_forecast_payload(year, spec=TORONTO, timeout=30):
             "longitude": spec.lon,
             "start_date": start,
             "end_date": end,
-            "hourly": (
-                "temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,"
-                "cloud_cover_high,shortwave_radiation,wind_speed_10m"
-            ),
+            "hourly": OPEN_METEO_HOURLY_PARAM,
             "temperature_unit": spec.om_temperature_unit,
             "wind_speed_unit": "kmh",
             "timezone": spec.timezone,
@@ -523,11 +658,7 @@ def backfill(
         },
         "market": spec.id,
         "params": {"latitude": spec.lat, "longitude": spec.lon,
-                   "hourly": (
-                       "temperature_2m,cloud_cover,cloud_cover_low,"
-                       "cloud_cover_mid,cloud_cover_high,shortwave_radiation,"
-                       "wind_speed_10m"
-                   ), "timezone": spec.timezone},
+                   "hourly": OPEN_METEO_HOURLY_PARAM, "timezone": spec.timezone},
         "previous_runs": {
             "enabled": bool(include_previous_runs),
             "start_year": int(previous_runs_start_year),
@@ -576,6 +707,154 @@ def coverage(spec=TORONTO):
         print("Long rows:", man.get("long_rows"), "Daily issue rows:", man.get("daily_issue_rows"))
 
 
+def _nonnull(value):
+    return value not in (None, "")
+
+
+def forecast_history_coverage(spec=TORONTO, path=None, required_fields=None):
+    """Summarize rich forecast-history coverage for one market."""
+    path = Path(path) if path else long_path_for(spec)
+    required_fields = tuple(required_fields or RICH_CORE_REQUIRED_NON_NULL_FIELDS)
+    audit_fields = tuple(dict.fromkeys(RICH_AUDIT_NON_NULL_FIELDS + required_fields))
+    row_count = 0
+    historical_rows = 0
+    dates = set()
+    schemas = defaultdict(int)
+    nonnull_fields = {field: 0 for field in audit_fields}
+    header = []
+    if not path.exists():
+        return {
+            "market": spec.id,
+            "station": spec.icao,
+            "path": str(path),
+            "exists": False,
+            "header_ok": False,
+            "rows": 0,
+            "historical_rows": 0,
+            "days": 0,
+            "years": "",
+            "schemas": {},
+            "nonnull_fields": nonnull_fields,
+            "missing_nonnull_fields": list(required_fields),
+            "partial_nonnull_fields": {},
+            "incomplete_required_fields": list(required_fields),
+            "status": "MISSING",
+        }
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        header = reader.fieldnames or []
+        for row in reader:
+            row_count += 1
+            schema = row.get("schema_version") or ""
+            if schema:
+                schemas[schema] += 1
+            if row.get("source") != "open_meteo_historical_forecast":
+                continue
+            historical_rows += 1
+            target_date = row.get("target_date")
+            if target_date:
+                dates.add(target_date)
+            for field in audit_fields:
+                if _nonnull(row.get(field)):
+                    nonnull_fields[field] += 1
+    years = sorted({item[:4] for item in dates if len(item) >= 4})
+    missing_fields = [
+        field for field in audit_fields
+        if historical_rows == 0 or nonnull_fields.get(field, 0) == 0
+    ]
+    partial_fields = {
+        field: nonnull_fields.get(field, 0)
+        for field in audit_fields
+        if 0 < nonnull_fields.get(field, 0) < historical_rows
+    }
+    incomplete_required_fields = [
+        field for field in required_fields
+        if historical_rows == 0 or nonnull_fields.get(field, 0) < historical_rows
+    ]
+    header_ok = header == RICH_FORECAST_COLUMNS
+    schema_ok = bool(schemas) and set(schemas) == {RICH_SCHEMA_VERSION}
+    status = "OK" if header_ok and schema_ok and historical_rows > 0 and not incomplete_required_fields else "FAIL"
+    return {
+        "market": spec.id,
+        "station": spec.icao,
+        "path": str(path),
+        "exists": True,
+        "header_ok": header_ok,
+        "rows": row_count,
+        "historical_rows": historical_rows,
+        "days": len(dates),
+        "years": f"{years[0]}..{years[-1]}" if years else "",
+        "schemas": dict(sorted(schemas.items())),
+        "nonnull_fields": nonnull_fields,
+        "missing_nonnull_fields": missing_fields,
+        "partial_nonnull_fields": partial_fields,
+        "incomplete_required_fields": incomplete_required_fields,
+        "status": status,
+    }
+
+
+def _market_ids(value):
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def forecast_history_fleet_coverage(market_ids=None, required_fields=None):
+    ids = set(market_ids or [])
+    specs = [spec for spec in all_specs() if not ids or spec.id in ids]
+    markets = [forecast_history_coverage(spec, required_fields=required_fields) for spec in specs]
+    ok_count = sum(1 for row in markets if row.get("status") == "OK")
+    return {
+        "schema_version": FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
+        "generated_at": datetime.now().isoformat(),
+        "required_fields": list(required_fields or RICH_CORE_REQUIRED_NON_NULL_FIELDS),
+        "audit_fields": list(RICH_AUDIT_NON_NULL_FIELDS),
+        "summary": {
+            "market_count": len(markets),
+            "ok_market_count": ok_count,
+            "failed_market_count": len(markets) - ok_count,
+            "all_active_markets_backfilled": bool(markets) and ok_count == len(markets),
+        },
+        "markets": markets,
+    }
+
+
+def render_forecast_history_coverage_markdown(payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Forecast History Coverage",
+        "",
+        f"- Schema: `{payload.get('schema_version')}`",
+        f"- Markets OK: {summary.get('ok_market_count', 0)}/{summary.get('market_count', 0)}",
+        f"- All active markets backfilled: {summary.get('all_active_markets_backfilled')}",
+        "",
+        "| Market | Status | Rows | Historical rows | Days | Years | Header | Schemas | Missing | Partial |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+    ]
+    for row in payload.get("markets") or []:
+        schemas = ", ".join(f"{key}:{value}" for key, value in (row.get("schemas") or {}).items()) or "-"
+        missing = ", ".join(row.get("missing_nonnull_fields") or []) or "-"
+        partial = ", ".join(
+            f"{key}:{value}" for key, value in (row.get("partial_nonnull_fields") or {}).items()
+        ) or "-"
+        lines.append(
+            f"| {row.get('market')} | {row.get('status')} | {row.get('rows', 0)} | "
+            f"{row.get('historical_rows', 0)} | {row.get('days', 0)} | {row.get('years') or '-'} | "
+            f"{row.get('header_ok')} | {schemas} | {missing} |"
+            f" {partial} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_forecast_history_coverage_outputs(payload, json_out=None, markdown_out=None):
+    if json_out:
+        path = Path(json_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if markdown_out:
+        path = Path(markdown_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_forecast_history_coverage_markdown(payload), encoding="utf-8")
+
+
 def parse_leads(value):
     if not value:
         return DEFAULT_PREVIOUS_RUN_LEADS
@@ -597,6 +876,10 @@ def main():
     b.add_argument("--previous-runs-leads", default=",".join(str(item) for item in DEFAULT_PREVIOUS_RUN_LEADS))
     b.add_argument("--previous-runs-model", default="best_match")
     sub.add_parser("coverage")
+    fc = sub.add_parser("fleet-coverage")
+    fc.add_argument("--markets", default="", help="Comma-separated market ids; defaults to all registered markets.")
+    fc.add_argument("--json-out", default="")
+    fc.add_argument("--out", default="")
     args = parser.parse_args()
     spec = spec_for_id(args.market)
 
@@ -613,6 +896,20 @@ def main():
         )
     elif args.command == "coverage":
         coverage(spec)
+    elif args.command == "fleet-coverage":
+        market_ids = _market_ids(args.markets)
+        for market_id in market_ids:
+            spec_for_id(market_id)
+        payload = forecast_history_fleet_coverage(market_ids)
+        write_forecast_history_coverage_outputs(payload, json_out=args.json_out, markdown_out=args.out)
+        print(
+            f"Forecast history coverage OK markets: "
+            f"{payload['summary']['ok_market_count']}/{payload['summary']['market_count']}"
+        )
+        if args.json_out:
+            print(f"Wrote JSON coverage to {args.json_out}")
+        if args.out:
+            print(f"Wrote coverage report to {args.out}")
 
 
 if __name__ == "__main__":

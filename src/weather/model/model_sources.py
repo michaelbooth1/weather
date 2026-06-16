@@ -1,5 +1,7 @@
+import hashlib
 import json
 import re
+import statistics
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,6 +11,9 @@ from pathlib import Path
 import requests
 
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
+from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
+from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
+from weather.sources.mrms_precip import fetch_mrms_precip_for_market
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
@@ -92,11 +97,16 @@ class SourceFetchMixin:
             "wu_current": self.fetch_wu_current,
             "eccc_citypage": self.fetch_eccc_citypage,
             "eccc_swob": self.fetch_eccc_swob,
+            "eccc_gem": self.fetch_eccc_gem,
             "metar": self.fetch_metar,
             "weather_forecast": self.fetch_weather_com_forecast,
             "open_meteo": self.fetch_open_meteo,
             "nws_hourly": self.fetch_nws_hourly_forecast,
+            "nws_grid": self.fetch_nws_grid_forecast,
+            "open_meteo_multimodel": self.fetch_open_meteo_multimodel,
             "global_ensemble": self.fetch_global_ensemble,
+            "marine_context": self.fetch_marine_context,
+            "mrms_precip": self.fetch_mrms_precip,
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
         fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
@@ -276,7 +286,7 @@ class SourceFetchMixin:
             age = item.get("cache_age_minutes")
             if age is None:
                 age = self.cache_age_minutes(item.get("fetched_at"))
-            diagnostics.append({
+            diagnostic = {
                 "source": name,
                 "status": status,
                 "fetched_at": item.get("fetched_at"),
@@ -284,7 +294,12 @@ class SourceFetchMixin:
                 "ttl_minutes": self.source_cache_ttl_minutes(name),
                 "latency_ms": item.get("latency_ms"),
                 "error": item.get("error"),
-            })
+            }
+            if name == "marine_context":
+                marine_state = active_marine_context_state(item.get("data") or {})
+                if marine_state:
+                    diagnostic["marine_context"] = marine_state
+            diagnostics.append(diagnostic)
         return diagnostics
 
     def fetch_wu_history(self):
@@ -598,7 +613,12 @@ class SourceFetchMixin:
             "longitude": self.spec.lon,
             "hourly": (
                 "temperature_2m,cloud_cover,cloud_cover_low,cloud_cover_mid,"
-                "cloud_cover_high,wind_speed_10m,shortwave_radiation"
+                "cloud_cover_high,wind_speed_10m,shortwave_radiation,cape,"
+                "temperature_925hPa,temperature_850hPa,geopotential_height_500hPa,"
+                "direct_radiation,diffuse_radiation,wind_gusts_10m,visibility,"
+                "precipitation_probability,precipitation,soil_temperature_0cm,"
+                "soil_moisture_0_to_1cm,vapour_pressure_deficit,"
+                "et0_fao_evapotranspiration"
             ),
             "temperature_unit": self.spec.om_temperature_unit,
             "wind_speed_unit": "kmh",
@@ -629,6 +649,30 @@ class SourceFetchMixin:
                 "high_cloud": self.to_number(self.array_get(hourly, "cloud_cover_high", index)),
                 "wind_kmh": self.to_number(self.array_get(hourly, "wind_speed_10m", index)),
                 "solar": self.to_number(self.array_get(hourly, "shortwave_radiation", index)),
+                "cape": self.to_number(self.array_get(hourly, "cape", index)),
+                "temperature_925hpa": self.to_number(self.array_get(hourly, "temperature_925hPa", index)),
+                "temperature_850hpa": self.to_number(self.array_get(hourly, "temperature_850hPa", index)),
+                "geopotential_height_500hpa": self.to_number(
+                    self.array_get(hourly, "geopotential_height_500hPa", index)
+                ),
+                "direct_radiation": self.to_number(self.array_get(hourly, "direct_radiation", index)),
+                "diffuse_radiation": self.to_number(self.array_get(hourly, "diffuse_radiation", index)),
+                "wind_gust_kmh": self.to_number(self.array_get(hourly, "wind_gusts_10m", index)),
+                "visibility": self.to_number(self.array_get(hourly, "visibility", index)),
+                "precipitation_probability": self.to_number(
+                    self.array_get(hourly, "precipitation_probability", index)
+                ),
+                "precipitation": self.to_number(self.array_get(hourly, "precipitation", index)),
+                "soil_temperature_0cm": self.to_number(self.array_get(hourly, "soil_temperature_0cm", index)),
+                "soil_moisture_0_to_1cm": self.to_number(
+                    self.array_get(hourly, "soil_moisture_0_to_1cm", index)
+                ),
+                "vapour_pressure_deficit": self.to_number(
+                    self.array_get(hourly, "vapour_pressure_deficit", index)
+                ),
+                "et0_fao_evapotranspiration": self.to_number(
+                    self.array_get(hourly, "et0_fao_evapotranspiration", index)
+                ),
             }
             day_rows.append(row)
             if dt < now:
@@ -697,6 +741,114 @@ class SourceFetchMixin:
             "raw_payload": payload,
         }
 
+    def fetch_nws_grid_forecast(self):
+        """US National Weather Service raw forecastGridData values."""
+        if ":US" not in str(self.spec.wu_history_id):
+            return {"available": False, "reason": "NWS grid forecast is US-only.", "rows": [], "day_rows": [], "day_max_native": None, "day_max_c": None}
+        points_url = f"https://api.weather.gov/points/{self.spec.lat:.4f},{self.spec.lon:.4f}"
+        headers = {
+            "User-Agent": "weather-market-research/1.0 (local)",
+            "Accept": "application/geo+json, application/json",
+        }
+        metadata = self.cached_nws_grid_metadata(points_url, headers)
+        grid_url = metadata.get("forecastGridData")
+        if not grid_url:
+            raise RuntimeError("NWS points response did not include forecastGridData")
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        payload = self.get_json(grid_url, {}, headers=headers)
+        props = payload.get("properties") or {}
+        rows_by_time = {}
+
+        def row_for(dt):
+            key = dt.isoformat()
+            row = rows_by_time.setdefault(key, {
+                "time": dt.strftime("%H:%M"),
+                "valid_time": key,
+            })
+            return row
+
+        field_map = {
+            "temperature": ("temp_native", True),
+            "maxTemperature": ("max_temp_native", True),
+            "dewpoint": ("dewpoint_native", True),
+            "relativeHumidity": ("humidity", False),
+            "skyCover": ("sky_cover", False),
+            "windDirection": ("wind_direction", False),
+            "windSpeed": ("wind_kmh", False),
+            "probabilityOfPrecipitation": ("precipitation_probability", False),
+            "quantitativePrecipitation": ("quantitative_precipitation", False),
+        }
+        for source_key, (target_key, is_temp) in field_map.items():
+            series = props.get(source_key) or {}
+            uom = series.get("uom")
+            for item in series.get("values") or []:
+                dt = self.parse_nws_grid_valid_time(item.get("validTime"))
+                if not dt or dt.date() != self.target_date:
+                    continue
+                value = self.nws_grid_value(item.get("value"), uom, is_temp=is_temp)
+                row = row_for(dt)
+                row[target_key] = value
+                if target_key == "temp_native":
+                    row["temp_c"] = value
+                elif target_key == "dewpoint_native":
+                    row["dewpoint_c"] = value
+
+        for source_key in ("weather", "hazards"):
+            series = props.get(source_key) or {}
+            for item in series.get("values") or []:
+                dt = self.parse_nws_grid_valid_time(item.get("validTime"))
+                if not dt or dt.date() != self.target_date:
+                    continue
+                value = item.get("value")
+                row = row_for(dt)
+                row[source_key] = value
+                row[f"{source_key}_count"] = self.nws_grid_value_count(value)
+
+        day_rows = sorted(rows_by_time.values(), key=lambda row: row.get("valid_time") or "")
+        now = datetime.now(self.spec.tz)
+        rows = [
+            row for row in day_rows
+            if self.parse_weather_com_time(row.get("valid_time")) is not None
+            and self.parse_weather_com_time(row.get("valid_time")) >= now
+        ]
+        max_values = [
+            row.get("max_temp_native") for row in day_rows
+            if row.get("max_temp_native") is not None
+        ]
+        if not max_values:
+            max_values = [
+                row.get("temp_native") for row in day_rows
+                if row.get("temp_native") is not None
+            ]
+        day_max_native = max(max_values) if max_values else None
+        provider_update_time = props.get("updateTime") or props.get("updated")
+        return {
+            "available": True,
+            "url": grid_url,
+            "rows": rows[:12],
+            "day_rows": day_rows,
+            "day_max_native": day_max_native,
+            "day_max_c": day_max_native,
+            "provider_issue_time": props.get("generatedAt"),
+            "provider_update_time": provider_update_time,
+            "fetched_at": fetched_at,
+            "run_age_hours": self.hours_between(fetched_at, provider_update_time),
+            "row_count": len(day_rows),
+            "payload_hash": self.payload_hash(payload),
+            "grid_metadata": metadata,
+            "historical_archive_available": False,
+            "live_only_fields": [
+                "nws_grid_high",
+                "nws_grid_vs_forecast_high",
+                "nws_grid_pop_after_cutoff_max",
+                "nws_grid_qpf_after_cutoff_sum",
+                "nws_grid_sky_cover_after_cutoff_mean",
+                "nws_grid_hazard_count",
+                "nws_grid_run_age_hours",
+            ],
+            "raw_payload": payload,
+        }
+
     def cached_nws_points(self, points_url, headers):
         cache_path = self.spec.data_root / "nws_points.json"
         if cache_path.exists():
@@ -716,6 +868,142 @@ class SourceFetchMixin:
         except OSError:
             pass
         return payload
+
+    def cached_nws_grid_metadata(self, points_url, headers):
+        cache_path = self.spec.data_root / "nws_grid_metadata.json"
+        if cache_path.exists():
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("points_url") == points_url and cached.get("forecastGridData"):
+                    return cached
+            except (OSError, json.JSONDecodeError):
+                pass
+        points = self.cached_nws_points(points_url, headers)
+        props = points.get("properties") or {}
+        metadata = {
+            "points_url": points_url,
+            "forecastGridData": props.get("forecastGridData"),
+            "forecastHourly": props.get("forecastHourly"),
+            "gridId": props.get("gridId"),
+            "gridX": props.get("gridX"),
+            "gridY": props.get("gridY"),
+            "cwa": props.get("cwa"),
+            "timeZone": props.get("timeZone"),
+        }
+        try:
+            self.spec.data_root.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+        except OSError:
+            pass
+        return metadata
+
+    def fetch_open_meteo_multimodel(self):
+        """US-only Open-Meteo /v1/gfs model-specific guidance columns."""
+        if ":US" not in str(self.spec.wu_history_id):
+            return {"available": False, "reason": "Open-Meteo multi-model guidance is US-only.", "rows": [], "day_rows": [], "day_model_highs": {}}
+        url = "https://api.open-meteo.com/v1/gfs"
+        models = ("gfs_seamless", "ncep_hrrr_conus", "ncep_nbm_conus", "ncep_nam_conus")
+        field_map = {
+            "temperature_2m": "temp_native",
+            "cloud_cover": "cloud_cover",
+            "shortwave_radiation": "solar",
+            "direct_radiation": "direct_radiation",
+            "diffuse_radiation": "diffuse_radiation",
+            "wind_speed_10m": "wind_kmh",
+            "wind_gusts_10m": "wind_gust_kmh",
+            "precipitation_probability": "precipitation_probability",
+            "precipitation": "precipitation",
+            "cape": "cape",
+            "visibility": "visibility",
+            "soil_temperature_0cm": "soil_temperature_0cm",
+            "soil_moisture_0_to_1cm": "soil_moisture_0_to_1cm",
+            "vapour_pressure_deficit": "vapour_pressure_deficit",
+            "et0_fao_evapotranspiration": "et0_fao_evapotranspiration",
+            "temperature_925hPa": "temperature_925hpa",
+            "temperature_850hPa": "temperature_850hpa",
+            "geopotential_height_500hPa": "geopotential_height_500hpa",
+        }
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        payload = self.get_json(url, {
+            "latitude": self.spec.lat,
+            "longitude": self.spec.lon,
+            "hourly": ",".join(field_map),
+            "temperature_unit": self.spec.om_temperature_unit,
+            "wind_speed_unit": "kmh",
+            "timezone": self.spec.timezone,
+            "forecast_days": 2,
+            "models": ",".join(models),
+        })
+        hourly = payload.get("hourly", {}) or {}
+        rows = []
+        day_rows = []
+        model_day_temps = {model: [] for model in models}
+        now = datetime.now(self.spec.tz).replace(tzinfo=None)
+        for index, raw_time in enumerate(hourly.get("time", []) or []):
+            dt = datetime.fromisoformat(raw_time)
+            if dt.date() != self.target_date:
+                continue
+            model_payloads = {}
+            model_temps = []
+            for model in models:
+                values = {}
+                for source_key, target_key in field_map.items():
+                    value = self.to_number(self.array_get(hourly, f"{source_key}_{model}", index))
+                    values[target_key] = value
+                temp = values.get("temp_native")
+                if temp is not None:
+                    values["temp_c"] = temp
+                    model_temps.append(temp)
+                    model_day_temps[model].append(temp)
+                model_payloads[model] = values
+            row = {
+                "time": dt.strftime("%H:%M"),
+                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "models": model_payloads,
+                "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
+            }
+            day_rows.append(row)
+            if dt < now:
+                continue
+            rows.append(row)
+        day_model_highs = {
+            model: max(values) if values else None
+            for model, values in model_day_temps.items()
+        }
+        high_values = [value for value in day_model_highs.values() if value is not None]
+        day_max_native = statistics.median(high_values) if high_values else None
+        return {
+            "available": True,
+            "url": url,
+            "rows": rows[:12],
+            "day_rows": day_rows,
+            "day_model_highs": day_model_highs,
+            "day_max_native": day_max_native,
+            "day_max_c": day_max_native,
+            "day_high_spread": max(high_values) - min(high_values) if len(high_values) >= 2 else None,
+            "row_count": len(day_rows),
+            "payload_hash": self.payload_hash(payload),
+            "fetched_at": fetched_at,
+            "model_run_age_hours": None,
+            "model_run_age_status": "not_exposed_by_open_meteo_gfs",
+            "run_to_run_high_change": None,
+            "run_to_run_change_status": "requires_previous_run_archive",
+            "historical_archive_available": False,
+            "live_only_fields": [
+                "open_meteo_multimodel_high_spread",
+                "open_meteo_gfs_high_delta",
+                "open_meteo_hrrr_high_delta",
+                "open_meteo_nbm_high_delta",
+                "open_meteo_nam_high_delta",
+                "open_meteo_nbm_hrrr_disagreement",
+                "open_meteo_multimodel_next_3h_spread",
+                "open_meteo_multimodel_run_age_hours",
+                "open_meteo_multimodel_run_to_run_high_change",
+                "open_meteo_nbm_hrrr_disagreement_after_cutoff",
+            ],
+            "generation_time_ms": payload.get("generationtime_ms"),
+            "raw_payload": payload,
+        }
 
     def fetch_global_ensemble(self):
         """Open-Meteo GFS ensemble mean/member forecast.
@@ -802,6 +1090,45 @@ class SourceFetchMixin:
             "raw_payload": payload,
         }
 
+    def fetch_marine_context(self):
+        """CO-OPS/NDBC marine and lake-breeze station context."""
+        def get_text(url):
+            response = requests.get(url, timeout=self.timeout)
+            response.raise_for_status()
+            return response.text
+
+        return fetch_marine_context_for_market(
+            self.spec,
+            self.target_date,
+            get_json=self.get_json,
+            get_text=get_text,
+            now=datetime.now(timezone.utc),
+            timeout=self.timeout,
+        )
+
+    def fetch_mrms_precip(self):
+        """MRMS CONUS realized precipitation metadata and lag state."""
+        def get_text(url):
+            response = requests.get(url, timeout=self.timeout)
+            response.raise_for_status()
+            return response.text
+
+        return fetch_mrms_precip_for_market(
+            self.spec,
+            self.target_date,
+            get_text=get_text,
+            now=datetime.now(timezone.utc),
+        )
+
+    def fetch_eccc_gem(self):
+        """Open-Meteo GEM/HRDPS-style Canadian gridded guidance for Toronto."""
+        return fetch_open_meteo_gem_for_market(
+            self.spec,
+            self.target_date,
+            get_json=self.get_json,
+            now=datetime.now(self.spec.tz),
+        )
+
     def forecast_temp_to_native(self, value, unit):
         temp = self.to_number(value)
         if temp is None:
@@ -814,6 +1141,63 @@ class SourceFetchMixin:
         if unit == "C" and self.spec.display_unit == "F":
             return temp * 9.0 / 5.0 + 32.0
         return temp
+
+    def parse_nws_grid_valid_time(self, value):
+        if not value:
+            return None
+        start = str(value).split("/")[0]
+        try:
+            return datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(self.spec.tz)
+        except ValueError:
+            return None
+
+    def nws_grid_value(self, value, uom=None, is_temp=False):
+        number = self.to_number(value)
+        if number is None:
+            return None
+        uom_text = str(uom or "")
+        if is_temp:
+            if "degC" in uom_text:
+                return self.forecast_temp_to_native(number, "C")
+            if "degF" in uom_text:
+                return self.forecast_temp_to_native(number, "F")
+        if "mi_h-1" in uom_text or "mile" in uom_text.lower():
+            return round(number * 1.609344, 2)
+        return number
+
+    def nws_grid_value_count(self, value):
+        if value in (None, ""):
+            return 0
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, dict):
+            return 1 if value else 0
+        return 1
+
+    def payload_hash(self, payload):
+        encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha1(encoded).hexdigest()
+
+    def hours_between(self, later, earlier):
+        later_dt = self.parse_any_utc_time(later)
+        earlier_dt = self.parse_any_utc_time(earlier)
+        if later_dt is None or earlier_dt is None:
+            return None
+        return (later_dt - earlier_dt).total_seconds() / 3600.0
+
+    def parse_any_utc_time(self, value):
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            try:
+                parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def wind_speed_text_to_kmh(self, value):
         if not value:

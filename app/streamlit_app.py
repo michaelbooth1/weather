@@ -15,6 +15,7 @@ from market_config import config_for_date, config_from_event  # noqa: E402
 from snapshot_tracker import SnapshotStore  # noqa: E402
 from toronto_model import TorontoHighTempModel, TORONTO_TZ  # noqa: E402
 from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id  # noqa: E402
+from weather.sources.marine_context import active_marine_context_state  # noqa: E402
 
 
 LIVE_REFRESH_SECONDS = 60
@@ -271,8 +272,18 @@ def live_dashboard(static_sources):
             "eccc_swob": f"ECCC SWOB Live {spec_for_id(MARKET_ID).icao}",
             "metar": f"METAR Aviation {spec_for_id(MARKET_ID).icao}",
             "weather_forecast": "Weather.com Hourly Forecast",
-            "open_meteo": "Open-Meteo Hourly Forecast"
+            "open_meteo": "Open-Meteo Hourly Forecast",
+            "marine_context": "Marine/Lake-Breeze Context",
         }
+        detail = "-"
+        if name == "marine_context":
+            marine_state = active_marine_context_state(item.get("data") or {})
+            if marine_state:
+                detail = (
+                    f"{marine_state.get('regime', '-').replace('_', ' ')}; "
+                    f"{', '.join(marine_state.get('station_ids') or []) or '-'}; "
+                    f"age {marine_state.get('latest_age_minutes')} min"
+                )
         
         live_sources_status.append({
             "Source": source_display_names.get(name, name),
@@ -283,6 +294,7 @@ def live_dashboard(static_sources):
             # different things per source and the threshold is now visible.
             "TTL (min)": model_client(MARKET_ID).source_cache_ttl_minutes(name),
             "Last Fetched": fetched_at_str.split("T")[-1][:5] if fetched_at_str else "-",
+            "Detail": detail,
             "Fetch Error": error_msg or "-"
         })
 

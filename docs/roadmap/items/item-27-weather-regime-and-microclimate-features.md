@@ -1,4 +1,4 @@
-# 27. Weather Regime And Microclimate Features [PARTIAL 2026-06-15 - WIND SHIFT/GUST FEATURES PLUMBED]
+# 27. Weather Regime And Microclimate Features [COMPLETE 2026-06-15 - FEATURE-VALUE GATE LIVE]
 
 Goal: add physically meaningful signal once the evaluation/calibration loop is
 strong enough to judge it.
@@ -9,8 +9,8 @@ strong enough to judge it.
   warm-season patterns.
 - [x] Add pressure tendency, humidity/dewpoint, wind shift, and gust features to
   late-day continuation where they are not already used.
-- [ ] Evaluate whether feature value differs by month/season and cutoff hour.
-- [ ] Promote only features that improve out-of-sample item-20 metrics.
+- [x] Evaluate whether feature value differs by month/season and cutoff hour.
+- [x] Promote only features that improve out-of-sample item-20 metrics.
 
 Acceptance: new weather features improve the calibrated model, not just feature
 importance charts.
@@ -45,3 +45,24 @@ Implementation update 2026-06-15 UTC:
   tests\calibration\test_forecast_error_model.py
   tests\operations\test_schema_registry.py -q` passed (`40` tests,
   `144` subtests).
+
+Completion update 2026-06-15:
+
+- `src.feature_model --item27-report-only` now writes
+  `data/wunderground/cyyz/analysis/item27_feature_value_report.md` and the
+  machine-readable
+  `data/wunderground/cyyz/analysis/item27_feature_value_gate.json`.
+- The gate uses deterministic held-out day folds and reports settlement-style
+  log-loss/Brier by cutoff hour, by month, by meteorological season, and by
+  cutoff-hour/month.
+- The promotion rule is conservative: a feature family is `promote` only when
+  neutralizing that family worsens both held-out log-loss and held-out Brier.
+- Current Toronto gate result: `microclimate` and `observed_temp_path` promote;
+  `atmosphere`, `wind_regime`, `forecast`, and `cloud_regime` remain blocked
+  because at least one held-out metric was non-positive. This avoids treating
+  feature plumbing or importance-style sensitivity as promotion evidence.
+- Verification:
+  `python -m src.feature_model --market toronto --item27-report-only --item27-folds 5`
+  regenerated the report over 9,100 held-out rows, and
+  `python -m pytest tests/model/test_feature_model_ablation.py -q` passed
+  (`8` tests).

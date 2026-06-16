@@ -1,15 +1,15 @@
-# 29. Deepen And Widen The Historical Record [PARTIAL - WU SEASONAL STRONG, REDUNDANT SOURCES SHALLOW]
+# 29. Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE CLOSED]
 
 Goal: give each market the deepest faithful history its sources allow (currently
 7 years × a narrow May-June window).
 
-- [ ] Extend WU history beyond 2019-2025 where available; add ISD/GHCN-hourly
+- [x] Extend WU history beyond 2019-2025 where available; add ISD/GHCN-hourly
   (NOAA) and ERA5 for multi-decade depth.
-- [ ] Widen the seasonal window, and support non-summer windows if Polymarket
+- [x] Widen the seasonal window, and support non-summer windows if Polymarket
   lists them.
-- [ ] Make backfills idempotent, resumable, and scheduled; keep raw + rebuild +
+- [x] Make backfills idempotent, resumable, and scheduled; keep raw + rebuild +
   checksum (item 15) per market.
-- [ ] Normalize every source into one native-unit hourly/daily schema.
+- [x] Normalize every source into one native-unit hourly/daily schema.
 
 Acceptance: each market's training window is sources-limited, not effort-limited,
 and fully rebuildable offline.
@@ -172,16 +172,37 @@ Validation results for this increment:
   `USW00012839`, San Francisco `USW00023234`, Seattle `USW00024233`.
 - `.\venv\Scripts\python.exe -m src.reanalysis_history --market nyc --data-root scratch\reanalysis_smoke backfill --start 2026-06-01 --end 2026-06-01 --skip-existing`: fetched and rebuilt 20 hourly rows / 1 daily row from the ERA5-style archive path.
 
-Remaining work before item 29 can close:
+Completion update (2026-06-16): item 29 is now closed as a source-limited,
+fully rebuildable historical archive. The final 2000-01-01 through 2026-06-13
+Item 29 policy plan
+(`data/backtest/item29_historical_backfill_plan_2000_2026_policy.json`) has
+`queue_count=0`. It records `source_limited_count=11` WU market/source windows
+against the June 14 alternate-ID probe
+(`data/backtest/source_alternate_probe_2026-06-14.json`), which found zero
+available US Weather.com ICAO:9:US alternate candidates.
 
-- Decide whether production training should stay seasonal-first or require
-  full-year continuous WU raw history. The 1995-2014 US May 20-June 30
-  widener is now source-limited; full off-season/full-year WU depth is still a
-  policy and storage decision, not a blocker for the current high-temperature
-  seasonal retrains.
-- Run the reanalysis backfills across every registered market and the chosen
-  training window, then keep the raw files/checksum manifests as the offline
-  rebuild source. GHCNh is complete for the current minimum window.
-- Decide the production training window bounds per source and market
-  (`historical_coverage.json` currently shows what is missing, not a completed
-  source-limited archive).
+The closure probes removed the last effort-limited gaps. The reanalysis batch
+runner succeeded for all 12 market items
+(`data/backtest/item29_historical_backfill_reanalysis_run_summary.json`), and
+the regenerated coverage report shows the remaining 36 reanalysis missing days
+are all raw-only source-lag days (`raw_only_source_lag=36`,
+`raw_only_normalizable=0`), so they stay visible in coverage but no longer
+re-enter the executable backfill queue. The WU runner retried Toronto's 60-day
+2000 gap and the five remaining 2020-11-08 gaps
+(`data/backtest/item29_historical_backfill_toronto_wu_run_summary.json`,
+`data/backtest/item29_historical_backfill_policy_wu_run_summary.json`);
+Weather.com returned HTTP 400 and those dates are logged as
+source-unavailable. WU and runner error artifacts now redact Weather.com
+`apiKey` query strings before writing summaries.
+
+The final dashboard
+(`data/backtest/item29_historical_coverage_2000_2026_dashboard.md`) keeps the
+residual source limits explicit: GHCNh is OK for all 12 canonical markets; WU
+is OK for Toronto and WARN for the 11 US markets only because pre-2015
+full-year Weather.com history is provider-unavailable; reanalysis is WARN for
+the latest three archive-lag days per market while freshness remains inside
+SLA; and the old Toronto supplemental GHCNh row remains non-canonical evidence
+tracked by the supplemental-station items. The training archive is therefore
+source-limited rather than effort-limited, with raw payloads, normalized
+hourly/daily outputs, manifests, coverage reports, and resumable queue evidence
+kept on disk.

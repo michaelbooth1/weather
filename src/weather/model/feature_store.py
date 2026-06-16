@@ -3,7 +3,42 @@
 from datetime import datetime
 
 from weather.schema_registry import schema_version
+from weather.sources.eccc_gridded import ECCC_GRIDDED_FEATURE_COLUMNS
+from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
+from weather.sources.mrms_precip import MRMS_PRECIP_FEATURE_COLUMNS
+from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 
+# v1.5 (ROADMAP item 32): lagged ENSO/PNA teleconnection fields plus static
+# marine/lake-breeze context in the gated reanalysis/synoptic sidecar.
+#
+# v1.4 (ROADMAP item 32): gated reanalysis/synoptic sidecar features. Live
+# serving defaults them to missing until source-lag and parity gates promote
+# a trained candidate artifact.
+#
+# v1.3 (ROADMAP item 75): US official-grid and multi-model live-only run
+# metadata, run-to-run change hooks, and after-cutoff NBM/HRRR disagreement.
+# Historical records default these diagnostics to None until archives exist.
+#
+# v1.2 (ROADMAP item 80): ECCC GEM/HRDPS gridded forecast diagnostics for
+# Toronto. Historical rows default these live-only fields to None until
+# Toronto-specific backfills and replay gates exist.
+#
+# v1.1 (ROADMAP item 79): MRMS realized precipitation/radar interruption
+# diagnostics. Historical rows default these live-only fields to None until
+# MRMS backfills and replay gates exist.
+#
+# v1.0 (ROADMAP item 78): marine/coastal/lake-breeze context diagnostics.
+# Historical records default these live-only station features to None until
+# station-specific archives and replay gates exist.
+#
+# v0.9 (ROADMAP item 75): US NWS grid and Open-Meteo multi-model guidance
+# features. Historical records default these live-only diagnostics to None
+# until provenance-preserving archives exist.
+#
+# v0.8 (ROADMAP item 74): expanded Open-Meteo environmental forecast profile
+# features for radiation partitioning, convection, vertical thermal structure,
+# precipitation, visibility, gusts, soil state, VPD, and ET0.
+#
 # v0.7 (ROADMAP item 27): wind-gust and wind-shift features.
 #
 # v0.6 (ROADMAP item 27): microclimate/onshore-flow features.
@@ -42,11 +77,49 @@ FORECAST_PROFILE_COLUMNS = [
     "forecast_mid_cloud_mean",
     "forecast_high_cloud_mean",
     "forecast_cloud_trend_3h",
+    "forecast_remaining_direct_radiation_sum",
+    "forecast_remaining_diffuse_radiation_sum",
+    "forecast_next_3h_direct_radiation_mean",
+    "forecast_next_3h_diffuse_radiation_mean",
+    "forecast_remaining_precipitation_sum",
+    "forecast_next_3h_precipitation_sum",
+    "forecast_next_3h_precipitation_probability_max",
+    "forecast_remaining_cape_mean",
+    "forecast_next_3h_cape_max",
+    "forecast_cape_trend_3h",
+    "forecast_temperature_925hpa_mean",
+    "forecast_temperature_850hpa_mean",
+    "forecast_surface_to_925_lapse_proxy",
+    "forecast_925_to_850_lapse_proxy",
+    "forecast_geopotential_height_500hpa_mean",
+    "forecast_wind_gust_max",
+    "forecast_visibility_min",
+    "forecast_soil_temperature_0cm_mean",
+    "forecast_soil_moisture_0_to_1cm_mean",
+    "forecast_vapour_pressure_deficit_mean",
+    "forecast_et0_fao_evapotranspiration_sum",
     "forecast_global_ensemble_spread",
     "forecast_next_3h_ensemble_spread",
     "forecast_global_ensemble_high_p10",
     "forecast_global_ensemble_high_p90",
     "forecast_global_ensemble_high_spread_80",
+]
+
+EXPANDED_OPEN_METEO_SOURCE_FIELDS = [
+    "cape",
+    "temperature_925hpa",
+    "temperature_850hpa",
+    "geopotential_height_500hpa",
+    "direct_radiation",
+    "diffuse_radiation",
+    "wind_gust_kmh",
+    "visibility",
+    "precipitation_probability",
+    "precipitation",
+    "soil_temperature_0cm",
+    "soil_moisture_0_to_1cm",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
 ]
 
 FORECAST_FEATURE_COLUMNS = [
@@ -57,10 +130,35 @@ FORECAST_FEATURE_COLUMNS = [
     *FORECAST_PROFILE_COLUMNS,
 ]
 
+US_GUIDANCE_FEATURE_COLUMNS = [
+    "nws_grid_high",
+    "nws_grid_vs_forecast_high",
+    "nws_grid_pop_after_cutoff_max",
+    "nws_grid_qpf_after_cutoff_sum",
+    "nws_grid_sky_cover_after_cutoff_mean",
+    "nws_grid_hazard_count",
+    "open_meteo_multimodel_high_spread",
+    "open_meteo_gfs_high_delta",
+    "open_meteo_hrrr_high_delta",
+    "open_meteo_nbm_high_delta",
+    "open_meteo_nam_high_delta",
+    "open_meteo_nbm_hrrr_disagreement",
+    "open_meteo_multimodel_next_3h_spread",
+    "nws_grid_run_age_hours",
+    "open_meteo_multimodel_run_age_hours",
+    "open_meteo_multimodel_run_to_run_high_change",
+    "open_meteo_nbm_hrrr_disagreement_after_cutoff",
+]
+
 NATIVE_NAN_FEATURE_COLUMNS = [
     "forecast_high",
     "forecast_gap",
     *FORECAST_PROFILE_COLUMNS,
+    *US_GUIDANCE_FEATURE_COLUMNS,
+    *MARINE_CONTEXT_FEATURE_COLUMNS,
+    *MRMS_PRECIP_FEATURE_COLUMNS,
+    *ECCC_GRIDDED_FEATURE_COLUMNS,
+    *REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     "live_reading_temp",
     "live_reading_minus_high",
 ]
@@ -86,6 +184,11 @@ FEATURE_COLUMNS = [
     "forecast_source_count",
     "forecast_disagreement",
     *FORECAST_PROFILE_COLUMNS,
+    *US_GUIDANCE_FEATURE_COLUMNS,
+    *MARINE_CONTEXT_FEATURE_COLUMNS,
+    *MRMS_PRECIP_FEATURE_COLUMNS,
+    *ECCC_GRIDDED_FEATURE_COLUMNS,
+    *REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     # Freshness features remain explicit trained inputs; serving old artifacts
     # uses trained feature names rather than this newest schema order.
     "minutes_since_cutoff",
@@ -208,6 +311,26 @@ def empty_microclimate_features():
         "onshore_wind_speed_kmh": 0.0,
         "lake_breeze_proxy": 0.0,
     }
+
+
+def empty_us_guidance_features():
+    return {column: None for column in US_GUIDANCE_FEATURE_COLUMNS}
+
+
+def empty_marine_context_features():
+    return {column: None for column in MARINE_CONTEXT_FEATURE_COLUMNS}
+
+
+def empty_mrms_precip_features():
+    return {column: None for column in MRMS_PRECIP_FEATURE_COLUMNS}
+
+
+def empty_eccc_gridded_features():
+    return {column: None for column in ECCC_GRIDDED_FEATURE_COLUMNS}
+
+
+def empty_reanalysis_synoptic_features():
+    return {column: None for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS}
 
 
 def row_minute_of_day(row):
@@ -412,6 +535,24 @@ def forecast_profile_features(
             "low_cloud": row_value(row, "low_cloud", "cloud_cover_low"),
             "mid_cloud": row_value(row, "mid_cloud", "cloud_cover_mid"),
             "high_cloud": row_value(row, "high_cloud", "cloud_cover_high"),
+            "direct_radiation": row_value(row, "direct_radiation"),
+            "diffuse_radiation": row_value(row, "diffuse_radiation"),
+            "precipitation": row_value(row, "precipitation"),
+            "precipitation_probability": row_value(row, "precipitation_probability"),
+            "cape": row_value(row, "cape"),
+            "temperature_925hpa": row_value(row, "temperature_925hpa", "temperature_925hPa"),
+            "temperature_850hpa": row_value(row, "temperature_850hpa", "temperature_850hPa"),
+            "geopotential_height_500hpa": row_value(
+                row,
+                "geopotential_height_500hpa",
+                "geopotential_height_500hPa",
+            ),
+            "wind_gust_kmh": row_value(row, "wind_gust_kmh", "wind_gusts_10m", "gust_kmh", "wind_gust"),
+            "visibility": row_value(row, "visibility"),
+            "soil_temperature_0cm": row_value(row, "soil_temperature_0cm"),
+            "soil_moisture_0_to_1cm": row_value(row, "soil_moisture_0_to_1cm"),
+            "vapour_pressure_deficit": row_value(row, "vapour_pressure_deficit"),
+            "et0_fao_evapotranspiration": row_value(row, "et0_fao_evapotranspiration"),
         })
     profile.sort(key=lambda item: item["minute"])
 
@@ -473,6 +614,103 @@ def forecast_profile_features(
     if next_cloud is not None and previous_cloud is not None:
         features["forecast_cloud_trend_3h"] = next_cloud - previous_cloud
 
+    direct_remaining = [
+        item["direct_radiation"] for item in remaining
+        if item["direct_radiation"] is not None
+    ]
+    diffuse_remaining = [
+        item["diffuse_radiation"] for item in remaining
+        if item["diffuse_radiation"] is not None
+    ]
+    if direct_remaining:
+        features["forecast_remaining_direct_radiation_sum"] = sum(direct_remaining)
+    if diffuse_remaining:
+        features["forecast_remaining_diffuse_radiation_sum"] = sum(diffuse_remaining)
+    features["forecast_next_3h_direct_radiation_mean"] = mean(
+        item["direct_radiation"] for item in next_3h
+    )
+    features["forecast_next_3h_diffuse_radiation_mean"] = mean(
+        item["diffuse_radiation"] for item in next_3h
+    )
+
+    precipitation_remaining = [
+        item["precipitation"] for item in remaining
+        if item["precipitation"] is not None
+    ]
+    if precipitation_remaining:
+        features["forecast_remaining_precipitation_sum"] = sum(precipitation_remaining)
+    next_precipitation = [
+        item["precipitation"] for item in next_3h
+        if item["precipitation"] is not None
+    ]
+    if next_precipitation:
+        features["forecast_next_3h_precipitation_sum"] = sum(next_precipitation)
+    next_precip_probability = [
+        item["precipitation_probability"] for item in next_3h
+        if item["precipitation_probability"] is not None
+    ]
+    if next_precip_probability:
+        features["forecast_next_3h_precipitation_probability_max"] = max(next_precip_probability)
+
+    features["forecast_remaining_cape_mean"] = mean(item["cape"] for item in remaining)
+    next_cape = [item["cape"] for item in next_3h if item["cape"] is not None]
+    if next_cape:
+        features["forecast_next_3h_cape_max"] = max(next_cape)
+    next_cape_mean = mean(item["cape"] for item in next_3h)
+    previous_cape_mean = mean(item["cape"] for item in previous_3h)
+    if next_cape_mean is not None and previous_cape_mean is not None:
+        features["forecast_cape_trend_3h"] = next_cape_mean - previous_cape_mean
+
+    surface_remaining = [item["temp"] for item in remaining if item["temp"] is not None]
+    temp_925_remaining = [
+        item["temperature_925hpa"] for item in remaining
+        if item["temperature_925hpa"] is not None
+    ]
+    temp_850_remaining = [
+        item["temperature_850hpa"] for item in remaining
+        if item["temperature_850hpa"] is not None
+    ]
+    surface_mean = mean(surface_remaining)
+    temp_925_mean = mean(temp_925_remaining)
+    temp_850_mean = mean(temp_850_remaining)
+    features["forecast_temperature_925hpa_mean"] = temp_925_mean
+    features["forecast_temperature_850hpa_mean"] = temp_850_mean
+    if surface_mean is not None and temp_925_mean is not None:
+        features["forecast_surface_to_925_lapse_proxy"] = surface_mean - temp_925_mean
+    if temp_925_mean is not None and temp_850_mean is not None:
+        features["forecast_925_to_850_lapse_proxy"] = temp_925_mean - temp_850_mean
+    features["forecast_geopotential_height_500hpa_mean"] = mean(
+        item["geopotential_height_500hpa"] for item in remaining
+    )
+
+    wind_gusts = [
+        item["wind_gust_kmh"] for item in remaining
+        if item["wind_gust_kmh"] is not None
+    ]
+    if wind_gusts:
+        features["forecast_wind_gust_max"] = max(wind_gusts)
+    visibility_values = [
+        item["visibility"] for item in remaining
+        if item["visibility"] is not None
+    ]
+    if visibility_values:
+        features["forecast_visibility_min"] = min(visibility_values)
+    features["forecast_soil_temperature_0cm_mean"] = mean(
+        item["soil_temperature_0cm"] for item in remaining
+    )
+    features["forecast_soil_moisture_0_to_1cm_mean"] = mean(
+        item["soil_moisture_0_to_1cm"] for item in remaining
+    )
+    features["forecast_vapour_pressure_deficit_mean"] = mean(
+        item["vapour_pressure_deficit"] for item in remaining
+    )
+    et0_remaining = [
+        item["et0_fao_evapotranspiration"] for item in remaining
+        if item["et0_fao_evapotranspiration"] is not None
+    ]
+    if et0_remaining:
+        features["forecast_et0_fao_evapotranspiration_sum"] = sum(et0_remaining)
+
     features["forecast_global_ensemble_spread"] = to_float(ensemble_day_mean_spread)
     ensemble_spreads = []
     for row in ensemble_rows or []:
@@ -489,6 +727,119 @@ def forecast_profile_features(
     if p10 is not None and p90 is not None:
         features["forecast_global_ensemble_high_spread_80"] = p90 - p10
     return features
+
+
+def _field_status(rows, field):
+    rows = list(rows or [])
+    missing = 0
+    zero = 0
+    nonzero = 0
+    present = 0
+    for row in rows:
+        value = row_value(row, field)
+        if value is None:
+            missing += 1
+            continue
+        present += 1
+        if value == 0.0:
+            zero += 1
+        else:
+            nonzero += 1
+    total = len(rows)
+    return {
+        "field": field,
+        "rows": total,
+        "present_rows": present,
+        "missing_rows": missing,
+        "zero_rows": zero,
+        "nonzero_rows": nonzero,
+        "missing_rate": missing / total if total else None,
+        "zero_rate_among_present": zero / present if present else None,
+    }
+
+
+def forecast_profile_missing_zero_report(rows, fields=EXPANDED_OPEN_METEO_SOURCE_FIELDS):
+    rows = list(rows or [])
+    by_source = {}
+    for row in rows:
+        source = row.get("source") or "unknown"
+        by_source.setdefault(source, []).append(row)
+    source_fields = []
+    for source, source_rows in sorted(by_source.items()):
+        for field in fields:
+            source_fields.append({"source": source, **_field_status(source_rows, field)})
+    return {
+        "schema_version": FEATURE_SCHEMA_VERSION,
+        "report_type": "forecast_profile_missing_zero",
+        "summary": {
+            "rows": len(rows),
+            "sources": sorted(by_source),
+            "fields": list(fields),
+            "radiation_fields": ["direct_radiation", "diffuse_radiation"],
+        },
+        "fields": [_field_status(rows, field) for field in fields],
+        "source_fields": source_fields,
+    }
+
+
+def render_forecast_profile_missing_zero_markdown(payload):
+    lines = [
+        "# Forecast Profile Missing-Vs-Zero Report",
+        "",
+        "| Source | Field | Rows | Present | Missing | Zero | Nonzero |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in (payload or {}).get("source_fields") or []:
+        lines.append(
+            "| {source} | {field} | {rows} | {present_rows} | {missing_rows} | "
+            "{zero_rows} | {nonzero_rows} |".format(**row)
+        )
+    return "\n".join(lines) + "\n"
+
+
+def expanded_open_meteo_promotion_gate(
+    backfill_status=None,
+    replay_report=None,
+    min_scored_rows=30,
+    min_brier_improvement=0.0,
+):
+    backfill_status = backfill_status or {}
+    replay_report = replay_report or {}
+    reasons = []
+    if not backfill_status.get("all_active_markets_backfilled"):
+        reasons.append("forecast_history_backfills_not_complete")
+    if not backfill_status.get("per_market_candidates_retrained"):
+        reasons.append("per_market_retrain_not_complete")
+    if not backfill_status.get("pooled_candidate_retrained"):
+        reasons.append("pooled_retrain_not_complete")
+    scored_rows = int(to_float(replay_report.get("scored_rows") or (replay_report.get("summary") or {}).get("scored_rows")) or 0)
+    if scored_rows < int(min_scored_rows):
+        reasons.append("insufficient_replay_rows")
+    improvement = to_float(replay_report.get("brier_improvement"))
+    if improvement is None:
+        baseline = to_float(replay_report.get("baseline_brier") or (replay_report.get("baseline") or {}).get("brier"))
+        candidate = to_float(replay_report.get("candidate_brier") or (replay_report.get("candidate") or {}).get("brier"))
+        improvement = baseline - candidate if baseline is not None and candidate is not None else None
+    if improvement is None:
+        reasons.append("missing_replay_improvement")
+    elif improvement <= float(min_brier_improvement):
+        reasons.append("no_positive_replay_lift")
+    ok = not reasons
+    return {
+        "schema_version": FEATURE_SCHEMA_VERSION,
+        "gate": "expanded_open_meteo_feature_promotion",
+        "ok": ok,
+        "status": "promotable" if ok else "blocked",
+        "scored_rows": scored_rows,
+        "min_scored_rows": int(min_scored_rows),
+        "brier_improvement": improvement,
+        "min_brier_improvement": float(min_brier_improvement),
+        "reasons": reasons,
+        "policy": (
+            "Expanded Open-Meteo fields require all active-market backfills, "
+            "per-market and pooled retraining, and settlement-scored replay lift."
+        ),
+    }
 
 
 def simulated_reading_at(rows, minute, value_key=None, exact_window=10, max_lookback=75):
@@ -542,6 +893,7 @@ def build_historical_feature_record(
     global_ensemble_day_mean_spread=None,
     global_ensemble_day_high_p10=None,
     global_ensemble_day_high_p90=None,
+    reanalysis_synoptic_features=None,
     wind_group_fn=None,
     cloud_group_fn=None,
     microclimate_feature_fn=None,
@@ -701,6 +1053,14 @@ def build_historical_feature_record(
         ),
         "forecast_disagreement": forecast_disagreement if forecast_disagreement is not None else 0.0,
         **forecast_profile,
+        **empty_us_guidance_features(),
+        **empty_marine_context_features(),
+        **empty_mrms_precip_features(),
+        **empty_eccc_gridded_features(),
+        **{
+            **empty_reanalysis_synoptic_features(),
+            **(reanalysis_synoptic_features or {}),
+        },
         "minutes_since_cutoff": float(minutes_since_cutoff),
         "live_reading_temp": live_reading,
         "live_reading_minus_high": live_reading_minus_high,

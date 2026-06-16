@@ -69,6 +69,8 @@ def _as_path(value):
 
 def _family_specs(family_unit=DEFAULT_FAMILY_UNIT, specs=None):
     source = list(specs) if specs is not None else list(all_specs())
+    if str(family_unit or "").lower() == "all":
+        return source
     return [spec for spec in source if getattr(spec, "display_unit", None) == family_unit]
 
 
@@ -116,6 +118,9 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
     micro_agg = microstructure.get("aggregate") or {}
     micro_gated = microstructure.get("gated") or {}
     micro_gated_agg = micro_gated.get("aggregate") or {}
+    bridge = candidate_report.get("conservative_bridge") or {}
+    bridge_diag = bridge.get("diagnostics") or {}
+    bridge_agg = bridge.get("aggregate") or {}
     market_slices = []
     for row in candidate_report.get("market_rows") or []:
         comparison = row.get("comparison") or {}
@@ -139,6 +144,7 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
         "corpus": candidate_report.get("corpus") or {},
         "coverage": candidate_report.get("coverage") or {},
         "replay_gate": candidate_report.get("replay_gate") or {},
+        "candidate_shadow_variants": candidate_report.get("candidate_shadow_variants") or {},
         "aggregate": {
             "rows": aggregate.get("n", 0),
             "candidate_brier": aggregate.get("candidate_brier"),
@@ -183,6 +189,24 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             },
             "target_slices": microstructure.get("target_slices") or [],
             "gated_target_slices": micro_gated.get("target_slices") or [],
+        },
+        "conservative_bridge": {
+            "schema_version": bridge.get("schema_version"),
+            "policy": bridge.get("policy") or {},
+            "shadow_variant_rows": bridge_diag.get("shadow_variant_rows", 0),
+            "shadow_variant_path": bridge_diag.get("shadow_variant_path"),
+            "aggregate": {
+                "rows": bridge_agg.get("n", 0),
+                "bridge_brier": bridge_agg.get("bridge_brier"),
+                "candidate_brier": bridge_agg.get("candidate_brier"),
+                "current_brier": bridge_agg.get("current_brier"),
+                "market_brier": bridge_agg.get("market_brier"),
+                "delta_vs_candidate": bridge_agg.get("delta_vs_candidate"),
+                "delta_vs_current": bridge_agg.get("delta_vs_current"),
+                "delta_vs_market": bridge_agg.get("delta_vs_market"),
+                "bridge_skill": bridge_agg.get("bridge_skill"),
+            },
+            "by_market": bridge.get("by_market") or [],
         },
         "slices": {
             "by_market": market_slices,
@@ -233,6 +257,18 @@ def _action_for_verdict(verdict):
     if verdict == "BLOCK":
         return "BLOCK_CANDIDATE"
     return "KEEP_SHADOW"
+
+
+def _family_title(family_unit):
+    if str(family_unit or "").lower() == "all":
+        return "All-Market"
+    return f"{family_unit or DEFAULT_FAMILY_UNIT}-Family"
+
+
+def _market_scope_phrase(family_unit):
+    if str(family_unit or "").lower() == "all":
+        return "market(s)"
+    return f"{family_unit or DEFAULT_FAMILY_UNIT} market(s)"
 
 
 def build_family_decisions(
@@ -331,8 +367,44 @@ def _decision_table_rows(decisions):
     return rows
 
 
+def _readiness_market_details(decisions, action):
+    market_rows = decisions.get("markets") or []
+    details = []
+    for item in market_rows:
+        if item.get("action") != action:
+            continue
+        metrics = item.get("metrics") or {}
+        details.append({
+            "market_id": item.get("market_id"),
+            "action": action,
+            "reason": item.get("reason") or "-",
+            "candidate_brier": metrics.get("candidate_brier"),
+            "current_brier": metrics.get("current_brier"),
+            "market_brier": metrics.get("market_brier"),
+            "delta_vs_current": metrics.get("delta_vs_current"),
+            "delta_vs_market": metrics.get("delta_vs_market"),
+        })
+    if details:
+        return details
+    fallback_key = "shadow_markets" if action == "KEEP_SHADOW" else "blocked_markets"
+    return [
+        {
+            "market_id": market_id,
+            "action": action,
+            "reason": "-",
+            "candidate_brier": None,
+            "current_brier": None,
+            "market_brier": None,
+            "delta_vs_current": None,
+            "delta_vs_market": None,
+        }
+        for market_id in decisions.get(fallback_key) or []
+    ]
+
+
 def promotion_readiness(candidate, serving, decisions):
     blockers = []
+    market_scope = _market_scope_phrase(decisions.get("family_unit"))
     aggregate = candidate.get("aggregate") or {}
     delta_vs_market = aggregate.get("delta_vs_market")
     if delta_vs_market is not None and delta_vs_market > 0:
@@ -344,25 +416,29 @@ def promotion_readiness(candidate, serving, decisions):
                 "do not claim broad Polymarket edge"
             ),
         })
-    shadow_markets = decisions.get("shadow_markets") or []
+    shadow_details = _readiness_market_details(decisions, "KEEP_SHADOW")
+    shadow_markets = [row.get("market_id") for row in shadow_details if row.get("market_id")]
     if shadow_markets:
         blockers.append({
             "category": "per_market_shadow",
             "severity": "open",
             "detail": (
-                f"{len(shadow_markets)} F market(s) remain shadow: "
+                f"{len(shadow_markets)} {market_scope} remain shadow: "
                 f"{', '.join(shadow_markets)}"
             ),
+            "market_details": shadow_details,
         })
-    blocked_markets = decisions.get("blocked_markets") or []
+    blocked_details = _readiness_market_details(decisions, "BLOCK_CANDIDATE")
+    blocked_markets = [row.get("market_id") for row in blocked_details if row.get("market_id")]
     if blocked_markets:
         blockers.append({
             "category": "per_market_block",
             "severity": "block",
             "detail": (
-                f"{len(blocked_markets)} F market(s) are blocked: "
+                f"{len(blocked_markets)} {market_scope} are blocked: "
                 f"{', '.join(blocked_markets)}"
             ),
+            "market_details": blocked_details,
         })
     if serving and serving.get("verdict") == "BLOCK":
         blockers.append({
@@ -373,6 +449,8 @@ def promotion_readiness(candidate, serving, decisions):
     return {
         "status": "READY" if not blockers else "OPEN",
         "blockers": blockers,
+        "shadow_market_details": shadow_details,
+        "blocked_market_details": blocked_details,
     }
 
 
@@ -384,6 +462,33 @@ def _readiness_table_rows(readiness):
         [row.get("category"), row.get("severity"), row.get("detail")]
         for row in blockers
     ]
+
+
+def _readiness_market_detail_rows(readiness):
+    rows = []
+    for item in (readiness or {}).get("shadow_market_details") or []:
+        rows.append([
+            item.get("market_id"),
+            item.get("action"),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            fmt_signed(item.get("delta_vs_current"), 4),
+            fmt_signed(item.get("delta_vs_market"), 4),
+            item.get("reason") or "-",
+        ])
+    for item in (readiness or {}).get("blocked_market_details") or []:
+        rows.append([
+            item.get("market_id"),
+            item.get("action"),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            fmt_signed(item.get("delta_vs_current"), 4),
+            fmt_signed(item.get("delta_vs_market"), 4),
+            item.get("reason") or "-",
+        ])
+    return rows
 
 
 def _slice_delta_vs_market(row):
@@ -525,7 +630,7 @@ def write_report(path, payload):
     readiness = payload.get("readiness") or {}
 
     lines = [
-        "# F-Family Promotion Refresh",
+        f"# {_family_title(payload.get('family_unit'))} Promotion Refresh",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Family unit: `{payload.get('family_unit')}`",
@@ -554,6 +659,26 @@ def write_report(path, payload):
         ["Category", "Severity", "Detail"],
         _readiness_table_rows(readiness),
     )
+    readiness_details = _readiness_market_detail_rows(readiness)
+    if readiness_details:
+        lines += [
+            "",
+            "### Shadow/Block Explanation Detail",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Market",
+                "Action",
+                "Candidate Brier",
+                "Current Brier",
+                "Market Brier",
+                "Delta Current",
+                "Delta Market",
+                "Reason",
+            ],
+            readiness_details,
+        )
     lines += [
         "",
         "## Refresh Artifacts",
@@ -846,6 +971,13 @@ def _candidate_args(args, corpus_path, long_job_guard_info=None):
         max_fidelity_l1=args.max_fidelity_l1,
         clob_max_age_seconds=args.clob_max_age_seconds,
         casebook=args.casebook,
+        candidate_variant_out=getattr(args, "candidate_variant_out", None) or None,
+        candidate_variant_id=getattr(args, "candidate_variant_id", None) or None,
+        candidate_variant_family=getattr(args, "candidate_variant_family", None) or None,
+        candidate_variant_uses_market_features=bool(
+            getattr(args, "candidate_variant_uses_market_features", False)
+        ),
+        candidate_variant_control=bool(getattr(args, "candidate_variant_control", False)),
         microstructure_artifact=args.microstructure_artifact or None,
         microstructure_min_train_rows=args.microstructure_min_train_rows,
         skip_microstructure_overlay=args.skip_microstructure_overlay,
@@ -931,7 +1063,7 @@ def build_parser():
         description="Refresh promotion corpus, trust, pooled replay, and family promotion decisions."
     )
     parser.add_argument("folders", nargs="*", help="Optional snapshot folders; defaults to discovered settled folders.")
-    parser.add_argument("--family-unit", default=DEFAULT_FAMILY_UNIT, choices=["F"])
+    parser.add_argument("--family-unit", default=DEFAULT_FAMILY_UNIT, choices=["F", "all"])
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default=",".join(DEFAULT_QUALITY_GRADES))
@@ -960,6 +1092,12 @@ def build_parser():
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
     parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK))
+    parser.add_argument("--candidate-variant-out", default="",
+                        help="Item-69-compatible candidate variant CSV. Empty string disables variant export.")
+    parser.add_argument("--candidate-variant-id", default=None)
+    parser.add_argument("--candidate-variant-family", default=None)
+    parser.add_argument("--candidate-variant-uses-market-features", action="store_true")
+    parser.add_argument("--candidate-variant-control", action="store_true")
     parser.add_argument("--microstructure-artifact", default=str(DEFAULT_MICROSTRUCTURE_ARTIFACT))
     parser.add_argument("--microstructure-min-train-rows", type=int, default=500)
     parser.add_argument("--skip-microstructure-overlay", action="store_true")

@@ -20,7 +20,15 @@ from weather.model.model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from weather.calibration.probability_calibration import calibrate_market_probability
+from weather.calibration.probability_calibration import (
+    apply_continuous_density_calibration,
+    calibrate_market_probability,
+)
+from weather.model.continuous_density import (
+    band_probability_from_distribution,
+    is_continuous_density_payload,
+)
+from weather.sources.marine_context import active_marine_context_state
 
 
 # --- Quantitative driver breakdown (item 12) --------------------------------
@@ -172,6 +180,7 @@ class PresentationMixin:
         eccc_city = self.source_data(sources, "eccc_citypage")
         eccc = self.source_data(sources, "eccc_swob")
         metar = self.source_data(sources, "metar")
+        marine_context = self.source_data(sources, "marine_context")
 
         rows = []
         rows.append({
@@ -239,6 +248,24 @@ class PresentationMixin:
             "Detail": metar.get("report_time", "-"),
             "Model role": "Hourly sanity check",
         })
+        marine_state = active_marine_context_state(
+            marine_context,
+            current_temp_native=self.row_temp_native(current),
+        )
+        if marine_state:
+            rows.append({
+                "Source": "Marine/lake-breeze context",
+                "Signal": marine_state.get("regime", "-").replace("_", " "),
+                "Value": (
+                    f"water {self.format_temp(marine_state.get('water_temp_native'))}; "
+                    f"air {self.format_temp(marine_state.get('air_temp_native'))}"
+                ),
+                "Detail": (
+                    f"{', '.join(marine_state.get('station_ids') or []) or '-'}; "
+                    f"age {marine_state.get('latest_age_minutes')} min"
+                ),
+                "Model role": "Gated coastal/lake-breeze context, non-resolution",
+            })
         return rows
 
     def deep_dive_rows(self, sources, distribution, analogs_data=None, now=None, focus_bucket=None):
@@ -407,6 +434,7 @@ class PresentationMixin:
         eccc_city = self.source_data(sources, "eccc_citypage")
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
+        marine_context = self.source_data(sources, "marine_context")
         
         history_max = self.row_max_native(history)
         current_temp = self.row_temp_native(current)
@@ -426,6 +454,10 @@ class PresentationMixin:
         
         wind_group = self.live_wind_group(current, weather_forecast)
         cloud_group = self.live_cloud_group(current, eccc_city, weather_forecast)
+        marine_state = active_marine_context_state(
+            marine_context,
+            current_temp_native=current_temp,
+        )
         
         # 2. Top buckets in final distribution
         top_buckets = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -459,6 +491,8 @@ class PresentationMixin:
             # to the top buckets' final probabilities (item 12).
             "driver_breakdown": self.driver_breakdown(focus_buckets),
         }
+        if marine_state:
+            explanation["marine_context"] = marine_state
         return explanation
 
     def driver_breakdown(self, buckets):
@@ -615,22 +649,41 @@ class PresentationMixin:
         """Probability a market band contains the realized high. Each market runs
         in its native unit, so the distribution buckets and the band values are
         already in the same unit -- this is a plain native sum (range bands sum
-        ``[value, value_hi]``), no cross-unit conversion."""
+        ``[value, value_hi]``), no cross-unit conversion. Continuous-density
+        payloads are canonical Fahrenheit and get projected to the native band
+        at serve time."""
         if not distribution:
             return 0.0
-        value = bin_data["value"]
-        value_hi = bin_data.get("value_hi", value)
-        if bin_data["kind"] == "lte":
-            raw_probability = sum(prob for temp, prob in distribution.items() if temp <= value)
-        elif bin_data["kind"] == "gte":
-            raw_probability = sum(prob for temp, prob in distribution.items() if temp >= value)
-        else:  # exact bucket (value_hi == value) or a range band [value, value_hi]
-            raw_probability = sum(prob for temp, prob in distribution.items() if value <= temp <= value_hi)
+        calibration_artifact = getattr(self, "probability_calibration", None)
+        calibration_context = getattr(self, "_last_probability_calibration_context", None) or {}
+        if is_continuous_density_payload(distribution) and calibration_context:
+            distribution = apply_continuous_density_calibration(
+                distribution,
+                calibration_artifact,
+                floor_bucket=calibration_context.get("observed_floor_bucket"),
+                unit=self.spec.display_unit,
+                resolution_weight=calibration_context.get("lockin_strength", 0.0),
+                cutoff_hour=calibration_context.get("cutoff_hour"),
+            )
+        raw_probability = band_probability_from_distribution(
+            distribution,
+            self.spec,
+            bin_data,
+        )
+        if raw_probability is None:
+            value = bin_data["value"]
+            value_hi = bin_data.get("value_hi", value)
+            if bin_data["kind"] == "lte":
+                raw_probability = sum(prob for temp, prob in distribution.items() if temp <= value)
+            elif bin_data["kind"] == "gte":
+                raw_probability = sum(prob for temp, prob in distribution.items() if temp >= value)
+            else:  # exact bucket (value_hi == value) or a range band [value, value_hi]
+                raw_probability = sum(prob for temp, prob in distribution.items() if value <= temp <= value_hi)
         return calibrate_market_probability(
             raw_probability,
             bin_data,
-            getattr(self, "probability_calibration", None),
-            context=getattr(self, "_last_probability_calibration_context", None),
+            calibration_artifact,
+            context=calibration_context,
             market_yes=bin_data.get("market_yes"),
         )
 

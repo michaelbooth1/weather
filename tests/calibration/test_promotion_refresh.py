@@ -9,8 +9,10 @@ sys.path.insert(0, os.path.abspath("src"))
 
 from promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
+    _candidate_args,
     _candidate_source_freshness_rows,
     _candidate_summary,
+    _family_specs,
     _serving_blocking_source_freshness_rows,
     build_family_decisions,
     promotion_readiness,
@@ -86,6 +88,49 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(nyc["settled_days_in_corpus"], 2)
         self.assertEqual(nyc["action"], "PROMOTE_CANDIDATE")
 
+    def test_all_family_specs_include_c_and_f_markets(self):
+        specs = [
+            _spec("nyc", "New York"),
+            _spec("toronto", "Toronto", unit="C"),
+        ]
+
+        selected = _family_specs("all", specs=specs)
+
+        self.assertEqual({spec.id for spec in selected}, {"nyc", "toronto"})
+
+    def test_candidate_args_pass_variant_lane_fields_to_replay(self):
+        args = SimpleNamespace(
+            snapshots_root="data/snapshots",
+            artifact="density.pkl",
+            candidate_report="candidate.md",
+            candidate_json="candidate.json",
+            current_replay_report=None,
+            current_tol=0.003,
+            market_tol=0.003,
+            min_days=2,
+            min_trust=25,
+            max_fidelity_l1=0.0,
+            clob_max_age_seconds=180.0,
+            casebook="casebook.json",
+            candidate_variant_out="density_variants.csv",
+            candidate_variant_id="pooled_continuous_density_hgb_v0_1",
+            candidate_variant_family="pooled_continuous_density",
+            candidate_variant_uses_market_features=False,
+            candidate_variant_control=False,
+            microstructure_artifact="",
+            microstructure_min_train_rows=500,
+            skip_microstructure_overlay=True,
+            require_exact_identity=False,
+            require_all_markets=False,
+        )
+
+        replay_args = _candidate_args(args, "corpus.json")
+
+        self.assertEqual(replay_args.candidate_variant_out, "density_variants.csv")
+        self.assertEqual(replay_args.candidate_variant_id, "pooled_continuous_density_hgb_v0_1")
+        self.assertEqual(replay_args.candidate_variant_family, "pooled_continuous_density")
+        self.assertIsNone(replay_args.microstructure_artifact)
+
     def test_global_replay_gate_blocks_otherwise_passing_candidate(self):
         specs = [_spec("nyc", "New York")]
         candidate_report = {
@@ -133,7 +178,24 @@ class TestPromotionRefresh(unittest.TestCase):
         readiness = promotion_readiness(
             {"aggregate": {"delta_vs_market": 0.0123}},
             {"verdict": "BLOCK"},
-            {"shadow_markets": ["austin"], "blocked_markets": []},
+            {
+                "shadow_markets": ["austin"],
+                "blocked_markets": [],
+                "markets": [
+                    {
+                        "market_id": "austin",
+                        "action": "KEEP_SHADOW",
+                        "reason": "not proven better than market on pinned rows",
+                        "metrics": {
+                            "candidate_brier": 0.04,
+                            "current_brier": 0.05,
+                            "market_brier": 0.03,
+                            "delta_vs_current": -0.01,
+                            "delta_vs_market": 0.01,
+                        },
+                    }
+                ],
+            },
         )
 
         categories = {row["category"] for row in readiness["blockers"]}
@@ -141,6 +203,29 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("candidate_market_skill", categories)
         self.assertIn("per_market_shadow", categories)
         self.assertIn("current_serving_gauntlet", categories)
+        self.assertEqual(readiness["shadow_market_details"][0]["market_id"], "austin")
+        self.assertEqual(
+            readiness["shadow_market_details"][0]["reason"],
+            "not proven better than market on pinned rows",
+        )
+
+    def test_promotion_readiness_uses_all_market_wording(self):
+        readiness = promotion_readiness(
+            {"aggregate": {}},
+            None,
+            {
+                "family_unit": "all",
+                "markets": [
+                    {"market_id": "nyc", "action": "KEEP_SHADOW", "reason": "shadow"},
+                    {"market_id": "toronto", "action": "BLOCK_CANDIDATE", "reason": "blocked"},
+                ],
+            },
+        )
+        details = [row["detail"] for row in readiness["blockers"]]
+
+        self.assertIn("1 market(s) remain shadow: nyc", details)
+        self.assertIn("1 market(s) are blocked: toronto", details)
+        self.assertFalse(any("F market(s)" in detail for detail in details))
 
     def test_candidate_summary_preserves_gap_driver_slices(self):
         summary = _candidate_summary(
@@ -255,7 +340,22 @@ class TestPromotionRefresh(unittest.TestCase):
                     ],
                 },
             },
-            "readiness": {"status": "OPEN", "blockers": []},
+            "readiness": {
+                "status": "OPEN",
+                "blockers": [],
+                "shadow_market_details": [
+                    {
+                        "market_id": "austin",
+                        "action": "KEEP_SHADOW",
+                        "candidate_brier": 0.04,
+                        "current_brier": 0.05,
+                        "market_brier": 0.03,
+                        "delta_vs_current": -0.01,
+                        "delta_vs_market": 0.01,
+                        "reason": "not proven better than market on pinned rows",
+                    }
+                ],
+            },
             "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
             "serving_gauntlet": None,
         }
@@ -264,8 +364,27 @@ class TestPromotionRefresh(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
 
         self.assertIn("### Source Freshness Slice", text)
+        self.assertIn("### Shadow/Block Explanation Detail", text)
+        self.assertIn("not proven better than market on pinned rows", text)
         self.assertIn("failed:wu_history", text)
         self.assertNotIn("not available in the candidate replay rows yet", text)
+
+    def test_write_report_uses_all_market_title(self):
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "family_unit": "all",
+            "corpus": {},
+            "candidate": {"aggregate": {}, "slices": {}},
+            "readiness": {"status": "OPEN", "blockers": []},
+            "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "serving_gauntlet": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_report(Path(tmp) / "report.md", payload)
+            text = path.read_text(encoding="utf-8")
+
+        self.assertIn("# All-Market Promotion Refresh", text)
+        self.assertNotIn("# F-Family Promotion Refresh", text)
 
     def test_write_report_emits_serving_blocking_source_freshness(self):
         serving = {

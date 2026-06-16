@@ -130,8 +130,12 @@ def read_csv_rows(path):
     path = Path(path)
     if not path.exists():
         return []
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except UnicodeDecodeError:
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            return list(csv.DictReader(handle))
 
 
 def read_jsonl_records(path):

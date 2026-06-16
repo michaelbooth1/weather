@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -85,6 +86,12 @@ TEMPERATURE_BOUNDS = {
     "C": (-60.0, 60.0),
     "F": (-80.0, 140.0),
 }
+
+
+def redact_api_key(value):
+    if value is None:
+        return None
+    return re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value))
 
 
 class WundergroundHistoryClient:
@@ -368,8 +375,8 @@ class WundergroundHistoryStore:
             "start": start_date.isoformat(),
             "end": end_date.isoformat(),
             "status_code": getattr(response, "status_code", None),
-            "url": getattr(response, "url", None),
-            "error": str(exc),
+            "url": redact_api_key(getattr(response, "url", None)),
+            "error": redact_api_key(str(exc)),
             "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
             "treated_as_source_unavailable": True,
         }
