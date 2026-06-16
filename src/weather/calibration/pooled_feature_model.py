@@ -13,12 +13,21 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
 
-from weather.backtesting.backtest import binary_log_loss, brier, fmt_num, markdown_table
+from weather.scoring.metrics import (
+    binary_log_loss,
+    brier,
+)
+from weather.reporting.formatting import (
+    fmt_num,
+    markdown_table,
+)
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.model.continuous_density import (
@@ -41,15 +50,15 @@ from weather.sources.forecast_history import daily_path_for, load_forecast_daily
 from weather.sources.reanalysis_synoptic import load_reanalysis_synoptic_features
 from weather.artifacts import writable_artifact_path
 
-DEFAULT_REPORT = Path("data") / "backtest" / "f_family_pooled_model_report.md"
+DEFAULT_REPORT = data_path() / "backtest" / "f_family_pooled_model_report.md"
 DEFAULT_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled.pkl")
-DEFAULT_BAND_REPORT = Path("data") / "backtest" / "f_family_pooled_band_model_v0_3_report.md"
+DEFAULT_BAND_REPORT = data_path() / "backtest" / "f_family_pooled_band_model_v0_3_report.md"
 DEFAULT_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_v0_3.pkl")
-DEFAULT_EXACT_WINNER_REPORT = Path("data") / "backtest" / "f_family_pooled_exact_winner_model_report.md"
+DEFAULT_EXACT_WINNER_REPORT = data_path() / "backtest" / "f_family_pooled_exact_winner_model_report.md"
 DEFAULT_EXACT_WINNER_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_exact_winner_v0_1.pkl")
-DEFAULT_DYNAMIC_SOURCE_REPORT = Path("data") / "backtest" / "f_family_pooled_dynamic_source_model_report.md"
+DEFAULT_DYNAMIC_SOURCE_REPORT = data_path() / "backtest" / "f_family_pooled_dynamic_source_model_report.md"
 DEFAULT_DYNAMIC_SOURCE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl")
-DEFAULT_DENSITY_REPORT = Path("data") / "backtest" / "pooled_continuous_density_model_report.md"
+DEFAULT_DENSITY_REPORT = data_path() / "backtest" / "pooled_continuous_density_model_report.md"
 DEFAULT_DENSITY_ARTIFACT = writable_artifact_path("pooled_continuous_density_hgb_v0_1.pkl")
 
 WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]

@@ -15,6 +15,7 @@ Requires Python 3.11+.
 ```powershell
 python -m venv venv
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m pip install -e .
 ```
 
 `scikit-learn` is pinned exactly because the tracked HGB artifacts under
@@ -49,77 +50,77 @@ All run from the repo root with the venv interpreter:
 
 ```powershell
 # Wunderground/Weather.com history: collect, rebuild, audit, climatology
-.\venv\Scripts\python.exe -m src.wu_history backfill --start 2015-01-01 --end 2026-05-27
-.\venv\Scripts\python.exe -m src.wu_history audit
+.\venv\Scripts\python.exe -m weather.sources.wu_history backfill --start 2015-01-01 --end 2026-05-27
+.\venv\Scripts\python.exe -m weather.sources.wu_history audit
 
 # ECCC SWOB observation layer
-.\venv\Scripts\python.exe -m src.eccc_swob_history run
+.\venv\Scripts\python.exe -m weather.sources.eccc_swob_history run
 
 # Forecast archive (migrate schema, backfill ECCC, learn source bias)
-.\venv\Scripts\python.exe -m src.forecast_archive analyze <snapshot-folder>
+.\venv\Scripts\python.exe -m weather.collection.forecast_archive analyze <snapshot-folder>
 
 # Capture snapshots: one-shot, or a crash-proof managed loop with heartbeat
-.\venv\Scripts\python.exe -m src.snapshot_tracker --force
-.\venv\Scripts\python.exe -m src.snapshot_tracker --loop --interval-minutes 10
-.\venv\Scripts\python.exe -m src.snapshot_tracker --status   # is the loop alive?
-.\venv\Scripts\python.exe -m src.snapshot_tracker --restart  # deploy new code to the loop
-.\venv\Scripts\python.exe -m src.snapshot_tracker --stop     # terminate the managed loop
-.\venv\Scripts\python.exe -m src.snapshot_tracker --ensure   # supervisor check (Task Scheduler runs this)
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --force
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --loop --interval-minutes 10
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --status   # is the loop alive?
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --restart  # deploy new code to the loop
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --stop     # terminate the managed loop
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --ensure   # supervisor check (Task Scheduler runs this)
 
 # Fast Polymarket CLOB capture: keep this separate from the weather/model loop.
 # Price history and short WebSocket event capture are on by default; use
 # --no-price-history or --no-websocket-events only for emergency throttling.
-.\venv\Scripts\python.exe -m src.market_microstructure capture --market toronto
-.\venv\Scripts\python.exe -m src.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
-.\venv\Scripts\python.exe -m src.market_microstructure status
-.\venv\Scripts\python.exe -m src.market_microstructure audit --strict   # book-tape cadence acceptance check
-.\venv\Scripts\python.exe -m src.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
-.\venv\Scripts\python.exe -m src.market_microstructure stop
-.\venv\Scripts\python.exe -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
-.\venv\Scripts\python.exe -m src.market_microstructure websocket --market toronto --seconds 300  # manual long recorder
+.\venv\Scripts\python.exe -m weather.market.market_microstructure capture --market toronto
+.\venv\Scripts\python.exe -m weather.market.market_microstructure loop --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m weather.market.market_microstructure status
+.\venv\Scripts\python.exe -m weather.market.market_microstructure audit --strict   # book-tape cadence acceptance check
+.\venv\Scripts\python.exe -m weather.market.market_microstructure restart --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m weather.market.market_microstructure stop
+.\venv\Scripts\python.exe -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
+.\venv\Scripts\python.exe -m weather.market.market_microstructure websocket --market toronto --seconds 300  # manual long recorder
 
 # Fast observation-triggered recompute: low-cost WU/current/METAR/SWOB watcher
-.\venv\Scripts\python.exe -m src.observation_trigger once --market all
-.\venv\Scripts\python.exe -m src.observation_trigger loop --market all --interval-seconds 60
-.\venv\Scripts\python.exe -m src.observation_trigger status
-.\venv\Scripts\python.exe -m src.observation_trigger ensure --market all --interval-seconds 60
-.\venv\Scripts\python.exe -m src.observation_trigger replay
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger once --market all
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger loop --market all --interval-seconds 60
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger status
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger ensure --market all --interval-seconds 60
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger replay
 
 # Keyless market-making operator run: target date + total risk budget
-.\venv\Scripts\python.exe -m src.market_making_run --date 2026-06-15 --budget-usdc 500 --mode shadow
-.\venv\Scripts\python.exe -m src.market_making_run --date 2026-06-15 --budget-usdc 500 --mode paper-live-forward --once
-.\venv\Scripts\python.exe -m src.mm_paper
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-15 --budget-usdc 500 --mode shadow
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-15 --budget-usdc 500 --mode paper-live-forward --once
+.\venv\Scripts\python.exe -m weather.market.mm_paper
 
 # Collection health and fleet observability
-.\venv\Scripts\python.exe -m src.collection_health
-.\venv\Scripts\python.exe -m src.collection_health --fleet --live --strict --json
-.\venv\Scripts\python.exe -m src.fleet_observability report --strict
-.\venv\Scripts\python.exe -m src.data_layer_audit
-.\venv\Scripts\python.exe -m src.source_redundancy report --start 2026-06-01 --end 2026-06-12
-.\venv\Scripts\python.exe -m src.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
+.\venv\Scripts\python.exe -m weather.collection.collection_health
+.\venv\Scripts\python.exe -m weather.collection.collection_health --fleet --live --strict --json
+.\venv\Scripts\python.exe -m weather.reporting.fleet_observability report --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_layer_audit
+.\venv\Scripts\python.exe -m weather.reporting.source_redundancy report --start 2026-06-01 --end 2026-06-12
+.\venv\Scripts\python.exe -m weather.sources.metar_history --market toronto backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
 
 # Settlement labels and promotion refresh
-.\venv\Scripts\python.exe -m src.market_day_labels finalize
-.\venv\Scripts\python.exe -m src.promotion_refresh
-.\venv\Scripts\python.exe -m src.snapshot_evaluation
-.\venv\Scripts\python.exe -m src.daily_refresh run --continue-on-error
-.\venv\Scripts\python.exe -m src.daily_refresh status
+.\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
+.\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
+.\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
+.\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error
+.\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 
 # Settlement-scored backtest: model vs market edge on captured days
-.\venv\Scripts\python.exe -m src.backtest
+.\venv\Scripts\python.exe -m weather.backtesting.backtest
 
 # Analytics over a snapshot tape
-.\venv\Scripts\python.exe -m src.snapshot_analytics
+.\venv\Scripts\python.exe -m weather.backtesting.snapshot_analytics
 
 # Calibrate empirical intraday blend weights
-.\venv\Scripts\python.exe -m src.intraday_calibration
+.\venv\Scripts\python.exe -m weather.calibration.intraday_calibration
 
 # Train the feature model + late-day continuation models (with LOO + calibration)
-.\venv\Scripts\python.exe src\feature_model.py
+.\venv\Scripts\python.exe -m weather.calibration.feature_model
 
 # Data-quality audit (missing/sparse days, duplicates, impossible values)
-.\venv\Scripts\python.exe src\data_auditor.py
-.\venv\Scripts\python.exe src\data_auditor.py --fleet --json --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_auditor
+.\venv\Scripts\python.exe -m weather.reporting.data_auditor --fleet --json --strict
 ```
 
 For resilient collection, register the supervisor scheduled tasks once:
@@ -140,18 +141,18 @@ task and run `--stop` (the pause flag alone keeps the process alive). The loop
 survives transient capture errors itself; `--status` (heartbeat-based) shows
 its health, `diagnostics.jsonl` records every iteration and supervisor action,
 and the loop's console output goes to `data/snapshots/loop_console.log`.
-The CLOB task runs `src.market_microstructure ensure` every minute, supervises a
+The CLOB task runs `weather.market.market_microstructure ensure` every minute, supervises a
 separate fast book loop, writes `clob_loop_status.json` and
 `clob_diagnostics.jsonl`, and keeps missing order-book history from becoming a
 silent data-loss event.
-The observation-trigger task runs `src.observation_trigger ensure` every minute,
+The observation-trigger task runs `weather.operations.observation_trigger ensure` every minute,
 supervises a low-cost 60-second observation watcher, and forces tagged
 `snapshot_cadence=triggered` recomputes when WU current/history, METAR, or SWOB
 changes settlement-relevant state. It writes
 `data/snapshots/observation_trigger_status.json`,
 `data/snapshots/observation_triggers.jsonl`, and the WU-lag scoring artifacts
 under `data/backtest/observation_trigger_replay*`.
-The daily refresh task runs `src.daily_refresh run --continue-on-error` once per
+The daily refresh task runs `weather.operations.daily_refresh run --continue-on-error` once per
 morning by default. It first retries the recent reanalysis archive-lag window
 (`--skip-reanalysis-refresh` disables that), then executes
 `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
@@ -221,8 +222,8 @@ docs/                # Operations, research, and roadmap docs
 tests/fixtures/      # Small deterministic fixture data
 ```
 
-Historical imports and commands such as `python -m src.snapshot_tracker` still
-work through compatibility wrappers in `src/`.
+Canonical commands run through the packaged `weather.*` modules. Legacy flat
+wrappers remain available for one migration window as compatibility shims.
 
 ## Documentation
 

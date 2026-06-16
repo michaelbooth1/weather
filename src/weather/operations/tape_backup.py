@@ -13,18 +13,22 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.paths import REPO_ROOT, relative_to_repo
+from weather.paths import REPO_ROOT, relative_to_repo, data_path
 from weather.schema_registry import SCHEMAS_BY_VERSION, schema_version
 
 
 MANIFEST_SCHEMA_VERSION = schema_version("tape_backup_manifest")
 RESTORE_DRILL_SCHEMA_VERSION = schema_version("tape_restore_drill")
 POLICY_VERSION = "tape_retention_policy_v0.1"
-DEFAULT_BACKUP_ROOT = Path(os.environ.get("WEATHER_TAPE_BACKUP_ROOT", "data/tape_backups"))
-DEFAULT_STATUS_OUT = Path("data") / "backtest" / "tape_backup_status.json"
-DEFAULT_REPORT_OUT = Path("data") / "backtest" / "tape_backup_status_report.md"
-DEFAULT_RESTORE_OUT = Path("data") / "backtest" / "tape_restore_drill.json"
-DEFAULT_RESTORE_REPORT = Path("data") / "backtest" / "tape_restore_drill_report.md"
+DEFAULT_BACKUP_ROOT = (
+    Path(os.environ["WEATHER_TAPE_BACKUP_ROOT"])
+    if os.environ.get("WEATHER_TAPE_BACKUP_ROOT")
+    else data_path("tape_backups")
+)
+DEFAULT_STATUS_OUT = data_path() / "backtest" / "tape_backup_status.json"
+DEFAULT_REPORT_OUT = data_path() / "backtest" / "tape_backup_status_report.md"
+DEFAULT_RESTORE_OUT = data_path() / "backtest" / "tape_restore_drill.json"
+DEFAULT_RESTORE_REPORT = data_path() / "backtest" / "tape_restore_drill_report.md"
 LATEST_DIR = "latest"
 
 

@@ -5,6 +5,8 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.model.feature_store import row_temp_native as feature_row_temp_native
@@ -16,7 +18,7 @@ from weather.sources.daily_summary import (
     to_float,
 )
 
-DEFAULT_DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+DEFAULT_DATA_ROOT = data_path() / "wunderground" / "cyyz"
 DEFAULT_MARKET_CONFIG = config_for_date()
 TARGET_MONTH = DEFAULT_MARKET_CONFIG.target_date.month
 TARGET_DAY = DEFAULT_MARKET_CONFIG.target_date.day

@@ -9,7 +9,13 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_num, fmt_pct, markdown_table
+from weather.paths import data_path
+
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_pct,
+    markdown_table,
+)
 from weather.backtesting.replay import index_records_by_snapshot, load_replay_records, source_freshness_group
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
 from weather.reporting.promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS
@@ -17,9 +23,9 @@ from weather.reporting.promotion_corpus import folders_from_manifest, load_manif
 
 
 SCHEMA_VERSION = "wu_max_since_7_validation_v0.1"
-DEFAULT_JSON_OUT = Path("data") / "backtest" / "wu_max_since_7_validation.json"
-DEFAULT_REPORT_OUT = Path("data") / "backtest" / "wu_max_since_7_validation_report.md"
-DEFAULT_GAUNTLET_REPORT = Path("data") / "backtest" / "promotion_gauntlet_latest_report.md"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "wu_max_since_7_validation.json"
+DEFAULT_REPORT_OUT = data_path() / "backtest" / "wu_max_since_7_validation_report.md"
+DEFAULT_GAUNTLET_REPORT = data_path() / "backtest" / "promotion_gauntlet_latest_report.md"
 
 
 def utc_now():

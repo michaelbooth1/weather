@@ -2,10 +2,7 @@ import os
 import sys
 import unittest
 from datetime import datetime, timedelta
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from snapshot_tracker import TORONTO_TZ, ensure_decision, loop_health
+from weather.collection.snapshot_tracker import TORONTO_TZ, ensure_decision, loop_health
 
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=TORONTO_TZ)
 

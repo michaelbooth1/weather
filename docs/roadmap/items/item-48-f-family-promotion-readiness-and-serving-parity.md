@@ -79,6 +79,17 @@ Item 48 remains open for empirical readiness: the candidate must either clear
 the aggregate market-price gap and move shadow markets through the gates, or
 continue to report those blockers without serving promotion.
 
+No-market lane selection update (2026-06-16 UTC): item 86 selected
+`item50_pooled_forecast_v3_candidate` as the canonical no-market shadow lane
+from `data/backtest/item86_no_market_bakeoff_multi_variant_shadow_report.md`.
+The report is clean (`OK`, zero warnings/errors) and compares item 50, item 70,
+item 71, item 73 policy bridge, item 82 Miami fallback, and the control over the
+same 67,430 unique observations. Item 50 is best among active no-market
+variants versus current replay (`-0.0016` daily-first Brier delta), but it still
+trails market by `+0.0041`, so this is a shadow-lane decision rather than a
+promotion approval. Item 48 remains open until the selected lane clears the
+aggregate market-price gap and per-market shadow blockers.
+
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow
 market has a concrete, generated blocker rather than ambiguous roadmap text.

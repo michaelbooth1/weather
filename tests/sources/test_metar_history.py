@@ -5,11 +5,8 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_registry import spec_for_id  # noqa: E402
-from metar_history import MetarStore, chunk_date_ranges, normalize_csv  # noqa: E402
+from weather.market.market_registry import spec_for_id  # noqa: E402
+from weather.sources.metar_history import MetarStore, chunk_date_ranges, normalize_csv  # noqa: E402
 
 
 CSV_TEXT = """station,valid,tmpc,dwpc,relh,drct,sknt,gust,alti,mslp,vsby,skyc1,skyc2,skyc3,wxcodes

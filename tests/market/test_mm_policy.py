@@ -5,10 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from mm_policy import (
+from weather.market.mm_policy import (
     apply_known_edge_permission,
     config_with_clob_recon,
     decide_quote,

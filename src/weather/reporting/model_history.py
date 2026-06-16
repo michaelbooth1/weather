@@ -9,11 +9,13 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.tape_scoring import last_pre_close_rows
+from weather.scoring.metrics import (
     daily_first_score,
-    last_pre_close_rows,
     score_rows,
     winner_band_catchup,
 )
@@ -29,9 +31,9 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.model.model_constants import TORONTO_TZ
 
 
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_LABELS_CSV = Path("data") / "backtest" / "market_day_labels.csv"
-DEFAULT_HISTORY_CACHE = Path("data") / "backtest" / "model_history_cache.json"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
+DEFAULT_HISTORY_CACHE = data_path() / "backtest" / "model_history_cache.json"
 MODEL_HISTORY_CACHE_SCHEMA = "model_history_cache_v0.2"
 
 

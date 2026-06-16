@@ -1,0 +1,134 @@
+{
+  "schema_version": "model_variant_registry_v0.1",
+  "updated_at_utc": "2026-06-16T00:00:00+00:00",
+  "description": "Lifecycle registry for model variants used by shadow and promotion reports.",
+  "variants": [
+    {
+      "variant_id": "pooled_f_candidate_control",
+      "variant_family": "pooled_f_candidate",
+      "lifecycle": "control",
+      "track": "no_market",
+      "roles": ["control"],
+      "active_for_headline": false,
+      "roadmap_items": [72, 73, 84],
+      "notes": "Shared current/candidate control row; deduplicate when combining unrelated families."
+    },
+    {
+      "variant_id": "item50_pooled_forecast_v3_candidate",
+      "variant_family": "pooled_f_candidate",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "no-market", "active-bakeoff"],
+      "active_for_headline": true,
+      "roadmap_items": [50, 86]
+    },
+    {
+      "variant_id": "pooled_f_exact_winner_catchup_v0_1",
+      "variant_family": "exact_winner_catchup",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "no-market", "active-bakeoff"],
+      "active_for_headline": true,
+      "roadmap_items": [70, 86]
+    },
+    {
+      "variant_id": "pooled_f_dynamic_source_state_v0_1",
+      "variant_family": "dynamic_source_state",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "no-market", "source-state", "active-bakeoff"],
+      "active_for_headline": true,
+      "roadmap_items": [71, 86]
+    },
+    {
+      "variant_id": "conservative_bridge_policy_v0_1",
+      "variant_family": "conservative_bridge",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["policy-only", "no-market", "active-bakeoff"],
+      "active_for_headline": true,
+      "roadmap_items": [73, 86]
+    },
+    {
+      "variant_id": "pooled_f_candidate_miami_current_fallback_v0_1",
+      "variant_family": "pooled_f_candidate",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "no-market", "fallback", "active-bakeoff"],
+      "active_for_headline": true,
+      "roadmap_items": [82, 86]
+    },
+    {
+      "variant_id": "clob_overlay_gated_taxonomy",
+      "variant_family": "clob_overlay",
+      "lifecycle": "active",
+      "track": "market_informed",
+      "roles": ["market-informed", "quote-diagnostic"],
+      "active_for_headline": true,
+      "roadmap_items": [72]
+    },
+    {
+      "variant_id": "clob_overlay_raw_oof",
+      "variant_family": "clob_overlay",
+      "lifecycle": "active",
+      "track": "market_informed",
+      "roles": ["market-informed", "oof-diagnostic", "partial-coverage"],
+      "active_for_headline": true,
+      "roadmap_items": [72]
+    },
+    {
+      "variant_id": "pooled_continuous_density_hgb_v0_1",
+      "variant_family": "pooled_continuous_density",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "density", "expanded-evidence"],
+      "active_for_headline": true,
+      "roadmap_items": [35, 85]
+    },
+    {
+      "variant_id": "pooled_f_exact_winner_catchup_alpha005",
+      "variant_family": "exact_winner_catchup",
+      "lifecycle": "archived",
+      "track": "no_market",
+      "roles": ["alpha", "historical"],
+      "active_for_headline": false,
+      "roadmap_items": [70]
+    },
+    {
+      "variant_id": "pooled_f_exact_winner_catchup_alpha01",
+      "variant_family": "exact_winner_catchup",
+      "lifecycle": "archived",
+      "track": "no_market",
+      "roles": ["alpha", "historical"],
+      "active_for_headline": false,
+      "roadmap_items": [70]
+    },
+    {
+      "variant_id": "pooled_f_exact_winner_catchup_alpha02",
+      "variant_family": "exact_winner_catchup",
+      "lifecycle": "archived",
+      "track": "no_market",
+      "roles": ["alpha", "historical"],
+      "active_for_headline": false,
+      "roadmap_items": [70]
+    },
+    {
+      "variant_id": "pooled_f_exact_winner_catchup_smoke",
+      "variant_family": "exact_winner_catchup",
+      "lifecycle": "archived",
+      "track": "no_market",
+      "roles": ["smoke", "historical"],
+      "active_for_headline": false,
+      "roadmap_items": [70]
+    },
+    {
+      "variant_id": "pooled_f_dynamic_source_state_smoke",
+      "variant_family": "dynamic_source_state",
+      "lifecycle": "archived",
+      "track": "no_market",
+      "roles": ["smoke", "historical"],
+      "active_for_headline": false,
+      "roadmap_items": [71]
+    }
+  ]
+}

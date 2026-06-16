@@ -10,14 +10,10 @@ from unittest.mock import patch
 
 import requests
 import pandas as pd
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-import snapshot_tracker as tracker  # noqa: E402
-from model_sources import request_with_retries, _is_retryable
-from snapshot_tracker import SnapshotStore, loop_health, run_loop
-from collection_health import (
+import weather.collection.snapshot_tracker as tracker  # noqa: E402
+from weather.model.model_sources import request_with_retries, _is_retryable
+from weather.collection.snapshot_tracker import SnapshotStore, loop_health, run_loop
+from weather.collection.collection_health import (
     detect_gaps,
     coverage_summary,
     live_coverage_summary,

@@ -16,7 +16,12 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_num, markdown_table
+from weather.paths import data_path
+
+from weather.reporting.formatting import (
+    fmt_num,
+    markdown_table,
+)
 from weather.collection.collection_health import summarize_folder
 from weather.collection.snapshot_tracker import LOOP_STATUS_PATH, loop_health
 from weather.market.market_config import date_from_event_slug
@@ -35,10 +40,10 @@ from weather.sources.supplemental_stations import guard_not_canonical_root, sour
 
 
 SCHEMA_VERSION = "data_layer_audit_v0.3"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_OUT = Path("data") / "backtest" / "data_layer_audit.json"
-DEFAULT_REPORT = Path("data") / "backtest" / "data_layer_audit_report.md"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_OUT = data_path() / "backtest" / "data_layer_audit.json"
+DEFAULT_REPORT = data_path() / "backtest" / "data_layer_audit_report.md"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 
 SNAPSHOT_LONG = "snapshots_long.csv"
 SNAPSHOT_OPTIONAL_ARTIFACTS = {
@@ -74,10 +79,10 @@ DEFAULT_AUDIT_THRESHOLDS = {
 }
 
 HISTORICAL_SOURCE_ROOTS = {
-    "wu": Path("data") / "wunderground",
-    "metar": Path("data") / "metar",
-    "ghcnh": Path("data") / "noaa_ghcnh",
-    "reanalysis": Path("data") / "reanalysis",
+    "wu": data_path() / "wunderground",
+    "metar": data_path() / "metar",
+    "ghcnh": data_path() / "noaa_ghcnh",
+    "reanalysis": data_path() / "reanalysis",
 }
 
 MICROSTRUCTURE_DOCS = [
@@ -564,13 +569,13 @@ def daily_value_rows_from_csv(path):
 def source_daily_summary_path(source, spec):
     station = spec.icao.lower()
     if source == "wu":
-        return Path("data") / "wunderground" / station / "daily" / "daily_summary.csv"
+        return data_path() / "wunderground" / station / "daily" / "daily_summary.csv"
     if source == "metar":
-        return Path("data") / "metar" / station / "daily" / "daily_summary.csv"
+        return data_path() / "metar" / station / "daily" / "daily_summary.csv"
     if source == "ghcnh":
-        return Path("data") / "noaa_ghcnh" / station / "daily" / "daily_summary.csv"
+        return data_path() / "noaa_ghcnh" / station / "daily" / "daily_summary.csv"
     if source == "reanalysis":
-        return Path("data") / "reanalysis" / station / "daily" / "daily_summary.csv"
+        return data_path() / "reanalysis" / station / "daily" / "daily_summary.csv"
     raise KeyError(source)
 
 
@@ -605,13 +610,13 @@ def supplemental_ghcnh_sources(spec, registry=None):
 def source_root_path(source, spec):
     station = spec.icao.lower()
     if source == "wu":
-        return Path("data") / "wunderground" / station
+        return data_path() / "wunderground" / station
     if source == "metar":
-        return Path("data") / "metar" / station
+        return data_path() / "metar" / station
     if source == "ghcnh":
-        return Path("data") / "noaa_ghcnh" / station
+        return data_path() / "noaa_ghcnh" / station
     if source == "reanalysis":
-        return Path("data") / "reanalysis" / station
+        return data_path() / "reanalysis" / station
     raise KeyError(source)
 
 
@@ -1205,7 +1210,7 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
             "Start and supervise the CLOB book loop",
             f"CLOB loop state is {clob_state}; status path is {clob_loop.get('status_path')}.",
             (
-                "Run `src.market_microstructure start-detached` and register "
+                "Run `weather.market.market_microstructure start-detached` and register "
                 "`scripts/register_clob_supervisor.ps1` so book-depth history is "
                 "captured continuously and restarted after crashes or reboots."
             ),

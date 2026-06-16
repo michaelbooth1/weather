@@ -12,9 +12,15 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from weather.paths import data_path
+
 from types import SimpleNamespace
 
-from weather.backtesting.backtest import fmt_num, fmt_signed, markdown_table
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_signed,
+    markdown_table,
+)
 from weather.reporting.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
 from weather.reporting.location_trust import score_all_markets
 from weather.market.market_registry import all_specs
@@ -42,13 +48,13 @@ from weather.operations.long_job_guard import (
 
 
 SCHEMA_VERSION = "promotion_refresh_v0.1"
-DEFAULT_OUT = Path("data") / "backtest" / "f_family_promotion_refresh.json"
-DEFAULT_REPORT = Path("data") / "backtest" / "f_family_promotion_refresh_report.md"
-DEFAULT_CANDIDATE_REPORT = Path("data") / "backtest" / "pooled_candidate_replay_latest_report.md"
-DEFAULT_CANDIDATE_JSON = Path("data") / "backtest" / "pooled_candidate_replay_latest.json"
-DEFAULT_CURRENT_REPLAY_REPORT = Path("data") / "backtest" / "pooled_candidate_current_replay_latest_report.md"
-DEFAULT_SERVING_GAUNTLET_REPORT = Path("data") / "backtest" / "promotion_gauntlet_latest_report.md"
-DEFAULT_SERVING_REPLAY_REPORT = Path("data") / "backtest" / "promotion_replay_latest_report.md"
+DEFAULT_OUT = data_path() / "backtest" / "f_family_promotion_refresh.json"
+DEFAULT_REPORT = data_path() / "backtest" / "f_family_promotion_refresh_report.md"
+DEFAULT_CANDIDATE_REPORT = data_path() / "backtest" / "pooled_candidate_replay_latest_report.md"
+DEFAULT_CANDIDATE_JSON = data_path() / "backtest" / "pooled_candidate_replay_latest.json"
+DEFAULT_CURRENT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_latest_report.md"
+DEFAULT_SERVING_GAUNTLET_REPORT = data_path() / "backtest" / "promotion_gauntlet_latest_report.md"
+DEFAULT_SERVING_REPLAY_REPORT = data_path() / "backtest" / "promotion_replay_latest_report.md"
 DEFAULT_FAMILY_UNIT = "F"
 
 
@@ -134,6 +140,7 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             "delta_vs_current": comparison.get("delta_vs_current"),
             "delta_vs_market": comparison.get("delta_vs_market"),
         })
+    evidence = _candidate_evidence_accounting(candidate_report)
     return {
         "json_path": _as_path(candidate_json_path),
         "report_path": _as_path(candidate_report_path),
@@ -145,6 +152,7 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
         "coverage": candidate_report.get("coverage") or {},
         "replay_gate": candidate_report.get("replay_gate") or {},
         "candidate_shadow_variants": candidate_report.get("candidate_shadow_variants") or {},
+        "evidence_accounting": evidence,
         "aggregate": {
             "rows": aggregate.get("n", 0),
             "candidate_brier": aggregate.get("candidate_brier"),
@@ -216,6 +224,24 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             "by_clob_taxonomy": micro_gated.get("by_taxonomy") or microstructure.get("by_taxonomy") or [],
             "by_source_freshness": candidate_report.get("by_source_freshness") or [],
         },
+    }
+
+
+def _candidate_evidence_accounting(candidate_report):
+    market_rows = candidate_report.get("market_rows") or []
+    aggregate = candidate_report.get("aggregate") or {}
+    scored_rows = int(aggregate.get("n") or sum(int(row.get("rows") or 0) for row in market_rows))
+    snapshots = sum(int(row.get("snapshots") or 0) for row in market_rows)
+    market_days = sum(int(row.get("days") or 0) for row in market_rows)
+    markets = {row.get("market_id") for row in market_rows if row.get("market_id")}
+    return {
+        "scored_rows": scored_rows,
+        "unique_observation_count": scored_rows,
+        "snapshot_count": snapshots,
+        "market_day_count": market_days,
+        "market_count": len(markets),
+        "row_multiplier": 1.0 if scored_rows else 0.0,
+        "source": "candidate_replay_market_rows",
     }
 
 
@@ -715,10 +741,15 @@ def write_report(path, payload):
         "## Candidate Replay",
         "",
     ]
+    candidate_evidence = candidate.get("evidence_accounting") or {}
     lines += markdown_table(
         ["Metric", "Value"],
         [
             ["Rows", candidate_agg.get("rows", 0)],
+            ["Unique observations", candidate_evidence.get("unique_observation_count", candidate_agg.get("rows", 0))],
+            ["Snapshots", candidate_evidence.get("snapshot_count", 0)],
+            ["Market-days", candidate_evidence.get("market_day_count", 0)],
+            ["Row multiplier", fmt_num(candidate_evidence.get("row_multiplier"))],
             ["Candidate Brier", fmt_num(candidate_agg.get("candidate_brier"))],
             ["Current Brier", fmt_num(candidate_agg.get("current_brier"))],
             ["Recorded Brier", fmt_num(candidate_agg.get("recorded_brier"))],

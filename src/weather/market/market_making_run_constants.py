@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from weather.paths import data_path
+
 try:
     from .mm_policy import QUOTE_COLUMNS
 except ImportError:  # pragma: no cover - compatibility-wrapper execution
@@ -10,10 +12,10 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
 SCHEMA_VERSION = "mm_run_v0.2"
 PLATFORM_VERIFICATION_SCHEMA_VERSION = "mm_platform_verification_v0.1"
 RUN_MODES = {"shadow", "paper-live-forward", "live-pilot"}
-DEFAULT_RUNS_ROOT = Path("data") / "mm_runs"
+DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
 DEFAULT_QUOTE_TTL_SECONDS = 120.0
-DEFAULT_DATA_LAYER_AUDIT = Path("data") / "backtest" / "data_layer_audit.json"
-DEFAULT_PLATFORM_VERIFICATION = Path("data") / "backtest" / "mm_platform_verification.json"
+DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
+DEFAULT_PLATFORM_VERIFICATION = data_path() / "backtest" / "mm_platform_verification.json"
 
 RUN_EXTRA_COLUMNS = [
     "run_id",

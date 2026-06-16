@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from forecast_tracker import (
+from weather.collection.forecast_tracker import (
     day_record,
     forecasts_from_rows,
     median_bucket,

@@ -6,10 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_making_run import (
+from weather.market.market_making_run import (
     build_run_once,
     lifecycle_summary,
     load_data_layer_live_gate,

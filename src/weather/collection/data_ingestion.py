@@ -23,7 +23,7 @@ def backfill_market(spec, start_date: str, end_date: str):
     cmd = [
         sys.executable,
         "-m",
-        "src.wu_history",
+        "weather.sources.wu_history",
         "backfill",
         "--market",
         spec.id,

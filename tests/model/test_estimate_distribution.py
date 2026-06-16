@@ -2,12 +2,9 @@ import os
 import sys
 import unittest
 from datetime import datetime
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-from toronto_model import TorontoHighTempModel, TORONTO_TZ, _UNLOADED
-from model_distribution import DistributionPipelineState
+from weather.model.toronto_model import TorontoHighTempModel, TORONTO_TZ, _UNLOADED
+from weather.model.model_distribution import DistributionPipelineState
+from weather.model.model_contracts import DistributionResult
 
 
 def _wu_row(time, temp, dew=10.0, hum=60.0, press=1015.0,
@@ -168,6 +165,46 @@ class TestEstimateDistribution(unittest.TestCase):
         self._assert_valid_distribution(model["distribution"])
         self.assertEqual(model["model_explanation"]["feature_cutoff_hour"], 13)
         self.assertEqual(model["model_explanation"]["latest_wu_history_time"], "13:00")
+        self.assertIn("distribution_result", model)
+        self.assertEqual(model["distribution_result"]["distribution"], model["distribution"])
+        self.assertEqual(
+            model["distribution_result"]["distribution_components"],
+            model["distribution_components"],
+        )
+        self.assertIn("probability_calibration_context", model)
+        self.assertIn("source_bundle", model)
+
+    def test_estimate_distribution_result_captures_metadata(self):
+        rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), _wu_row("14:00", 22.0)]
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+
+        result = self.model.estimate_distribution_result(_sources(rows, 22.0), now=now)
+
+        self.assertIsInstance(result, DistributionResult)
+        self._assert_valid_distribution(result.distribution)
+        self.assertEqual(result.component_payload["components"]["final_model"], result.distribution)
+        self.assertEqual(result.component_payload["cutoff_hour"], 14)
+        self.assertEqual(result.calibration_context["cutoff_hour"], 14)
+        self.assertEqual(result.active_model_kind, result.component_payload["active_model_kind"])
+        self.assertIn(result.active_model_kind, {"empirical", "hgb", "lr"})
+
+    def test_distribution_results_are_isolated_between_repeated_builds(self):
+        first_rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0)]
+        second_rows = [_wu_row("07:00", 18.0), _wu_row("15:00", 26.0)]
+
+        first = self.model.estimate_distribution_result(
+            _sources(first_rows, 21.0),
+            now=datetime(2026, 5, 29, 12, 0, tzinfo=TORONTO_TZ),
+        )
+        second = self.model.estimate_distribution_result(
+            _sources(second_rows, 26.0),
+            now=datetime(2026, 5, 29, 15, 0, tzinfo=TORONTO_TZ),
+        )
+
+        self.assertEqual(first.component_payload["latest_wu_history_time"], "12:00")
+        self.assertEqual(second.component_payload["latest_wu_history_time"], "15:00")
+        self.assertEqual(first.calibration_context["wu_history_floor_bucket"], 21)
+        self.assertEqual(second.calibration_context["wu_history_floor_bucket"], 26)
 
     def test_distribution_pipeline_state_payload_matches_returned_distribution(self):
         rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), _wu_row("14:00", 22.0)]

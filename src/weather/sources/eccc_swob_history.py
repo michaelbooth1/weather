@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from weather.paths import data_path
+
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
@@ -20,9 +22,9 @@ import requests
 TORONTO_TZ = ZoneInfo("America/Toronto")
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson International"
-DEFAULT_SWOB_ROOT = Path("data") / "eccc_swob" / "cyyz"
-DEFAULT_WU_ROOT = Path("data") / "wunderground" / "cyyz"
-DEFAULT_SNAPSHOT_ROOT = Path("data") / "snapshots"
+DEFAULT_SWOB_ROOT = data_path() / "eccc_swob" / "cyyz"
+DEFAULT_WU_ROOT = data_path() / "wunderground" / "cyyz"
+DEFAULT_SNAPSHOT_ROOT = data_path() / "snapshots"
 
 SWOB_FILE_RE = re.compile(r'href="([^"]*CYYZ-MAN-swob\.xml)"')
 

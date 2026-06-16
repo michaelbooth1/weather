@@ -10,7 +10,7 @@ for market in markets:
     print(f"\n========================================")
     print(f"Running feature_model.py for {market}...")
     try:
-        subprocess.run([sys.executable, "src/feature_model.py", "--market", market], check=True, env=env)
+        subprocess.run([sys.executable, "-m weather.calibration.feature_model", "--market", market], check=True, env=env)
     except subprocess.CalledProcessError as e:
         print(f"Failed feature_model.py for {market}: {e}")
 

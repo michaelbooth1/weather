@@ -7,13 +7,10 @@ import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from historical_backfill_plan import build_plan, split_ranges
-from market_registry import NYC, TORONTO
-from historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
-from forecast_history import (
+from weather.collection.historical_backfill_plan import build_plan, split_ranges
+from weather.market.market_registry import NYC, TORONTO
+from weather.sources.historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
+from weather.sources.forecast_history import (
     FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
     RICH_FORECAST_COLUMNS,
     daily_issue_rows,
@@ -25,10 +22,10 @@ from forecast_history import (
     previous_run_rows,
     write_csv,
 )
-from noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
-from reanalysis_history import ReanalysisStore, normalize_payload
-from supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
-from wu_history import normalize_observation, redact_api_key, summarize_daily
+from weather.sources.noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
+from weather.sources.reanalysis_history import ReanalysisStore, normalize_payload
+from weather.sources.supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
+from weather.sources.wu_history import normalize_observation, redact_api_key, summarize_daily
 
 
 GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|LONGITUDE|ELEVATION|temperature|temperature_Quality_Code|temperature_Report_Type|dew_point_temperature|dew_point_temperature_Quality_Code|station_level_pressure|sea_level_pressure|wind_direction|wind_speed|relative_humidity
@@ -204,7 +201,7 @@ class TestHistoricalSources(unittest.TestCase):
                     (date(2026, 1, 5), date(2026, 1, 5)),
                 ]
 
-        with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+        with patch("weather.collection.historical_backfill_plan.wu_store", return_value=FakeStore()):
             plan = build_plan(
                 market_ids=["nyc"],
                 sources=["wu"],
@@ -237,7 +234,7 @@ class TestHistoricalSources(unittest.TestCase):
                 json.dumps(probe),
                 encoding="utf-8",
             )
-            with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+            with patch("weather.collection.historical_backfill_plan.wu_store", return_value=FakeStore()):
                 plan = build_plan(
                     market_ids=["nyc"],
                     sources=["wu"],
@@ -273,7 +270,7 @@ class TestHistoricalSources(unittest.TestCase):
                 json.dumps(probe),
                 encoding="utf-8",
             )
-            with patch("historical_backfill_plan.wu_store", return_value=FakeStore()):
+            with patch("weather.collection.historical_backfill_plan.wu_store", return_value=FakeStore()):
                 plan = build_plan(
                     market_ids=["nyc"],
                     sources=["wu"],

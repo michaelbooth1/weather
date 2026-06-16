@@ -205,6 +205,8 @@ REGISTERED_SCHEMAS = (
         supersedes=("reanalysis_synoptic_features_v0.1",),
     ),
     SchemaSpec("model_artifact_registry", "model_artifact_registry_v0.1", "weather.artifacts", "active"),
+    SchemaSpec("model_variant_registry", "model_variant_registry_v0.1", "weather.reporting.variant_registry", "active"),
+    SchemaSpec("model_variant_evidence_growth", "model_variant_evidence_growth_v0.1", "weather.reporting.variant_evidence_growth", "active"),
     SchemaSpec("nightly_retrain", "nightly_retrain_v0.1", "weather.operations.nightly_retrain", "active"),
     SchemaSpec(
         "model_history_cache_legacy",

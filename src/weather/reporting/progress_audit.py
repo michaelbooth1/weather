@@ -14,13 +14,19 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_num, fmt_signed, markdown_table
+from weather.paths import data_path, docs_path
+
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_signed,
+    markdown_table,
+)
 
 
 SCHEMA_VERSION = "progress_audit_v0.1"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_ROADMAP = Path("docs") / "roadmap" / "ROADMAP.md"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_ROADMAP = docs_path() / "roadmap" / "ROADMAP.md"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "progress_audit.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "progress_audit_report.md"
 ROADMAP_CORPUS_EXCLUDES = {"codebase-organization-audit.md"}

@@ -7,11 +7,8 @@ driver_breakdown presentation method, and the bucket-agnostic deep dive.
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from model_presentation import driver_waterfall, _component_prob
-from toronto_model import TorontoHighTempModel
+from weather.model.model_presentation import driver_waterfall, _component_prob
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 # A synthetic distribution_components pipeline. climatology_prior is the

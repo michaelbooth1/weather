@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.paths import REPO_ROOT, data_path
 from weather.collection.collection_health import fleet_collection_health, serialize_summary, summarize_folder
 from weather.collection.forecast_archive import (
     FORECAST_COLUMNS,
@@ -85,14 +86,12 @@ def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="schedule
     )
 
 
-SNAPSHOT_DATA_ROOT = Path("data") / "snapshots"
+SNAPSHOT_DATA_ROOT = data_path() / "snapshots"
 PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 RECENT_LOOP_CYCLE_COUNT = 12
-
-from weather.paths import REPO_ROOT  # noqa: E402
 
 
 class SourceStatusContext:
@@ -374,7 +373,7 @@ def start_loop_detached(interval_minutes=10.0, now=None):
     if os.name == "nt":
         creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     child = subprocess.Popen(
-        [sys.executable, "-m", "src.snapshot_tracker", "--loop",
+        [sys.executable, "-m", "weather.collection.snapshot_tracker", "--loop",
          "--interval-minutes", str(interval_minutes)],
         cwd=str(REPO_ROOT),
         stdout=log_handle,

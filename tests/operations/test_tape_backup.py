@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from tape_backup import (  # noqa: E402
+from weather.operations.tape_backup import (  # noqa: E402
     backup_status,
     build_backup_manifest,
     export_backup,

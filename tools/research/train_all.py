@@ -1,11 +1,9 @@
 import subprocess
 import sys
 import os
-
-sys.path.insert(0, os.path.abspath("src"))
-from market_registry import REGISTRY
+from weather.market.market_registry import REGISTRY
 markets = list(REGISTRY.keys())
-scripts = ["src/feature_model.py", "src/intraday_calibration.py"]
+scripts = ["-m weather.calibration.feature_model", "-m weather.calibration.intraday_calibration"]
 
 env = os.environ.copy()
 env["PYTHONPATH"] = "src"

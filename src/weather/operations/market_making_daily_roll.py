@@ -117,7 +117,7 @@ def build_market_making_command(
     command = [
         str(python_executable or sys.executable),
         "-m",
-        "src.market_making_run",
+        "weather.market.market_making_run",
         "--date",
         ensure_date(target_date),
         "--budget-usdc",

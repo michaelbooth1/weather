@@ -736,7 +736,7 @@ def _clob_loop_command(
     command = [
         sys.executable,
         "-m",
-        "src.market_microstructure",
+        "weather.market.market_microstructure",
         "loop",
         "--market",
         str(market_id),

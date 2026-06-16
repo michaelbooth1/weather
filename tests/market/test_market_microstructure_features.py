@@ -5,11 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys_path = os.path.abspath("src")
-if sys_path not in os.sys.path:
-    os.sys.path.insert(0, sys_path)
-
-from market_microstructure_features import (  # noqa: E402
+from weather.market.market_microstructure_features import (  # noqa: E402
     clob_feature_rows_for_folder,
     feature_index_for_folder,
 )

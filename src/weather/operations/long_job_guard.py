@@ -9,11 +9,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("long_job_guard")
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_STATE_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard_status.json"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard.lock"
 ACTIVE_ENV_VAR = "WEATHER_LONG_JOB_GUARD_ACTIVE"

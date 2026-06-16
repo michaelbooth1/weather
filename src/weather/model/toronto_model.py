@@ -35,6 +35,7 @@ from weather.model.model_constants import (
     _UNLOADED,
 )
 from weather.model.model_base import ModelUtilsMixin
+from weather.model.model_contracts import ModelBuildResult, SourceBundle
 from weather.model.model_sources import SourceFetchMixin
 from weather.model.model_climatology import ClimatologyMixin
 from weather.model.model_distribution import DistributionMixin
@@ -128,17 +129,20 @@ class TorontoHighTempModel(
     def build(self, event, historical_sources=None, live_sources=None, now=None):
         self.sync_target_date_from_event(event)
         if historical_sources is None and live_sources is None:
-            sources = self.fetch_sources()
+            source_bundle = SourceBundle.from_combined(self.fetch_sources())
         else:
-            sources = {}
-            sources.update(historical_sources or {})
-            sources.update(live_sources or {})
+            source_bundle = SourceBundle.from_groups(
+                historical_sources=historical_sources,
+                live_sources=live_sources,
+            )
+        sources = source_bundle.sources
         # One timestamp for the whole build so every panel (distribution, cutoff,
         # analogs, transitions, late-day) agrees, and so callers can backtest by
         # passing a historical `now`.
         now_tz = now or datetime.now(self.spec.tz)
-        distribution = self.estimate_distribution(sources, now=now_tz)
-        model_rows = self.model_market_rows(event, distribution)
+        distribution_result = self.estimate_distribution_result(sources, now=now_tz)
+        distribution = distribution_result.distribution
+        model_rows = self.model_market_rows(event, distribution, distribution_result=distribution_result)
         top_temp = max(distribution, key=distribution.get) if distribution else None
 
         cutoff_hour = self.effective_intraday_cutoff_hour(
@@ -155,32 +159,31 @@ class TorontoHighTempModel(
         # Compute analogs once at the effective cutoff and reuse them in the deep
         # dive, so both panels agree and the heaviest lookup runs a single time.
         analog_search = self.find_analog_days(sources, cutoff_hour, now_tz, limit=5)
-        return {
-            "sources": sources,
-            # The exact timestamp this build used. Persisted with the captured
-            # sources so the replay corpus can re-run estimate_distribution with
-            # the identical `now` the model saw (the hour drives the cutoff, the
-            # late-day lock-in, and every time-weighted signal).
-            "built_at": now_tz.isoformat(),
-            "distribution": distribution,
-            "distribution_components": getattr(self, "_last_distribution_components", {}),
-            "model_rows": model_rows,
-            "source_rows": self.source_rows(sources),
+        return ModelBuildResult(
+            source_bundle=source_bundle,
+            built_at=now_tz.isoformat(),
+            distribution_result=distribution_result,
+            model_rows=model_rows,
+            source_rows=self.source_rows(sources),
             # Structured per-source freshness/failure status (item 17), so the
             # dashboard/loop can surface partial live-source failures and stale
             # caches per their own TTL rather than as one undifferentiated blob.
-            "source_diagnostics": self.source_diagnostics(sources),
-            "forecast_rows": self.forecast_rows(sources),
-            "deep_dive_rows": self.deep_dive_rows(sources, distribution, analog_search, now=now_tz),
-            "notes": self.model_notes(sources),
-            "top_temp": top_temp,
-            "model_version": model_version,
-            "feature_vector": feature_vector,
-            "boundary_transitions": self.get_bucket_transitions(sources, now_tz),
-            "late_day_risk": self.predict_late_day_continuation(sources, cutoff_hour, now_tz),
-            "analog_search": analog_search,
-            "model_explanation": self.get_model_explanation(sources, distribution),
-        }
+            source_diagnostics=self.source_diagnostics(sources),
+            forecast_rows=self.forecast_rows(sources),
+            deep_dive_rows=self.deep_dive_rows(sources, distribution, analog_search, now=now_tz),
+            notes=self.model_notes(sources, distribution_result=distribution_result),
+            top_temp=top_temp,
+            model_version=model_version,
+            feature_vector=feature_vector,
+            boundary_transitions=self.get_bucket_transitions(sources, now_tz),
+            late_day_risk=self.predict_late_day_continuation(sources, cutoff_hour, now_tz),
+            analog_search=analog_search,
+            model_explanation=self.get_model_explanation(
+                sources,
+                distribution,
+                distribution_result=distribution_result,
+            ),
+        ).as_dict()
 
     def get_model_version_string(self):
         kind = getattr(self, "active_model_kind", "empirical")

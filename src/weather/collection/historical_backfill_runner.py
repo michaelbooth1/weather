@@ -16,11 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+from weather.paths import data_path
+
 SCHEMA_VERSION = "historical_backfill_run_v1"
 STATUS_SCHEMA_VERSION = "historical_backfill_status_v1"
-DEFAULT_PLAN = Path("data") / "backtest" / "historical_backfill_plan.json"
-DEFAULT_STATE = Path("data") / "backtest" / "historical_backfill_runs.jsonl"
-DEFAULT_SUMMARY = Path("data") / "backtest" / "historical_backfill_run_summary.json"
+DEFAULT_PLAN = data_path() / "backtest" / "historical_backfill_plan.json"
+DEFAULT_STATE = data_path() / "backtest" / "historical_backfill_runs.jsonl"
+DEFAULT_SUMMARY = data_path() / "backtest" / "historical_backfill_run_summary.json"
 SUCCESS = "success"
 FAILED = "failed"
 SECRET_PATTERNS = [

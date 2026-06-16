@@ -16,11 +16,8 @@ import os
 import sys
 import unittest
 from datetime import datetime
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from feature_store import FEATURE_COLUMNS, build_historical_feature_record, simulated_reading_at
-from toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.model.feature_store import FEATURE_COLUMNS, build_historical_feature_record, simulated_reading_at
+from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 CUTOFF_HOUR = 14
 FORECAST_HIGH = 26.0
@@ -323,7 +320,7 @@ class TestRampWallOffsets(unittest.TestCase):
     lock-in hours cannot regress by construction."""
 
     def setUp(self):
-        import feature_model
+        import weather.calibration.feature_model as feature_model
         self.fm = feature_model
 
     def _offsets_seen(self, hour):

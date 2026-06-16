@@ -23,7 +23,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m src.observation_trigger ensure --market $Market --interval-seconds $IntervalSeconds --stale-after-seconds $StaleAfterSeconds"
+$arguments = "-m weather.operations.observation_trigger ensure --market $Market --interval-seconds $IntervalSeconds --stale-after-seconds $StaleAfterSeconds"
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
@@ -47,7 +47,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
-    -Description "Keeps the observation-triggered recompute watcher alive (python -m src.observation_trigger ensure)." `
+    -Description "Keeps the observation-triggered recompute watcher alive (python -m weather.operations.observation_trigger ensure)." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': observation trigger --ensure every $EnsureEveryMinutes min + at logon."

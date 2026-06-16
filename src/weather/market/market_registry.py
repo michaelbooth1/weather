@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from weather.paths import CONFIG_ROOT
+from weather.paths import CONFIG_ROOT, data_path
 from weather.schema_registry import schema_version
 
 
@@ -48,7 +48,7 @@ class MarketSpec:
     @property
     def data_root(self):
         """Per-market local data root (climatology summary, last-good cache)."""
-        return Path("data") / "wunderground" / self.icao.lower()
+        return data_path() / "wunderground" / self.icao.lower()
 
     # --- Native-unit operation --------------------------------------------
     # Every market runs end-to-end in its own unit (display_unit): C markets in

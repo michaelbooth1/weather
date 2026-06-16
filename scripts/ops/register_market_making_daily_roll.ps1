@@ -24,7 +24,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m src.market_making_daily_roll start --timezone $Timezone --budget-usdc $BudgetUsdc --mode $Mode --markets $Markets --interval-seconds $IntervalSeconds"
+$arguments = "-m weather.operations.market_making_daily_roll start --timezone $Timezone --budget-usdc $BudgetUsdc --mode $Mode --markets $Markets --interval-seconds $IntervalSeconds"
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
@@ -45,7 +45,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Starts the daily paper-live-forward market-making run with default budget/settings (python -m src.market_making_daily_roll start)." `
+    -Description "Starts the daily paper-live-forward market-making run with default budget/settings (python -m weather.operations.market_making_daily_roll start)." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': daily at $At ($Timezone), $Mode, $BudgetUsdc USDC, markets=$Markets."

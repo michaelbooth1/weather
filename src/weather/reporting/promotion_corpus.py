@@ -14,16 +14,18 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import load_market_day_label
+from weather.backtesting.settlement_io import load_market_day_label
 from weather.backtesting.replay import index_records_by_snapshot, is_reconstructed, load_replay_records
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, discover_settled_folders
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
 
 PROMOTION_CORPUS_SCHEMA_VERSION = "promotion_corpus_v0.1"
-DEFAULT_OUT = Path("data") / "backtest" / "promotion_corpus.json"
+DEFAULT_OUT = data_path() / "backtest" / "promotion_corpus.json"
 DEFAULT_QUALITY_GRADES = ("complete", "manual_override")
 
 

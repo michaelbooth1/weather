@@ -8,10 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_day_labels import finalize_folders, missing_fraction, quality_grade
+from weather.market.market_day_labels import finalize_folders, missing_fraction, quality_grade
 
 
 class TestMarketDayLabels(unittest.TestCase):

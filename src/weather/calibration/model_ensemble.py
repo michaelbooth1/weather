@@ -11,25 +11,29 @@ import math
 from collections import defaultdict
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
-    backtest_tape,
-    binary_log_loss,
-    brier,
     load_daily_summary,
     load_market_day_label,
-    missing,
     settlement_for_tape,
+)
+from weather.backtesting.tape_scoring import backtest_tape
+from weather.scoring.metrics import (
+    binary_log_loss,
+    brier,
+    missing,
 )
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
 
 
-DEFAULT_REPORT_PATH = Path("data") / "backtest" / "model_ensemble_report.md"
+DEFAULT_REPORT_PATH = data_path() / "backtest" / "model_ensemble_report.md"
 CANDIDATE_PREFIX = "candidate:"
 DEPLOYED_MODEL = f"{CANDIDATE_PREFIX}deployed_model"
 MARKET_PRICE = f"{CANDIDATE_PREFIX}market_price"
@@ -441,7 +445,7 @@ def main(argv=None):
     else:
         folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
-    report_arg = args.report or Path("data") / "backtest" / f"model_ensemble_report{spec.artifact_suffix}.md"
+    report_arg = args.report or data_path() / "backtest" / f"model_ensemble_report{spec.artifact_suffix}.md"
     quality_grades = [
         item.strip() for item in str(args.quality_grades).split(",")
         if item.strip()

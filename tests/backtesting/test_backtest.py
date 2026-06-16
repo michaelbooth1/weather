@@ -6,11 +6,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-from backtest import (
+from weather.backtesting.backtest import (
     resolve_outcome,
     brier,
     binary_log_loss,
@@ -26,7 +22,7 @@ from backtest import (
     load_market_day_label,
     run_backtest,
 )
-from feature_store import FEATURE_AUDIT_COLUMNS, FEATURE_SCHEMA_VERSION
+from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, FEATURE_SCHEMA_VERSION
 
 
 class TestOutcomeResolution(unittest.TestCase):

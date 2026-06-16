@@ -28,7 +28,7 @@ if (-not (Test-Path $python)) {
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
-    -Argument "-m src.snapshot_tracker --ensure" `
+    -Argument "-m weather.collection.snapshot_tracker --ensure" `
     -WorkingDirectory $RepoRoot
 
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -48,7 +48,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
-    -Description "Keeps the weather snapshot capture loop alive (python -m src.snapshot_tracker --ensure). Registered by scripts/register_snapshot_supervisor.ps1." `
+    -Description "Keeps the weather snapshot capture loop alive (python -m weather.collection.snapshot_tracker --ensure). Registered by scripts/register_snapshot_supervisor.ps1." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': --ensure every $EnsureEveryMinutes min + at logon."

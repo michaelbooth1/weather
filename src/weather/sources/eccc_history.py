@@ -6,11 +6,13 @@ import requests
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from weather.paths import data_path
+
 from datetime import date, datetime
 from collections import defaultdict, Counter
 
 # Constants
-ECCC_ROOT = Path("data") / "eccc" / "cyyz"
+ECCC_ROOT = data_path() / "eccc" / "cyyz"
 RAW_ROOT = ECCC_ROOT / "raw"
 HOURLY_ROOT = ECCC_ROOT / "hourly"
 ANALYSIS_ROOT = ECCC_ROOT / "analysis"
@@ -136,7 +138,7 @@ def round_half_up(value):
 
 def run_comparison():
     # Load Wunderground daily summaries
-    wu_summary_path = Path("data") / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
+    wu_summary_path = data_path() / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
     if not wu_summary_path.exists():
         print(f"Error: daily_summary.csv not found at {wu_summary_path}")
         return

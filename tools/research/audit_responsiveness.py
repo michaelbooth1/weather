@@ -8,11 +8,8 @@ live-observed max, the effective vs wall cutoff, and model-vs-market top bucket.
 import os
 import sys
 from datetime import datetime
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from polymarket_client import PolymarketClient
-from toronto_model import TorontoHighTempModel, TORONTO_TZ
+from weather.market.polymarket_client import PolymarketClient
+from weather.model.toronto_model import TorontoHighTempModel, TORONTO_TZ
 
 
 def age_min(now, iso):

@@ -7,11 +7,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-sys_path = os.path.abspath("src")
-if sys_path not in os.sys.path:
-    os.sys.path.insert(0, sys_path)
-
-from observation_trigger import (  # noqa: E402
+from weather.operations.observation_trigger import (  # noqa: E402
     build_triggered_replay_report,
     detect_observation_triggers,
     ensure_decision,
@@ -20,8 +16,8 @@ from observation_trigger import (  # noqa: E402
     run_loop,
     run_once,
 )
-from snapshot_tracker import SnapshotStore, backfill_source_status  # noqa: E402
-from toronto_model import TorontoHighTempModel  # noqa: E402
+from weather.collection.snapshot_tracker import SnapshotStore, backfill_source_status  # noqa: E402
+from weather.model.toronto_model import TorontoHighTempModel  # noqa: E402
 
 
 def obs_state(high=20.0, current=20.1, metar=None, swob=None, status=None, captured="2026-06-13T16:00:00+00:00"):

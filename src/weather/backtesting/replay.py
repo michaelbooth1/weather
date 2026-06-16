@@ -16,6 +16,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.market.market_registry import DEFAULT_MARKET_ID
 from weather.model.model_identity import identity_hash, model_replay_identity
@@ -607,7 +609,7 @@ def _reconstruct_main():
                     "inputs from already-captured snapshots."
     )
     parser.add_argument("folders", nargs="*", help="Snapshot folders (default: all under data/snapshots).")
-    parser.add_argument("--snapshots-root", default=str(Path("data") / "snapshots"))
+    parser.add_argument("--snapshots-root", default=str(data_path() / "snapshots"))
     args = parser.parse_args()
 
     folders = args.folders

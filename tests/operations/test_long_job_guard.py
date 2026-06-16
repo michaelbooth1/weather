@@ -4,9 +4,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.operations.long_job_guard import (  # noqa: E402
     ACTIVE_ENV_VAR,
     LongJobBusy,

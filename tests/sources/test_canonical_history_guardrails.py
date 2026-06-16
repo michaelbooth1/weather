@@ -6,16 +6,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from canonical_history_guardrails import (  # noqa: E402
+from weather.sources.canonical_history_guardrails import (  # noqa: E402
     build_ghcnh_composite_view,
     canonical_daily_violations,
     read_daily_rows,
     write_composite_daily_csv,
 )
-from supplemental_station_validation import source_fingerprint  # noqa: E402
+from weather.sources.supplemental_station_validation import source_fingerprint  # noqa: E402
 
 
 class TestCanonicalHistoryGuardrails(unittest.TestCase):
@@ -121,7 +118,7 @@ class TestCanonicalHistoryGuardrails(unittest.TestCase):
                 "schema_version": "supplemental_station_registry_v0.1",
                 "sources": [self.supplemental_source(root / "data/noaa_ghcnh/kxxx_alt")],
             }
-            with patch("canonical_history_guardrails.REPO_ROOT", root):
+            with patch("weather.sources.canonical_history_guardrails.REPO_ROOT", root):
                 report = canonical_daily_violations(spec, "ghcnh", registry=registry)
 
         types = {row["type"] for row in report["violations"]}
@@ -157,7 +154,7 @@ class TestCanonicalHistoryGuardrails(unittest.TestCase):
             }])
             source = self.supplemental_source(supplemental_root)
             registry = {"schema_version": "supplemental_station_registry_v0.1", "sources": [source]}
-            with patch("canonical_history_guardrails.REPO_ROOT", root):
+            with patch("weather.sources.canonical_history_guardrails.REPO_ROOT", root):
                 rows = build_ghcnh_composite_view(
                     spec,
                     registry=registry,

@@ -5,16 +5,13 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from source_redundancy import (  # noqa: E402
+from weather.reporting.source_redundancy import (  # noqa: E402
     build_payload,
     forecast_ensemble_features,
     supplemental_source_key,
     truth_csv_rows,
 )
-from supplemental_station_validation import source_fingerprint  # noqa: E402
+from weather.sources.supplemental_station_validation import source_fingerprint  # noqa: E402
 
 
 def write_daily(root, icao, rows):

@@ -10,7 +10,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.paths import data_path
+
+from weather.backtesting.settlement_io import DEFAULT_SNAPSHOTS_ROOT
+from weather.reporting.formatting import markdown_table
 from weather.calibration import forecast_error_model as forecast_error
 from weather.calibration import probability_calibration as probability_calibration
 from weather.calibration import settlement_lag_model as settlement_lag
@@ -23,7 +26,7 @@ from weather.artifacts import resolve_artifact_path, writable_artifact_path
 SCHEMA_VERSION = "family_secondary_artifacts_v0.1"
 DEFAULT_FAMILY_UNIT = "F"
 DEFAULT_MANIFEST = resolve_artifact_path("f_family_secondary_artifacts.json")
-DEFAULT_REPORT = Path("data") / "backtest" / "f_family_secondary_artifacts_report.md"
+DEFAULT_REPORT = data_path() / "backtest" / "f_family_secondary_artifacts_report.md"
 DEFAULT_MIN_TRUST = 25
 DEFAULT_MIN_SETTLED_DAYS = 2
 DEFAULT_QUALITY_GRADES = "complete,manual_override"
@@ -43,15 +46,15 @@ def artifact_paths(spec):
     return {
         "probability_calibration": {
             "artifact": writable_artifact_path(f"probability_calibration{spec.artifact_suffix}.json"),
-            "report": Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md",
+            "report": data_path() / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md",
         },
         "forecast_error": {
             "artifact": writable_artifact_path(f"forecast_error_model{spec.artifact_suffix}.json"),
-            "report": Path("data") / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md",
+            "report": data_path() / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md",
         },
         "settlement_lag": {
             "artifact": writable_artifact_path(f"settlement_lag_model{spec.artifact_suffix}.json"),
-            "report": Path("data") / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md",
+            "report": data_path() / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md",
         },
     }
 
@@ -61,15 +64,15 @@ def family_artifact_paths(family_unit):
     return {
         "probability_calibration": {
             "artifact": writable_artifact_path(f"probability_calibration_{suffix}_family.json"),
-            "report": Path("data") / "backtest" / f"probability_calibration_report_{suffix}_family.md",
+            "report": data_path() / "backtest" / f"probability_calibration_report_{suffix}_family.md",
         },
         "forecast_error": {
             "artifact": writable_artifact_path(f"forecast_error_model_{suffix}_family.json"),
-            "report": Path("data") / "backtest" / f"forecast_error_report_{suffix}_family.md",
+            "report": data_path() / "backtest" / f"forecast_error_report_{suffix}_family.md",
         },
         "settlement_lag": {
             "artifact": writable_artifact_path(f"settlement_lag_model_{suffix}_family.json"),
-            "report": Path("data") / "backtest" / f"settlement_lag_report_{suffix}_family.md",
+            "report": data_path() / "backtest" / f"settlement_lag_report_{suffix}_family.md",
         },
     }
 
@@ -271,7 +274,7 @@ def train_settlement_lag_artifact(spec, snapshots_root):
     folders = settlement_lag.discover_default_folders(snapshots_root, market_id=spec.id)
     rows = settlement_lag.read_training_rows(
         spec.data_root / "hourly",
-        Path("data") / "metar" / spec.icao.lower() / "hourly",
+        data_path() / "metar" / spec.icao.lower() / "hourly",
         spec.data_root / "daily" / "daily_summary.csv",
         folders,
     )
@@ -302,7 +305,7 @@ def settlement_lag_training_rows(spec, snapshots_root):
     folders = settlement_lag.discover_default_folders(snapshots_root, market_id=spec.id)
     rows = settlement_lag.read_training_rows(
         spec.data_root / "hourly",
-        Path("data") / "metar" / spec.icao.lower() / "hourly",
+        data_path() / "metar" / spec.icao.lower() / "hourly",
         spec.data_root / "daily" / "daily_summary.csv",
         folders,
     )

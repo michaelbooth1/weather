@@ -9,10 +9,7 @@ probability, mean outcome, and Brier per slice.
 import os
 import sys
 from collections import defaultdict
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from replay_backtest import run_replay_backtest  # noqa: E402
+from weather.backtesting.replay_backtest import run_replay_backtest  # noqa: E402
 
 FOLDERS = [
     f"data/snapshots/highest-temperature-in-toronto-on-{d}"

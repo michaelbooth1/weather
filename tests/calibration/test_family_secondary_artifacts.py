@@ -2,15 +2,12 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from family_secondary_artifacts import (  # noqa: E402
+from weather.calibration.family_secondary_artifacts import (  # noqa: E402
     feature_model_allowed,
     gate_for_market,
     market_gate,
 )
-from model_features import FeatureModelMixin  # noqa: E402
+from weather.model.model_features import FeatureModelMixin  # noqa: E402
 
 
 class _DummyModel(FeatureModelMixin):

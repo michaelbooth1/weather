@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_making_daily_roll import (  # noqa: E402
+from weather.operations.market_making_daily_roll import (  # noqa: E402
     build_market_making_command,
     start_for_date,
     target_date_for_roll,
@@ -39,7 +36,7 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
             [
                 "python.exe",
                 "-m",
-                "src.market_making_run",
+                "weather.market.market_making_run",
                 "--date",
                 "2026-06-16",
                 "--budget-usdc",

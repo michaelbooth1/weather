@@ -2,10 +2,6 @@ import os
 import sys
 import unittest
 from datetime import datetime, timezone
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.market.market_registry import spec_for_id  # noqa: E402
 from weather.sources.marine_context import (  # noqa: E402
     COOPS_DATAGETTER_URL,

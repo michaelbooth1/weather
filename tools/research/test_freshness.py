@@ -2,9 +2,7 @@ import os
 import sys
 import json
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-from toronto_model import TorontoHighTempModel, DEFAULT_DATA_ROOT
+from weather.model.toronto_model import TorontoHighTempModel, DEFAULT_DATA_ROOT
 
 def main():
     print("Initializing model...")

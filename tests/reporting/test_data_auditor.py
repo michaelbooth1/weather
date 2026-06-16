@@ -3,11 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-from data_auditor import audit_historical_data, audit_summary, has_corruption
+from weather.reporting.data_auditor import audit_historical_data, audit_summary, has_corruption
 
 
 class TestDataAuditor(unittest.TestCase):

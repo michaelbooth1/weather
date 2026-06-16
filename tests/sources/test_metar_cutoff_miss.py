@@ -11,12 +11,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-import metar_history
-from metar_history import MetarStore, cutoff_miss_analysis, read_hourly_by_date
-from market_registry import spec_for_id
+import weather.sources.metar_history as metar_history
+from weather.sources.metar_history import MetarStore, cutoff_miss_analysis, read_hourly_by_date
+from weather.market.market_registry import spec_for_id
 
 
 def _write_hourly(store, rows_by_date):

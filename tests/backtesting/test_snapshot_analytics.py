@@ -4,11 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from snapshot_analytics import analyze_snapshot_folder, build_band_metrics, load_snapshot_frame
+from weather.backtesting.snapshot_analytics import analyze_snapshot_folder, build_band_metrics, load_snapshot_frame
 
 
 class TestSnapshotAnalytics(unittest.TestCase):

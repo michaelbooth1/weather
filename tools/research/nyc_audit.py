@@ -1,16 +1,14 @@
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
-
 import json
 from datetime import datetime, timezone
-from market_registry import CHICAGO
-from toronto_model import TorontoHighTempModel
+from weather.market.market_registry import CHICAGO
+from weather.model.toronto_model import TorontoHighTempModel
 
 def audit_chicago():
     print(f"--- Auditing {CHICAGO.id} ---")
     model = TorontoHighTempModel(market_id="chicago")
-from polymarket_client import PolymarketClient
+from weather.market.polymarket_client import PolymarketClient
 
 def audit_new_york():
     print("--- Auditing nyc ---")
@@ -63,7 +61,7 @@ def audit_new_york():
 
     print("\nUI Bins:")
     try:
-        from market_registry import NYC
+        from weather.market.market_registry import NYC
         market_client = PolymarketClient(target_date=model.target_date, market_id="nyc")
         event = market_client.get_event()
         bins = model.model_market_rows(event, hgb_probs)

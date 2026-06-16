@@ -13,6 +13,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 import requests
 
@@ -24,9 +26,9 @@ from weather.schema_registry import schema_version
 
 LEDGER_SCHEMA_VERSION = schema_version("settlement_ledger")
 RESOLUTION_SPEC_SCHEMA_VERSION = schema_version("resolution_spec")
-DEFAULT_LEDGER_ROOT = Path("data") / "settlements"
+DEFAULT_LEDGER_ROOT = data_path() / "settlements"
 LEDGER_ROOT_ENV = "SETTLEMENT_LEDGER_ROOT"
-DEFAULT_LABELS_CSV = Path("data") / "backtest" / "market_day_labels.csv"
+DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
 COMPLETE_DAY_MIN_ROWS = 18
 GAMMA_EVENT_URL_TEMPLATE = "https://gamma-api.polymarket.com/events/slug/{slug}"
 

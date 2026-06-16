@@ -1,9 +1,6 @@
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.market.market_registry import NYC, TORONTO  # noqa: E402
 from weather.model.continuous_density import (  # noqa: E402
     band_probability_from_density,

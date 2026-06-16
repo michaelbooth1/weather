@@ -2,10 +2,12 @@ import json
 import csv
 from datetime import date, datetime
 from pathlib import Path
+from weather.paths import data_path
+
 from collections import defaultdict, Counter
 import numpy as np
 
-DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+DATA_ROOT = data_path() / "wunderground" / "cyyz"
 summary_path = DATA_ROOT / "daily" / "daily_summary.csv"
 
 def round_half_up(value):

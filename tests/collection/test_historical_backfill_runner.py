@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from historical_backfill_runner import item_key, run_plan, status_summary, tail_text
+from weather.collection.historical_backfill_runner import item_key, run_plan, status_summary, tail_text
 
 
 def write_plan(path, items):

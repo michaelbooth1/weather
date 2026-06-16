@@ -12,6 +12,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import requests
 
 from weather.sources.historical_schema import (
@@ -44,7 +46,7 @@ YEAR_FILE_URL = (
     "https://www.ncei.noaa.gov/oa/global-historical-climatology-network/"
     "hourly/access/by-year/{year}/psv/GHCNh_{station_id}_{year}.psv"
 )
-DEFAULT_ROOT = Path("data") / "noaa_ghcnh"
+DEFAULT_ROOT = data_path() / "noaa_ghcnh"
 SOURCE_UNAVAILABLE_FILE = "source_unavailable_years.json"
 
 

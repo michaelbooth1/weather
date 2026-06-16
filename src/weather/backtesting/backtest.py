@@ -13,7 +13,7 @@ summary and overridable on the command line. Disagreements are reported, not
 hidden.
 
 CLI:
-  python -m src.backtest [folder ...]
+  python -m weather.backtesting.backtest [folder ...]
       [--snapshots-root data/snapshots]
       [--settle YYYY-MM-DD=BUCKET ...]   # force settlement for a date
       [--thresholds 0.05,0.10,0.15]
@@ -21,676 +21,73 @@ CLI:
       [--out data/backtest/backtest_report.md]
 """
 import argparse
-import csv
-import json
-import math
-import re
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.model.feature_store import FEATURE_COLUMNS
+from weather.backtesting.settlement_io import (
+    COMPLETE_DAY_MIN_ROWS,
+    DEFAULT_DAILY_SUMMARY,
+    DEFAULT_SNAPSHOTS_ROOT,
+    band_value_hi,
+    ledger_label_matches_folder,
+    load_daily_summary,
+    load_market_day_label,
+    resolve_outcome,
+    round_half_up,
+    row_band_value_hi,
+    settlement_for_tape,
+)
+from weather.backtesting.tape_scoring import (
+    DEFAULT_FIXED_CUTOFF_HOURS,
+    attach_feature_vector,
+    backtest_tape,
+    bin_type,
+    capture_hour,
+    capture_minute,
+    feature_vector_coverage,
+    fixed_cutoff_rows,
+    grouped_scores,
+    last_pre_close_rows,
+    load_feature_vectors,
+    parse_snapshot_time,
+    timestamp_key,
+)
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
-from weather.sources.daily_summary import native_bucket
-from weather.backtesting.settlement_ledger import (
-    ledger_label_for_slug,
-    settlement_from_sources as ledger_settlement_from_sources,
+from weather.reporting.formatting import (
+    fmt_group,
+    fmt_num,
+    fmt_pct,
+    fmt_pnl,
+    fmt_signed,
+    markdown_table,
+)
+from weather.scoring.metrics import (
+    binary_log_loss,
+    brier,
+    daily_first_score,
+    expected_calibration_error,
+    group_sort_key,
+    grouped_reliability,
+    missing,
+    reliability,
+    safe_float,
+    score_rows,
+    unique_sorted,
+    winner_band_catchup,
+)
+from weather.scoring.trading import (
+    merge_pnl,
+    pnl_for_rows,
+    pnl_trades,
+    trade_pnl,
 )
 
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_DAILY_SUMMARY = Path("data") / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
-DEFAULT_OUT = Path("data") / "backtest" / "backtest_report.md"
-DEFAULT_FIXED_CUTOFF_HOURS = (9, 10, 12, 13, 15, 16, 17, 18, 20)
-COMPLETE_DAY_MIN_ROWS = 18  # daily summary is trusted as settlement only when this full
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
-
-
-def band_value_hi(range_label, value, explicit=None):
-    """Upper value of a band from its label ('76-77F' -> 77); single bands -> value."""
-    explicit_value = safe_float(explicit)
-    if explicit_value is not None:
-        return int(explicit_value) if abs(explicit_value - round(explicit_value)) < 1e-9 else explicit_value
-    numbers = re.findall(r"\d+", str(range_label or ""))
-    return int(numbers[-1]) if len(numbers) >= 2 else value
-
-
-def row_band_value_hi(row):
-    explicit = row.get("bin_value_hi_c")
-    if missing(explicit) or explicit == "":
-        explicit = row.get("bin_value_hi")
-    return band_value_hi(row.get("range_label"), row.get("bin_value_c"), explicit=explicit)
-
-
-def resolve_outcome(kind, value, settlement_bucket, value_hi=None):
-    """Did this band resolve YES (1) or NO (0)? Settlement and bands are in the
-    market's native unit (Celsius for C markets, Fahrenheit for F), so this is a
-    direct comparison. ``value_hi`` supports range bands ("76-77F")."""
-    if settlement_bucket is None or kind is None or value is None:
-        return None
-    value = int(value)
-    settlement_bucket = int(settlement_bucket)
-    value_hi = int(value_hi) if value_hi is not None else value
-    if kind == "lte":      # "X or below"
-        return 1 if settlement_bucket <= value else 0
-    if kind == "gte":      # "X or higher"
-        return 1 if settlement_bucket >= value else 0
-    return 1 if value <= settlement_bucket <= value_hi else 0  # exact "X" or range "X-Y"
-
-
-def brier(p, y):
-    return (p - y) ** 2
-
-
-def binary_log_loss(p, y):
-    p = max(1e-15, min(1.0 - 1e-15, p))
-    return -(y * math.log(p) + (1 - y) * math.log(1 - p))
-
-
-def load_daily_summary(path):
-    """date -> (native settlement bucket, row_count) from WU daily summary."""
-    index = {}
-    if not Path(path).exists():
-        return index
-    with open(path, encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            d = row.get("local_date")
-            bucket = native_bucket(row)
-            if not d or bucket is None:
-                continue
-            try:
-                index[d] = (int(bucket), int(row.get("row_count") or 0))
-            except (TypeError, ValueError):
-                continue
-    return index
-
-
-def settlement_for_tape(df, target_date, daily_index, overrides):
-    """Return (bucket, source, note).
-
-    Precedence: explicit override > complete daily summary > day's max captured
-    wu_history_high_c. Snapshot highs are used when the current-day daily
-    summary is missing or incomplete.
-    """
-    event_slug = None
-    if "event_slug" in df:
-        values = df["event_slug"].dropna().astype(str)
-        event_slug = next((value for value in values if value), None)
-    iso = target_date.isoformat() if target_date else None
-    if event_slug and iso not in (overrides or {}) and event_slug not in (overrides or {}):
-        spec = spec_for_slug(event_slug)
-        market_key = f"{spec.id}:{iso}" if spec and iso else None
-        if not market_key or market_key not in (overrides or {}):
-            label = ledger_label_for_slug(event_slug)
-            if label and label.get("settlement_bucket") is not None:
-                source = label.get("settlement_source") or "unknown"
-                status = label.get("reconciliation_status") or "unknown"
-                note = label.get("note") or ""
-                if status and status != "not_requested":
-                    note = f"{note}; polymarket_reconciliation={status}" if note else f"polymarket_reconciliation={status}"
-                return int(label["settlement_bucket"]), f"settlement_ledger:{source}", note
-
-    ledger_result = ledger_settlement_from_sources(
-        df,
-        target_date,
-        daily_index,
-        overrides=overrides,
-        spec=spec_for_slug(event_slug),
-        event_slug=event_slug,
-    )
-    if ledger_result["bucket"] is not None or ledger_result["source"] == "none":
-        return ledger_result["bucket"], ledger_result["source"], ledger_result["note"]
-
-    snapshot_high = None
-    if "wu_history_high_c" in df:
-        snapshot_high = round_half_up(pd.to_numeric(df["wu_history_high_c"], errors="coerce").max())
-    summary = daily_index.get(iso)
-
-    note_bits = []
-    if summary is not None and snapshot_high is not None and summary[0] != snapshot_high:
-        note_bits.append(
-            f"daily_summary={summary[0]} (rows={summary[1]}) disagrees with snapshot high={snapshot_high}"
-        )
-
-    if iso in overrides:
-        return overrides[iso], "override", "; ".join(note_bits) or "manual override"
-    if summary is not None and summary[1] >= COMPLETE_DAY_MIN_ROWS:
-        return summary[0], "daily_summary", "; ".join(note_bits)
-    if snapshot_high is not None:
-        reason = "snapshot wu_history_high (daily summary missing/incomplete)"
-        return snapshot_high, "snapshot_high", "; ".join(note_bits) or reason
-    if summary is not None:
-        return summary[0], "daily_summary(sparse)", "; ".join(note_bits)
-    return None, "none", "no settlement available"
-
-
-def missing(value):
-    if value is None:
-        return True
-    try:
-        return bool(pd.isna(value))
-    except (TypeError, ValueError):
-        return False
-
-
-def safe_float(value):
-    if missing(value) or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_snapshot_time(value):
-    if missing(value) or value == "":
-        return None
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-
-
-def capture_minute(value):
-    parsed = parse_snapshot_time(value)
-    if not parsed:
-        return None
-    return parsed.hour * 60 + parsed.minute
-
-
-def capture_hour(value):
-    minute = capture_minute(value)
-    if minute is None:
-        return None
-    return minute // 60
-
-
-def timestamp_key(row):
-    parsed = parse_snapshot_time(row.get("captured_at_local"))
-    if parsed is not None:
-        return parsed.timestamp()
-    return float(row.get("row_order") or 0)
-
-
-def bin_type(kind):
-    if kind == "lte":
-        return "lte"
-    if kind == "gte":
-        return "gte"
-    return "eq"
-
-
-def unique_sorted(values):
-    cleaned = sorted({str(v) for v in values if not missing(v) and str(v) != ""})
-    return cleaned
-
-
-def score_rows(rows):
-    """Brier + log loss for model and market over scored row dicts."""
-    n = len(rows)
-    if not n:
-        return None
-    out = {
-        "n": n,
-        "model_brier": sum(brier(r["model_probability"], r["outcome"]) for r in rows) / n,
-        "market_brier": sum(brier(r["market_yes"], r["outcome"]) for r in rows) / n,
-        "model_logloss": sum(binary_log_loss(r["model_probability"], r["outcome"]) for r in rows) / n,
-        "market_logloss": sum(binary_log_loss(r["market_yes"], r["outcome"]) for r in rows) / n,
-        "base_rate": sum(r["outcome"] for r in rows) / n,
-    }
-    out["brier_delta"] = out["market_brier"] - out["model_brier"]
-    out["logloss_delta"] = out["market_logloss"] - out["model_logloss"]
-    out["brier_skill_score"] = (
-        1.0 - out["model_brier"] / out["market_brier"] if out["market_brier"] > 0 else 0.0
-    )
-    return out
-
-
-def _mean(values):
-    values = list(values)
-    return sum(values) / len(values) if values else None
-
-
-def winner_band_catchup(rows):
-    """Model-vs-market recognition of the realized winning band.
-
-    Uses only scored rows whose outcome is YES. The core gap is model
-    probability minus market price; negative values mean the model was slower
-    than the market to catch the winning band.
-    """
-    winners = [row for row in rows if row.get("outcome") == 1]
-    n = len(winners)
-    if not n:
-        return {
-            "winner_rows": 0,
-            "winner_model_probability": None,
-            "winner_market_probability": None,
-            "winner_catchup_gap": None,
-            "winner_catchup_rate": None,
-            "winner_model_over_50_rate": None,
-            "winner_market_over_50_rate": None,
-        }
-
-    model_probability = _mean(row["model_probability"] for row in winners)
-    market_probability = _mean(row["market_yes"] for row in winners)
-    return {
-        "winner_rows": n,
-        "winner_model_probability": model_probability,
-        "winner_market_probability": market_probability,
-        "winner_catchup_gap": (
-            model_probability - market_probability
-            if model_probability is not None and market_probability is not None
-            else None
-        ),
-        "winner_catchup_rate": (
-            sum(
-                1
-                for row in winners
-                if row["model_probability"] >= row["market_yes"]
-            )
-            / n
-        ),
-        "winner_model_over_50_rate": (
-            sum(1 for row in winners if row["model_probability"] > 0.5) / n
-        ),
-        "winner_market_over_50_rate": (
-            sum(1 for row in winners if row["market_yes"] > 0.5) / n
-        ),
-    }
-
-
-def reliability(rows, prob_key, n_bins=5):
-    """Reliability table: per confidence bin, mean predicted vs realized."""
-    bins = [[] for _ in range(n_bins)]
-    for r in rows:
-        p = r[prob_key]
-        idx = min(n_bins - 1, int(max(0.0, min(0.999999, p)) * n_bins))
-        bins[idx].append((p, r["outcome"]))
-    table = []
-    for i, b in enumerate(bins):
-        if not b:
-            continue
-        table.append({
-            "bin": f"{i / n_bins:.1f}-{(i + 1) / n_bins:.1f}",
-            "n": len(b),
-            "pred": sum(p for p, _ in b) / len(b),
-            "actual": sum(y for _, y in b) / len(b),
-        })
-    return table
-
-
-def expected_calibration_error(rows, prob_key, n_bins=5):
-    table = reliability(rows, prob_key, n_bins=n_bins)
-    n = sum(row["n"] for row in table)
-    if n <= 0:
-        return None
-    return sum((row["n"] / n) * abs(row["pred"] - row["actual"]) for row in table)
-
-
-def grouped_reliability(rows, prob_key, group_key, n_bins=5):
-    grouped = defaultdict(list)
-    for row in rows:
-        grouped[row.get(group_key)].append(row)
-    output = []
-    for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
-        for rel in reliability(group_rows, prob_key, n_bins=n_bins):
-            output.append({"group": group, **rel})
-    return output
-
-
-def pnl_trades(trades):
-    """Aggregate per-trade P&L (in [-1, 1] units of one share)."""
-    n = len(trades)
-    if not n:
-        return {"n": 0, "pnl": 0.0, "avg": 0.0, "hit_rate": 0.0}
-    total = sum(t for t in trades)
-    wins = sum(1 for t in trades if t > 0)
-    return {"n": n, "pnl": total, "avg": total / n, "hit_rate": wins / n}
-
-
-def trade_pnl(model_p, market_yes, market_no, outcome, threshold):
-    """P&L of taking model edge on one band, held to resolution.
-
-    Returns None if the edge is below threshold.
-    """
-    edge = model_p - market_yes
-    if edge > threshold:                      # model thinks YES underpriced -> buy YES
-        return outcome - market_yes
-    if edge < -threshold:                     # model thinks YES overpriced -> buy NO
-        cost_no = market_no if market_no is not None and not pd.isna(market_no) else (1.0 - market_yes)
-        return (1 - outcome) - cost_no
-    return None
-
-
-def pnl_for_rows(rows, thresholds):
-    out = {}
-    for threshold in thresholds:
-        trades = [
-            trade_pnl(
-                row["model_probability"],
-                row["market_yes"],
-                row.get("market_no"),
-                row["outcome"],
-                threshold,
-            )
-            for row in rows
-        ]
-        out[threshold] = pnl_trades([trade for trade in trades if trade is not None])
-    return out
-
-
-def merge_pnl(parts):
-    n = sum(p["n"] for p in parts)
-    pnl = sum(p["pnl"] for p in parts)
-    return {
-        "n": n,
-        "pnl": pnl,
-        "hit_rate": (sum(p["hit_rate"] * p["n"] for p in parts) / n) if n else 0.0,
-        "avg": (pnl / n) if n else 0.0,
-    }
-
-
-def last_pre_close_rows(rows):
-    """One row per target day and market band: the last available snapshot."""
-    latest = {}
-    for row in rows:
-        key = (row.get("target_date"), row.get("band"))
-        if key not in latest or timestamp_key(row) >= timestamp_key(latest[key]):
-            latest[key] = row
-    return [latest[key] for key in sorted(latest, key=lambda item: (str(item[0]), str(item[1])))]
-
-
-def fixed_cutoff_rows(rows, fixed_cutoffs=DEFAULT_FIXED_CUTOFF_HOURS):
-    """For each cutoff hour, pick the first row at/after that cutoff per day-band."""
-    by_day_band = defaultdict(list)
-    for row in rows:
-        by_day_band[(row.get("target_date"), row.get("band"))].append(row)
-    for group_rows in by_day_band.values():
-        group_rows.sort(key=timestamp_key)
-
-    selected = {int(cutoff): [] for cutoff in fixed_cutoffs}
-    for group_rows in by_day_band.values():
-        for cutoff in selected:
-            cutoff_minute = int(cutoff) * 60
-            candidates = [
-                row for row in group_rows
-                if row.get("capture_minute") is not None
-                and row["capture_minute"] >= cutoff_minute
-            ]
-            if candidates:
-                selected[cutoff].append(candidates[0])
-    return selected
-
-
-def grouped_scores(rows, group_key):
-    grouped = defaultdict(list)
-    for row in rows:
-        grouped[row.get(group_key)].append(row)
-    output = []
-    for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
-        score = score_rows(group_rows)
-        if score:
-            output.append({"group": group, **score})
-    return output
-
-
-def group_sort_key(value):
-    if value is None:
-        return (3, "")
-    if isinstance(value, (int, float)):
-        return (0, float(value))
-    try:
-        return (0, float(value))
-    except (TypeError, ValueError):
-        return (1, str(value))
-
-
-def daily_first_score(day_results):
-    """Equal-weight market days before averaging metrics.
-
-    This keeps days with many snapshots from dominating the headline score. It
-    still uses all rows inside each day, so last-pre-close and fixed-cutoff
-    sections provide stricter one-row-per-day-band views.
-    """
-    scores = [day.get("score") for day in day_results if day.get("score")]
-    if not scores:
-        return None
-
-    def avg(key):
-        return sum(score[key] for score in scores) / len(scores)
-
-    out = {
-        "n_days": len(scores),
-        "n": sum(score["n"] for score in scores),
-        "model_brier": avg("model_brier"),
-        "market_brier": avg("market_brier"),
-        "model_logloss": avg("model_logloss"),
-        "market_logloss": avg("market_logloss"),
-        "base_rate": avg("base_rate"),
-    }
-    out["brier_delta"] = out["market_brier"] - out["model_brier"]
-    out["logloss_delta"] = out["market_logloss"] - out["model_logloss"]
-    out["brier_skill_score"] = (
-        1.0 - out["model_brier"] / out["market_brier"] if out["market_brier"] > 0 else 0.0
-    )
-    return out
-
-
-def feature_gap_bucket(value):
-    value = safe_float(value)
-    if value is None:
-        return "missing"
-    if value <= 0:
-        return "<=0C"
-    if value <= 2:
-        return "0-2C"
-    return ">2C"
-
-
-def live_reading_gap_bucket(value):
-    value = safe_float(value)
-    if value is None:
-        return "missing"
-    if value <= 0:
-        return "<=0"
-    if value <= 1:
-        return "0-1"
-    if value <= 2:
-        return "1-2"
-    return ">2"
-
-
-def minutes_since_cutoff_bucket(value):
-    value = safe_float(value)
-    if value is None:
-        return "missing"
-    if value < 20:
-        return "00-19"
-    if value < 40:
-        return "20-39"
-    if value < 60:
-        return "40-59"
-    return "60+"
-
-
-def load_feature_vectors(folder):
-    path = Path(folder) / "features_long.csv"
-    if not path.exists():
-        return {}
-    try:
-        features = pd.read_csv(path)
-    except Exception:
-        return {}
-    if "snapshot_id" not in features:
-        return {}
-    out = {}
-    for _, row in features.iterrows():
-        snapshot_id = row.get("snapshot_id")
-        if missing(snapshot_id):
-            continue
-        out[str(snapshot_id)] = row.to_dict()
-    return out
-
-
-def attach_feature_vector(scoring_row, feature_row):
-    if not feature_row:
-        scoring_row["feature_schema_version"] = None
-        scoring_row["feature_forecast_gap_bucket"] = "missing"
-        return scoring_row
-    scoring_row["feature_schema_version"] = feature_row.get("feature_schema_version")
-    for column in FEATURE_COLUMNS:
-        scoring_row[f"feature_{column}"] = feature_row.get(column)
-    scoring_row["feature_forecast_gap_bucket"] = feature_gap_bucket(feature_row.get("forecast_gap"))
-    scoring_row["feature_live_reading_gap_bucket"] = live_reading_gap_bucket(
-        feature_row.get("live_reading_minus_high")
-    )
-    scoring_row["feature_minutes_since_cutoff_bucket"] = minutes_since_cutoff_bucket(
-        feature_row.get("minutes_since_cutoff")
-    )
-    return scoring_row
-
-
-def backtest_tape(df, settlement_bucket, thresholds, target_date=None, feature_index=None):
-    """Score one market day's tape.
-
-    Returns per-row scoring rows, per-threshold P&L (per-snapshot and
-    first-entry), and persistence per band. Settlement and bands are in the
-    market's native unit, so range bands ("76-77F") resolve via ``value_hi``.
-    """
-    rows = []
-    target_date_value = target_date.isoformat() if target_date else None
-    for row_order, (_, r) in enumerate(df.iterrows()):
-        mp = safe_float(r.get("model_probability"))
-        my = safe_float(r.get("market_yes"))
-        if mp is None or my is None:
-            continue
-        outcome = resolve_outcome(
-            r.get("bin_kind"),
-            r.get("bin_value_c"),
-            settlement_bucket,
-            value_hi=row_band_value_hi(r),
-        )
-        if outcome is None:
-            continue
-        captured_at = r.get("captured_at_local")
-        minute = capture_minute(captured_at)
-        event_slug = r.get("event_slug")
-        if target_date_value is None:
-            inferred = date_from_event_slug(event_slug) if not missing(event_slug) else None
-            target_date_value = inferred.isoformat() if inferred else None
-        scoring_row = {
-            "row_order": row_order,
-            "snapshot_id": r.get("snapshot_id"),
-            "target_date": target_date_value,
-            "event_slug": event_slug,
-            "captured_at_local": captured_at,
-            "capture_minute": minute,
-            "cutoff_hour": minute // 60 if minute is not None else None,
-            "model_version": r.get("model_version"),
-            "band": r.get("range_label"),
-            "bin_kind": r.get("bin_kind"),
-            "bin_type": bin_type(r.get("bin_kind")),
-            "bin_value_c": safe_float(r.get("bin_value_c")),
-            "bin_value_hi": safe_float(row_band_value_hi(r)),
-            "model_probability": mp,
-            "market_yes": my,
-            "market_no": safe_float(r.get("market_no")),
-            "outcome": int(outcome),
-        }
-        attach_feature_vector(
-            scoring_row,
-            (feature_index or {}).get(str(r.get("snapshot_id"))),
-        )
-        rows.append(scoring_row)
-
-    per_snapshot = pnl_for_rows(rows, thresholds)
-
-    first_entry = {}
-    for threshold in thresholds:
-        seen, entries = set(), []
-        for row in rows:
-            key = (row.get("target_date"), row.get("band"))
-            if key in seen:
-                continue
-            trade = trade_pnl(
-                row["model_probability"],
-                row["market_yes"],
-                row.get("market_no"),
-                row["outcome"],
-                threshold,
-            )
-            if trade is not None:
-                entries.append(trade)
-                seen.add(key)
-        first_entry[threshold] = pnl_trades(entries)
-
-    # Persistence per band (using the smallest threshold).
-    thr0 = min(thresholds)
-    persistence = []
-    for band in sorted({r["band"] for r in rows}):
-        band_rows = [r for r in rows if r["band"] == band]
-        edges = [r["model_probability"] - r["market_yes"] for r in band_rows]
-        outcome = band_rows[0]["outcome"]
-        frac_pos = sum(1 for edge in edges if edge > thr0) / len(edges)
-        frac_neg = sum(1 for edge in edges if edge < -thr0) / len(edges)
-        mean_edge = sum(edges) / len(edges)
-        persistence.append({
-            "band": band,
-            "snapshots": len(band_rows),
-            "mean_edge": mean_edge,
-            "frac_edge_up": frac_pos,
-            "frac_edge_down": frac_neg,
-            "settled_yes": outcome,
-        })
-    return rows, per_snapshot, first_entry, persistence
-
-
-def fmt_pct(value):
-    if value is None:
-        return "-"
-    return f"{value * 100:.1f}%"
-
-
-def fmt_num(value, decimals=4):
-    if value is None:
-        return "-"
-    return f"{float(value):.{decimals}f}"
-
-
-def fmt_signed(value, decimals=4):
-    if value is None:
-        return "-"
-    return f"{float(value):+.{decimals}f}"
-
-
-def fmt_group(value):
-    if value is None or value == "":
-        return "-"
-    return str(value)
-
-
-def fmt_pnl(value):
-    return f"{float(value):+.2f}"
-
-
-def markdown_table(headers, rows):
-    lines = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(":---" for _ in headers) + " |",
-    ]
-    for row in rows:
-        lines.append("| " + " | ".join(str(value) if value not in (None, "") else "-" for value in row) + " |")
-    return lines
+DEFAULT_OUT = data_path() / "backtest" / "backtest_report.md"
 
 
 def score_table_rows(items):
@@ -729,21 +126,6 @@ def grouped_score_table_rows(items):
         ]
         for item in items
     ]
-
-
-def feature_vector_coverage(rows):
-    total = len(rows)
-    with_features = [
-        row for row in rows
-        if not missing(row.get("feature_schema_version"))
-    ]
-    schema_versions = unique_sorted(row.get("feature_schema_version") for row in with_features)
-    return {
-        "rows": total,
-        "rows_with_features": len(with_features),
-        "coverage": len(with_features) / total if total else None,
-        "schema_versions": schema_versions,
-    }
 
 
 def reliability_table_rows(items):
@@ -1224,30 +606,6 @@ def run_backtest(
     }
     write_report(results, out_path, thresholds)
     return results
-
-
-def load_market_day_label(folder):
-    slug = Path(folder).name
-    label = ledger_label_for_slug(slug)
-    if label and ledger_label_matches_folder(label, folder):
-        return label
-    path = Path(folder) / "settlement.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def ledger_label_matches_folder(label, folder):
-    tape_path = label.get("snapshot_tape_path")
-    if not tape_path:
-        return True
-    try:
-        return Path(tape_path).resolve() == (Path(folder) / "snapshots_long.csv").resolve()
-    except OSError:
-        return False
 
 
 def parse_csv_numbers(value, type_fn=float):

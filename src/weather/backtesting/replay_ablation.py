@@ -18,7 +18,7 @@ single-source forecast ablations are cushioned by fallback to the remaining
 forecasts, so the combined variant is the honest value of the forecast layer.
 
 CLI:
-  python -m src.replay_ablation [folder ...]
+  python -m weather.backtesting.replay_ablation [folder ...]
       [--snapshots-root data/snapshots] [--market MARKET]
       [--sources open_meteo,weather_forecast,...] [--include-reconstructed]
       [--out data/backtest/replay_ablation_report.md]
@@ -28,16 +28,18 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_SNAPSHOTS_ROOT,
     band_value_hi,
     load_daily_summary,
     resolve_outcome,
-    safe_float,
     settlement_for_tape,
 )
+from weather.scoring.metrics import safe_float
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import (
@@ -50,7 +52,7 @@ from weather.backtesting.replay import (
 from weather.backtesting.settled_days import folder_market_id
 from weather.model.toronto_model import TorontoHighTempModel
 
-DEFAULT_OUT = Path("data") / "backtest" / "replay_ablation_report.md"
+DEFAULT_OUT = data_path() / "backtest" / "replay_ablation_report.md"
 SINGLE_SOURCES = (
     "open_meteo",
     "weather_forecast",

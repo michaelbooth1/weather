@@ -3,16 +3,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from settlement_lag_model import (
+from weather.calibration.settlement_lag_model import (
     build_artifact,
     rows_from_snapshot_folders,
     rows_from_metar_history,
     settlement_catchup_probability,
 )
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 class TestSettlementLagModel(unittest.TestCase):

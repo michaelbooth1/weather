@@ -16,7 +16,10 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.paths import data_path
+
+from weather.backtesting.settlement_io import DEFAULT_SNAPSHOTS_ROOT
+from weather.reporting.formatting import markdown_table
 from weather.market.market_config import config_for_date, date_from_event_slug
 from weather.market.market_registry import all_specs, spec_for_id, spec_for_slug
 from weather.model.feature_store import row_forecast_high_native, row_temp_native
@@ -35,10 +38,10 @@ SCHEMA_VERSION = "source_redundancy_v0.3"
 TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.3"
 FORECAST_ENSEMBLE_SCHEMA_VERSION = "forecast_ensemble_features_v0.1"
 
-DEFAULT_JSON_OUT = Path("data") / "backtest" / "source_redundancy.json"
-DEFAULT_REPORT = Path("data") / "backtest" / "source_redundancy_report.md"
-DEFAULT_TRUTH_OUT = Path("data") / "backtest" / "source_truth_daily.csv"
-DEFAULT_FORECAST_OUT = Path("data") / "backtest" / "forecast_ensemble_features.csv"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "source_redundancy.json"
+DEFAULT_REPORT = data_path() / "backtest" / "source_redundancy_report.md"
+DEFAULT_TRUTH_OUT = data_path() / "backtest" / "source_truth_daily.csv"
+DEFAULT_FORECAST_OUT = data_path() / "backtest" / "forecast_ensemble_features.csv"
 
 OBS_SOURCES = ("wu", "metar", "swob", "ghcnh", "reanalysis")
 PRIMARY_SOURCE = "wu"
@@ -47,11 +50,11 @@ PRIMARY_SOURCE = "wu"
 FALLBACK_ORDER = ("metar", "ghcnh", "reanalysis")
 TRUTH_FALLBACK_ORDER = ("metar", "swob", "ghcnh", "reanalysis")
 SOURCE_ROOTS = {
-    "wu": Path("data") / "wunderground",
-    "metar": Path("data") / "metar",
-    "swob": Path("data") / "eccc_swob",
-    "ghcnh": Path("data") / "noaa_ghcnh",
-    "reanalysis": Path("data") / "reanalysis",
+    "wu": data_path() / "wunderground",
+    "metar": data_path() / "metar",
+    "swob": data_path() / "eccc_swob",
+    "ghcnh": data_path() / "noaa_ghcnh",
+    "reanalysis": data_path() / "reanalysis",
 }
 SOURCE_LABELS = {
     "wu": "Weather.com/WU primary",
@@ -488,28 +491,28 @@ def command_for_source(source, market_id, start_date, end_date):
     end_text = end_date.isoformat()
     if source == "wu":
         return (
-            f".\\venv\\Scripts\\python.exe -m src.wu_history --market {market_id} "
+            f".\\venv\\Scripts\\python.exe -m weather.sources.wu_history --market {market_id} "
             f"backfill --start {start_text} --end {end_text} "
             "--skip-existing --continue-on-error"
         )
     if source == "ghcnh":
         return (
-            f".\\venv\\Scripts\\python.exe -m src.noaa_ghcnh_history --market {market_id} "
+            f".\\venv\\Scripts\\python.exe -m weather.sources.noaa_ghcnh_history --market {market_id} "
             f"backfill --start-year {start_date.year} --end-year {end_date.year} --skip-existing"
         )
     if source == "metar":
         return (
-            f".\\venv\\Scripts\\python.exe -m src.metar_history --market {market_id} "
+            f".\\venv\\Scripts\\python.exe -m weather.sources.metar_history --market {market_id} "
             f"backfill --start {start_text} --end {end_text} --skip-existing"
         )
     if source == "swob":
         return (
-            f".\\venv\\Scripts\\python.exe -m src.eccc_swob_history run "
+            f".\\venv\\Scripts\\python.exe -m weather.sources.eccc_swob_history run "
             f"--start {start_text} --end {end_text}"
         )
     if source == "reanalysis":
         return (
-            f".\\venv\\Scripts\\python.exe -m src.reanalysis_history --market {market_id} "
+            f".\\venv\\Scripts\\python.exe -m weather.sources.reanalysis_history --market {market_id} "
             f"backfill --start {start_text} --end {end_text} --skip-existing"
         )
     raise ValueError(f"Unknown source {source}")

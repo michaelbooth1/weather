@@ -4,10 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from promotion_refresh import (  # noqa: E402
+from weather.reporting.promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
     _candidate_args,
     _candidate_source_freshness_rows,
@@ -130,6 +127,23 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(replay_args.candidate_variant_id, "pooled_continuous_density_hgb_v0_1")
         self.assertEqual(replay_args.candidate_variant_family, "pooled_continuous_density")
         self.assertIsNone(replay_args.microstructure_artifact)
+
+    def test_candidate_summary_exposes_independent_evidence_accounting(self):
+        candidate_report = {
+            "aggregate": {"n": 75},
+            "market_rows": [
+                {"market_id": "nyc", "days": 4, "snapshots": 20, "rows": 60, "comparison": {}},
+                {"market_id": "denver", "days": 1, "snapshots": 5, "rows": 15, "comparison": {}},
+            ],
+        }
+
+        summary = _candidate_summary(candidate_report, "candidate.json", "candidate.md")
+
+        evidence = summary["evidence_accounting"]
+        self.assertEqual(evidence["scored_rows"], 75)
+        self.assertEqual(evidence["unique_observation_count"], 75)
+        self.assertEqual(evidence["snapshot_count"], 25)
+        self.assertEqual(evidence["market_day_count"], 5)
 
     def test_global_replay_gate_blocks_otherwise_passing_candidate(self):
         specs = [_spec("nyc", "New York")]

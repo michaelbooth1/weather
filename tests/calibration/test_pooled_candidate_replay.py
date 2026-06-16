@@ -5,10 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from pooled_candidate_replay import (
+from weather.calibration.pooled_candidate_replay import (
     attach_band_candidate_probabilities,
     attach_density_candidate_probabilities,
     annotate_casebook_rows,
@@ -434,7 +431,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
             "postprocess": {"partition_normalization_enabled": False},
         }
 
-        with patch("pooled_candidate_replay.predict_band_rows_for_bundle", return_value=[0.72]) as predict:
+        with patch("weather.calibration.pooled_candidate_replay.predict_band_rows_for_bundle", return_value=[0.72]) as predict:
             rows, coverage = attach_band_candidate_probabilities(
                 replay_results,
                 feature_rows,
@@ -487,7 +484,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
         ]
         artifact = {"prediction_mode": "continuous_density_f", "family_unit": "all"}
 
-        with patch("pooled_candidate_replay.predict_density_rows_for_bundle", return_value=payloads) as predict:
+        with patch("weather.calibration.pooled_candidate_replay.predict_density_rows_for_bundle", return_value=payloads) as predict:
             rows, coverage = attach_density_candidate_probabilities(
                 replay_results,
                 feature_rows,

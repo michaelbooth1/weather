@@ -4,7 +4,6 @@ import re
 import statistics
 import time
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
+from weather.model.source_adapters import fetch_source_group as run_source_adapter_group
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
@@ -124,46 +124,7 @@ class SourceFetchMixin:
             name: fetcher
             for name, fetcher in fetchers.items()
         }
-        def _timed_fetch(fetcher):
-            started = time.perf_counter()
-            try:
-                return {
-                    "ok": True,
-                    "data": fetcher(),
-                    "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
-                }
-            except Exception as exc:  # noqa: BLE001 - captured into source status below
-                return {
-                    "ok": False,
-                    "error": str(exc),
-                    "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
-                }
-
-        results = {}
-        with ThreadPoolExecutor(max_workers=len(fetchers)) as executor:
-            futures = {
-                executor.submit(_timed_fetch, fetcher): name
-                for name, fetcher in fetchers.items()
-            }
-            for future in as_completed(futures):
-                name = futures[future]
-                fetched_time = datetime.now(self.spec.tz).isoformat()
-                item = future.result()
-                if item.get("ok"):
-                    results[name] = {
-                        "ok": True,
-                        "data": item.get("data"),
-                        "latency_ms": item.get("latency_ms"),
-                        "fetched_at": fetched_time
-                    }
-                else:
-                    results[name] = {
-                        "ok": False,
-                        "error": item.get("error"),
-                        "latency_ms": item.get("latency_ms"),
-                        "fetched_at": fetched_time
-                    }
-        return results
+        return run_source_adapter_group(fetchers, timezone=self.spec.tz)
 
     def blend_with_last_good(self, fetched):
         cache_path = self.spec.data_root / "last_good_sources.json"

@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +13,7 @@ import pandas as pd
 from matplotlib.ticker import PercentFormatter
 
 
-SNAPSHOTS_ROOT = Path("data") / "snapshots"
+SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_EDGE_THRESHOLD = 0.05
 DEFAULT_ACTIVE_THRESHOLD = 0.01
 

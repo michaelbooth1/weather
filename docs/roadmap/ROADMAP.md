@@ -94,6 +94,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 79 | [MRMS Radar Precipitation Interruption Layer [COMPLETE 2026-06-16 - MRMS INTERRUPTION REPORTING LIVE]](items/item-79-mrms-radar-precipitation-interruption-layer.md) |
 | 80 | [ECCC HRDPS And GEM Toronto Gridded Forecast Layer [COMPLETE 2026-06-16 - TORONTO ECCC GRIDDED SCORING LIVE]](items/item-80-eccc-hrdps-and-gem-toronto-gridded-forecast-layer.md) |
 | 81 | [Meteostat And NASA POWER Historical Fallback Sources [COMPLETE 2026-06-16 - SUPPLEMENTAL FALLBACK GATES LIVE]](items/item-81-meteostat-and-nasa-power-historical-fallback-sources.md) |
+| 85 | [Independent Market-Day Evidence Expansion For Variant Evaluation [COMPLETE 2026-06-16 - EVIDENCE GROWTH MONITOR LIVE]](items/item-85-independent-market-day-evidence-expansion-for-variant-evaluation.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -138,6 +139,20 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 74 | [Open-Meteo Expanded Environmental Forecast Features [COMPLETE 2026-06-16 - PROMOTION GATE AND MISSING-ZERO REPORT LIVE]](items/item-74-open-meteo-expanded-environmental-forecast-features.md) |
 | 75 | [US Official Forecast Grid And Multi-Model Guidance [COMPLETE 2026-06-16 - US GUIDANCE REPLAY DIAGNOSTICS LIVE]](items/item-75-us-official-forecast-grid-and-multimodel-guidance.md) |
 | 82 | [Miami Candidate Block Regression Remediation [COMPLETE 2026-06-16 - CURRENT FALLBACK CLEARS BLOCK]](items/item-82-miami-candidate-block-regression-remediation.md) |
+| 83 | [Shadow Evidence Accounting And Active Variant Registry [COMPLETE 2026-06-16 - ACTIVE EVIDENCE ACCOUNTING LIVE]](items/item-83-shadow-evidence-accounting-and-active-variant-registry.md) |
+| 84 | [Cross-Family Control De-Duplication And Variant Namespace Hygiene [COMPLETE 2026-06-16 - SHARED CONTROL DEDUPE LIVE]](items/item-84-cross-family-control-deduplication-and-variant-namespace-hygiene.md) |
+| 86 | [No-Market Candidate Bakeoff And Promotion Lane Selection [COMPLETE 2026-06-16 - ITEM50 SHADOW LANE SELECTED]](items/item-86-no-market-candidate-bakeoff-and-promotion-lane-selection.md) |
+
+### Architecture And Maintainability
+
+| Item | File |
+| ---: | --- |
+| 87 | [Canonical CLI And Import Surface Retirement [COMPLETE 2026-06-16 - CANONICAL PACKAGE SURFACE LIVE]](items/item-87-canonical-cli-and-import-surface-retirement.md) |
+| 88 | [Shared Scoring, Formatting, And Backtest Utility Split [COMPLETE 2026-06-16 - SHARED HELPER MODULES LIVE]](items/item-88-shared-scoring-formatting-and-backtest-utility-split.md) |
+| 89 | [Explicit Model Build Contract And Source Adapter Boundary [COMPLETE 2026-06-16 - EXPLICIT BUILD CONTRACTS LIVE]](items/item-89-explicit-model-build-contract-and-source-adapter-boundary.md) |
+| 90 | [Large Module Decomposition For Calibration And Market Operations [COMPLETE 2026-06-16 - CALIBRATION AND PREFLIGHT SPLITS LIVE]](items/item-90-large-module-decomposition-for-calibration-and-market-operations.md) |
+| 91 | [Repository Path Policy Hardening [COMPLETE 2026-06-16 - REPO-ABSOLUTE DEFAULT PATHS LIVE]](items/item-91-repository-path-policy-hardening.md) |
+| 92 | [Streamlit App Import Hygiene And UTF-8 Cleanup [COMPLETE 2026-06-16 - APP HYGIENE GUARD LIVE]](items/item-92-streamlit-app-import-hygiene-and-utf8-cleanup.md) |
 
 ## Maintenance Conventions
 

@@ -21,23 +21,27 @@ Registry-driven: scores every market in the registry; new locations appear
 automatically and rise as they accumulate clean settled days.
 
 CLI:
-  python -m src.location_trust [--out data/backtest/location_trust.json]
+  python -m weather.reporting.location_trust [--out data/backtest/location_trust.json]
 """
 import argparse
 import json
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
-    backtest_tape,
-    expected_calibration_error,
     load_daily_summary,
     load_market_day_label,
-    score_rows,
     settlement_for_tape,
+)
+from weather.backtesting.tape_scoring import backtest_tape
+from weather.scoring.metrics import (
+    expected_calibration_error,
+    score_rows,
     winner_band_catchup,
 )
 from weather.backtesting.settled_days import discover_settled_folders
@@ -53,7 +57,7 @@ MIN_DAYS_FOR_ECE = 2 # need at least this many settled days to trust an ECE
 ACCEPTED_QUALITY_GRADES = {"complete", "manual_override"}
 
 GRADE_BANDS = [(80, "Strong"), (65, "Good"), (45, "Moderate"), (25, "Low"), (0, "Unproven")]
-DEFAULT_OUT = Path("data") / "backtest" / "location_trust.json"
+DEFAULT_OUT = data_path() / "backtest" / "location_trust.json"
 
 
 def _clamp01(value):

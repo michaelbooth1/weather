@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+from weather.paths import data_path
+
 CLOB_MODEL_FEATURE_COLUMNS = [
     "clob_feature_available",
     "clob_book_age_seconds",
@@ -552,7 +554,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Build band-level CLOB model features from snapshot/book tapes.")
     parser.add_argument("folders", nargs="*", help="Snapshot folders to process. Defaults to latest folder per market.")
     parser.add_argument("--market", default="all", help="Market id to process when folders are omitted, or 'all'.")
-    parser.add_argument("--snapshots-root", type=Path, default=Path("data") / "snapshots")
+    parser.add_argument("--snapshots-root", type=Path, default=data_path() / "snapshots")
     parser.add_argument("--max-age-seconds", type=float, default=180.0)
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON summary.")
     args = parser.parse_args(argv)

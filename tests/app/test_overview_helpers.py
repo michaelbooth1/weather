@@ -3,14 +3,12 @@ import pandas as pd
 from unittest import mock
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
-
 import pytest
-import overview_helpers
-from overview_helpers import check_snapshot_status, format_status_table, format_edge_table
+import weather.reporting.overview_helpers as overview_helpers
+from weather.reporting.overview_helpers import check_snapshot_status, format_status_table, format_edge_table
 
-@mock.patch("overview_helpers.all_specs")
-@mock.patch("overview_helpers.SnapshotStore")
+@mock.patch("weather.reporting.overview_helpers.all_specs")
+@mock.patch("weather.reporting.overview_helpers.SnapshotStore")
 def test_check_snapshot_status_missing(mock_store_cls, mock_all_specs):
     # Mock a single spec
     mock_spec = mock.Mock()
@@ -50,10 +48,10 @@ def test_format_edge_table():
     assert "Edge" in df.columns
     assert df.iloc[0]["Edge"] == "+15.0%"
 
-@mock.patch("overview_helpers.all_specs")
-@mock.patch("overview_helpers.config_for_date")
-@mock.patch("overview_helpers.SnapshotStore")
-@mock.patch("overview_helpers.score_market")
+@mock.patch("weather.reporting.overview_helpers.all_specs")
+@mock.patch("weather.reporting.overview_helpers.config_for_date")
+@mock.patch("weather.reporting.overview_helpers.SnapshotStore")
+@mock.patch("weather.reporting.overview_helpers.score_market")
 @mock.patch("pandas.read_csv")
 def test_compute_biggest_edges(mock_read_csv, mock_score_market, mock_store_cls, mock_config, mock_all_specs):
     # Mock a single market spec

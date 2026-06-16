@@ -13,13 +13,15 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import (
+from weather.paths import data_path
+
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
-    parse_snapshot_time,
-    safe_float,
     settlement_for_tape,
 )
+from weather.backtesting.tape_scoring import parse_snapshot_time
+from weather.scoring.metrics import safe_float
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
@@ -29,9 +31,9 @@ from weather.sources.forecast_history import daily_path_for
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
-DEFAULT_FORECAST_DAILY = Path("data") / "forecast_history" / "cyyz" / "forecast_daily.csv"
+DEFAULT_FORECAST_DAILY = data_path() / "forecast_history" / "cyyz" / "forecast_daily.csv"
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("forecast_error_model.json")
-DEFAULT_REPORT_PATH = Path("data") / "backtest" / "forecast_error_report.md"
+DEFAULT_REPORT_PATH = data_path() / "backtest" / "forecast_error_report.md"
 EPSILON = 1e-9
 
 
@@ -543,7 +545,7 @@ def cmd_train(args):
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     forecast_daily = args.forecast_daily or daily_path_for(spec)
     artifact_arg = args.artifact or writable_artifact_path(f"forecast_error_model{spec.artifact_suffix}.json")
-    report_arg = args.report or Path("data") / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md"
+    report_arg = args.report or data_path() / "backtest" / f"forecast_error_report{spec.artifact_suffix}.md"
     rows = read_training_rows(forecast_daily, daily_summary, folders)
     if not rows:
         raise SystemExit("No forecast error training rows found.")

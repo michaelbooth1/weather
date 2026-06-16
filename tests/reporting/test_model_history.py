@@ -4,10 +4,7 @@ import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from model_history import (  # noqa: E402
+from weather.reporting.model_history import (  # noqa: E402
     build_history_payload,
     format_group_table,
     format_location_hour_table,

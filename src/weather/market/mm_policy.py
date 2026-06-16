@@ -16,6 +16,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.clob_recon import (
     DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON,
     policy_overrides_from_recon,
@@ -33,12 +35,12 @@ from weather.market.market_registry import REGISTRY, spec_for_slug
 
 SCHEMA_VERSION = "mm_quote_intent_v0.2"
 POLICY_VERSION = "mm_policy_v0.2"
-DEFAULT_PROMOTION_REFRESH = Path("data") / "backtest" / "f_family_promotion_refresh.json"
-DEFAULT_KNOWN_EDGE_MAP = Path("data") / "backtest" / "mm_known_edge_map.json"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_PROMOTION_REFRESH = data_path() / "backtest" / "f_family_promotion_refresh.json"
+DEFAULT_KNOWN_EDGE_MAP = data_path() / "backtest" / "mm_known_edge_map.json"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_OBSERVATION_STATUS = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_status.json"
-DEFAULT_OUT = Path("data") / "backtest" / "quotes_long.csv"
-DEFAULT_JSON_OUT = Path("data") / "backtest" / "mm_policy_shadow.json"
+DEFAULT_OUT = data_path() / "backtest" / "quotes_long.csv"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "mm_policy_shadow.json"
 
 DEFAULT_POLICY_CONFIG = {
     "policy_version": POLICY_VERSION,

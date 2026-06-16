@@ -15,6 +15,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import requests
 
 from weather.sources.daily_summary import native_bucket, native_high, round_half_up
@@ -33,7 +35,7 @@ from weather.sources.wu_history import get_code_version
 
 
 SOURCE = "metar_asos"
-DEFAULT_ROOT = Path("data") / "metar"
+DEFAULT_ROOT = data_path() / "metar"
 IEM_ASOS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 DATA_FIELDS = (
     "tmpc",
@@ -492,7 +494,7 @@ def command_cutoff_miss(args):
     results = []
     for spec in specs:
         store = MetarStore(spec, root=args.data_root or None)
-        wu_root = Path(args.wu_root) if args.wu_root else Path("data") / "wunderground" / spec.icao.lower()
+        wu_root = Path(args.wu_root) if args.wu_root else data_path() / "wunderground" / spec.icao.lower()
         wu_rows = read_daily_summary(wu_root / "daily" / "daily_summary.csv")
         results.append(cutoff_miss_analysis(spec, store, wu_rows))
 
@@ -511,7 +513,7 @@ def command_cutoff_miss(args):
     if args.out:
         out_path = Path(args.out)
     elif getattr(args, "all_markets", False):
-        out_path = Path("data") / "backtest" / "metar_cutoff_miss_report.md"
+        out_path = data_path() / "backtest" / "metar_cutoff_miss_report.md"
     else:
         out_path = MetarStore(specs[0], root=args.data_root or None).root / "analysis" / "cutoff_miss_report.md"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -525,7 +527,7 @@ def command_cutoff_miss(args):
 def command_compare(args):
     spec = spec_for_id(args.market)
     store = MetarStore(spec, root=args.data_root or None)
-    wu_root = Path(args.wu_root) if args.wu_root else Path("data") / "wunderground" / spec.icao.lower()
+    wu_root = Path(args.wu_root) if args.wu_root else data_path() / "wunderground" / spec.icao.lower()
     wu_rows = read_daily_summary(wu_root / "daily" / "daily_summary.csv")
     metar_rows = read_daily_summary(store.daily_root / "daily_summary.csv")
     compared = []

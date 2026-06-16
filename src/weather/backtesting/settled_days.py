@@ -22,11 +22,13 @@ so a backtest can reconstruct the training set as of any historical date.
 from datetime import date, datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.model.model_constants import TORONTO_TZ
 
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 
 
 def folder_market_id(folder):

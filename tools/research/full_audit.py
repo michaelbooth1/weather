@@ -3,11 +3,9 @@ Full model audit: run all markets, compare model output to market prices.
 Correctly uses local timezone for each market.
 """
 import sys, os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src')))
-
 from datetime import datetime, timezone
-from toronto_model import TorontoHighTempModel
-from market_registry import REGISTRY
+from weather.model.toronto_model import TorontoHighTempModel
+from weather.market.market_registry import REGISTRY
 
 def audit_market(market_id):
     print(f"\n{'='*60}")

@@ -7,8 +7,8 @@ capture count vs expected, the largest gap, every gap beyond tolerance, the
 covered local-hour range, and a clean verdict.
 
 CLI:
-  python -m src.collection_health [folder ...] [--interval-minutes 10] [--tolerance 1.5]
-  python -m src.collection_health --live --strict [folder ...]
+  python -m weather.collection.collection_health [folder ...] [--interval-minutes 10] [--tolerance 1.5]
+  python -m weather.collection.collection_health --live --strict [folder ...]
 """
 import argparse
 import csv
@@ -17,6 +17,8 @@ import sys
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
+from weather.paths import data_path
+
 try:
     from weather.market.market_config import date_from_event_slug
     from weather.market.market_registry import all_specs, spec_for_slug
@@ -24,7 +26,7 @@ except ImportError:  # pragma: no cover - package/module execution fallback
     from ..market.market_config import date_from_event_slug
     from ..market.market_registry import all_specs, spec_for_slug
 
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.
 AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18

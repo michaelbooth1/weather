@@ -19,7 +19,7 @@ A fidelity canary guards the corpus itself: replaying a snapshot with the same
 code version that produced it must reproduce its recorded distribution (L1 ~ 0).
 
 CLI:
-  python -m src.replay_backtest [folder ...]
+  python -m weather.backtesting.replay_backtest [folder ...]
       [--snapshots-root data/snapshots]
       [--settle YYYY-MM-DD=BUCKET ...]
       [--include-reconstructed]          # also score approximate reconstructed days
@@ -33,27 +33,35 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_SNAPSHOTS_ROOT,
+    load_daily_summary,
+    band_value_hi,
+    resolve_outcome,
+    settlement_for_tape,
+)
+from weather.backtesting.tape_scoring import (
     bin_type,
     capture_minute,
     attach_feature_vector,
+    last_pre_close_rows,
+    load_feature_vectors,
+)
+from weather.scoring.metrics import (
+    group_sort_key,
+    reliability,
+    safe_float,
+    score_rows,
+)
+from weather.reporting.formatting import (
     fmt_num,
     fmt_pct,
     fmt_signed,
-    group_sort_key,
-    last_pre_close_rows,
-    load_daily_summary,
-    load_feature_vectors,
-    band_value_hi,
     markdown_table,
-    reliability,
-    resolve_outcome,
-    safe_float,
-    score_rows,
-    settlement_for_tape,
 )
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
@@ -83,8 +91,8 @@ from weather.operations.long_job_guard import (
     long_job_guard,
 )
 
-DEFAULT_OUT = Path("data") / "backtest" / "replay_report.md"
-DEFAULT_BASELINE = Path("data") / "backtest" / "replay_baseline.json"
+DEFAULT_OUT = data_path() / "backtest" / "replay_report.md"
+DEFAULT_BASELINE = data_path() / "backtest" / "replay_baseline.json"
 FIDELITY_FAITHFUL_L1 = 0.01  # same-version replay within this L1 is "faithful"
 
 

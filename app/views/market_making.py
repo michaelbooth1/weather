@@ -2,91 +2,20 @@
 
 from __future__ import annotations
 
-import csv
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNS_ROOT = REPO_ROOT / "data" / "mm_runs"
-BACKTEST_ROOT = REPO_ROOT / "data" / "backtest"
-
-
-def _read_json(path, default=None):
-    path = Path(path)
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return default
-
-
-def _read_csv(path, limit=None):
-    path = Path(path)
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-    except OSError:
-        return []
-    return rows[-limit:] if limit else rows
-
-
-def _read_jsonl_tail(path, limit=20):
-    path = Path(path)
-    if not path.exists():
-        return []
-    try:
-        lines = [line.strip() for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-    except OSError:
-        return []
-    rows = []
-    for line in lines[-limit:]:
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            rows.append({"raw": line})
-    return rows
-
-
-def _read_jsonl(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    try:
-        lines = [line.strip() for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-    except OSError:
-        return []
-    rows = []
-    for line in lines:
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            rows.append({"raw": line})
-    return rows
-
-
-def _run_folders(runs_root=RUNS_ROOT):
-    if not runs_root.exists():
-        return []
-    folders = []
-    for summary in runs_root.glob("*/*/run_summary.json"):
-        folders.append(summary.parent)
-    return sorted(folders, key=lambda folder: folder.stat().st_mtime, reverse=True)
-
-
-def _latest_run():
-    folders = _run_folders()
-    if not folders:
-        return None, {}
-    folder = folders[0]
-    return folder, _read_json(folder / "run_summary.json", {}) or {}
+from weather.reporting.market_making_dashboard import (
+    BACKTEST_ROOT,
+    read_csv as _read_csv,
+    read_json as _read_json,
+    read_jsonl as _read_jsonl,
+    read_jsonl_tail as _read_jsonl_tail,
+    run_folders as _run_folders,
+)
 
 
 def _run_label(folder):

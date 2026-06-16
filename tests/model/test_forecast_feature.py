@@ -2,11 +2,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 from weather.model.model_features import (
     build_us_guidance_replay_diagnostics,
     render_us_guidance_replay_diagnostics_markdown,

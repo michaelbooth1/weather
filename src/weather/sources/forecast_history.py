@@ -10,9 +10,9 @@ layer) and serving (live Open-Meteo), so the feature means the same thing on bot
 sides.
 
 CLI:
-  python -m src.forecast_history backfill [--start-year 2015] [--end-year 2026]
-  python -m src.forecast_history coverage
-  python -m src.forecast_history fleet-coverage --json-out data/backtest/forecast_history_coverage.json
+  python -m weather.sources.forecast_history backfill [--start-year 2015] [--end-year 2026]
+  python -m weather.sources.forecast_history coverage
+  python -m weather.sources.forecast_history fleet-coverage --json-out data/backtest/forecast_history_coverage.json
 """
 import argparse
 import csv
@@ -22,6 +22,8 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from weather.paths import data_path
 
 import requests
 
@@ -142,7 +144,7 @@ DAILY_ISSUE_COLUMNS = [
 
 
 def data_root_for(spec):
-    return Path("data") / "forecast_history" / spec.icao.lower()
+    return data_path() / "forecast_history" / spec.icao.lower()
 
 
 def daily_path_for(spec):
@@ -695,7 +697,7 @@ def backfill(
 def coverage(spec=TORONTO):
     index = load_forecast_daily(daily_path_for(spec))
     if not index:
-        print(f"No forecast history for {spec.id}. Run: python -m src.forecast_history --market {spec.id} backfill")
+        print(f"No forecast history for {spec.id}. Run: python -m weather.sources.forecast_history --market {spec.id} backfill")
         return
     years = sorted({d[:4] for d in index})
     print(f"[{spec.id}] Stored forecast-days: {len(index)}  years {years[0]}..{years[-1]} ({len(years)} years)")

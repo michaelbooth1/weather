@@ -9,6 +9,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import requests
 
 try:
@@ -488,7 +490,7 @@ def chunked(values, size):
 class MarketMicrostructureStore:
     def __init__(self, root=None, event_slug=None):
         self.event_slug = event_slug
-        self.root = Path(root) if root is not None else Path("data") / "snapshots" / str(event_slug)
+        self.root = Path(root) if root is not None else data_path() / "snapshots" / str(event_slug)
         self.token_path = self.root / "clob_tokens.csv"
         self.token_jsonl_path = self.root / "clob_tokens.jsonl"
         self.books_summary_path = self.root / "order_books_summary.csv"

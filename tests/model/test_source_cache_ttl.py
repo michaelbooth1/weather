@@ -12,11 +12,8 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-import toronto_model
-from toronto_model import TorontoHighTempModel
+import weather.model.toronto_model as toronto_model
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 class TestSourceCacheTtl(unittest.TestCase):

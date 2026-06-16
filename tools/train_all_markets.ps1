@@ -4,7 +4,7 @@
 Write-Output "Starting multi-market training sequence..."
 
 # Execute the feature model script with the --all flag
-python -m src.feature_model --all
+python -m weather.calibration.feature_model --all
 
 if ($LASTEXITCODE -eq 0) {
     Write-Output "All markets trained successfully."

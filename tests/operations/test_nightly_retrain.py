@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from nightly_retrain import build_parser, run_nightly_retrain  # noqa: E402
+from weather.operations.nightly_retrain import build_parser, run_nightly_retrain  # noqa: E402
 
 
 def _args(tmp, *extra):
@@ -57,7 +54,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
         def runner(command, **_kwargs):
             calls.append(command)
-            if "src.promotion_refresh" in command:
+            if "weather.reporting.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, promote=["nyc"], shadow=["denver"])
             return {"returncode": 0, "stdout": "ok", "stderr": ""}
@@ -85,7 +82,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_run_marks_blocked_when_promotion_blocks_markets(self):
         def runner(command, **_kwargs):
-            if "src.promotion_refresh" in command:
+            if "weather.reporting.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, blocked=["miami"])
             return {"returncode": 0, "stdout": "", "stderr": ""}
@@ -98,7 +95,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_run_stops_on_step_failure_by_default(self):
         def runner(command, **_kwargs):
-            if "src.pooled_feature_model" in command:
+            if "weather.calibration.pooled_feature_model" in command:
                 return {"returncode": 2, "stdout": "", "stderr": "training failed"}
             return {"returncode": 0, "stdout": "", "stderr": ""}
 

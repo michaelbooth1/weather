@@ -7,11 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from collection_health import fleet_collection_health  # noqa: E402
-from fleet_observability import (  # noqa: E402
+from weather.collection.collection_health import fleet_collection_health  # noqa: E402
+from weather.reporting.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
     clob_alerts,

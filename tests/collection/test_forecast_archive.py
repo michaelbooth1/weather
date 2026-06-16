@@ -6,11 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from forecast_archive import (
+from weather.collection.forecast_archive import (
     FORECAST_COLUMNS,
     analyze_forecast_archive,
     append_rows,
@@ -18,7 +14,7 @@ from forecast_archive import (
     build_forecast_rows,
     migrate_csv_schema,
 )
-from toronto_model import TORONTO_TZ
+from weather.model.toronto_model import TORONTO_TZ
 
 
 class FakeModelClient:

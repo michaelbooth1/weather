@@ -19,16 +19,18 @@ jobs:
           cache: 'pip'
 
       - name: Install Dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
 
       - name: Build Historical Backfill Plan
-        run: python -m src.historical_backfill_plan --out data/backtest/historical_backfill_plan.json
+        run: python -m weather.collection.historical_backfill_plan --out data/backtest/historical_backfill_plan.json
 
       - name: Run Historical Backfill Runner
-        run: python -m src.historical_backfill_runner run --plan data/backtest/historical_backfill_plan.json
+        run: python -m weather.collection.historical_backfill_runner run --plan data/backtest/historical_backfill_plan.json
 
       - name: Train Feature Models for All Markets
-        run: python -m src.feature_model --all
+        run: python -m weather.calibration.feature_model --all
 
       - name: Commit and Push Updated Artifacts
         run: |

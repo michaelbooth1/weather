@@ -1,6 +1,5 @@
 import sys
-sys.path.append("src")
-from market_registry import all_specs
+from weather.market.market_registry import all_specs
 from pathlib import Path
 import os
 

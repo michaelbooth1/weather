@@ -12,7 +12,14 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_num, fmt_pct, fmt_signed, markdown_table
+from weather.paths import data_path
+
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_pct,
+    fmt_signed,
+    markdown_table,
+)
 from weather.backtesting.replay_backtest import (
     DEFAULT_BASELINE,
     FIDELITY_FAITHFUL_L1,
@@ -31,9 +38,9 @@ from weather.reporting.promotion_corpus import (
     load_manifest,
 )
 
-DEFAULT_OUT = Path("data") / "backtest" / "promotion_gauntlet_report.md"
-DEFAULT_REPLAY_REPORT = Path("data") / "backtest" / "promotion_replay_report.md"
-DEFAULT_FORECAST_TRACKER = Path("data") / "backtest" / "forecast_vs_realized.json"
+DEFAULT_OUT = data_path() / "backtest" / "promotion_gauntlet_report.md"
+DEFAULT_REPLAY_REPORT = data_path() / "backtest" / "promotion_replay_report.md"
+DEFAULT_FORECAST_TRACKER = data_path() / "backtest" / "forecast_vs_realized.json"
 
 
 def _forecast_tracker_status(path):

@@ -6,11 +6,8 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from toronto_model import TORONTO_TZ, TorontoHighTempModel
-from replay import (
+from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.backtesting.replay import (
     as_int_distribution,
     band_value_hi,
     band_model_probability,
@@ -23,8 +20,8 @@ from replay import (
     replay_distribution,
     write_replay_input_status,
 )
-from model_identity import model_replay_identity
-from replay_backtest import fidelity_summary, gate, run_replay_backtest, save_baseline
+from weather.model.model_identity import model_replay_identity
+from weather.backtesting.replay_backtest import fidelity_summary, gate, run_replay_backtest, save_baseline
 from weather.model.continuous_density import continuous_density_payload
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
@@ -370,7 +367,7 @@ class TestReconstruction(unittest.TestCase):
     def test_reconstruction_uses_snapshot_market(self):
         # An Austin snapshot must reconstruct with the Austin model (its own
         # climatology/data root), not Toronto's.
-        import toronto_model as tm
+        import weather.model.toronto_model as tm
 
         captured = {}
         real_model = tm.TorontoHighTempModel

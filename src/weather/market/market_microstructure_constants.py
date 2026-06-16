@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from weather.paths import data_path
+
 CLOB_BASE_URL = "https://clob.polymarket.com"
 CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 DEFAULT_BOOK_INTERVAL_SECONDS = 60.0
@@ -17,7 +19,7 @@ DEFAULT_WS_HEARTBEAT_SECONDS = 10
 DEFAULT_WS_CONNECT_TIMEOUT = 5.0
 DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS = 180.0
 FIXED_EXECUTION_SIZES = (10.0, 100.0, 1000.0)
-SNAPSHOT_DATA_ROOT = Path("data") / "snapshots"
+SNAPSHOT_DATA_ROOT = data_path() / "snapshots"
 CLOB_PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "clob_loop_pause.flag"
 CLOB_LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "clob_loop_status.json"
 CLOB_DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "clob_diagnostics.jsonl"

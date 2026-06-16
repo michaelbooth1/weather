@@ -2,11 +2,7 @@ import os
 import sys
 import unittest
 from datetime import date, datetime
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 def _row(minute, temp):

@@ -2,11 +2,7 @@ import math
 import os
 import sys
 import unittest
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from feature_probability_calibration import (
+from weather.calibration.feature_probability_calibration import (
     blend_distribution,
     fit_temperature_blend_grid,
     log_loss,

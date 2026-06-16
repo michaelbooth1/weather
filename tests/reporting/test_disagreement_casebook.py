@@ -5,10 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from disagreement_casebook import (  # noqa: E402
+from weather.reporting.disagreement_casebook import (  # noqa: E402
     build_arg_parser,
     build_casebook,
     clean_label,

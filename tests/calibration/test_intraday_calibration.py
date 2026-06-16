@@ -6,18 +6,14 @@ import tempfile
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from intraday_calibration import (
+from weather.calibration.intraday_calibration import (
     cap_prior_distribution,
     extract_hourly_records,
     market_group_distribution,
     weighted_component_dist,
 )
-import toronto_model
-from toronto_model import TorontoHighTempModel
+import weather.model.toronto_model as toronto_model
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 class TestIntradayCalibrationPrimitives(unittest.TestCase):

@@ -18,7 +18,15 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import brier, fmt_num, fmt_signed, markdown_table, trade_pnl
+from weather.paths import data_path
+
+from weather.scoring.metrics import brier
+from weather.scoring.trading import trade_pnl
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_signed,
+    markdown_table,
+)
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
@@ -26,8 +34,8 @@ from weather.model.model_presentation import DRIVER_WATERFALL_STAGES
 
 
 SCHEMA_VERSION = "disagreement_casebook_v0.1"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "disagreement_casebook.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "disagreement_casebook_report.md"
 DEFAULT_OPERATOR_OUT = DEFAULT_BACKTEST_ROOT / "disagreement_operator_report.md"

@@ -10,20 +10,22 @@ import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.sources.noaa_ghcnh_history import GHCNHStore
 from weather.sources.reanalysis_history import ReanalysisStore
 from weather.sources.wu_history import WundergroundHistoryStore, parse_date
 
 
-DEFAULT_OUT = Path("data") / "backtest" / "historical_backfill_plan.json"
+DEFAULT_OUT = data_path() / "backtest" / "historical_backfill_plan.json"
 DEFAULT_MINIMUM_START = date(2015, 1, 1)
 DEFAULT_DEEP_START = date(1940, 1, 1)
 DEFAULT_WU_CHUNK_DAYS = 14
 DEFAULT_REANALYSIS_CHUNK_DAYS = 31
 DEFAULT_SOURCES = ("wu", "ghcnh", "reanalysis")
 DEFAULT_QUEUE_MODE = "market_source"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 US_WU_PROVIDER_UNAVAILABLE_BEFORE = date(2015, 1, 1)
 
 
@@ -223,7 +225,7 @@ def wu_chunk_queue(spec, start_date, end_date, python, chunk_days):
             [
                 python,
                 "-m",
-                "src.wu_history",
+                "weather.sources.wu_history",
                 "--market",
                 spec.id,
                 "backfill",
@@ -252,7 +254,7 @@ def wu_market_source_queue(spec, start_date, end_date, python, chunk_days):
         [
             python,
             "-m",
-            "src.wu_history",
+            "weather.sources.wu_history",
             "--market",
             spec.id,
             "backfill",
@@ -289,7 +291,7 @@ def ghcnh_chunk_queue(spec, start_date, end_date, python):
         items.append(queue_item(
             "ghcnh",
             spec,
-            [python, "-m", "src.noaa_ghcnh_history", "--market", spec.id, "station"],
+            [python, "-m", "weather.sources.noaa_ghcnh_history", "--market", spec.id, "station"],
             {"kind": "station_resolution"},
         ))
     for year in store.missing_years(start_date.year, end_date.year):
@@ -299,7 +301,7 @@ def ghcnh_chunk_queue(spec, start_date, end_date, python):
             [
                 python,
                 "-m",
-                "src.noaa_ghcnh_history",
+                "weather.sources.noaa_ghcnh_history",
                 "--market",
                 spec.id,
                 "backfill",
@@ -324,7 +326,7 @@ def ghcnh_market_source_queue(spec, start_date, end_date, python):
             [
                 python,
                 "-m",
-                "src.noaa_ghcnh_history",
+                "weather.sources.noaa_ghcnh_history",
                 "--market",
                 spec.id,
                 "backfill",
@@ -346,7 +348,7 @@ def ghcnh_market_source_queue(spec, start_date, end_date, python):
         return [queue_item(
             "ghcnh",
             spec,
-            [python, "-m", "src.noaa_ghcnh_history", "--market", spec.id, "station"],
+            [python, "-m", "weather.sources.noaa_ghcnh_history", "--market", spec.id, "station"],
             {"kind": "station_resolution"},
         )]
     return []
@@ -368,7 +370,7 @@ def reanalysis_chunk_queue(spec, start_date, end_date, python, chunk_days):
             [
                 python,
                 "-m",
-                "src.reanalysis_history",
+                "weather.sources.reanalysis_history",
                 "--market",
                 spec.id,
                 "backfill",
@@ -397,7 +399,7 @@ def reanalysis_market_source_queue(spec, start_date, end_date, python, chunk_day
         [
             python,
             "-m",
-            "src.reanalysis_history",
+            "weather.sources.reanalysis_history",
             "--market",
             spec.id,
             "backfill",

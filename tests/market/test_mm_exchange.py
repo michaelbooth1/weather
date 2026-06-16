@@ -5,10 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from mm_exchange import (  # noqa: E402
+from weather.market.mm_exchange import (  # noqa: E402
     PolymarketGlobalHTTPAdapter,
     PolymarketUSHTTPAdapter,
     RecordingTransport,

@@ -1,11 +1,8 @@
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from toronto_model import TorontoHighTempModel
-from model_distribution import (
+from weather.model.toronto_model import TorontoHighTempModel
+from weather.model.model_distribution import (
     FORECAST_PULL_END_HOUR,
     FORECAST_PULL_START_HOUR,
 )

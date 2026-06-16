@@ -5,11 +5,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from promotion_corpus import build_promotion_corpus, write_manifest  # noqa: E402
-from wu_max_since_7_validation import (  # noqa: E402
+from weather.reporting.promotion_corpus import build_promotion_corpus, write_manifest  # noqa: E402
+from weather.reporting.wu_max_since_7_validation import (  # noqa: E402
     build_validation_payload,
     classify_current_max,
     summarize_validation_rows,

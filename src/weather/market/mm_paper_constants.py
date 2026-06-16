@@ -2,12 +2,14 @@
 
 from pathlib import Path
 
+from weather.paths import data_path
+
 SCHEMA_VERSION = "mm_paper_v0.1"
 KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
 
-DEFAULT_RUNS_ROOT = Path("data") / "mm_runs"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "mm_paper_report.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "mm_paper_report.md"
 DEFAULT_FILLS_OUT = DEFAULT_BACKTEST_ROOT / "mm_paper_fills_long.csv"

@@ -2,11 +2,7 @@ import os
 import sys
 import unittest
 from datetime import date, datetime
-
-# Add src to the path
-sys.path.insert(0, os.path.abspath("src"))
-
-from wu_history import (
+from weather.sources.wu_history import (
     normalize_observation,
     summarize_daily,
     to_number,
@@ -15,8 +11,8 @@ from wu_history import (
     calculate_sha256,
     WundergroundHistoryStore
 )
-from daily_summary import celsius_high, native_high
-from toronto_model import TorontoHighTempModel
+from weather.sources.daily_summary import celsius_high, native_high
+from weather.model.toronto_model import TorontoHighTempModel
 
 class TestWundergroundHistoryParsing(unittest.TestCase):
     def test_to_number(self):
@@ -241,7 +237,7 @@ class TestWundergroundHistoryRebuildAndAudit(unittest.TestCase):
             os.unlink(filename)
 
     def test_audit_partitions_success(self):
-        from wu_history import DEFAULT_DATA_ROOT
+        from weather.sources.wu_history import DEFAULT_DATA_ROOT
         store = WundergroundHistoryStore(DEFAULT_DATA_ROOT)
         if store.root.exists():
             success = store.audit_partitions()

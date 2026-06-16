@@ -27,10 +27,17 @@ def artifacts_path(*parts: str | Path) -> Path:
     return ARTIFACTS_ROOT.joinpath(*parts)
 
 
+def config_path(*parts: str | Path) -> Path:
+    return CONFIG_ROOT.joinpath(*parts)
+
+
+def docs_path(*parts: str | Path) -> Path:
+    return DOCS_ROOT.joinpath(*parts)
+
+
 def relative_to_repo(path: str | Path) -> str:
     path = Path(path)
     try:
         return path.relative_to(REPO_ROOT).as_posix()
     except ValueError:
         return path.as_posix()
-

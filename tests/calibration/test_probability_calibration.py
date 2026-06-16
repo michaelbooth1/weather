@@ -1,17 +1,14 @@
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from probability_calibration import (
+from weather.calibration.probability_calibration import (
     apply_exact_distribution_calibration,
     apply_continuous_density_calibration,
     calibrate_market_probability,
     prepare_training_row,
 )
 from weather.model.continuous_density import continuous_density_payload
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 def _artifact(weight=0.6, base_rate=0.35, preserve_distribution_coherence=False):

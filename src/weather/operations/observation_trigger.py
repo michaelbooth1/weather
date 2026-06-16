@@ -31,7 +31,7 @@ from weather.model.feature_store import (
     row_temp_native,
 )
 from weather.model.toronto_model import TorontoHighTempModel
-from weather.paths import REPO_ROOT
+from weather.paths import REPO_ROOT, data_path
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.schema_registry import schema_version
 from weather.sources.asos_one_minute import (
@@ -46,8 +46,8 @@ REPLAY_SCHEMA_VERSION = schema_version("observation_trigger_replay")
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_FAST_STALE_SECONDS = 180.0
 DEFAULT_SUPPORT_MARGIN = 0.5
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_status.json"
 EVENTS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_triggers.jsonl"
 DIAGNOSTICS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_diagnostics.jsonl"
@@ -690,7 +690,7 @@ def start_watcher_detached(
         [
             sys.executable,
             "-m",
-            "src.observation_trigger",
+            "weather.operations.observation_trigger",
             "loop",
             "--market",
             str(market),

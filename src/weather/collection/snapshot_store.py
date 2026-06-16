@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import inspect
 import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from weather.paths import data_path
 
 try:
     from .forecast_archive import (
@@ -51,7 +54,7 @@ except ImportError:  # pragma: no cover - compatibility-wrapper execution
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()
-DEFAULT_SNAPSHOT_ROOT = Path("data") / "snapshots" / DEFAULT_MARKET_CONFIG.event_slug
+DEFAULT_SNAPSHOT_ROOT = data_path() / "snapshots" / DEFAULT_MARKET_CONFIG.event_slug
 # Fallback used only when a snapshot's model dict carries no model_version.
 MODEL_VERSION = MODEL_VERSION_HGB
 
@@ -190,7 +193,7 @@ class SnapshotStore:
 
     def _set_paths(self, root, event_slug):
         self.event_slug = event_slug
-        self.root = Path(root) if root is not None else Path("data") / "snapshots" / self.event_slug
+        self.root = Path(root) if root is not None else data_path() / "snapshots" / self.event_slug
         self.long_path = self.root / "snapshots_long.csv"
         self.wide_path = self.root / "snapshots_wide.csv"
         self.jsonl_path = self.root / "snapshots.jsonl"
@@ -259,6 +262,7 @@ class SnapshotStore:
         top_temp = model.get("top_temp")
         top_probability = distribution.get(top_temp) if top_temp is not None else None
         sources = model.get("sources", {}) or {}
+        calibration_context = model.get("probability_calibration_context") or {}
         source_values = self.source_values(sources, model_client)
         source_status_rows = self.source_status_rows(
             sources,
@@ -279,7 +283,12 @@ class SnapshotStore:
         for bin_data in bins:
             value = bin_data.get("value")
             value_hi = bin_data.get("value_hi", value)
-            model_probability = model_client.bin_probability(distribution, bin_data)
+            model_probability = self.model_bin_probability(
+                model_client,
+                distribution,
+                bin_data,
+                calibration_context=calibration_context,
+            )
             market_yes = bin_data.get("market_yes")
             edge = (
                 model_probability - market_yes
@@ -322,7 +331,12 @@ class SnapshotStore:
                 **source_values,
             })
 
-        snapshot_self_check = self.check_snapshot_probabilities(distribution, long_rows, model_client)
+        snapshot_self_check = self.check_snapshot_probabilities(
+            distribution,
+            long_rows,
+            model_client,
+            calibration_context=calibration_context,
+        )
         self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
@@ -686,7 +700,7 @@ class SnapshotStore:
             "market_no": row.get("market_no"),
         }
 
-    def check_snapshot_probabilities(self, distribution, long_rows, model_client):
+    def check_snapshot_probabilities(self, distribution, long_rows, model_client, calibration_context=None):
         checked = 0
         max_abs_diff = 0.0
         failures = []
@@ -697,7 +711,12 @@ class SnapshotStore:
             bin_data = self.row_bin_data(row)
             if stored is None or bin_data is None:
                 continue
-            recomputed = model_client.bin_probability(distribution, bin_data)
+            recomputed = self.model_bin_probability(
+                model_client,
+                distribution,
+                bin_data,
+                calibration_context=calibration_context or {},
+            )
             diff = abs(float(stored) - float(recomputed))
             checked += 1
             max_abs_diff = max(max_abs_diff, diff)
@@ -721,6 +740,24 @@ class SnapshotStore:
             "max_abs_diff": max_abs_diff,
             "tolerance": SNAPSHOT_PROBABILITY_TOLERANCE,
         }
+
+    def model_bin_probability(self, model_client, distribution, bin_data, calibration_context=None):
+        calibration_context = calibration_context or {}
+        method = model_client.bin_probability
+        if not calibration_context:
+            return method(distribution, bin_data)
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError):
+            return method(distribution, bin_data, calibration_context=calibration_context)
+        parameters = signature.parameters
+        accepts_context = (
+            "calibration_context" in parameters
+            or any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+        )
+        if accepts_context:
+            return method(distribution, bin_data, calibration_context=calibration_context)
+        raise TypeError("model_client.bin_probability must accept calibration_context for calibrated snapshots")
 
     def component_rows(self, bundle, bins, snapshot_id, captured_at, model_version, runtime_fields=None):
         bundle = bundle or {}

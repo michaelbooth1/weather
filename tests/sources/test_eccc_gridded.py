@@ -2,10 +2,6 @@ import os
 import sys
 import unittest
 from datetime import datetime, timezone
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.market.market_registry import spec_for_id  # noqa: E402
 from weather.sources.eccc_gridded import (  # noqa: E402
     OPEN_METEO_GEM_URL,

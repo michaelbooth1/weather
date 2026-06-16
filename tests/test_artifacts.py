@@ -3,9 +3,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.artifacts import (
     artifact_candidates,
     artifact_path,

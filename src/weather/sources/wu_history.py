@@ -9,6 +9,8 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from weather.paths import data_path
+
 from zoneinfo import ZoneInfo
 
 import requests
@@ -81,7 +83,7 @@ WEATHER_COM_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
-DEFAULT_DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+DEFAULT_DATA_ROOT = data_path() / "wunderground" / "cyyz"
 TEMPERATURE_BOUNDS = {
     "C": (-60.0, 60.0),
     "F": (-80.0, 140.0),

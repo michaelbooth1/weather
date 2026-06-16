@@ -7,12 +7,17 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_signed, markdown_table
+from weather.paths import data_path
+
+from weather.reporting.formatting import (
+    fmt_signed,
+    markdown_table,
+)
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("shadow_ab_monitor")
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_PROMOTION_REFRESH = DEFAULT_BACKTEST_ROOT / "f_family_promotion_refresh.json"
 DEFAULT_CANDIDATE_REPLAY = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "shadow_ab_monitor.json"
@@ -56,6 +61,23 @@ def candidate_by_market(candidate):
         str(row.get("market_id")): row
         for row in candidate.get("market_rows") or []
         if row.get("market_id")
+    }
+
+
+def candidate_evidence_accounting(candidate):
+    market_rows = candidate.get("market_rows") or []
+    scored_rows = sum(int(row.get("rows") or 0) for row in market_rows)
+    snapshots = sum(int(row.get("snapshots") or 0) for row in market_rows)
+    market_days = sum(int(row.get("days") or 0) for row in market_rows)
+    markets = {row.get("market_id") for row in market_rows if row.get("market_id")}
+    return {
+        "scored_rows": scored_rows,
+        "unique_observation_count": scored_rows,
+        "snapshot_count": snapshots,
+        "market_day_count": market_days,
+        "market_count": len(markets),
+        "row_multiplier": 1.0 if scored_rows else 0.0,
+        "source": "candidate_replay_market_rows",
     }
 
 
@@ -109,6 +131,7 @@ def market_monitor_row(market_id, decision, candidate_row, serving_blocked, curr
         "days": (candidate_row or {}).get("days"),
         "snapshots": (candidate_row or {}).get("snapshots"),
         "rows": (candidate_row or {}).get("rows"),
+        "unique_observations": (candidate_row or {}).get("rows"),
         "candidate_brier": maybe_float(comparison.get("candidate_brier")),
         "current_brier": maybe_float(comparison.get("current_brier")),
         "market_brier": maybe_float(comparison.get("market_brier")),
@@ -162,6 +185,7 @@ def build_monitor(
         for market_id in market_ids
     ]
     alerts = global_alerts(promotion, candidate)
+    evidence = candidate_evidence_accounting(candidate)
     alert_count = len(alerts) + sum(len(row["alerts"]) for row in markets)
     shadow_count = sum(1 for row in markets if row["status"] == "SHADOW")
     promote_ready_count = sum(1 for row in markets if row["status"] == "PROMOTE_READY")
@@ -182,7 +206,12 @@ def build_monitor(
             "shadow_markets": shadow_count,
             "alert_markets": sum(1 for row in markets if row["status"] == "ALERT"),
             "alert_count": alert_count,
+            "scored_rows": evidence["scored_rows"],
+            "unique_observation_count": evidence["unique_observation_count"],
+            "snapshot_count": evidence["snapshot_count"],
+            "market_day_count": evidence["market_day_count"],
         },
+        "evidence_accounting": evidence,
         "global_alerts": alerts,
         "markets": markets,
     }
@@ -207,6 +236,10 @@ def render_report(payload):
             ["Shadow", summary.get("shadow_markets", 0)],
             ["Alert markets", summary.get("alert_markets", 0)],
             ["Alerts", summary.get("alert_count", 0)],
+            ["Scored rows", summary.get("scored_rows", 0)],
+            ["Unique observations", summary.get("unique_observation_count", 0)],
+            ["Snapshots", summary.get("snapshot_count", 0)],
+            ["Market-days", summary.get("market_day_count", 0)],
         ],
     )
     alerts = payload.get("global_alerts") or []
@@ -217,7 +250,7 @@ def render_report(payload):
     lines += ["", "## Markets", ""]
     lines += markdown_table(
         [
-            "Market", "Status", "Action", "Candidate", "Days", "Rows",
+            "Market", "Status", "Action", "Candidate", "Days", "Unique Obs", "Rows",
             "Delta Current", "Delta Market", "Alerts",
         ],
         [
@@ -227,6 +260,7 @@ def render_report(payload):
                 row.get("promotion_action"),
                 row.get("candidate_verdict") or "-",
                 row.get("days") if row.get("days") is not None else "-",
+                row.get("unique_observations") if row.get("unique_observations") is not None else "-",
                 row.get("rows") if row.get("rows") is not None else "-",
                 fmt_signed(row.get("delta_vs_current"), 4),
                 fmt_signed(row.get("delta_vs_market"), 4),

@@ -12,28 +12,55 @@ import argparse
 import csv
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import (
+from weather.paths import data_path
+
+from weather.scoring.metrics import (
     expected_calibration_error,
+    group_sort_key,
+    score_rows,
+)
+from weather.reporting.formatting import (
     fmt_num,
     fmt_pct,
     fmt_signed,
-    group_sort_key,
     markdown_table,
-    score_rows,
+)
+from weather.reporting.variant_registry import (
+    DEFAULT_REGISTRY_PATH,
+    decorate_variant,
+    load_registry,
+    registry_summary,
 )
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("multi_variant_shadow")
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow_report.md"
 DEFAULT_LONG_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow_long.csv"
 MAX_NON_CONTROL_VARIANTS = 4
+OBSERVATION_KEY_FIELDS = ("market_id", "target_date", "snapshot_id", "band_key")
+VARIANT_METADATA_FIELDS = (
+    "variant_family",
+    "uses_market_features",
+    "is_control",
+    "artifact_hash",
+    "postprocess_config_hash",
+    "experiment_start_date",
+)
+DEDUPLICATED_CONTROL_FAMILY = "shared_control"
+CONTROL_SCORE_FIELDS = (
+    "probability",
+    "current_probability",
+    "recorded_probability",
+    "market_yes",
+    "outcome",
+)
 
 LONG_TABLE_COLUMNS = [
     "variant_id",
@@ -195,6 +222,104 @@ def normalize_rows(raw_rows):
     return rows, errors
 
 
+def observation_key(row):
+    return tuple(row.get(field) for field in OBSERVATION_KEY_FIELDS)
+
+
+def evidence_accounting(rows):
+    rows = list(rows)
+    observations = {observation_key(row) for row in rows}
+    snapshots = {
+        (row.get("market_id"), row.get("target_date"), row.get("snapshot_id"))
+        for row in rows
+    }
+    market_days = {
+        (row.get("market_id"), row.get("target_date"))
+        for row in rows
+    }
+    settled_labels = {
+        observation_key(row)
+        for row in rows
+        if row.get("outcome") in {0, 1}
+    }
+    bands = {row.get("band_key") for row in rows if row.get("band_key") not in (None, "")}
+    row_count = len(rows)
+    observation_count = len(observations)
+    return {
+        "scored_rows": row_count,
+        "unique_observation_count": observation_count,
+        "snapshot_count": len(snapshots),
+        "market_day_count": len(market_days),
+        "market_count": len({row.get("market_id") for row in rows if row.get("market_id")}),
+        "band_count": len(bands),
+        "settled_label_count": len(settled_labels),
+        "row_multiplier": (row_count / observation_count) if observation_count else 0.0,
+    }
+
+
+def evidence_by_market(rows):
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[row.get("market_id")].append(row)
+    return {
+        market_id: evidence_accounting(market_rows)
+        for market_id, market_rows in sorted(grouped.items())
+    }
+
+
+def _control_rows_score_equivalent(rows):
+    first = rows[0]
+    for row in rows[1:]:
+        for field in CONTROL_SCORE_FIELDS:
+            if row.get(field) != first.get(field):
+                return False
+    return True
+
+
+def dedupe_shared_control_rows(rows):
+    """Drop repeated identical control rows over the same observation key."""
+    by_key = defaultdict(list)
+    for row in rows:
+        key = (row.get("variant_id"),) + observation_key(row)
+        by_key[key].append(row)
+
+    output = []
+    groups = []
+    for key, group_rows in by_key.items():
+        if (
+            len(group_rows) > 1
+            and all(row.get("is_control") for row in group_rows)
+            and _control_rows_score_equivalent(group_rows)
+        ):
+            kept = dict(group_rows[0])
+            families = sorted({
+                row.get("variant_family")
+                for row in group_rows
+                if row.get("variant_family") not in (None, "")
+            })
+            if len(families) > 1:
+                kept["variant_family"] = DEDUPLICATED_CONTROL_FAMILY
+                kept["postprocess_config_hash"] = DEDUPLICATED_CONTROL_FAMILY
+            output.append(kept)
+            groups.append({
+                "variant_id": key[0],
+                "observation_key": {
+                    field: value for field, value in zip(OBSERVATION_KEY_FIELDS, key[1:])
+                },
+                "input_rows": len(group_rows),
+                "dropped_rows": len(group_rows) - 1,
+                "families": families,
+            })
+        else:
+            output.extend(group_rows)
+    return output, {
+        "enabled": True,
+        "deduplicated_group_count": len(groups),
+        "deduplicated_rows": sum(group["dropped_rows"] for group in groups),
+        "groups": groups[:100],
+    }
+
+
 def _score_field(rows, probability_field):
     view = []
     for row in rows:
@@ -302,21 +427,25 @@ def variant_metadata(rows):
     }
 
 
-def variant_summary(rows):
+def variant_summary(rows, variant_registry=None):
     by_variant = defaultdict(list)
     for row in rows:
         by_variant[row["variant_id"]].append(row)
     output = []
     for variant_id, variant_rows in sorted(by_variant.items()):
         metadata = variant_metadata(variant_rows)
+        evidence = evidence_accounting(variant_rows)
         output.append({
             **metadata,
+            **decorate_variant(metadata, variant_registry),
             "rows": len(variant_rows),
+            "unique_observation_count": evidence["unique_observation_count"],
+            "snapshot_count": evidence["snapshot_count"],
+            "band_count": evidence["band_count"],
+            "settled_label_count": evidence["settled_label_count"],
+            "row_multiplier": evidence["row_multiplier"],
             "markets": sorted({row["market_id"] for row in variant_rows}),
-            "market_days": len({
-                (row["market_id"], row["target_date"])
-                for row in variant_rows
-            }),
+            "market_days": evidence["market_day_count"],
             "aggregate": comparison(variant_rows),
             "daily_first": daily_first_comparison(variant_rows),
             "by_market": grouped_comparison(variant_rows, "market_id"),
@@ -325,8 +454,54 @@ def variant_summary(rows):
     return output
 
 
-def governance_issues(rows, variants, max_non_control_variants=MAX_NON_CONTROL_VARIANTS):
+def governance_issues(
+    rows,
+    variants,
+    max_non_control_variants=MAX_NON_CONTROL_VARIANTS,
+    duplicate_observation_policy="warn",
+):
     issues = []
+    rows_by_variant = defaultdict(list)
+    for row in rows:
+        rows_by_variant[row["variant_id"]].append(row)
+    duplicate_severity = "error" if duplicate_observation_policy == "error" else "warning"
+
+    for variant_id, variant_rows in sorted(rows_by_variant.items()):
+        observation_counts = Counter(
+            tuple(row.get(field) for field in OBSERVATION_KEY_FIELDS)
+            for row in variant_rows
+        )
+        duplicate_rows = sum(count - 1 for count in observation_counts.values() if count > 1)
+        if duplicate_rows:
+            issues.append({
+                "severity": duplicate_severity,
+                "category": "duplicate_variant_observation",
+                "variant_id": variant_id,
+                "detail": (
+                    f"{duplicate_rows} duplicate row(s) over "
+                    f"{sum(1 for count in observation_counts.values() if count > 1)} "
+                    "market/date/snapshot/band observation(s); repeated controls or "
+                    "overlapping exports can overstate evidence"
+                ),
+            })
+
+        for field in VARIANT_METADATA_FIELDS:
+            values = {
+                str(row.get(field))
+                for row in variant_rows
+                if row.get(field) not in (None, "")
+            }
+            if len(values) > 1:
+                issues.append({
+                    "severity": "warning",
+                    "category": "variant_metadata_conflict",
+                    "variant_id": variant_id,
+                    "detail": (
+                        f"{field} has multiple values for the same variant_id: "
+                        f"{', '.join(sorted(values))}"
+                    ),
+                })
+
     by_family = defaultdict(list)
     for variant in variants:
         if not variant.get("is_control"):
@@ -368,7 +543,7 @@ def governance_issues(rows, variants, max_non_control_variants=MAX_NON_CONTROL_V
     return issues
 
 
-def track_summary(variants):
+def track_summary(variants, *, active_only=False):
     tracks = {}
     for track_name, use_market in [
         ("no_market", False),
@@ -377,6 +552,7 @@ def track_summary(variants):
         selected = [
             variant for variant in variants
             if bool(variant.get("uses_market_features")) is use_market
+            and (not active_only or variant.get("active_for_headline"))
         ]
         tracks[track_name] = {
             "variant_count": len(selected),
@@ -400,38 +576,200 @@ def _best_delta(variants, score_key, metric):
     return {"variant_id": variant_id, "value": value}
 
 
-def build_payload(raw_rows, max_non_control_variants=MAX_NON_CONTROL_VARIANTS):
+def _headline_variant_rows(variants, current_tol=0.003, market_tol=0.003):
+    rows = []
+    candidates = [
+        variant for variant in variants
+        if variant.get("active_for_headline")
+        and not variant.get("is_control")
+        and not variant.get("uses_market_features")
+    ]
+    if not candidates:
+        candidates = [
+            variant for variant in variants
+            if not variant.get("is_control") and not variant.get("uses_market_features")
+        ]
+    for variant in candidates:
+        daily = variant.get("daily_first") or {}
+        by_market = variant.get("by_market") or []
+        current_regressions = [
+            row for row in by_market
+            if row.get("delta_vs_current") is not None and row.get("delta_vs_current") > current_tol
+        ]
+        market_gaps = [
+            row for row in by_market
+            if row.get("delta_vs_market") is not None and row.get("delta_vs_market") > market_tol
+        ]
+        rows.append({
+            "variant_id": variant.get("variant_id"),
+            "daily_delta_vs_current": daily.get("delta_vs_current"),
+            "daily_delta_vs_market": daily.get("delta_vs_market"),
+            "daily_variant_logloss": daily.get("variant_logloss"),
+            "daily_current_logloss": daily.get("current_logloss"),
+            "daily_variant_ece": daily.get("variant_ece"),
+            "market_day_count": daily.get("n_days"),
+            "unique_observation_count": variant.get("unique_observation_count"),
+            "gates": {
+                "daily_brier_improves_current": (
+                    daily.get("delta_vs_current") is not None
+                    and daily.get("delta_vs_current") < 0
+                ),
+                "daily_logloss_improves_current": (
+                    daily.get("variant_logloss") is not None
+                    and daily.get("current_logloss") is not None
+                    and daily.get("variant_logloss") < daily.get("current_logloss")
+                ),
+                "within_current_regression_tolerance_by_market": not current_regressions,
+                "within_market_gap_tolerance": (
+                    daily.get("delta_vs_market") is not None
+                    and daily.get("delta_vs_market") <= market_tol
+                ),
+                "source_freshness_slice_available": bool(variant.get("by_source_freshness")),
+            },
+            "current_regression_markets": [
+                row.get("group") for row in current_regressions
+            ],
+            "market_gap_markets": [
+                row.get("group") for row in market_gaps
+            ],
+        })
+    return rows
+
+
+def headline_selection(variants, current_tol=0.003, market_tol=0.003):
+    rows = _headline_variant_rows(
+        variants,
+        current_tol=current_tol,
+        market_tol=market_tol,
+    )
+    scored = [
+        row for row in rows
+        if row.get("daily_delta_vs_current") is not None
+    ]
+    if not scored:
+        return {
+            "status": "NO_ACTIVE_NO_MARKET_VARIANTS",
+            "selected_variant_id": None,
+            "reason": "no active no-market variants have daily-first scores",
+            "gates": [],
+        }
+    selected = min(scored, key=lambda row: (
+        row.get("daily_delta_vs_current"),
+        row.get("daily_delta_vs_market")
+        if row.get("daily_delta_vs_market") is not None else float("inf"),
+    ))
+    gates = selected.get("gates") or {}
+    if all(gates.get(key) for key in (
+        "daily_brier_improves_current",
+        "daily_logloss_improves_current",
+        "within_current_regression_tolerance_by_market",
+        "within_market_gap_tolerance",
+    )):
+        status = "PROMOTION_LANE_READY"
+        reason = "selected active no-market variant clears current and market gates"
+    elif gates.get("daily_brier_improves_current"):
+        status = "SHADOW_LANE_SELECTED"
+        reason = (
+            "selected active no-market variant improves current replay but still has "
+            "open promotion gates"
+        )
+    else:
+        status = "NO_PROMOTION_LANE_READY"
+        reason = "no active no-market variant improves current replay"
+    return {
+        "status": status,
+        "selected_variant_id": selected.get("variant_id"),
+        "reason": reason,
+        "current_tol": current_tol,
+        "market_tol": market_tol,
+        "gates": rows,
+    }
+
+
+def build_payload(
+    raw_rows,
+    max_non_control_variants=MAX_NON_CONTROL_VARIANTS,
+    *,
+    variant_registry=None,
+    variant_registry_path=DEFAULT_REGISTRY_PATH,
+    use_variant_registry=True,
+    dedupe_shared_controls=False,
+    duplicate_observation_policy="warn",
+    selection_current_tol=0.003,
+    selection_market_tol=0.003,
+):
     raw_rows = list(raw_rows)
     rows, errors = normalize_rows(raw_rows)
-    variants = variant_summary(rows)
+    normalized_row_count = len(rows)
+    if dedupe_shared_controls:
+        rows, deduplication = dedupe_shared_control_rows(rows)
+    else:
+        deduplication = {
+            "enabled": False,
+            "deduplicated_group_count": 0,
+            "deduplicated_rows": 0,
+            "groups": [],
+        }
+    registry = variant_registry
+    if registry is None and use_variant_registry:
+        registry = load_registry(variant_registry_path)
+    elif registry is None:
+        registry = None
+    variants = variant_summary(rows, variant_registry=registry)
+    evidence = evidence_accounting(rows)
     issues = governance_issues(
         rows,
         variants,
         max_non_control_variants=max_non_control_variants,
+        duplicate_observation_policy=duplicate_observation_policy,
     )
     error_count = len(errors) + sum(1 for issue in issues if issue["severity"] == "error")
     warning_count = sum(1 for issue in issues if issue["severity"] == "warning")
     status = "ERROR" if error_count else ("WARN" if warning_count else "OK")
+    registry_info = registry_summary(variants, registry)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "status": status,
         "summary": {
             "raw_rows": len(raw_rows),
+            "normalized_rows": normalized_row_count,
             "scored_rows": len(rows),
+            "deduplicated_rows": deduplication["deduplicated_rows"],
             "variant_count": len(variants),
-            "market_count": len({row["market_id"] for row in rows}),
-            "market_day_count": len({(row["market_id"], row["target_date"]) for row in rows}),
+            "active_headline_variant_count": registry_info["active_headline_variant_count"],
+            "archived_or_historical_variant_count": registry_info["archived_or_historical_variant_count"],
+            "unregistered_variant_count": registry_info["unregistered_variant_count"],
+            "market_count": evidence["market_count"],
+            "market_day_count": evidence["market_day_count"],
+            "unique_observation_count": evidence["unique_observation_count"],
+            "snapshot_count": evidence["snapshot_count"],
+            "band_count": evidence["band_count"],
+            "settled_label_count": evidence["settled_label_count"],
+            "row_multiplier": evidence["row_multiplier"],
             "error_count": error_count,
             "warning_count": warning_count,
         },
+        "evidence_accounting": {
+            **evidence,
+            "by_market": evidence_by_market(rows),
+        },
+        "deduplication": deduplication,
+        "variant_registry": registry_info,
         "limits": {
             "max_non_control_variants_per_family": int(max_non_control_variants),
+            "duplicate_observation_policy": duplicate_observation_policy,
         },
         "long_table_columns": list(LONG_TABLE_COLUMNS),
         "validation_errors": errors,
         "governance_issues": issues,
         "tracks": track_summary(variants),
+        "active_tracks": track_summary(variants, active_only=True),
+        "headline_selection": headline_selection(
+            variants,
+            current_tol=selection_current_tol,
+            market_tol=selection_market_tol,
+        ),
         "variants": variants,
         "rows": rows,
     }
@@ -493,9 +831,12 @@ def _variant_rows(variants):
         rows.append([
             variant.get("variant_id"),
             variant.get("variant_family"),
+            variant.get("registry_lifecycle") or "-",
+            "yes" if variant.get("active_for_headline") else "no",
             "market" if variant.get("uses_market_features") else "no-market",
             "yes" if variant.get("is_control") else "no",
             variant.get("market_days", 0),
+            variant.get("unique_observation_count", 0),
             variant.get("rows", 0),
             fmt_num(daily.get("variant_brier")),
             fmt_num(daily.get("current_brier")),
@@ -508,6 +849,19 @@ def _variant_rows(variants):
             fmt_signed(aggregate.get("delta_vs_market"), 4),
         ])
     return rows
+
+
+def _registry_rows(variant_registry):
+    counts = variant_registry.get("lifecycle_counts") or {}
+    return [
+        ["Registry path", variant_registry.get("path") or "-"],
+        ["Registry loaded", "yes" if variant_registry.get("exists") else "no"],
+        ["Registered variants", variant_registry.get("registered_variant_count", 0)],
+        ["Active headline variants", variant_registry.get("active_headline_variant_count", 0)],
+        ["Archived/historical variants", variant_registry.get("archived_or_historical_variant_count", 0)],
+        ["Unregistered reported variants", variant_registry.get("unregistered_variant_count", 0)],
+        ["Lifecycle counts", ", ".join(f"{key}={value}" for key, value in counts.items()) or "-"],
+    ]
 
 
 def _issue_rows(issues):
@@ -538,6 +892,23 @@ def _market_rows(variant):
     return rows
 
 
+def _selection_rows(selection):
+    rows = []
+    for item in selection.get("gates") or []:
+        gates = item.get("gates") or {}
+        failed = [key for key, ok in gates.items() if not ok]
+        rows.append([
+            item.get("variant_id"),
+            item.get("market_day_count", 0),
+            item.get("unique_observation_count", 0),
+            fmt_signed(item.get("daily_delta_vs_current"), 4),
+            fmt_signed(item.get("daily_delta_vs_market"), 4),
+            fmt_num(item.get("daily_variant_ece")),
+            ", ".join(failed) if failed else "PASS",
+        ])
+    return rows or [["-", 0, 0, "-", "-", "-", "-"]]
+
+
 def render_report(payload):
     summary = payload.get("summary") or {}
     lines = [
@@ -553,8 +924,18 @@ def render_report(payload):
         ["Metric", "Value"],
         [
             ["Raw rows", summary.get("raw_rows", 0)],
+            ["Normalized rows", summary.get("normalized_rows", summary.get("scored_rows", 0))],
             ["Scored rows", summary.get("scored_rows", 0)],
+            ["Deduplicated rows", summary.get("deduplicated_rows", 0)],
+            ["Unique observations", summary.get("unique_observation_count", 0)],
+            ["Snapshots", summary.get("snapshot_count", 0)],
+            ["Bands", summary.get("band_count", 0)],
+            ["Settled labels", summary.get("settled_label_count", 0)],
+            ["Row multiplier", fmt_num(summary.get("row_multiplier"))],
             ["Variants", summary.get("variant_count", 0)],
+            ["Active headline variants", summary.get("active_headline_variant_count", 0)],
+            ["Archived/historical variants", summary.get("archived_or_historical_variant_count", 0)],
+            ["Unregistered variants", summary.get("unregistered_variant_count", 0)],
             ["Markets", summary.get("market_count", 0)],
             ["Market-days", summary.get("market_day_count", 0)],
             [
@@ -565,6 +946,25 @@ def render_report(payload):
             ["Warnings", summary.get("warning_count", 0)],
         ],
     )
+    lines += ["", "## Active Variant Registry", ""]
+    lines += markdown_table(
+        ["Field", "Value"],
+        _registry_rows(payload.get("variant_registry") or {}),
+    )
+    dedupe = payload.get("deduplication") or {}
+    if dedupe.get("enabled"):
+        lines += [
+            "",
+            "## Shared-Control Deduplication",
+            "",
+        ]
+        lines += markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Deduplicated groups", dedupe.get("deduplicated_group_count", 0)],
+                ["Dropped duplicate rows", dedupe.get("deduplicated_rows", 0)],
+            ],
+        )
     lines += [
         "",
         "## Variant Scores",
@@ -576,7 +976,8 @@ def render_report(payload):
     ]
     lines += markdown_table(
         [
-            "Variant", "Family", "Track", "Control", "Days", "Rows",
+            "Variant", "Family", "Lifecycle", "Active", "Track", "Control",
+            "Days", "Unique Obs", "Rows",
             "Daily Brier", "Current Brier", "Market Brier",
             "Delta Current", "Delta Market", "ECE",
             "Agg Brier", "Agg Delta Current", "Agg Delta Market",
@@ -617,6 +1018,43 @@ def render_report(payload):
             for name, track in tracks.items()
         ],
     )
+    active_tracks = payload.get("active_tracks") or {}
+    lines += ["", "## Active Track Separation", ""]
+    lines += markdown_table(
+        ["Track", "Active Variants", "Best Delta Current", "Best Delta Market"],
+        [
+            [
+                name,
+                ", ".join(track.get("variant_ids") or []) or "-",
+                _fmt_best(track.get("best_daily_first_delta_vs_current")),
+                _fmt_best(track.get("best_daily_first_delta_vs_market")),
+            ]
+            for name, track in active_tracks.items()
+        ],
+    )
+    selection = payload.get("headline_selection") or {}
+    lines += [
+        "",
+        "## No-Market Headline Selection",
+        "",
+        f"Status: `{selection.get('status') or '-'}`",
+        f"Selected variant: `{selection.get('selected_variant_id') or '-'}`",
+        "",
+        selection.get("reason") or "-",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Variant",
+            "Days",
+            "Unique Obs",
+            "Delta Current",
+            "Delta Market",
+            "ECE",
+            "Failed Gates",
+        ],
+        _selection_rows(selection),
+    )
 
     for variant in payload.get("variants") or []:
         lines += ["", f"## {variant.get('variant_id')} By Market", ""]
@@ -652,6 +1090,12 @@ def build_parser():
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     parser.add_argument("--long-out", default=str(DEFAULT_LONG_OUT))
     parser.add_argument("--max-non-control-variants", type=int, default=MAX_NON_CONTROL_VARIANTS)
+    parser.add_argument("--variant-registry", default=str(DEFAULT_REGISTRY_PATH))
+    parser.add_argument("--no-variant-registry", action="store_true")
+    parser.add_argument("--dedupe-shared-controls", action="store_true")
+    parser.add_argument("--duplicate-observation-policy", choices=["warn", "error"], default="warn")
+    parser.add_argument("--selection-current-tol", type=float, default=0.003)
+    parser.add_argument("--selection-market-tol", type=float, default=0.003)
     parser.add_argument("--omit-rows-from-json", action="store_true")
     parser.add_argument("--fail-on-error", action="store_true")
     return parser
@@ -664,6 +1108,12 @@ def main(argv=None):
     payload = build_payload(
         raw_rows,
         max_non_control_variants=args.max_non_control_variants,
+        variant_registry_path=args.variant_registry,
+        use_variant_registry=not args.no_variant_registry,
+        dedupe_shared_controls=args.dedupe_shared_controls,
+        duplicate_observation_policy=args.duplicate_observation_policy,
+        selection_current_tol=args.selection_current_tol,
+        selection_market_tol=args.selection_market_tol,
     )
     write_long_csv(args.long_out, payload["rows"])
     write_json(args.json_out, payload, include_rows=not args.omit_rows_from_json)

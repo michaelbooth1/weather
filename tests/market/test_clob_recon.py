@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from clob_recon import build_recon_payload, policy_overrides_from_recon, write_outputs
+from weather.market.clob_recon import build_recon_payload, policy_overrides_from_recon, write_outputs
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"

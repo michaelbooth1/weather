@@ -6,9 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.sources.grib_probe import (  # noqa: E402
     GRIB_PROBE_SCHEMA_VERSION,
     GribBoundingBox,

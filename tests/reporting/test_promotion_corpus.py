@@ -6,12 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
-from promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
-from replay_backtest import run_replay_backtest
+from weather.reporting.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
+from weather.reporting.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
+from weather.backtesting.replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
 
 

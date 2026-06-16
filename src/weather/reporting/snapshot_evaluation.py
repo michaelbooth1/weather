@@ -18,13 +18,19 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import fmt_num, fmt_signed, markdown_table
+from weather.paths import data_path
+
+from weather.reporting.formatting import (
+    fmt_num,
+    fmt_signed,
+    markdown_table,
+)
 from weather.backtesting.settled_days import folder_market_id
 
 
 SCHEMA_VERSION = "snapshot_evaluation_v0.1"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "snapshot_evaluation.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "snapshot_evaluation_report.md"
 

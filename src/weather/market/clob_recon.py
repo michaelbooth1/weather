@@ -12,13 +12,15 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_config import date_from_event_slug
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("clob_book_recon")
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "clob_book_recon.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "clob_book_recon.md"
 DEFAULT_SLICES_OUT = DEFAULT_BACKTEST_ROOT / "clob_book_recon_slices.csv"

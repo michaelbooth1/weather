@@ -2,7 +2,9 @@ import json
 import csv
 from pathlib import Path
 
-DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+from weather.paths import data_path
+
+DATA_ROOT = data_path() / "wunderground" / "cyyz"
 summary_path = DATA_ROOT / "daily" / "daily_summary.csv"
 
 # Read first few lines of daily summary

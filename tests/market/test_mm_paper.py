@@ -5,10 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from mm_paper import build_known_edge_map, build_paper_payload, write_outputs
+from weather.market.mm_paper import build_known_edge_map, build_paper_payload, write_outputs
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"

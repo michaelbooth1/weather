@@ -1,12 +1,11 @@
 import pytest
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 from streamlit.testing.v1 import AppTest
 from unittest import mock
 
-@mock.patch("overview_helpers.compute_biggest_edges")
-@mock.patch("overview_helpers.check_snapshot_status")
+@mock.patch("weather.reporting.overview_helpers.compute_biggest_edges")
+@mock.patch("weather.reporting.overview_helpers.check_snapshot_status")
 def test_app_overview_rendering(mock_status, mock_edges):
     # Mock data to avoid hitting actual files/APIs during UI test
     mock_edges.return_value = [

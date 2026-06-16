@@ -13,13 +13,15 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import (
+from weather.paths import data_path
+
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
-    parse_snapshot_time,
-    safe_float,
     settlement_for_tape,
 )
+from weather.backtesting.tape_scoring import parse_snapshot_time
+from weather.scoring.metrics import safe_float
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.calibration.forecast_error_model import load_daily_summary
 from weather.market.market_config import date_from_event_slug
@@ -29,9 +31,9 @@ from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("settlement_lag_model.json")
-DEFAULT_REPORT_PATH = Path("data") / "backtest" / "settlement_lag_report.md"
-DEFAULT_WU_ROOT = Path("data") / "wunderground" / "cyyz" / "hourly"
-DEFAULT_METAR_ROOT = Path("data") / "metar" / "cyyz" / "hourly"
+DEFAULT_REPORT_PATH = data_path() / "backtest" / "settlement_lag_report.md"
+DEFAULT_WU_ROOT = data_path() / "wunderground" / "cyyz" / "hourly"
+DEFAULT_METAR_ROOT = data_path() / "metar" / "cyyz" / "hourly"
 CUTOFF_HOURS = tuple(range(8, 21))
 SEASON_START = (5, 10)
 SEASON_END = (6, 15)
@@ -490,9 +492,9 @@ def cmd_train(args):
         folders = discover_default_folders(args.snapshots_root, market_id=spec.id)
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     wu_root = args.wu_root or spec.data_root / "hourly"
-    metar_root = args.metar_root or Path("data") / "metar" / spec.icao.lower() / "hourly"
+    metar_root = args.metar_root or data_path() / "metar" / spec.icao.lower() / "hourly"
     artifact_arg = args.artifact or writable_artifact_path(f"settlement_lag_model{spec.artifact_suffix}.json")
-    report_arg = args.report or Path("data") / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md"
+    report_arg = args.report or data_path() / "backtest" / f"settlement_lag_report{spec.artifact_suffix}.md"
     rows = read_training_rows(wu_root, metar_root, daily_summary, folders)
     if not rows:
         raise SystemExit("No settlement lag training rows found.")

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-from toronto_model import TorontoHighTempModel
-from model_constants import INTRADAY_CUTOFF_HOURS
+from weather.model.toronto_model import TorontoHighTempModel
+from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
 
 def test_interpolation():
     model = TorontoHighTempModel(market_id='nyc')

@@ -7,6 +7,33 @@ from app.views.market_making import (
     _market_health_rows,
     _runtime_identity_rows,
 )
+from weather.reporting.market_making_dashboard import (
+    latest_run,
+    read_csv,
+    read_json,
+    read_jsonl,
+    read_jsonl_tail,
+    run_folders,
+)
+
+
+def test_market_making_dashboard_service_reads_artifacts(tmp_path):
+    run_folder = tmp_path / "2026-06-15" / "run-1"
+    run_folder.mkdir(parents=True)
+    (run_folder / "run_summary.json").write_text('{"run_id": "run-1"}\n', encoding="utf-8")
+    (run_folder / "quote_intents_long.csv").write_text("market_id,quote_permission\natlanta,True\n", encoding="utf-8")
+    (run_folder / "events.jsonl").write_text('{"event": "one"}\nnot-json\n{"event": "two"}\n', encoding="utf-8")
+
+    folders = run_folders(tmp_path)
+    latest_folder, summary = latest_run(tmp_path)
+
+    assert folders == [run_folder]
+    assert latest_folder == run_folder
+    assert summary["run_id"] == "run-1"
+    assert read_json(run_folder / "run_summary.json")["run_id"] == "run-1"
+    assert read_csv(run_folder / "quote_intents_long.csv")[0]["market_id"] == "atlanta"
+    assert read_jsonl(run_folder / "events.jsonl")[1]["raw"] == "not-json"
+    assert read_jsonl_tail(run_folder / "events.jsonl", limit=1)[0]["event"] == "two"
 
 
 def test_market_making_cockpit_helpers_render_artifact_drilldowns():
@@ -66,7 +93,7 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
                 "root_cause": "missing_source_status_row",
                 "owner": "snapshot source-status writer",
                 "recoverable_same_day": True,
-                "suggested_command": "python -m src.snapshot_tracker status",
+                "suggested_command": "python -m weather.collection.snapshot_tracker status",
             }
         ],
     }

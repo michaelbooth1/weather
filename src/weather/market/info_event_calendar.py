@@ -14,13 +14,15 @@ from copy import deepcopy
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
+from weather.paths import config_path
+
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
 from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("info_event_calendar")
-DEFAULT_CONFIG_PATH = Path("config") / "info_event_calendar.json"
+DEFAULT_CONFIG_PATH = config_path() / "info_event_calendar.json"
 
 PULL_ACTIONS = {"pull", "suppress", "block", "no_quote"}
 WIDEN_ACTIONS = {"widen", "wide"}

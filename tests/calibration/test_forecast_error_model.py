@@ -5,10 +5,7 @@ import math
 import tempfile
 from datetime import datetime
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from forecast_error_model import (
+from weather.calibration.forecast_error_model import (
     build_artifact,
     forecast_error_distribution,
     forecast_rows_from_daily_archive,
@@ -16,7 +13,7 @@ from forecast_error_model import (
     score_component_rows,
     summarize_error_rows,
 )
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 def _artifact():

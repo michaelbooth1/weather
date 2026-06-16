@@ -6,13 +6,10 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_registry import REGISTRY
-from replay import band_model_probability
-from replay_ablation import ablate_sources, run_ablation, summarize, variant_names_for_spec
-from toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.market.market_registry import REGISTRY
+from weather.backtesting.replay import band_model_probability
+from weather.backtesting.replay_ablation import ablate_sources, run_ablation, summarize, variant_names_for_spec
+from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"

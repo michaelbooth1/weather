@@ -5,18 +5,15 @@ import tempfile
 import unittest
 from datetime import date, datetime
 from pathlib import Path
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_config import config_for_date, date_from_event_slug, event_slug_for_date  # noqa: E402
-from market_registry import (  # noqa: E402
+from weather.market.market_config import config_for_date, date_from_event_slug, event_slug_for_date  # noqa: E402
+from weather.market.market_registry import (  # noqa: E402
     MARKET_REGISTRY_SCHEMA_VERSION,
     build_registry,
     load_external_registry,
     validate_market_registry,
 )
-from snapshot_tracker import SnapshotStore  # noqa: E402
+from weather.collection.snapshot_tracker import SnapshotStore  # noqa: E402
+from weather.paths import data_path  # noqa: E402
 
 
 class TestMarketConfig(unittest.TestCase):
@@ -38,10 +35,7 @@ class TestMarketConfig(unittest.TestCase):
         config = config_for_date(date(2026, 5, 28))
         store = SnapshotStore(event_slug=config.event_slug)
 
-        self.assertEqual(
-            store.root.as_posix(),
-            "data/snapshots/highest-temperature-in-toronto-on-may-28-2026",
-        )
+        self.assertEqual(store.root, data_path("snapshots", config.event_slug))
 
     def test_external_market_registry_adds_market_without_code_edit(self):
         payload = {

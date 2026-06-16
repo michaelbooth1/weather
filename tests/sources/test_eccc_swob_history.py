@@ -4,11 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from eccc_swob_history import (  # noqa: E402
+from weather.sources.eccc_swob_history import (  # noqa: E402
     SWOBHistoryStore,
     compare_with_wu,
     parse_swob_xml,

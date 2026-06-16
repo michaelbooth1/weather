@@ -2,6 +2,8 @@
 import argparse
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.backtesting.settled_days import discover_settled_folders
 from weather.backtesting.settlement_ledger import (
     DEFAULT_LABELS_CSV,
@@ -16,7 +18,7 @@ from weather.backtesting.settlement_ledger import (
 )
 
 
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 
 
 def discover_default_folders(root=DEFAULT_SNAPSHOTS_ROOT):

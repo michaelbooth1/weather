@@ -5,10 +5,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from feature_model import (
+from weather.calibration.feature_model import (
     LATE_DAY_NUMERIC_FEATURES,
     ablation_month_label,
     ablation_observation,
@@ -23,7 +20,7 @@ from feature_model import (
     summarize_ablation_by_group,
     train_late_day_continuation_models,
 )
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 
 class TestFeatureModelAblation(unittest.TestCase):

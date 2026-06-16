@@ -1,12 +1,11 @@
-from market_registry import CHICAGO
-from toronto_model import TorontoHighTempModel
+from weather.market.market_registry import CHICAGO
+from weather.model.toronto_model import TorontoHighTempModel
 import numpy as np
 import sys
 import os
 
 # fix pythonpath for the imports to work
-sys.path.insert(0, os.path.abspath("src"))
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 model = TorontoHighTempModel(market_id='chicago')
 cache = model.historical_target_cache()

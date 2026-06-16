@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.schema_registry import schema_version
 from weather.sources.noaa_ghcnh_history import GHCNHStore
@@ -16,11 +18,11 @@ from weather.sources.wu_history import WundergroundHistoryStore, history_coverag
 
 SCHEMA_VERSION = schema_version("historical_coverage")
 COVERAGE_DASHBOARD_SCHEMA_VERSION = schema_version("historical_coverage_dashboard")
-DEFAULT_OUT = Path("data") / "backtest" / "historical_coverage.json"
-DEFAULT_DASHBOARD_JSON = Path("data") / "backtest" / "historical_coverage_dashboard.json"
-DEFAULT_DASHBOARD_REPORT = Path("data") / "backtest" / "historical_coverage_dashboard.md"
-DEFAULT_DASHBOARD_CSV = Path("data") / "backtest" / "historical_coverage_dashboard.csv"
-DEFAULT_DASHBOARD_PARQUET = Path("data") / "backtest" / "historical_coverage_dashboard.parquet"
+DEFAULT_OUT = data_path() / "backtest" / "historical_coverage.json"
+DEFAULT_DASHBOARD_JSON = data_path() / "backtest" / "historical_coverage_dashboard.json"
+DEFAULT_DASHBOARD_REPORT = data_path() / "backtest" / "historical_coverage_dashboard.md"
+DEFAULT_DASHBOARD_CSV = data_path() / "backtest" / "historical_coverage_dashboard.csv"
+DEFAULT_DASHBOARD_PARQUET = data_path() / "backtest" / "historical_coverage_dashboard.parquet"
 SOURCE_FRESHNESS_SLAS = {
     "wu": {"mode": "date", "max_age_days": 2},
     "reanalysis": {"mode": "date", "max_age_days": 14},

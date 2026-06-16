@@ -2,11 +2,8 @@ import os
 import sys
 import unittest
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_registry import NYC, SEATTLE, TORONTO
-from pooled_feature_model import (
+from weather.market.market_registry import NYC, SEATTLE, TORONTO
+from weather.calibration.pooled_feature_model import (
     add_city_features,
     add_dynamic_source_state_features,
     adjacent_calibration_contexts,
@@ -34,7 +31,7 @@ from pooled_feature_model import (
     support_floor_cap,
     train_pooled_density_models,
 )
-from market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
+from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 
 
 class TestPooledFeatureModel(unittest.TestCase):
@@ -186,7 +183,7 @@ class TestPooledFeatureModel(unittest.TestCase):
             },
         }
 
-        with patch("pooled_feature_model.source_daily_indexes", return_value=indexes):
+        with patch("weather.calibration.pooled_feature_model.source_daily_indexes", return_value=indexes):
             reliability = market_source_reliability(NYC)
 
         self.assertEqual(reliability["source_redundant_streams"], 2.0)
@@ -222,7 +219,7 @@ class TestPooledFeatureModel(unittest.TestCase):
             },
         }
 
-        with patch("pooled_feature_model.source_daily_indexes", return_value=indexes):
+        with patch("weather.calibration.pooled_feature_model.source_daily_indexes", return_value=indexes):
             reliability = market_source_reliability(NYC, include_historical_only=True)
 
         self.assertEqual(reliability["source_supplemental_available"], 1.0)

@@ -6,6 +6,8 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from weather.paths import data_path
+
 import requests
 
 from weather.sources.historical_schema import (
@@ -22,7 +24,7 @@ from weather.sources.wu_history import get_code_version, parse_date
 
 
 SOURCE = "open_meteo_era5_reanalysis"
-DEFAULT_ROOT = Path("data") / "reanalysis"
+DEFAULT_ROOT = data_path() / "reanalysis"
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 HOURLY_VARIABLES = (
     "temperature_2m",

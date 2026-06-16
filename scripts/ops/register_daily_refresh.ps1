@@ -19,7 +19,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m src.daily_refresh run"
+$arguments = "-m weather.operations.daily_refresh run"
 if ($ContinueOnError) {
     $arguments = "$arguments --continue-on-error"
 }
@@ -43,7 +43,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Runs the daily weather-market settlement/promotion/report refresh (python -m src.daily_refresh run)." `
+    -Description "Runs the daily weather-market settlement/promotion/report refresh (python -m weather.operations.daily_refresh run)." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': daily at $At."

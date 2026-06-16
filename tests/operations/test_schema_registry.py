@@ -3,10 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from schema_registry import (  # noqa: E402
+from weather.schema_registry import (  # noqa: E402
     SCHEMA_REGISTRY_SCHEMA_VERSION,
     audit_payload,
     registry_payload,

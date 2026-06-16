@@ -1,9 +1,6 @@
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
 from weather.market.info_event_calendar import (
     event_gate_for_market,
     scheduled_events_for_market,

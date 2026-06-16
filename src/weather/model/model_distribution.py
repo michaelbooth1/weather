@@ -24,6 +24,7 @@ from weather.model.model_constants import (
 from weather.calibration.forecast_error_model import forecast_error_distribution
 from weather.calibration.probability_calibration import apply_exact_distribution_calibration
 from weather.calibration.settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.model.model_contracts import DistributionResult
 
 from weather.model.model_distribution_constants import (
     BUCKET_TRANSITION_BLEND_MAX,
@@ -96,10 +97,21 @@ from weather.model.model_distribution_signals import DistributionSignalMixin
 class DistributionMixin(DistributionSignalMixin):
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
+    def estimate_distribution_result(self, sources, now=None):
+        distribution = self.estimate_distribution(sources, now=now)
+        return getattr(
+            self,
+            "_last_distribution_result",
+            DistributionResult.from_model(self, distribution),
+        )
 
     def estimate_distribution(self, sources, now=None):
         self._last_distribution_components = {}
         self._last_distribution_pipeline_state = None
+        self._last_probability_calibration_context = {}
+        self._last_family_secondary_gate = {}
+        self._last_distribution_result = DistributionResult.from_model(self, {})
+        self.active_model_kind = "empirical"
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
         local_history = self.source_data(sources, "local_history")
@@ -180,6 +192,7 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline = DistributionPipelineState()
             self._last_distribution_pipeline_state = pipeline
             self._last_distribution_components = pipeline.payload()
+            self._last_distribution_result = DistributionResult.from_model(self, {})
             return {}
 
         low = min(min(scores), round(self.spec.c_to_native(8)),
@@ -388,6 +401,7 @@ class DistributionMixin(DistributionSignalMixin):
             observed_support_bucket=observed_support_bucket,
         )
         self._last_distribution_components = pipeline.payload()
+        self._last_distribution_result = DistributionResult.from_model(self, calibrated_scores)
         return calibrated_scores
 
     def distribution_model_path_stage(

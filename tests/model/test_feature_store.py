@@ -6,10 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from feature_store import (
+from weather.model.feature_store import (
     FEATURE_AUDIT_COLUMNS,
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
@@ -28,8 +25,8 @@ from feature_store import (
     row_same_day_max_native,
     row_temp_native,
 )
-from snapshot_tracker import SnapshotStore
-from toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.collection.snapshot_tracker import SnapshotStore
+from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 
 class TestFeatureStore(unittest.TestCase):

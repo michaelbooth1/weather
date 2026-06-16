@@ -10,6 +10,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import requests
 
 from weather.sources.historical_schema import to_float
@@ -18,7 +20,7 @@ from weather.sources.historical_schema import to_float
 ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.1"
 SOURCE = "asos_1min"
 IEM_ASOS_1MIN_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos1min.py"
-DEFAULT_ROOT = Path("data") / "sources" / "asos_1min"
+DEFAULT_ROOT = data_path() / "sources" / "asos_1min"
 
 
 def payload_hash(text: str) -> str:

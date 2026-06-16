@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from shadow_ab_monitor import build_monitor, write_json, write_report  # noqa: E402
+from weather.reporting.shadow_ab_monitor import build_monitor, write_json, write_report  # noqa: E402
 
 
 def _write(path, payload):
@@ -83,6 +80,8 @@ class TestShadowABMonitor(unittest.TestCase):
         self.assertEqual(by_market["miami"]["status"], "ALERT")
         self.assertIn("candidate regresses current", "; ".join(by_market["miami"]["alerts"]))
         self.assertEqual(payload["summary"]["alert_markets"], 1)
+        self.assertEqual(payload["summary"]["unique_observation_count"], 60)
+        self.assertEqual(payload["evidence_accounting"]["source"], "candidate_replay_market_rows")
 
     def test_monitor_alerts_on_missing_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,6 +112,7 @@ class TestShadowABMonitor(unittest.TestCase):
                     "candidate_verdict": "SHADOW",
                     "days": 1,
                     "rows": 10,
+                    "unique_observations": 10,
                     "delta_vs_current": 0.0,
                     "delta_vs_market": 0.0,
                     "alerts": [],

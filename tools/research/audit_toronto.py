@@ -1,13 +1,6 @@
-import sys
 import json
-from pathlib import Path
-
-SRC_ROOT = Path("src").resolve()
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-from polymarket_client import PolymarketClient
-from toronto_model import TorontoHighTempModel
+from weather.market.polymarket_client import PolymarketClient
+from weather.model.toronto_model import TorontoHighTempModel
 
 def main():
     client = PolymarketClient(market_id="toronto")

@@ -4,10 +4,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from settled_days import (
+from weather.backtesting.settled_days import (
     discover_settled_folders,
     discover_settled_slugs,
     folder_market_id,

@@ -1,21 +1,17 @@
-import sys
 from datetime import datetime
-from pathlib import Path
 
 import streamlit as st
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
-from polymarket_client import (  # noqa: E402
+from weather.collection.snapshot_tracker import SnapshotStore
+from weather.market.market_config import config_for_date, config_from_event
+from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id
+from weather.market.polymarket_client import (
     PolymarketClient,
 )
-from market_config import config_for_date, config_from_event  # noqa: E402
-from snapshot_tracker import SnapshotStore  # noqa: E402
-from toronto_model import TorontoHighTempModel, TORONTO_TZ  # noqa: E402
-from market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id  # noqa: E402
-from weather.sources.marine_context import active_marine_context_state  # noqa: E402
+from weather.model.toronto_model import TorontoHighTempModel, TORONTO_TZ
+from weather.paths import data_path
+from weather.sources.marine_context import active_marine_context_state
 
 
 LIVE_REFRESH_SECONDS = 60
@@ -90,7 +86,7 @@ st.caption(
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_trust_score(market_id):
-    from location_trust import score_market
+    from weather.reporting.location_trust import score_market
     return score_market(market_id)
 
 
@@ -627,7 +623,7 @@ def live_dashboard(static_sources):
         st.markdown("### Background Loop Control")
         
         # Pause flag file path
-        pause_flag_path = Path("data") / "snapshots" / "loop_pause.flag"
+        pause_flag_path = data_path("snapshots", "loop_pause.flag")
         
         # Toggle loop pause status
         is_paused = pause_flag_path.exists()

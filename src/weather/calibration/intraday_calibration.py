@@ -5,6 +5,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.paths import data_path
+
 import numpy as np
 from scipy.optimize import minimize
 
@@ -643,7 +645,7 @@ def main(argv=None):
     weights_path.write_text(json.dumps(calibrated, indent=2, sort_keys=True), encoding="utf-8")
     print(f"Saved calibrated weights to {weights_path}")
 
-    report_path = Path(args.report_path) if args.report_path else Path("data") / "wunderground" / model.spec.icao.lower() / "analysis" / "calibration_report.md"
+    report_path = Path(args.report_path) if args.report_path else data_path() / "wunderground" / model.spec.icao.lower() / "analysis" / "calibration_report.md"
     write_report(report_path, calibrated, calibrated["metadata"]["support"])
     print(f"Saved calibration report to {report_path}")
     return 0

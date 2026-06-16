@@ -3,10 +3,12 @@ import json
 import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from weather.paths import data_path
+
 from collections import Counter, defaultdict
 
 # Define constants
-DATA_ROOT = Path("data") / "wunderground" / "cyyz"
+DATA_ROOT = data_path() / "wunderground" / "cyyz"
 TARGET_DATE = date(2026, 5, 27)
 SEASONAL_WINDOW = 7
 

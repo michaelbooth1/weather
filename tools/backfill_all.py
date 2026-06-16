@@ -9,10 +9,7 @@ import sys
 import time
 from datetime import date, datetime
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from market_registry import all_specs  # noqa: E402
+from weather.market.market_registry import all_specs  # noqa: E402
 
 
 DEFAULT_START = "2015-01-01"
@@ -29,7 +26,7 @@ def build_wu_command(python, market, start, end, chunk_days, sleep, skip_existin
     command = [
         str(python),
         "-m",
-        "src.wu_history",
+        "weather.sources.wu_history",
         "--market",
         market,
         "backfill",
@@ -52,7 +49,7 @@ def build_ghcnh_command(python, market, start, end, sleep, skip_existing):
     command = [
         str(python),
         "-m",
-        "src.noaa_ghcnh_history",
+        "weather.sources.noaa_ghcnh_history",
         "--market",
         market,
         "backfill",
@@ -72,7 +69,7 @@ def build_reanalysis_command(python, market, start, end, chunk_days, sleep, skip
     command = [
         str(python),
         "-m",
-        "src.reanalysis_history",
+        "weather.sources.reanalysis_history",
         "--market",
         market,
         "backfill",

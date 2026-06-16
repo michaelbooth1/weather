@@ -21,7 +21,7 @@ it emits both a markdown report and a JSON summary for downstream automation. It
 sharpens automatically as more days settle.
 
 CLI:
-  python -m src.forecast_tracker
+  python -m weather.collection.forecast_tracker
       [folder ...] [--cutoffs 7,9,11,13] [--verdict-cutoff 9]
       [--settle YYYY-MM-DD=BUCKET ...]
       [--out data/backtest/forecast_vs_realized.md]
@@ -33,25 +33,27 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
-    capture_minute,
     load_daily_summary,
     round_half_up,
-    safe_float,
     settlement_for_tape,
 )
+from weather.backtesting.tape_scoring import capture_minute
+from weather.scoring.metrics import safe_float
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
 
 DEFAULT_CUTOFFS = (7, 9, 11, 13)
 DEFAULT_VERDICT_CUTOFF = 9
-DEFAULT_OUT = Path("data") / "backtest" / "forecast_vs_realized.md"
-DEFAULT_JSON_OUT = Path("data") / "backtest" / "forecast_vs_realized.json"
+DEFAULT_OUT = data_path() / "backtest" / "forecast_vs_realized.md"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "forecast_vs_realized.json"
 CALIBRATION_MARGIN = 0.15  # |reach_rate - model_reach| under this = "calibrated"
 
 FORECAST_SOURCES = {
@@ -415,8 +417,8 @@ def main():
             discover_settled_folders(args.snapshots_root, market_id=spec.id)
         ]
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
-    out_path = args.out or Path("data") / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.md"
-    json_out_path = args.json_out or Path("data") / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.json"
+    out_path = args.out or data_path() / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.md"
+    json_out_path = args.json_out or data_path() / "backtest" / f"forecast_vs_realized{spec.artifact_suffix}.json"
     if not folders:
         print("No settled market days found.")
         return

@@ -20,18 +20,24 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 import pandas as pd
 
-from weather.backtesting.backtest import (
+from weather.backtesting.settlement_io import (
     DEFAULT_DAILY_SUMMARY,
     DEFAULT_SNAPSHOTS_ROOT,
+    load_market_day_label,
+    settlement_for_tape,
+)
+from weather.backtesting.tape_scoring import (
     backtest_tape,
+    parse_snapshot_time,
+)
+from weather.scoring.metrics import (
     binary_log_loss,
     brier,
-    load_market_day_label,
-    parse_snapshot_time,
     safe_float,
-    settlement_for_tape,
 )
 from weather.backtesting.settled_days import discover_settled_folders, validate_folders_market
 from weather.market.market_config import date_from_event_slug
@@ -46,7 +52,7 @@ from weather.artifacts import resolve_artifact_path, writable_artifact_path
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("probability_calibration.json")
-DEFAULT_REPORT_PATH = Path("data") / "backtest" / "probability_calibration_report.md"
+DEFAULT_REPORT_PATH = data_path() / "backtest" / "probability_calibration_report.md"
 EPSILON = 1e-6
 MAX_EXACT_DEPLOYMENT_TEMPERATURE = 1.5
 
@@ -461,7 +467,7 @@ def prepare_training_row(row):
 def read_scored_rows(folders, daily_summary_path=DEFAULT_DAILY_SUMMARY, overrides=None):
     daily_index = {}
     if daily_summary_path and Path(daily_summary_path).exists():
-        from weather.backtesting.backtest import load_daily_summary
+        from weather.backtesting.settlement_io import load_daily_summary
         daily_index = load_daily_summary(daily_summary_path)
     rows = []
     overrides = overrides or {}
@@ -900,7 +906,7 @@ def cmd_train(args):
         raise SystemExit("No folders left after the quality filter.")
     daily_summary = args.daily_summary or spec.data_root / "daily" / "daily_summary.csv"
     artifact_arg = args.artifact or writable_artifact_path(f"probability_calibration{spec.artifact_suffix}.json")
-    report_arg = args.report or Path("data") / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md"
+    report_arg = args.report or data_path() / "backtest" / f"probability_calibration_report{spec.artifact_suffix}.md"
     rows = read_scored_rows(folders, daily_summary_path=daily_summary)
     if not rows:
         raise SystemExit("No scored rows found for calibration training.")

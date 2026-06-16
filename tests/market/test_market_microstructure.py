@@ -7,11 +7,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-import market_microstructure as mm  # noqa: E402
-from market_microstructure import (  # noqa: E402
+import weather.market.market_microstructure as mm  # noqa: E402
+from weather.market.market_microstructure import (  # noqa: E402
     audit_book_tape,
     clob_ensure_decision,
     clob_loop_health,
@@ -29,8 +26,8 @@ from market_microstructure import (  # noqa: E402
     summarize_order_book,
     token_rows_from_event,
 )
-from market_microstructure_features import snapshot_band_key  # noqa: E402
-from market_config import config_for_date  # noqa: E402
+from weather.market.market_microstructure_features import snapshot_band_key  # noqa: E402
+from weather.market.market_config import config_for_date  # noqa: E402
 
 
 def sample_event():
@@ -335,10 +332,10 @@ class TestMarketMicrostructure(unittest.TestCase):
 
     def test_running_clob_loop_processes_filters_loop_commands(self):
         rows = [
-            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
-            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure ensure --market all"},
+            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},
+            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure ensure --market all"},
             {"pid": 102, "name": "python.exe", "command_line": "python.exe app.py"},
-            {"pid": 103, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market toronto"},
+            {"pid": 103, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market toronto"},
         ]
 
         matches = running_clob_loop_processes(process_rows=rows, current_pid=999)
@@ -350,9 +347,9 @@ class TestMarketMicrostructure(unittest.TestCase):
     def test_stop_clob_loop_processes_stops_matching_orphans(self):
         stopped = []
         rows = [
-            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
-            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure loop --market all"},
-            {"pid": 102, "name": "pythonw.exe", "command_line": "pythonw.exe -m src.market_microstructure ensure --market all"},
+            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},
+            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},
+            {"pid": 102, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure ensure --market all"},
         ]
 
         result = stop_clob_loop_processes(
@@ -600,7 +597,7 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertTrue(result["started"])
         self.assertEqual(status["pid"], 4321)
         self.assertEqual(status["market_id"], "toronto")
-        self.assertIn("src.market_microstructure", calls["command"])
+        self.assertIn("weather.market.market_microstructure", calls["command"])
         self.assertIn("loop", calls["command"])
         self.assertIn("--interval-seconds", calls["command"])
 

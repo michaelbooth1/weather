@@ -15,7 +15,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m src.nightly_retrain run"
+$arguments = "-m weather.operations.nightly_retrain run"
 if ($FailOnBlock) {
     $arguments = "$arguments --fail-on-block"
 }

@@ -2,9 +2,7 @@ import os
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
-
-sys.path.insert(0, os.path.abspath("src"))
-from toronto_model import TorontoHighTempModel
+from weather.model.toronto_model import TorontoHighTempModel
 
 def main():
     print("Initializing model...")

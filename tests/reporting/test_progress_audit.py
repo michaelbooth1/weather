@@ -4,10 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from progress_audit import (  # noqa: E402
+from weather.reporting.progress_audit import (  # noqa: E402
     classify_trend,
     load_market_day_labels,
     parse_backtest_report,

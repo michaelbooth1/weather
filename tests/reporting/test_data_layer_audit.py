@@ -6,10 +6,8 @@ import unittest
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from data_layer_audit import (  # noqa: E402
+from unittest.mock import patch
+from weather.reporting.data_layer_audit import (  # noqa: E402
     build_recommendations,
     build_gates,
     daily_value_rows_from_csv,
@@ -18,7 +16,7 @@ from data_layer_audit import (  # noqa: E402
     source_status_summary_for_folder,
     season_dates,
 )
-from supplemental_station_validation import source_fingerprint  # noqa: E402
+from weather.sources.supplemental_station_validation import source_fingerprint  # noqa: E402
 
 
 class TestDataLayerAudit(unittest.TestCase):
@@ -156,6 +154,7 @@ class TestDataLayerAudit(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(tmp)
             try:
+                test_data_root = Path(tmp) / "data"
                 spec = SimpleNamespace(id="kxxx", icao="KXXX", lat=10.0, lon=20.0)
 
                 def write_daily(path, rows):
@@ -211,35 +210,39 @@ class TestDataLayerAudit(unittest.TestCase):
                     }],
                     "reason_for_adoption": "unit test registry entry",
                 }
-                out = nearby_history_audit(
-                    spec,
-                    {"ghcnh": {"target_season": {"covered_days": 1}}},
-                    expected,
-                    expected,
-                    registry={
-                        "schema_version": "supplemental_station_registry_v0.1",
-                        "sources": [source],
-                    },
-                    validation_report={
-                        "schema_version": "supplemental_station_validation_v0.1",
-                        "artifact_path": "unit-test.json",
-                        "sources": [{
-                            "source_id": "ghcnh_kxxx_nearby",
-                            "source_fingerprint": source_fingerprint(source),
-                            "promotion_state": "validated_supplemental",
-                            "validation_window": {
-                                "start": "2020-05-20",
-                                "end": "2020-05-22",
-                            },
-                            "validated_weather_regimes": ["mild"],
-                            "gates": [{
-                                "name": "distance_from_canonical",
-                                "severity": "hard",
-                                "ok": True,
+                with patch(
+                    "weather.reporting.data_layer_audit.data_path",
+                    lambda *parts: test_data_root.joinpath(*parts),
+                ):
+                    out = nearby_history_audit(
+                        spec,
+                        {"ghcnh": {"target_season": {"covered_days": 1}}},
+                        expected,
+                        expected,
+                        registry={
+                            "schema_version": "supplemental_station_registry_v0.1",
+                            "sources": [source],
+                        },
+                        validation_report={
+                            "schema_version": "supplemental_station_validation_v0.1",
+                            "artifact_path": "unit-test.json",
+                            "sources": [{
+                                "source_id": "ghcnh_kxxx_nearby",
+                                "source_fingerprint": source_fingerprint(source),
+                                "promotion_state": "validated_supplemental",
+                                "validation_window": {
+                                    "start": "2020-05-20",
+                                    "end": "2020-05-22",
+                                },
+                                "validated_weather_regimes": ["mild"],
+                                "gates": [{
+                                    "name": "distance_from_canonical",
+                                    "severity": "hard",
+                                    "ok": True,
+                                }],
                             }],
-                        }],
-                    },
-                )
+                        },
+                    )
             finally:
                 os.chdir(cwd)
 

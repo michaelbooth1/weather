@@ -11,6 +11,8 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
+
 from weather.artifacts import DEFAULT_ARTIFACT_REGISTRY_PATH, writable_artifact_path
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
@@ -21,8 +23,8 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("nightly_retrain")
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_status.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_report.md"
 DEFAULT_FAMILY_SECONDARY_MANIFEST = writable_artifact_path("f_family_secondary_artifacts.json")
@@ -77,7 +79,7 @@ def family_secondary_command(args):
     return [
         sys.executable,
         "-m",
-        "src.family_secondary_artifacts",
+        "weather.calibration.family_secondary_artifacts",
         "train",
         "--family-unit",
         args.family_unit,
@@ -100,7 +102,7 @@ def pooled_feature_command(args):
     return [
         sys.executable,
         "-m",
-        "src.pooled_feature_model",
+        "weather.calibration.pooled_feature_model",
         "--family-unit",
         args.family_unit,
         "--objective",
@@ -118,7 +120,7 @@ def artifact_registry_command(args):
     return [
         sys.executable,
         "-m",
-        "src.artifacts",
+        "weather.artifacts",
         "registry",
         "--out",
         args.artifact_registry,
@@ -129,7 +131,7 @@ def promotion_refresh_command(args):
     command = [
         sys.executable,
         "-m",
-        "src.promotion_refresh",
+        "weather.reporting.promotion_refresh",
         "--family-unit",
         args.family_unit,
         "--snapshots-root",
@@ -166,7 +168,7 @@ def shadow_ab_monitor_command(args):
     command = [
         sys.executable,
         "-m",
-        "src.shadow_ab_monitor",
+        "weather.reporting.shadow_ab_monitor",
         "--promotion-refresh",
         args.promotion_out,
         "--candidate-replay",

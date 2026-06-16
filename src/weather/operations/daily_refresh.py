@@ -14,6 +14,8 @@ import traceback
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from weather.paths import data_path
+
 from types import SimpleNamespace
 
 from weather.backtesting.settlement_ledger import (
@@ -30,6 +32,7 @@ from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
+from weather.reporting import variant_evidence_growth
 from weather.market.market_registry import all_specs
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
@@ -41,8 +44,8 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("daily_refresh")
-DEFAULT_BACKTEST_ROOT = Path("data") / "backtest"
-DEFAULT_SNAPSHOTS_ROOT = Path("data") / "snapshots"
+DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
+DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_report.md"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
@@ -53,6 +56,7 @@ STEP_ORDER = (
     "market_day_labels_finalize",
     "promotion_refresh",
     "shadow_ab_monitor",
+    "model_variant_evidence_growth",
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
@@ -405,6 +409,69 @@ def run_shadow_ab_monitor_step(args):
     }
 
 
+def _variant_evidence_paths(args, attr, default_name):
+    value = getattr(args, attr, "") or ""
+    if value:
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [backtest_path(args, default_name)]
+
+
+def run_model_variant_evidence_growth_step(args):
+    if getattr(args, "skip_model_variant_evidence_growth", False):
+        return {"status": "SKIPPED", "reason": "skip_model_variant_evidence_growth"}
+    current_paths = _variant_evidence_paths(
+        args,
+        "variant_evidence_current",
+        "item86_no_market_bakeoff_multi_variant_shadow_long.csv",
+    )
+    baseline_paths = _variant_evidence_paths(
+        args,
+        "variant_evidence_baseline",
+        "item70_71_full_multi_variant_shadow_long.csv",
+    )
+    missing_current = [path for path in current_paths if not Path(path).exists()]
+    if missing_current:
+        return {
+            "status": "SKIPPED",
+            "reason": "missing_current_variant_evidence",
+            "missing_paths": missing_current,
+        }
+    existing_baseline = [path for path in baseline_paths if Path(path).exists()]
+    raw_rows = variant_evidence_growth.read_prediction_rows(current_paths)
+    baseline_rows = (
+        variant_evidence_growth.read_prediction_rows(existing_baseline)
+        if existing_baseline else None
+    )
+    payload = variant_evidence_growth.build_payload(
+        raw_rows,
+        baseline_rows=baseline_rows,
+        input_paths=current_paths,
+        baseline_paths=existing_baseline,
+        min_unique_observation_increment=getattr(
+            args,
+            "variant_evidence_min_unique_observations",
+            1,
+        ),
+        min_market_day_increment=getattr(args, "variant_evidence_min_market_days", 1),
+    )
+    json_out = variant_evidence_growth.write_json(
+        backtest_path(args, "model_variant_evidence_growth.json"),
+        payload,
+    )
+    report_out = variant_evidence_growth.write_report(
+        backtest_path(args, "model_variant_evidence_growth_report.md"),
+        payload,
+    )
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "summary": payload.get("summary") or {},
+        "delta_vs_baseline": payload.get("delta_vs_baseline"),
+        "alerts": payload.get("alerts") or [],
+    }
+
+
 def run_progress_audit_step(args):
     payload = progress_audit.build_audit(
         backtest_root=args.backtest_root,
@@ -551,6 +618,7 @@ DEFAULT_RUNNERS = (
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
+    ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
@@ -587,6 +655,7 @@ def pipeline_summary(steps):
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
+    variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
@@ -615,6 +684,11 @@ def pipeline_summary(steps):
         "shadow_ab_monitor": {
             "status": shadow_ab.get("status"),
             "summary": shadow_ab.get("summary") or {},
+        },
+        "model_variant_evidence_growth": {
+            "status": variant_evidence.get("status"),
+            "summary": variant_evidence.get("summary") or {},
+            "delta_vs_baseline": variant_evidence.get("delta_vs_baseline"),
         },
         "progress_answer": progress.get("answer"),
         "casebook": {
@@ -685,6 +759,15 @@ def render_report(payload):
             )
         elif step.get("name") == "shadow_ab_monitor":
             detail = f"{result.get('status')} {result.get('summary')}"
+        elif step.get("name") == "model_variant_evidence_growth":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')} "
+                    f"{(result.get('summary') or {}).get('unique_observation_count')} unique obs; "
+                    f"delta {result.get('delta_vs_baseline')}"
+                )
         elif step.get("name") == "progress_audit":
             detail = result.get("answer") or "-"
         elif step.get("name") == "disagreement_casebook":
@@ -862,6 +945,19 @@ def build_run_parser(parser):
     parser.add_argument("--skip-shadow-ab-monitor", action="store_true")
     parser.add_argument("--ab-current-tol", type=float, default=0.003)
     parser.add_argument("--ab-market-tol", type=float, default=0.003)
+    parser.add_argument("--skip-model-variant-evidence-growth", action="store_true")
+    parser.add_argument(
+        "--variant-evidence-current",
+        default="",
+        help="Comma-separated current variant long-table paths; defaults to item 86 bakeoff long CSV.",
+    )
+    parser.add_argument(
+        "--variant-evidence-baseline",
+        default="",
+        help="Comma-separated baseline variant long-table paths; defaults to item 70/71 long CSV.",
+    )
+    parser.add_argument("--variant-evidence-min-unique-observations", type=int, default=1)
+    parser.add_argument("--variant-evidence-min-market-days", type=int, default=1)
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--include-reconstructed", action="store_true")

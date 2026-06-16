@@ -2,11 +2,8 @@ import json
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from market_registry import NYC
-from settlement_ledger import reconcile_with_polymarket, resolution_spec_for
+from weather.market.market_registry import NYC
+from weather.backtesting.settlement_ledger import reconcile_with_polymarket, resolution_spec_for
 
 
 class TestSettlementLedger(unittest.TestCase):

@@ -7,10 +7,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from supplemental_station_validation import (  # noqa: E402
+from weather.sources.supplemental_station_validation import (  # noqa: E402
     build_validation_payload,
     daily_value_rows,
     promotion_gate_for_source,
@@ -95,7 +92,7 @@ class TestSupplementalStationValidation(unittest.TestCase):
             self.write_fixture(root)
             spec = SimpleNamespace(id="kxxx", icao="KXXX", display_unit="C", city_label="Test City")
             source = self.source(root / "data/noaa_ghcnh/kxxx_alt")
-            with patch("supplemental_station_validation.REPO_ROOT", root):
+            with patch("weather.sources.supplemental_station_validation.REPO_ROOT", root):
                 row = source_validation(
                     spec,
                     source,
@@ -119,7 +116,7 @@ class TestSupplementalStationValidation(unittest.TestCase):
             ])
             spec = SimpleNamespace(id="kxxx", icao="KXXX", display_unit="C", city_label="Test City")
             source = self.source(root / "data/noaa_ghcnh/kxxx_alt")
-            with patch("supplemental_station_validation.REPO_ROOT", root):
+            with patch("weather.sources.supplemental_station_validation.REPO_ROOT", root):
                 row = source_validation(
                     spec,
                     source,
@@ -196,8 +193,8 @@ class TestSupplementalStationValidation(unittest.TestCase):
             spec = SimpleNamespace(id="kxxx", icao="KXXX", display_unit="C", city_label="Test City")
             source = self.source(root / "data/noaa_ghcnh/kxxx_alt")
             registry = {"schema_version": "supplemental_station_registry_v0.1", "sources": [source]}
-            with patch("supplemental_station_validation.REPO_ROOT", root), patch(
-                "supplemental_station_validation.all_specs",
+            with patch("weather.sources.supplemental_station_validation.REPO_ROOT", root), patch(
+                "weather.sources.supplemental_station_validation.all_specs",
                 return_value=[spec],
             ):
                 payload = build_validation_payload(

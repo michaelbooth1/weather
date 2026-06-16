@@ -6,10 +6,7 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from model_ensemble import (  # noqa: E402
+from weather.calibration.model_ensemble import (  # noqa: E402
     CANDIDATE_PREFIX,
     DEPLOYED_MODEL,
     MARKET_PRICE,

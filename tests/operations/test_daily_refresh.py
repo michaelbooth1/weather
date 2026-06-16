@@ -7,13 +7,11 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from daily_refresh import (  # noqa: E402
+from weather.operations.daily_refresh import (  # noqa: E402
     load_status,
     run_daily_refresh,
     run_ingest_quality_gate_step,
+    run_model_variant_evidence_growth_step,
     run_reanalysis_recent_refresh_step,
 )
 
@@ -41,6 +39,11 @@ def _args(tmp, **overrides):
         "skip_shadow_ab_monitor": False,
         "ab_current_tol": 0.003,
         "ab_market_tol": 0.003,
+        "skip_model_variant_evidence_growth": False,
+        "variant_evidence_current": "",
+        "variant_evidence_baseline": "",
+        "variant_evidence_min_unique_observations": 1,
+        "variant_evidence_min_market_days": 1,
         "skip_ingest_quality_gate": False,
         "ingest_quality_years": "",
         "skip_reanalysis_refresh": False,
@@ -156,7 +159,7 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 10)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 11)
 
     def test_fail_on_ingest_quality_marks_run_critical(self):
         def ingest(_args):
@@ -210,6 +213,33 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["shadow_ab_monitor"]["status"], "ALERT")
 
+    def test_model_variant_evidence_growth_step_runs_from_daily_refresh_inputs(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row1 = "v1,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-15\n"
+        row2 = "v2,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.7,0.5,0.5,0.5,1,a,p,2026-06-15\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            current = root / "current.csv"
+            baseline = root / "baseline.csv"
+            current.write_text(header + row1 + row2, encoding="utf-8")
+            baseline.write_text(header + row1, encoding="utf-8")
+            args = _args(
+                tmp,
+                variant_evidence_current=str(current),
+                variant_evidence_baseline=str(baseline),
+            )
+
+            result = run_model_variant_evidence_growth_step(args)
+
+        self.assertEqual(result["status"], "ALERT")
+        self.assertEqual(result["summary"]["unique_observation_count"], 1)
+        self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 0)
+
     def test_reanalysis_recent_refresh_fetches_missing_ranges_without_raising(self):
         stores = []
 
@@ -251,9 +281,9 @@ class TestDailyRefresh(unittest.TestCase):
             reanalysis_lag_days=2,
             reanalysis_chunk_days=5,
         )
-        with patch("daily_refresh.all_specs", return_value=[FakeSpec()]), \
-                patch("daily_refresh.ReanalysisClient", FakeClient), \
-                patch("daily_refresh.ReanalysisStore", FakeStore):
+        with patch("weather.operations.daily_refresh.all_specs", return_value=[FakeSpec()]), \
+                patch("weather.operations.daily_refresh.ReanalysisClient", FakeClient), \
+                patch("weather.operations.daily_refresh.ReanalysisStore", FakeStore):
             result = run_reanalysis_recent_refresh_step(args)
 
         self.assertEqual(result["start"], "2026-06-01")
@@ -274,7 +304,7 @@ class TestDailyRefresh(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("daily_refresh.data_auditor.audit_fleet_historical_data", return_value=fake_results):
+                patch("weather.operations.daily_refresh.data_auditor.audit_fleet_historical_data", return_value=fake_results):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
             self.assertEqual(result["status"], "WARN")

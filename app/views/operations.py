@@ -4,7 +4,7 @@ import streamlit as st
 
 
 def render_operations_page():
-    from ops_monitor import (  # noqa: E402
+    from weather.operations.ops_monitor import (
         ensure_clob_book_loop,
         ensure_weather_loop,
         loop_status_rows,
@@ -18,7 +18,7 @@ def render_operations_page():
         stop_clob_book_loop,
         stop_weather_loop,
     )
-    from runtime_identity import format_runtime_identity, get_runtime_identity  # noqa: E402
+    from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity
 
     @st.cache_data(ttl=15, show_spinner=False)
     def cached_ops_snapshot():

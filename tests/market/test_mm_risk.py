@@ -1,10 +1,7 @@
 import os
 import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath("src"))
-
-from mm_risk import (  # noqa: E402
+from weather.market.mm_risk import (  # noqa: E402
     BalanceState,
     InventoryLeg,
     SizingConfig,

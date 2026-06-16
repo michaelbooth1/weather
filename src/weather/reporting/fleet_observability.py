@@ -13,7 +13,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.backtesting.backtest import DEFAULT_SNAPSHOTS_ROOT, markdown_table
+from weather.backtesting.settlement_io import DEFAULT_SNAPSHOTS_ROOT
+from weather.reporting.formatting import markdown_table
 from weather.collection.collection_health import fleet_collection_health
 from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
@@ -27,7 +28,7 @@ from weather.operations.observation_trigger import read_status as read_observati
 from weather.operations.observation_trigger import watcher_health
 from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
-from weather.paths import relative_to_repo
+from weather.paths import relative_to_repo, data_path
 from weather.reporting.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
 from weather.reporting.location_trust import score_all_markets
 from weather.reporting.source_redundancy import (
@@ -40,9 +41,9 @@ from weather.reporting.source_redundancy import (
 
 SCHEMA_VERSION = "fleet_observability_v0.1"
 PROVENANCE_SCHEMA_VERSION = "artifact_provenance_manifest_v0.1"
-DEFAULT_JSON_OUT = Path("data") / "backtest" / "fleet_observability.json"
-DEFAULT_REPORT = Path("data") / "backtest" / "fleet_observability_report.md"
-DEFAULT_PROVENANCE_OUT = Path("data") / "backtest" / "artifact_provenance_manifest.json"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "fleet_observability.json"
+DEFAULT_REPORT = data_path() / "backtest" / "fleet_observability_report.md"
+DEFAULT_PROVENANCE_OUT = data_path() / "backtest" / "artifact_provenance_manifest.json"
 DEFAULT_MIN_TRUST = 25
 DEFAULT_MIN_SETTLED_DAYS = 2
 
