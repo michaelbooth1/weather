@@ -1,11 +1,9 @@
 import json
 import csv
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date
 from weather.paths import data_path
 
 from collections import defaultdict, Counter
-import numpy as np
 
 DATA_ROOT = data_path() / "wunderground" / "cyyz"
 summary_path = DATA_ROOT / "daily" / "daily_summary.csv"
@@ -64,7 +62,7 @@ def main():
     total_transitions = 0
     crossings = []
     
-    for local_date, rows in by_date.items():
+    for _local_date, rows in by_date.items():
         temps = [r["temp_c"] for r in rows if r.get("temp_c") is not None]
         for i in range(len(temps) - 1):
             t1, t2 = temps[i], temps[i+1]
@@ -76,7 +74,7 @@ def main():
                 jumps_cross_boundary += 1
                 crossings.append((t1, t2))
 
-    print(f"\n1. Skips / Jumps:")
+    print("\n1. Skips / Jumps:")
     print(f"  Total temperature transitions: {total_transitions}")
     print(f"  Transitions crossing a bucket boundary: {jumps_cross_boundary} ({jumps_cross_boundary / total_transitions * 100:.2f}%)")
     if crossings:

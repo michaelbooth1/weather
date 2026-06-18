@@ -1,4 +1,4 @@
-# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-16 - SHADOW BLOCKERS EXPLAINED]
+# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-18 - EMPIRICAL PROMOTION BLOCKED]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -93,3 +93,14 @@ aggregate market-price gap and per-market shadow blockers.
 Acceptance: the F-family promotion report has no readiness blockers, every
 promoted market has pinned market-or-better evidence, and any remaining shadow
 market has a concrete, generated blocker rather than ambiguous roadmap text.
+
+## 2026-06-18 audit disposition
+
+The Python audit found the promotion-readiness machinery, generated blocker
+details, source-freshness attribution, shadow-lane selection, and report
+acceptance artifact already implemented. The remaining unchecked boxes are not
+missing code paths: they require the candidate to clear the generated readiness
+gates and move shadow markets to `PROMOTE_CANDIDATE` only after pinned
+market-or-better evidence exists. Until the replay artifact reports
+`readiness.status` as `READY`, this item correctly remains an empirical
+promotion blocker.

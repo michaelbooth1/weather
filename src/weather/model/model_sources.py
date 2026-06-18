@@ -1,19 +1,29 @@
 import hashlib
 import json
+import logging
 import re
 import statistics
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 
+logger = logging.getLogger(__name__)
+
+from weather.io import write_json_atomic
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
-from weather.model.source_adapters import fetch_source_group as run_source_adapter_group
+from weather.model.source_adapters import (
+    FETCH_META_KEY,
+    SourceProviderRateLimited,
+    fetch_source_group as run_source_adapter_group,
+    retry_after_seconds as response_retry_after_seconds,
+)
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
@@ -36,18 +46,57 @@ from weather.model.model_constants import (
 )
 
 
+OPEN_METEO_SOURCE_FAMILY = {
+    "open_meteo",
+    "open_meteo_multimodel",
+    "global_ensemble",
+    "eccc_gem",
+}
+OPEN_METEO_FRESH_CACHE_REUSE_MINUTES = 10
+OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
+MAX_RETRY_DELAY_SECONDS = 10.0
+TORONTO_OFFICIAL_CANADIAN_SOURCES = {
+    "eccc_swob": "official_observation",
+    "eccc_citypage": "official_forecast",
+    "eccc_gem": "official_gridded_forecast",
+}
+TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
+
+
 def _is_retryable(exc):
-    """Transient network errors worth retrying. 4xx (e.g. a missing SWOB
-    directory for a date) is not retryable; connection/timeout/5xx is."""
+    """Transient network errors worth retrying.
+
+    Most 4xx responses are configuration/data availability problems, but 429 is
+    a provider-capacity signal and gets retried with backoff/retry-after.
+    """
     if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
         return True
     if isinstance(exc, requests.HTTPError):
         response = getattr(exc, "response", None)
-        return response is not None and response.status_code >= 500
+        if response is None:
+            return False
+        return response.status_code == 429 or response.status_code >= 500
     return False
 
 
-def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep):
+def retry_after_seconds(exc):
+    return response_retry_after_seconds(getattr(exc, "response", None))
+
+
+def retry_delay_seconds(exc, attempt, base_delay=0.5, max_delay=MAX_RETRY_DELAY_SECONDS):
+    retry_after = retry_after_seconds(exc)
+    if retry_after is not None:
+        return min(float(max_delay), retry_after)
+    return min(float(max_delay), base_delay * (2 ** attempt))
+
+
+def request_with_retries(
+    fn,
+    attempts=3,
+    base_delay=0.5,
+    sleep=time.sleep,
+    max_delay=MAX_RETRY_DELAY_SECONDS,
+):
     """Call ``fn`` (an idempotent GET), retrying transient failures with
     exponential backoff. Re-raises the last error if all attempts fail, and
     raises non-transient errors immediately. ``sleep`` is injectable for tests."""
@@ -60,7 +109,7 @@ def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep):
                 raise
             last = exc
             if attempt < attempts - 1:
-                sleep(base_delay * (2 ** attempt))
+                sleep(retry_delay_seconds(exc, attempt, base_delay=base_delay, max_delay=max_delay))
     raise last
 
 
@@ -79,6 +128,8 @@ def percentile(values, q):
 
 class SourceFetchMixin:
     """Live and local source fetching plus the response parsers they rely on."""
+
+    _source_family_rate_limited_until = {}
 
     def fetch_sources(self):
         sources = {}
@@ -110,6 +161,10 @@ class SourceFetchMixin:
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
         fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
+        fetchers = {
+            name: self.source_fetcher_with_budget(name, fetcher)
+            for name, fetcher in fetchers.items()
+        }
 
         # wu_history rows must stay exactly what WU printed: the effective
         # cutoff, features, analogs, late-day model, and the replay corpus all
@@ -126,39 +181,199 @@ class SourceFetchMixin:
         }
         return run_source_adapter_group(fetchers, timezone=self.spec.tz)
 
-    def blend_with_last_good(self, fetched):
-        cache_path = self.spec.data_root / "last_good_sources.json"
-        
-        # Load cache
-        cache = {}
-        if cache_path.exists():
-            try:
-                with cache_path.open("r", encoding="utf-8") as f:
-                    cache = json.load(f)
-            except Exception as e:
-                print(f"Error loading last good sources cache: {e}")
+    def source_family(self, name):
+        if name in OPEN_METEO_SOURCE_FAMILY:
+            return "open_meteo"
+        return name
 
+    def source_fetcher_with_budget(self, name, fetcher):
+        if self.source_family(name) != "open_meteo":
+            return fetcher
+
+        def _fetch():
+            cached = self.cached_source_for_reuse(name, OPEN_METEO_FRESH_CACHE_REUSE_MINUTES)
+            if cached:
+                return self.with_source_fetch_meta(
+                    cached["data"],
+                    {
+                        "status": "fresh_cache",
+                        "stale": False,
+                        "source_family": "open_meteo",
+                        "fetched_at": cached.get("fetched_at"),
+                        "cache_age_minutes": cached.get("cache_age_minutes"),
+                        "ttl_minutes": self.source_cache_ttl_minutes(name),
+                        "degradation_state": "healthy",
+                        "cache_status": "fresh_cache",
+                    },
+                )
+            rate_limit = self.source_family_rate_limit_state("open_meteo")
+            if rate_limit.get("active"):
+                raise SourceProviderRateLimited(
+                    (
+                        "Open-Meteo provider family is in shared cooldown "
+                        f"for {rate_limit['retry_after_seconds']:.0f}s"
+                    ),
+                    source_family="open_meteo",
+                    retry_after_seconds=rate_limit.get("retry_after_seconds"),
+                )
+            try:
+                data = fetcher()
+            except Exception as exc:  # noqa: BLE001 - converted by source adapter
+                if self.http_status(exc) == 429:
+                    self.record_source_family_rate_limit(
+                        "open_meteo",
+                        retry_after_seconds=retry_after_seconds(exc),
+                    )
+                raise
+            return self.with_source_fetch_meta(
+                data,
+                {
+                    "source_family": "open_meteo",
+                    "degradation_state": "healthy",
+                    "cache_status": "live",
+                },
+            )
+
+        return _fetch
+
+    def cached_source_for_reuse(self, name, max_age_minutes):
+        cached_item = self.load_last_good_sources().get(name)
+        if not cached_item or cached_item.get("target_date") != self.target_date.isoformat():
+            return None
+        cache_age_minutes = self.cache_age_minutes(cached_item.get("fetched_at"))
+        if cache_age_minutes is None or cache_age_minutes > max_age_minutes:
+            return None
+        return {
+            "data": cached_item.get("data") or {},
+            "fetched_at": cached_item.get("fetched_at"),
+            "cache_age_minutes": cache_age_minutes,
+        }
+
+    def load_last_good_sources(self):
+        cache_path = self.last_good_sources_path()
+        if not cache_path.exists():
+            return {}
+        try:
+            with cache_path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning("Error loading last good sources cache: %s", e)
+            return {}
+
+    def save_last_good_sources(self, cache):
+        cache_path = self.last_good_sources_path()
+        try:
+            self.spec.data_root.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(cache_path, cache)
+        except Exception as e:
+            logger.warning("Error saving last good sources cache: %s", e)
+
+    def last_good_sources_path(self):
+        return self.spec.data_root / "last_good_sources.json"
+
+    def with_source_fetch_meta(self, data, metadata):
+        if isinstance(data, dict):
+            payload = dict(data)
+            payload[FETCH_META_KEY] = dict(metadata)
+            return payload
+        return data
+
+    def http_status(self, exc):
+        response = getattr(exc, "response", None)
+        return getattr(response, "status_code", None)
+
+    def source_family_rate_limit_state(self, source_family):
+        until = self._source_family_rate_limited_until.get(source_family)
+        if not until:
+            return {"active": False, "retry_after_seconds": None}
+        remaining = (until - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            self._source_family_rate_limited_until.pop(source_family, None)
+            return {"active": False, "retry_after_seconds": None}
+        return {"active": True, "retry_after_seconds": remaining}
+
+    def record_source_family_rate_limit(self, source_family, retry_after_seconds=None):
+        cooldown = retry_after_seconds
+        if cooldown is None:
+            cooldown = OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS
+        cooldown = max(float(cooldown), float(OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS))
+        self._source_family_rate_limited_until[source_family] = (
+            datetime.now(timezone.utc) + timedelta(seconds=cooldown)
+        )
+
+    def source_metadata_fields(self, item, name):
+        fields = {}
+        for key in (
+            "source_family",
+            "http_status",
+            "retry_after_seconds",
+            "degradation_state",
+            "cache_status",
+            "cache_age_minutes",
+            "ttl_minutes",
+        ):
+            value = item.get(key)
+            if value not in (None, ""):
+                fields[key] = value
+        fields.setdefault("source_family", self.source_family(name))
+        return fields
+
+    def source_failure_status(self, item):
+        status = item.get("status")
+        if status:
+            return status
+        if item.get("http_status") == 429:
+            return "rate_limited"
+        return "failed"
+
+    def source_cache_fallback_status(self, failure_status):
+        if failure_status == "rate_limited":
+            return "rate_limited_cache"
+        return "stale_cache"
+
+    def source_degradation_state(self, status, item):
+        if status == "rate_limited_cache":
+            return "rate_limited_fallback"
+        if status == "stale_cache":
+            return "stale_fallback"
+        if status == "rate_limited":
+            return "rate_limited"
+        if status == "failed":
+            return "failed"
+        if item.get("degradation_state"):
+            return item.get("degradation_state")
+        return "healthy"
+
+    def blend_with_last_good(self, fetched):
+        cache = self.load_last_good_sources()
         blended = {}
         for name, item in fetched.items():
+            item = item or {}
             if item.get("ok"):
-                # Succeeded! Update cache
+                status = item.get("status") or "fresh"
+                stale = bool(item.get("stale", False))
                 cache[name] = {
                     "data": item["data"],
                     "fetched_at": item["fetched_at"],
                     "target_date": self.target_date.isoformat(),
                 }
-                blended[name] = {
+                output = {
                     "ok": True,
-                    "stale": False,
-                    "status": "fresh",
+                    "stale": stale,
+                    "status": status,
                     "fetched_at": item["fetched_at"],
                     "latency_ms": item.get("latency_ms"),
-                    "data": item["data"]
+                    "data": item["data"],
                 }
+                output.update(self.source_metadata_fields(item, name))
+                output["degradation_state"] = self.source_degradation_state(status, output)
+                output.setdefault("cache_status", "fresh_cache" if status == "fresh_cache" else "live")
+                blended[name] = output
             else:
                 # Failed! Try to load from cache, governed by this source's TTL:
                 # a stale "current" observation expires fast; a stale forecast
                 # can be trusted longer.
+                failure_status = self.source_failure_status(item)
                 ttl_minutes = self.source_cache_ttl_minutes(name)
                 cached_item = cache.get(name)
                 cache_age_minutes = self.cache_age_minutes(cached_item.get("fetched_at")) if cached_item else None
@@ -171,10 +386,11 @@ class SourceFetchMixin:
                     and cached_item.get("target_date") == self.target_date.isoformat()
                     and cache_is_recent
                 ):
-                    blended[name] = {
+                    fallback_status = self.source_cache_fallback_status(failure_status)
+                    output = {
                         "ok": True,
                         "stale": True,
-                        "status": "stale_cache",
+                        "status": fallback_status,
                         "fetched_at": cached_item["fetched_at"],
                         "data": cached_item["data"],
                         "error": item.get("error", "Unknown error"),
@@ -182,6 +398,12 @@ class SourceFetchMixin:
                         "cache_age_minutes": cache_age_minutes,
                         "ttl_minutes": ttl_minutes,
                     }
+                    output.update(self.source_metadata_fields(item, name))
+                    output["cache_age_minutes"] = cache_age_minutes
+                    output["ttl_minutes"] = ttl_minutes
+                    output["degradation_state"] = self.source_degradation_state(fallback_status, item)
+                    output["cache_status"] = "fallback"
+                    blended[name] = output
                 else:
                     stale_detail = ""
                     if cached_item and cached_item.get("target_date") == self.target_date.isoformat():
@@ -189,25 +411,24 @@ class SourceFetchMixin:
                             f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
                             if cache_age_minutes is not None else " Last good cache age is unknown."
                         )
-                    blended[name] = {
+                    status = failure_status if failure_status == "rate_limited" else "failed"
+                    output = {
                         "ok": False,
                         "stale": False,
-                        "status": "failed",
+                        "status": status,
                         "fetched_at": item.get("fetched_at"),
                         "error": f"{item.get('error', 'Unknown error')}.{stale_detail}".strip(),
                         "latency_ms": item.get("latency_ms"),
                         "ttl_minutes": ttl_minutes,
-                        "data": {}
+                        "data": {},
                     }
+                    output.update(self.source_metadata_fields(item, name))
+                    output["ttl_minutes"] = ttl_minutes
+                    output["degradation_state"] = self.source_degradation_state(status, item)
+                    output.setdefault("cache_status", "miss")
+                    blended[name] = output
                     
-        # Save cache
-        try:
-            self.spec.data_root.mkdir(parents=True, exist_ok=True)
-            with cache_path.open("w", encoding="utf-8") as f:
-                json.dump(cache, f, indent=2)
-        except Exception as e:
-            print(f"Error saving last good sources cache: {e}")
-            
+        self.save_last_good_sources(cache)
         return blended
 
     def cache_age_minutes(self, fetched_at):
@@ -255,13 +476,85 @@ class SourceFetchMixin:
                 "ttl_minutes": self.source_cache_ttl_minutes(name),
                 "latency_ms": item.get("latency_ms"),
                 "error": item.get("error"),
+                "source_family": item.get("source_family") or self.source_family(name),
+                "http_status": item.get("http_status"),
+                "retry_after_seconds": item.get("retry_after_seconds"),
+                "degradation_state": item.get("degradation_state"),
+                "cache_status": item.get("cache_status"),
             }
+            if name in TORONTO_OFFICIAL_CANADIAN_SOURCES:
+                diagnostic["official_canadian_source"] = True
+                diagnostic["official_canadian_role"] = TORONTO_OFFICIAL_CANADIAN_SOURCES[name]
             if name == "marine_context":
                 marine_state = active_marine_context_state(item.get("data") or {})
                 if marine_state:
                     diagnostic["marine_context"] = marine_state
             diagnostics.append(diagnostic)
         return diagnostics
+
+    def source_item_status(self, item):
+        item = item or {}
+        status = item.get("status")
+        if status:
+            return status
+        if item.get("ok") and not item.get("stale"):
+            return "fresh"
+        if item.get("stale"):
+            return "stale_cache"
+        return "failed"
+
+    def source_item_available(self, item):
+        status = str(self.source_item_status(item) or "").lower()
+        return (
+            bool((item or {}).get("ok"))
+            and not bool((item or {}).get("stale"))
+            and status in {"fresh", "fresh_cache", "ok", "available"}
+        )
+
+    def toronto_official_source_health(self, sources, now=None):
+        now = now or datetime.now(self.spec.tz)
+        if getattr(self, "market_id", None) != "toronto":
+            return {
+                "schema_version": "toronto_official_source_health_v0.1",
+                "market_id": getattr(self, "market_id", None),
+                "status": "NOT_APPLICABLE",
+                "late_day_lockin_window": False,
+                "sources": [],
+            }
+        late_day = now.astimezone(self.spec.tz).hour >= TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR
+        rows = []
+        for source, role in TORONTO_OFFICIAL_CANADIAN_SOURCES.items():
+            item = (sources or {}).get(source) or {}
+            available = self.source_item_available(item)
+            rows.append({
+                "source": source,
+                "role": role,
+                "available": available,
+                "ok": bool(item.get("ok")),
+                "stale": bool(item.get("stale")),
+                "status": self.source_item_status(item),
+                "fetched_at": item.get("fetched_at"),
+                "error": item.get("error"),
+            })
+        missing = [row["source"] for row in rows if not row["available"]]
+        status = "WARN" if late_day and missing else "PASS"
+        return {
+            "schema_version": "toronto_official_source_health_v0.1",
+            "market_id": "toronto",
+            "generated_at": now.isoformat(),
+            "late_day_lockin_window": late_day,
+            "late_day_warning_hour": TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR,
+            "status": status,
+            "official_sources_available": len(rows) - len(missing),
+            "official_sources_missing": len(missing),
+            "missing_sources": missing,
+            "sources": rows,
+            "message": (
+                "Official Canadian source degraded during late-day lock-in window."
+                if status == "WARN"
+                else "Official Canadian source gate clear."
+            ),
+        }
 
     def fetch_wu_history(self):
         url = (

@@ -7,20 +7,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    from .mm_paper_constants import (
-        DEFAULT_CONFIG,
-        DEFAULT_PROMOTION_REFRESH,
-        KNOWN_EDGE_SCHEMA_VERSION,
-    )
-    from .mm_policy import maybe_float, parse_time
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.market.mm_paper_constants import (
-        DEFAULT_CONFIG,
-        DEFAULT_PROMOTION_REFRESH,
-        KNOWN_EDGE_SCHEMA_VERSION,
-    )
-    from weather.market.mm_policy import maybe_float, parse_time
+from weather.market.mm_paper_constants import (
+    DEFAULT_CONFIG,
+    DEFAULT_PROMOTION_REFRESH,
+    KNOWN_EDGE_SCHEMA_VERSION,
+)
+from weather.market.mm_policy import maybe_float, parse_time
 
 
 def utc_now():
@@ -72,6 +64,7 @@ def render_paper_report(payload):
     anti = summary.get("anti_overfit") or {}
     event_gate = summary.get("event_gate_score") or {}
     clob_recon = summary.get("clob_recon") or {}
+    live_forward_evidence = summary.get("per_market_live_forward_evidence") or {}
     lines = [
         "# Market-Making Paper Report",
         "",
@@ -200,6 +193,54 @@ def render_paper_report(payload):
             ["Multiple-test adjustment", anti.get("multiple_test_adjustment")],
         ],
     ))
+    if live_forward_evidence:
+        lines.extend([
+            "",
+            "## Per-Market Live-Forward Evidence",
+            "",
+        ])
+        lines.extend(markdown_table(
+            [
+                "Evidence Class",
+                "Countable",
+                "Blocked",
+                "All Selected Count",
+                "First Blocked Market",
+                "First Gate",
+                "Owner",
+                "Command",
+            ],
+            [
+                [
+                    evidence_class,
+                    row.get("countable_market_count"),
+                    row.get("blocked_market_count"),
+                    row.get("all_selected_markets_count"),
+                    row.get("first_blocked_market") or "-",
+                    row.get("first_blocked_gate") or "-",
+                    row.get("first_blocked_owner") or "-",
+                    row.get("first_blocked_command") or "-",
+                ]
+                for evidence_class, row in sorted(live_forward_evidence.items())
+            ],
+        ))
+        credit_rows = payload.get("per_market_evidence_credits") or []
+        blocked_rows = [row for row in credit_rows if not row.get("counts")]
+        if blocked_rows:
+            lines.extend(["", "### Blocked Per-Market Evidence Rows", ""])
+            lines.extend(markdown_table(
+                ["Market", "Class", "Gate", "Owner", "Command"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("evidence_class"),
+                        row.get("first_failing_gate") or ",".join(row.get("blocking_gates") or []) or "-",
+                        row.get("owner") or "-",
+                        row.get("suggested_command") or "-",
+                    ]
+                    for row in blocked_rows[:20]
+                ],
+            ))
     excluded_rows = []
     for row in payload.get("excluded_run_folders") or []:
         excluded_rows.append([

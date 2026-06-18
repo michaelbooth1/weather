@@ -6,7 +6,9 @@ import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import weather.operations.observation_trigger as observation_trigger
 from weather.operations.observation_trigger import (  # noqa: E402
     build_triggered_replay_report,
     detect_observation_triggers,
@@ -15,6 +17,7 @@ from weather.operations.observation_trigger import (  # noqa: E402
     observation_state_from_sources,
     run_loop,
     run_once,
+    watcher_health,
 )
 from weather.collection.snapshot_tracker import SnapshotStore, backfill_source_status  # noqa: E402
 from weather.model.toronto_model import TorontoHighTempModel  # noqa: E402
@@ -68,8 +71,20 @@ class FakeModelClient:
         return max(values) if values else None
 
 
+class FakeProcess:
+    pid = 2468
+
+
 class ObservationTriggerTests(unittest.TestCase):
-    def test_ensure_restarts_only_source_identity_erroring_watcher(self):
+    def test_ensure_restarts_source_identity_watcher_before_erroring(self):
+        self.assertEqual(
+            ensure_decision(
+                "DEGRADED",
+                pid_alive=True,
+                last_error="RuntimeError: snapshot process code identity differs from current source tree",
+            ),
+            "restart",
+        )
         self.assertEqual(
             ensure_decision(
                 "ERRORING",
@@ -82,6 +97,61 @@ class ObservationTriggerTests(unittest.TestCase):
             ensure_decision("ERRORING", pid_alive=True, last_error="ConnectionError: upstream timeout"),
             "noop",
         )
+
+    def test_fresh_provisional_heartbeat_with_dead_pid_is_dead(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        health = watcher_health(
+            {
+                "pid": 2468,
+                "last_heartbeat": now.isoformat(),
+                "interval_seconds": 60,
+                "consecutive_errors": 0,
+                "iterations": 0,
+            },
+            now=now,
+            pid_alive=False,
+        )
+
+        self.assertEqual(health["state"], "DEAD")
+        self.assertFalse(health["pid_alive"])
+        self.assertEqual(ensure_decision(health["state"], pid_alive=False), "start")
+
+    def test_start_watcher_detached_writes_supervisor_status(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = {}
+
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+                calls["command"] = command
+                calls["cwd"] = cwd
+                calls["stdout_closed_during_call"] = stdout.closed
+                calls["stderr_is_stdout"] = stderr is stdout
+                return FakeProcess()
+
+            with patch.object(observation_trigger, "STATUS_PATH", root / "status.json"), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(observation_trigger.subprocess, "Popen", fake_popen):
+                result = observation_trigger.start_watcher_detached(
+                    market="toronto",
+                    interval_seconds=30,
+                    stale_after_seconds=90,
+                    now=now,
+                )
+                payload = json.loads((root / "status.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(result["started"])
+        self.assertEqual(payload["pid"], 2468)
+        self.assertEqual(payload["market"], "toronto")
+        self.assertEqual(payload["interval_seconds"], 30)
+        self.assertEqual(payload["stale_after_seconds"], 90)
+        self.assertEqual(payload["started_by"], "supervisor")
+        self.assertIn("weather.operations.observation_trigger", calls["command"])
+        self.assertIn("--stale-after-seconds", calls["command"])
+        self.assertFalse(calls["stdout_closed_during_call"])
+        self.assertTrue(calls["stderr_is_stdout"])
 
     def test_observation_state_reads_native_aliases_first(self):
         model = TorontoHighTempModel(target_date="2026-06-13", market_id="nyc")
@@ -127,6 +197,58 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(values["metar_temp"], 88.0)
         self.assertEqual(values["eccc_swob_max"], 90.0)
         self.assertEqual(values["eccc_swob_latest_temp"], 87.0)
+
+    def test_observation_fetch_eccc_swob_supervisor_path_uses_threadpool_import(self):
+        model = TorontoHighTempModel(target_date="2026-06-16", market_id="toronto")
+        captured = "2026-06-16T15:00:00+00:00"
+        model.fetch_wu_history = lambda: {
+            "rows": [{"temp_native": 23.0, "temp_c": 23.0}],
+            "max_native": 23.0,
+            "latest": {"temp_native": 23.0, "time": "11:00"},
+        }
+        model.fetch_wu_current = lambda: {
+            "temp_native": 23.5,
+            "temp_c": 23.5,
+            "max_since_7am_native": 23.5,
+        }
+        model.fetch_metar = lambda: {"temp_native": 23.0, "temp_c": 23.0}
+
+        class Response:
+            def __init__(self, text):
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+        index = '<html><a href="20260616T150000Z-CYYZ-MAN-swob.xml">swob</a></html>'
+        xml = """
+        <root>
+          <element name="date_tm" value="2026-06-16T15:00:00Z" />
+          <element name="air_temp" value="24.1" />
+          <element name="dwpt_temp" value="12.0" />
+          <element name="rel_hum" value="50" />
+          <element name="max_air_temp_pst1hr" value="24.1" />
+          <element name="max_air_temp_pst6hrs" value="24.1" />
+          <element name="max_air_temp_pst24hrs" value="24.1" />
+        </root>
+        """
+
+        def fake_get(url, timeout=None):
+            if url.endswith("/"):
+                return Response(index)
+            return Response(xml)
+
+        with patch("weather.model.model_sources.requests.get", fake_get):
+            sources = observation_trigger.fetch_observation_sources(model)
+            state = observation_state_from_sources(
+                model,
+                sources,
+                captured_at=datetime.fromisoformat(captured),
+            )
+
+        self.assertTrue(sources["eccc_swob"]["ok"])
+        self.assertEqual(sources["eccc_swob"]["data"]["same_day_max_native"], 24.1)
+        self.assertEqual(state["values"]["eccc_swob_max"], 24.1)
 
     def test_detects_material_observation_changes(self):
         previous = obs_state(high=20.0, current=20.4, metar=20.0, swob=20.0)
@@ -314,6 +436,52 @@ class ObservationTriggerTests(unittest.TestCase):
             replay["sources"]["weather_forecast"]["data"]["provider_update_time"],
             "2026-06-13T15:50:00+00:00",
         )
+
+    def test_snapshot_store_persists_source_degradation_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="highest-temperature-in-toronto-on-june-13-2026")
+            captured_at = datetime(2026, 6, 13, 16, 5, tzinfo=timezone.utc)
+            event = {"slug": "highest-temperature-in-toronto-on-june-13-2026", "markets": []}
+            model = {
+                "distribution": {20: 1.0},
+                "top_temp": 20,
+                "sources": {
+                    "open_meteo": {
+                        "ok": True,
+                        "stale": True,
+                        "status": "rate_limited_cache",
+                        "source_family": "open_meteo",
+                        "http_status": 429,
+                        "retry_after_seconds": 60.0,
+                        "degradation_state": "rate_limited_fallback",
+                        "cache_status": "fallback",
+                        "fetched_at": "2026-06-13T15:50:00+00:00",
+                        "ttl_minutes": 90,
+                        "cache_age_minutes": 15.0,
+                        "data": {
+                            "url": "https://api.open-meteo.com/v1/forecast",
+                            "rows": [{"temp_c": 20.0}],
+                            "raw_payload": {"provider": "open_meteo", "values": [20]},
+                        },
+                    }
+                },
+            }
+
+            store.write(event, model, FakeModelClient(), captured_at)
+            source_status = list(csv.DictReader((root / "source_status_long.csv").open(encoding="utf-8", newline="")))
+            payload_rows = list(csv.DictReader((root / "forecast_payloads_long.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(source_status[0]["status"], "rate_limited_cache")
+        self.assertEqual(source_status[0]["source_family"], "open_meteo")
+        self.assertEqual(source_status[0]["http_status"], "429")
+        self.assertEqual(source_status[0]["retry_after_seconds"], "60.0")
+        self.assertEqual(source_status[0]["degradation_state"], "rate_limited_fallback")
+        self.assertEqual(source_status[0]["cache_status"], "fallback")
+        self.assertEqual(source_status[0]["age_minutes"], "15.0")
+        self.assertEqual(payload_rows[0]["status"], "rate_limited_cache")
+        self.assertEqual(payload_rows[0]["source_family"], "open_meteo")
+        self.assertEqual(payload_rows[0]["degradation_state"], "rate_limited_fallback")
 
     def test_run_loop_persists_iteration_before_poll(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -553,6 +721,7 @@ class ObservationTriggerTests(unittest.TestCase):
             }), encoding="utf-8")
             now = datetime(2026, 6, 15, 16, 10, tzinfo=timezone.utc)
             status = {
+                "pid": os.getpid(),
                 "last_heartbeat": now.isoformat(),
                 "interval_seconds": 60,
                 "consecutive_errors": 0,

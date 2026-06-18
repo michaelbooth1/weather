@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 
+from app.table_utils import arrow_safe_dataframe, display_cell
 from weather.reporting.market_making_dashboard import (
     BACKTEST_ROOT,
     read_csv as _read_csv,
@@ -40,14 +40,12 @@ def _format_num(value, digits=2):
         return str(value)
 
 
+def _display_cell(value):
+    return display_cell(value)
+
+
 def _df(rows):
-    normalized = []
-    for row in rows or []:
-        item = dict(row)
-        if "Value" in item:
-            item["Value"] = "-" if item["Value"] in (None, "") else str(item["Value"])
-        normalized.append(item)
-    return pd.DataFrame(normalized)
+    return arrow_safe_dataframe(rows)
 
 
 def _reason_rows(reason_counts):

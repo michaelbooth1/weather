@@ -20,7 +20,7 @@ from weather.model.model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from weather.calibration.probability_calibration import (
+from weather.model.calibration_runtime import (
     apply_continuous_density_calibration,
     calibrate_market_probability,
 )
@@ -439,7 +439,6 @@ class PresentationMixin:
         # 1. Active regimes and signals
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
-        eccc = self.source_data(sources, "eccc_swob")
         eccc_city = self.source_data(sources, "eccc_citypage")
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
@@ -447,7 +446,6 @@ class PresentationMixin:
         
         history_max = self.row_max_native(history)
         current_temp = self.row_temp_native(current)
-        current_max = self.row_max_since_7am_native(current)
         observed_bucket = self.round_half_up(history_max)
         
         weather_forecast_max = self.max_row_temp(weather_forecast.get("rows"))
@@ -633,7 +631,6 @@ class PresentationMixin:
                 "Weather.com current says max since 7 AM is "
                 f"{self.format_temp(current_max_native)}."
             )
-        eccc_latest = eccc.get("latest") or {}
         eccc_max_native = self.row_same_day_max_native(eccc)
         if eccc_max_native is not None:
             notes.append(

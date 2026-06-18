@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-16 - FINANCIAL RECONCILIATION ADDED]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-18 - LIVE ACCOUNT EVIDENCE BLOCKED]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -113,3 +113,14 @@ path with read-only evidence and no committed secrets:
 Remaining open work is live evidence: real heartbeat/post-only/cancel-all
 probes, user WebSocket lifecycle evidence from an eligible account, and actual
 paid-vs-predicted payout/redemption/P&L snapshots.
+
+## 2026-06-18 audit disposition
+
+The Python audit found the software harness implemented through keyless safety,
+signed request construction with injected signers/transports, live-gate
+enforcement, read-only fixture reconciliation, pilot-report emission, and
+financial reconciliation reporting. The unchecked MM-2 probe and
+paid-vs-predicted boxes require an eligible live account, credentials kept
+outside the repo, and real exchange lifecycle/account evidence. They remain
+open deliberately; closing them without live-account artifacts would weaken the
+acceptance criteria.

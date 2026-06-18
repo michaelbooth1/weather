@@ -2,11 +2,12 @@
 import csv
 import hashlib
 import json
-import math
 import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
+
+from weather.units import c_to_native, round_half_up, to_float
 
 
 HOURLY_SCHEMA_VERSION = "historical_hourly_native_v1"
@@ -104,31 +105,6 @@ def unlink_with_retry(path, attempts=8, delay=0.5):
             if attempt == attempts - 1:
                 raise
             time.sleep(delay)
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
-
-
-def to_float(value):
-    if value in (None, "", "None", "null", "NaN"):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(number):
-        return None
-    return number
-
-
-def c_to_native(value, unit):
-    value = to_float(value)
-    if value is None:
-        return None
-    return round(value * 9.0 / 5.0 + 32.0, 2) if unit == "F" else value
 
 
 def normalize_wind_direction(value):

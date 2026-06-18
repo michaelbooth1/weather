@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
 
 from weather.market.market_config import date_from_event_slug
@@ -138,11 +139,7 @@ def percentile(values, pct):
 
 
 def read_csv_rows(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        return [dict(row) for row in csv.DictReader(handle)]
+    return io_read_csv_rows(path, attach_diagnostics=True)
 
 
 def write_csv(path, fieldnames, rows):
@@ -151,7 +148,7 @@ def write_csv(path, fieldnames, rows):
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(normalize_csv_row(row) for row in rows)
     return str(path)
 
 

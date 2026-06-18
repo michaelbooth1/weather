@@ -6,8 +6,6 @@ or an over-call (model too high on a bucket that loses)? Answer by slicing
 replayed rows by signed settlement distance and comparing model vs market
 probability, mean outcome, and Brier per slice.
 """
-import os
-import sys
 from collections import defaultdict
 from weather.backtesting.replay_backtest import run_replay_backtest  # noqa: E402
 

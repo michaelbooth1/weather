@@ -1,6 +1,10 @@
 """Daily launcher for paper-live-forward market-making runs."""
 from __future__ import annotations
 
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import argparse
 import json
 import os
@@ -12,6 +16,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
+from weather.market.market_making_evidence import (
+    EVIDENCE_MODE_AUTO,
+    EVIDENCE_MODE_CHOICES,
+    classify_market_making_evidence,
+)
 from weather.market.market_making_run_constants import DEFAULT_RUNS_ROOT, RUN_MODES
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
@@ -110,6 +119,7 @@ def build_market_making_command(
     runs_root=None,
     once=False,
     config_overrides=None,
+    evidence_mode=None,
 ):
     mode = str(mode)
     if mode not in RUN_MODES:
@@ -131,6 +141,8 @@ def build_market_making_command(
     ]
     if runs_root:
         command.extend(["--runs-root", str(runs_root)])
+    if evidence_mode:
+        command.extend(["--evidence-mode", str(evidence_mode)])
     for override in config_overrides or []:
         command.extend(["--config", str(override)])
     if once:
@@ -154,11 +166,7 @@ def process_command_line(pid):
     except (TypeError, ValueError):
         return ""
     if os.name == "nt":
-        script = (
-            f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" "
-            "-ErrorAction SilentlyContinue; if ($null -ne $p) { $p.CommandLine }"
-        )
-        command = ["powershell", "-NoProfile", "-Command", script]
+        return ""
     else:
         command = ["ps", "-p", str(pid), "-o", "args="]
     try:
@@ -219,6 +227,7 @@ def _base_payload(
     console_log_path,
     runs_root,
     command,
+    evidence_classification,
     now=None,
 ):
     generated_at = utc_iso(now)
@@ -236,6 +245,9 @@ def _base_payload(
         "status_path": str(status_path),
         "console_log_path": str(console_log_path),
         "command": list(command),
+        "evidence_mode": evidence_classification.get("evidence_mode"),
+        "evidence_classification": evidence_classification,
+        "counts_toward_live_forward_gate": evidence_classification.get("counts_toward_live_forward_gate"),
         "runtime_identity": get_runtime_identity(),
     }
 
@@ -256,6 +268,7 @@ def start_for_date(
     force=False,
     once=False,
     config_overrides=None,
+    evidence_mode=EVIDENCE_MODE_AUTO,
     now=None,
     pid_alive=pid_matches_market_making_run,
     launcher=launch_market_making_process,
@@ -263,6 +276,13 @@ def start_for_date(
     target_date = ensure_date(target_date)
     status_path = Path(status_path)
     console_log_path = Path(console_log_path)
+    evidence_classification = classify_market_making_evidence(
+        target_date,
+        now=now,
+        timezone_name=timezone_name,
+        requested_mode=evidence_mode,
+        run_mode=mode,
+    )
     command = build_market_making_command(
         target_date,
         budget_usdc=budget_usdc,
@@ -273,6 +293,7 @@ def start_for_date(
         runs_root=runs_root,
         once=once,
         config_overrides=config_overrides,
+        evidence_mode=evidence_classification.get("evidence_mode"),
     )
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
@@ -292,6 +313,7 @@ def start_for_date(
             console_log_path=console_log_path,
             runs_root=runs_root,
             command=existing.get("command") or command,
+            evidence_classification=evidence_classification,
             now=now,
         )
         payload.update({
@@ -316,6 +338,7 @@ def start_for_date(
         console_log_path=console_log_path,
         runs_root=runs_root,
         command=command,
+        evidence_classification=evidence_classification,
         now=now,
     )
     payload.update({
@@ -367,6 +390,7 @@ def build_start_parser(parser):
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--once", action="store_true", help="Debug mode: start a one-tick run.")
     parser.add_argument("--config", action="append", default=[], help="Policy config override passed to market_making_run.")
+    parser.add_argument("--evidence-mode", default=EVIDENCE_MODE_AUTO, choices=sorted(EVIDENCE_MODE_CHOICES))
     return parser
 
 
@@ -385,6 +409,7 @@ def cmd_start(args):
         force=args.force,
         once=args.once,
         config_overrides=args.config,
+        evidence_mode=args.evidence_mode,
         now=parse_datetime(args.now),
     )
     print(
@@ -393,6 +418,7 @@ def cmd_start(args):
     )
     print(f"Status written to {payload['status_path']}")
     print(f"Console log: {payload['console_log_path']}")
+    print(f"Evidence mode: {payload.get('evidence_mode')} ({(payload.get('evidence_classification') or {}).get('reason')})")
     return 0
 
 

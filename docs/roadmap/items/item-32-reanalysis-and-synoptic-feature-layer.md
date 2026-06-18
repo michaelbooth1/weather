@@ -1,14 +1,15 @@
-# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-16 - TELECONNECTIONS ADDED, GATE BLOCKED]
+# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-18 - PRESSURE SOURCE ADDED, GATE BLOCKED]
 
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
 
 - [x] ERA5 antecedent-day state sidecar, with future soil/cloud/radiation/VPD/ET0
   archive fields wired into the reanalysis fetch plan.
-- [ ] Pressure-level upper-air source for 850 mb temperature, 500 mb height, and
+- [x] Pressure-level upper-air source for 850 mb temperature, 500 mb height, and
   thickness. Open-Meteo Historical Weather / ERA5 archive did not populate the
-  forecast-style pressure-level fields in the 2026-06-16 probe, so these remain
-  blocked until a pressure-level reanalysis source is added.
+  forecast-style pressure-level fields in the 2026-06-16 probe, so the
+  sidecar now uses an explicit cached NOAA PSL NCEP/NCAR daily pressure-level
+  NetCDF source for those fields.
 - [x] Teleconnection indices (ENSO/PNA), coastal sea-breeze and continentality
   flags per city.
 - [x] Add only behind the model harness (item 36); promote features that improve
@@ -73,3 +74,16 @@ validation, not importance charts (extends item 27 to all markets).
   temperature, 500 mb height, and thickness; backfill rich raw reanalysis chunks
   for the still-empty soil/cloud/radiation/VPD/ET0 fields; and test narrower
   subfamilies before any promotion.
+
+## 2026-06-18 audit disposition
+
+The Python audit found no additional code bug to close inside the previously
+implemented sidecar, teleconnection, static-context, or gate paths. Follow-up
+implementation added a cache-only NOAA PSL NCEP/NCAR daily pressure-level
+source: `python -m weather.sources.reanalysis_synoptic --market <market>
+download-pressure-level --start YYYY-MM-DD --end YYYY-MM-DD` downloads yearly
+`air` and `hgt` NetCDF files, and the normal sidecar build merges previous-day
+850 hPa temperature, 500 hPa height, and 1000-500 hPa thickness when cached
+files exist. The item remains partial because the new fields still need real
+market backfills, sidecar rebuilds, and settlement-scored gates before any
+promotion.

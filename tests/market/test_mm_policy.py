@@ -92,6 +92,15 @@ class TestMmPolicy(unittest.TestCase):
         self.assertLess(quote["bid_price"], quote["ask_price"])
         self.assertIn(quote["event_gate_status"], {"CLEAR", "WIDEN"})
 
+    def test_default_model_freshness_covers_snapshot_loop_sla(self):
+        quote = decide_quote(fresh_row(captured_at_utc="2026-06-14T15:46:00+00:00"), now=NOW)
+        stale = decide_quote(fresh_row(captured_at_utc="2026-06-14T15:44:30+00:00"), now=NOW)
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "QUOTE_HARVEST_MID")
+        self.assertFalse(stale["quote_permission"])
+        self.assertEqual(stale["reason_code"], "NO_QUOTE_STALE_MODEL")
+
     def test_information_event_gate_suppresses_quote(self):
         quote = decide_quote(
             fresh_row(),

@@ -1,23 +1,20 @@
-import subprocess
-import sys
-import os
-from weather.market.market_registry import REGISTRY
-markets = list(REGISTRY.keys())
-scripts = ["-m weather.calibration.feature_model", "-m weather.calibration.intraday_calibration"]
+"""Retired bulk training wrapper."""
 
-env = os.environ.copy()
-env["PYTHONPATH"] = "src"
+from __future__ import annotations
 
-for market in markets:
-    print(f"\n{'='*50}")
-    print(f"TRAINING PIPELINE FOR: {market.upper()}")
-    print(f"{'='*50}")
-    for script in scripts:
-        print(f"\n--- Running {script} for {market} ---")
-        try:
-            subprocess.run([sys.executable, script, "--market", market], check=True, env=env)
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR: {script} failed for {market}: {e}")
-            sys.exit(1)
+import argparse
 
-print("\nPIPELINE COMPLETED SUCCESSFULLY!")
+
+RESEARCH_STATUS = "retired"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Retired bulk training wrapper.")
+    parser.parse_args(argv)
+    print("train_all.py is retired. Use weather.operations.nightly_retrain or daily_refresh.")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

@@ -29,21 +29,13 @@ from weather.model.feature_store import row_forecast_high_native, row_temp_nativ
 from weather.sources.daily_summary import native_bucket, native_high
 from weather.sources.forecast_history import daily_path_for
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
+from weather.units import round_half_up
 
 
 DEFAULT_FORECAST_DAILY = data_path() / "forecast_history" / "cyyz" / "forecast_daily.csv"
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("forecast_error_model.json")
 DEFAULT_REPORT_PATH = data_path() / "backtest" / "forecast_error_report.md"
 EPSILON = 1e-9
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
 
 
 def normalize(scores):

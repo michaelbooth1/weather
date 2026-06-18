@@ -3,8 +3,13 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
-from weather.operations.nightly_retrain import build_parser, run_nightly_retrain  # noqa: E402
+from weather.operations.nightly_retrain import (  # noqa: E402
+    build_parser,
+    nightly_run_sla_status,
+    run_nightly_retrain,
+)
 
 
 def _args(tmp, *extra):
@@ -20,6 +25,12 @@ def _args(tmp, *extra):
         "--artifact-registry", str(root / "artifacts" / "model_artifact_registry.json"),
         "--promotion-out", str(root / "backtest" / "f_family_promotion_refresh.json"),
         "--promotion-report", str(root / "backtest" / "f_family_promotion_refresh_report.md"),
+        "--daily-learning-out", str(root / "backtest" / "daily_learning.json"),
+        "--daily-learning-report", str(root / "backtest" / "daily_learning_report.md"),
+        "--labels-csv", str(root / "backtest" / "market_day_labels.csv"),
+        "--ledger-root", str(root / "settlements"),
+        "--settled-day-freshness-out", str(root / "backtest" / "settled_day_freshness.json"),
+        "--settled-day-freshness-report", str(root / "backtest" / "settled_day_freshness_report.md"),
         "--shadow-ab-out", str(root / "backtest" / "shadow_ab_monitor.json"),
         "--shadow-ab-report", str(root / "backtest" / "shadow_ab_monitor_report.md"),
         "--long-job-state", str(root / "backtest" / "long_job_guard_status.json"),
@@ -67,13 +78,16 @@ class TestNightlyRetrain(unittest.TestCase):
             report_exists = Path(report_path).exists()
 
         self.assertEqual([step["name"] for step in payload["steps"]], [
+            "settled_day_freshness",
+            "daily_learning",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
             "artifact_registry",
             "promotion_refresh",
             "shadow_ab_monitor",
         ])
-        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(calls), 7)
+        self.assertIn("weather.operations.settled_day_freshness", calls[0])
         self.assertEqual(payload["status"], "promote_ready")
         self.assertEqual(saved["promotion"]["promote_markets"], ["nyc"])
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
@@ -104,6 +118,8 @@ class TestNightlyRetrain(unittest.TestCase):
 
         self.assertEqual(payload["status"], "error")
         self.assertEqual([step["name"] for step in payload["steps"]], [
+            "settled_day_freshness",
+            "daily_learning",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
         ])
@@ -120,8 +136,163 @@ class TestNightlyRetrain(unittest.TestCase):
             )
 
         self.assertEqual(payload["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 5)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 7)
         self.assertFalse(payload["config"]["long_job_guard"]["enabled"])
+
+    def test_daily_learning_blocker_marks_run_blocked_by_default(self):
+        calls = []
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            if "weather.reporting.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "BLOCKED",
+                        "run_date": "2026-06-16",
+                        "summary": {"learning_count": 2, "blocker_count": 1},
+                        "retrain_plan": {"training_ready": False},
+                        "learnings": [
+                            {
+                                "priority": "P0",
+                                "category": "data_quality",
+                                "source": "data_layer_audit",
+                                "signal": "Data-layer audit failed.",
+                                "action": "Fix failed data-layer gates before retraining.",
+                                "blocker": True,
+                            }
+                        ],
+                    }),
+                    encoding="utf-8",
+                )
+            if "weather.reporting.promotion_refresh" in command:
+                out = command[command.index("--out") + 1]
+                _write_promotion(out, shadow=["nyc"])
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_nightly_retrain(_args(tmp), runner=runner)
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["daily_learning"]["status"], "BLOCKED")
+        self.assertEqual(payload["promotion"]["verdict"], "not_run")
+        self.assertEqual(payload["promotion"]["reason"], "daily_learning_blocked")
+        self.assertEqual([step["name"] for step in payload["steps"]], ["settled_day_freshness", "daily_learning"])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(payload["nightly_sla"]["state"], "BLOCKED")
+        self.assertIn("daily_learning_blocked", report)
+        self.assertIn("Data-layer audit failed.", report)
+        self.assertIn("Fix failed data-layer gates before retraining.", report)
+
+    def test_nightly_report_surfaces_broad_live_forward_slo_recovery(self):
+        def runner(command, **_kwargs):
+            if "weather.reporting.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "BLOCKED",
+                        "run_date": "2026-06-17",
+                        "summary": {"learning_count": 1, "blocker_count": 1},
+                        "retrain_plan": {
+                            "training_ready": False,
+                            "promotion_ready": False,
+                            "broad_live_forward_slo": {
+                                "status": "BLOCK",
+                                "counts_toward_live_forward_gate": False,
+                                "reason": "clob_book_freshness blocks broad live-forward SLO for nyc",
+                                "first_blocker": {
+                                    "market_id": "nyc",
+                                    "component": "clob_book_capture",
+                                    "gate": "clob_book_freshness",
+                                    "owner": "CLOB book supervisor",
+                                    "repair_command": "python -m weather.market.market_microstructure ensure",
+                                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                                },
+                                "recovery_checklist": [
+                                    {
+                                        "market_id": "nyc",
+                                        "component": "clob_book_capture",
+                                        "gate": "clob_book_freshness",
+                                        "owner": "CLOB book supervisor",
+                                        "repair_command": "python -m weather.market.market_microstructure ensure",
+                                    }
+                                ],
+                                "rerun_command": "python -m weather.reporting.fleet_observability report",
+                            },
+                        },
+                        "learnings": [
+                            {
+                                "priority": "P0",
+                                "category": "collection_health",
+                                "source": "fleet_observability",
+                                "signal": "clob_book_freshness blocks broad live-forward SLO for nyc",
+                                "action": "python -m weather.market.market_microstructure ensure",
+                                "blocker": True,
+                            }
+                        ],
+                    }),
+                    encoding="utf-8",
+                )
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_nightly_retrain(_args(tmp), runner=runner)
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(
+            payload["daily_learning"]["broad_live_forward_slo"]["first_blocker"]["gate"],
+            "clob_book_freshness",
+        )
+        self.assertEqual(payload["nightly_sla"]["broad_live_forward_slo_counts"], False)
+        self.assertIn("## Broad Live-Forward SLO", report)
+        self.assertIn("clob_book_freshness", report)
+        self.assertIn("weather.market.market_microstructure ensure", report)
+
+    def test_nightly_run_sla_flags_missed_run_after_scheduled_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sla = nightly_run_sla_status(
+                status_path=Path(tmp) / "missing_status.json",
+                task_status={"Registered": True, "State": "Ready"},
+                now=datetime(2026, 6, 17, 14, 0, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(sla["state"], "CRITICAL")
+        self.assertFalse(sla["fresh_for_latest_window"])
+        self.assertEqual(sla["alerts"][0]["category"], "nightly_retrain_missed_run")
+
+    def test_nightly_run_sla_surfaces_first_daily_learning_blocker(self):
+        status_payload = {
+            "status": "blocked",
+            "generated_at_utc": "2026-06-17T08:00:00+00:00",
+            "daily_learning": {
+                "status": "BLOCKED",
+                "blocker_count": 1,
+                "blockers": [
+                    {
+                        "priority": "P0",
+                        "category": "collection_health",
+                        "source": "fleet_observability",
+                        "signal": "Fleet status CRITICAL",
+                        "action": "Repair collection loops.",
+                    }
+                ],
+            },
+        }
+
+        sla = nightly_run_sla_status(
+            status_payload=status_payload,
+            task_status={"Registered": True, "State": "Ready"},
+            now=datetime(2026, 6, 17, 14, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(sla["state"], "BLOCKED")
+        self.assertTrue(sla["fresh_for_latest_window"])
+        self.assertEqual(sla["p0_gate"], "Fleet status CRITICAL")
+        self.assertEqual(sla["p0_action"], "Repair collection loops.")
 
 
 if __name__ == "__main__":

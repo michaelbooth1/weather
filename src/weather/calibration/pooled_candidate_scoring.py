@@ -14,6 +14,7 @@ from pathlib import Path
 from weather.paths import data_path
 
 from weather.artifacts import sha256_file
+from weather.calibration.blocked_validation import blocked_validation_audit
 from weather.scoring.metrics import (
     expected_calibration_error,
     group_sort_key,
@@ -24,9 +25,14 @@ from weather.scoring.metrics import (
 DEFAULT_CANDIDATE_VARIANT_OUT = data_path() / "backtest" / "pooled_candidate_shadow_variants.csv"
 DEFAULT_MICROSTRUCTURE_VARIANT_OUT = data_path() / "backtest" / "clob_overlay_shadow_variants.csv"
 DEFAULT_BRIDGE_VARIANT_OUT = data_path() / "backtest" / "conservative_bridge_shadow_variants.csv"
+DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT = data_path() / "backtest" / "source_state_ablation_shadow_variants.csv"
 MICROSTRUCTURE_SCHEMA_VERSION = "clob_microstructure_overlay_v0.2"
 MICROSTRUCTURE_GATE_SCHEMA_VERSION = "clob_microstructure_taxonomy_gate_v0.1"
 CONSERVATIVE_BRIDGE_SCHEMA_VERSION = "conservative_bridge_policy_v0.1"
+SOURCE_STATE_ABLATION_SCHEMA_VERSION = "source_state_ablation_v0.1"
+SOURCE_STATE_ABLATION_FAMILY = "source_state_ablation"
+SOURCE_STATE_ABLATION_ALL_FRESH_MAX_REGRESSION = 0.0
+SOURCE_STATE_ABLATION_DEGRADED_MAX_REGRESSION = 0.0
 MICROSTRUCTURE_TARGET_TAXONOMIES = (
     "market_lead",
     "book_liquidity_artifact",
@@ -560,6 +566,227 @@ def write_candidate_shadow_variants(
     return str(path), len(variant_rows)
 
 
+def source_state_ablation_feature_groups(artifact):
+    """Return dynamic source-state feature families present in a replayed artifact."""
+    artifact = artifact or {}
+    declared = set(artifact.get("dynamic_source_state_columns") or [])
+    feature_names = set()
+    for bundle in (artifact.get("models") or {}).values():
+        feature_names.update(str(name) for name in bundle.get("feature_names") or [])
+    columns = declared | {
+        name
+        for name in feature_names
+        if name.startswith("source_")
+    }
+    groups = {
+        "freshest_forecast_age": [
+            column for column in columns
+            if column in {"source_forecast_payload_age_minutes"}
+        ],
+        "max_forecast_age": [
+            column for column in columns
+            if column in {"source_forecast_max_age_minutes"}
+        ],
+        "forecast_family_degradation": sorted(
+            column for column in columns
+            if column in {"source_forecast_failed_count", "source_forecast_stale_count"}
+        ),
+        "wu_history_state": sorted(
+            column for column in columns
+            if column.startswith("source_wu_history_")
+        ),
+        "metar_state": sorted(
+            column for column in columns
+            if column.startswith("source_metar_")
+        ),
+        "source_state_counts": sorted(
+            column for column in columns
+            if column in {
+                "source_state_all_fresh",
+                "source_state_missing_sources",
+                "source_failed_count",
+                "source_stale_count",
+                "source_unknown_count",
+            }
+        ),
+        "status_group_interactions": sorted(
+            column for column in columns
+            if column == "source_status_group" or column.startswith("source_status_group_")
+        ),
+        "cross_source_disagreement": [
+            column for column in columns
+            if column in {"source_cross_source_max_disagreement"}
+        ],
+    }
+    return {
+        key: value
+        for key, value in groups.items()
+        if value
+    }
+
+
+def source_state_degradation_bucket(row):
+    state = str(row.get("source_freshness_state") or row.get("source_status_group") or "").strip()
+    if not state:
+        return "unknown_source_state"
+    if state == "all_fresh":
+        return "all_fresh"
+    if state == "missing_source_status" or state == "missing_sources":
+        return "missing_source_status"
+    if "failed:" in state or "stale:" in state or "rate_limited" in state:
+        return "degraded_source"
+    return "other_source_state"
+
+
+def source_state_ablation_shadow_variant_rows(
+    rows,
+    experiment_start_date=None,
+    candidate_artifact_hash="",
+):
+    """Return item-69-compatible control and dynamic source-state variant rows."""
+    experiment_start_date = experiment_start_date or datetime.now().date().isoformat()
+    variants = [
+        {
+            "variant_id": "source_state_no_source_state_current",
+            "variant_family": SOURCE_STATE_ABLATION_FAMILY,
+            "probability_field": "replayed_p",
+            "uses_market_features": False,
+            "is_control": True,
+            "artifact_hash": "",
+            "postprocess_config_hash": "current_serving_no_source_state",
+        },
+        {
+            "variant_id": "source_state_dynamic_candidate",
+            "variant_family": SOURCE_STATE_ABLATION_FAMILY,
+            "probability_field": "candidate_p",
+            "uses_market_features": False,
+            "is_control": False,
+            "artifact_hash": candidate_artifact_hash,
+            "postprocess_config_hash": SOURCE_STATE_ABLATION_SCHEMA_VERSION,
+        },
+    ]
+    output = []
+    for row in _settled_shadow_source_rows(rows):
+        for variant in variants:
+            variant_row = _shadow_variant_row(row, variant, experiment_start_date)
+            if variant_row is not None:
+                output.append(variant_row)
+    return output
+
+
+def write_source_state_ablation_shadow_variants(path, rows):
+    if not path:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return str(path)
+
+
+def source_state_ablation_gate(rows):
+    aggregate = candidate_comparison(rows)
+    daily_first = daily_first_candidate_comparison(rows)
+    all_fresh_rows = [
+        row for row in rows
+        if source_state_degradation_bucket(row) == "all_fresh"
+    ]
+    degraded_rows = [
+        row for row in rows
+        if source_state_degradation_bucket(row) == "degraded_source"
+    ]
+    all_fresh = candidate_comparison(all_fresh_rows)
+    degraded = candidate_comparison(degraded_rows)
+    reasons = []
+    if not aggregate:
+        reasons.append("no paired source-state replay rows")
+    if daily_first and daily_first.get("delta_vs_current") is not None and daily_first["delta_vs_current"] > 0:
+        reasons.append("daily-first candidate regresses current serving")
+    if (
+        all_fresh
+        and all_fresh.get("delta_vs_current") is not None
+        and all_fresh["delta_vs_current"] > SOURCE_STATE_ABLATION_ALL_FRESH_MAX_REGRESSION
+    ):
+        reasons.append("all-fresh rows regress current serving")
+    if (
+        degraded
+        and degraded.get("delta_vs_current") is not None
+        and degraded["delta_vs_current"] > SOURCE_STATE_ABLATION_DEGRADED_MAX_REGRESSION
+    ):
+        reasons.append("degraded-source rows regress current serving")
+    verdict = "READY" if not reasons else "SHADOW"
+    return {
+        "verdict": verdict,
+        "reasons": reasons,
+        "aggregate": aggregate,
+        "daily_first": daily_first,
+        "all_fresh": all_fresh,
+        "degraded_source": degraded,
+    }
+
+
+def grouped_source_state_ablation(rows, group_key):
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[row.get(group_key)].append(row)
+    output = []
+    for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
+        comp = candidate_comparison(group_rows)
+        if comp:
+            output.append({"group": group, **comp})
+    return output
+
+
+def source_state_degradation_rows(rows):
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[source_state_degradation_bucket(row)].append(row)
+    output = []
+    for group, group_rows in sorted(grouped.items(), key=lambda item: group_sort_key(item[0])):
+        comp = candidate_comparison(group_rows)
+        if comp:
+            output.append({"group": group, **comp})
+    return output
+
+
+def source_state_ablation_report(
+    rows,
+    artifact,
+    candidate_artifact_hash="",
+    variant_out_path=DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT,
+):
+    feature_groups = source_state_ablation_feature_groups(artifact)
+    enabled = bool((artifact or {}).get("dynamic_source_state_enabled") or feature_groups)
+    if not enabled:
+        return {
+            "schema_version": SOURCE_STATE_ABLATION_SCHEMA_VERSION,
+            "enabled": False,
+            "reason": "candidate artifact does not declare dynamic source-state features",
+            "feature_groups": feature_groups,
+        }
+    variant_rows = source_state_ablation_shadow_variant_rows(
+        rows,
+        candidate_artifact_hash=candidate_artifact_hash,
+    )
+    variant_path = write_source_state_ablation_shadow_variants(variant_out_path, variant_rows)
+    return {
+        "schema_version": SOURCE_STATE_ABLATION_SCHEMA_VERSION,
+        "enabled": True,
+        "feature_groups": feature_groups,
+        "gate": source_state_ablation_gate(rows),
+        "by_degradation": source_state_degradation_rows(rows),
+        "by_source_freshness": grouped_source_state_ablation(rows, "source_freshness_state"),
+        "by_market": grouped_source_state_ablation(rows, "market_id"),
+        "shadow_variants": {
+            "path": variant_path,
+            "rows": len(variant_rows),
+            "variant_ids": sorted({row["variant_id"] for row in variant_rows}),
+        },
+    }
+
+
 def microstructure_shadow_variant_rows(
     rows,
     experiment_start_date=None,
@@ -821,6 +1048,49 @@ def daily_first_candidate_comparison(rows):
         "delta_vs_current": avg("candidate_brier") - avg("current_brier"),
         "delta_vs_market": avg("candidate_brier") - avg("market_brier"),
         "base_rate": avg("base_rate"),
+    }
+
+
+def blocked_candidate_validation_gate(rows, current_tol=0.003, market_tol=0.003, min_days=2):
+    """Gate promotion on daily-first blocked validation, not row-level lift alone."""
+    rows = list(rows)
+    daily_first = daily_first_candidate_comparison(rows)
+    split_audit = blocked_validation_audit(rows)
+    reasons = []
+    if not split_audit.get("ok"):
+        reasons.append(f"{split_audit.get('leak_count', 0)} blocked split leakage issue(s)")
+    if not daily_first:
+        reasons.append("no daily-first candidate comparison rows")
+    else:
+        n_days = int(daily_first.get("n_days") or 0)
+        if n_days < min_days:
+            reasons.append(f"{n_days} daily-first held-out day(s) < {min_days}")
+        delta_current = daily_first.get("delta_vs_current")
+        if delta_current is None or delta_current > current_tol:
+            reasons.append(
+                f"daily-first candidate regresses current by {delta_current:+.4f} > {current_tol:.4f}"
+                if delta_current is not None else
+                "missing daily-first candidate-vs-current delta"
+            )
+        candidate_brier = daily_first.get("candidate_brier")
+        market_brier = daily_first.get("market_brier")
+        if candidate_brier is None or market_brier is None or candidate_brier > market_brier + market_tol:
+            reasons.append(
+                "daily-first candidate is not within market tolerance"
+                if candidate_brier is not None and market_brier is not None else
+                "missing daily-first candidate-vs-market metrics"
+            )
+    return {
+        "schema_version": "blocked_candidate_validation_gate_v0.1",
+        "split_mode": "daily_first_market_day",
+        "passed": not reasons,
+        "verdict": "PASS" if not reasons else "BLOCK",
+        "current_tol": current_tol,
+        "market_tol": market_tol,
+        "min_days": min_days,
+        "reasons": reasons,
+        "daily_first": daily_first,
+        "split_audit": split_audit,
     }
 
 

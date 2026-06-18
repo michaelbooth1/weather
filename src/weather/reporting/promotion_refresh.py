@@ -139,6 +139,7 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
             "market_brier": comparison.get("market_brier"),
             "delta_vs_current": comparison.get("delta_vs_current"),
             "delta_vs_market": comparison.get("delta_vs_market"),
+            "blocked_validation": row.get("blocked_validation") or {},
         })
     evidence = _candidate_evidence_accounting(candidate_report)
     return {
@@ -151,6 +152,7 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
         "corpus": candidate_report.get("corpus") or {},
         "coverage": candidate_report.get("coverage") or {},
         "replay_gate": candidate_report.get("replay_gate") or {},
+        "blocked_validation": candidate_report.get("blocked_validation") or {},
         "candidate_shadow_variants": candidate_report.get("candidate_shadow_variants") or {},
         "evidence_accounting": evidence,
         "aggregate": {
@@ -330,16 +332,22 @@ def build_family_decisions(
             snapshots = row.get("snapshots", 0)
             band_rows = row.get("rows", 0)
             metrics = _comparison_metrics(row.get("comparison"))
+            blocked_validation = row.get("blocked_validation") or {}
         else:
             verdict = "SHADOW"
             reason = "no pinned candidate rows for this family market"
             snapshots = 0
             band_rows = 0
             metrics = _comparison_metrics(None)
+            blocked_validation = {}
 
         if verdict == "PASS" and not global_ok:
             verdict = "BLOCK"
             reason = f"global replay gate failed: {replay_gate.get('corpus_message') or replay_gate.get('fidelity_message')}"
+        if verdict == "PASS" and blocked_validation and not blocked_validation.get("passed"):
+            verdict = "BLOCK"
+            detail = "; ".join(blocked_validation.get("reasons") or []) or "blocked validation failed"
+            reason = f"blocked validation failed: {detail}"
 
         trust = trust_by_market.get(spec.id) or {}
         decisions.append({
@@ -357,6 +365,7 @@ def build_family_decisions(
             "trust_grade": trust.get("grade"),
             "trust_settled_days": trust.get("settled_days"),
             "metrics": metrics,
+            "blocked_validation": blocked_validation,
         })
 
     counts = Counter(item["action"] for item in decisions)
@@ -376,6 +385,7 @@ def _decision_table_rows(decisions):
     rows = []
     for item in decisions:
         metrics = item.get("metrics") or {}
+        blocked = item.get("blocked_validation") or {}
         rows.append([
             item.get("market_id"),
             item.get("candidate_days"),
@@ -387,6 +397,7 @@ def _decision_table_rows(decisions):
             fmt_num(metrics.get("market_brier")),
             fmt_signed(metrics.get("delta_vs_current"), 4),
             fmt_signed(metrics.get("delta_vs_market"), 4),
+            blocked.get("verdict") or "-",
             item.get("action"),
             item.get("reason") or "-",
         ])
@@ -439,8 +450,19 @@ def promotion_readiness(candidate, serving, decisions):
             "severity": "open",
             "detail": (
                 f"aggregate candidate trails market Brier by {delta_vs_market:+.4f}; "
-                "do not claim broad Polymarket edge"
+                "broad readiness requires aggregate delta_vs_market <= 0 and daily-first clearance"
             ),
+        })
+    blocked_validation = candidate.get("blocked_validation") or {}
+    if blocked_validation and not blocked_validation.get("passed"):
+        blockers.append({
+            "category": "blocked_validation",
+            "severity": "block",
+            "detail": (
+                "daily-first blocked validation failed: "
+                + ("; ".join(blocked_validation.get("reasons") or []) or "inspect blocked validation gate")
+            ),
+            "evidence": blocked_validation,
         })
     shadow_details = _readiness_market_details(decisions, "KEEP_SHADOW")
     shadow_markets = [row.get("market_id") for row in shadow_details if row.get("market_id")]
@@ -562,6 +584,234 @@ def _candidate_gap_driver_rows(candidate, limit=12):
     return rows[:limit]
 
 
+def _gap_rule(slice_name, group):
+    group_text = str(group if group is not None else "-")
+    if slice_name == "settlement_distance" and group_text == "0":
+        return {
+            "owner": "settlement-distance winner catch-up",
+            "roadmap_owner": "Item 70",
+            "next_experiment": "settlement_distance_0_winner_catchup_daily_first",
+            "experiment_artifact": "data/backtest/experiments/settlement_distance_0_winner_catchup_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if slice_name == "band_type" and group_text == "eq":
+        return {
+            "owner": "exact-band calibration",
+            "roadmap_owner": "Item 48",
+            "next_experiment": "exact_band_calibration_daily_first",
+            "experiment_artifact": "data/backtest/experiments/exact_band_calibration_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if slice_name == "cutoff_hour" and group_text == "7":
+        return {
+            "owner": "07:00 cold-start calibration",
+            "roadmap_owner": "Item 48",
+            "next_experiment": "cutoff_07_cold_start_daily_first",
+            "experiment_artifact": "data/backtest/experiments/cutoff_07_cold_start_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if slice_name == "market" and group_text in {"nyc", "seattle"}:
+        return {
+            "owner": f"{group_text} residual calibration",
+            "roadmap_owner": "Item 48",
+            "next_experiment": f"{group_text}_residual_calibration_daily_first",
+            "experiment_artifact": f"data/backtest/experiments/{group_text}_residual_calibration_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if group_text == "wu_lag_catchup_miss":
+        return {
+            "owner": "WU lag catch-up repair",
+            "roadmap_owner": "Item 115",
+            "next_experiment": "wu_lag_catchup_repair_daily_first",
+            "experiment_artifact": "data/backtest/experiments/wu_lag_catchup_repair_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if group_text == "boundary_rounding_error":
+        return {
+            "owner": "boundary-rounding repair",
+            "roadmap_owner": "Item 115",
+            "next_experiment": "boundary_rounding_repair_daily_first",
+            "experiment_artifact": "data/backtest/experiments/boundary_rounding_repair_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if group_text in {"stale_source", "failed_source"} or slice_name == "source_freshness":
+        return {
+            "owner": "source freshness calibration",
+            "roadmap_owner": "Items 17, 48",
+            "next_experiment": "source_freshness_repair_daily_first",
+            "experiment_artifact": "data/backtest/experiments/source_freshness_repair_daily_first.json",
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_core_skill_claim": True,
+        }
+    if slice_name == "clob_taxonomy":
+        return {
+            "owner": "CLOB-informed overlay diagnostics",
+            "roadmap_owner": "Item 47",
+            "next_experiment": "clob_overlay_quote_gate_shadow",
+            "experiment_artifact": "data/backtest/experiments/clob_overlay_quote_gate_shadow.json",
+            "claim_lane": "market_informed_clob_overlay",
+            "counts_toward_core_skill_claim": False,
+        }
+    return {
+        "owner": "market-skill triage",
+        "roadmap_owner": "Item 48",
+        "next_experiment": f"{slice_name}_{group_text}_daily_first".replace(":", "_").replace(" ", "_"),
+        "experiment_artifact": (
+            "data/backtest/experiments/"
+            + f"{slice_name}_{group_text}_daily_first".replace(":", "_").replace(" ", "_")
+            + ".json"
+        ),
+        "claim_lane": "weather_only_core_model",
+        "counts_toward_core_skill_claim": True,
+    }
+
+
+def _positive_gap_markets(decisions):
+    rows = []
+    for item in (decisions or {}).get("markets") or []:
+        metrics = item.get("metrics") or {}
+        delta = _slice_delta_vs_market(metrics)
+        if delta is None or delta <= 0:
+            continue
+        rows.append((item.get("market_id"), delta))
+    rows.sort(key=lambda item: item[1], reverse=True)
+    return [market for market, _delta in rows if market]
+
+
+def build_gap_owner_table(gap_drivers, decisions=None, *, limit=12):
+    positive_markets = _positive_gap_markets(decisions or {})
+    rows = []
+    for row in (gap_drivers or [])[:limit]:
+        rule = _gap_rule(row.get("slice"), row.get("group"))
+        if row.get("slice") == "market":
+            affected = [str(row.get("group"))]
+        else:
+            affected = positive_markets[:6]
+        rows.append({
+            **row,
+            **rule,
+            "affected_markets": affected,
+            "blocked_shadow_reason": (
+                "aggregate or daily-first candidate-vs-market gap remains positive"
+            ),
+            "clearance_rule": (
+                "Paired daily-first replay must improve this slice, aggregate delta_vs_market "
+                "must be <= 0, and no promoted/shadow market may regress versus current or market."
+            ),
+        })
+    return rows
+
+
+def market_skill_diagnostics(candidate, decisions, markets=("nyc", "seattle")):
+    by_market = {
+        str(row.get("group")): row
+        for row in ((candidate or {}).get("slices") or {}).get("by_market") or []
+        if row.get("group") not in (None, "")
+    }
+    decision_by_market = {
+        row.get("market_id"): row
+        for row in (decisions or {}).get("markets") or []
+        if row.get("market_id")
+    }
+    rows = []
+    for market_id in markets:
+        slice_row = by_market.get(market_id) or {}
+        decision = decision_by_market.get(market_id) or {}
+        metrics = decision.get("metrics") or {}
+        rows.append({
+            "market_id": market_id,
+            "action": decision.get("action") or "-",
+            "reason": decision.get("reason") or "-",
+            "candidate_brier": metrics.get("candidate_brier") or slice_row.get("candidate_brier"),
+            "current_brier": metrics.get("current_brier") or slice_row.get("current_brier"),
+            "market_brier": metrics.get("market_brier") or slice_row.get("market_brier"),
+            "delta_vs_current": metrics.get("delta_vs_current") or slice_row.get("delta_vs_current"),
+            "delta_vs_market": metrics.get("delta_vs_market") or slice_row.get("delta_vs_market"),
+            "next_experiment": _gap_rule("market", market_id)["next_experiment"],
+            "experiment_artifact": _gap_rule("market", market_id)["experiment_artifact"],
+        })
+    return rows
+
+
+def model_skill_claims(candidate, gap_owner_table=None):
+    aggregate = (candidate or {}).get("aggregate") or {}
+    delta_market = aggregate.get("delta_vs_market")
+    try:
+        delta_market_value = float(delta_market)
+    except (TypeError, ValueError):
+        delta_market_value = None
+    blocked_validation = (candidate or {}).get("blocked_validation") or {}
+    daily_first_passed = blocked_validation.get("passed")
+    if daily_first_passed is None:
+        daily_first_passed = not blocked_validation
+    core_allowed = bool(
+        delta_market_value is not None
+        and delta_market_value <= 0
+        and daily_first_passed
+    )
+    owner_rows = gap_owner_table or []
+    return {
+        "weather_only_core_model": {
+            "delta_vs_market": delta_market,
+            "daily_first_passed": bool(daily_first_passed),
+            "broad_market_skill_claim_allowed": core_allowed,
+            "reason": (
+                "core candidate clears aggregate and daily-first market-skill gates"
+                if core_allowed
+                else "core candidate still needs aggregate delta_vs_market <= 0 and daily-first clearance"
+            ),
+        },
+        "market_informed_clob_overlay": {
+            "counts_toward_core_skill_claim": False,
+            "may_support_quote_gating": True,
+            "owner_row_count": sum(
+                1 for row in owner_rows
+                if row.get("claim_lane") == "market_informed_clob_overlay"
+            ),
+            "reason": "CLOB-informed overlays are quote/permission evidence, not weather-only core-skill evidence.",
+        },
+    }
+
+
+def write_gap_experiment_artifacts(rows):
+    written = []
+    for row in rows or []:
+        artifact = row.get("experiment_artifact")
+        if not artifact:
+            continue
+        payload = {
+            "schema_version": "market_skill_gap_experiment_v0.1",
+            "status": "OPEN",
+            "generated_at_utc": _utc_now(),
+            "owner": row.get("owner"),
+            "roadmap_owner": row.get("roadmap_owner"),
+            "slice": row.get("slice"),
+            "group": row.get("group"),
+            "weighted_gap": row.get("excess_brier_rows"),
+            "affected_markets": row.get("affected_markets") or [],
+            "claim_lane": row.get("claim_lane"),
+            "counts_toward_core_skill_claim": row.get("counts_toward_core_skill_claim"),
+            "next_experiment": row.get("next_experiment"),
+            "clearance_rule": row.get("clearance_rule"),
+            "required_replay": {
+                "mode": "paired_daily_first",
+                "baselines": ["current", "candidate", "market"],
+                "aggregate_delta_vs_market_must_be_lte": 0,
+                "no_promoted_or_shadow_market_regression": True,
+            },
+        }
+        written_path = _write_json(artifact, payload)
+        row["experiment_artifact_exists"] = True
+        written.append(str(written_path))
+    return written
+
+
 def _candidate_source_freshness_rows(candidate):
     slices = (candidate or {}).get("slices") or {}
     rows = []
@@ -602,6 +852,57 @@ def _gap_driver_table_rows(rows, include_slice=True):
     if output:
         return output
     return [["-", "-", 0, "-", "-", "-", "-", "-"]] if include_slice else [["-", 0, "-", "-", "-", "-", "-"]]
+
+
+def _gap_owner_table_rows(rows):
+    return [
+        [
+            row.get("slice"),
+            row.get("group") if row.get("group") not in (None, "") else "-",
+            fmt_num(row.get("excess_brier_rows")),
+            ", ".join(row.get("affected_markets") or []) or "-",
+            row.get("owner"),
+            row.get("roadmap_owner"),
+            row.get("next_experiment"),
+            row.get("experiment_artifact"),
+            row.get("claim_lane"),
+            row.get("counts_toward_core_skill_claim"),
+            row.get("clearance_rule"),
+        ]
+        for row in rows or []
+    ]
+
+
+def _market_skill_diagnostic_rows(rows):
+    return [
+        [
+            row.get("market_id"),
+            row.get("action"),
+            fmt_num(row.get("candidate_brier")),
+            fmt_num(row.get("current_brier")),
+            fmt_num(row.get("market_brier")),
+            fmt_signed(row.get("delta_vs_current"), 4),
+            fmt_signed(row.get("delta_vs_market"), 4),
+            row.get("next_experiment"),
+            row.get("reason") or "-",
+        ]
+        for row in rows or []
+    ]
+
+
+def _model_skill_claim_rows(claims):
+    rows = []
+    for lane, item in (claims or {}).items():
+        rows.append([
+            lane,
+            item.get("broad_market_skill_claim_allowed")
+            if "broad_market_skill_claim_allowed" in item
+            else item.get("counts_toward_core_skill_claim"),
+            item.get("may_support_quote_gating", False),
+            fmt_signed(item.get("delta_vs_market"), 4),
+            item.get("reason"),
+        ])
+    return rows
 
 
 def _serving_table_rows(serving):
@@ -670,6 +971,7 @@ def write_report(path, payload):
             ["Candidate verdict", candidate.get("verdict") or "-"],
             ["Candidate market-only verdict", candidate.get("candidate_market_verdict") or "-"],
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
+            ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
             ["Readiness status", readiness.get("status") or "-"],
             ["Promote", ", ".join(decisions.get("promote_markets") or []) or "-"],
             ["Shadow", ", ".join(decisions.get("shadow_markets") or []) or "-"],
@@ -750,6 +1052,8 @@ def write_report(path, payload):
             ["Snapshots", candidate_evidence.get("snapshot_count", 0)],
             ["Market-days", candidate_evidence.get("market_day_count", 0)],
             ["Row multiplier", fmt_num(candidate_evidence.get("row_multiplier"))],
+            ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
+            ["Blocked validation split", (candidate.get("blocked_validation") or {}).get("split_mode") or "-"],
             ["Candidate Brier", fmt_num(candidate_agg.get("candidate_brier"))],
             ["Current Brier", fmt_num(candidate_agg.get("current_brier"))],
             ["Recorded Brier", fmt_num(candidate_agg.get("recorded_brier"))],
@@ -777,6 +1081,60 @@ def write_report(path, payload):
         ],
         _gap_driver_table_rows(gap_drivers),
     )
+    gap_owner_rows = payload.get("gap_owner_table") or build_gap_owner_table(gap_drivers, decisions)
+    claims = payload.get("model_skill_claims") or model_skill_claims(candidate, gap_owner_rows)
+    lines += [
+        "",
+        "### Model-Skill Claim Lanes",
+        "",
+    ]
+    lines += markdown_table(
+        ["Lane", "Core Claim Allowed / Counts", "Quote Gating", "Delta Market", "Reason"],
+        _model_skill_claim_rows(claims),
+    )
+    if gap_owner_rows:
+        lines += [
+            "",
+            "### Gap Owner Experiments",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Slice",
+                "Group",
+                "Weighted Gap",
+                "Affected Markets",
+                "Owner",
+                "Roadmap",
+                "Next Experiment",
+                "Artifact",
+                "Claim Lane",
+                "Core Claim Credit",
+                "Clearance Rule",
+            ],
+            _gap_owner_table_rows(gap_owner_rows),
+        )
+    market_diagnostics = payload.get("market_skill_diagnostics") or market_skill_diagnostics(candidate, decisions)
+    if market_diagnostics:
+        lines += [
+            "",
+            "### NYC/Seattle Market-Skill Diagnostics",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Market",
+                "Action",
+                "Candidate Brier",
+                "Current Brier",
+                "Market Brier",
+                "Delta Current",
+                "Delta Market",
+                "Next Experiment",
+                "Reason",
+            ],
+            _market_skill_diagnostic_rows(market_diagnostics),
+        )
     source_freshness_rows = _candidate_source_freshness_rows(candidate)
     if source_freshness_rows:
         lines += [
@@ -959,7 +1317,7 @@ def write_report(path, payload):
         [
             "Market", "Days", "Snaps", "Rows", "Trust", "Candidate Brier",
             "Current Brier", "Market Brier", "Delta Current",
-            "Delta Market", "Action", "Reason",
+            "Delta Market", "Blocked Validation", "Action", "Reason",
         ],
         _decision_table_rows(decisions.get("markets") or []),
     )
@@ -1072,6 +1430,11 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         candidate_report,
         family_unit=args.family_unit,
     )
+    gap_drivers = _candidate_gap_driver_rows(candidate_summary)
+    gap_owner_table = build_gap_owner_table(gap_drivers, decisions)
+    gap_experiment_artifacts = write_gap_experiment_artifacts(gap_owner_table)
+    claim_lanes = model_skill_claims(candidate_summary, gap_owner_table)
+    market_diagnostics = market_skill_diagnostics(candidate_summary, decisions)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": _utc_now(),
@@ -1082,6 +1445,10 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "serving_gauntlet": serving_summary,
         "decisions": decisions,
         "readiness": promotion_readiness(candidate_summary, serving_summary, decisions),
+        "gap_owner_table": gap_owner_table,
+        "gap_experiment_artifacts": gap_experiment_artifacts,
+        "market_skill_diagnostics": market_diagnostics,
+        "model_skill_claims": claim_lanes,
         "long_job_guard": long_job_guard_info or {},
     }
     out_path = _write_json(args.out, payload)

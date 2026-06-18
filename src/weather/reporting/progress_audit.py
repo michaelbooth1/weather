@@ -21,6 +21,8 @@ from weather.reporting.formatting import (
     fmt_signed,
     markdown_table,
 )
+from weather.reporting.model_history import build_history_payload
+from weather.scoring.metrics import daily_first_score
 
 
 SCHEMA_VERSION = "progress_audit_v0.1"
@@ -30,6 +32,12 @@ DEFAULT_ROADMAP = docs_path() / "roadmap" / "ROADMAP.md"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "progress_audit.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "progress_audit_report.md"
 ROADMAP_CORPUS_EXCLUDES = {"codebase-organization-audit.md"}
+TREND_HISTORY_DAYS = 14
+TREND_ROLLING_DAYS = 7
+TREND_MIN_COMPARABLE_DAYS = 7
+TREND_MIN_POSITIVE_SKILL_DAYS = 3
+TREND_CLAIM_QUALITY_GRADES = {"complete", "manual_override"}
+TREND_DIRECTIONAL_QUALITY_GRADES = TREND_CLAIM_QUALITY_GRADES | {"partial"}
 
 POOLED_REPLAY_FILES = [
     ("pooled_v0_1", "pooled_candidate_replay.json"),
@@ -119,6 +127,25 @@ def maybe_int(value):
     if number is None:
         return None
     return int(number)
+
+
+def _mean(values):
+    values = [value for value in values if value is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _linear_slope(rows, key):
+    values = [maybe_float(row.get(key)) for row in rows]
+    values = [value for value in values if value is not None]
+    if len(values) < 2:
+        return None
+    xs = list(range(len(values)))
+    xbar = sum(xs) / len(xs)
+    ybar = sum(values) / len(values)
+    denominator = sum((x - xbar) ** 2 for x in xs)
+    if denominator == 0:
+        return None
+    return sum((x - xbar) * (y - ybar) for x, y in zip(xs, values)) / denominator
 
 
 def parse_datetime(value):
@@ -484,7 +511,265 @@ def load_fleet_observability(path):
         "clob_loop": clob.get("loop") or {},
         "clob_books_ok": (clob.get("books") or {}).get("ok"),
         "clob_market_count": len(((clob.get("books") or {}).get("markets") or [])),
+        "live_forward_slo": payload.get("live_forward_slo") or {},
     }
+
+
+def _history_daily_first_by_date(history):
+    groups = {}
+    for day in history.get("days") or []:
+        if day.get("status") != "scored":
+            continue
+        target_date = day.get("target_date")
+        if not target_date:
+            continue
+        groups.setdefault(target_date, []).append({"score": day})
+    return {
+        target_date: daily_first_score(rows) or {}
+        for target_date, rows in groups.items()
+    }
+
+
+def _history_quality_counts(history):
+    counts = {}
+    for day in history.get("days") or []:
+        if day.get("status") != "scored":
+            continue
+        target_date = day.get("target_date")
+        if not target_date:
+            continue
+        quality = day.get("quality_grade") or "unknown"
+        counts.setdefault(target_date, Counter())[quality] += 1
+    return {target_date: dict(counter) for target_date, counter in counts.items()}
+
+
+def _trend_collection_blockers(fleet):
+    fleet = fleet or {}
+    live_slo = fleet.get("live_forward_slo") or {}
+    blockers = []
+    if live_slo.get("counts_toward_live_forward_gate") is False:
+        blockers.append("live-forward SLO is not countable")
+    elif fleet.get("status") == "CRITICAL":
+        blockers.append("fleet observability is CRITICAL")
+    return blockers
+
+
+def _trend_row_multiplier_blockers(variant):
+    variant = variant or {}
+    delta = variant.get("delta_vs_baseline") or {}
+    scored_delta = maybe_int(delta.get("scored_rows")) or 0
+    unique_delta = maybe_int(delta.get("unique_observation_count")) or 0
+    market_day_delta = maybe_int(delta.get("market_day_count")) or 0
+    blockers = []
+    if scored_delta > 0 and unique_delta <= 0:
+        blockers.append(
+            f"scored rows increased by {scored_delta} while unique observations changed by {unique_delta}"
+        )
+    if scored_delta > 0 and market_day_delta <= 0:
+        blockers.append(
+            f"scored rows increased by {scored_delta} while market-days changed by {market_day_delta}"
+        )
+    sla = variant.get("evidence_sla") or {}
+    if sla.get("broad_promotion_claim_allowed") is False:
+        reasons = "; ".join(sla.get("reasons") or [])
+        blockers.append(f"independent-evidence SLA blocks broad claims{': ' + reasons if reasons else ''}")
+    return blockers
+
+
+def core_model_trend_claim(history, *, fleet=None, variant_evidence=None):
+    """Strict generated answer for the day-over-day core-model trend claim."""
+    history = history or {}
+    by_date = history.get("by_date") or []
+    if not by_date:
+        return {
+            "status": "MISSING",
+            "claim_allowed": False,
+            "reason": "no model-history by-date rows available",
+            "daily_sequence": [],
+            "threshold_failures": ["no model-history by-date rows available"],
+        }
+
+    daily_first = _history_daily_first_by_date(history)
+    quality_counts_by_date = _history_quality_counts(history)
+    max_market_days = max((maybe_int(row.get("market_days")) or 0 for row in by_date), default=0)
+    min_promotion_grade_market_days = max_market_days * TREND_MIN_COMPARABLE_DAYS
+
+    sequence = []
+    for row in sorted(by_date, key=lambda item: str(item.get("target_date") or item.get("label") or "")):
+        target_date = row.get("target_date") or row.get("label")
+        market_days = maybe_int(row.get("market_days")) or 0
+        model_brier = maybe_float(row.get("model_brier"))
+        market_brier = maybe_float(row.get("market_brier"))
+        brier_skill = maybe_float(row.get("brier_skill_score"))
+        daily_first_skill = maybe_float((daily_first.get(target_date) or {}).get("brier_skill_score"))
+        quality_counts = quality_counts_by_date.get(target_date) or {}
+        unknown_or_provisional = {
+            grade: count
+            for grade, count in quality_counts.items()
+            if grade not in TREND_DIRECTIONAL_QUALITY_GRADES
+        }
+        full_market_day = bool(max_market_days and market_days == max_market_days)
+        trend_countable = full_market_day and not unknown_or_provisional
+        claim_quality_count = sum(
+            count
+            for grade, count in quality_counts.items()
+            if grade in TREND_CLAIM_QUALITY_GRADES
+        )
+        claim_countable = trend_countable and claim_quality_count == market_days
+        exclusions = []
+        if not full_market_day:
+            exclusions.append(f"not full-market ({market_days}/{max_market_days} market-days)")
+        if unknown_or_provisional:
+            exclusions.append(f"provisional/unknown quality {unknown_or_provisional}")
+        if trend_countable and not claim_countable:
+            exclusions.append(f"not promotion-grade quality {quality_counts}")
+        sequence.append({
+            "date": target_date,
+            "market_days": market_days,
+            "rows": maybe_int(row.get("scored_rows")) or 0,
+            "model_brier": model_brier,
+            "market_brier": market_brier,
+            "model_minus_market_brier": (
+                model_brier - market_brier
+                if model_brier is not None and market_brier is not None
+                else None
+            ),
+            "brier_skill": brier_skill,
+            "daily_first_brier_skill": daily_first_skill,
+            "final_top_hit_rate": maybe_float(row.get("final_top_hit_rate")),
+            "quality_counts": quality_counts,
+            "counts_toward_directional_trend": trend_countable,
+            "counts_toward_proven_claim": claim_countable,
+            "exclusion_reason": "; ".join(exclusions) if exclusions else "",
+        })
+
+    comparable = [row for row in sequence if row["counts_toward_directional_trend"]]
+    claim_rows = [row for row in sequence if row["counts_toward_proven_claim"]]
+    rolling = comparable[-TREND_ROLLING_DAYS:]
+    positive_skill_days = sum(1 for row in comparable if (row.get("brier_skill") or 0.0) > 0)
+    positive_daily_first_days = sum(
+        1 for row in comparable if (row.get("daily_first_brier_skill") or 0.0) > 0
+    )
+    collection_blockers = _trend_collection_blockers(fleet or {})
+    row_multiplier_blockers = _trend_row_multiplier_blockers(variant_evidence or {})
+    rolling_daily_first_skill = _mean(row.get("daily_first_brier_skill") for row in rolling)
+    skill_slope = _linear_slope(comparable, "brier_skill")
+    gap_slope = _linear_slope(comparable, "model_minus_market_brier")
+    promotion_grade_market_days = sum(row.get("market_days") or 0 for row in claim_rows)
+
+    threshold_failures = []
+    if len(comparable) < TREND_MIN_COMPARABLE_DAYS:
+        threshold_failures.append(
+            f"need {TREND_MIN_COMPARABLE_DAYS} comparable full-market days; have {len(comparable)}"
+        )
+    if positive_skill_days < TREND_MIN_POSITIVE_SKILL_DAYS:
+        threshold_failures.append(
+            f"need {TREND_MIN_POSITIVE_SKILL_DAYS} positive-skill comparable days; have {positive_skill_days}"
+        )
+    if rolling_daily_first_skill is None or rolling_daily_first_skill < 0:
+        threshold_failures.append(
+            "rolling daily-first skill is negative or unavailable"
+            if rolling_daily_first_skill is None
+            else f"rolling daily-first skill is {rolling_daily_first_skill:+.4f}"
+        )
+    if promotion_grade_market_days < min_promotion_grade_market_days:
+        threshold_failures.append(
+            "need "
+            f"{min_promotion_grade_market_days} promotion-grade market-days; "
+            f"have {promotion_grade_market_days}"
+        )
+    threshold_failures.extend(collection_blockers)
+    threshold_failures.extend(row_multiplier_blockers)
+
+    directional_signals = []
+    if skill_slope is not None and skill_slope > 0:
+        directional_signals.append(f"comparable-day Brier skill slope is {skill_slope:+.4f}/day")
+    if gap_slope is not None and gap_slope < 0:
+        directional_signals.append(f"model-minus-market Brier gap slope is {gap_slope:+.4f}/day")
+    if comparable and (comparable[-1].get("brier_skill") or 0.0) > 0:
+        directional_signals.append(f"latest comparable day {comparable[-1]['date']} has positive skill")
+
+    if not threshold_failures:
+        status = "PROVEN"
+    elif directional_signals:
+        status = "DIRECTIONAL"
+    else:
+        status = "UNPROVEN"
+
+    next_evidence = []
+    if threshold_failures:
+        next_evidence = [
+            _trend_next_action(failure)
+            for failure in threshold_failures
+        ]
+
+    return {
+        "schema_version": "core_model_trend_claim_v0.1",
+        "status": status,
+        "claim_allowed": status == "PROVEN",
+        "history_days": TREND_HISTORY_DAYS,
+        "max_market_days_per_date": max_market_days,
+        "thresholds": {
+            "min_comparable_days": TREND_MIN_COMPARABLE_DAYS,
+            "min_positive_skill_days": TREND_MIN_POSITIVE_SKILL_DAYS,
+            "rolling_days": TREND_ROLLING_DAYS,
+            "min_promotion_grade_market_days": min_promotion_grade_market_days,
+            "claim_quality_grades": sorted(TREND_CLAIM_QUALITY_GRADES),
+            "directional_quality_grades": sorted(TREND_DIRECTIONAL_QUALITY_GRADES),
+        },
+        "summary": {
+            "comparable_day_count": len(comparable),
+            "claim_day_count": len(claim_rows),
+            "promotion_grade_market_days": promotion_grade_market_days,
+            "positive_skill_days": positive_skill_days,
+            "positive_daily_first_days": positive_daily_first_days,
+            "rolling_daily_first_brier_skill": rolling_daily_first_skill,
+            "brier_skill_slope_per_day": skill_slope,
+            "model_minus_market_brier_slope_per_day": gap_slope,
+            "latest_comparable_date": comparable[-1]["date"] if comparable else None,
+            "latest_comparable_brier_skill": comparable[-1]["brier_skill"] if comparable else None,
+        },
+        "directional_signals": directional_signals,
+        "threshold_failures": threshold_failures,
+        "next_evidence_needed": next_evidence,
+        "daily_sequence": sequence,
+    }
+
+
+def _trend_next_action(failure):
+    if failure.startswith("need") and "comparable full-market days" in failure:
+        return "Collect additional full-market settled days before claiming day-over-day improvement."
+    if "positive-skill" in failure:
+        return "Wait for more comparable days where model Brier beats market Brier."
+    if "rolling daily-first skill" in failure:
+        return "Improve daily-first replay until the rolling comparable-day window is non-negative."
+    if "promotion-grade market-days" in failure:
+        return "Finalize more complete/manual-override labels for full-market days."
+    if "live-forward SLO" in failure or "fleet observability" in failure:
+        return "Repair live-forward collection health before using active-day evidence in the trend claim."
+    if "scored rows increased" in failure or "independent-evidence" in failure:
+        return "Add independent settled observations, not only row-multiplied variant scores."
+    return "Inspect the core-model trend claim threshold failure."
+
+
+def build_core_model_trend_claim(backtest_root, snapshots_root):
+    try:
+        history = build_history_payload(
+            snapshots_root=snapshots_root,
+            days=TREND_HISTORY_DAYS,
+            use_cache=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - progress audit should still render
+        return {
+            "status": "MISSING",
+            "claim_allowed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "daily_sequence": [],
+            "threshold_failures": ["model-history build failed"],
+        }
+    fleet = read_json(Path(backtest_root) / "fleet_observability.json", default={}) or {}
+    variant = read_json(Path(backtest_root) / "model_variant_evidence_growth.json", default={}) or {}
+    return core_model_trend_claim(history, fleet=fleet, variant_evidence=variant)
 
 
 def compute_loop_state(status, kind, now=None):
@@ -600,6 +885,7 @@ def build_audit(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAP
         "fleet_observability": load_fleet_observability(backtest_root / "fleet_observability.json"),
         "loop_statuses": load_loop_statuses(snapshots_root, now=now),
     }
+    payload["core_model_trend_claim"] = build_core_model_trend_claim(backtest_root, snapshots_root)
     payload["trend_assessment"] = classify_trend(payload)
     return payload
 
@@ -618,6 +904,7 @@ def fmt_count(value):
 
 def render_report(payload):
     trend = payload["trend_assessment"]
+    core_trend = payload.get("core_model_trend_claim") or {}
     baseline = payload["roadmap_baselines"].get("initial_strict_toronto") or {}
     pre_label = payload["roadmap_baselines"].get("pre_label_three_day") or {}
     calibration = payload["roadmap_baselines"].get("calibration_pre_label") or {}
@@ -749,6 +1036,63 @@ def render_report(payload):
                 "is not the current promotion-grade evidence."
             ),
         ])
+
+    lines.extend(["", "## Core Model Day-Over-Day Claim", ""])
+    trend_summary = core_trend.get("summary") or {}
+    lines.extend(markdown_table(
+        ["Field", "Value"],
+        [
+            ["Status", core_trend.get("status") or "-"],
+            ["Claim allowed", core_trend.get("claim_allowed")],
+            ["Comparable full-market days", trend_summary.get("comparable_day_count")],
+            ["Promotion-grade market-days", trend_summary.get("promotion_grade_market_days")],
+            ["Positive-skill days", trend_summary.get("positive_skill_days")],
+            ["Rolling daily-first skill", fmt_skill(trend_summary.get("rolling_daily_first_brier_skill"))],
+            ["Brier skill slope/day", fmt_skill(trend_summary.get("brier_skill_slope_per_day"))],
+            ["Model-minus-market gap slope/day", fmt_signed(trend_summary.get("model_minus_market_brier_slope_per_day"), 4)],
+            ["Latest comparable day", trend_summary.get("latest_comparable_date") or "-"],
+            ["Latest comparable skill", fmt_skill(trend_summary.get("latest_comparable_brier_skill"))],
+        ],
+    ))
+    failures = core_trend.get("threshold_failures") or []
+    if failures:
+        lines.extend(["", "Threshold failures:"])
+        lines.extend(f"- {failure}" for failure in failures)
+    signals = core_trend.get("directional_signals") or []
+    if signals:
+        lines.extend(["", "Directional signals:"])
+        lines.extend(f"- {signal}" for signal in signals)
+    needed = core_trend.get("next_evidence_needed") or []
+    if needed:
+        lines.extend(["", "Next evidence needed:"])
+        for action in dict.fromkeys(needed):
+            lines.append(f"- {action}")
+    sequence_rows = []
+    for row in core_trend.get("daily_sequence") or []:
+        sequence_rows.append([
+            row.get("date"),
+            row.get("market_days"),
+            row.get("rows"),
+            fmt_brier(row.get("model_brier")),
+            fmt_brier(row.get("market_brier")),
+            fmt_signed(row.get("model_minus_market_brier"), 4),
+            fmt_skill(row.get("brier_skill")),
+            fmt_skill(row.get("daily_first_brier_skill")),
+            fmt_num(row.get("final_top_hit_rate"), 3),
+            row.get("counts_toward_directional_trend"),
+            row.get("counts_toward_proven_claim"),
+            row.get("exclusion_reason") or "-",
+        ])
+    if sequence_rows:
+        lines.extend(["", "### Daily Sequence", ""])
+        lines.extend(markdown_table(
+            [
+                "Date", "Market Days", "Rows", "Model Brier", "Market Brier",
+                "Gap", "Brier Skill", "Daily-First Skill", "Final Top Hit",
+                "Trend Day", "Proven Claim Day", "Exclusion",
+            ],
+            sequence_rows,
+        ))
 
     lines.extend(["", "## Pooled Candidate Trend", ""])
     candidate_rows = []

@@ -28,6 +28,7 @@ from weather.market.market_microstructure import (  # noqa: E402
 )
 from weather.market.market_microstructure_features import snapshot_band_key  # noqa: E402
 from weather.market.market_config import config_for_date  # noqa: E402
+from weather.operations.supervisor import acquire_writer_lock, release_writer_lock  # noqa: E402
 
 
 def sample_event():
@@ -410,7 +411,34 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(written["recent_iteration_elapsed_seconds"], [0.0])
         self.assertEqual(written["max_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["max_recent_iteration_elapsed_seconds"], 0.0)
+        self.assertEqual(written["status_writer"]["loop"], "clob_capture")
+        self.assertEqual(written["status_writer"]["pid"], os.getpid())
         self.assertEqual(len(diagnostics), 1)
+
+    def test_run_book_loop_blocks_duplicate_status_writer(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            status_path = tmp_path / "clob_loop_status.json"
+            lock = acquire_writer_lock(status_path, owner={"loop": "existing"})
+            try:
+                with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                        patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"):
+                    result = run_book_loop(
+                        market_id="toronto",
+                        interval_seconds=60,
+                        max_iterations=1,
+                        capture_fn=lambda **_kwargs: {"toronto": {"books": 1}},
+                        sleep_fn=lambda seconds: None,
+                        now_fn=lambda: now,
+                    )
+                    diagnostics = (tmp_path / "clob_diagnostics.jsonl").read_text(encoding="utf-8")
+            finally:
+                release_writer_lock(lock)
+
+        self.assertEqual(result["status"], "duplicate_writer_blocked")
+        self.assertIn("duplicate_writer_blocked", diagnostics)
 
     def _write_summary_tape(self, root, times):
         path = Path(root) / "order_books_summary.csv"
@@ -600,6 +628,57 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertIn("weather.market.market_microstructure", calls["command"])
         self.assertIn("loop", calls["command"])
         self.assertIn("--interval-seconds", calls["command"])
+
+    def test_start_clob_loop_detached_removes_dead_writer_lock_before_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            lock_path = tmp_path / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+                return FakeProcess()
+
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", tmp_path / "clob_loop_console.log"), \
+                    patch.object(mm, "pid_is_python", return_value=False), \
+                    patch.object(mm.subprocess, "Popen", fake_popen):
+                result = start_clob_loop_detached(
+                    market_id="toronto",
+                    interval_seconds=30,
+                    fast_interval_seconds=10,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+
+        self.assertTrue(result["started"])
+        self.assertTrue(result["writer_lock"]["removed"])
+        self.assertFalse(lock_path.exists())
+
+    def test_start_clob_loop_detached_does_not_fight_live_writer_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            lock_path = tmp_path / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+
+            def fail_popen(*args, **kwargs):
+                raise AssertionError("Popen should not be called while another CLOB writer is live")
+
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", tmp_path / "clob_loop_console.log"), \
+                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch.object(mm.subprocess, "Popen", fail_popen):
+                result = start_clob_loop_detached(
+                    market_id="toronto",
+                    interval_seconds=30,
+                    fast_interval_seconds=10,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "writer lock owner is still live")
+        self.assertTrue(lock_still_exists)
 
 
 if __name__ == "__main__":

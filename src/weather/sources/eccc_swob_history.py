@@ -17,6 +17,7 @@ from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import requests
+from weather.units import round_half_up
 
 
 TORONTO_TZ = ZoneInfo("America/Toronto")
@@ -875,12 +876,6 @@ def first_time_value(value):
 def time_to_minutes(value):
     hour, minute = str(value).split(":")[:2]
     return int(hour) * 60 + int(minute)
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
 
 
 def to_number(value):

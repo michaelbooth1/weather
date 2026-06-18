@@ -1,8 +1,11 @@
+import ast
 import re
 from pathlib import Path
 
 
 TARGET_MODULES = [
+    Path("src/weather/io.py"),
+    Path("src/weather/time.py"),
     Path("src/weather/backtesting/backtest.py"),
     Path("src/weather/backtesting/replay.py"),
     Path("src/weather/backtesting/replay_ablation.py"),
@@ -11,6 +14,7 @@ TARGET_MODULES = [
     Path("src/weather/backtesting/settlement_io.py"),
     Path("src/weather/backtesting/settlement_ledger.py"),
     Path("src/weather/backtesting/tape_scoring.py"),
+    Path("src/weather/units.py"),
     Path("src/weather/calibration/family_secondary_artifacts.py"),
     Path("src/weather/calibration/feature_model.py"),
     Path("src/weather/calibration/forecast_error_model.py"),
@@ -38,10 +42,13 @@ TARGET_MODULES = [
     Path("src/weather/market/market_microstructure.py"),
     Path("src/weather/market/market_microstructure_capture.py"),
     Path("src/weather/market/market_microstructure_features.py"),
+    Path("src/weather/market/mm_exchange.py"),
+    Path("src/weather/market/mm_exchange_reports.py"),
     Path("src/weather/market/mm_paper.py"),
     Path("src/weather/market/mm_paper_reports.py"),
     Path("src/weather/market/mm_policy.py"),
     Path("src/weather/market/polymarket_client.py"),
+    Path("src/weather/model/calibration_runtime.py"),
     Path("src/weather/model/model_climatology.py"),
     Path("src/weather/model/model_constants.py"),
     Path("src/weather/model/model_contracts.py"),
@@ -131,7 +138,8 @@ LEGACY_IMPORT_RE = re.compile(
     r"historical_schema|"
     r"market_config|market_making_run_constants|market_making_run_support|market_registry|"
     r"market_microstructure|market_microstructure_constants|"
-    r"market_microstructure_features|mm_paper_constants|mm_paper_reports|"
+    r"market_microstructure_features|mm_exchange|mm_exchange_reports|"
+    r"mm_paper_constants|mm_paper_reports|"
     r"mm_policy|model_constants|model_identity|model_presentation|model_sources|"
     r"noaa_ghcnh_history|observation_trigger|polymarket_client|pooled_candidate_replay|"
     r"pooled_feature_model|probability_calibration|promotion_corpus|"
@@ -178,7 +186,145 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.market\.market_making_run\b)",
         re.MULTILINE,
     ),
+    Path("src/weather/market/mm_exchange_reports.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.mm_exchange|\.mm_exchange)\s+import\b|"
+        r"import\s+weather\.market\.mm_exchange\b)",
+        re.MULTILINE,
+    ),
 }
+
+ROUND_HALF_UP_DEFINITION_RE = re.compile(r"^\s*def\s+round_half_up\s*\(", re.MULTILINE)
+ROUND_HALF_UP_ALLOWED_DEFINITION_MODULES = {
+    Path("src/weather/units.py"),
+    # Compatibility method for the model facade; it must delegate to weather.units.
+    Path("src/weather/model/model_base.py"),
+}
+
+IMPORT_ERROR_HANDLER_RE = re.compile(r"except\s+ImportError\b")
+MODEL_RUNTIME_CALIBRATION_IMPORT_RE = re.compile(
+    r"^\s*(?:from\s+weather\.calibration\b|import\s+weather\.calibration\b)",
+    re.MULTILINE,
+)
+COMPATIBILITY_FALLBACK_MARKERS = (
+    "direct src compatibility",
+    "compatibility-wrapper execution",
+    "package/module execution fallback",
+)
+ALLOWED_OPTIONAL_IMPORT_ERROR_MODULES = {
+    Path("src/weather/market/market_microstructure_capture.py"),
+    Path("src/weather/sources/historical_coverage.py"),
+}
+
+PACKAGE_ROOTS = {
+    "backtesting",
+    "calibration",
+    "collection",
+    "market",
+    "model",
+    "operations",
+    "reporting",
+    "sources",
+}
+
+SHARED_PACKAGE_ROOTS = {
+    "artifacts",
+    "io",
+    "paths",
+    "schema_registry",
+    "scoring",
+    "time",
+    "units",
+}
+
+ALLOWED_PACKAGE_EDGES = {
+    ("backtesting", "market"),
+    ("backtesting", "model"),
+    ("backtesting", "sources"),
+    ("calibration", "backtesting"),
+    ("calibration", "market"),
+    ("calibration", "model"),
+    ("calibration", "sources"),
+    ("collection", "market"),
+    ("collection", "model"),
+    ("collection", "operations"),
+    ("collection", "sources"),
+    ("market", "operations"),
+    ("model", "market"),
+    ("model", "sources"),
+    ("operations", "backtesting"),
+    ("operations", "collection"),
+    ("operations", "market"),
+    ("operations", "model"),
+    ("operations", "sources"),
+    ("reporting", "backtesting"),
+    ("reporting", "collection"),
+    ("reporting", "market"),
+    ("reporting", "model"),
+    ("reporting", "sources"),
+    ("sources", "market"),
+}
+
+TRANSITIONAL_PACKAGE_EDGES = {
+    ("backtesting", "collection"),
+    ("backtesting", "operations"),
+    ("backtesting", "reporting"),
+    ("calibration", "operations"),
+    ("calibration", "reporting"),
+    ("collection", "backtesting"),
+    ("market", "backtesting"),
+    ("market", "collection"),
+    ("market", "model"),
+    ("operations", "reporting"),
+    ("reporting", "calibration"),
+    ("reporting", "operations"),
+    ("sources", "model"),
+}
+
+PACKAGE_BOUNDARY_DOC = Path("docs/operations/package-boundaries.md")
+
+
+def source_package(path):
+    relative = path.relative_to(Path("src/weather"))
+    if len(relative.parts) < 2:
+        return None
+    package = relative.parts[0]
+    return package if package in PACKAGE_ROOTS else None
+
+
+def imported_weather_package(module_name):
+    if module_name == "weather" or not module_name.startswith("weather."):
+        return None
+    parts = module_name.split(".")
+    if len(parts) < 2:
+        return None
+    package = parts[1]
+    if package in PACKAGE_ROOTS or package in SHARED_PACKAGE_ROOTS:
+        return package
+    return None
+
+
+def weather_import_modules(tree):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            yield node.module
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name
+
+
+def observed_package_edges():
+    edges = {}
+    for path in Path("src/weather").rglob("*.py"):
+        source = source_package(path)
+        if not source:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for module_name in weather_import_modules(tree):
+            target = imported_weather_package(module_name)
+            if not target or target == source:
+                continue
+            edges.setdefault((source, target), set()).add(str(path))
+    return edges
 
 
 def test_migrated_modules_do_not_mutate_sys_path():
@@ -225,6 +371,25 @@ def test_app_and_tests_use_canonical_imports_for_internal_modules():
     assert offenders == {}
 
 
+def test_legacy_wrappers_forward_import_and_module_execution_to_weather_package():
+    offenders = {}
+    for path in Path("src").glob("*.py"):
+        if path.name == "__init__.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        findings = []
+        if "Compatibility wrapper for weather." not in text:
+            findings.append("missing compatibility docstring")
+        if '_TARGET = "weather.' not in text:
+            findings.append("missing _TARGET weather module")
+        if '_runpy.run_module(_TARGET, run_name="__main__")' not in text:
+            findings.append("missing module execution forwarding")
+        if findings:
+            offenders[str(path)] = findings
+
+    assert offenders == {}
+
+
 def test_source_modules_do_not_import_backtest_cli_for_shared_helpers():
     offenders = {}
     for path in SOURCE_MODULES_EXCEPT_BACKTEST_CLI:
@@ -263,6 +428,65 @@ def test_model_runtime_uses_native_temperature_accessors():
     for path in NATIVE_RUNTIME_MODULES:
         text = path.read_text(encoding="utf-8")
         matches = [match.group(0) for match in LEGACY_TEMPERATURE_READ_RE.finditer(text)]
+        if matches:
+            offenders[str(path)] = matches
+
+    assert offenders == {}
+
+
+def test_temperature_rounding_uses_canonical_helper():
+    offenders = {}
+    for path in Path("src/weather").rglob("*.py"):
+        if path in ROUND_HALF_UP_ALLOWED_DEFINITION_MODULES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        matches = [match.group(0) for match in ROUND_HALF_UP_DEFINITION_RE.finditer(text)]
+        if matches:
+            offenders[str(path)] = matches
+
+    assert offenders == {}
+
+
+def test_package_modules_do_not_use_internal_compatibility_import_fallbacks():
+    marker_offenders = {}
+    import_error_offenders = {}
+    for path in Path("src/weather").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        markers = [marker for marker in COMPATIBILITY_FALLBACK_MARKERS if marker in text]
+        if markers:
+            marker_offenders[str(path)] = markers
+        matches = [match.group(0) for match in IMPORT_ERROR_HANDLER_RE.finditer(text)]
+        if matches and path not in ALLOWED_OPTIONAL_IMPORT_ERROR_MODULES:
+            import_error_offenders[str(path)] = matches
+
+    assert marker_offenders == {}
+    assert import_error_offenders == {}
+
+
+def test_package_dependency_edges_follow_documented_ratchet():
+    assert PACKAGE_BOUNDARY_DOC.exists()
+    observed = observed_package_edges()
+    documented = ALLOWED_PACKAGE_EDGES | TRANSITIONAL_PACKAGE_EDGES
+    undocumented = {
+        f"{source}->{target}": sorted(files)
+        for (source, target), files in observed.items()
+        if target not in SHARED_PACKAGE_ROOTS and (source, target) not in documented
+    }
+    stale_transitional = {
+        f"{source}->{target}"
+        for source, target in TRANSITIONAL_PACKAGE_EDGES
+        if (source, target) not in observed
+    }
+
+    assert undocumented == {}
+    assert stale_transitional == set()
+
+
+def test_model_runtime_uses_calibration_runtime_boundary():
+    offenders = {}
+    for path in Path("src/weather/model").glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        matches = [match.group(0) for match in MODEL_RUNTIME_CALIBRATION_IMPORT_RE.finditer(text)]
         if matches:
             offenders[str(path)] = matches
 

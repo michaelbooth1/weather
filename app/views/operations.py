@@ -2,12 +2,15 @@
 
 import streamlit as st
 
+from app.table_utils import arrow_safe_records
+
 
 def render_operations_page():
     from weather.operations.ops_monitor import (
         ensure_clob_book_loop,
         ensure_weather_loop,
         loop_status_rows,
+        nightly_retrain_status_rows,
         restart_clob_loop,
         restart_weather_loop,
         scheduled_task_rows,
@@ -26,6 +29,7 @@ def render_operations_page():
         return {
             "current_identity": current_identity,
             "loops": loop_status_rows(current_identity),
+            "nightly": nightly_retrain_status_rows(),
             "tasks": scheduled_task_rows(),
         }
 
@@ -46,6 +50,7 @@ def render_operations_page():
     snapshot = cached_ops_snapshot()
     current_identity = snapshot["current_identity"]
     loop_rows = snapshot["loops"]
+    nightly_row = snapshot["nightly"]
     task_rows = snapshot["tasks"]
     weather_row = next(row for row in loop_rows if row["Loop"] == "Weather snapshots")
     clob_row = next(row for row in loop_rows if row["Loop"] == "CLOB books")
@@ -58,13 +63,14 @@ def render_operations_page():
         with st.expander("Last Action", expanded=True):
             st.json(st.session_state["ops_last_action"])
 
-    status_cols = st.columns(4)
+    status_cols = st.columns(5)
     status_cols[0].metric("Weather", weather_row["State"] or "UNKNOWN")
     status_cols[1].metric("CLOB", clob_row["State"] or "UNKNOWN")
     stale_count = sum(1 for row in loop_rows if row["Code State"] == "different")
     status_cols[2].metric("Code Drift", stale_count)
+    status_cols[3].metric("Nightly", nightly_row["State"] or "UNKNOWN")
     missing_tasks = sum(1 for row in task_rows if not row.get("Registered"))
-    status_cols[3].metric("Missing Tasks", missing_tasks)
+    status_cols[4].metric("Missing Tasks", missing_tasks)
 
     action_cols = st.columns(3)
     if action_cols[0].button("Start / Repair All", type="primary", width="stretch"):
@@ -91,7 +97,7 @@ def render_operations_page():
         "Last Error",
     ]
     st.dataframe(
-        [{key: row.get(key) for key in visible_loop_cols} for row in loop_rows],
+        arrow_safe_records([{key: row.get(key) for key in visible_loop_cols} for row in loop_rows]),
         width="stretch",
         hide_index=True,
     )
@@ -127,12 +133,15 @@ def render_operations_page():
             if st.button("Pause CLOB", width="stretch"):
                 run_ops_action("pause_clob", lambda: set_clob_paused(True))
 
+    st.subheader("Nightly Self-Improvement")
+    st.dataframe(arrow_safe_records([nightly_row]), width="stretch", hide_index=True)
+
     st.subheader("Supervisor Tasks")
-    st.dataframe(task_rows, width="stretch", hide_index=True)
+    st.dataframe(arrow_safe_records(task_rows), width="stretch", hide_index=True)
 
     st.subheader("Files")
     st.dataframe(
-        [
+        arrow_safe_records([
             {
                 "Loop": row["Loop"],
                 "Status File": row["Status File"],
@@ -140,7 +149,7 @@ def render_operations_page():
                 "Console Log": row["Console Log"],
             }
             for row in loop_rows
-        ],
+        ]),
         width="stretch",
         hide_index=True,
     )

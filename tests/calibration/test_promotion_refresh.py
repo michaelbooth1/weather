@@ -11,8 +11,12 @@ from weather.reporting.promotion_refresh import (  # noqa: E402
     _candidate_summary,
     _family_specs,
     _serving_blocking_source_freshness_rows,
+    build_gap_owner_table,
     build_family_decisions,
+    market_skill_diagnostics,
+    model_skill_claims,
     promotion_readiness,
+    write_gap_experiment_artifacts,
     write_report,
 )
 
@@ -176,6 +180,45 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(decisions["blocked_markets"], ["nyc"])
         self.assertIn("global replay gate failed", decisions["markets"][0]["reason"])
 
+    def test_blocked_validation_gate_blocks_otherwise_passing_candidate(self):
+        specs = [_spec("nyc", "New York")]
+        candidate_report = {
+            "replay_gate": {"global_ok": True},
+            "market_rows": [
+                {
+                    "market_id": "nyc",
+                    "verdict": "PASS",
+                    "reason": "passes local gates",
+                    "days": 3,
+                    "snapshots": 9,
+                    "rows": 27,
+                    "comparison": {
+                        "candidate_brier": 0.02,
+                        "current_brier": 0.04,
+                        "market_brier": 0.03,
+                        "delta_vs_current": -0.02,
+                        "delta_vs_market": -0.01,
+                    },
+                    "blocked_validation": {
+                        "passed": False,
+                        "verdict": "BLOCK",
+                        "reasons": ["daily-first candidate regresses current by +0.0100 > 0.0030"],
+                    },
+                },
+            ],
+        }
+
+        decisions = build_family_decisions(
+            {"entries": [{"market_id": "nyc"}]},
+            [{"market": "nyc", "trust_score": 80, "grade": "Strong", "settled_days": 3}],
+            candidate_report,
+            specs=specs,
+        )
+
+        self.assertEqual(decisions["promote_markets"], [])
+        self.assertEqual(decisions["blocked_markets"], ["nyc"])
+        self.assertIn("blocked validation failed", decisions["markets"][0]["reason"])
+
     def test_missing_candidate_rows_stay_shadow_not_promoted(self):
         decisions = build_family_decisions(
             {"entries": []},
@@ -316,6 +359,101 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(rows[0]["excess_brier_rows"], 5.0)
         self.assertEqual(rows[2]["slice"], "market")
 
+    def test_gap_owner_table_assigns_experiments_and_claim_lanes(self):
+        drivers = [
+            {
+                "slice": "settlement_distance",
+                "group": "0",
+                "rows": 100,
+                "delta_vs_market": 0.05,
+                "excess_brier_rows": 5.0,
+            },
+            {
+                "slice": "clob_taxonomy",
+                "group": "market_lead",
+                "rows": 20,
+                "delta_vs_market": 0.10,
+                "excess_brier_rows": 2.0,
+            },
+        ]
+        decisions = {
+            "markets": [
+                {"market_id": "nyc", "metrics": {"delta_vs_market": 0.02}},
+                {"market_id": "seattle", "metrics": {"delta_vs_market": 0.01}},
+            ]
+        }
+
+        rows = build_gap_owner_table(drivers, decisions)
+
+        self.assertEqual(rows[0]["owner"], "settlement-distance winner catch-up")
+        self.assertIn("settlement_distance_0", rows[0]["experiment_artifact"])
+        self.assertTrue(rows[0]["counts_toward_core_skill_claim"])
+        self.assertEqual(rows[0]["affected_markets"], ["nyc", "seattle"])
+        self.assertEqual(rows[1]["claim_lane"], "market_informed_clob_overlay")
+        self.assertFalse(rows[1]["counts_toward_core_skill_claim"])
+
+    def test_market_skill_claims_separate_core_and_clob_lanes(self):
+        claims = model_skill_claims(
+            {
+                "aggregate": {"delta_vs_market": 0.01},
+                "blocked_validation": {"passed": True},
+            },
+            [{"claim_lane": "market_informed_clob_overlay"}],
+        )
+
+        self.assertFalse(claims["weather_only_core_model"]["broad_market_skill_claim_allowed"])
+        self.assertFalse(claims["market_informed_clob_overlay"]["counts_toward_core_skill_claim"])
+        self.assertTrue(claims["market_informed_clob_overlay"]["may_support_quote_gating"])
+
+    def test_market_skill_diagnostics_targets_nyc_and_seattle(self):
+        rows = market_skill_diagnostics(
+            {
+                "slices": {
+                    "by_market": [
+                        {"group": "nyc", "candidate_brier": 0.08, "market_brier": 0.06, "delta_vs_market": 0.02},
+                    ]
+                }
+            },
+            {
+                "markets": [
+                    {
+                        "market_id": "nyc",
+                        "action": "KEEP_SHADOW",
+                        "reason": "not proven better than market",
+                        "metrics": {"candidate_brier": 0.08, "market_brier": 0.06, "delta_vs_market": 0.02},
+                    }
+                ]
+            },
+        )
+
+        by_market = {row["market_id"]: row for row in rows}
+        self.assertEqual(by_market["nyc"]["action"], "KEEP_SHADOW")
+        self.assertIn("nyc_residual", by_market["nyc"]["experiment_artifact"])
+        self.assertEqual(by_market["seattle"]["next_experiment"], "seattle_residual_calibration_daily_first")
+
+    def test_write_gap_experiment_artifacts_creates_open_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [{
+                "owner": "exact-band calibration",
+                "roadmap_owner": "Item 48",
+                "slice": "band_type",
+                "group": "eq",
+                "excess_brier_rows": 2.5,
+                "affected_markets": ["nyc"],
+                "claim_lane": "weather_only_core_model",
+                "counts_toward_core_skill_claim": True,
+                "next_experiment": "exact_band_calibration_daily_first",
+                "experiment_artifact": str(Path(tmp) / "exact_band.json"),
+                "clearance_rule": "aggregate delta_vs_market must be <= 0",
+            }]
+
+            written = write_gap_experiment_artifacts(rows)
+            payload = Path(written[0]).read_text(encoding="utf-8")
+
+        self.assertTrue(rows[0]["experiment_artifact_exists"])
+        self.assertIn("market_skill_gap_experiment_v0.1", payload)
+        self.assertIn("paired_daily_first", payload)
+
     def test_candidate_source_freshness_rows_include_failed_and_stale_groups(self):
         rows = _candidate_source_freshness_rows({
             "slices": {
@@ -378,6 +516,9 @@ class TestPromotionRefresh(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
 
         self.assertIn("### Source Freshness Slice", text)
+        self.assertIn("### Model-Skill Claim Lanes", text)
+        self.assertIn("### Gap Owner Experiments", text)
+        self.assertIn("source_freshness_repair_daily_first", text)
         self.assertIn("### Shadow/Block Explanation Detail", text)
         self.assertIn("not proven better than market on pinned rows", text)
         self.assertIn("failed:wu_history", text)

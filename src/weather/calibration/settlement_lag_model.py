@@ -28,6 +28,7 @@ from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_id
 from weather.model.feature_store import row_temp_native
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
+from weather.units import round_half_up
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("settlement_lag_model.json")
@@ -37,15 +38,6 @@ DEFAULT_METAR_ROOT = data_path() / "metar" / "cyyz" / "hourly"
 CUTOFF_HOURS = tuple(range(8, 21))
 SEASON_START = (5, 10)
 SEASON_END = (6, 15)
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
 
 
 def snapshot_value(row, *columns):

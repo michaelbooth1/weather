@@ -1,4 +1,3 @@
-import math
 from collections import Counter
 from datetime import datetime
 
@@ -11,6 +10,7 @@ from weather.model.feature_store import (
     row_same_day_max_native,
     row_temp_native,
 )
+from weather.units import round_half_up
 
 
 SETTLEMENT_PRINT_ALIAS_WINDOW_MINUTES = 10
@@ -280,9 +280,7 @@ class ModelUtilsMixin:
         return self.max_row_temp(data.get("rows"))
 
     def round_half_up(self, value):
-        if value is None:
-            return None
-        return int(math.floor(float(value) + 0.5))
+        return round_half_up(value)
 
     def to_number(self, value):
         if value in (None, "", "MSNG"):

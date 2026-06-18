@@ -13,10 +13,12 @@ import math
 import statistics
 import sys
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from weather.io import write_csv_rows, write_json_atomic
 from weather.paths import data_path
+from weather.time import utc_iso
 
 from weather.backtesting.settlement_io import DEFAULT_SNAPSHOTS_ROOT
 from weather.reporting.formatting import markdown_table
@@ -32,11 +34,13 @@ from weather.sources.supplemental_station_validation import (
 )
 from weather.sources.supplemental_stations import load_registry, source_root, supplemental_sources
 from weather.sources.wu_history import parse_date
+from weather.units import round_half_up, to_float
 
 
 SCHEMA_VERSION = "source_redundancy_v0.3"
 TRUTH_SCHEMA_VERSION = "daily_source_truth_v0.3"
 FORECAST_ENSEMBLE_SCHEMA_VERSION = "forecast_ensemble_features_v0.1"
+LIVE_SOURCE_STATUS_SCHEMA_VERSION = "live_source_status_cases_v0.1"
 
 DEFAULT_JSON_OUT = data_path() / "backtest" / "source_redundancy.json"
 DEFAULT_REPORT = data_path() / "backtest" / "source_redundancy_report.md"
@@ -63,13 +67,14 @@ SOURCE_LABELS = {
     "ghcnh": "NOAA GHCNh station",
     "reanalysis": "Open-Meteo ERA5 reanalysis",
 }
+TORONTO_OFFICIAL_CANADIAN_SOURCES = ("eccc_swob", "eccc_citypage", "eccc_gem")
 DISAGREEMENT_THRESHOLD = 1.5
 SUPPLEMENTAL_SOURCE_PREFIX = "ghcnh_supplemental__"
 SUPPLEMENTAL_FEATURE_FAMILY = "nearby_station_historical_only"
 
 
 def utc_now():
-    return datetime.now(timezone.utc).isoformat()
+    return utc_iso()
 
 
 def iter_dates(start_date, end_date):
@@ -93,25 +98,6 @@ def split_date_runs(days):
         start = prev = current
     runs.append((start, prev))
     return runs
-
-
-def to_float(value):
-    if value in (None, "", "None", "null", "NaN", "MSNG"):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(number):
-        return None
-    return number
-
-
-def round_half_up(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return int(math.floor(value + 0.5))
 
 
 def mean(values):
@@ -683,6 +669,143 @@ def forecast_summary(rows):
     }
 
 
+def source_status_rows_from_folder(folder):
+    path = Path(folder) / "source_status_long.csv"
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except csv.Error:
+        return []
+
+
+def source_status_sort_time(row):
+    parsed = parse_source_status_time(row)
+    return parsed.timestamp() if parsed else float("-inf")
+
+
+def parse_source_status_time(row):
+    for key in ("captured_at_utc", "captured_at_local", "fetched_at"):
+        value = (row or {}).get(key)
+        if not value:
+            continue
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return None
+
+
+def latest_source_status_rows(folder):
+    rows = source_status_rows_from_folder(folder)
+    if not rows:
+        return []
+    latest = max(rows, key=source_status_sort_time)
+    snapshot_id = latest.get("snapshot_id")
+    if snapshot_id:
+        return [row for row in rows if row.get("snapshot_id") == snapshot_id]
+    latest_time = source_status_sort_time(latest)
+    return [row for row in rows if source_status_sort_time(row) == latest_time]
+
+
+def source_status_bucket(row):
+    status = str((row or {}).get("status") or "").strip().lower()
+    ok = str((row or {}).get("ok") or "").strip().lower() in {"1", "true", "yes", "ok"}
+    stale = str((row or {}).get("stale") or "").strip().lower() in {"1", "true", "yes"}
+    if ok and not stale and status in {"", "fresh", "fresh_cache", "ok", "available"}:
+        return "fresh"
+    if status in {"stale", "stale_cache", "rate_limited_cache", "expired"} or stale:
+        return "fallback"
+    if status in {"failed", "error", "missing", "rate_limited"} or not ok:
+        return "failed"
+    return "unknown"
+
+
+def source_status_case_for_folder(folder):
+    folder = Path(folder)
+    spec = spec_for_slug(folder.name)
+    if spec is None:
+        return None
+    rows = latest_source_status_rows(folder)
+    if not rows:
+        return None
+    by_source = {row.get("source"): row for row in rows if row.get("source")}
+    buckets = {source: source_status_bucket(row) for source, row in by_source.items()}
+    failed_sources = sorted(source for source, bucket in buckets.items() if bucket == "failed")
+    fallback_sources = sorted(source for source, bucket in buckets.items() if bucket == "fallback")
+    unknown_sources = sorted(source for source, bucket in buckets.items() if bucket == "unknown")
+    official_sources = [
+        source for source in TORONTO_OFFICIAL_CANADIAN_SOURCES
+        if source in getattr(spec, "sources", ())
+    ]
+    official_unavailable = sorted(
+        source for source in official_sources
+        if buckets.get(source) != "fresh"
+    )
+    if not (failed_sources or fallback_sources or unknown_sources or official_unavailable):
+        return None
+    latest = rows[0]
+    target = date_from_event_slug(folder.name)
+    return {
+        "schema_version": LIVE_SOURCE_STATUS_SCHEMA_VERSION,
+        "market_id": spec.id,
+        "event_slug": folder.name,
+        "target_date": target.isoformat() if target else target_date_for_folder(folder),
+        "snapshot_id": latest.get("snapshot_id"),
+        "captured_at_utc": latest.get("captured_at_utc"),
+        "source_count": len(rows),
+        "failed_sources": failed_sources,
+        "fallback_sources": fallback_sources,
+        "unknown_sources": unknown_sources,
+        "official_canadian_sources": official_sources,
+        "official_canadian_unavailable_sources": official_unavailable,
+        "source_status_counts": dict(sorted(Counter(buckets.values()).items())),
+        "sources": {
+            source: {
+                "status": row.get("status"),
+                "bucket": buckets.get(source),
+                "ok": row.get("ok"),
+                "stale": row.get("stale"),
+                "error": row.get("error"),
+            }
+            for source, row in sorted(by_source.items())
+        },
+    }
+
+
+def live_source_status_cases(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, market_ids=None):
+    ids = set(market_ids or [])
+    cases = []
+    for path in sorted(Path(snapshots_root).glob("*/source_status_long.csv")):
+        folder = path.parent
+        spec = spec_for_slug(folder.name)
+        if spec is None or (ids and spec.id not in ids):
+            continue
+        case = source_status_case_for_folder(folder)
+        if case:
+            cases.append(case)
+    official_cases = [
+        case for case in cases
+        if case.get("official_canadian_unavailable_sources")
+    ]
+    return {
+        "schema_version": LIVE_SOURCE_STATUS_SCHEMA_VERSION,
+        "case_count": len(cases),
+        "official_canadian_case_count": len(official_cases),
+        "cases": cases,
+        "summary": {
+            "failed_source_count": sum(len(case.get("failed_sources") or []) for case in cases),
+            "fallback_source_count": sum(len(case.get("fallback_sources") or []) for case in cases),
+            "official_canadian_unavailable_source_count": sum(
+                len(case.get("official_canadian_unavailable_sources") or [])
+                for case in cases
+            ),
+            "markets": sorted({case.get("market_id") for case in cases}),
+        },
+    }
+
+
 def build_payload(
     market_ids=None,
     start_date=None,
@@ -743,6 +866,10 @@ def build_payload(
         snapshots_root=snapshots_root,
         market_ids=market_ids,
     )
+    live_source_cases = live_source_status_cases(
+        snapshots_root=snapshots_root,
+        market_ids=market_ids,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -762,6 +889,7 @@ def build_payload(
         "summary": fleet_summary(markets),
         "forecast_ensemble": forecast_summary(forecast_rows),
         "forecast_ensemble_rows": forecast_rows,
+        "live_source_status_cases": live_source_cases,
         "supplemental_nearby_features": supplemental_feature_summary(markets),
     }
 
@@ -878,10 +1006,7 @@ def supplemental_feature_summary(markets):
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def truth_csv_rows(payload):
@@ -897,13 +1022,7 @@ def truth_csv_rows(payload):
 
 
 def write_csv(path, rows, fieldnames):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
+    return write_csv_rows(path, fieldnames, rows)
 
 
 TRUTH_COLUMNS = [
@@ -1039,6 +1158,7 @@ def write_markdown(path, payload):
                 command.get("command"),
             ])
     forecast = payload.get("forecast_ensemble") or {}
+    live_source_cases = payload.get("live_source_status_cases") or {}
     supplemental_feature = payload.get("supplemental_nearby_features") or {}
     supplemental_rows = []
     for item in supplemental_feature.get("markets") or []:
@@ -1063,6 +1183,16 @@ def write_markdown(path, payload):
             fmt_num(item.get("avg_source_count")),
             fmt_num(item.get("avg_forecast_disagreement")),
             fmt_num(item.get("max_forecast_disagreement")),
+        ])
+    live_source_rows = []
+    for case in live_source_cases.get("cases") or []:
+        live_source_rows.append([
+            case.get("market_id"),
+            case.get("event_slug"),
+            case.get("snapshot_id"),
+            "|".join(case.get("failed_sources") or []) or "-",
+            "|".join(case.get("fallback_sources") or []) or "-",
+            "|".join(case.get("official_canadian_unavailable_sources") or []) or "-",
         ])
     lines = [
         "# Source Redundancy And Gap-Filling Report",
@@ -1113,6 +1243,11 @@ def write_markdown(path, payload):
     lines += markdown_table(
         ["Market", "Snapshots", "2+ Src", "Avg Src", "Avg Disagree", "Max Disagree"],
         forecast_rows,
+    )
+    lines += ["", "## Live Source-Status Cases", ""]
+    lines += markdown_table(
+        ["Market", "Event", "Snapshot", "Failed", "Fallback", "Official Canadian Unavailable"],
+        live_source_rows,
     )
     lines += ["", "## Targeted Refetch Commands", ""]
     lines += markdown_table(

@@ -1,4 +1,4 @@
-# 3. Forecast Archive [CLOSED]
+# 3. Forecast Archive [COMPLETE]
 
 - [x] Start saving Weather.com hourly forecast snapshots every 10 minutes.
 - [x] Start saving Open-Meteo hourly forecast snapshots every 10 minutes.

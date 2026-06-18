@@ -1,4 +1,4 @@
-# 1. Snapshot Analytics [CLOSED]
+# 1. Snapshot Analytics [COMPLETE]
 
 - [x] Build a notebook or CLI report over `data/snapshots/.../snapshots_long.csv`.
 - [x] Plot model probability, market yes price, and edge over time for each bucket.

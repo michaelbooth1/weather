@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from weather.reporting.progress_audit import (  # noqa: E402
     classify_trend,
+    core_model_trend_claim,
     load_market_day_labels,
     parse_backtest_report,
     parse_roadmap_baselines,
@@ -166,6 +167,68 @@ class TestProgressAudit(unittest.TestCase):
         self.assertTrue(trend["candidate_gate_improved"])
         self.assertFalse(trend["model_beats_market_on_current_headline"])
         self.assertTrue(trend["operational_capture_running"])
+
+    def test_core_model_trend_claim_marks_june17_pattern_directional_not_proven(self):
+        dates = [f"2026-06-{day:02d}" for day in range(6, 17)]
+        skills = [-1.40, -0.26, -0.36, -0.15, -0.20, -0.43, -0.54, -0.65, -0.44, -0.05, 0.03]
+        history = {
+            "by_date": [
+                {
+                    "target_date": target_date,
+                    "market_days": 12,
+                    "scored_rows": 1000,
+                    "model_brier": 0.05 - (index * 0.0005),
+                    "market_brier": 0.04,
+                    "brier_skill_score": skill,
+                    "final_top_hit_rate": 1.0,
+                }
+                for index, (target_date, skill) in enumerate(zip(dates, skills))
+            ],
+            "days": [
+                {
+                    "target_date": target_date,
+                    "status": "scored",
+                    "quality_grade": "partial" if index >= 4 else "complete",
+                    "n": 100,
+                    "model_brier": 0.05 - (index * 0.0005),
+                    "market_brier": 0.04,
+                    "model_logloss": 0.15,
+                    "market_logloss": 0.12,
+                    "base_rate": 0.09,
+                }
+                for index, target_date in enumerate(dates)
+                for _ in range(12)
+            ],
+        }
+        fleet = {
+            "status": "CRITICAL",
+            "live_forward_slo": {"counts_toward_live_forward_gate": False},
+        }
+        variant = {
+            "delta_vs_baseline": {
+                "scored_rows": 269720,
+                "unique_observation_count": 0,
+                "market_day_count": 0,
+            }
+        }
+
+        claim = core_model_trend_claim(history, fleet=fleet, variant_evidence=variant)
+
+        self.assertEqual(claim["status"], "DIRECTIONAL")
+        self.assertFalse(claim["claim_allowed"])
+        self.assertEqual(claim["summary"]["comparable_day_count"], 11)
+        self.assertEqual(claim["summary"]["positive_skill_days"], 1)
+        self.assertGreater(claim["summary"]["brier_skill_slope_per_day"], 0)
+        self.assertIn("need 3 positive-skill comparable days; have 1", claim["threshold_failures"])
+        self.assertTrue(
+            any("live-forward SLO" in failure for failure in claim["threshold_failures"])
+        )
+        self.assertTrue(
+            any("unique observations changed by 0" in failure for failure in claim["threshold_failures"])
+        )
+        latest = claim["daily_sequence"][-1]
+        self.assertTrue(latest["counts_toward_directional_trend"])
+        self.assertFalse(latest["counts_toward_proven_claim"])
 
 
 if __name__ == "__main__":

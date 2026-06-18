@@ -1,8 +1,6 @@
 import csv
 import json
-import math
-from datetime import date, datetime, timedelta
-from pathlib import Path
+from datetime import date
 from weather.paths import data_path
 
 from collections import Counter, defaultdict
@@ -118,7 +116,7 @@ def main():
         if last_high_minute > cutoff_minute:
             peaked_after_2_23 += 1
             
-    print(f"Climatological Analysis of Peak Temperature Timing:")
+    print("Climatological Analysis of Peak Temperature Timing:")
     print(f"Total days analyzed: {total_days}")
     print(f"Days where peak temperature occurred AFTER 2:23 PM: {peaked_after_2_23} ({peaked_after_2_23 / total_days * 100:.1f}%)")
     print(f"Days where peak temperature occurred BEFORE or AT 2:23 PM: {total_days - peaked_after_2_23} ({(total_days - peaked_after_2_23) / total_days * 100:.1f}%)")

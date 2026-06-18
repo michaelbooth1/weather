@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 import requests
 
 from weather.sources.historical_schema import to_float
+from weather.units import c_to_native
 
 
 MARINE_CONTEXT_SCHEMA_VERSION = "marine_context_v0.1"
@@ -210,13 +211,6 @@ def parse_iso_time(value):
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def c_to_native(value, unit):
-    value = to_float(value)
-    if value is None:
-        return None
-    return value * 9.0 / 5.0 + 32.0 if str(unit).upper() == "F" else value
 
 
 def ms_to_kmh(value):

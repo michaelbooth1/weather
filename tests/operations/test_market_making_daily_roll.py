@@ -96,6 +96,51 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertEqual(second["status"], "already_running")
         self.assertEqual(saved["pid"], 4321)
         self.assertEqual(saved["action"], "noop")
+        self.assertEqual(first["evidence_mode"], "operator_drill")
+        self.assertFalse(first["counts_toward_live_forward_gate"])
+
+    def test_after_window_roll_is_post_settlement_and_non_countable(self):
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 4321
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            payload = start_for_date(
+                "2026-06-16",
+                status_path=tmp / "daily_roll_status.json",
+                console_log_path=tmp / "daily_roll_console.log",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-17T00:31:18+00:00",
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+
+        self.assertEqual(payload["evidence_mode"], "post_settlement_evaluation")
+        self.assertFalse(payload["counts_toward_live_forward_gate"])
+        self.assertIn("after active-day evidence window", payload["evidence_classification"]["reason"])
+        self.assertIn("--evidence-mode", calls[0])
+        self.assertIn("post_settlement_evaluation", calls[0])
+
+    def test_active_window_roll_counts_as_live_forward_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            payload = start_for_date(
+                "2026-06-16",
+                status_path=tmp / "daily_roll_status.json",
+                console_log_path=tmp / "daily_roll_console.log",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-16T23:30:00+00:00",
+                launcher=lambda command, repo_root, console_log_path: 4321,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+
+        self.assertEqual(payload["evidence_mode"], "active_day_live_forward")
+        self.assertTrue(payload["counts_toward_live_forward_gate"])
 
     def test_force_allows_manual_restart_for_same_date(self):
         calls = []

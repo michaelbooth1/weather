@@ -13,54 +13,30 @@ from weather.paths import data_path
 
 import requests
 
-try:
-    from .market_config import config_from_event
-    from .market_microstructure_constants import (
-        BOOK_LEVEL_COLUMNS,
-        BOOK_SUMMARY_COLUMNS,
-        CLOB_BASE_URL,
-        CLOB_WS_URL,
-        DEFAULT_BATCH_SIZE,
-        DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-        DEFAULT_INCLUDE_PRICE_HISTORY,
-        DEFAULT_INCLUDE_WS_EVENTS,
-        DEFAULT_WS_CONNECT_TIMEOUT,
-        DEFAULT_WS_HEARTBEAT_SECONDS,
-        DEFAULT_WS_MESSAGE_LIMIT,
-        DEFAULT_WS_SECONDS,
-        FIXED_EXECUTION_SIZES,
-        PRICE_HISTORY_COLUMNS,
-        TOKEN_COLUMNS,
-        WS_EVENT_COLUMNS,
-    )
-    from .market_microstructure_features import write_clob_feature_rows
-    from .market_registry import all_specs, spec_for_id
-    from .polymarket_client import PolymarketClient
-    from ..model.model_sources import request_with_retries
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.market.market_config import config_from_event
-    from weather.market.market_microstructure_constants import (
-        BOOK_LEVEL_COLUMNS,
-        BOOK_SUMMARY_COLUMNS,
-        CLOB_BASE_URL,
-        CLOB_WS_URL,
-        DEFAULT_BATCH_SIZE,
-        DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-        DEFAULT_INCLUDE_PRICE_HISTORY,
-        DEFAULT_INCLUDE_WS_EVENTS,
-        DEFAULT_WS_CONNECT_TIMEOUT,
-        DEFAULT_WS_HEARTBEAT_SECONDS,
-        DEFAULT_WS_MESSAGE_LIMIT,
-        DEFAULT_WS_SECONDS,
-        FIXED_EXECUTION_SIZES,
-        PRICE_HISTORY_COLUMNS,
-        TOKEN_COLUMNS,
-        WS_EVENT_COLUMNS,
-    )
-    from weather.market.market_microstructure_features import write_clob_feature_rows
-    from weather.market.market_registry import all_specs, spec_for_id
-    from weather.market.polymarket_client import PolymarketClient
-    from weather.model.model_sources import request_with_retries
+from weather.io import normalize_csv_row
+from weather.market.market_config import config_from_event
+from weather.market.market_microstructure_constants import (
+    BOOK_LEVEL_COLUMNS,
+    BOOK_SUMMARY_COLUMNS,
+    CLOB_BASE_URL,
+    CLOB_WS_URL,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+    DEFAULT_INCLUDE_PRICE_HISTORY,
+    DEFAULT_INCLUDE_WS_EVENTS,
+    DEFAULT_WS_CONNECT_TIMEOUT,
+    DEFAULT_WS_HEARTBEAT_SECONDS,
+    DEFAULT_WS_MESSAGE_LIMIT,
+    DEFAULT_WS_SECONDS,
+    FIXED_EXECUTION_SIZES,
+    PRICE_HISTORY_COLUMNS,
+    TOKEN_COLUMNS,
+    WS_EVENT_COLUMNS,
+)
+from weather.market.market_microstructure_features import write_clob_feature_rows
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.market.polymarket_client import PolymarketClient
+from weather.model.model_sources import request_with_retries
 
 
 def utc_now():
@@ -518,7 +494,7 @@ class MarketMicrostructureStore:
             writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
             if write_header:
                 writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows(normalize_csv_row(row) for row in rows)
 
     def append_jsonl(self, path, payload):
         self.root.mkdir(parents=True, exist_ok=True)

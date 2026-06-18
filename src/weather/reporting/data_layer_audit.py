@@ -4,6 +4,9 @@ This report answers a broader question than collection health: are we capturing
 the right data, often enough, with enough history to improve the model? It
 combines snapshot cadence/completeness, historical source coverage, loop state,
 and known market-microstructure gaps into one durable artifact.
+
+Ownership note: keep audit assembly and CLI glue here. Markdown rendering
+belongs in ``weather.reporting.data_layer_audit_report``.
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.io import read_csv_rows as io_read_csv_rows, read_json as io_read_json, write_json_atomic
 from weather.paths import data_path
 
 from weather.reporting.formatting import (
@@ -77,6 +81,25 @@ DEFAULT_AUDIT_THRESHOLDS = {
     "max_reanalysis_raw_only_days": 0,
     "max_quarantined_impossible_observations": 0,
 }
+
+REQUIRED_LOW_FILL_FIELDS = {
+    "best_bid",
+    "best_ask",
+    "last_trade_price",
+    "feature_schema_version",
+}
+INTENTIONALLY_SPARSE_LOW_FILL_PREFIXES = (
+    "official_canadian_",
+    "eccc_",
+    "nws_",
+    "trigger_",
+)
+RETIRED_LOW_FILL_FIELDS = {
+    "bin_value_hi_c",
+}
+RETIRED_LOW_FILL_PREFIXES = (
+    "runtime_",
+)
 
 HISTORICAL_SOURCE_ROOTS = {
     "wu": data_path() / "wunderground",
@@ -253,24 +276,14 @@ def scan_snapshot_csv(path):
 
 
 def read_csv_dicts(path):
-    path = Path(path)
-    if not path.exists():
-        return []
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            return list(csv.DictReader(handle))
-    except (OSError, csv.Error):
+        return io_read_csv_rows(path, attach_diagnostics=True)
+    except OSError:
         return []
 
 
 def read_json_dict(path):
-    path = Path(path)
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    return io_read_json(path, default={})
 
 
 def truthy(value):
@@ -340,6 +353,10 @@ def replay_status_summary_for_folder(folder):
         ).items()))
     return {
         "row_count": len(rows),
+        "folder_status": summary.get("folder_status"),
+        "captured_count": summary.get("captured_count"),
+        "reconstructed_count": summary.get("reconstructed_count"),
+        "evaluation_only_count": summary.get("evaluation_only_count"),
         "status_counts": status or {},
     }
 
@@ -421,7 +438,16 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     for row in folder_rows:
         by_market[row.get("market_id")].append(row)
         target_date = parse_date(row.get("target_date"))
+        replay = row.get("replay_input_status") or {}
+        replay_folder_status = replay.get("folder_status")
         training_ready = bool(target_date and target_date < training_ready_cutoff)
+        if training_ready and replay_folder_status == "evaluation_only":
+            training_ready = False
+            row["training_ready_reason"] = "replay_status_evaluation_only"
+        elif training_ready:
+            row["training_ready_reason"] = "target_date_before_cutoff"
+        else:
+            row["training_ready_reason"] = "not_settled_cutoff"
         row["training_ready"] = training_ready
         if training_ready:
             training_ready_folder_count += 1
@@ -458,6 +484,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
                 "fill_rate": rate,
             })
     low_fill.sort(key=lambda item: (item["fill_rate"], item["field"]))
+    low_fill_classifications = classify_low_fill_fields(low_fill[:25])
     market_rows = []
     for market_id, rows in sorted(by_market.items()):
         if market_id is None:
@@ -515,6 +542,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "status_counts": dict(sorted(replay_status_counts.items())),
         },
         "low_fill_fields": low_fill[:25],
+        "low_fill_field_classifications": low_fill_classifications,
         "has_market_token_ids": any(row.get("rows_with_market_token_ids", 0) > 0 for row in folder_rows),
         "by_market": market_rows,
         "folders": folder_rows,
@@ -714,12 +742,13 @@ def nearby_history_audit(
         added_period = sorted((dates - canonical_ghcnh_dates) & set(expected_period))
         added_season = sorted((dates - canonical_ghcnh_dates) & set(expected_season))
         supplemental_dates_union |= dates
+        intended_start, intended_end = adopted_intended_window(source, expected_period)
         promotion_gate = promotion_gate_for_source(
             source,
             validation_report=validation_report,
             validation_path=DEFAULT_SUPPLEMENTAL_VALIDATION_OUT,
-            intended_start=min(expected_period) if expected_period else None,
-            intended_end=max(expected_period) if expected_period else None,
+            intended_start=intended_start,
+            intended_end=intended_end,
         )
         if promotion_gate.get("ok"):
             eligible_supplemental_dates_union |= dates
@@ -1003,6 +1032,200 @@ def artifact_gate(snapshot, name, expected_count=None, thresholds=None, severity
         threshold=f">= {required_rate:.1%}",
         action="Backfill or regenerate the missing snapshot artifact before using the folder for training.",
     )
+
+
+def adopted_intended_window(source, expected_period):
+    expected_dates = set(expected_period or [])
+    if not expected_dates:
+        return None, None
+    adopted_dates = set()
+    for window in source.get("adopted_date_windows") or []:
+        start = parse_date(window.get("start"))
+        end = parse_date(window.get("end"))
+        if not start or not end:
+            continue
+        adopted_dates.update(day for day in expected_dates if start <= day <= end)
+    intended = sorted(adopted_dates or expected_dates)
+    if not intended:
+        return None, None
+    return intended[0], intended[-1]
+
+
+def classify_low_fill_field(row):
+    field = row.get("field") or ""
+    if field in REQUIRED_LOW_FILL_FIELDS:
+        classification = "required"
+        owner = "feature contract"
+        action = (
+            "Backfill the field from canonical artifacts or remove it from the "
+            "serving/training contract before using it for broad promotion."
+        )
+    elif field in RETIRED_LOW_FILL_FIELDS or any(field.startswith(prefix) for prefix in RETIRED_LOW_FILL_PREFIXES):
+        classification = "retired"
+        owner = "feature contract"
+        action = "Keep this field out of model inputs and remove it from required schema checks."
+    elif any(field.startswith(prefix) for prefix in INTENTIONALLY_SPARSE_LOW_FILL_PREFIXES):
+        classification = "intentionally_sparse"
+        owner = "source coverage"
+        action = "Document the market/provider scope and keep the field model-exempt outside that scope."
+    else:
+        classification = "required"
+        owner = "feature contract"
+        action = "Classify this field explicitly, then backfill it or remove it from model inputs."
+    return {
+        **row,
+        "classification": classification,
+        "owner": owner,
+        "action": action,
+    }
+
+
+def classify_low_fill_fields(rows):
+    return [classify_low_fill_field(row) for row in rows or []]
+
+
+def _missing_artifact_folders(snapshot, artifact):
+    rows = []
+    for folder in snapshot.get("folders") or []:
+        if not folder.get("training_ready"):
+            continue
+        presence = folder.get("artifact_presence") or {}
+        if presence.get(artifact):
+            continue
+        rows.append({
+            "market_id": folder.get("market_id"),
+            "target_date": folder.get("target_date"),
+            "folder": folder.get("folder"),
+        })
+    return rows
+
+
+def _supplemental_gate_failures(historical):
+    rows = []
+    for market in historical.get("markets") or []:
+        market_id = market.get("market_id")
+        nearby = market.get("nearby_history") or {}
+        for source_row in nearby.get("supplemental_sources") or []:
+            gate_row = source_row.get("promotion_gate") or {}
+            if gate_row.get("ok"):
+                continue
+            rows.append({
+                "market_id": market_id,
+                "source_id": source_row.get("source_id"),
+                "station": source_row.get("station"),
+                "promotion_state": gate_row.get("promotion_state"),
+                "reason": gate_row.get("reason"),
+                "artifact_path": gate_row.get("artifact_path"),
+                "adopted_date_windows": source_row.get("adopted_date_windows") or [],
+            })
+    return rows
+
+
+def _gate_owner(name):
+    if name == "snapshot_low_fill_fields":
+        return "feature contract"
+    if name.startswith("snapshot_artifact_replay") or name == "snapshot_artifact_replay_inputs":
+        return "replay/backfill"
+    if name.startswith("snapshot_artifact_source_status") or name == "source_status_stale_or_failed_rate":
+        return "collection/source health"
+    if name.startswith("snapshot_artifact_features") or name.startswith("snapshot_artifact_components"):
+        return "feature pipeline"
+    if name == "forecast_payload_artifact_rate":
+        return "forecast capture"
+    if name in {"supplemental_station_validation", "canonical_history_provenance"}:
+        return "historical source owner"
+    if name == "quarantined_impossible_observations":
+        return "data auditor"
+    return "data layer"
+
+
+def _gate_command(name):
+    commands = {
+        "snapshot_low_fill_fields": (
+            "python -m weather.reporting.data_layer_audit --out data\\backtest\\data_layer_audit.json "
+            "--report data\\backtest\\data_layer_audit_report.md"
+        ),
+        "snapshot_artifact_replay_inputs": (
+            "python -m weather.operations.replay_status_backfill --reconstruct-missing "
+            "--json-out data\\backtest\\replay_status_backfill.json "
+            "--report-out data\\backtest\\replay_status_backfill_report.md"
+        ),
+        "snapshot_artifact_replay_input_status": (
+            "python -m weather.operations.replay_status_backfill --overwrite --reconstruct-missing "
+            "--json-out data\\backtest\\replay_status_backfill.json "
+            "--report-out data\\backtest\\replay_status_backfill_report.md"
+        ),
+        "snapshot_artifact_source_status": "python -m weather.operations.daily_refresh run",
+        "snapshot_artifact_features": "python -m weather.operations.daily_refresh run",
+        "snapshot_artifact_components": "python -m weather.operations.daily_refresh run",
+        "forecast_payload_artifact_rate": "python -m weather.operations.daily_refresh run",
+        "source_status_stale_or_failed_rate": "python -m weather.operations.daily_refresh run",
+        "reanalysis_raw_only_days": "python -m weather.reporting.data_layer_audit",
+        "quarantined_impossible_observations": "python -m weather.reporting.data_auditor",
+        "supplemental_station_validation": (
+            "python -m weather.sources.supplemental_station_validation --markets toronto "
+            "--start 2000-01-01 --end 2012-12-31 "
+            "--out data\\backtest\\supplemental_station_validation.json "
+            "--report data\\backtest\\supplemental_station_validation_report.md --strict"
+        ),
+        "canonical_history_provenance": "python -m weather.sources.canonical_history_guardrails",
+    }
+    return commands.get(name, "python -m weather.reporting.data_layer_audit")
+
+
+def _expected_artifact(name):
+    if name.startswith("snapshot_artifact_"):
+        artifact = name.replace("snapshot_artifact_", "", 1)
+        return SNAPSHOT_OPTIONAL_ARTIFACTS.get(artifact, artifact)
+    expected = {
+        "forecast_payload_artifact_rate": SNAPSHOT_OPTIONAL_ARTIFACTS[FORECAST_PAYLOAD_ARTIFACT],
+        "supplemental_station_validation": "data/backtest/supplemental_station_validation.json",
+        "canonical_history_provenance": "data/backtest/canonical_history_guardrails.json",
+        "snapshot_low_fill_fields": "data/backtest/data_layer_audit.json",
+        "source_status_stale_or_failed_rate": "source_status_long.csv",
+        "quarantined_impossible_observations": "source manifest quarantine records",
+        "reanalysis_raw_only_days": "normalized reanalysis daily rows",
+    }
+    return expected.get(name, "data/backtest/data_layer_audit.json")
+
+
+def build_remediation_manifest(gates, snapshot, historical):
+    low_fill = snapshot.get("low_fill_field_classifications") or classify_low_fill_fields(
+        snapshot.get("low_fill_fields") or []
+    )
+    rows = []
+    for gate_row in gates or []:
+        status = gate_row.get("status")
+        if status not in {"FAIL", "WARN"}:
+            continue
+        name = gate_row.get("name") or "unknown_gate"
+        artifact = name.replace("snapshot_artifact_", "", 1) if name.startswith("snapshot_artifact_") else None
+        missing_folders = _missing_artifact_folders(snapshot, artifact) if artifact else []
+        affected_fields = low_fill if name == "snapshot_low_fill_fields" else []
+        supplemental_sources = _supplemental_gate_failures(historical) if name == "supplemental_station_validation" else []
+        priority = "P0" if status == "FAIL" and gate_row.get("severity") == "fail" else "P1"
+        rows.append({
+            "id": f"data_layer:{name}",
+            "gate": name,
+            "status": status,
+            "priority": priority,
+            "owner": _gate_owner(name),
+            "evidence": gate_row.get("evidence"),
+            "threshold": gate_row.get("threshold"),
+            "command": _gate_command(name),
+            "expected_artifact": _expected_artifact(name),
+            "blocks_training": priority == "P0",
+            "blocks_broad_promotion": True,
+            "affected_folder_count": len(missing_folders),
+            "affected_folders": missing_folders[:12],
+            "affected_fields": affected_fields[:25],
+            "supplemental_sources": supplemental_sources,
+            "clearance": (
+                "Cleared when the gate returns PASS, or when a waiver row with evidence is committed "
+                "and the gate is downgraded intentionally."
+            ),
+        })
+    return rows
 
 
 def build_gates(snapshot, historical, thresholds=None):
@@ -1404,6 +1627,7 @@ def build_audit(
     )
     historical_gap_investigation = latest_source_alternate_probe(backtest_root)
     gates = build_gates(snapshot, historical, thresholds=thresholds)
+    remediation_manifest = build_remediation_manifest(gates, snapshot, historical)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -1420,6 +1644,8 @@ def build_audit(
         },
         "gates": gates,
         "gate_summary": gate_summary(gates),
+        "remediation_manifest": remediation_manifest,
+        "p0_remediation_count": sum(1 for row in remediation_manifest if row.get("priority") == "P0"),
         "gate_thresholds": {**DEFAULT_AUDIT_THRESHOLDS, **(thresholds or {})},
         "microstructure_reference": MICROSTRUCTURE_DOCS,
     }
@@ -1434,17 +1660,9 @@ def build_audit(
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
-
-
-try:
-    from .data_layer_audit_report import write_report  # noqa: E402
-except ImportError:  # pragma: no cover - direct src compatibility
-    from data_layer_audit_report import write_report  # noqa: E402
+from weather.reporting.data_layer_audit_report import write_report  # noqa: E402
 
 
 def main(argv=None):

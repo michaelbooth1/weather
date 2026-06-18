@@ -254,6 +254,73 @@ class TestSourceRedundancy(unittest.TestCase):
         self.assertEqual(rows[0]["ensemble_forecast_high"], 85.0)
         self.assertEqual(rows[0]["forecast_disagreement"], 2.0)
 
+    def test_source_redundancy_includes_june16_toronto_source_status_case(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            folder = snapshots_root / "highest-temperature-in-toronto-on-june-16-2026"
+            folder.mkdir(parents=True)
+            with (folder / "source_status_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "snapshot_id",
+                        "captured_at_utc",
+                        "source",
+                        "ok",
+                        "status",
+                        "stale",
+                        "error",
+                    ],
+                )
+                writer.writeheader()
+                for source in ("eccc_gem", "eccc_swob", "open_meteo"):
+                    writer.writerow({
+                        "snapshot_id": "s-latest",
+                        "captured_at_utc": "2026-06-16T20:45:00+00:00",
+                        "source": source,
+                        "ok": "False",
+                        "status": "failed",
+                        "stale": "False",
+                        "error": f"{source} failed",
+                    })
+                writer.writerow({
+                    "snapshot_id": "s-latest",
+                    "captured_at_utc": "2026-06-16T20:45:00+00:00",
+                    "source": "eccc_citypage",
+                    "ok": "True",
+                    "status": "fresh",
+                    "stale": "False",
+                    "error": "",
+                })
+
+            payload = build_payload(
+                market_ids=["toronto"],
+                start_date=date(2026, 6, 16),
+                end_date=date(2026, 6, 16),
+                source_roots={
+                    "wu": root / "wu",
+                    "metar": root / "metar",
+                    "swob": root / "swob",
+                    "ghcnh": root / "ghcnh",
+                    "reanalysis": root / "reanalysis",
+                },
+                snapshots_root=snapshots_root,
+            )
+
+        cases = payload["live_source_status_cases"]["cases"]
+        self.assertEqual(len(cases), 1)
+        case = cases[0]
+        self.assertEqual(case["market_id"], "toronto")
+        self.assertEqual(case["target_date"], "2026-06-16")
+        self.assertEqual(case["failed_sources"], ["eccc_gem", "eccc_swob", "open_meteo"])
+        self.assertEqual(case["official_canadian_unavailable_sources"], ["eccc_gem", "eccc_swob"])
+        self.assertEqual(payload["live_source_status_cases"]["official_canadian_case_count"], 1)
+        self.assertEqual(
+            payload["live_source_status_cases"]["summary"]["official_canadian_unavailable_source_count"],
+            2,
+        )
+
     def test_validated_supplemental_features_do_not_replace_truth_labels(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

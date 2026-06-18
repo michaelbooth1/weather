@@ -1,9 +1,11 @@
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import argparse
-import csv
 import hashlib
 import json
 import os
-import signal
 import statistics
 import subprocess
 import sys
@@ -13,130 +15,114 @@ from pathlib import Path
 
 import requests
 
+from weather.io import read_csv_rows as io_read_csv_rows
 from weather.market.market_config import config_from_event, config_for_date
 from weather.market.market_microstructure_features import write_clob_feature_rows
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
 from weather.operations.runtime_identity import get_runtime_identity, identities_match
+from weather.operations.supervisor import (
+    SupervisorSpec,
+    acquire_file_lock,
+    acquire_writer_lock,
+    age_seconds as supervisor_age_seconds,
+    append_jsonl,
+    attach_status_writer,
+    atomic_write_json,
+    file_lock_is_stale,
+    launch_detached,
+    pid_is_python,
+    process_query_creationflags,
+    read_writer_lock,
+    read_json_file,
+    release_file_lock,
+    release_writer_lock,
+    terminate_python_pid,
+)
 from weather.paths import REPO_ROOT
 
+from weather.market.market_microstructure_constants import (  # noqa: E402
+    BOOK_LEVEL_COLUMNS,
+    BOOK_SUMMARY_COLUMNS,
+    CLOB_BASE_URL,
+    CLOB_DIAGNOSTICS_PATH,
+    CLOB_LOOP_CONSOLE_LOG_PATH,
+    CLOB_LOOP_STATUS_PATH,
+    CLOB_PAUSE_FLAG_PATH,
+    CLOB_SUPERVISOR_LOCK_PATH,
+    CLOB_WS_URL,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_BOOK_INTERVAL_SECONDS,
+    DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+    DEFAULT_FAST_INTERVAL_SECONDS,
+    DEFAULT_INCLUDE_PRICE_HISTORY,
+    DEFAULT_INCLUDE_WS_EVENTS,
+    DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    DEFAULT_LOOP_INCLUDE_WS_EVENTS,
+    DEFAULT_WS_CONNECT_TIMEOUT,
+    DEFAULT_WS_HEARTBEAT_SECONDS,
+    DEFAULT_WS_MESSAGE_LIMIT,
+    DEFAULT_WS_SECONDS,
+    FIXED_EXECUTION_SIZES,
+    PRICE_HISTORY_COLUMNS,
+    SNAPSHOT_DATA_ROOT,
+    TOKEN_COLUMNS,
+    WS_EVENT_COLUMNS,
+)
+from weather.market.market_microstructure_capture import (  # noqa: E402
+    ClobClient,
+    MarketMicrostructureStore,
+    capture_event_books,
+    capture_fleet_books,
+    capture_id_for_book,
+    capture_market_books,
+    chunked,
+    depth_within,
+    filter_token_rows,
+    imbalance,
+    label_bin_metadata,
+    normalize_levels,
+    order_book_level_rows,
+    parse_json_list,
+    payload_sha1,
+    price_for_outcome,
+    price_history_rows,
+    record_market_websocket,
+    status_value,
+    summarize_order_book,
+    timestamp_to_iso,
+    to_number,
+    token_rows_from_event,
+    token_sort_key,
+    vwap_for_size,
+    ws_summary_rows,
+)
 
 
-try:
-    from .market_microstructure_constants import (  # noqa: E402
-        BOOK_LEVEL_COLUMNS,
-        BOOK_SUMMARY_COLUMNS,
-        CLOB_BASE_URL,
-        CLOB_DIAGNOSTICS_PATH,
-        CLOB_LOOP_CONSOLE_LOG_PATH,
-        CLOB_LOOP_STATUS_PATH,
-        CLOB_PAUSE_FLAG_PATH,
-        CLOB_SUPERVISOR_LOCK_PATH,
-        CLOB_WS_URL,
-        DEFAULT_BATCH_SIZE,
-        DEFAULT_BOOK_INTERVAL_SECONDS,
-        DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-        DEFAULT_FAST_INTERVAL_SECONDS,
-        DEFAULT_INCLUDE_PRICE_HISTORY,
-        DEFAULT_INCLUDE_WS_EVENTS,
-        DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
-        DEFAULT_LOOP_INCLUDE_WS_EVENTS,
-        DEFAULT_WS_CONNECT_TIMEOUT,
-        DEFAULT_WS_HEARTBEAT_SECONDS,
-        DEFAULT_WS_MESSAGE_LIMIT,
-        DEFAULT_WS_SECONDS,
-        FIXED_EXECUTION_SIZES,
-        PRICE_HISTORY_COLUMNS,
-        SNAPSHOT_DATA_ROOT,
-        TOKEN_COLUMNS,
-        WS_EVENT_COLUMNS,
-    )
-    from .market_microstructure_capture import (  # noqa: E402
-        ClobClient,
-        MarketMicrostructureStore,
-        capture_event_books,
-        capture_fleet_books,
-        capture_id_for_book,
-        capture_market_books,
-        chunked,
-        depth_within,
-        filter_token_rows,
-        imbalance,
-        label_bin_metadata,
-        normalize_levels,
-        order_book_level_rows,
-        parse_json_list,
-        payload_sha1,
-        price_for_outcome,
-        price_history_rows,
-        record_market_websocket,
-        status_value,
-        summarize_order_book,
-        timestamp_to_iso,
-        to_number,
-        token_rows_from_event,
-        token_sort_key,
-        vwap_for_size,
-        ws_summary_rows,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from weather.market.market_microstructure_constants import (  # noqa: E402
-        BOOK_LEVEL_COLUMNS,
-        BOOK_SUMMARY_COLUMNS,
-        CLOB_BASE_URL,
-        CLOB_DIAGNOSTICS_PATH,
-        CLOB_LOOP_CONSOLE_LOG_PATH,
-        CLOB_LOOP_STATUS_PATH,
-        CLOB_PAUSE_FLAG_PATH,
-        CLOB_SUPERVISOR_LOCK_PATH,
-        CLOB_WS_URL,
-        DEFAULT_BATCH_SIZE,
-        DEFAULT_BOOK_INTERVAL_SECONDS,
-        DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-        DEFAULT_FAST_INTERVAL_SECONDS,
-        DEFAULT_INCLUDE_PRICE_HISTORY,
-        DEFAULT_INCLUDE_WS_EVENTS,
-        DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
-        DEFAULT_LOOP_INCLUDE_WS_EVENTS,
-        DEFAULT_WS_CONNECT_TIMEOUT,
-        DEFAULT_WS_HEARTBEAT_SECONDS,
-        DEFAULT_WS_MESSAGE_LIMIT,
-        DEFAULT_WS_SECONDS,
-        FIXED_EXECUTION_SIZES,
-        PRICE_HISTORY_COLUMNS,
-        SNAPSHOT_DATA_ROOT,
-        TOKEN_COLUMNS,
-        WS_EVENT_COLUMNS,
-    )
-    from weather.market.market_microstructure_capture import (  # noqa: E402
-        ClobClient,
-        MarketMicrostructureStore,
-        capture_event_books,
-        capture_fleet_books,
-        capture_id_for_book,
-        capture_market_books,
-        chunked,
-        depth_within,
-        filter_token_rows,
-        imbalance,
-        label_bin_metadata,
-        normalize_levels,
-        order_book_level_rows,
-        parse_json_list,
-        payload_sha1,
-        price_for_outcome,
-        price_history_rows,
-        record_market_websocket,
-        status_value,
-        summarize_order_book,
-        timestamp_to_iso,
-        to_number,
-        token_rows_from_event,
-        token_sort_key,
-        vwap_for_size,
-        ws_summary_rows,
-    )
+CLOB_SUPERVISOR = SupervisorSpec(
+    name="clob_capture",
+    module="weather.market.market_microstructure",
+    status_path=CLOB_LOOP_STATUS_PATH,
+    diagnostics_path=CLOB_DIAGNOSTICS_PATH,
+    console_log_path=CLOB_LOOP_CONSOLE_LOG_PATH,
+    cwd=REPO_ROOT,
+    pause_flag_path=CLOB_PAUSE_FLAG_PATH,
+    lock_path=CLOB_SUPERVISOR_LOCK_PATH,
+    tolerated_states=("RUNNING", "PAUSED", "DEGRADED", "ERRORING"),
+    status_schema_fields=(
+        "pid",
+        "started_at",
+        "last_heartbeat",
+        "market_id",
+        "interval_seconds",
+        "fast_interval_seconds",
+        "consecutive_errors",
+        "error_markets",
+        "last_error",
+        "paused",
+    ),
+)
 
 
 def utc_now():
@@ -144,85 +130,37 @@ def utc_now():
 
 
 def read_clob_loop_status(path=None):
-    path = Path(path or CLOB_LOOP_STATUS_PATH)
-    if not path.exists():
-        return None
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return None
+    return read_json_file(path or CLOB_LOOP_STATUS_PATH)
 
 
 def write_clob_loop_status(status, path=None):
-    path = Path(path or CLOB_LOOP_STATUS_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(status, handle, indent=2, sort_keys=True, default=str)
-    for attempt in range(20):
-        try:
-            tmp.replace(path)
-            return
-        except PermissionError:
-            if attempt == 19:
-                raise
-            time.sleep(0.05)
+    return atomic_write_json(path or CLOB_LOOP_STATUS_PATH, status)
 
 
 def append_clob_diagnostic(record, path=None):
-    path = Path(path or CLOB_DIAGNOSTICS_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
+    return append_jsonl(path or CLOB_DIAGNOSTICS_PATH, record)
 
 
 def clob_supervisor_lock_is_stale(path=None, max_age_seconds=120):
-    path = Path(path or CLOB_SUPERVISOR_LOCK_PATH)
-    try:
-        age = time.time() - path.stat().st_mtime
-    except FileNotFoundError:
-        return False
-    return age > max_age_seconds
+    return file_lock_is_stale(path or CLOB_SUPERVISOR_LOCK_PATH, max_age_seconds=max_age_seconds)
 
 
 def acquire_clob_supervisor_lock(path=None, attempts=30, sleep_fn=time.sleep):
-    path = Path(path or CLOB_SUPERVISOR_LOCK_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    for _ in range(attempts):
-        try:
-            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(handle, str(os.getpid()).encode("ascii"))
-            return handle
-        except FileExistsError:
-            if clob_supervisor_lock_is_stale(path):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
-            sleep_fn(0.1)
-    return None
+    return acquire_file_lock(
+        path or CLOB_SUPERVISOR_LOCK_PATH,
+        attempts=attempts,
+        stale_after_seconds=120,
+        sleep_seconds=0.1,
+        sleep_fn=sleep_fn,
+    )
 
 
 def release_clob_supervisor_lock(handle, path=None):
-    os.close(handle)
-    try:
-        Path(path or CLOB_SUPERVISOR_LOCK_PATH).unlink()
-    except FileNotFoundError:
-        pass
+    release_file_lock(handle, path or CLOB_SUPERVISOR_LOCK_PATH)
 
 
 def _age_seconds(now, iso_value):
-    if not iso_value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(iso_value))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None and now.tzinfo is not None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return (now - parsed).total_seconds()
+    return supervisor_age_seconds(now, iso_value, default_tz=timezone.utc)
 
 
 def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS):
@@ -292,30 +230,23 @@ def book_capture_times(folder):
     path = Path(folder) / "order_books_summary.csv"
     if not path.exists():
         return []
-    def _read(errors=None):
-        times = set()
-        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
-            for row in csv.DictReader(handle):
-                value = row.get("captured_at_utc")
-                if not value:
-                    continue
-                try:
-                    parsed = datetime.fromisoformat(value)
-                except ValueError:
-                    continue
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)
-                times.add(parsed)
-        return sorted(times)
     try:
-        return _read()
-    except UnicodeDecodeError:
-        try:
-            return _read(errors="replace")
-        except (OSError, csv.Error):
-            return []
-    except (OSError, csv.Error):
+        rows = io_read_csv_rows(path, attach_diagnostics=True)
+    except OSError:
         return []
+    times = set()
+    for row in rows:
+        value = row.get("captured_at_utc")
+        if not value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        times.add(parsed)
+    return sorted(times)
 
 
 def audit_book_tape(
@@ -477,36 +408,15 @@ def fleet_book_audit(
     }
 
 
-def pid_is_python(pid):
-    """True when pid exists and belongs to a Python process."""
-    if not pid:
-        return False
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            creationflags=creationflags,
-        ).stdout
-        return "python" in out.lower()
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return False
-
-
 def _process_query_creationflags():
-    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    return process_query_creationflags()
 
 
 def python_process_rows():
     if os.name == "nt":
-        script = """
-Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" |
-    Select-Object ProcessId,Name,CommandLine |
-    ConvertTo-Json -Compress
-"""
-        command = ["powershell", "-NoProfile", "-Command", script]
+        from weather.operations.windows_processes import python_process_rows as windows_python_process_rows
+
+        return windows_python_process_rows()
     else:
         command = ["ps", "-eo", "pid=,comm=,args="]
     try:
@@ -583,13 +493,7 @@ def expected_clob_loop_process_count():
 
 
 def terminate_pid(pid):
-    if not pid_is_python(pid):
-        return {"pid": pid, "stopped": False, "reason": "pid is not a live python process"}
-    try:
-        os.kill(int(pid), signal.SIGTERM)
-    except (OSError, ValueError) as exc:
-        return {"pid": pid, "stopped": False, "reason": str(exc)}
-    return {"pid": int(pid), "stopped": True}
+    return terminate_python_pid(pid)
 
 
 def stop_clob_loop_processes(process_rows=None, keep_pids=(), terminate_fn=terminate_pid):
@@ -696,25 +600,75 @@ def clob_ensure_decision(
     return "start"
 
 
+def _normalized_pid(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _cleanup_clob_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
+    attempts = max(1, int(attempts))
+    last_result = None
+    for attempt in range(attempts):
+        lock = read_writer_lock(CLOB_LOOP_STATUS_PATH)
+        if not lock.get("exists"):
+            return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
+        owner_pid = _normalized_pid(lock.get("pid"))
+        expected = _normalized_pid(expected_pid)
+        if expected is not None and owner_pid == expected:
+            reason = "stopped writer pid"
+        elif owner_pid is not None and not pid_is_python(owner_pid):
+            reason = "dead writer pid"
+        else:
+            return {
+                "removed": False,
+                "reason": "writer lock owner is still live",
+                "pid": owner_pid,
+                "path": lock.get("path"),
+            }
+        try:
+            Path(lock["path"]).unlink()
+        except FileNotFoundError:
+            return {"removed": False, "reason": "writer lock already gone", "pid": owner_pid, "path": lock.get("path")}
+        except OSError as exc:
+            last_result = {"removed": False, "reason": str(exc), "pid": owner_pid, "path": lock.get("path")}
+            if attempt != attempts - 1:
+                time.sleep(float(sleep_seconds))
+                continue
+            return last_result
+        return {"removed": True, "reason": reason, "pid": owner_pid, "path": lock.get("path")}
+    return last_result or {"removed": False, "reason": "writer lock cleanup exhausted attempts", "path": None}
+
+
 def stop_clob_loop(now=None):
     now = now or utc_now()
     status = read_clob_loop_status()
     pid = (status or {}).get("pid")
     cleanup = stop_clob_loop_processes()
-    if not cleanup["stopped_count"] and not pid_is_python(pid):
+    pid_alive = pid_is_python(pid)
+    lock_cleanup = _cleanup_clob_writer_lock(expected_pid=pid, attempts=20, sleep_seconds=0.1)
+    if not cleanup["stopped_count"] and not pid_alive:
         return {
             "stopped": False,
             "reason": f"no live CLOB loop process (pid={pid})",
             "cleanup": cleanup,
+            "writer_lock": lock_cleanup,
         }
-    if not cleanup["stopped_count"] and pid_is_python(pid):
+    if not cleanup["stopped_count"] and pid_alive:
         cleanup["stopped"].append(terminate_pid(pid))
         cleanup["stopped_count"] = sum(1 for row in cleanup["stopped"] if row.get("stopped"))
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_clob_loop_status(status)
-    append_clob_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "cleanup": cleanup})
-    return {"stopped": bool(cleanup["stopped_count"]), "pid": pid, "cleanup": cleanup}
+    append_clob_diagnostic({
+        "time": now.isoformat(),
+        "supervisor": "stop",
+        "pid": pid,
+        "cleanup": cleanup,
+        "writer_lock": lock_cleanup,
+    })
+    return {"stopped": bool(cleanup["stopped_count"]), "pid": pid, "cleanup": cleanup, "writer_lock": lock_cleanup}
 
 
 def _clob_loop_command(
@@ -790,12 +744,16 @@ def start_clob_loop_detached(
     now=None,
 ):
     now = now or utc_now()
-    CLOB_LOOP_CONSOLE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    log_handle = CLOB_LOOP_CONSOLE_LOG_PATH.open("a", encoding="utf-8")
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    child = subprocess.Popen(
+    lock_cleanup = _cleanup_clob_writer_lock(attempts=3, sleep_seconds=0.1)
+    if lock_cleanup.get("reason") == "writer lock owner is still live":
+        append_clob_diagnostic({
+            "time": now.isoformat(),
+            "supervisor": "start_blocked",
+            "reason": "writer lock owner is still live",
+            "writer_lock": lock_cleanup,
+        })
+        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+    child = launch_detached(
         _clob_loop_command(
             market_id=market_id,
             interval_seconds=interval_seconds,
@@ -812,12 +770,10 @@ def start_clob_loop_detached(
             ws_heartbeat_seconds=ws_heartbeat_seconds,
             ws_connect_timeout=ws_connect_timeout,
         ),
-        cwd=str(REPO_ROOT),
-        stdout=log_handle,
-        stderr=log_handle,
-        creationflags=creationflags,
+        cwd=CLOB_SUPERVISOR.cwd,
+        console_log_path=CLOB_LOOP_CONSOLE_LOG_PATH,
+        popen_fn=subprocess.Popen,
     )
-    log_handle.close()
     write_clob_loop_status({
         "pid": child.pid,
         "started_at": now.isoformat(),
@@ -850,8 +806,9 @@ def start_clob_loop_detached(
         "pid": child.pid,
         "market_id": market_id,
         "interval_seconds": interval_seconds,
+        "writer_lock": lock_cleanup,
     })
-    return {"started": True, "pid": child.pid}
+    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
 
 
 def ensure_clob_loop(
@@ -962,6 +919,20 @@ def run_book_loop(
     now_fn=utc_now,
 ):
     capture_fn = capture_fn or capture_fleet_books
+    writer_lock = acquire_writer_lock(
+        CLOB_LOOP_STATUS_PATH,
+        owner={"loop": CLOB_SUPERVISOR.name, "module": CLOB_SUPERVISOR.module},
+        stale_after_seconds=max(120.0, float(interval_seconds) * 3.0),
+    )
+    if writer_lock is None:
+        existing = read_writer_lock(CLOB_LOOP_STATUS_PATH)
+        append_clob_diagnostic({
+            "time": now_fn().isoformat(),
+            "status": "duplicate_writer_blocked",
+            "existing_writer": existing,
+            "pid": os.getpid(),
+        })
+        return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
     last_midpoints = {}
     status = {
         "pid": os.getpid(),
@@ -987,127 +958,131 @@ def run_book_loop(
         "last_error": None,
         "paused": False,
     }
-    while True:
-        loop_started = now_fn()
-        status["iterations"] += 1
-        status["last_heartbeat"] = loop_started.isoformat()
-        status["paused"] = CLOB_PAUSE_FLAG_PATH.exists()
-        market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
-        configs = [config_for_date(loop_started.astimezone(spec_for_id(item).tz).date(), item) for item in market_ids]
-        if status["paused"]:
-            sleep_seconds = interval_seconds
-            status["last_mode"] = "paused"
-            status["last_sleep_seconds"] = sleep_seconds
-            write_clob_loop_status(status)
-            append_clob_diagnostic({"time": loop_started.isoformat(), "status": "paused"})
-            print(json.dumps({"status": "paused", "time": loop_started.isoformat()}), flush=True)
-        else:
-            try:
-                def progress_callback(item, result):
-                    progress_now = now_fn()
-                    status["last_heartbeat"] = progress_now.isoformat()
-                    status["last_market_in_progress"] = item
-                    if isinstance(result, dict) and (result.get("books") or 0) > 0:
-                        status["last_books_captured_at"] = progress_now.isoformat()
-                    write_clob_loop_status(status)
-
-                results = capture_fn(
-                    market_id=market_id,
-                    outcomes=outcomes,
-                    include_price_history=include_price_history,
-                    include_ws_events=include_ws_events,
-                    ws_seconds=ws_seconds,
-                    ws_message_limit=ws_message_limit,
-                    ws_heartbeat_seconds=ws_heartbeat_seconds,
-                    ws_connect_timeout=ws_connect_timeout,
-                    batch_size=batch_size,
-                    progress_callback=progress_callback,
-                )
-                current_midpoints = {}
-                for result in results.values():
-                    if isinstance(result, dict):
-                        current_midpoints.update(result.get("midpoint_by_token") or {})
-                fast = should_use_fast_interval(
-                    configs,
-                    loop_started,
-                    last_midpoints,
-                    current_midpoints,
-                    fast_hours_before_close,
-                    fast_after_local_hour,
-                    fast_on_mid_change_bps,
-                )
-                sleep_seconds = fast_interval_seconds if fast else interval_seconds
-                summary = summarize_loop_results(results)
-                errors = {
-                    item: value.get("error")
-                    for item, value in summary.items()
-                    if value.get("error")
-                }
-                elapsed_seconds = (now_fn() - loop_started).total_seconds()
-                full_error = bool(summary) and len(errors) == len(summary)
-                status["consecutive_errors"] = status["consecutive_errors"] + 1 if full_error else 0
-                status["error_markets"] = sorted(errors)
-                status["last_error"] = "; ".join(f"{item}: {err}" for item, err in errors.items()) or None
-                status["last_market_results"] = summary
-                status["last_market_in_progress"] = None
-                status["last_mode"] = "fast" if fast else "baseline"
-                status["last_sleep_seconds"] = sleep_seconds
-                elapsed_rounded = round(elapsed_seconds, 1)
-                recent_elapsed = []
-                for value in status.get("recent_iteration_elapsed_seconds") or []:
-                    numeric = to_number(value)
-                    if numeric is not None:
-                        recent_elapsed.append(float(numeric))
-                recent_elapsed.append(elapsed_rounded)
-                recent_elapsed = recent_elapsed[-BOOK_AUDIT_RECENT_CYCLE_COUNT:]
-                status["last_iteration_elapsed_seconds"] = elapsed_rounded
-                status["recent_iteration_elapsed_seconds"] = recent_elapsed
-                prior_max_elapsed = to_number(status.get("max_iteration_elapsed_seconds"))
-                if prior_max_elapsed is None:
-                    prior_max_elapsed = 0.0
-                status["max_iteration_elapsed_seconds"] = round(
-                    max(float(prior_max_elapsed), elapsed_rounded),
-                    1,
-                )
-                status["max_recent_iteration_elapsed_seconds"] = round(max(recent_elapsed), 1)
-                if any((value.get("books") or 0) > 0 for value in summary.values()):
-                    status["last_books_captured_at"] = loop_started.isoformat()
-                write_clob_loop_status(status)
-                append_clob_diagnostic({
-                    "time": loop_started.isoformat(),
-                    "mode": status["last_mode"],
-                    "sleep_seconds": sleep_seconds,
-                    "markets": summary,
-                })
-                print(json.dumps({
-                    "time": loop_started.isoformat(),
-                    "mode": status["last_mode"],
-                    "sleep_seconds": sleep_seconds,
-                    "results": summary,
-                }, sort_keys=True), flush=True)
-                last_midpoints = current_midpoints
-            except Exception as exc:  # noqa: BLE001 - keep the collector alive
-                status["consecutive_errors"] += 1
-                status["error_markets"] = list(market_ids)
-                status["last_error"] = f"{type(exc).__name__}: {exc}"
-                status["last_mode"] = "error"
+    attach_status_writer(status, writer_lock)
+    try:
+        while True:
+            loop_started = now_fn()
+            status["iterations"] += 1
+            status["last_heartbeat"] = loop_started.isoformat()
+            status["paused"] = CLOB_PAUSE_FLAG_PATH.exists()
+            market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
+            configs = [config_for_date(loop_started.astimezone(spec_for_id(item).tz).date(), item) for item in market_ids]
+            if status["paused"]:
                 sleep_seconds = interval_seconds
+                status["last_mode"] = "paused"
                 status["last_sleep_seconds"] = sleep_seconds
                 write_clob_loop_status(status)
-                append_clob_diagnostic({
-                    "time": loop_started.isoformat(),
-                    "status": "error",
-                    "error": status["last_error"],
-                })
-                print(json.dumps({
-                    "time": loop_started.isoformat(),
-                    "status": "error",
-                    "error": status["last_error"],
-                }, sort_keys=True), flush=True)
-        if max_iterations is not None and status["iterations"] >= max_iterations:
-            return status
-        elapsed = (now_fn() - loop_started).total_seconds()
-        sleep_fn(max(1.0, sleep_seconds - elapsed))
+                append_clob_diagnostic({"time": loop_started.isoformat(), "status": "paused"})
+                print(json.dumps({"status": "paused", "time": loop_started.isoformat()}), flush=True)
+            else:
+                try:
+                    def progress_callback(item, result):
+                        progress_now = now_fn()
+                        status["last_heartbeat"] = progress_now.isoformat()
+                        status["last_market_in_progress"] = item
+                        if isinstance(result, dict) and (result.get("books") or 0) > 0:
+                            status["last_books_captured_at"] = progress_now.isoformat()
+                        write_clob_loop_status(status)
+
+                    results = capture_fn(
+                        market_id=market_id,
+                        outcomes=outcomes,
+                        include_price_history=include_price_history,
+                        include_ws_events=include_ws_events,
+                        ws_seconds=ws_seconds,
+                        ws_message_limit=ws_message_limit,
+                        ws_heartbeat_seconds=ws_heartbeat_seconds,
+                        ws_connect_timeout=ws_connect_timeout,
+                        batch_size=batch_size,
+                        progress_callback=progress_callback,
+                    )
+                    current_midpoints = {}
+                    for result in results.values():
+                        if isinstance(result, dict):
+                            current_midpoints.update(result.get("midpoint_by_token") or {})
+                    fast = should_use_fast_interval(
+                        configs,
+                        loop_started,
+                        last_midpoints,
+                        current_midpoints,
+                        fast_hours_before_close,
+                        fast_after_local_hour,
+                        fast_on_mid_change_bps,
+                    )
+                    sleep_seconds = fast_interval_seconds if fast else interval_seconds
+                    summary = summarize_loop_results(results)
+                    errors = {
+                        item: value.get("error")
+                        for item, value in summary.items()
+                        if value.get("error")
+                    }
+                    elapsed_seconds = (now_fn() - loop_started).total_seconds()
+                    full_error = bool(summary) and len(errors) == len(summary)
+                    status["consecutive_errors"] = status["consecutive_errors"] + 1 if full_error else 0
+                    status["error_markets"] = sorted(errors)
+                    status["last_error"] = "; ".join(f"{item}: {err}" for item, err in errors.items()) or None
+                    status["last_market_results"] = summary
+                    status["last_market_in_progress"] = None
+                    status["last_mode"] = "fast" if fast else "baseline"
+                    status["last_sleep_seconds"] = sleep_seconds
+                    elapsed_rounded = round(elapsed_seconds, 1)
+                    recent_elapsed = []
+                    for value in status.get("recent_iteration_elapsed_seconds") or []:
+                        numeric = to_number(value)
+                        if numeric is not None:
+                            recent_elapsed.append(float(numeric))
+                    recent_elapsed.append(elapsed_rounded)
+                    recent_elapsed = recent_elapsed[-BOOK_AUDIT_RECENT_CYCLE_COUNT:]
+                    status["last_iteration_elapsed_seconds"] = elapsed_rounded
+                    status["recent_iteration_elapsed_seconds"] = recent_elapsed
+                    prior_max_elapsed = to_number(status.get("max_iteration_elapsed_seconds"))
+                    if prior_max_elapsed is None:
+                        prior_max_elapsed = 0.0
+                    status["max_iteration_elapsed_seconds"] = round(
+                        max(float(prior_max_elapsed), elapsed_rounded),
+                        1,
+                    )
+                    status["max_recent_iteration_elapsed_seconds"] = round(max(recent_elapsed), 1)
+                    if any((value.get("books") or 0) > 0 for value in summary.values()):
+                        status["last_books_captured_at"] = loop_started.isoformat()
+                    write_clob_loop_status(status)
+                    append_clob_diagnostic({
+                        "time": loop_started.isoformat(),
+                        "mode": status["last_mode"],
+                        "sleep_seconds": sleep_seconds,
+                        "markets": summary,
+                    })
+                    print(json.dumps({
+                        "time": loop_started.isoformat(),
+                        "mode": status["last_mode"],
+                        "sleep_seconds": sleep_seconds,
+                        "results": summary,
+                    }, sort_keys=True), flush=True)
+                    last_midpoints = current_midpoints
+                except Exception as exc:  # noqa: BLE001 - keep the collector alive
+                    status["consecutive_errors"] += 1
+                    status["error_markets"] = list(market_ids)
+                    status["last_error"] = f"{type(exc).__name__}: {exc}"
+                    status["last_mode"] = "error"
+                    sleep_seconds = interval_seconds
+                    status["last_sleep_seconds"] = sleep_seconds
+                    write_clob_loop_status(status)
+                    append_clob_diagnostic({
+                        "time": loop_started.isoformat(),
+                        "status": "error",
+                        "error": status["last_error"],
+                    })
+                    print(json.dumps({
+                        "time": loop_started.isoformat(),
+                        "status": "error",
+                        "error": status["last_error"],
+                    }, sort_keys=True), flush=True)
+            if max_iterations is not None and status["iterations"] >= max_iterations:
+                return status
+            elapsed = (now_fn() - loop_started).total_seconds()
+            sleep_fn(max(1.0, sleep_seconds - elapsed))
+    finally:
+        release_writer_lock(writer_lock)
 
 
 

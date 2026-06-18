@@ -1,27 +1,20 @@
-from datetime import datetime, timezone
-from weather.model.toronto_model import TorontoHighTempModel
-from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
+"""Retired live continuation diagnostics probe."""
 
-def test_interpolation():
-    model = TorontoHighTempModel(market_id='nyc')
-    sources = model.fetch_live_sources()
-    now = datetime.now(timezone.utc)
-    
-    # Evaluate at 13
-    dist_13, _ = model.predict_feature_distribution(sources, 13, now)
-    
-    # Evaluate at 15
-    dist_15, _ = model.predict_feature_distribution(sources, 15, now)
-    
-    print("13:00 model output:")
-    if dist_13:
-        for b in sorted(dist_13, key=dist_13.get, reverse=True)[:5]:
-            print(f"  {b}: {dist_13[b]*100:.1f}%")
-            
-    print("\n15:00 model output:")
-    if dist_15:
-        for b in sorted(dist_15, key=dist_15.get, reverse=True)[:5]:
-            print(f"  {b}: {dist_15[b]*100:.1f}%")
+from __future__ import annotations
 
-if __name__ == '__main__':
-    test_interpolation()
+try:
+    from .research_harness import retired_stub_main
+except ImportError:
+    from research_harness import retired_stub_main
+
+
+RESEARCH_STATUS = "retired"
+
+
+def main(argv=None) -> int:
+    return retired_stub_main(__file__, argv, description="Retired live continuation diagnostics probe.")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

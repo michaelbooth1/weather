@@ -7,7 +7,6 @@ of truth that scoring tools should consult first.
 """
 import csv
 import json
-import math
 import os
 import re
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ from weather.collection.collection_health import coverage_summary, parse_times
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.schema_registry import schema_version
+from weather.units import round_half_up
 
 
 LEDGER_SCHEMA_VERSION = schema_version("settlement_ledger")
@@ -101,13 +101,6 @@ def safe_int(value):
     if number is None:
         return None
     return int(number)
-
-
-def round_half_up(value):
-    number = safe_float(value)
-    if number is None:
-        return None
-    return int(math.floor(number + 0.5))
 
 
 def first_number(row, columns):

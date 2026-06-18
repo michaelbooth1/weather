@@ -5,7 +5,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.market.mm_paper import build_known_edge_map, build_paper_payload, write_outputs
+from weather.market.live_forward_gate import build_live_forward_gate
+from weather.market.mm_paper import build_known_edge_map, build_paper_payload, run_folder_eligibility, write_outputs
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -218,6 +219,76 @@ def write_minimal_run(root, run_id, schema_version, target_date, gate_counts=Tru
     }
     write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
     return runs_root, run_folder
+
+
+LIVE_FORWARD_MARKETS = [
+    "atlanta",
+    "austin",
+    "chicago",
+    "denver",
+    "houston",
+    "las-vegas",
+    "los-angeles",
+    "miami",
+    "nyc",
+    "philadelphia",
+    "san-francisco",
+    "seattle",
+]
+
+
+def write_live_forward_gate(run_folder, run_id, target_date, stale_market="nyc"):
+    def gate(name, ok=True, severity="pass", detail="ok"):
+        return {"name": name, "ok": ok, "severity": severity, "detail": detail}
+
+    markets = []
+    for market_id in LIVE_FORWARD_MARKETS:
+        stale = market_id == stale_market
+        markets.append({
+            "market_id": market_id,
+            "city": market_id.title(),
+            "event_slug": f"highest-temperature-in-{market_id}-on-june-17-2026",
+            "target_date": target_date,
+            "status": "STALE" if stale else "PASS",
+            "latest_capture_utc": "2026-06-17T15:58:00+00:00",
+            "source_status_latest_utc": "2026-06-17T15:58:00+00:00",
+            "model_age_seconds": 600.0 if stale else 10.0,
+            "book_audit": {
+                "last_capture_utc": "2026-06-17T15:59:00+00:00",
+                "trailing_age_seconds": 5.0,
+            },
+            "gates": [
+                gate("active_event"),
+                gate("snapshot_model_rows"),
+                gate(
+                    "model_freshness",
+                    ok=not stale,
+                    severity="stale" if stale else "pass",
+                    detail="model row is stale" if stale else "ok",
+                ),
+                gate("source_status_rows"),
+                gate("source_status_fresh"),
+                gate("clob_tokens"),
+                gate("clob_books"),
+                gate("clob_features"),
+                gate("clob_freshness"),
+                gate("reward_metadata"),
+            ],
+        })
+    preflight = {
+        "run_id": run_id,
+        "target_date": target_date,
+        "mode": "paper-live-forward",
+        "generated_at_utc": "2026-06-17T16:00:00+00:00",
+        "markets": markets,
+    }
+    payload = build_live_forward_gate(
+        preflight,
+        policy_config={"max_model_age_seconds": 60, "max_book_age_seconds": 60},
+        now="2026-06-17T16:00:00+00:00",
+    )
+    (run_folder / "live_forward_gate.json").write_text(json.dumps(payload), encoding="utf-8")
+    return payload
 
 
 def write_snapshot_fixture(root):
@@ -691,6 +762,77 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(payload["summary"]["anti_overfit"]["live_forward_days"], [])
             current_key = str(current_run)
             self.assertFalse(payload["run_folder_eligibility"][current_key]["live_forward_gate_counts"])
+
+    def test_per_market_live_forward_credit_survives_one_stale_market_but_broad_gate_stays_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, old_run = write_minimal_run(root, "old-v1", "mm_run_v0.1", "2026-06-16")
+            _runs_root, current_run = write_minimal_run(root, "current-v2", "mm_run_v0.2", "2026-06-17", gate_counts=True)
+            write_live_forward_gate(old_run, "old-v1", "2026-06-16")
+            gate = write_live_forward_gate(current_run, "current-v2", "2026-06-17")
+
+            eligibility = run_folder_eligibility(current_run)
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[old_run, current_run],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-17T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            evidence = payload["summary"]["per_market_live_forward_evidence"]
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        self.assertFalse(gate["counts_toward_live_forward_gate"])
+        self.assertFalse(eligibility["live_forward_gate_counts"])
+        self.assertEqual(eligibility["per_market_evidence_summary"]["model_review_evidence"]["countable_market_count"], 11)
+        self.assertEqual(evidence["model_review_evidence"]["countable_market_count"], 11)
+        self.assertEqual(evidence["paper_trading_evidence"]["countable_market_count"], 11)
+        self.assertEqual(evidence["live_trade_permission_evidence"]["countable_market_count"], 0)
+        self.assertFalse(evidence["paper_trading_evidence"]["all_selected_markets_count"])
+        self.assertEqual(evidence["model_review_evidence"]["first_blocked_market"], "nyc")
+        self.assertEqual(evidence["model_review_evidence"]["first_blocked_gate"], "model_freshness")
+        self.assertEqual(payload["summary"]["anti_overfit"]["live_forward_days"], [])
+        self.assertEqual(len(payload["per_market_evidence_credits"]), len(LIVE_FORWARD_MARKETS) * 3)
+        self.assertEqual({row["run_id"] for row in payload["per_market_evidence_credits"]}, {"current-v2"})
+        nyc_rows = [
+            row for row in payload["per_market_evidence_credits"]
+            if row["market_id"] == "nyc" and row["evidence_class"] == "model_review_evidence"
+        ]
+        self.assertEqual(nyc_rows[0]["stale_recovery"]["status"], "queued_before_next_tick")
+        self.assertIn("suggested_command", nyc_rows[0])
+        self.assertIn("## Per-Market Live-Forward Evidence", report)
+
+    def test_per_market_summary_ignores_recovered_stale_rows_for_first_blocked_market(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, stale_run = write_minimal_run(root, "stale-v2", "mm_run_v0.2", "2026-06-17", gate_counts=True)
+            _runs_root, fresh_run = write_minimal_run(root, "fresh-v2", "mm_run_v0.2", "2026-06-17", gate_counts=True)
+            write_live_forward_gate(stale_run, "stale-v2", "2026-06-17", stale_market="nyc")
+            write_live_forward_gate(fresh_run, "fresh-v2", "2026-06-17", stale_market=None)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[stale_run, fresh_run],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-17T17:00:00+00:00",
+            )
+            evidence = payload["summary"]["per_market_live_forward_evidence"]
+
+        self.assertEqual(evidence["model_review_evidence"]["countable_market_count"], 12)
+        self.assertEqual(evidence["model_review_evidence"]["blocked_market_count"], 0)
+        self.assertIsNone(evidence["model_review_evidence"]["first_blocked_market"])
+        self.assertTrue(evidence["model_review_evidence"]["all_selected_markets_count"])
 
 
 if __name__ == "__main__":

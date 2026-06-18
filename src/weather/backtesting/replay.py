@@ -16,6 +16,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from weather.time import utc_now
 from weather.paths import data_path
 
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
@@ -588,6 +589,8 @@ def write_replay_input_status(folder):
     folder = Path(folder)
     rows = replay_input_status_rows(folder)
     summary = {
+        "schema_version": "replay_input_status_v0.1",
+        "generated_at_utc": utc_now().isoformat(),
         "folder": str(folder),
         **summarize_replay_input_status(rows),
     }

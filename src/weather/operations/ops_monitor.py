@@ -1,4 +1,8 @@
 """Operational monitor helpers for the Streamlit dashboard."""
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import json
 import os
 import subprocess
@@ -45,6 +49,12 @@ from weather.operations.observation_trigger import (
     watcher_health,
 )
 from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.operations.nightly_retrain import (
+    DEFAULT_REPORT_OUT as NIGHTLY_RETRAIN_REPORT_OUT,
+    DEFAULT_STATUS_OUT as NIGHTLY_RETRAIN_STATUS_OUT,
+    DEFAULT_TASK_NAME as NIGHTLY_RETRAIN_TASK_NAME,
+    nightly_run_sla_status,
+)
 
 
 SNAPSHOT_TASK_NAME = "WeatherSnapshotLoopSupervisor"
@@ -276,6 +286,44 @@ def _creationflags():
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+def _powershell_task_status(task_name):
+    script = f"""
+$taskName = @'
+{task_name}
+'@
+try {{
+  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+  $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+  [pscustomobject]@{{
+    Registered = $true
+    State = [string]$task.State
+    LastRun = if ($info.LastRunTime) {{ $info.LastRunTime.ToString("s") }} else {{ $null }}
+    NextRun = if ($info.NextRunTime) {{ $info.NextRunTime.ToString("s") }} else {{ $null }}
+    Result = $info.LastTaskResult
+  }} | ConvertTo-Json -Compress
+}} catch {{
+  [pscustomobject]@{{
+    Registered = $false
+    State = "missing"
+    LastRun = $null
+    NextRun = $null
+    Result = $_.Exception.Message
+  }} | ConvertTo-Json -Compress
+}}
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+        creationflags=_creationflags(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "scheduled task query failed")
+    return json.loads(result.stdout)
+
+
 def scheduled_task_status(task_name):
     if os.name != "nt":
         return {
@@ -286,67 +334,50 @@ def scheduled_task_status(task_name):
             "Next Run": None,
             "Result": None,
         }
-    script = f"""
-$task = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue
-if ($null -eq $task) {{
-    $row = [pscustomobject]@{{
-        Task = '{task_name}'
-        Registered = $false
-        State = 'missing'
-        LastRun = $null
-        NextRun = $null
-        Result = $null
-    }}
-}} else {{
-    $info = Get-ScheduledTaskInfo -TaskName $task.TaskName
-    $row = [pscustomobject]@{{
-        Task = $task.TaskName
-        Registered = $true
-        State = [string]$task.State
-        LastRun = [string]$info.LastRunTime
-        NextRun = [string]$info.NextRunTime
-        Result = $info.LastTaskResult
-    }}
-}}
-$row | ConvertTo-Json -Compress
-"""
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", script],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=_creationflags(),
-        )
-    except (OSError, subprocess.SubprocessError):
+        payload = _powershell_task_status(task_name)
         return {
             "Task": task_name,
-            "Registered": False,
-            "State": "error",
-            "Last Run": None,
-            "Next Run": None,
-            "Result": None,
+            "Registered": bool(payload.get("Registered")),
+            "State": payload.get("State"),
+            "Last Run": payload.get("LastRun"),
+            "Next Run": payload.get("NextRun"),
+            "Result": payload.get("Result"),
         }
-    if result.returncode != 0 or not result.stdout.strip():
+    except Exception as exc:  # noqa: BLE001 - dashboard should degrade gracefully
         return {
             "Task": task_name,
-            "Registered": False,
-            "State": "error",
+            "Registered": None,
+            "State": "query_failed",
             "Last Run": None,
             "Next Run": None,
-            "Result": result.stderr.strip() or result.returncode,
+            "Result": f"{type(exc).__name__}: {exc}",
         }
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        payload = {}
+
+
+def nightly_retrain_status_rows():
+    task = scheduled_task_status(NIGHTLY_RETRAIN_TASK_NAME)
+    sla = nightly_run_sla_status(
+        status_path=NIGHTLY_RETRAIN_STATUS_OUT,
+        task_status=task,
+    )
     return {
-        "Task": payload.get("Task", task_name),
-        "Registered": bool(payload.get("Registered")),
-        "State": payload.get("State"),
-        "Last Run": payload.get("LastRun"),
-        "Next Run": payload.get("NextRun"),
-        "Result": payload.get("Result"),
+        "Job": "Nightly retrain",
+        "State": sla.get("state"),
+        "Run Status": sla.get("run_status"),
+        "Task Registered": sla.get("task_registered"),
+        "Task State": sla.get("task_state"),
+        "Task Last Run": sla.get("task_last_run"),
+        "Task Next Run": sla.get("task_next_run"),
+        "Latest Due": sla.get("latest_due_local"),
+        "Fresh": sla.get("fresh_for_latest_window"),
+        "Run Generated": sla.get("run_generated_at_utc"),
+        "Age Hours": sla.get("run_age_hours"),
+        "Daily Learning": sla.get("daily_learning_status"),
+        "Blockers": sla.get("daily_learning_blocker_count"),
+        "P0 Gate": sla.get("p0_gate") or "-",
+        "Status File": str(NIGHTLY_RETRAIN_STATUS_OUT),
+        "Report": str(NIGHTLY_RETRAIN_REPORT_OUT),
     }
 
 
@@ -355,6 +386,7 @@ def scheduled_task_rows():
         scheduled_task_status(SNAPSHOT_TASK_NAME),
         scheduled_task_status(CLOB_TASK_NAME),
         scheduled_task_status(OBSERVATION_TASK_NAME),
+        scheduled_task_status(NIGHTLY_RETRAIN_TASK_NAME),
         scheduled_task_status(DAILY_REFRESH_TASK_NAME),
         scheduled_task_status(MARKET_MAKING_DAILY_ROLL_TASK_NAME),
     ]

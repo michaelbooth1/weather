@@ -29,6 +29,8 @@ from datetime import datetime
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.io import write_json_atomic
+from weather.schema_registry import schema_version
 
 import pandas as pd
 
@@ -53,16 +55,33 @@ from weather.backtesting.settled_days import folder_market_id
 from weather.model.toronto_model import TorontoHighTempModel
 
 DEFAULT_OUT = data_path() / "backtest" / "replay_ablation_report.md"
+DEFAULT_JSON_OUT = data_path() / "backtest" / "source_family_ablation.json"
 SINGLE_SOURCES = (
+    "wu_history",
     "open_meteo",
     "weather_forecast",
     "eccc_citypage",
     "eccc_swob",
+    "eccc_gem",
     "metar",
     "wu_current",
+    "nws_hourly",
+    "nws_grid",
+    "open_meteo_multimodel",
+    "global_ensemble",
+    "marine_context",
+    "mrms_precip",
 )
 COMBINED_VARIANTS = {
     "all_forecasts": ("open_meteo", "weather_forecast", "eccc_citypage"),
+    "forecast_baseline": ("open_meteo", "weather_forecast", "eccc_citypage"),
+    "open_meteo_expanded": ("open_meteo",),
+    "official_us_guidance": ("nws_hourly", "nws_grid"),
+    "multi_model_guidance": ("open_meteo_multimodel", "global_ensemble"),
+    "open_meteo_family": ("open_meteo", "open_meteo_multimodel", "global_ensemble", "eccc_gem"),
+    "toronto_official": ("eccc_citypage", "eccc_swob", "eccc_gem"),
+    "coastal_context": ("marine_context",),
+    "precip_context": ("mrms_precip",),
 }
 
 
@@ -86,6 +105,19 @@ def variant_names_for_spec(spec, requested):
         if any(member in spec.sources for member in members):
             variants[name] = members
     return variants
+
+
+def clean_row_value(value):
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def clean_band_row(row):
+    return {key: clean_row_value(value) for key, value in row.items()}
 
 
 def run_ablation(folders, requested_sources, include_reconstructed=False):
@@ -145,7 +177,7 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
 
             bands = []
             for _, band_series in group.iterrows():
-                band = band_series.to_dict()
+                band = clean_band_row(band_series.to_dict())
                 outcome = resolve_outcome(
                     band.get("bin_kind"), band.get("bin_value_c"), bucket,
                     value_hi=band_value_hi(band.get("range_label"), band.get("bin_value_c")),
@@ -324,6 +356,49 @@ def write_report(out_path, summaries, day_tables, day_meta, include_reconstructe
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def json_ready(value):
+    if isinstance(value, dict):
+        return {str(key): json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+    if pd.isna(value) if not isinstance(value, (dict, list, tuple, str, bytes)) else False:
+        return None
+    return value
+
+
+def build_payload(summaries, day_tables, day_meta, requested_sources, include_reconstructed):
+    variants = []
+    for summary in summaries:
+        variant = summary.get("variant")
+        variants.append({
+            **json_ready(summary),
+            "ablated_sources": list(COMBINED_VARIANTS.get(variant, (variant,))),
+        })
+    return {
+        "schema_version": schema_version("source_family_ablation"),
+        "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+        "include_reconstructed": bool(include_reconstructed),
+        "requested_variants": list(requested_sources),
+        "summary": {
+            "variant_count": len(variants),
+            "days_scored": len(day_meta),
+            "rows_scored": int(sum(row.get("n", 0) for row in variants)),
+        },
+        "variants": variants,
+        "day_effects": json_ready(day_tables),
+        "days": json_ready(day_meta),
+    }
+
+
+def write_json_report(out_path, payload):
+    return write_json_atomic(out_path, payload, trailing_newline=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Replay the corpus with each live source knocked out and "
@@ -336,6 +411,8 @@ def main():
                         help="Comma list of sources/combined variants to ablate.")
     parser.add_argument("--include-reconstructed", action="store_true")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
+    parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT),
+                        help="Machine-readable source-family ablation artifact.")
     args = parser.parse_args()
 
     requested = [item.strip() for item in args.sources.split(",") if item.strip()]
@@ -365,7 +442,10 @@ def main():
         return
     summaries, day_tables = summarize(data)
     write_report(args.out, summaries, day_tables, day_meta, args.include_reconstructed)
+    json_payload = build_payload(summaries, day_tables, day_meta, requested, args.include_reconstructed)
+    write_json_report(args.json_out, json_payload)
     print(f"\nReport written to {args.out}\n")
+    print(f"JSON written to {args.json_out}\n")
     print(f"{'variant':18s} {'rows':>7s} {'base':>8s} {'ablated':>8s} {'delta':>9s}  (positive = source helps)")
     for s in summaries:
         print(f"{s['variant']:18s} {s['n']:7d} {s['base_brier']:8.4f} "

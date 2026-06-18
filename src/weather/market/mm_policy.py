@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
 
 from weather.market.clob_recon import (
@@ -50,7 +51,7 @@ DEFAULT_POLICY_CONFIG = {
     "quote_size": 5.0,
     "harvest_half_spread": 0.01,
     "max_book_age_seconds": 120.0,
-    "max_model_age_seconds": 600.0,
+    "max_model_age_seconds": 900.0,
     "max_watcher_age_seconds": 120.0,
     "max_harvest_spread": 0.08,
     "max_edge_spread": 0.12,
@@ -808,11 +809,11 @@ def source_status_kind(item):
     stale = None
     if item.get("stale") not in (None, ""):
         stale = bool_value(item.get("stale"), None)
-    if ok is False or status in {"failed", "error", "missing"}:
+    if ok is False or status in {"failed", "error", "missing", "rate_limited"}:
         return "failed"
-    if stale is True or status in {"stale", "stale_cache", "expired"}:
+    if stale is True or status in {"stale", "stale_cache", "rate_limited_cache", "expired"}:
         return "stale"
-    if ok is True or status in {"fresh", "ok", "available"}:
+    if ok is True or status in {"fresh", "fresh_cache", "ok", "available"}:
         return "fresh"
     return "unknown"
 
@@ -844,10 +845,7 @@ def source_freshness_state_from_rows(rows):
 
 def load_latest_snapshot_rows(folder):
     path = Path(folder) / "snapshots_long.csv"
-    if not path.exists():
-        return []
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
+    rows = io_read_csv_rows(path, attach_diagnostics=True)
     if not rows:
         return []
     latest = max(rows, key=lambda row: parse_time(row.get("captured_at_utc")) or datetime.min.replace(tzinfo=timezone.utc))
@@ -859,24 +857,20 @@ def load_clob_feature_index(folder):
     path = Path(folder) / "clob_features_long.csv"
     by_token = {}
     by_band = {}
-    if not path.exists():
-        return by_token, by_band
-    with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            by_token[_band_key(row)] = row
-            by_band[_band_key_without_token(row)] = row
+    for row in io_read_csv_rows(path, attach_diagnostics=True):
+        by_token[_band_key(row)] = row
+        by_band[_band_key_without_token(row)] = row
     return by_token, by_band
 
 
 def load_source_status_rows(folder, snapshot_id):
     path = Path(folder) / "source_status_long.csv"
-    if not path.exists() or not snapshot_id:
+    if not snapshot_id:
         return []
     rows = []
-    with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if row.get("snapshot_id") == snapshot_id:
-                rows.append(row)
+    for row in io_read_csv_rows(path, attach_diagnostics=True):
+        if row.get("snapshot_id") == snapshot_id:
+            rows.append(row)
     return rows
 
 
@@ -952,7 +946,7 @@ def write_quote_csv(path, rows):
         writer = csv.DictWriter(handle, fieldnames=QUOTE_COLUMNS, extrasaction="ignore", restval="")
         writer.writeheader()
         for row in rows:
-            writer.writerow(row)
+            writer.writerow(normalize_csv_row(row))
     return str(path)
 
 

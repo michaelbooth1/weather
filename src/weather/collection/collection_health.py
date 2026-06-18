@@ -19,17 +19,19 @@ from pathlib import Path
 
 from weather.paths import data_path
 
-try:
-    from weather.market.market_config import date_from_event_slug
-    from weather.market.market_registry import all_specs, spec_for_slug
-except ImportError:  # pragma: no cover - package/module execution fallback
-    from ..market.market_config import date_from_event_slug
-    from ..market.market_registry import all_specs, spec_for_slug
+from weather.market.market_config import date_from_event_slug
+from weather.market.market_registry import all_specs, spec_for_slug
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.
 AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
+OPEN_METEO_SOURCE_FAMILY = {
+    "open_meteo",
+    "open_meteo_multimodel",
+    "global_ensemble",
+    "eccc_gem",
+}
 
 
 def parse_times(iso_strings):
@@ -234,6 +236,168 @@ def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
     return max(candidates, key=lambda folder: folder_target_date(folder))
 
 
+def bool_value(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "ok"}
+
+
+def source_family_for_row(row):
+    family = row.get("source_family")
+    if family:
+        return family
+    source = row.get("source") or "unknown"
+    if source in OPEN_METEO_SOURCE_FAMILY:
+        return "open_meteo"
+    return source
+
+
+def source_status_for_row(row):
+    status = str(row.get("status") or "").strip().lower()
+    if status:
+        return status
+    if bool_value(row.get("ok")) and not bool_value(row.get("stale")):
+        return "fresh"
+    if bool_value(row.get("stale")):
+        return "stale_cache"
+    return "failed"
+
+
+def source_degradation_bucket(row):
+    status = source_status_for_row(row)
+    if status == "rate_limited":
+        return "rate_limited"
+    if status == "rate_limited_cache":
+        return "fallback"
+    if status in {"stale", "stale_cache", "expired"}:
+        return "fallback"
+    if status in {"failed", "error", "missing"} or not bool_value(row.get("ok")):
+        return "failed"
+    if status in {"fresh", "fresh_cache", "ok", "available"}:
+        return "fresh"
+    return "unknown"
+
+
+def latest_source_status_rows(folder):
+    path = Path(folder) / "source_status_long.csv"
+    if not path.exists():
+        return [], {"available": False, "reason": "source_status_long.csv missing"}
+    rows = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        return [], {"available": False, "reason": "source_status_long.csv empty"}
+    def row_sort_time(row):
+        parsed = parse_times([row.get("captured_at_utc") or row.get("captured_at_local")])
+        return parsed[0].timestamp() if parsed else float("-inf")
+    latest = max(
+        rows,
+        key=row_sort_time,
+    )
+    latest_snapshot_id = latest.get("snapshot_id")
+    latest_rows = [
+        row for row in rows
+        if row.get("snapshot_id") == latest_snapshot_id
+    ]
+    return latest_rows, {
+        "available": True,
+        "snapshot_id": latest_snapshot_id,
+        "captured_at_utc": latest.get("captured_at_utc"),
+        "captured_at_local": latest.get("captured_at_local"),
+    }
+
+
+def source_family_degradation(folder):
+    rows, metadata = latest_source_status_rows(folder)
+    if not metadata.get("available"):
+        return {
+            **metadata,
+            "families": {},
+            "affected_family_count": 0,
+            "failed_source_count": 0,
+            "fallback_source_count": 0,
+            "rate_limited_source_count": 0,
+            "model_review_allowed": False,
+            "trading_evidence_allowed": False,
+        }
+    families = {}
+    for row in rows:
+        family = source_family_for_row(row)
+        bucket = source_degradation_bucket(row)
+        summary = families.setdefault(
+            family,
+            {
+                "source_count": 0,
+                "fresh_source_count": 0,
+                "failed_source_count": 0,
+                "fallback_source_count": 0,
+                "rate_limited_source_count": 0,
+                "unknown_source_count": 0,
+                "sources": [],
+            },
+        )
+        summary["source_count"] += 1
+        summary["sources"].append(row.get("source"))
+        if bucket == "fresh":
+            summary["fresh_source_count"] += 1
+        elif bucket == "failed":
+            summary["failed_source_count"] += 1
+        elif bucket == "fallback":
+            summary["fallback_source_count"] += 1
+        elif bucket == "rate_limited":
+            summary["rate_limited_source_count"] += 1
+        else:
+            summary["unknown_source_count"] += 1
+    affected_family_count = 0
+    failed_source_count = 0
+    fallback_source_count = 0
+    rate_limited_source_count = 0
+    for summary in families.values():
+        failed_source_count += summary["failed_source_count"]
+        fallback_source_count += summary["fallback_source_count"]
+        rate_limited_source_count += summary["rate_limited_source_count"]
+        affected = (
+            summary["failed_source_count"]
+            + summary["fallback_source_count"]
+            + summary["rate_limited_source_count"]
+            + summary["unknown_source_count"]
+        )
+        summary["status"] = "degraded" if affected else "healthy"
+        if affected:
+            affected_family_count += 1
+    return {
+        **metadata,
+        "families": dict(sorted(families.items())),
+        "affected_family_count": affected_family_count,
+        "failed_source_count": failed_source_count,
+        "fallback_source_count": fallback_source_count,
+        "rate_limited_source_count": rate_limited_source_count,
+        "model_review_allowed": True,
+        "trading_evidence_allowed": affected_family_count == 0,
+    }
+
+
+def fleet_source_family_degradation_summary(markets):
+    rows = [row.get("source_family_degradation") or {} for row in markets]
+    available = [row for row in rows if row.get("available")]
+    return {
+        "market_count": len(rows),
+        "markets_with_source_status": len(available),
+        "unknown_market_count": sum(1 for row in rows if not row.get("available")),
+        "affected_market_count": sum(1 for row in available if row.get("affected_family_count", 0) > 0),
+        "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
+        "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
+        "fallback_source_count": sum(int(row.get("fallback_source_count") or 0) for row in available),
+        "rate_limited_source_count": sum(int(row.get("rate_limited_source_count") or 0) for row in available),
+        "model_review_allowed": bool(available),
+        "trading_evidence_allowed": bool(available) and all(
+            row.get("trading_evidence_allowed") for row in available
+        ),
+    }
+
+
 def fleet_collection_health(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -263,6 +427,7 @@ def fleet_collection_health(
             live=live,
             as_of=as_of,
         )
+        source_degradation = source_family_degradation(folder)
         markets.append({
             "market_id": spec.id,
             "city": spec.city_label,
@@ -278,7 +443,9 @@ def fleet_collection_health(
             "capture_ratio": summary.get("capture_ratio"),
             "max_gap_minutes": summary.get("max_gap_minutes"),
             "reason": summary.get("reason"),
+            "source_family_degradation": source_degradation,
         })
+    source_family_summary = fleet_source_family_degradation_summary(markets)
     return {
         "schema_version": "fleet_collection_health_v0.1",
         "snapshots_root": str(snapshots_root),
@@ -293,6 +460,7 @@ def fleet_collection_health(
                 state: sum(1 for row in markets if row.get("state") == state)
                 for state in sorted({row.get("state") for row in markets})
             },
+            "source_family_degradation": source_family_summary,
         },
     }
 

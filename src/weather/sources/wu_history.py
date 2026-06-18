@@ -17,6 +17,7 @@ import requests
 
 from weather.market.market_registry import spec_for_id
 from weather.sources.daily_summary import WU_DAILY_SCHEMA_VERSION, native_bucket, native_to_c
+from weather.units import round_half_up
 
 
 def get_code_version():
@@ -683,12 +684,6 @@ def to_number(value):
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
 
 
 def max_value(values):

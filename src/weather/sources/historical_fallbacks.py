@@ -12,6 +12,7 @@ import math
 from datetime import datetime
 
 from weather.sources.historical_schema import to_float
+from weather.units import c_to_native
 
 
 HISTORICAL_FALLBACKS_SCHEMA_VERSION = "historical_fallbacks_v0.1"
@@ -37,13 +38,6 @@ DISALLOWED_PROMOTION_ROLES = {"settlement_label", "canonical_observation_replace
 
 def build_meteostat_hourly_url(year, station_id):
     return f"{METEOSTAT_HOURLY_BASE_URL}/{int(year)}/{station_id}.csv.gz"
-
-
-def c_to_native(value, unit):
-    value = to_float(value)
-    if value is None:
-        return None
-    return value * 9.0 / 5.0 + 32.0 if str(unit).upper() == "F" else value
 
 
 def haversine_km(lat1, lon1, lat2, lon2):

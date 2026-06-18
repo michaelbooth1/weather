@@ -33,6 +33,7 @@ $trigger = New-ScheduledTaskTrigger -Daily -At $At
 
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
+    -Hidden `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `

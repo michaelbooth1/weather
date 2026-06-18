@@ -5,6 +5,9 @@ only credited when recorded trade evidence proves a passive quote was traded
 strictly through, with size evidence present. A queue-aware companion uses book
 delta evidence to estimate fills/misses, but never replaces the conservative
 gate used for promotion.
+
+Ownership note: keep offline scoring orchestration here. Report rendering and
+known-edge report formatting belong in ``weather.market.mm_paper_reports``.
 """
 
 from __future__ import annotations
@@ -20,58 +23,28 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-try:
-    from .info_event_calendar import score_event_gate_decisions
-    from .clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
-    from .mm_policy import bool_value, maybe_float, parse_time
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.market.info_event_calendar import score_event_gate_decisions
-    from weather.market.clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
-    from weather.market.mm_policy import bool_value, maybe_float, parse_time
-
-try:
-    from ..backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
-
-
-
-try:
-    from .mm_paper_constants import (  # noqa: E402
-        DEFAULT_BACKTEST_ROOT,
-        DEFAULT_CASEBOOK,
-        DEFAULT_CONFIG,
-        DEFAULT_FILLS_OUT,
-        DEFAULT_JSON_OUT,
-        DEFAULT_KNOWN_EDGE_OUT,
-        DEFAULT_KNOWN_EDGE_REPORT_OUT,
-        DEFAULT_PROMOTION_REFRESH,
-        DEFAULT_REPORT_OUT,
-        DEFAULT_RUNS_ROOT,
-        DEFAULT_SNAPSHOTS_ROOT,
-        FILL_COLUMNS,
-        KNOWN_EDGE_SCHEMA_VERSION,
-        MARKOUT_HORIZONS,
-        SCHEMA_VERSION,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from weather.market.mm_paper_constants import (  # noqa: E402
-        DEFAULT_BACKTEST_ROOT,
-        DEFAULT_CASEBOOK,
-        DEFAULT_CONFIG,
-        DEFAULT_FILLS_OUT,
-        DEFAULT_JSON_OUT,
-        DEFAULT_KNOWN_EDGE_OUT,
-        DEFAULT_KNOWN_EDGE_REPORT_OUT,
-        DEFAULT_PROMOTION_REFRESH,
-        DEFAULT_REPORT_OUT,
-        DEFAULT_RUNS_ROOT,
-        DEFAULT_SNAPSHOTS_ROOT,
-        FILL_COLUMNS,
-        KNOWN_EDGE_SCHEMA_VERSION,
-        MARKOUT_HORIZONS,
-        SCHEMA_VERSION,
-    )
+from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
+from weather.market.info_event_calendar import score_event_gate_decisions
+from weather.market.clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
+from weather.market.mm_policy import bool_value, maybe_float, parse_time
+from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
+from weather.market.mm_paper_constants import (  # noqa: E402
+    DEFAULT_BACKTEST_ROOT,
+    DEFAULT_CASEBOOK,
+    DEFAULT_CONFIG,
+    DEFAULT_FILLS_OUT,
+    DEFAULT_JSON_OUT,
+    DEFAULT_KNOWN_EDGE_OUT,
+    DEFAULT_KNOWN_EDGE_REPORT_OUT,
+    DEFAULT_PROMOTION_REFRESH,
+    DEFAULT_REPORT_OUT,
+    DEFAULT_RUNS_ROOT,
+    DEFAULT_SNAPSHOTS_ROOT,
+    FILL_COLUMNS,
+    KNOWN_EDGE_SCHEMA_VERSION,
+    MARKOUT_HORIZONS,
+    SCHEMA_VERSION,
+)
 
 
 def utc_now():
@@ -84,11 +57,7 @@ def generated_at_iso(now=None):
 
 
 def read_csv_rows(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        return [dict(row) for row in csv.DictReader(handle)]
+    return io_read_csv_rows(path, attach_diagnostics=True)
 
 
 def write_csv(path, fieldnames, rows):
@@ -97,7 +66,7 @@ def write_csv(path, fieldnames, rows):
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(normalize_csv_row(row) for row in rows)
     return str(path)
 
 
@@ -252,6 +221,72 @@ def discover_run_folders(runs_root=DEFAULT_RUNS_ROOT, run_folders=None):
 
 
 COMPATIBLE_RUN_SCHEMA_VERSIONS = {"mm_run_v0.2"}
+LIVE_FORWARD_EVIDENCE_CLASSES = (
+    "model_review_evidence",
+    "paper_trading_evidence",
+    "live_trade_permission_evidence",
+)
+
+
+def live_forward_gate_path_for_folder(folder, summary=None):
+    summary = summary or {}
+    path = summary.get("live_forward_gate_path")
+    if path:
+        return Path(path)
+    return Path(folder) / "live_forward_gate.json"
+
+
+def per_market_evidence_credit_rows(folder, gate_payload=None):
+    gate = gate_payload if gate_payload is not None else read_json(Path(folder) / "live_forward_gate.json", {}) or {}
+    rows = []
+    for market in gate.get("markets") or []:
+        first_failure = market.get("first_failing_gate") or {}
+        recovery = market.get("stale_recovery") or {}
+        countability = market.get("countability") or {}
+        for evidence_class in LIVE_FORWARD_EVIDENCE_CLASSES:
+            item = countability.get(evidence_class) or {}
+            rows.append({
+                "run_folder": str(folder),
+                "run_id": gate.get("run_id"),
+                "target_date": gate.get("target_date"),
+                "mode": gate.get("mode"),
+                "market_id": market.get("market_id"),
+                "evidence_class": evidence_class,
+                "counts": bool(item.get("counts")),
+                "blocking_gates": item.get("blocking_gates") or [],
+                "first_failing_gate": first_failure.get("name"),
+                "owner": first_failure.get("owner"),
+                "root_cause": first_failure.get("root_cause"),
+                "suggested_command": first_failure.get("suggested_command"),
+                "stale_recovery": recovery,
+            })
+    return rows
+
+
+def summarize_per_market_evidence(rows):
+    summary = {}
+    for evidence_class in LIVE_FORWARD_EVIDENCE_CLASSES:
+        class_rows = [row for row in rows if row.get("evidence_class") == evidence_class]
+        markets = {row.get("market_id") for row in class_rows if row.get("market_id")}
+        countable = {row.get("market_id") for row in class_rows if row.get("market_id") and row.get("counts")}
+        blocked = sorted(markets - countable)
+        first_blocked = next(
+            (row for row in class_rows if row.get("market_id") in blocked and not row.get("counts")),
+            None,
+        )
+        summary[evidence_class] = {
+            "market_count": len(markets),
+            "countable_market_count": len(countable),
+            "blocked_market_count": len(blocked),
+            "countable_markets": sorted(countable),
+            "blocked_markets": blocked,
+            "all_selected_markets_count": bool(markets) and len(countable) == len(markets),
+            "first_blocked_market": (first_blocked or {}).get("market_id"),
+            "first_blocked_gate": (first_blocked or {}).get("first_failing_gate"),
+            "first_blocked_owner": (first_blocked or {}).get("owner"),
+            "first_blocked_command": (first_blocked or {}).get("suggested_command"),
+        }
+    return summary
 
 
 def run_folder_eligibility(folder):
@@ -262,19 +297,28 @@ def run_folder_eligibility(folder):
     reasons = []
     if schema_version and schema_version not in COMPATIBLE_RUN_SCHEMA_VERSIONS:
         reasons.append(f"incompatible_schema:{schema_version}")
+    live_gate_path = live_forward_gate_path_for_folder(folder, summary)
+    live_gate = read_json(live_gate_path, {}) or {}
     remediation = summary.get("preflight_remediation")
     if remediation is None:
         remediation = read_json(folder / "preflight_remediation.json", {}) or {}
     counts_toward_gate = None
-    if remediation:
+    if live_gate:
+        counts_toward_gate = bool_value(live_gate.get("counts_toward_live_forward_gate"), False)
+    elif remediation:
         counts_toward_gate = bool_value(remediation.get("counts_toward_live_forward_gate"), False)
     elif summary.get("preflight_status"):
         counts_toward_gate = summary.get("preflight_status") == "PASS"
+    credit_rows = per_market_evidence_credit_rows(folder, live_gate) if live_gate else []
     return {
         "run_folder": str(folder),
         "schema_version": schema_version or "unknown",
         "scoreable": not reasons,
         "live_forward_gate_counts": bool(counts_toward_gate) if counts_toward_gate is not None else True,
+        "live_forward_gate_status": live_gate.get("status") or (summary.get("live_forward_gate") or {}).get("status"),
+        "live_forward_gate_path": str(live_gate_path) if live_gate_path.exists() else None,
+        "per_market_evidence_credits": credit_rows,
+        "per_market_evidence_summary": summarize_per_market_evidence(credit_rows),
         "non_scoreable_reasons": reasons,
         "preflight_status": summary.get("preflight_status"),
         "remediation_counts_toward_live_forward_gate": counts_toward_gate,
@@ -1211,6 +1255,13 @@ def build_paper_payload(
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
     clob_recon = load_recon_payload(clob_recon_path)
+    per_market_evidence_credits = [
+        row
+        for item in eligibility_by_folder.values()
+        if item.get("scoreable")
+        for row in item.get("per_market_evidence_credits") or []
+    ]
+    per_market_evidence_summary = summarize_per_market_evidence(per_market_evidence_credits)
     summary = {
         "run_folders": len(run_folders),
         "candidate_run_folders": len(candidate_run_folders),
@@ -1230,6 +1281,7 @@ def build_paper_payload(
         },
         "pnl": summarize_pnl(fill_rows),
         "anti_overfit": anti_overfit,
+        "per_market_live_forward_evidence": per_market_evidence_summary,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
         "event_gate_score": event_gate_score,
         "clob_recon": clob_recon.get("summary") or {},
@@ -1250,6 +1302,7 @@ def build_paper_payload(
         "event_diagnostics": diagnostics,
         "run_configs": run_configs,
         "run_folder_eligibility": eligibility_by_folder,
+        "per_market_evidence_credits": per_market_evidence_credits,
         "excluded_run_folders": excluded_run_folders,
         "markout_slices": slices,
         "queue_companion": queue_rows,
@@ -1258,30 +1311,17 @@ def build_paper_payload(
 
 
 
-try:
-    from .mm_paper_reports import (  # noqa: E402
-        build_known_edge_map,
-        fmt_num,
-        load_promotion_records,
-        markdown_table,
-        permission_for_record,
-        promotion_state_from_action,
-        render_known_edge_report,
-        render_paper_report,
-        source_freshness_gap_records,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from weather.market.mm_paper_reports import (  # noqa: E402
-        build_known_edge_map,
-        fmt_num,
-        load_promotion_records,
-        markdown_table,
-        permission_for_record,
-        promotion_state_from_action,
-        render_known_edge_report,
-        render_paper_report,
-        source_freshness_gap_records,
-    )
+from weather.market.mm_paper_reports import (  # noqa: E402
+    build_known_edge_map,
+    fmt_num,
+    load_promotion_records,
+    markdown_table,
+    permission_for_record,
+    promotion_state_from_action,
+    render_known_edge_report,
+    render_paper_report,
+    source_freshness_gap_records,
+)
 
 
 def write_outputs(

@@ -3,11 +3,7 @@
 from pathlib import Path
 
 from weather.paths import data_path
-
-try:
-    from .mm_policy import QUOTE_COLUMNS
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.market.mm_policy import QUOTE_COLUMNS
+from weather.market.mm_policy import QUOTE_COLUMNS
 
 SCHEMA_VERSION = "mm_run_v0.2"
 PLATFORM_VERIFICATION_SCHEMA_VERSION = "mm_platform_verification_v0.1"

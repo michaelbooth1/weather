@@ -103,6 +103,7 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
 .\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
+.\venv\Scripts\python.exe -m weather.reporting.daily_learning
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 
@@ -157,13 +158,16 @@ morning by default. It first retries the recent reanalysis archive-lag window
 (`--skip-reanalysis-refresh` disables that), then executes
 `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
 `disagreement_casebook`, `fleet_observability`, `data_layer_audit`, and
-`snapshot_evaluation` in order,
+`snapshot_evaluation` in order, then distills the day's logs into
+`daily_learning`,
 and writes `data/backtest/daily_refresh_status.json`,
 `data/backtest/daily_refresh_report.md`, `data/backtest/data_layer_audit.json`,
 `data/backtest/data_layer_audit_report.md`, `data/backtest/snapshot_evaluation.json`,
-and `data/backtest/snapshot_evaluation_report.md`. Use
-`--fail-on-data-layer-audit` or `--fail-on-snapshot-evaluation` when failed
-audit gates should mark the daily run critical.
+`data/backtest/snapshot_evaluation_report.md`, `data/backtest/daily_learning.json`,
+and `data/backtest/daily_learning_report.md`. Use
+`--fail-on-data-layer-audit`, `--fail-on-snapshot-evaluation`, or
+`--fail-on-daily-learning-blocker` when failed audit or learning gates should
+mark the daily run critical.
 
 For the operator dashboard, use the clickable launcher:
 

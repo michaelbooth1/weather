@@ -3,13 +3,18 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+import numpy as np
+from scipy.io import netcdf_file
+
 from weather.market.market_registry import NYC, TORONTO
 from weather.model.feature_store import build_historical_feature_record
 from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_SCHEMA_VERSION,
     build_reanalysis_synoptic_rows,
+    load_pressure_level_daily_metrics,
     load_teleconnection_index,
     load_reanalysis_synoptic_features,
+    pressure_level_raw_path,
     write_feature_csv,
 )
 
@@ -57,12 +62,25 @@ class TestReanalysisSynoptic(unittest.TestCase):
                 "cloud_cover_low": 15.0,
             }
         }
+        pressure_level = {
+            date(2025, 6, 1): {
+                "reanalysis_prev_day_temperature_850hpa_c": 14.25,
+                "reanalysis_prev_day_geopotential_height_500hpa_m": 5740.0,
+                "reanalysis_prev_day_thickness_1000_500hpa_m": 5605.0,
+            },
+            date(2025, 6, 2): {
+                "reanalysis_prev_day_temperature_850hpa_c": 20.0,
+                "reanalysis_prev_day_geopotential_height_500hpa_m": 5800.0,
+                "reanalysis_prev_day_thickness_1000_500hpa_m": 5650.0,
+            },
+        }
 
         rows = build_reanalysis_synoptic_rows(
             TORONTO,
             daily,
             hourly_daily_metrics=hourly,
             raw_daily_metrics=raw,
+            pressure_level_daily_metrics=pressure_level,
         )
         by_date = {row["local_date"]: row for row in rows}
         row = by_date["2025-06-02"]
@@ -77,6 +95,10 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(row["reanalysis_prev_day_soil_moisture_0_to_7cm_mean"], 0.21)
         self.assertEqual(row["reanalysis_prev_day_shortwave_radiation_sum"], 6100.0)
         self.assertEqual(row["reanalysis_prev_day_low_cloud_mean"], 15.0)
+        self.assertEqual(row["reanalysis_pressure_level_available"], 1.0)
+        self.assertEqual(row["reanalysis_prev_day_temperature_850hpa_c"], 14.25)
+        self.assertEqual(row["reanalysis_prev_day_geopotential_height_500hpa_m"], 5740.0)
+        self.assertEqual(row["reanalysis_prev_day_thickness_1000_500hpa_m"], 5605.0)
         self.assertEqual(row["reanalysis_coastal_flag"], 0.0)
         self.assertEqual(row["reanalysis_continentality_km"], 43.0)
         self.assertEqual(row["reanalysis_sea_breeze_context_flag"], 1.0)
@@ -189,6 +211,51 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(record["reanalysis_synoptic_available"], 1.0)
         self.assertEqual(record["reanalysis_prev_day_max_temp"], 28.0)
         self.assertIsNone(record["reanalysis_prev_day_soil_moisture_0_to_7cm_mean"])
+
+    def test_load_pressure_level_daily_metrics_reads_cached_netcdf(self):
+        def write_pressure_file(path, variable_name, values):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with netcdf_file(path, "w") as dataset:
+                dataset.createDimension("time", 2)
+                dataset.createDimension("level", 3)
+                dataset.createDimension("lat", 2)
+                dataset.createDimension("lon", 2)
+                time = dataset.createVariable("time", "f8", ("time",))
+                time.units = b"hours since 2025-06-01 00:00:00"
+                time[:] = np.array([0.0, 24.0])
+                level = dataset.createVariable("level", "f8", ("level",))
+                level[:] = np.array([1000.0, 850.0, 500.0])
+                lat = dataset.createVariable("lat", "f8", ("lat",))
+                lat[:] = np.array([40.0, 41.0])
+                lon = dataset.createVariable("lon", "f8", ("lon",))
+                lon[:] = np.array([286.0, 287.0])
+                variable = dataset.createVariable(variable_name, "f8", ("time", "level", "lat", "lon"))
+                variable.units = b"degK" if variable_name == "air" else b"m"
+                variable[:] = values
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            air = np.full((2, 3, 2, 2), 270.0)
+            hgt = np.full((2, 3, 2, 2), 0.0)
+            # NYC's nearest grid point in this fixture is lat=41, lon=286.
+            air[0, 1, 1, 0] = 289.15
+            air[1, 1, 1, 0] = 291.15
+            hgt[0, 2, 1, 0] = 5740.0
+            hgt[0, 0, 1, 0] = 135.0
+            hgt[1, 2, 1, 0] = 5760.0
+            hgt[1, 0, 1, 0] = 145.0
+            write_pressure_file(pressure_level_raw_path(root, "air", 2025), "air", air)
+            write_pressure_file(pressure_level_raw_path(root, "hgt", 2025), "hgt", hgt)
+
+            metrics = load_pressure_level_daily_metrics(NYC, root=root)
+
+        first = metrics[date(2025, 6, 1)]
+        second = metrics[date(2025, 6, 2)]
+        self.assertAlmostEqual(first["reanalysis_prev_day_temperature_850hpa_c"], 16.0)
+        self.assertEqual(first["reanalysis_prev_day_geopotential_height_500hpa_m"], 5740.0)
+        self.assertEqual(first["reanalysis_prev_day_thickness_1000_500hpa_m"], 5605.0)
+        self.assertAlmostEqual(second["reanalysis_prev_day_temperature_850hpa_c"], 18.0)
+        self.assertEqual(second["reanalysis_prev_day_thickness_1000_500hpa_m"], 5615.0)
 
 
 if __name__ == "__main__":

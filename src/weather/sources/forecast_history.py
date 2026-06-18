@@ -31,6 +31,7 @@ from weather.market.market_registry import TORONTO, all_specs, spec_for_id
 from weather.model.feature_store import row_forecast_high_native, row_temp_native
 from weather.model.model_sources import request_with_retries
 from weather.sources.daily_summary import native_to_c
+from weather.units import to_float
 
 HIST_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
@@ -179,15 +180,6 @@ def forecast_payload_hash(row):
     payload = {key: row.get(key) for key in row if key != "payload_hash"}
     encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha1(encoded).hexdigest()
-
-
-def to_float(value):
-    if value in (None, "", "MSNG"):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def first_present(row, *keys):

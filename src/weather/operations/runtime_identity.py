@@ -9,8 +9,6 @@ The source fingerprint deliberately covers Python code, supervisor scripts, the
 Streamlit app, and requirements, while excluding model/data artifacts.
 """
 import hashlib
-import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,41 +24,85 @@ SOURCE_PATTERNS = (
     "scripts/**/*.ps1",
     "tools/**/*",
 )
-GIT_STATUS_PATHS = ("app.py", "app", "requirements.txt", "src", "scripts", "tools")
+GENERATED_SOURCE_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+GENERATED_SOURCE_SUFFIXES = {".pyc", ".pyo", ".tmp", ".log"}
 
 
 def utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _creationflags():
-    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-
-
-def _run_git(args, repo_root):
+def _read_text(path):
     try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-            creationflags=_creationflags(),
-        )
-    except (OSError, TypeError, subprocess.SubprocessError):
+        return Path(path).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
         return ""
-    if result.returncode != 0:
+
+
+def _git_dir(repo_root):
+    marker = Path(repo_root) / ".git"
+    if marker.is_dir():
+        return marker
+    if not marker.is_file():
+        return None
+    text = _read_text(marker)
+    prefix = "gitdir:"
+    if not text.lower().startswith(prefix):
+        return None
+    git_dir = Path(text[len(prefix):].strip())
+    if not git_dir.is_absolute():
+        git_dir = marker.parent / git_dir
+    return git_dir
+
+
+def _read_git_ref(git_dir, ref):
+    if not git_dir or not ref or ".." in Path(ref).parts:
         return ""
-    return result.stdout.strip() if isinstance(result.stdout, str) else ""
+    direct = _read_text(Path(git_dir) / ref)
+    if direct:
+        return direct
+    packed = _read_text(Path(git_dir) / "packed-refs")
+    for line in packed.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("#", "^")):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == ref:
+            return parts[0]
+    return ""
+
+
+def _git_head_identity(repo_root):
+    git_dir = _git_dir(repo_root)
+    if not git_dir:
+        return "unknown", "unknown"
+    head = _read_text(Path(git_dir) / "HEAD")
+    if not head:
+        return "unknown", "unknown"
+    if head.startswith("ref:"):
+        ref = head.partition(":")[2].strip()
+        branch = ref.removeprefix("refs/heads/") or ref
+        commit = _read_git_ref(git_dir, ref) or "unknown"
+        return branch, commit[:12] if commit != "unknown" else commit
+    return "detached", head[:12]
 
 
 def _source_files(repo_root):
     files = []
     for pattern in SOURCE_PATTERNS:
-        files.extend(path for path in repo_root.glob(pattern) if path.is_file())
+        files.extend(
+            path
+            for path in repo_root.glob(pattern)
+            if path.is_file() and _is_source_identity_file(path)
+        )
     return sorted(set(files), key=lambda path: path.relative_to(repo_root).as_posix())
+
+
+def _is_source_identity_file(path):
+    path = Path(path)
+    if any(part in GENERATED_SOURCE_PARTS for part in path.parts):
+        return False
+    return path.suffix.lower() not in GENERATED_SOURCE_SUFFIXES
 
 
 def source_tree_fingerprint(repo_root=None):
@@ -87,23 +129,7 @@ def source_tree_fingerprint(repo_root=None):
 
 def get_runtime_identity(repo_root=None):
     repo_root = Path(repo_root or REPO_ROOT)
-    commit = _run_git(["rev-parse", "--short=12", "HEAD"], repo_root) or "unknown"
-    branch = (
-        _run_git(["branch", "--show-current"], repo_root)
-        or _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root)
-        or "unknown"
-    )
-    status = _run_git(["status", "--porcelain", "--", *GIT_STATUS_PATHS], repo_root)
-    diff = "\n".join(
-        item
-        for item in (
-            _run_git(["diff", "--", *GIT_STATUS_PATHS], repo_root),
-            _run_git(["diff", "--cached", "--", *GIT_STATUS_PATHS], repo_root),
-            status,
-        )
-        if item
-    )
-    dirty_fingerprint = hashlib.sha256(diff.encode("utf-8")).hexdigest()[:12] if diff else None
+    branch, commit = _git_head_identity(repo_root)
     source = source_tree_fingerprint(repo_root)
     return {
         "schema_version": IDENTITY_SCHEMA_VERSION,
@@ -111,10 +137,11 @@ def get_runtime_identity(repo_root=None):
         "repo_root": str(repo_root),
         "git_branch": branch,
         "git_commit": commit,
-        "git_dirty": bool(status),
-        "dirty_fingerprint": dirty_fingerprint,
+        "git_dirty": None,
+        "dirty_fingerprint": None,
         "source_fingerprint": source["fingerprint"],
         "source_file_count": source["file_count"],
+        "identity_source": "git_filesystem",
         "python_version": sys.version.split()[0],
     }
 
@@ -148,4 +175,6 @@ def format_runtime_identity(identity):
     if identity.get("git_dirty"):
         dirty = identity.get("dirty_fingerprint") or "dirty"
         return f"{branch}@{commit} dirty:{dirty} src:{source}"
+    if identity.get("git_dirty") is None:
+        return f"{branch}@{commit} src:{source}"
     return f"{branch}@{commit} clean src:{source}"

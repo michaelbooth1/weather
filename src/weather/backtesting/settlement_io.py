@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 import re
 from pathlib import Path
 
@@ -19,20 +18,12 @@ from weather.backtesting.settlement_ledger import (
 from weather.market.market_registry import spec_for_slug
 from weather.scoring.metrics import missing, safe_float
 from weather.sources.daily_summary import native_bucket
+from weather.units import round_half_up
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_DAILY_SUMMARY = data_path() / "wunderground" / "cyyz" / "daily" / "daily_summary.csv"
 COMPLETE_DAY_MIN_ROWS = 18
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
 
 
 def band_value_hi(range_label, value, explicit=None):

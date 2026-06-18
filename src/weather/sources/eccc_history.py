@@ -3,10 +3,10 @@ import csv
 import json
 import time
 import requests
-import numpy as np
 import pandas as pd
 from pathlib import Path
 from weather.paths import data_path
+from weather.units import round_half_up
 
 from datetime import date, datetime
 from collections import defaultdict, Counter
@@ -61,7 +61,6 @@ def normalize_csv_and_write_jsonl(year, month, csv_text):
     
     # Find column indices robustly
     try:
-        date_time_idx = [i for i, h in enumerate(headers) if "date/time" in h.lower()][0]
         year_idx = [i for i, h in enumerate(headers) if h.lower() == "year"][0]
         month_idx = [i for i, h in enumerate(headers) if h.lower() == "month"][0]
         day_idx = [i for i, h in enumerate(headers) if h.lower() == "day"][0]
@@ -125,16 +124,11 @@ def normalize_csv_and_write_jsonl(year, month, csv_text):
                 }
                 f.write(json.dumps(obs) + "\n")
                 rows.append(obs)
-            except Exception as e:
+            except Exception:
                 # Skip invalid row
                 continue
                 
     return rows
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(np.floor(float(value) + 0.5))
 
 def run_comparison():
     # Load Wunderground daily summaries

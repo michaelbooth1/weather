@@ -14,15 +14,24 @@ Recommended layout:
 
 ```powershell
 $env:WEATHER_TAPE_BACKUP_ROOT = "E:\weather-tape-backups"
-python -m src.tape_backup export --backup-root $env:WEATHER_TAPE_BACKUP_ROOT
-python -m src.tape_backup restore-drill --backup-root $env:WEATHER_TAPE_BACKUP_ROOT
-python -m src.tape_backup status --backup-root $env:WEATHER_TAPE_BACKUP_ROOT --verify-checksums
+python -m weather.operations.tape_backup run --backup-root $env:WEATHER_TAPE_BACKUP_ROOT --verify-checksums
+python -m weather.operations.tape_backup status --backup-root $env:WEATHER_TAPE_BACKUP_ROOT --verify-checksums
 ```
 
 The backup manifest is written to `latest/tape_backup_manifest.json` and to a
 timestamped copy under `manifests/`. Each manifest records tape classes,
 recoverability, retention rules, SHA-256 checksums, file counts, total bytes,
 and a manifest hash.
+
+On Windows, register the daily scheduled job from the repository root:
+
+```powershell
+.\scripts\ops\register_tape_backup.ps1 -BackupRoot $env:WEATHER_TAPE_BACKUP_ROOT
+```
+
+The scheduled task runs `weather.operations.tape_backup run`, which performs
+the export, restore drill, checksum verification, and status/report writes in
+one fail-closed step.
 
 ## Retention Rules
 
@@ -48,13 +57,57 @@ and a manifest hash.
 Markdown reports, lock files, PID files, temp files, and clearly rebuildable
 scratch outputs are excluded.
 
+### CLOB Artifact Classes
+
+The backup status command audits CLOB artifacts by emitted filename, not only by
+`clob*` prefixes. These classes are treated as required backup evidence:
+
+- `tokens`: `clob_tokens.csv` and `clob_tokens.jsonl`; join keys for market
+  outcomes, books, features, and replay.
+- `order_book_summary`: `order_books_summary.csv`; per-token bid/ask, spread,
+  depth, and executable-size summaries.
+- `order_book_long`: `order_books_long.csv`; full depth long-table book
+  evidence and the highest local storage-growth risk.
+- `order_book_raw`: `order_books.jsonl`; raw order-book payload and response
+  metadata.
+- `price_history`: `price_history.csv` and `price_history.jsonl`; CLOB price
+  history used for microstructure features and replay.
+- `market_ws`: `market_ws_events.csv` and `market_ws.jsonl`; websocket event
+  summaries and raw messages.
+
+`clob_features_long.csv` and `clob_features.jsonl` are classified separately as
+derived CLOB features. They are useful to retain for audit speed, but they are
+rebuildable from the raw order-book, price-history, websocket, token, and
+snapshot tapes.
+
+`python -m weather.operations.tape_backup status --source-root . --backup-root
+<root>` fails with `MISSING_CRITICAL_FILES` when any local required CLOB class
+is absent from the latest manifest. The report's CLOB coverage table shows
+local bytes, backed-up bytes, missing bytes, excluded bytes, and warning counts
+by class.
+
+### CLOB Storage Budget
+
+Treat `order_books_long.csv` as the budget driver. Any single file above 1 GB
+is a warning in backup status and should trigger a review before adding more
+markets or increasing capture cadence.
+
+Preferred compaction path:
+
+1. Keep raw `order_books.jsonl` with checksums permanently.
+2. Keep `order_books_summary.csv` permanently for fast replay and audit.
+3. Move older `order_books_long.csv` files to compressed cold storage after the
+   manifest proves raw JSONL and summary rows are backed up and restorable.
+4. Rebuild derived `clob_features*` from raw tapes during restore drills when
+   practical; do not treat derived features as the only recoverable evidence.
+
 ## Restore Drill
 
 Run a restore drill after the first backup, after changing backup storage, and
 at least once per week while live-forward tests are active.
 
 ```powershell
-python -m src.tape_backup restore-drill --backup-root $env:WEATHER_TAPE_BACKUP_ROOT
+python -m weather.operations.tape_backup restore-drill --backup-root $env:WEATHER_TAPE_BACKUP_ROOT
 ```
 
 The drill restores files to a temporary workspace, verifies manifest hash,
@@ -64,21 +117,21 @@ market-making evidence.
 
 The latest drill status is copied to
 `latest/tape_restore_drill.json` under the backup root and is surfaced by
-`src.fleet_observability`.
+`weather.reporting.fleet_observability`.
 
 ## Recovery After Workstation Loss
 
 1. Clone the repository on a clean machine and install dependencies.
 2. Attach or sync the configured backup root.
-3. Run `python -m src.tape_backup status --backup-root <root> --verify-checksums`.
-4. Run `python -m src.tape_backup restore-drill --backup-root <root> --restore-root <new-workspace> --keep-restore`.
+3. Run `python -m weather.operations.tape_backup status --backup-root <root> --verify-checksums`.
+4. Run `python -m weather.operations.tape_backup restore-drill --backup-root <root> --restore-root <new-workspace> --keep-restore`.
 5. Copy the restored `data/` and `artifacts/` trees into the active workspace,
    preserving relative paths.
 6. Regenerate operational reports:
 
 ```powershell
-python -m src.fleet_observability report --tape-backup-root <root>
-python -m src.daily_refresh run --continue-on-error --tape-backup-root <root>
+python -m weather.reporting.fleet_observability report --tape-backup-root <root>
+python -m weather.operations.daily_refresh run --continue-on-error --tape-backup-root <root>
 ```
 
 7. Do not enable live-order mode until fleet observability shows backup status,

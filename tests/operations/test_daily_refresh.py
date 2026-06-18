@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from weather.operations.daily_refresh import (  # noqa: E402
+    DEFAULT_RUNNERS,
     load_status,
     run_daily_refresh,
     run_ingest_quality_gate_step,
@@ -36,6 +37,7 @@ def _args(tmp, **overrides):
         "fail_on_data_layer_audit": False,
         "fail_on_snapshot_evaluation": False,
         "fail_on_shadow_ab_alert": False,
+        "fail_on_daily_learning_blocker": False,
         "skip_shadow_ab_monitor": False,
         "ab_current_tol": 0.003,
         "ab_market_tol": 0.003,
@@ -44,6 +46,8 @@ def _args(tmp, **overrides):
         "variant_evidence_baseline": "",
         "variant_evidence_min_unique_observations": 1,
         "variant_evidence_min_market_days": 1,
+        "variant_evidence_rolling_7d_min_market_days": 1,
+        "variant_evidence_per_shadow_market_min_days": 4,
         "skip_ingest_quality_gate": False,
         "ingest_quality_years": "",
         "skip_reanalysis_refresh": False,
@@ -53,6 +57,11 @@ def _args(tmp, **overrides):
         "reanalysis_timeout": 30,
         "reanalysis_end_date": "",
         "skip_data_layer_audit": False,
+        "skip_daily_learning": False,
+        "skip_replay_status_backfill": False,
+        "overwrite_replay_status": False,
+        "reconstruct_missing_replay_inputs": False,
+        "include_active_replay_status": False,
         "data_layer_historical_start": "2000-01-01",
         "data_layer_historical_end": "",
     }
@@ -159,7 +168,13 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 11)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 13)
+
+    def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
+        names = [name for name, _runner in DEFAULT_RUNNERS]
+
+        self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
+        self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
 
     def test_fail_on_ingest_quality_marks_run_critical(self):
         def ingest(_args):
@@ -213,6 +228,19 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["shadow_ab_monitor"]["status"], "ALERT")
 
+    def test_fail_on_daily_learning_blocker_marks_run_critical(self):
+        def learning(_args):
+            return {"status": "BLOCKED", "blocker_count": 1}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_daily_learning_blocker=True),
+                runners=[("daily_learning", learning)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["daily_learning"]["status"], "BLOCKED")
+
     def test_model_variant_evidence_growth_step_runs_from_daily_refresh_inputs(self):
         header = (
             "variant_id,variant_family,uses_market_features,is_control,market_id,"
@@ -239,6 +267,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["status"], "ALERT")
         self.assertEqual(result["summary"]["unique_observation_count"], 1)
         self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 0)
+        self.assertFalse(result["evidence_sla"]["broad_promotion_claim_allowed"])
+        self.assertEqual(result["no_growth_reasons"][0]["reason"], "variant_rows_only")
 
     def test_reanalysis_recent_refresh_fetches_missing_ranges_without_raising(self):
         stores = []

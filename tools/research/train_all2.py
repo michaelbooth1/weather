@@ -1,17 +1,20 @@
-import subprocess
-import sys
-import os
+"""Retired small-market training wrapper."""
 
-markets = ["toronto", "nyc", "chicago", "atlanta", "miami"]
-env = os.environ.copy()
-env["PYTHONPATH"] = "src"
+from __future__ import annotations
 
-for market in markets:
-    print(f"\n========================================")
-    print(f"Running feature_model.py for {market}...")
-    try:
-        subprocess.run([sys.executable, "-m weather.calibration.feature_model", "--market", market], check=True, env=env)
-    except subprocess.CalledProcessError as e:
-        print(f"Failed feature_model.py for {market}: {e}")
+import argparse
 
-print("All done!")
+
+RESEARCH_STATUS = "retired"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Retired small-market training wrapper.")
+    parser.parse_args(argv)
+    print("train_all2.py is retired. Use weather.operations.nightly_retrain or daily_refresh.")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

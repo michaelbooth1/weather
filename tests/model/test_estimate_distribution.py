@@ -206,6 +206,33 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertEqual(first.calibration_context["wu_history_floor_bucket"], 21)
         self.assertEqual(second.calibration_context["wu_history_floor_bucket"], 26)
 
+    def test_distribution_result_rebuilds_and_isolates_legacy_last_fields(self):
+        self.model._last_distribution_components = {
+            "components": {"final_model": {999: 1.0}},
+            "active_model_kind": "stale",
+        }
+        self.model._last_probability_calibration_context = {"cutoff_hour": 99}
+        self.model._last_family_secondary_gate = {"mode": "stale"}
+        rows = [_wu_row("07:00", 14.0), _wu_row("13:00", 23.0)]
+
+        result = self.model.estimate_distribution_result(
+            _sources(rows, 23.0),
+            now=datetime(2026, 5, 29, 13, 0, tzinfo=TORONTO_TZ),
+        )
+
+        self.assertNotIn(999, result.component_payload["components"]["final_model"])
+        self.assertEqual(result.calibration_context["cutoff_hour"], 13)
+        self.assertEqual(self.model._last_distribution_result, result)
+        self.assertEqual(self.model._last_distribution_components, result.component_payload)
+        self.assertEqual(self.model._last_probability_calibration_context, result.calibration_context)
+        self.assertEqual(self.model._last_family_secondary_gate, result.family_secondary_gate)
+
+        self.model._last_distribution_components["components"]["final_model"] = {999: 1.0}
+        self.assertNotEqual(
+            self.model._last_distribution_components["components"]["final_model"],
+            result.component_payload["components"]["final_model"],
+        )
+
     def test_distribution_pipeline_state_payload_matches_returned_distribution(self):
         rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), _wu_row("14:00", 22.0)]
         now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)

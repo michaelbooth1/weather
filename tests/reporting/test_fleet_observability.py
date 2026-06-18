@@ -13,8 +13,11 @@ from weather.reporting.fleet_observability import (  # noqa: E402
     audit_alerts,
     clob_alerts,
     live_forward_slo_gate,
+    loop_integrity_alerts,
+    mm_paper_evidence_summary,
     observation_alerts,
     overall_status,
+    settled_day_freshness_alerts,
     trust_readiness,
     write_markdown,
 )
@@ -34,6 +37,30 @@ class TestFleetObservability(unittest.TestCase):
                 }
                 for i in range(49)
             ]).to_csv(folder / "snapshots_long.csv", index=False)
+            pd.DataFrame([
+                {
+                    "snapshot_id": "s48",
+                    "captured_at_utc": "2026-06-07T23:00:00+00:00",
+                    "captured_at_local": (start + timedelta(minutes=480)).isoformat(),
+                    "source": "open_meteo",
+                    "ok": True,
+                    "stale": True,
+                    "status": "rate_limited_cache",
+                    "source_family": "open_meteo",
+                    "degradation_state": "rate_limited_fallback",
+                },
+                {
+                    "snapshot_id": "s48",
+                    "captured_at_utc": "2026-06-07T23:00:00+00:00",
+                    "captured_at_local": (start + timedelta(minutes=480)).isoformat(),
+                    "source": "weather_forecast",
+                    "ok": True,
+                    "stale": False,
+                    "status": "fresh",
+                    "source_family": "weather_forecast",
+                    "degradation_state": "healthy",
+                },
+            ]).to_csv(folder / "source_status_long.csv", index=False)
 
             payload = fleet_collection_health(
                 snapshots_root=root,
@@ -45,6 +72,14 @@ class TestFleetObservability(unittest.TestCase):
         by_market = {row["market_id"]: row for row in payload["markets"]}
         self.assertEqual(by_market["toronto"]["state"], "CLEAN")
         self.assertEqual(by_market["nyc"]["state"], "MISSING")
+        toronto_sources = by_market["toronto"]["source_family_degradation"]
+        self.assertEqual(toronto_sources["affected_family_count"], 1)
+        self.assertEqual(toronto_sources["fallback_source_count"], 1)
+        self.assertFalse(toronto_sources["trading_evidence_allowed"])
+        self.assertTrue(toronto_sources["model_review_allowed"])
+        fleet_sources = payload["summary"]["source_family_degradation"]
+        self.assertEqual(fleet_sources["affected_market_count"], 1)
+        self.assertEqual(fleet_sources["fallback_source_count"], 1)
 
     def test_artifact_metadata_records_schema_and_hash(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,7 +251,19 @@ class TestFleetObservability(unittest.TestCase):
                 "market_id": "toronto",
                 "action_required": True,
                 "state": "AT_RISK",
-                "reason": "latest capture is 40 min old",
+                "reason": (
+                    "2 gap(s), max 33 min; afternoon window not fully covered "
+                    "(captured 00:02-13:52); latest capture is 40 min old"
+                ),
+                "latest_age_minutes": 40.0,
+                "snapshots": 42,
+                "source_family_degradation": {
+                    "available": True,
+                    "trading_evidence_allowed": False,
+                    "affected_family_count": 1,
+                    "failed_source_count": 1,
+                    "families": {"nws_hourly": {"status": "degraded"}},
+                },
             }]
         }
         clob = {
@@ -225,7 +272,8 @@ class TestFleetObservability(unittest.TestCase):
                 "market_id": "toronto",
                 "ok": False,
                 "captures": 100,
-                "reason": "book tape gap",
+                "trailing_age_seconds": 180.0,
+                "reason": "last book capture is 180s old",
             }]},
         }
         observation = {"state": "DEAD", "heartbeat_age_seconds": 999.0}
@@ -239,6 +287,18 @@ class TestFleetObservability(unittest.TestCase):
             {row["name"] for row in gate["gates"] if not row["ok"]},
             {"snapshot_collection", "clob_book_capture", "observation_trigger"},
         )
+        concrete = {row["name"] for row in gate["concrete_gates"] if not row["ok"]}
+        self.assertIn("snapshot_coverage_gap", concrete)
+        self.assertIn("afternoon_window_coverage", concrete)
+        self.assertIn("latest_model_row_freshness", concrete)
+        self.assertIn("source_status_freshness", concrete)
+        self.assertIn("clob_book_freshness", concrete)
+        self.assertIn("observation_trigger_health", concrete)
+        self.assertEqual(gate["first_blocker"]["market_id"], "toronto")
+        self.assertEqual(gate["first_blocker"]["owner"], "weather snapshot/model loop")
+        self.assertIn("snapshot_tracker status", gate["first_blocker"]["repair_command"])
+        self.assertIn("fleet_observability report", gate["first_blocker"]["verification_command"])
+        self.assertGreaterEqual(len(gate["recovery_checklist"]), 6)
 
     def test_markdown_surfaces_tape_backup_status(self):
         payload = {
@@ -252,7 +312,78 @@ class TestFleetObservability(unittest.TestCase):
             "trust_readiness": {},
             "clob": {"loop": {}, "books": {"markets": []}},
             "observation_trigger": {},
-            "live_forward_slo": {"gates": []},
+            "loop_integrity": {
+                "summary": {"malformed_lines": 2, "duplicate_writer_count": 0},
+                "rows": [
+                    {
+                        "name": "clob_capture",
+                        "ok": False,
+                        "malformed_lines": 2,
+                        "duplicate_writer": False,
+                        "writer_lock": {"pid": 123},
+                        "status_writer": {"pid": 123},
+                        "repair_command": "python -m weather.operations.loop_jsonl_repair repair data/logs/clob.jsonl",
+                        "malformed_samples": [
+                            {
+                                "source": "console",
+                                "path": "data/logs/clob.jsonl",
+                                "line": 9,
+                                "classification": "console_text",
+                                "text": "Traceback sample",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "live_forward_slo": {
+                "status": "BLOCK",
+                "counts_toward_live_forward_gate": False,
+                "reason": "clob_book_freshness blocks broad live-forward SLO for nyc",
+                "gates": [],
+                "concrete_gates": [
+                    {
+                        "name": "clob_book_freshness",
+                        "ok": False,
+                        "blocked_market_count": 1,
+                        "owner": "CLOB book supervisor",
+                        "repair_command": "python -m weather.market.market_microstructure ensure",
+                        "messages": ["last book capture is 180s old"],
+                    }
+                ],
+                "first_blocker": {
+                    "market_id": "nyc",
+                    "component": "clob_book_capture",
+                    "gate": "clob_book_freshness",
+                    "owner": "CLOB book supervisor",
+                    "repair_command": "python -m weather.market.market_microstructure ensure",
+                },
+                "recovery_checklist": [
+                    {
+                        "market_id": "nyc",
+                        "component": "clob_book_capture",
+                        "gate": "clob_book_freshness",
+                        "owner": "CLOB book supervisor",
+                        "before": "trailing_age_seconds=180.0",
+                        "repair_command": "python -m weather.market.market_microstructure ensure",
+                        "verification_command": "python -m weather.reporting.fleet_observability report",
+                        "after": "rerun broad live-forward SLO",
+                    }
+                ],
+                "rerun_command": "python -m weather.reporting.fleet_observability report",
+            },
+            "mm_paper_evidence": {
+                "exists": True,
+                "path": "data/backtest/mm_paper_report.json",
+                "by_class": {
+                    "model_review_evidence": {
+                        "countable_market_count": 11,
+                        "blocked_market_count": 1,
+                        "all_selected_markets_count": False,
+                        "first_blocked_market": "nyc",
+                        "first_blocked_owner": "model-refresh",
+                    }
+                },
+            },
             "tape_backup": {
                 "status": "MISSING_CRITICAL_CLASS",
                 "backup_root": "Z:/weather-tapes",
@@ -260,6 +391,8 @@ class TestFleetObservability(unittest.TestCase):
                 "file_count": 10,
                 "missing_critical_classes": ["clob_tapes"],
                 "checksum_failures": [{"path": "x", "reason": "sha256_mismatch"}],
+                "restore_drill_sla_status": "OK",
+                "restore_drill_sla_detail": "restore drill evidence is current",
                 "last_restore_drill": {"status": "PASS", "generated_at_utc": "2026-06-15T01:00:00+00:00"},
             },
             "alerts": [],
@@ -273,6 +406,98 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("## Tape Backup And Restore", text)
         self.assertIn("MISSING_CRITICAL_CLASS", text)
         self.assertIn("clob_tapes", text)
+        self.assertIn("Restore SLA", text)
+        self.assertIn("restore drill evidence is current", text)
+        self.assertIn("## Loop Artifact Integrity", text)
+        self.assertIn("clob_capture", text)
+        self.assertIn("loop_jsonl_repair repair", text)
+        self.assertIn("Traceback sample", text)
+        self.assertIn("## Per-Market MM Paper Evidence", text)
+        self.assertIn("model_review_evidence", text)
+        self.assertIn("nyc", text)
+        self.assertIn("### Broad Recovery Checklist", text)
+        self.assertIn("clob_book_freshness", text)
+        self.assertIn("weather.market.market_microstructure ensure", text)
+
+    def test_mm_paper_evidence_summary_reads_per_market_credit_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mm_paper_report.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "generated_at_utc": "2026-06-17T17:00:00+00:00",
+                        "summary": {
+                            "per_market_live_forward_evidence": {
+                                "model_review_evidence": {
+                                    "countable_market_count": 11,
+                                    "blocked_market_count": 1,
+                                },
+                                "live_trade_permission_evidence": {
+                                    "countable_market_count": 0,
+                                    "blocked_market_count": 12,
+                                },
+                            }
+                        },
+                        "per_market_evidence_credits": [
+                            {
+                                "market_id": "nyc",
+                                "evidence_class": "model_review_evidence",
+                                "counts": False,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = mm_paper_evidence_summary(path)
+
+        self.assertTrue(summary["exists"])
+        self.assertEqual(summary["by_class"]["model_review_evidence"]["countable_market_count"], 11)
+        self.assertEqual(summary["by_class"]["live_trade_permission_evidence"]["countable_market_count"], 0)
+        self.assertEqual(summary["credit_rows"][0]["market_id"], "nyc")
+
+    def test_loop_integrity_alerts_warn_on_malformed_jsonl_and_critical_on_duplicate_writer(self):
+        alerts = loop_integrity_alerts({
+            "rows": [
+                {
+                    "name": "snapshot_capture",
+                    "malformed_lines": 1,
+                    "duplicate_writer": False,
+                    "diagnostics_integrity": {"malformed_lines": 1},
+                    "console_integrity": {"malformed_lines": 0},
+                    "malformed_samples": [{"path": "diag.jsonl", "line": 2, "classification": "partial_json"}],
+                    "repair_command": "python -m weather.operations.loop_jsonl_repair repair diag.jsonl",
+                },
+                {
+                    "name": "clob_capture",
+                    "malformed_lines": 0,
+                    "duplicate_writer": True,
+                    "status_writer": {"pid": 1},
+                    "writer_lock": {"pid": 2},
+                },
+            ]
+        })
+
+        self.assertEqual([row["severity"] for row in alerts], ["warning", "critical"])
+        self.assertEqual({row["category"] for row in alerts}, {"loop_integrity"})
+        self.assertIn("loop_jsonl_repair repair", alerts[0]["detail"]["repair_command"])
+
+    def test_settled_day_freshness_alert_names_repair_commands(self):
+        alerts = settled_day_freshness_alerts({
+            "exists": True,
+            "status": "FAIL",
+            "target_date": "2026-06-17",
+            "path": "data/backtest/settled_day_freshness.json",
+            "summary": {"incomplete_market_count": 12},
+            "repair_command": "python -m weather.operations.settled_day_freshness repair",
+            "replay_status_repair_command": "python -m weather.operations.replay_status_backfill",
+        })
+
+        self.assertEqual(alerts[0]["severity"], "critical")
+        self.assertEqual(alerts[0]["category"], "settled_day_freshness")
+        self.assertIn("2026-06-17", alerts[0]["message"])
+        self.assertEqual(len(alerts[0]["detail"]["repair_commands"]), 2)
 
 
 if __name__ == "__main__":

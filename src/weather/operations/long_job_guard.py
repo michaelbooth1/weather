@@ -48,6 +48,55 @@ def _lock_payload(job_name):
     }
 
 
+def _process_is_running(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        synchronize = 0x00100000
+        wait_timeout = 0x00000102
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(
+            process_query_limited_information | synchronize,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _read_lock_detail(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"path": str(path)}
+
+
+def _lock_owner_is_active(detail):
+    if isinstance(detail, dict) and "pid" in detail:
+        return _process_is_running(detail.get("pid"))
+    return True
+
+
 def acquire_long_job_lock(path, job_name, force=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,12 +108,19 @@ def acquire_long_job_lock(path, job_name, force=False):
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:
-        detail = None
-        try:
-            detail = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            detail = {"path": str(path)}
-        raise LongJobBusy(f"long job already active: {detail}") from exc
+        detail = _read_lock_detail(path)
+        if not _lock_owner_is_active(detail):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            try:
+                fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                detail = _read_lock_detail(path)
+                raise LongJobBusy(f"long job already active: {detail}") from exc
+        else:
+            raise LongJobBusy(f"long job already active: {detail}") from exc
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(_lock_payload(job_name), handle, sort_keys=True)
     return path
@@ -200,17 +256,16 @@ def long_job_guard(
         else:
             os.environ[ACTIVE_ENV_VAR] = previous_env
         release_long_job_lock(lock)
-        if not Path(state_path).exists():
-            return
-        try:
-            state = json.loads(Path(state_path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            state = {}
-        if state.get("status") == "running":
-            state.update({
-                "status": "complete",
-                "active": False,
-                "updated_at_utc": utc_iso(),
-                "duration_seconds": round(time.time() - start_monotonic, 3),
-            })
-            write_json(state_path, state)
+        if Path(state_path).exists():
+            try:
+                state = json.loads(Path(state_path).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                state = {}
+            if state.get("status") == "running":
+                state.update({
+                    "status": "complete",
+                    "active": False,
+                    "updated_at_utc": utc_iso(),
+                    "duration_seconds": round(time.time() - start_monotonic, 3),
+                })
+                write_json(state_path, state)

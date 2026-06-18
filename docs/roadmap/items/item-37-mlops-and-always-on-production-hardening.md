@@ -8,10 +8,12 @@ Goal: make the fleet reproducible, self-retraining, and observable.
 - [x] Daily settlement-to-promotion automation: `src.daily_refresh run` executes
   `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
   `disagreement_casebook`, `fleet_observability`, `data_layer_audit`, and
-  `snapshot_evaluation` in order; writes
+  `snapshot_evaluation` in order, then distills the day's logs into
+  `daily_learning`; writes
   `data/backtest/daily_refresh_status.json`,
   `data/backtest/daily_refresh_report.md`, and the consolidated
-  `data/backtest/snapshot_evaluation_report.md`; and
+  `data/backtest/snapshot_evaluation_report.md` plus
+  `data/backtest/daily_learning_report.md`; and
   `scripts/register_daily_refresh.ps1` installs the Windows daily task.
 - [x] Data-layer audit runner: `src.data_layer_audit` reports loop health,
   snapshot cadence/completeness, low-fill fields, historical source coverage,
@@ -181,3 +183,20 @@ This completes item 37. Focused validation:
 `pytest tests/reporting/test_shadow_ab_monitor.py
 tests/operations/test_daily_refresh.py tests/operations/test_nightly_retrain.py
 -q` passes; CLI help and strict schema audit pass.
+
+Daily log-learning update (2026-06-16 UTC):
+`weather.reporting.daily_learning` adds schema `daily_learning_v0.1` and
+builds a daily self-improvement pack from the refreshed settlement labels,
+promotion corpus, candidate replay, shadow A/B monitor, variant evidence
+growth, disagreement casebook, fleet/data-layer audits, and continuous
+snapshot evaluation. The artifact writes `data/backtest/daily_learning.json`
+and `data/backtest/daily_learning_report.md`, classifies learnings by priority,
+marks data-quality and collection blockers, identifies replay/casebook slices
+that should feed retraining, and emits `training_ready` / `promotion_ready`
+signals. `weather.operations.daily_refresh` runs it last and can fail critical
+with `--fail-on-daily-learning-blocker`; `weather.operations.nightly_retrain`
+runs it first so retrain status records what the prior day's logs taught before
+building model artifacts. Focused validation:
+`pytest tests/reporting/test_daily_learning.py
+tests/operations/test_daily_refresh.py tests/operations/test_nightly_retrain.py
+-q`.

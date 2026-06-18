@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import band_model_probability
-from weather.backtesting.replay_ablation import ablate_sources, run_ablation, summarize, variant_names_for_spec
+from weather.backtesting.replay_ablation import ablate_sources, build_payload, run_ablation, summarize, variant_names_for_spec
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
@@ -76,6 +76,17 @@ class TestVariantSelection(unittest.TestCase):
         self.assertEqual(toronto["all_forecasts"],
                          ("open_meteo", "weather_forecast", "eccc_citypage"))
 
+    def test_us_markets_get_broader_source_family_variants(self):
+        nyc = variant_names_for_spec(
+            REGISTRY["nyc"],
+            ["official_us_guidance", "multi_model_guidance", "coastal_context", "precip_context"],
+        )
+
+        self.assertEqual(nyc["official_us_guidance"], ("nws_hourly", "nws_grid"))
+        self.assertEqual(nyc["multi_model_guidance"], ("open_meteo_multimodel", "global_ensemble"))
+        self.assertEqual(nyc["coastal_context"], ("marine_context",))
+        self.assertEqual(nyc["precip_context"], ("mrms_precip",))
+
 
 class TestRunAblationEndToEnd(unittest.TestCase):
     def _build_day(self, folder):
@@ -140,6 +151,15 @@ class TestRunAblationEndToEnd(unittest.TestCase):
             self.assertEqual(summary["days"], 1)
             self.assertIn("toronto", summary["by_family"])
         self.assertIn("all_forecasts", day_tables)
+
+        payload = build_payload(summaries, day_tables, day_meta, ["open_meteo", "all_forecasts"], False)
+        self.assertEqual(payload["schema_version"], "source_family_ablation_v0.1")
+        self.assertEqual(payload["summary"]["variant_count"], 2)
+        self.assertIn("variants", payload)
+        self.assertEqual(
+            next(row for row in payload["variants"] if row["variant"] == "all_forecasts")["ablated_sources"],
+            ["open_meteo", "weather_forecast", "eccc_citypage"],
+        )
 
 
 if __name__ == "__main__":

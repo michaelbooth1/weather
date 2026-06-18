@@ -6,53 +6,12 @@ Fahrenheit markets, so readers must choose the desired unit intentionally and
 handle the legacy shape without guessing from a column suffix.
 """
 import csv
-import math
 from pathlib import Path
 
 from weather.schema_registry import schema_version
+from weather.units import c_to_f, c_to_native, f_to_c, native_to_c, round_half_up, to_float
 
 WU_DAILY_SCHEMA_VERSION = schema_version("wu_daily")
-
-
-def to_float(value):
-    if value in (None, "", "None", "null", "NaN", "MSNG"):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(number):
-        return None
-    return number
-
-
-def round_half_up(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return int(math.floor(value + 0.5))
-
-
-def f_to_c(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return round((value - 32.0) * 5.0 / 9.0, 4)
-
-
-def c_to_f(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return round(value * 9.0 / 5.0 + 32.0, 4)
-
-
-def native_to_c(value, unit):
-    return f_to_c(value) if str(unit).upper() == "F" else to_float(value)
-
-
-def c_to_native(value, unit):
-    return c_to_f(value) if str(unit).upper() == "F" else to_float(value)
 
 
 def _first_number(row, columns):

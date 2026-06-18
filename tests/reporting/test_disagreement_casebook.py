@@ -25,6 +25,7 @@ SNAPSHOT_COLUMNS = [
     "range_label",
     "bin_kind",
     "bin_value_c",
+    "bin_value_hi",
     "model_probability",
     "market_yes",
     "market_no",
@@ -261,6 +262,107 @@ class TestDisagreementCasebook(unittest.TestCase):
             writer.writerows(book_rows)
         return folder
 
+    def write_warm_side_folder(self, root, settled=True, event_slug="highest-temperature-in-nyc-on-june-16-2026"):
+        folder = Path(root) / event_slug
+        folder.mkdir(parents=True)
+        snapshot_id = "warm-s1"
+        utc_time = "2026-06-16T19:30:00+00:00"
+        local_time = "2026-06-16T15:30:00-04:00"
+        rows = []
+        for label, low, high, model_p, market_p in [
+            ("76-77\u00b0F", 76, 77, 0.20, 0.62),
+            ("78-79\u00b0F", 78, 79, 0.65, 0.28),
+            ("80-81\u00b0F", 80, 81, 0.15, 0.10),
+        ]:
+            rows.append({
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": utc_time,
+                "captured_at_local": local_time,
+                "event_slug": folder.name,
+                "event_updated_at": utc_time,
+                "model_version": "test-model",
+                "top_temp_c": 78,
+                "top_probability": 0.65,
+                "range_label": label,
+                "bin_kind": "eq",
+                "bin_value_c": low,
+                "bin_value_hi": high,
+                "model_probability": model_p,
+                "market_yes": market_p,
+                "market_no": 1 - market_p,
+                "edge": model_p - market_p,
+                "best_bid": market_p - 0.01,
+                "best_ask": market_p + 0.01,
+                "last_trade_price": market_p,
+                "volume": 100,
+                "liquidity": 1000,
+                "market_status": "active",
+                "wu_history_high_c": 77,
+                "wu_current_c": 75,
+                "wu_max_since_7am_c": 77,
+                "eccc_swob_max_c": "",
+                "weather_forecast_max_c": 79,
+                "open_meteo_max_c": "",
+                "nws_forecast_max_c": 78,
+                "global_ensemble_max_c": "",
+                "forecast_source_count": 2,
+                "forecast_disagreement": 1,
+                "eccc_forecast_high_c": "",
+            })
+        with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=SNAPSHOT_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        with (folder / "replay_inputs.jsonl").open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": utc_time,
+                "captured_at_local": local_time,
+                "model_identity": {"identity_hash": "warm"},
+                "sources": {
+                    "wu_current": {
+                        "ok": True,
+                        "stale": False,
+                        "status": "fresh",
+                        "fetched_at": local_time,
+                    },
+                    "weather_forecast": {
+                        "ok": True,
+                        "stale": False,
+                        "status": "fresh",
+                        "fetched_at": local_time,
+                    },
+                    "open_meteo": {
+                        "ok": False,
+                        "stale": False,
+                        "status": "rate_limited",
+                        "fetched_at": local_time,
+                    },
+                    "marine_context": {
+                        "ok": True,
+                        "stale": False,
+                        "status": "fresh",
+                        "fetched_at": local_time,
+                    },
+                },
+            }) + "\n")
+
+        if settled:
+            with (folder / "settlement.json").open("w", encoding="utf-8") as handle:
+                json.dump({
+                    "event_slug": folder.name,
+                    "market_id": "nyc",
+                    "settlement_bucket": 78,
+                    "settlement_high": 78,
+                    "settlement_unit": "F",
+                    "winning_band": "78-79 F",
+                    "quality_grade": "complete",
+                    "settlement_source": "daily_summary",
+                    "reconciliation_status": "match",
+                }, handle)
+        return folder
+
     def test_casebook_collapses_threshold_snapshots_and_scores_settlement(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = self.write_folder(tmp)
@@ -324,11 +426,95 @@ class TestDisagreementCasebook(unittest.TestCase):
             self.assertIn("## Design", report)
             self.assertIn("## Top Model-Losing Case Families", report)
             self.assertIn("## Feedback Slices", report)
+            self.assertIn("## Late-Day Warm-Side Cases", report)
             self.assertNotIn("\u00c2\u00b0C", report)
 
     def test_clean_label_scrubs_degree_mojibake(self):
         self.assertEqual(clean_label("90-91\u00c2\u00b0F"), "90-91 F")
         self.assertEqual(clean_label("25\u00b0C"), "25 C")
+
+    def test_casebook_tolerates_legacy_degree_byte_in_clob_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_folder(tmp)
+            book_path = folder / "order_books_summary.csv"
+            text = book_path.read_text(encoding="utf-8").replace("24\u00c2\u00b0C", "24\u00b0C")
+            book_path.write_bytes(text.encode("cp1252"))
+            args = build_arg_parser().parse_args([str(folder), "--edge-threshold", "0.10"])
+
+            payload = build_casebook(
+                folders=[str(folder)],
+                snapshots_root=tmp,
+                backtest_root=Path(tmp) / "backtest",
+                args=args,
+            )
+
+        self.assertEqual(payload["summary"]["case_count"], 1)
+        self.assertEqual(payload["cases"][0]["clob_context"]["range_label"], "24 C")
+
+    def test_late_day_warm_side_slice_scores_settled_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_warm_side_folder(tmp, settled=True)
+            args = build_arg_parser().parse_args([str(folder), "--edge-threshold", "0.10"])
+
+            payload = build_casebook(
+                folders=[str(folder)],
+                snapshots_root=tmp,
+                backtest_root=Path(tmp) / "backtest",
+                args=args,
+            )
+
+        warm = payload["late_day_warm_side_cases"]
+        self.assertEqual(warm["schema_version"], "late_day_warm_side_cases_v0.1")
+        self.assertEqual(warm["summary"]["case_count"], 1)
+        self.assertEqual(warm["summary"]["settled_case_count"], 1)
+        self.assertEqual(warm["summary"]["model_top_hit_count"], 1)
+        self.assertEqual(warm["summary"]["market_top_hit_count"], 0)
+        self.assertEqual(warm["summary"]["current_high_lockin_hit_count"], 0)
+        case = warm["cases"][0]
+        self.assertEqual(case["market_id"], "nyc")
+        self.assertEqual(case["model_top_band"], "78-79 F")
+        self.assertEqual(case["market_top_band"], "76-77 F")
+        self.assertEqual(case["current_high_band"], "76-77 F")
+        self.assertTrue(case["market_disagreement"])
+        self.assertEqual(case["market_disagreement_bucket"], "model_warmer_than_market")
+        self.assertEqual(case["warm_distance_bucket"], "one_bin")
+        self.assertEqual(case["forecast_gap_bucket"], "forecast_1_above_high")
+        self.assertEqual(case["cooling_trend_bucket"], "cooling_off_peak")
+        self.assertEqual(case["source_freshness_state"], "open_meteo_unavailable")
+        self.assertEqual(case["coastal_context"], "coastal")
+        self.assertEqual(case["model_top_outcome"], 1)
+        self.assertEqual(case["market_top_outcome"], 0)
+        self.assertEqual(case["current_high_lockin_outcome"], 0)
+        self.assertEqual(case["model_vs_market_top_result"], "model_win")
+        self.assertEqual(case["model_vs_current_high_result"], "model_win")
+        source_slice = warm["slices"]["by_source_freshness"][0]
+        self.assertEqual(source_slice["key"], {"source_freshness_state": "open_meteo_unavailable"})
+        self.assertEqual(source_slice["model_top_hit_count"], 1)
+
+    def test_late_day_warm_side_slice_keeps_unsettled_snapshot_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.write_warm_side_folder(
+                tmp,
+                settled=False,
+                event_slug="highest-temperature-in-nyc-on-june-16-2099",
+            )
+            args = build_arg_parser().parse_args([str(folder), "--edge-threshold", "0.10"])
+
+            payload = build_casebook(
+                folders=[str(folder)],
+                snapshots_root=tmp,
+                backtest_root=Path(tmp) / "backtest",
+                args=args,
+            )
+
+        warm = payload["late_day_warm_side_cases"]
+        self.assertEqual(warm["summary"]["case_count"], 1)
+        self.assertEqual(warm["summary"]["settled_case_count"], 0)
+        self.assertEqual(warm["summary"]["open_case_count"], 1)
+        case = warm["cases"][0]
+        self.assertIsNone(case["settlement"])
+        self.assertEqual(case["model_vs_market_top_result"], "open")
+        self.assertEqual(case["model_vs_current_high_result"], "open")
 
 
 if __name__ == "__main__":

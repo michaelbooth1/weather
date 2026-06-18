@@ -50,6 +50,26 @@ DEFAULT_CLOB_MIDPOINT_MOVE = 0.05
 DEFAULT_MAX_EPISODE_GAP_MINUTES = 30.0
 DEFAULT_MAX_CLOB_AGE_SECONDS = 180.0
 DEFAULT_PNL_THRESHOLD = 0.05
+LATE_DAY_WARM_SIDE_SCHEMA_VERSION = "late_day_warm_side_cases_v0.1"
+LATE_DAY_WARM_SIDE_START_HOUR = 14
+LATE_DAY_HEATING_WINDOW_END_HOUR = 18
+SOURCE_UNAVAILABLE_STATUSES = {
+    "failed",
+    "stale_cache",
+    "rate_limited",
+    "rate_limited_cache",
+}
+FORECAST_SOURCE_NAMES = {
+    "weather_forecast",
+    "open_meteo",
+    "open_meteo_multimodel",
+    "nws_hourly",
+    "nws_grid",
+    "global_ensemble",
+    "eccc_citypage",
+    "eccc_gem",
+}
+OPEN_METEO_SOURCE_NAMES = {"open_meteo", "open_meteo_multimodel"}
 
 SNAPSHOT_FILENAME = "snapshots_long.csv"
 COMPONENT_FILENAME = "components_long.csv"
@@ -380,41 +400,47 @@ def load_clob_context(folder, max_age_seconds=DEFAULT_MAX_CLOB_AGE_SECONDS):
     if not path.exists():
         return by_key
     previous_midpoint = {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            if str(row.get("outcome") or "").lower() != "yes":
-                continue
-            key = band_key(row)
-            ts = to_utc_timestamp(row.get("captured_at_utc") or row.get("captured_at_local"))
-            if ts is None:
-                continue
-            midpoint = maybe_float(row.get("midpoint"))
-            prev = previous_midpoint.get(key)
-            move = None
-            if midpoint is not None and prev is not None:
-                move = midpoint - prev
-            if midpoint is not None:
-                previous_midpoint[key] = midpoint
-            by_key[key].append({
-                "timestamp": ts,
-                "captured_at_utc": row.get("captured_at_utc"),
-                "captured_at_local": row.get("captured_at_local"),
-                "range_label": clean_label(row.get("range_label")),
-                "best_bid": maybe_float(row.get("best_bid")),
-                "best_ask": maybe_float(row.get("best_ask")),
-                "midpoint": midpoint,
-                "spread": maybe_float(row.get("spread")),
-                "bid_depth_1pct": maybe_float(row.get("bid_depth_1pct")),
-                "ask_depth_1pct": maybe_float(row.get("ask_depth_1pct")),
-                "bid_depth_5pct": maybe_float(row.get("bid_depth_5pct")),
-                "ask_depth_5pct": maybe_float(row.get("ask_depth_5pct")),
-                "imbalance_1pct": maybe_float(row.get("imbalance_1pct")),
-                "imbalance_5pct": maybe_float(row.get("imbalance_5pct")),
-                "last_trade_price": maybe_float(row.get("last_trade_price")),
-                "midpoint_move": move,
-                "midpoint_move_abs": abs(move) if move is not None else None,
-                "age_seconds": None,
-            })
+    def _read_rows(errors=None):
+        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
+            return list(csv.DictReader(handle))
+    try:
+        rows = _read_rows(errors=None)
+    except UnicodeDecodeError:
+        rows = _read_rows(errors="replace")
+    for row in rows:
+        if str(row.get("outcome") or "").lower() != "yes":
+            continue
+        key = band_key(row)
+        ts = to_utc_timestamp(row.get("captured_at_utc") or row.get("captured_at_local"))
+        if ts is None:
+            continue
+        midpoint = maybe_float(row.get("midpoint"))
+        prev = previous_midpoint.get(key)
+        move = None
+        if midpoint is not None and prev is not None:
+            move = midpoint - prev
+        if midpoint is not None:
+            previous_midpoint[key] = midpoint
+        by_key[key].append({
+            "timestamp": ts,
+            "captured_at_utc": row.get("captured_at_utc"),
+            "captured_at_local": row.get("captured_at_local"),
+            "range_label": clean_label(row.get("range_label")),
+            "best_bid": maybe_float(row.get("best_bid")),
+            "best_ask": maybe_float(row.get("best_ask")),
+            "midpoint": midpoint,
+            "spread": maybe_float(row.get("spread")),
+            "bid_depth_1pct": maybe_float(row.get("bid_depth_1pct")),
+            "ask_depth_1pct": maybe_float(row.get("ask_depth_1pct")),
+            "bid_depth_5pct": maybe_float(row.get("bid_depth_5pct")),
+            "ask_depth_5pct": maybe_float(row.get("ask_depth_5pct")),
+            "imbalance_1pct": maybe_float(row.get("imbalance_1pct")),
+            "imbalance_5pct": maybe_float(row.get("imbalance_5pct")),
+            "last_trade_price": maybe_float(row.get("last_trade_price")),
+            "midpoint_move": move,
+            "midpoint_move_abs": abs(move) if move is not None else None,
+            "age_seconds": None,
+        })
     for rows in by_key.values():
         rows.sort(key=lambda item: item["timestamp"])
     return by_key
@@ -722,6 +748,435 @@ def score_case(case, settlement_label, replay_inputs, components):
     return case
 
 
+def stable_warm_side_case_id(event_slug, snapshot_id, top_band_key):
+    digest = hashlib.sha1(
+        "|".join([
+            str(event_slug),
+            str(snapshot_id),
+            band_key_text(top_band_key),
+            "late_day_warm_side",
+        ]).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"warm_{digest}"
+
+
+def band_contains_value(row, value):
+    if value is None:
+        return False
+    kind, low, high = band_key(row)
+    if low is None:
+        return False
+    high = high if high is not None else low
+    if kind == "lte":
+        return value <= low
+    if kind == "gte":
+        return value >= low
+    return low <= value <= high
+
+
+def band_lower_value(row):
+    kind, low, _high = band_key(row)
+    if kind == "lte":
+        return None
+    return maybe_float(low)
+
+
+def band_sort_value(row):
+    kind, low, high = band_key(row)
+    if low is None:
+        return (float("inf"), float("inf"))
+    high = high if high is not None else low
+    if kind == "lte":
+        return (float("-inf"), low)
+    if kind == "gte":
+        return (low, float("inf"))
+    return (low, high)
+
+
+def sorted_band_rows(rows):
+    return sorted(rows or [], key=band_sort_value)
+
+
+def find_band_for_value(rows, value):
+    candidates = [row for row in rows or [] if band_contains_value(row, value)]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda row: (
+        0 if band_key(row)[0] == "eq" else 1,
+        (band_sort_value(row)[1] - band_sort_value(row)[0])
+        if all(math.isfinite(item) for item in band_sort_value(row))
+        else float("inf"),
+        band_sort_value(row),
+    ))
+
+
+def top_model_band_row(rows):
+    candidates = [
+        row for row in rows or []
+        if maybe_float(row.get("model_probability")) is not None
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: (
+        maybe_float(row.get("model_probability")) or 0.0,
+        band_sort_value(row)[0] if math.isfinite(band_sort_value(row)[0]) else -1e9,
+    ))
+
+
+def market_top_band_row(rows):
+    candidates = [
+        row for row in rows or []
+        if maybe_float(row.get("market_yes")) is not None
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: (
+        maybe_float(row.get("market_yes")) or 0.0,
+        band_sort_value(row)[0] if math.isfinite(band_sort_value(row)[0]) else -1e9,
+    ))
+
+
+def warm_bin_distance(rows, current_high_row, top_row):
+    if not current_high_row or not top_row:
+        return None
+    ordered = sorted_band_rows(rows)
+    try:
+        current_idx = ordered.index(current_high_row)
+        top_idx = ordered.index(top_row)
+    except ValueError:
+        return None
+    return max(0, top_idx - current_idx)
+
+
+def warm_distance_bucket(distance):
+    if distance is None:
+        return "unknown"
+    if distance <= 1:
+        return "one_bin"
+    if distance == 2:
+        return "two_bins"
+    return "three_plus_bins"
+
+
+def heating_window_bucket(hours_remaining):
+    if hours_remaining is None:
+        return "unknown"
+    if hours_remaining <= 0:
+        return "closed"
+    if hours_remaining <= 1:
+        return "0-1h"
+    if hours_remaining <= 2:
+        return "1-2h"
+    return "2h_plus"
+
+
+def forecast_gap_bucket(gap):
+    if gap is None:
+        return "unknown"
+    if gap >= 2.0:
+        return "forecast_2plus_above_high"
+    if gap >= 1.0:
+        return "forecast_1_above_high"
+    if gap >= 0.0:
+        return "forecast_near_high"
+    return "forecast_below_high"
+
+
+def cooling_trend_bucket(current_minus_high):
+    if current_minus_high is None:
+        return "unknown"
+    if current_minus_high >= -0.25:
+        return "at_or_near_peak"
+    if current_minus_high >= -1.0:
+        return "slightly_off_peak"
+    return "cooling_off_peak"
+
+
+def unavailable_source_names(freshness):
+    unavailable = []
+    for name, item in sorted((freshness or {}).items()):
+        status = str(item.get("status") or "").lower()
+        if item.get("stale") or item.get("ok") is False or status in SOURCE_UNAVAILABLE_STATUSES:
+            unavailable.append(name)
+    return unavailable
+
+
+def compact_source_freshness(freshness):
+    return {
+        name: {
+            "ok": item.get("ok"),
+            "status": item.get("status"),
+            "stale": item.get("stale"),
+            "cache_age_minutes": item.get("cache_age_minutes"),
+            "ttl_minutes": item.get("ttl_minutes"),
+        }
+        for name, item in sorted((freshness or {}).items())
+    }
+
+
+def source_freshness_bucket(freshness):
+    if not freshness:
+        return "unknown"
+    unavailable = set(unavailable_source_names(freshness))
+    if not unavailable:
+        return "all_fresh"
+    if unavailable & OPEN_METEO_SOURCE_NAMES:
+        return "open_meteo_unavailable"
+    if unavailable & FORECAST_SOURCE_NAMES:
+        return "forecast_source_unavailable"
+    return "source_degraded"
+
+
+def market_disagreement_bucket(top_row, market_row):
+    if not market_row:
+        return "market_missing"
+    top_key = band_key(top_row)
+    market_key = band_key(market_row)
+    if top_key == market_key:
+        return "aligned"
+    top_low = band_lower_value(top_row)
+    market_low = band_lower_value(market_row)
+    if top_low is not None and market_low is not None and top_low > market_low:
+        return "model_warmer_than_market"
+    return "different_top_band"
+
+
+def coastal_context_bucket(spec):
+    if not spec:
+        return "unknown"
+    if spec.coastal:
+        return "coastal"
+    if "marine_context" in (spec.sources or ()):
+        return "marine_context_tracked"
+    return "inland"
+
+
+def late_day_warm_side_case_for_snapshot(rows, settlement_label, replay_inputs, trust):
+    if not rows:
+        return None
+    first = rows[0]
+    captured = parse_time(first.get("captured_at_local") or first.get("captured_at_utc"))
+    if captured is None:
+        return None
+    local_hour = captured.hour + captured.minute / 60.0 + captured.second / 3600.0
+    if local_hour < LATE_DAY_WARM_SIDE_START_HOUR:
+        return None
+    top_row = top_model_band_row(rows)
+    if not top_row:
+        return None
+    high_so_far = max_live_observation(top_row)
+    top_low = band_lower_value(top_row)
+    if high_so_far is None or top_low is None or top_low <= high_so_far:
+        return None
+    spec = spec_for_slug(top_row.get("event_slug"))
+    market_id = spec.id if spec else top_row.get("market_id") or "unknown"
+    market_row = market_top_band_row(rows)
+    current_high_row = find_band_for_value(rows, high_so_far)
+    distance = warm_bin_distance(rows, current_high_row, top_row)
+    current_temp = maybe_float(top_row.get("wu_current_c"))
+    current_minus_high = None if current_temp is None else current_temp - high_so_far
+    forecast = forecast_consensus(top_row)
+    forecast_gap = None if forecast is None else forecast - high_so_far
+    snapshot_id = top_row.get("snapshot_id")
+    replay_row = replay_inputs.get(snapshot_id) if replay_inputs else None
+    freshness = source_freshness_from_replay(replay_row)
+    unavailable = unavailable_source_names(freshness)
+    heating_remaining = max(0.0, LATE_DAY_HEATING_WINDOW_END_HOUR - local_hour)
+    top_key = band_key(top_row)
+    market_key = band_key(market_row) if market_row else None
+    current_key = band_key(current_high_row) if current_high_row else None
+    market_disagreement = market_key != top_key if market_key else None
+    case = {
+        "case_id": stable_warm_side_case_id(top_row.get("event_slug"), snapshot_id, top_key),
+        "event_slug": top_row.get("event_slug"),
+        "market_id": market_id,
+        "city": spec.city_label if spec else None,
+        "unit": spec.display_unit if spec else None,
+        "target_date": date_from_event_slug(top_row.get("event_slug")).isoformat() if top_row.get("event_slug") else None,
+        "snapshot_id": snapshot_id,
+        "captured_at_utc": top_row.get("captured_at_utc"),
+        "captured_at_local": top_row.get("captured_at_local"),
+        "local_hour": round(local_hour, 2),
+        "heating_window_hours_remaining": round(heating_remaining, 2),
+        "heating_window_bucket": heating_window_bucket(heating_remaining),
+        "model_top_band": clean_label(top_row.get("range_label")),
+        "model_top_band_key": band_key_text(top_key),
+        "model_top_probability": maybe_float(top_row.get("model_probability")),
+        "market_top_band": clean_label(market_row.get("range_label")) if market_row else None,
+        "market_top_band_key": band_key_text(market_key) if market_key else None,
+        "market_top_probability": maybe_float(market_row.get("market_yes")) if market_row else None,
+        "market_disagreement": market_disagreement,
+        "market_disagreement_bucket": market_disagreement_bucket(top_row, market_row),
+        "current_high": high_so_far,
+        "current_temp": current_temp,
+        "current_minus_high": current_minus_high,
+        "current_high_band": clean_label(current_high_row.get("range_label")) if current_high_row else None,
+        "current_high_band_key": band_key_text(current_key) if current_key else None,
+        "warm_gap_degrees": top_low - high_so_far,
+        "warm_bin_distance": distance,
+        "warm_distance_bucket": warm_distance_bucket(distance),
+        "forecast_consensus": forecast,
+        "forecast_high_gap": forecast_gap,
+        "forecast_gap_bucket": forecast_gap_bucket(forecast_gap),
+        "cooling_trend_bucket": cooling_trend_bucket(current_minus_high),
+        "source_freshness_state": source_freshness_bucket(freshness),
+        "unavailable_sources": unavailable,
+        "source_freshness": compact_source_freshness(freshness),
+        "coastal_context": coastal_context_bucket(spec),
+        "coastal": bool(spec.coastal) if spec else None,
+        "marine_context_source_present": bool(spec and "marine_context" in (spec.sources or ())),
+        "marine_context_status": (freshness.get("marine_context") or {}).get("status") if freshness else None,
+        "trust": trust.get(market_id) or {},
+        "model_version": top_row.get("model_version"),
+    }
+    if settlement_label:
+        settlement_bucket = maybe_int(settlement_label.get("settlement_bucket"))
+        model_outcome = band_outcome(top_row, settlement_bucket)
+        market_outcome = band_outcome(market_row, settlement_bucket) if market_row else None
+        current_outcome = band_outcome(current_high_row, settlement_bucket) if current_high_row else None
+        case["settlement"] = {
+            "settlement_bucket": settlement_bucket,
+            "settlement_high": maybe_float(settlement_label.get("settlement_high")),
+            "settlement_unit": settlement_label.get("settlement_unit"),
+            "winning_band": clean_label(settlement_label.get("winning_band")),
+            "quality_grade": settlement_label.get("quality_grade"),
+            "settlement_source": settlement_label.get("settlement_source"),
+            "reconciliation_status": settlement_label.get("reconciliation_status"),
+        }
+        case["model_top_outcome"] = model_outcome
+        case["market_top_outcome"] = market_outcome
+        case["current_high_lockin_outcome"] = current_outcome
+        case["model_vs_market_top_result"] = baseline_result(model_outcome, market_outcome)
+        case["model_vs_current_high_result"] = baseline_result(model_outcome, current_outcome)
+    else:
+        case["settlement"] = None
+        case["model_top_outcome"] = None
+        case["market_top_outcome"] = None
+        case["current_high_lockin_outcome"] = None
+        case["model_vs_market_top_result"] = "open"
+        case["model_vs_current_high_result"] = "open"
+    return case
+
+
+def baseline_result(model_outcome, baseline_outcome):
+    if model_outcome is None or baseline_outcome is None:
+        return "open"
+    if model_outcome > baseline_outcome:
+        return "model_win"
+    if model_outcome < baseline_outcome:
+        return "model_loss"
+    return "tie"
+
+
+def late_day_warm_side_cases_for_folder(folder, settlement_label, replay_inputs, trust):
+    rows = load_snapshot_rows(folder)
+    grouped = defaultdict(list)
+    for row in rows:
+        key = (row.get("event_slug"), row.get("snapshot_id"))
+        grouped[key].append(row)
+    cases = []
+    for _key, snapshot_rows in sorted(
+        grouped.items(),
+        key=lambda item: item[1][0].get("_captured_dt") or datetime.min.replace(tzinfo=timezone.utc),
+    ):
+        case = late_day_warm_side_case_for_snapshot(snapshot_rows, settlement_label, replay_inputs, trust)
+        if case:
+            cases.append(case)
+    return cases
+
+
+def warm_case_ref(case):
+    return {
+        "case_id": case.get("case_id"),
+        "market_id": case.get("market_id"),
+        "event_slug": case.get("event_slug"),
+        "snapshot_id": case.get("snapshot_id"),
+        "captured_at_utc": case.get("captured_at_utc"),
+        "model_top_band": case.get("model_top_band"),
+        "current_high": case.get("current_high"),
+        "market_top_band": case.get("market_top_band"),
+        "source_freshness_state": case.get("source_freshness_state"),
+    }
+
+
+def late_day_warm_side_slice(cases, fields, max_refs=20):
+    grouped = defaultdict(list)
+    for case in cases:
+        key = tuple(case.get(field) for field in fields)
+        grouped[key].append(case)
+    rows = []
+    for key, items in grouped.items():
+        settled = [item for item in items if item.get("settlement")]
+        rows.append({
+            "fields": list(fields),
+            "key": {field: value for field, value in zip(fields, key)},
+            "case_count": len(items),
+            "settled_case_count": len(settled),
+            "open_case_count": len(items) - len(settled),
+            "model_top_hit_count": sum(1 for item in settled if item.get("model_top_outcome") == 1),
+            "market_top_hit_count": sum(1 for item in settled if item.get("market_top_outcome") == 1),
+            "current_high_lockin_hit_count": sum(
+                1 for item in settled if item.get("current_high_lockin_outcome") == 1
+            ),
+            "model_vs_market_top": dict(Counter(item.get("model_vs_market_top_result") for item in settled)),
+            "model_vs_current_high": dict(Counter(item.get("model_vs_current_high_result") for item in settled)),
+            "case_refs": [warm_case_ref(item) for item in items[:max_refs]],
+        })
+    rows.sort(key=lambda item: (
+        item.get("settled_case_count", 0),
+        item.get("case_count", 0),
+        str(item.get("key")),
+    ), reverse=True)
+    return rows
+
+
+def summarize_late_day_warm_side_cases(cases):
+    settled = [case for case in cases if case.get("settlement")]
+    return {
+        "case_count": len(cases),
+        "settled_case_count": len(settled),
+        "open_case_count": len(cases) - len(settled),
+        "market_disagreement_count": sum(1 for case in cases if case.get("market_disagreement")),
+        "model_top_hit_count": sum(1 for case in settled if case.get("model_top_outcome") == 1),
+        "market_top_hit_count": sum(1 for case in settled if case.get("market_top_outcome") == 1),
+        "current_high_lockin_hit_count": sum(
+            1 for case in settled if case.get("current_high_lockin_outcome") == 1
+        ),
+        "source_freshness_counts": dict(Counter(case.get("source_freshness_state") for case in cases)),
+        "coastal_context_counts": dict(Counter(case.get("coastal_context") for case in cases)),
+        "warm_distance_counts": dict(Counter(case.get("warm_distance_bucket") for case in cases)),
+        "heating_window_counts": dict(Counter(case.get("heating_window_bucket") for case in cases)),
+    }
+
+
+def build_late_day_warm_side_casebook(cases):
+    cases = sorted(cases, key=lambda case: (
+        case.get("target_date") or "",
+        case.get("market_id") or "",
+        case.get("captured_at_utc") or "",
+    ), reverse=True)
+    return {
+        "schema_version": LATE_DAY_WARM_SIDE_SCHEMA_VERSION,
+        "late_day_start_hour": LATE_DAY_WARM_SIDE_START_HOUR,
+        "heating_window_end_hour": LATE_DAY_HEATING_WINDOW_END_HOUR,
+        "summary": summarize_late_day_warm_side_cases(cases),
+        "slices": {
+            "by_heating_window": late_day_warm_side_slice(cases, ("heating_window_bucket",)),
+            "by_forecast_gap": late_day_warm_side_slice(cases, ("forecast_gap_bucket",)),
+            "by_cooling_trend": late_day_warm_side_slice(cases, ("cooling_trend_bucket",)),
+            "by_coastal_context": late_day_warm_side_slice(cases, ("coastal_context",)),
+            "by_source_freshness": late_day_warm_side_slice(cases, ("source_freshness_state",)),
+            "by_market_disagreement": late_day_warm_side_slice(cases, ("market_disagreement_bucket",)),
+            "by_warm_distance": late_day_warm_side_slice(cases, ("warm_distance_bucket",)),
+            "source_coastal_interaction": late_day_warm_side_slice(
+                cases,
+                ("warm_distance_bucket", "source_freshness_state", "coastal_context"),
+            ),
+        },
+        "cases": cases,
+    }
+
+
 def discover_folders(snapshots_root, explicit_folders=None):
     if explicit_folders:
         return [Path(item) for item in explicit_folders]
@@ -754,17 +1209,18 @@ def build_casebook(
     )
     trust = load_trust_scores(backtest_root)
     all_cases = []
+    warm_side_cases = []
     folder_summaries = []
     for folder in discover_folders(snapshots_root, folders):
         cases, folder_summary = detect_cases_for_folder(folder, args, trust)
         folder_summaries.append(folder_summary)
-        if not cases:
-            continue
         replay_inputs = load_replay_inputs(folder)
-        components = component_index(folder)
         settlement = load_settlement_label(folder)
-        for case in cases:
-            all_cases.append(score_case(case, settlement, replay_inputs, components))
+        warm_side_cases.extend(late_day_warm_side_cases_for_folder(folder, settlement, replay_inputs, trust))
+        if cases:
+            components = component_index(folder)
+            for case in cases:
+                all_cases.append(score_case(case, settlement, replay_inputs, components))
     all_cases.sort(key=lambda case: (
         case.get("target_date") or "",
         case.get("market_id") or "",
@@ -787,6 +1243,7 @@ def build_casebook(
         "folders": folder_summaries,
         "summary": summarize_cases(all_cases, folder_summaries),
         "feedback_slices": feedback_slices(all_cases),
+        "late_day_warm_side_cases": build_late_day_warm_side_casebook(warm_side_cases),
         "cases": all_cases,
     }
     return payload
@@ -959,10 +1416,60 @@ def render_feedback_rows(slices, slice_type=None, limit=12):
     return rows
 
 
+def render_warm_case_rows(cases, limit=30):
+    rows = []
+    for case in sorted(
+        cases,
+        key=lambda item: (
+            item.get("settlement") is not None,
+            item.get("captured_at_utc") or "",
+            item.get("market_id") or "",
+        ),
+        reverse=True,
+    )[:limit]:
+        rows.append([
+            case.get("case_id"),
+            case.get("market_id"),
+            case.get("captured_at_local"),
+            case.get("current_high"),
+            case.get("model_top_band"),
+            fmt_pct(case.get("model_top_probability")),
+            case.get("market_top_band"),
+            fmt_pct(case.get("market_top_probability")),
+            case.get("warm_distance_bucket"),
+            case.get("source_freshness_state"),
+            case.get("coastal_context"),
+            case.get("model_vs_market_top_result"),
+            case.get("model_vs_current_high_result"),
+        ])
+    return rows
+
+
+def render_warm_slice_rows(slices, limit=12):
+    rows = []
+    for item in (slices or [])[:limit]:
+        key = item.get("key") or {}
+        rows.append([
+            ", ".join(f"{name}={value}" for name, value in key.items()),
+            item.get("case_count"),
+            item.get("settled_case_count"),
+            item.get("open_case_count"),
+            item.get("model_top_hit_count"),
+            item.get("market_top_hit_count"),
+            item.get("current_high_lockin_hit_count"),
+            dict(item.get("model_vs_market_top") or {}),
+        ])
+    return rows
+
+
 def render_report(payload):
     summary = payload["summary"]
     cases = payload["cases"]
     slices = payload.get("feedback_slices") or []
+    warm_side = payload.get("late_day_warm_side_cases") or {}
+    warm_summary = warm_side.get("summary") or {}
+    warm_slices = warm_side.get("slices") or {}
+    warm_cases = warm_side.get("cases") or []
     settled_cases = [case for case in cases if case.get("settlement")]
     open_cases = [case for case in cases if not case.get("settlement")]
     lines = [
@@ -1070,6 +1577,76 @@ def render_report(payload):
             "Example Cases",
         ],
         render_feedback_rows(slices, slice_type="known_edge_candidate"),
+    ))
+    lines.extend([
+        "",
+        "## Late-Day Warm-Side Cases",
+        "",
+        "This slice captures snapshots after 14:00 local time where the model's "
+        "top band is still warmer than the live high-so-far, then compares the "
+        "model top, market top, and current-high lock-in baselines once "
+        "settlement is available.",
+        "",
+    ])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Cases", warm_summary.get("case_count")],
+            ["Settled / open", f"{warm_summary.get('settled_case_count')} / {warm_summary.get('open_case_count')}"],
+            ["Market disagreements", warm_summary.get("market_disagreement_count")],
+            ["Model / market / lock-in hits", (
+                f"{warm_summary.get('model_top_hit_count')} / "
+                f"{warm_summary.get('market_top_hit_count')} / "
+                f"{warm_summary.get('current_high_lockin_hit_count')}"
+            )],
+        ],
+    ))
+    lines.extend(["", "### Warm-Side Source Health", ""])
+    lines.extend(markdown_table(
+        [
+            "Slice",
+            "Cases",
+            "Settled",
+            "Open",
+            "Model Hits",
+            "Market Hits",
+            "Lock-In Hits",
+            "Model vs Market",
+        ],
+        render_warm_slice_rows(warm_slices.get("by_source_freshness")),
+    ))
+    lines.extend(["", "### Warm-Side Coastal / Marine Interaction", ""])
+    lines.extend(markdown_table(
+        [
+            "Slice",
+            "Cases",
+            "Settled",
+            "Open",
+            "Model Hits",
+            "Market Hits",
+            "Lock-In Hits",
+            "Model vs Market",
+        ],
+        render_warm_slice_rows(warm_slices.get("source_coastal_interaction")),
+    ))
+    lines.extend(["", "### Warm-Side Snapshot Cases", ""])
+    lines.extend(markdown_table(
+        [
+            "Case",
+            "Market",
+            "Time",
+            "High",
+            "Model Top",
+            "Model",
+            "Market Top",
+            "Market",
+            "Warm Dist.",
+            "Source",
+            "Coastal",
+            "Model vs Market",
+            "Model vs Lock-In",
+        ],
+        render_warm_case_rows(warm_cases, limit=40),
     ))
     lines.append("")
     return "\n".join(lines)

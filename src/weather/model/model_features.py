@@ -1,7 +1,9 @@
 import json
+import logging
 import math
 import statistics
 from collections import Counter, defaultdict
+from copy import deepcopy
 
 from weather.artifacts import resolve_artifact_path
 from weather.model.feature_store import (
@@ -25,8 +27,10 @@ from weather.sources.forecast_history import load_forecast_daily, daily_path_for
 from weather.sources.eccc_gridded import derive_eccc_gridded_features
 from weather.sources.marine_context import derive_marine_context_features
 from weather.sources.mrms_precip import derive_mrms_precip_features
-from weather.calibration.feature_probability_calibration import temperature_scale_distribution
+from weather.model.calibration_runtime import temperature_scale_distribution
 from weather.model.model_constants import _UNLOADED
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureModelMixin:
@@ -45,7 +49,7 @@ class FeatureModelMixin:
                 with path.open("rb") as f:
                     return pickle.load(f)
             except Exception as e:
-                print(f"Error loading HGBC pickle: {e}")
+                logger.warning("Error loading HGBC pickle: %s", e)
         return None
 
     def load_feature_model_coefs(self):
@@ -60,7 +64,7 @@ class FeatureModelMixin:
                 with path.open("r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading LR JSON coefs: {e}")
+                logger.warning("Error loading LR JSON coefs: %s", e)
         return None
 
     def feature_blend_weight(self, cutoff_hour, default=0.80):
@@ -598,24 +602,8 @@ class FeatureModelMixin:
 
     def _evaluate_feature_model_for_cutoff(self, sources, cutoff_hour, hgb_bundle, lr_coefs, now=None):
         feats = self.extract_live_features(sources, cutoff_hour, now=now)
-        high_so_far = feats["high_so_far"]
-        current_temp = feats["current_temp"]
-        rise_from_7am = feats["rise_from_7am"]
-        dewpoint = feats["dewpoint_c"]
-        humidity = feats["humidity"]
-        pressure = feats["pressure"]
-        pressure_trend_3h = feats["pressure_trend_3h"]
-        wind_speed = feats["wind_speed_kmh"]
-        wind_gust = feats.get("wind_gust_kmh")
-        wind_shift = feats.get("wind_shift_3h_degrees")
         wind_group = feats["wind_group"]
         cloud_group = feats["cloud_group"]
-        forecast_high = feats["forecast_high"]
-        forecast_gap = feats["forecast_gap"]
-        forecast_source_count = feats["forecast_source_count"]
-        forecast_disagreement = feats["forecast_disagreement"]
-        warming_rate_2h = feats["warming_rate_2h"]
-        hours_at_peak = feats["hours_at_peak"]
 
         # Check if HGBC is available (preferred)
         if hgb_bundle and str(cutoff_hour) in hgb_bundle:
@@ -666,7 +654,7 @@ class FeatureModelMixin:
                 )
                 return prob_dict, "hgb"
             except Exception as e:
-                print(f"Error predicting with HGBC model: {e}. Falling back to LR coefficients...")
+                logger.warning("Error predicting with HGBC model: %s. Falling back to LR coefficients...", e)
                 
         # Fallback to pure Python Logistic Regression coefficients
         if lr_coefs and str(cutoff_hour) in lr_coefs:
@@ -718,55 +706,61 @@ class FeatureModelMixin:
                 prob_dict = {int(classes[c_idx]): float(probs[c_idx]) for c_idx in range(len(classes))}
                 return prob_dict, "lr"
             except Exception as e:
-                print(f"Error predicting with LR coefficients: {e}. Falling back to empirical prior...")
+                logger.warning("Error predicting with LR coefficients: %s. Falling back to empirical prior...", e)
                 
         return None, "empirical"
 
-    def predict_feature_distribution(self, sources, cutoff_hour, now):
+    def predict_feature_distribution(self, sources, cutoff_hour, now, include_gate=False):
         """Evaluate the feature model at the printed cutoff. Intra-hour
         freshness is handled by the v0.3 trained features (minutes since the
         cutoff + the live reading) threaded through ``now`` -- NOT by
         evaluating the next hour's model on unprinted state (the removed
         interpolation path) or by fabricating history rows (the reverted
         v0.5.1 injection)."""
-        if not self.family_secondary_feature_model_allowed():
-            return None, "empirical"
+        gate = self.family_secondary_feature_model_gate()
+        self._last_family_secondary_gate = deepcopy(gate)
+        if gate.get("mode") != "ml":
+            result = (None, "empirical")
+            return (*result, gate) if include_gate else result
         hgb_bundle = self.load_feature_model_hgb()
         lr_coefs = self.load_feature_model_coefs()
 
         if not hgb_bundle and not lr_coefs:
-            return None, "empirical"
+            result = (None, "empirical")
+            return (*result, gate) if include_gate else result
 
-        return self._evaluate_feature_model_for_cutoff(
+        result = self._evaluate_feature_model_for_cutoff(
             sources, cutoff_hour, hgb_bundle, lr_coefs, now=now
         )
+        return (*result, gate) if include_gate else result
 
-    def family_secondary_feature_model_allowed(self):
+    def family_secondary_feature_model_gate(self):
         manifest = getattr(self, "family_secondary_artifacts", None)
         if not manifest:
-            self._last_family_secondary_gate = {
+            return {
                 "mode": "ml",
                 "reason": "no family secondary manifest",
             }
-            return True
         if getattr(self.spec, "display_unit", None) != manifest.get("family_unit"):
-            self._last_family_secondary_gate = {
+            return {
                 "mode": "ml",
                 "reason": "market unit not governed by family secondary manifest",
             }
-            return True
         market = (manifest.get("markets") or {}).get(self.market_id)
         if not market:
-            self._last_family_secondary_gate = {
+            return {
                 "mode": (manifest.get("gate") or {}).get("default_mode", "empirical"),
                 "reason": "market missing from family secondary manifest",
             }
-        else:
-            self._last_family_secondary_gate = market.get("serving_gate") or {
-                "mode": "empirical",
-                "reason": "missing serving gate",
-            }
-        return self._last_family_secondary_gate.get("mode") == "ml"
+        return market.get("serving_gate") or {
+            "mode": "empirical",
+            "reason": "missing serving gate",
+        }
+
+    def family_secondary_feature_model_allowed(self):
+        gate = self.family_secondary_feature_model_gate()
+        self._last_family_secondary_gate = deepcopy(gate)
+        return gate.get("mode") == "ml"
 
 
     def bucket_transition_model(self, sources, now, min_sample_size=5):
@@ -934,7 +928,7 @@ class FeatureModelMixin:
                 with path.open("r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading late-day model coefficients: {e}")
+                logger.warning("Error loading late-day model coefficients: %s", e)
         return None
 
     def predict_late_day_continuation(self, sources, cutoff_hour, now):
@@ -1067,7 +1061,7 @@ class FeatureModelMixin:
                 "forecast_tail_probability": forecast_tail_probability,
             }
         except Exception as e:
-            print(f"Error predicting late-day continuation: {e}")
+            logger.warning("Error predicting late-day continuation: %s", e)
             return None
 
     def analog_feature_view(self, features):

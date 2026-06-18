@@ -21,10 +21,10 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 
 | Item | File |
 | ---: | --- |
-| 1 | [Snapshot Analytics [CLOSED]](items/item-01-snapshot-analytics.md) |
-| 2 | [Intraday Model Calibration [CLOSED]](items/item-02-intraday-model-calibration.md) |
-| 3 | [Forecast Archive [CLOSED]](items/item-03-forecast-archive.md) |
-| 4 | [ECCC SWOB Historical Layer [CLOSED]](items/item-04-eccc-swob-historical-layer.md) |
+| 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
+| 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |
+| 3 | [Forecast Archive [COMPLETE]](items/item-03-forecast-archive.md) |
+| 4 | [ECCC SWOB Historical Layer [COMPLETE]](items/item-04-eccc-swob-historical-layer.md) |
 | 5 | [METAR Historical Layer [COMPLETE - LEARNED METAR SERVING ROLE]](items/item-05-metar-historical-layer.md) |
 
 ### Model Improvements
@@ -82,7 +82,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE CLOSED]](items/item-29-deepen-and-widen-the-historical-record.md) |
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
-| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-16 - TORONTO CANDIDATE BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
+| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-18 - PRESSURE SOURCE ADDED, GATE BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 39 | [Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
@@ -95,6 +95,14 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 80 | [ECCC HRDPS And GEM Toronto Gridded Forecast Layer [COMPLETE 2026-06-16 - TORONTO ECCC GRIDDED SCORING LIVE]](items/item-80-eccc-hrdps-and-gem-toronto-gridded-forecast-layer.md) |
 | 81 | [Meteostat And NASA POWER Historical Fallback Sources [COMPLETE 2026-06-16 - SUPPLEMENTAL FALLBACK GATES LIVE]](items/item-81-meteostat-and-nasa-power-historical-fallback-sources.md) |
 | 85 | [Independent Market-Day Evidence Expansion For Variant Evaluation [COMPLETE 2026-06-16 - EVIDENCE GROWTH MONITOR LIVE]](items/item-85-independent-market-day-evidence-expansion-for-variant-evaluation.md) |
+| 100 | [Open-Meteo Rate Limit And Source Fallback Resilience [COMPLETE 2026-06-18 - DEGRADED SOURCE PROVENANCE LIVE]](items/item-100-open-meteo-rate-limit-and-source-fallback-resilience.md) |
+| 102 | [Toronto ECCC Runtime Source Hardening [COMPLETE 2026-06-18 - TORONTO SOURCE HEALTH GATE LIVE]](items/item-102-toronto-eccc-runtime-source-hardening.md) |
+| 109 | [Settled-Day Replay Status Artifact Backfill [COMPLETE 2026-06-17 - REPAIR COMMAND LIVE]](items/item-109-settled-day-replay-status-artifact-backfill.md) |
+| 111 | [Tape Backup Manifest SLA And Restore Evidence [COMPLETE 2026-06-17 - BACKUP SLA ENFORCED]](items/item-111-tape-backup-manifest-sla-and-restore-evidence.md) |
+| 113 | [Independent Settled Evidence Growth And Sample SLA [COMPLETE 2026-06-17 - EVIDENCE SLA LIVE]](items/item-113-independent-settled-evidence-growth-and-sample-sla.md) |
+| 114 | [Data-Layer P0 Gate Closure For Retrain Eligibility [COMPLETE 2026-06-17 - DATA P0 CLEARED]](items/item-114-data-layer-p0-gate-closure-for-retrain-eligibility.md) |
+| 120 | [Settled-Day Finalization Freshness SLA [COMPLETE 2026-06-18 - NIGHTLY PREFLIGHT LIVE]](items/item-120-settled-day-finalization-freshness-sla.md) |
+| 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -102,7 +110,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | ---: | --- |
 | 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
-| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-16 - FULL DENSITY REPLAY BLOCKED]](items/item-35-unified-continuous-density-model.md) |
+| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-18 - HOLDOUT SIGMA ADDED, EMPIRICAL LIFT BLOCKED]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
 | 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
 | 38 | [Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]](items/item-38-cross-market-and-market-microstructure-signal.md) |
@@ -114,7 +122,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-16 - SHADOW BLOCKERS EXPLAINED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-18 - EMPIRICAL PROMOTION BLOCKED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [COMPLETE 2026-06-16 - CORE BACKFILL AND SHADOW EVIDENCE]](items/item-50-scholarly-weather-input-gap-closure.md) |
 | 51 | [Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]](items/item-51-model-architecture-health-refactor.md) |
@@ -129,7 +137,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-16 - FINANCIAL RECONCILIATION ADDED]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-18 - LIVE ACCOUNT EVIDENCE BLOCKED]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
@@ -142,6 +150,20 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 83 | [Shadow Evidence Accounting And Active Variant Registry [COMPLETE 2026-06-16 - ACTIVE EVIDENCE ACCOUNTING LIVE]](items/item-83-shadow-evidence-accounting-and-active-variant-registry.md) |
 | 84 | [Cross-Family Control De-Duplication And Variant Namespace Hygiene [COMPLETE 2026-06-16 - SHARED CONTROL DEDUPE LIVE]](items/item-84-cross-family-control-deduplication-and-variant-namespace-hygiene.md) |
 | 86 | [No-Market Candidate Bakeoff And Promotion Lane Selection [COMPLETE 2026-06-16 - ITEM50 SHADOW LANE SELECTED]](items/item-86-no-market-candidate-bakeoff-and-promotion-lane-selection.md) |
+| 101 | [Live-Forward Gate State Reconciliation [COMPLETE 2026-06-18 - RECONCILED GATE ARTIFACT LIVE]](items/item-101-live-forward-gate-state-reconciliation.md) |
+| 103 | [Late-Day Warm-Side Disagreement Casebook [COMPLETE 2026-06-18 - WARM-SIDE CASEBOOK SLICE LIVE]](items/item-103-late-day-warm-side-disagreement-casebook.md) |
+| 104 | [Feature Matrix Assembly And Training Throughput Warning Gate [COMPLETE 2026-06-17 - THROUGHPUT GATE LIVE]](items/item-104-feature-matrix-assembly-and-training-throughput-warning-gate.md) |
+| 105 | [Source-State Feature Ablation And Forecast Freshness Calibration [COMPLETE 2026-06-18 - SOURCE-STATE ABLATION GATE LIVE]](items/item-105-source-state-feature-ablation-and-forecast-freshness-calibration.md) |
+| 106 | [Time-Blocked Active-Day Validation And Leakage Audit [COMPLETE 2026-06-17 - BLOCKED VALIDATION GATE LIVE]](items/item-106-time-blocked-active-day-validation-and-leakage-audit.md) |
+| 108 | [Overnight Self-Improvement Run Evidence And Blocker SLA [COMPLETE 2026-06-17 - NIGHTLY SLA LIVE]](items/item-108-overnight-self-improvement-run-evidence-and-blocker-sla.md) |
+| 110 | [Market-Making Roll Window And Evidence Classification [COMPLETE 2026-06-17 - EVIDENCE MODE GATE LIVE]](items/item-110-market-making-roll-window-and-evidence-classification.md) |
+| 115 | [Market-Skill Gap Slice Remediation Program [COMPLETE 2026-06-17 - GAP OWNERS ASSIGNED]](items/item-115-market-skill-gap-slice-remediation-program.md) |
+| 116 | [Per-Market Live-Forward Evidence Credit And Stale-Row Recovery [COMPLETE 2026-06-17 - PER-MARKET CREDIT LIVE]](items/item-116-per-market-live-forward-evidence-credit-and-stale-row-recovery.md) |
+| 117 | [Core Model Day-Over-Day Skill Trend Gate [COMPLETE 2026-06-17 - TREND CLAIM GATE LIVE]](items/item-117-core-model-day-over-day-skill-trend-gate.md) |
+| 118 | [Broad Live-Forward SLO Recovery [COMPLETE 2026-06-17 - RECOVERY CHECKLIST LIVE]](items/item-118-broad-live-forward-slo-recovery.md) |
+| 121 | [Market-Making Tape Encoding And CSV Read Robustness [COMPLETE 2026-06-18 - ROBUST CSV READER LIVE]](items/item-121-market-making-tape-encoding-and-csv-read-robustness.md) |
+| 123 | [Cross-Hub Readiness Transfer And Promotion Guardrails [OPEN 2026-06-18 - HUB LESSONS NEED REPEATABLE GATES]](items/item-123-cross-hub-readiness-transfer-and-promotion-guardrails.md) |
+| 125 | [Weather Input Value Attribution And Promotion Queue [COMPLETE 2026-06-18 - SOURCE-FAMILY PREFLIGHT LIVE]](items/item-125-weather-input-value-attribution-and-promotion-queue.md) |
 
 ### Architecture And Maintainability
 
@@ -153,6 +175,17 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 90 | [Large Module Decomposition For Calibration And Market Operations [COMPLETE 2026-06-16 - CALIBRATION AND PREFLIGHT SPLITS LIVE]](items/item-90-large-module-decomposition-for-calibration-and-market-operations.md) |
 | 91 | [Repository Path Policy Hardening [COMPLETE 2026-06-16 - REPO-ABSOLUTE DEFAULT PATHS LIVE]](items/item-91-repository-path-policy-hardening.md) |
 | 92 | [Streamlit App Import Hygiene And UTF-8 Cleanup [COMPLETE 2026-06-16 - APP HYGIENE GUARD LIVE]](items/item-92-streamlit-app-import-hygiene-and-utf8-cleanup.md) |
+| 93 | [Canonical Temperature Rounding And Unit Helpers [COMPLETE 2026-06-16 - CANONICAL UNITS HELPER LIVE]](items/item-93-canonical-temperature-rounding-and-unit-helpers.md) |
+| 94 | [Internal Compatibility Fallback Retirement [COMPLETE 2026-06-16 - INTERNAL FALLBACKS RETIRED]](items/item-94-internal-compatibility-fallback-retirement.md) |
+| 95 | [Shared Supervisor Runtime Primitives [COMPLETE 2026-06-16 - SHARED SUPERVISOR PRIMITIVES LIVE]](items/item-95-shared-supervisor-runtime-primitives.md) |
+| 96 | [Pure Distribution Result And Calibration Runtime Boundary [COMPLETE 2026-06-16 - DISTRIBUTION RESULT OWNS METADATA]](items/item-96-pure-distribution-result-and-calibration-runtime-boundary.md) |
+| 97 | [Shared IO, Time, And Structured Logging Utilities [COMPLETE 2026-06-16 - SHARED RUNTIME UTILITIES LIVE]](items/item-97-shared-io-time-and-structured-logging-utilities.md) |
+| 98 | [Remaining Large Module Decomposition [COMPLETE 2026-06-16 - MM EXCHANGE REPORT OWNER SPLIT]](items/item-98-remaining-large-module-decomposition.md) |
+| 99 | [Package Dependency Boundary Ratchet [COMPLETE 2026-06-16 - PACKAGE EDGE RATCHET LIVE]](items/item-99-package-dependency-boundary-ratchet.md) |
+| 107 | [Research Audit Harness And CLI Smoke Reliability [COMPLETE 2026-06-17 - RESEARCH HARNESS LIVE]](items/item-107-research-audit-harness-and-cli-smoke-reliability.md) |
+| 112 | [Single-Writer Loop Status And JSONL Integrity [COMPLETE 2026-06-17 - LOOP INTEGRITY GATE LIVE]](items/item-112-single-writer-loop-status-and-jsonl-integrity.md) |
+| 119 | [Python Repo Audit Reliability Fixes [COMPLETE 2026-06-18 - AUDIT FIXES LIVE]](items/item-119-python-repo-audit-reliability-fixes.md) |
+| 122 | [UI And Loop Serialization Health Cleanup [COMPLETE 2026-06-18 - ARROW SAFE TABLES AND JSONL QUARANTINE]](items/item-122-ui-and-loop-serialization-health-cleanup.md) |
 
 ## Maintenance Conventions
 

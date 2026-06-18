@@ -114,6 +114,19 @@ def _snapshot_market_rows(snapshot):
     ]
 
 
+def _count_summary(counts):
+    counts = counts or {}
+    return ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "-"
+
+
+def _folder_sample(rows):
+    rows = rows or []
+    values = []
+    for row in rows[:4]:
+        values.append(f"{row.get('market_id')} {row.get('target_date')}")
+    return ", ".join(values) or "-"
+
+
 def write_report(path, payload):
     path = Path(path)
     snapshot = payload.get("snapshots") or {}
@@ -122,6 +135,7 @@ def write_report(path, payload):
     historical = payload.get("historical") or {}
     gates = payload.get("gates") or []
     gate_counts = payload.get("gate_summary") or {}
+    remediation = payload.get("remediation_manifest") or []
     gap_investigation = payload.get("historical_gap_investigation") or {}
     lines = [
         "# Data Layer Audit",
@@ -164,6 +178,7 @@ def write_report(path, payload):
             ["Market token IDs persisted", snapshot.get("has_market_token_ids")],
             ["Source-status rows", (snapshot.get("source_status") or {}).get("row_count")],
             ["Source stale/failed rate", _fmt_pct((snapshot.get("source_status") or {}).get("stale_or_failed_rate"))],
+            ["Replay input status rows", _count_summary((snapshot.get("replay_input_status") or {}).get("status_counts"))],
             ["CLOB feature rows", (snapshot.get("clob_features") or {}).get("row_count")],
             ["CLOB book available rate", _fmt_pct((snapshot.get("clob_features") or {}).get("book_available_rate"))],
             ["Forecast payload rows", (snapshot.get("forecast_payloads") or {}).get("row_count")],
@@ -188,6 +203,42 @@ def write_report(path, payload):
             for row in gates
         ],
     )
+    if remediation:
+        lines += [
+            "",
+            "## Data-Layer Remediation Manifest",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Priority",
+                "Gate",
+                "Owner",
+                "Blocks Training",
+                "Blocks Broad Promotion",
+                "Affected",
+                "Command",
+                "Expected Artifact",
+            ],
+            [
+                [
+                    row.get("priority"),
+                    row.get("gate"),
+                    row.get("owner"),
+                    row.get("blocks_training"),
+                    row.get("blocks_broad_promotion"),
+                    (
+                        f"{row.get('affected_folder_count', 0)} folder(s); "
+                        f"{len(row.get('affected_fields') or [])} field(s); "
+                        f"{len(row.get('supplemental_sources') or [])} supplemental source(s); "
+                        f"sample {_folder_sample(row.get('affected_folders') or [])}"
+                    ),
+                    row.get("command"),
+                    row.get("expected_artifact"),
+                ]
+                for row in remediation
+            ],
+        )
     lines += [
         "",
         "## Snapshot Artifacts By Market",
@@ -207,15 +258,22 @@ def write_report(path, payload):
         "",
     ]
     lines += markdown_table(
-        ["Field", "Nonempty", "Total", "Fill Rate"],
+        ["Field", "Nonempty", "Total", "Fill Rate", "Classification", "Owner", "Action"],
         [
             [
                 row.get("field"),
                 row.get("nonempty"),
                 row.get("total"),
                 _fmt_pct(row.get("fill_rate")),
+                row.get("classification") or "-",
+                row.get("owner") or "-",
+                row.get("action") or "-",
             ]
-            for row in snapshot.get("low_fill_fields") or []
+            for row in (
+                snapshot.get("low_fill_field_classifications")
+                or snapshot.get("low_fill_fields")
+                or []
+            )
         ],
     )
     lines += [

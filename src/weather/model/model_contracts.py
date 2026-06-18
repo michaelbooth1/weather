@@ -99,6 +99,7 @@ class ModelBuildResult:
     feature_vector: dict | None = None
     boundary_transitions: dict | None = None
     late_day_risk: dict | None = None
+    source_health: dict | None = None
     analog_search: dict | None = None
     model_explanation: dict | None = None
 
@@ -125,7 +126,7 @@ class ModelBuildResult:
             "feature_vector": _copy_dict(self.feature_vector),
             "boundary_transitions": _copy_dict(self.boundary_transitions),
             "late_day_risk": _copy_dict(self.late_day_risk),
+            "source_health": _copy_dict(self.source_health),
             "analog_search": _copy_dict(self.analog_search),
             "model_explanation": _copy_dict(self.model_explanation),
         }
-

@@ -1,4 +1,4 @@
-# 2. Intraday Model Calibration [CLOSED]
+# 2. Intraday Model Calibration [COMPLETE]
 
 - [x] Backtest the empirical intraday model by hour using the 652 historical May 20-June 3 target-season days.
 - [x] Replace hand-picked blend weights with learned weights for: climatology, high-so-far bucket, wind regime, cloud regime, current max, and forecast cap.

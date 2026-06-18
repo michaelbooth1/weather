@@ -15,6 +15,7 @@ from weather.paths import data_path
 import requests
 
 from weather.sources.historical_schema import to_float
+from weather.units import f_to_native, round_half_up
 
 
 ASOS_1MIN_SCHEMA_VERSION = "asos_1min_v0.1"
@@ -58,20 +59,6 @@ def utc_now():
 def mean(values):
     values = [value for value in values if value is not None]
     return sum(values) / len(values) if values else None
-
-
-def round_half_up(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return int(value + 0.5) if value >= 0 else int(value - 0.5)
-
-
-def f_to_native(value, unit):
-    value = to_float(value)
-    if value is None:
-        return None
-    return (value - 32.0) * 5.0 / 9.0 if str(unit).upper() == "C" else value
 
 
 def knots_to_kmh(value):

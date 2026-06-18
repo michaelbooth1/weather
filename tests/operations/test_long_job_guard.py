@@ -72,6 +72,24 @@ class TestLongJobGuard(unittest.TestCase):
             self.assertFalse(failed["active"])
             self.assertIn("RuntimeError: boom", failed["error"])
 
+    def test_guard_does_not_suppress_error_when_state_file_disappears(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "guard_status.json"
+            lock_path = Path(tmp) / "guard.lock"
+
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                with long_job_guard(
+                    "unit_test",
+                    state_path=state_path,
+                    lock_path=lock_path,
+                    priority="normal",
+                ):
+                    state_path.unlink()
+                    raise RuntimeError("boom")
+
+            self.assertFalse(lock_path.exists())
+            self.assertNotIn(ACTIVE_ENV_VAR, os.environ)
+
     def test_nested_guard_reuses_outer_process_guard_without_locking(self):
         os.environ[ACTIVE_ENV_VAR] = "outer"
         with tempfile.TemporaryDirectory() as tmp:
@@ -105,6 +123,30 @@ class TestLongJobGuard(unittest.TestCase):
                         pass
             finally:
                 release_long_job_lock(lock)
+
+    def test_guard_replaces_stale_lock_from_dead_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "guard_status.json"
+            lock_path = Path(tmp) / "guard.lock"
+            lock_path.write_text(
+                json.dumps({
+                    "schema_version": "long_job_guard_v0.1",
+                    "job_name": "stale",
+                    "pid": 999999999,
+                    "started_at_utc": "2026-01-01T00:00:00+00:00",
+                }),
+                encoding="utf-8",
+            )
+
+            with long_job_guard(
+                "replacement",
+                state_path=state_path,
+                lock_path=lock_path,
+                priority="normal",
+            ):
+                payload = json.loads(lock_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["job_name"], "replacement")
+                self.assertEqual(payload["pid"], os.getpid())
 
 
 if __name__ == "__main__":

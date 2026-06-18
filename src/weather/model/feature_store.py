@@ -7,7 +7,12 @@ from weather.sources.eccc_gridded import ECCC_GRIDDED_FEATURE_COLUMNS
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
 from weather.sources.mrms_precip import MRMS_PRECIP_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
+from weather.units import to_float
 
+# v1.6 (ROADMAP item 32): gated pressure-level reanalysis features for cached
+# NOAA PSL NCEP/NCAR 850 hPa temperature, 500 hPa height, and 1000-500 hPa
+# thickness.
+#
 # v1.5 (ROADMAP item 32): lagged ENSO/PNA teleconnection fields plus static
 # marine/lake-breeze context in the gated reanalysis/synoptic sidecar.
 #
@@ -289,15 +294,6 @@ def closest_temperature_native(rows, target_minute, window_min):
     if not candidates:
         return None
     return min(candidates, key=lambda item: item[0])[1]
-
-
-def to_float(value):
-    if value in (None, "", "nan", "NaN"):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def mean(values):

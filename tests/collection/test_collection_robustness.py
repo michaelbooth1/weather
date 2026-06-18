@@ -77,17 +77,17 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(loop_health(None, self.now)["state"], "UNKNOWN")
 
     def test_running_when_fresh(self):
-        self.assertEqual(loop_health(self._status(), self.now)["state"], "RUNNING")
+        self.assertEqual(loop_health(self._status(), self.now, pid_alive=True)["state"], "RUNNING")
 
     def test_dead_when_heartbeat_stale(self):
         old = (self.now - timedelta(minutes=40)).isoformat()
-        self.assertEqual(loop_health(self._status(last_heartbeat=old), self.now)["state"], "DEAD")
+        self.assertEqual(loop_health(self._status(last_heartbeat=old), self.now, pid_alive=True)["state"], "DEAD")
 
     def test_erroring_on_consecutive_errors(self):
-        self.assertEqual(loop_health(self._status(consecutive_errors=3), self.now)["state"], "ERRORING")
+        self.assertEqual(loop_health(self._status(consecutive_errors=3), self.now, pid_alive=True)["state"], "ERRORING")
 
     def test_paused(self):
-        self.assertEqual(loop_health(self._status(paused=True), self.now)["state"], "PAUSED")
+        self.assertEqual(loop_health(self._status(paused=True), self.now, pid_alive=True)["state"], "PAUSED")
 
     def test_run_loop_records_elapsed_cycle_and_sleeps_from_start(self):
         current = datetime(2026, 6, 14, 12, 0)

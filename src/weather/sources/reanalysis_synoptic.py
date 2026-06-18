@@ -11,6 +11,8 @@ import argparse
 import calendar
 import csv
 import json
+import math
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -30,6 +32,11 @@ TELECONNECTION_SOURCE_URLS = {
     "oni": CPC_ONI_URL,
     "pna": CPC_PNA_URL,
 }
+NOAA_PSL_NCEP_DAILY_PRESSURE_BASE_URL = (
+    "https://downloads.psl.noaa.gov/Datasets/ncep.reanalysis.dailyavgs/pressure"
+)
+PRESSURE_LEVEL_REANALYSIS_SOURCE = "noaa_psl_ncep_reanalysis_daily_pressure"
+PRESSURE_LEVEL_VARIABLES = ("air", "hgt")
 
 SUPPORTED_OPEN_METEO_HISTORICAL_ARCHIVE_FIELDS = (
     "surface_pressure",
@@ -64,6 +71,10 @@ REANALYSIS_SYNOPTIC_FEATURE_COLUMNS = [
     "reanalysis_prev_day_max_gust_kmh",
     "reanalysis_prev_day_pressure_mean_hpa",
     "reanalysis_pressure_change_24h_hpa",
+    "reanalysis_pressure_level_available",
+    "reanalysis_prev_day_temperature_850hpa_c",
+    "reanalysis_prev_day_geopotential_height_500hpa_m",
+    "reanalysis_prev_day_thickness_1000_500hpa_m",
     "reanalysis_prev_day_heat_anomaly",
     "reanalysis_prev_3d_heat_anomaly",
     "reanalysis_prev_7d_heat_anomaly",
@@ -193,6 +204,20 @@ def default_feature_path(spec, root=None):
     return store.root / "features" / "reanalysis_synoptic_features.csv"
 
 
+def default_pressure_level_root(spec, root=None):
+    store = ReanalysisStore(spec, root)
+    return store.root / "pressure_level"
+
+
+def pressure_level_url(variable, year):
+    year_text = str(year) if str(year).startswith("{") else str(int(year))
+    return f"{NOAA_PSL_NCEP_DAILY_PRESSURE_BASE_URL}/{variable}.{year_text}.nc"
+
+
+def pressure_level_raw_path(root, variable, year):
+    return Path(root) / "raw" / f"{variable}.{int(year)}.nc"
+
+
 def read_reanalysis_daily(path):
     path = Path(path)
     if not path.exists():
@@ -292,6 +317,207 @@ def load_raw_daily_metrics(store):
             out[source_key] = sum(values) if reducer == "sum" else mean(values)
         daily[local_date] = out
     return daily
+
+
+def _decode_attr(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
+def _attr_float(variable, name, default=None):
+    value = getattr(variable, name, None)
+    if value is None:
+        return default
+    try:
+        if hasattr(value, "flat"):
+            value = value.flat[0]
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _scaled_netcdf_value(raw_value, variable):
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    for attr_name in ("missing_value", "_FillValue"):
+        missing = _attr_float(variable, attr_name)
+        if missing is not None and value == missing:
+            return None
+    if not math.isfinite(value) or abs(value) > 1e30:
+        return None
+    scale = _attr_float(variable, "scale_factor", 1.0)
+    offset = _attr_float(variable, "add_offset", 0.0)
+    return value * scale + offset
+
+
+def _nearest_index(values, target):
+    candidates = [(abs(float(value) - float(target)), index) for index, value in enumerate(values)]
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def _grid_target_lon(lons, lon):
+    values = [float(value) for value in lons]
+    if values and min(values) >= 0.0 and max(values) > 180.0:
+        return float(lon) % 360.0
+    return float(lon)
+
+
+def _find_netcdf_variable(dataset, names):
+    for name in names:
+        variable = dataset.variables.get(name)
+        if variable is not None:
+            return variable
+    raise KeyError(f"none of {names!r} found in NetCDF variables")
+
+
+def _parse_netcdf_time_units(units):
+    text = _decode_attr(units)
+    match = re.search(
+        r"(?P<unit>hours|days)\s+since\s+"
+        r"(?P<year>\d{1,4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})"
+        r"(?:[ T](?P<hour>\d{1,2}):(?P<minute>\d{1,2})(?::(?P<second>\d+(?:\.\d+)?))?)?",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        raise ValueError(f"unsupported NetCDF time units: {text!r}")
+    base = datetime(
+        int(match.group("year")),
+        int(match.group("month")),
+        int(match.group("day")),
+        int(match.group("hour") or 0),
+        int(match.group("minute") or 0),
+        int(float(match.group("second") or 0)),
+    )
+    return match.group("unit").lower(), base
+
+
+def _netcdf_time_dates(time_variable):
+    if time_variable is None:
+        return []
+    unit, base = _parse_netcdf_time_units(getattr(time_variable, "units", ""))
+    dates = []
+    for raw in time_variable.data:
+        value = float(raw)
+        delta = timedelta(hours=value) if unit == "hours" else timedelta(days=value)
+        dates.append((base + delta).date())
+    return dates
+
+
+def _temperature_to_c(value, units):
+    if value is None:
+        return None
+    text = _decode_attr(units).lower()
+    if "degk" in text or "kelvin" in text or text.strip() == "k" or value > 150.0:
+        return value - 273.15
+    return value
+
+
+def read_pressure_level_netcdf_daily(path, variable_name, level_hpa, spec):
+    """Read one pressure-level daily series at the nearest grid point.
+
+    NOAA PSL's NCEP/NCAR daily pressure-level files are classic NetCDF and are
+    readable with SciPy, which is already a project dependency. The function is
+    intentionally cache-only; callers download files explicitly before sidecar
+    builds consume them.
+    """
+    from scipy.io import netcdf_file
+
+    path = Path(path)
+    with netcdf_file(path, "r", mmap=False) as dataset:
+        variable = _find_netcdf_variable(dataset, (variable_name,))
+        time_variable = _find_netcdf_variable(dataset, ("time",))
+        level_variable = _find_netcdf_variable(dataset, ("level", "lev"))
+        lat_variable = _find_netcdf_variable(dataset, ("lat", "latitude"))
+        lon_variable = _find_netcdf_variable(dataset, ("lon", "longitude"))
+        dates = _netcdf_time_dates(time_variable)
+        levels = [float(value) for value in level_variable.data]
+        lats = [float(value) for value in lat_variable.data]
+        lons = [float(value) for value in lon_variable.data]
+        level_index = _nearest_index(levels, level_hpa)
+        lat_index = _nearest_index(lats, spec.lat)
+        lon_index = _nearest_index(lons, _grid_target_lon(lons, spec.lon))
+        dim_indexes = {
+            "time": None,
+            "level": level_index,
+            "lev": level_index,
+            "lat": lat_index,
+            "latitude": lat_index,
+            "lon": lon_index,
+            "longitude": lon_index,
+        }
+        out = {}
+        for time_index, local_date in enumerate(dates):
+            indexes = []
+            for dimension in variable.dimensions:
+                if dimension == "time":
+                    indexes.append(time_index)
+                else:
+                    indexes.append(dim_indexes[dimension])
+            value = _scaled_netcdf_value(variable.data[tuple(indexes)], variable)
+            out[local_date] = value
+        return out
+
+
+def _pressure_level_paths(root, variable):
+    root = Path(root)
+    candidates = [*root.glob(f"{variable}.*.nc"), *(root / "raw").glob(f"{variable}.*.nc")]
+    return sorted(set(candidates))
+
+
+def load_pressure_level_daily_metrics(spec, root=None):
+    """Return pressure-level daily metrics keyed by local date.
+
+    The output keys intentionally match sidecar feature names. Air temperature
+    is stored in Celsius to avoid adding another mixed C/F native feature.
+    """
+    root = Path(root) if root else default_pressure_level_root(spec)
+    air_paths = _pressure_level_paths(root, "air")
+    hgt_paths = _pressure_level_paths(root, "hgt")
+    if not air_paths and not hgt_paths:
+        return {}
+
+    daily = defaultdict(dict)
+    for path in air_paths:
+        values = read_pressure_level_netcdf_daily(path, "air", 850.0, spec)
+        for local_date, value in values.items():
+            daily[local_date]["reanalysis_prev_day_temperature_850hpa_c"] = _temperature_to_c(
+                value,
+                "degK",
+            )
+
+    hgt_500_by_date = {}
+    hgt_1000_by_date = {}
+    for path in hgt_paths:
+        hgt_500_by_date.update(read_pressure_level_netcdf_daily(path, "hgt", 500.0, spec))
+        hgt_1000_by_date.update(read_pressure_level_netcdf_daily(path, "hgt", 1000.0, spec))
+    for local_date, value in hgt_500_by_date.items():
+        if value is not None:
+            daily[local_date]["reanalysis_prev_day_geopotential_height_500hpa_m"] = value
+    for local_date, hgt_500 in hgt_500_by_date.items():
+        hgt_1000 = hgt_1000_by_date.get(local_date)
+        if hgt_500 is not None and hgt_1000 is not None:
+            daily[local_date]["reanalysis_prev_day_thickness_1000_500hpa_m"] = hgt_500 - hgt_1000
+
+    return dict(daily)
+
+
+def download_pressure_level_file(root, variable, year, timeout=60, skip_existing=True):
+    import requests
+
+    if variable not in PRESSURE_LEVEL_VARIABLES:
+        raise ValueError(f"unsupported pressure-level variable: {variable}")
+    path = pressure_level_raw_path(root, variable, year)
+    if skip_existing and path.exists():
+        return path, False
+    response = requests.get(pressure_level_url(variable, year), timeout=timeout)
+    response.raise_for_status()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(response.content)
+    return path, True
 
 
 def reanalysis_static_features(spec):
@@ -440,6 +666,7 @@ def build_reanalysis_synoptic_rows(
     daily_rows,
     hourly_daily_metrics=None,
     raw_daily_metrics=None,
+    pressure_level_daily_metrics=None,
     teleconnection_index=None,
 ):
     daily_by_date = {}
@@ -453,6 +680,7 @@ def build_reanalysis_synoptic_rows(
     grouped_by_doy = _normal_by_doy(daily_by_date)
     hourly_daily_metrics = hourly_daily_metrics or {}
     raw_daily_metrics = raw_daily_metrics or {}
+    pressure_level_daily_metrics = pressure_level_daily_metrics or {}
     static_features = reanalysis_static_features(spec)
     rows = []
     for local_date in sorted(daily_by_date):
@@ -462,6 +690,7 @@ def build_reanalysis_synoptic_rows(
         features.update(static_features)
         features.update(teleconnection_features_for_date(local_date, teleconnection_index))
         features["reanalysis_synoptic_available"] = 1.0 if prev else 0.0
+        features["reanalysis_pressure_level_available"] = 0.0
         if prev:
             max_temp = field_value(prev, "max_temp")
             min_temp = field_value(prev, "min_temp")
@@ -506,6 +735,19 @@ def build_reanalysis_synoptic_rows(
                 value = raw_metrics.get(raw_key)
                 if value is not None:
                     features[feature_key] = value
+            pressure_level_metrics = pressure_level_daily_metrics.get(antecedent_date) or {}
+            pressure_level_present = False
+            for feature_key in (
+                "reanalysis_prev_day_temperature_850hpa_c",
+                "reanalysis_prev_day_geopotential_height_500hpa_m",
+                "reanalysis_prev_day_thickness_1000_500hpa_m",
+            ):
+                value = pressure_level_metrics.get(feature_key)
+                if value is not None:
+                    features[feature_key] = value
+                    pressure_level_present = True
+            if pressure_level_present:
+                features["reanalysis_pressure_level_available"] = 1.0
 
         row = {
             "schema_version": REANALYSIS_SYNOPTIC_SCHEMA_VERSION,
@@ -577,6 +819,11 @@ def summarize_feature_rows(spec, rows):
             SUPPORTED_OPEN_METEO_HISTORICAL_ARCHIVE_FIELDS
         ),
         "teleconnection_source_urls": dict(TELECONNECTION_SOURCE_URLS),
+        "pressure_level_source": PRESSURE_LEVEL_REANALYSIS_SOURCE,
+        "pressure_level_source_url_templates": {
+            variable: pressure_level_url(variable, "{year}")
+            for variable in PRESSURE_LEVEL_VARIABLES
+        },
         "unavailable_open_meteo_historical_upper_air_fields": list(
             UNAVAILABLE_OPEN_METEO_HISTORICAL_UPPER_AIR_FIELDS
         ),
@@ -584,7 +831,9 @@ def summarize_feature_rows(spec, rows):
             "Open-Meteo Historical Weather / ERA5 archive returns supported surface, "
             "soil, cloud, radiation, pressure, VPD, ET0, and 100 m wind variables. "
             "Forecast-style pressure-level variables are recorded as unavailable "
-            "until a pressure-level reanalysis source is added."
+            "from Open-Meteo Historical Weather. Cached NOAA PSL NCEP/NCAR daily "
+            "pressure-level NetCDF files provide the gated 850 hPa temperature, "
+            "500 hPa height, and 1000-500 hPa thickness fields when downloaded."
         ),
         "static_feature_policy": (
             "Coastal, continentality, and static marine/lake-breeze context fields "
@@ -647,17 +896,22 @@ def render_summary_markdown(payload):
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_sidecar_for_spec(spec, root=None, oni_path=None, pna_path=None):
+def build_sidecar_for_spec(spec, root=None, oni_path=None, pna_path=None, pressure_level_root=None):
     store = ReanalysisStore(spec, root)
     daily_rows = read_reanalysis_daily(store.daily_root / "daily_summary.csv")
     hourly_daily = load_normalized_hourly_daily_metrics(store.hourly_root)
     raw_daily = load_raw_daily_metrics(store)
+    pressure_level_daily = load_pressure_level_daily_metrics(
+        spec,
+        root=pressure_level_root or default_pressure_level_root(spec, root=root),
+    )
     teleconnection_index = load_teleconnection_index(oni_path=oni_path, pna_path=pna_path)
     rows = build_reanalysis_synoptic_rows(
         spec,
         daily_rows,
         hourly_daily_metrics=hourly_daily,
         raw_daily_metrics=raw_daily,
+        pressure_level_daily_metrics=pressure_level_daily,
         teleconnection_index=teleconnection_index,
     )
     return store, rows, summarize_feature_rows(spec, rows)
@@ -670,6 +924,7 @@ def cmd_build(args):
         root=args.data_root or None,
         oni_path=args.oni_path or None,
         pna_path=args.pna_path or None,
+        pressure_level_root=args.pressure_level_root or None,
     )
     features_out = Path(args.features_out) if args.features_out else default_feature_path(spec, root=args.data_root or None)
     summary_out = (
@@ -692,6 +947,34 @@ def cmd_build(args):
     )
 
 
+def cmd_download_pressure_levels(args):
+    spec = spec_for_id(args.market)
+    start = parse_date(args.start)
+    end = parse_date(args.end)
+    root = (
+        Path(args.pressure_level_root)
+        if args.pressure_level_root
+        else default_pressure_level_root(spec, root=args.data_root or None)
+    )
+    variables = [
+        variable.strip()
+        for variable in str(args.variables or "").split(",")
+        if variable.strip()
+    ]
+    years = range(start.year, end.year + 1)
+    for year in years:
+        for variable in variables:
+            path, downloaded = download_pressure_level_file(
+                root,
+                variable,
+                year,
+                timeout=args.timeout,
+                skip_existing=args.skip_existing,
+            )
+            status = "downloaded" if downloaded else "cached"
+            print(f"{status}: {variable}.{year} -> {path}")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Build gated reanalysis/synoptic feature sidecars.")
     parser.add_argument("--market", default="toronto")
@@ -704,7 +987,17 @@ def build_parser():
     build.add_argument("--report-out", default="")
     build.add_argument("--oni-path", default="")
     build.add_argument("--pna-path", default="")
+    build.add_argument("--pressure-level-root", default="")
     build.set_defaults(func=cmd_build)
+
+    download = sub.add_parser("download-pressure-level")
+    download.add_argument("--start", required=True)
+    download.add_argument("--end", required=True)
+    download.add_argument("--pressure-level-root", default="")
+    download.add_argument("--variables", default=",".join(PRESSURE_LEVEL_VARIABLES))
+    download.add_argument("--timeout", type=float, default=60)
+    download.add_argument("--skip-existing", action="store_true")
+    download.set_defaults(func=cmd_download_pressure_levels)
     return parser
 
 

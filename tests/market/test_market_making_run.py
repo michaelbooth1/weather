@@ -41,7 +41,9 @@ def test_support_read_csv_rows_tolerates_legacy_degree_byte():
 
         rows = read_csv_rows(path)
 
-    assert rows[0]["range_label"] == "\ufffdF"
+    assert rows[0]["range_label"] == "\u00b0F"
+    assert rows[0]["_csv_encoding_status"] == "legacy_encoding"
+    assert rows[0]["_csv_source_encoding"] == "cp1252"
     assert rows[0]["bin_value"] == "94"
 
 
@@ -481,6 +483,7 @@ class TestMarketMakingRun(unittest.TestCase):
             }
 
         self.assertEqual(payload["preflight_status"], "BLOCK")
+        self.assertEqual(payload["quote_outcome"]["status"], "preflight_blocked")
         self.assertEqual(payload["quote_permission_rows"], 0)
         self.assertFalse(preflight["data_layer_live_gate"]["ok"])
         self.assertFalse(gates["data_layer_live_gate"]["ok"])
@@ -975,6 +978,94 @@ class TestMarketMakingRun(unittest.TestCase):
                 if line.strip()
             ]
             self.assertTrue(any(row.get("category") == "preflight_remediation" for row in risk_events))
+
+    def test_live_forward_gate_explains_fresh_observation_but_stale_clob_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root, stale_book=True)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="live-gate-run",
+                now=NOW,
+            )
+
+            gate = json.loads(Path(payload["live_forward_gate_path"]).read_text(encoding="utf-8"))
+            market = gate["markets"][0]
+            first_failure = market["first_failing_gate"]
+            countability = market["countability"]
+
+            self.assertEqual(payload["preflight_status"], "STALE")
+            self.assertEqual(payload["quote_permission_rows"], 0)
+            self.assertFalse(payload["counts_toward_live_forward_gate"])
+            self.assertEqual(gate["status"], "BLOCK")
+            self.assertEqual(first_failure["name"], "clob_freshness")
+            self.assertEqual(first_failure["owner"], "CLOB book supervisor")
+            self.assertEqual(first_failure["last_good_timestamp"], "2026-06-14T15:00:00+00:00")
+            self.assertEqual(first_failure["stale_threshold_seconds"], 120.0)
+            self.assertTrue(countability["model_review_evidence"]["counts"])
+            self.assertFalse(countability["paper_trading_evidence"]["counts"])
+            self.assertIn("clob_freshness", countability["paper_trading_evidence"]["blocking_gates"])
+            self.assertFalse(countability["live_trade_permission_evidence"]["counts"])
+            self.assertIn("mode_not_live_pilot", countability["live_trade_permission_evidence"]["blocking_gates"])
+            self.assertEqual(
+                payload["live_forward_gate"]["evidence"]["model_review_evidence"]["countable_market_count"],
+                1,
+            )
+
+    def test_after_window_paper_run_blocks_evidence_countability_even_when_raw_gate_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="post-window-run",
+                now="2026-06-15T00:31:18+00:00",
+                policy_config={
+                    "max_model_age_seconds": 100000.0,
+                    "max_book_age_seconds": 100000.0,
+                    "max_watcher_age_seconds": 100000.0,
+                },
+            )
+
+            gate = json.loads(Path(payload["live_forward_gate_path"]).read_text(encoding="utf-8"))
+            report = Path(payload["run_report_path"]).read_text(encoding="utf-8")
+
+            self.assertEqual(payload["evidence_mode"], "post_settlement_evaluation")
+            self.assertFalse(payload["counts_toward_live_forward_gate"])
+            self.assertTrue(payload["live_forward_gate_counts_without_evidence_mode"])
+            self.assertEqual(payload["live_forward_gate_status"], "BLOCK")
+            self.assertEqual(gate["status_without_evidence_mode"], "PASS")
+            self.assertEqual(gate["status"], "BLOCK")
+            self.assertTrue(gate["counts_toward_live_forward_gate_without_evidence_mode"])
+            self.assertFalse(gate["counts_toward_live_forward_gate"])
+            self.assertEqual(gate["evidence_mode_gate"]["evidence_mode"], "post_settlement_evaluation")
+            self.assertIn("after active-day evidence window", gate["evidence_mode_gate"]["detail"])
+            self.assertIn("- Evidence mode: `post_settlement_evaluation`", report)
+            self.assertIn("- Counts toward live-forward gate: `false`", report)
 
     def test_missing_target_folder_keeps_selected_market_visible(self):
         with tempfile.TemporaryDirectory() as tmp:

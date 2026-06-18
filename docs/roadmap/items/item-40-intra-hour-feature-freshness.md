@@ -85,6 +85,11 @@ Design (feature schema v0.3):
 Acceptance: pinned replay improves in the 20-59 minutes-past-print windows
 without regressing the 0-19 window, and the feature-skew parity suite passes.
 
+2026-06-18 audit disposition: this is a post-promotion evidence follow-up, not
+an incomplete implementation requirement for the completed item. Item 105 now
+adds the source-state ablation gate that can carry this check after the next
+eligible promotion artifact exists.
+
 Afternoon-ramp extension (2026-06-13, v0.5.8): a per-capture-hour replay
 decomposition of a frozen 15-day Toronto corpus found the one remaining
 in-window loss was the 13-14h dip -- a ~10-point under-call on the eventual

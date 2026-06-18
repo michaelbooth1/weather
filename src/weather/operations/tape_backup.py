@@ -29,6 +29,7 @@ DEFAULT_STATUS_OUT = data_path() / "backtest" / "tape_backup_status.json"
 DEFAULT_REPORT_OUT = data_path() / "backtest" / "tape_backup_status_report.md"
 DEFAULT_RESTORE_OUT = data_path() / "backtest" / "tape_restore_drill.json"
 DEFAULT_RESTORE_REPORT = data_path() / "backtest" / "tape_restore_drill_report.md"
+DEFAULT_TASK_NAME = "WeatherTapeBackupAndRestoreDrill"
 LATEST_DIR = "latest"
 
 
@@ -41,6 +42,72 @@ class RetentionRule:
     description: str
     patterns: tuple[str, ...]
     excludes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ClobArtifactPolicy:
+    name: str
+    recoverability: str
+    backup_required: bool
+    description: str
+    patterns: tuple[str, ...]
+    per_file_warn_bytes: int | None = None
+    total_warn_bytes: int | None = None
+
+
+CLOB_ARTIFACT_POLICIES = (
+    ClobArtifactPolicy(
+        "tokens",
+        "irreplaceable_capture_join_key",
+        True,
+        "Gamma/CLOB token mapping needed to join books back to model bands.",
+        ("data/snapshots/*/clob_tokens.csv", "data/snapshots/*/clob_tokens.jsonl"),
+    ),
+    ClobArtifactPolicy(
+        "order_book_summary",
+        "irreplaceable_book_summary",
+        True,
+        "Per-token best bid/ask, spread, depth, and executable-size summaries.",
+        ("data/snapshots/*/order_books_summary.csv",),
+    ),
+    ClobArtifactPolicy(
+        "order_book_long",
+        "irreplaceable_full_depth_book",
+        True,
+        "Full depth long-table order-book evidence; highest storage-risk CLOB artifact.",
+        ("data/snapshots/*/order_books_long.csv",),
+        per_file_warn_bytes=1_000_000_000,
+        total_warn_bytes=100_000_000_000,
+    ),
+    ClobArtifactPolicy(
+        "order_book_raw",
+        "irreplaceable_raw_book_payload",
+        True,
+        "Raw order-book JSONL payloads and response metadata.",
+        ("data/snapshots/*/order_books.jsonl",),
+    ),
+    ClobArtifactPolicy(
+        "price_history",
+        "irreplaceable_price_history",
+        True,
+        "CLOB price-history CSV/JSONL tapes used for microstructure features and replay.",
+        ("data/snapshots/*/price_history.csv", "data/snapshots/*/price_history.jsonl"),
+    ),
+    ClobArtifactPolicy(
+        "market_ws",
+        "irreplaceable_market_websocket",
+        True,
+        "Market websocket event summaries and raw JSONL messages.",
+        ("data/snapshots/*/market_ws_events.csv", "data/snapshots/*/market_ws.jsonl"),
+    ),
+    ClobArtifactPolicy(
+        "derived_clob_features",
+        "rebuildable_derived_features",
+        False,
+        "Derived CLOB feature rows; useful to retain, but rebuildable from raw book tapes.",
+        ("data/snapshots/*/clob_features*.csv", "data/snapshots/*/clob_features*.jsonl"),
+    ),
+)
 
 
 RETENTION_RULES = (
@@ -78,6 +145,12 @@ RETENTION_RULES = (
             "data/snapshots/clob*.jsonl",
             "data/snapshots/*/clob*.csv",
             "data/snapshots/*/clob*.jsonl",
+            "data/snapshots/*/order_books*.csv",
+            "data/snapshots/*/order_books*.jsonl",
+            "data/snapshots/*/price_history*.csv",
+            "data/snapshots/*/price_history*.jsonl",
+            "data/snapshots/*/market_ws*.csv",
+            "data/snapshots/*/market_ws*.jsonl",
         ),
     ),
     RetentionRule(
@@ -291,6 +364,196 @@ def class_summaries(entries):
     return summaries
 
 
+def _entry_without_hash(path, rel_path, classes):
+    stat = Path(path).stat()
+    return {
+        "path": rel_path,
+        "classes": sorted(classes),
+        "size": stat.st_size,
+        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def _critical_classes(classes):
+    by_name = {rule.name: rule for rule in RETENTION_RULES}
+    return [
+        name for name in classes or []
+        if (by_name.get(name) and by_name[name].critical)
+    ]
+
+
+def local_candidate_entries(source_root=REPO_ROOT):
+    entries = []
+    for path, rel in iter_candidate_files(source_root):
+        classes = classify_path(rel)
+        if classes:
+            entries.append(_entry_without_hash(path, rel, classes))
+    entries.sort(key=lambda row: row["path"])
+    return entries
+
+
+def _summarize_entries_by_class(entries):
+    summary = {
+        rule.name: {"files": 0, "bytes": 0}
+        for rule in RETENTION_RULES
+    }
+    for entry in entries or []:
+        for class_name in entry.get("classes") or []:
+            row = summary.setdefault(class_name, {"files": 0, "bytes": 0})
+            row["files"] += 1
+            row["bytes"] += int(entry.get("size") or 0)
+    return summary
+
+
+def _manifest_entry_map(manifest):
+    return {
+        row.get("path"): row
+        for row in (manifest or {}).get("files") or []
+        if row.get("path")
+    }
+
+
+def _clob_policy_for_path(rel_path):
+    return [
+        policy for policy in CLOB_ARTIFACT_POLICIES
+        if _matches_any(rel_path, policy.patterns)
+    ]
+
+
+def clob_artifact_coverage(source_root=REPO_ROOT, manifest=None):
+    source_root = Path(source_root)
+    manifest_entries = _manifest_entry_map(manifest)
+    manifest_paths = set(manifest_entries)
+    rows = []
+    all_missing_required = []
+    for policy in CLOB_ARTIFACT_POLICIES:
+        local_paths = set()
+        local_bytes = 0
+        largest_file = {"path": None, "size": 0}
+        for pattern in policy.patterns:
+            for path in source_root.glob(pattern):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(source_root).as_posix()
+                if _excluded(rel):
+                    continue
+                local_paths.add(rel)
+        for rel in sorted(local_paths):
+            size = (source_root / rel).stat().st_size
+            local_bytes += size
+            if size > int(largest_file.get("size") or 0):
+                largest_file = {"path": rel, "size": size}
+        backed_paths = sorted(local_paths & manifest_paths)
+        missing_paths = sorted(local_paths - manifest_paths)
+        backed_bytes = sum(int((manifest_entries.get(rel) or {}).get("size") or 0) for rel in backed_paths)
+        excluded_bytes = local_bytes if not policy.backup_required else 0
+        warnings = []
+        if policy.per_file_warn_bytes and int(largest_file.get("size") or 0) > policy.per_file_warn_bytes:
+            warnings.append({
+                "type": "per_file_size",
+                "threshold_bytes": policy.per_file_warn_bytes,
+                "path": largest_file.get("path"),
+                "size": largest_file.get("size"),
+            })
+        if policy.total_warn_bytes and local_bytes > policy.total_warn_bytes:
+            warnings.append({
+                "type": "total_size",
+                "threshold_bytes": policy.total_warn_bytes,
+                "bytes": local_bytes,
+            })
+        if policy.backup_required:
+            all_missing_required.extend(missing_paths)
+        rows.append({
+            "name": policy.name,
+            "recoverability": policy.recoverability,
+            "backup_required": policy.backup_required,
+            "description": policy.description,
+            "local_files": len(local_paths),
+            "local_bytes": local_bytes,
+            "backed_up_files": len(backed_paths),
+            "backed_up_bytes": backed_bytes,
+            "missing_files": len(missing_paths),
+            "missing_bytes": sum((source_root / rel).stat().st_size for rel in missing_paths),
+            "excluded_bytes": excluded_bytes,
+            "largest_file": largest_file if largest_file.get("path") else None,
+            "warning_count": len(warnings),
+            "warnings": warnings,
+            "missing_samples": missing_paths[:20],
+        })
+    return {
+        "source_root": str(source_root),
+        "classes": rows,
+        "summary": {
+            "required_class_count": sum(1 for policy in CLOB_ARTIFACT_POLICIES if policy.backup_required),
+            "local_files": sum(row["local_files"] for row in rows),
+            "local_bytes": sum(row["local_bytes"] for row in rows),
+            "backed_up_files": sum(row["backed_up_files"] for row in rows),
+            "backed_up_bytes": sum(row["backed_up_bytes"] for row in rows),
+            "missing_required_files": len(all_missing_required),
+            "missing_required_samples": all_missing_required[:20],
+            "warning_count": sum(row["warning_count"] for row in rows),
+        },
+    }
+
+
+def local_manifest_coverage_audit(source_root=REPO_ROOT, manifest=None):
+    source_root = Path(source_root)
+    if not source_root.exists():
+        return {
+            "source_root": str(source_root),
+            "source_root_exists": False,
+            "status": "SKIPPED",
+            "reason": "source root does not exist on this host",
+            "missing_critical_files": 0,
+            "missing_critical_bytes": 0,
+            "missing_critical_samples": [],
+            "class_coverage": {},
+            "clob_artifacts": {"classes": [], "summary": {}},
+        }
+    manifest_paths = set(_manifest_entry_map(manifest))
+    local_entries = local_candidate_entries(source_root)
+    local_by_class = _summarize_entries_by_class(local_entries)
+    backed_by_class = _summarize_entries_by_class((manifest or {}).get("files") or [])
+    missing_critical = []
+    missing_critical_bytes = 0
+    for entry in local_entries:
+        if entry.get("path") in manifest_paths:
+            continue
+        critical = _critical_classes(entry.get("classes") or [])
+        if not critical:
+            continue
+        missing = {**entry, "critical_classes": critical}
+        missing_critical.append(missing)
+        missing_critical_bytes += int(entry.get("size") or 0)
+
+    class_coverage = {}
+    for rule in RETENTION_RULES:
+        local = local_by_class.get(rule.name, {"files": 0, "bytes": 0})
+        backed = backed_by_class.get(rule.name, {"files": 0, "bytes": 0})
+        class_coverage[rule.name] = {
+            "critical": rule.critical,
+            "local_files": local.get("files", 0),
+            "local_bytes": local.get("bytes", 0),
+            "backed_up_files": backed.get("files", 0),
+            "backed_up_bytes": backed.get("bytes", 0),
+            "missing_files": max(0, int(local.get("files", 0)) - int(backed.get("files", 0))),
+            "missing_bytes": max(0, int(local.get("bytes", 0)) - int(backed.get("bytes", 0))),
+        }
+    status = "PASS" if not missing_critical else "FAIL"
+    return {
+        "source_root": str(source_root),
+        "source_root_exists": True,
+        "status": status,
+        "local_candidate_files": len(local_entries),
+        "local_candidate_bytes": sum(int(row.get("size") or 0) for row in local_entries),
+        "missing_critical_files": len(missing_critical),
+        "missing_critical_bytes": missing_critical_bytes,
+        "missing_critical_samples": missing_critical[:50],
+        "class_coverage": class_coverage,
+        "clob_artifacts": clob_artifact_coverage(source_root, manifest),
+    }
+
+
 def manifest_hash_payload(manifest):
     return {
         "schema_version": manifest.get("schema_version"),
@@ -373,6 +636,23 @@ def export_backup(source_root=REPO_ROOT, backup_root=DEFAULT_BACKUP_ROOT, dry_ru
             continue
         shutil.copy2(src, dst)
         copied += 1
+    if not dry_run:
+        backed_up_entries = []
+        for entry in manifest["files"]:
+            dst = latest_root / entry["path"]
+            if not dst.exists():
+                continue
+            backed_up_entries.append(file_entry(dst, entry["path"], entry.get("classes") or []))
+        manifest["files"] = backed_up_entries
+        manifest["class_summaries"] = class_summaries(backed_up_entries)
+        manifest["summary"].update({
+            "file_count": len(backed_up_entries),
+            "total_bytes": sum(int(row.get("size") or 0) for row in backed_up_entries),
+            "missing_critical_classes": [
+                rule.name for rule in RETENTION_RULES
+                if rule.critical and not manifest["class_summaries"].get(rule.name, {}).get("file_count")
+            ],
+        })
     manifest["backup"] = {
         "backup_root": str(backup_root),
         "latest_root": str(latest_root),
@@ -450,10 +730,35 @@ def load_restore_drill_status(backup_root=DEFAULT_BACKUP_ROOT):
         return {"exists": True, "path": str(path), "status": "UNREADABLE", "error": str(exc)}
     payload["exists"] = True
     payload["path"] = str(path)
+    generated = _parse_time(payload.get("generated_at_utc"))
+    if generated:
+        payload["age_hours"] = round((utc_now() - generated).total_seconds() / 3600.0, 3)
     return payload
 
 
-def backup_status(backup_root=DEFAULT_BACKUP_ROOT, max_age_hours=26, verify_checksums=False):
+def restore_drill_sla_status(restore, manifest_hash_value=None, max_restore_age_hours=168):
+    restore = restore or {}
+    if not restore.get("exists"):
+        return "RESTORE_DRILL_MISSING", "no restore drill evidence recorded"
+    if restore.get("status") in {"UNREADABLE", "FAIL"}:
+        return "RESTORE_DRILL_FAIL", restore.get("error") or restore.get("manifest_detail") or "restore drill failed"
+    if restore.get("status") != "PASS":
+        return "RESTORE_DRILL_FAIL", f"unexpected restore drill status {restore.get('status')}"
+    if manifest_hash_value and restore.get("manifest_hash") != manifest_hash_value:
+        return "RESTORE_DRILL_STALE", "restore drill manifest hash does not match latest backup manifest"
+    age_hours = restore.get("age_hours")
+    if age_hours is not None and float(age_hours) > float(max_restore_age_hours):
+        return "RESTORE_DRILL_STALE", f"restore drill age {age_hours}h exceeds SLA {max_restore_age_hours}h"
+    return "OK", "restore drill evidence is current"
+
+
+def backup_status(
+    backup_root=DEFAULT_BACKUP_ROOT,
+    max_age_hours=26,
+    verify_checksums=False,
+    max_restore_age_hours=168,
+    source_root=None,
+):
     manifest, path = load_backup_manifest(backup_root)
     if manifest is None:
         return {
@@ -471,6 +776,8 @@ def backup_status(backup_root=DEFAULT_BACKUP_ROOT, max_age_hours=26, verify_chec
         age_hours = (utc_now() - generated).total_seconds() / 3600.0
     verify = verify_backup_files(manifest, backup_root) if verify_checksums else {"checked_files": 0, "failures": []}
     missing = (manifest.get("summary") or {}).get("missing_critical_classes") or []
+    coverage_source_root = Path(source_root or manifest.get("source_root") or REPO_ROOT)
+    coverage = local_manifest_coverage_audit(coverage_source_root, manifest)
     status = "OK"
     if not valid:
         status = "CORRUPT_MANIFEST"
@@ -478,11 +785,18 @@ def backup_status(backup_root=DEFAULT_BACKUP_ROOT, max_age_hours=26, verify_chec
         status = "CHECKSUM_FAIL"
     elif missing:
         status = "MISSING_CRITICAL_CLASS"
+    elif coverage.get("missing_critical_files"):
+        status = "MISSING_CRITICAL_FILES"
     elif age_hours is not None and age_hours > float(max_age_hours):
         status = "STALE"
     restore = load_restore_drill_status(backup_root)
-    if status == "OK" and restore.get("status") in {"FAIL", "UNREADABLE"}:
-        status = "RESTORE_DRILL_FAIL"
+    restore_status, restore_detail = restore_drill_sla_status(
+        restore,
+        manifest_hash_value=manifest.get("manifest_hash"),
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    if status == "OK" and restore_status != "OK":
+        status = restore_status
     return {
         "status": status,
         "backup_root": str(backup_root),
@@ -493,13 +807,21 @@ def backup_status(backup_root=DEFAULT_BACKUP_ROOT, max_age_hours=26, verify_chec
         "generated_at_utc": manifest.get("generated_at_utc"),
         "age_hours": round(age_hours, 3) if age_hours is not None else None,
         "max_age_hours": max_age_hours,
+        "max_restore_age_hours": max_restore_age_hours,
         "file_count": (manifest.get("summary") or {}).get("file_count"),
         "total_bytes": (manifest.get("summary") or {}).get("total_bytes"),
         "class_summaries": manifest.get("class_summaries") or {},
+        "local_manifest_coverage": coverage,
+        "clob_artifact_coverage": coverage.get("clob_artifacts") or {},
         "missing_critical_classes": missing,
+        "missing_critical_files": coverage.get("missing_critical_files", 0),
+        "missing_critical_bytes": coverage.get("missing_critical_bytes", 0),
+        "missing_critical_file_samples": coverage.get("missing_critical_samples") or [],
         "checksum_checked_files": verify.get("checked_files"),
         "checksum_failures": verify.get("failures") or [],
         "last_restore_drill": restore,
+        "restore_drill_sla_status": restore_status,
+        "restore_drill_sla_detail": restore_detail,
     }
 
 
@@ -522,7 +844,10 @@ def backup_alerts(status):
         "CORRUPT_MANIFEST",
         "CHECKSUM_FAIL",
         "MISSING_CRITICAL_CLASS",
+        "MISSING_CRITICAL_FILES",
+        "RESTORE_DRILL_MISSING",
         "RESTORE_DRILL_FAIL",
+        "RESTORE_DRILL_STALE",
     } else "warning"
     alerts.append({
         "severity": severity,
@@ -532,6 +857,8 @@ def backup_alerts(status):
         "detail": {
             "backup_root": (status or {}).get("backup_root"),
             "missing_critical_classes": (status or {}).get("missing_critical_classes") or [],
+            "missing_critical_files": (status or {}).get("missing_critical_files") or 0,
+            "missing_critical_file_samples": (status or {}).get("missing_critical_file_samples") or [],
             "checksum_failures": (status or {}).get("checksum_failures") or [],
             "age_hours": (status or {}).get("age_hours"),
         },
@@ -610,6 +937,55 @@ def write_restore_reports(restore_root, report_dir, manifest):
     return [fleet_report, promotion_report, mm_report]
 
 
+def clob_restore_evidence(restore_root, manifest):
+    restore_root = Path(restore_root)
+    files = manifest.get("files") or []
+    manifest_paths = {row.get("path"): row for row in files if row.get("path")}
+    rows = []
+    missing_required = []
+    for policy in CLOB_ARTIFACT_POLICIES:
+        paths = [
+            rel for rel in sorted(manifest_paths)
+            if _clob_policy_for_path(rel) and any(
+                candidate.name == policy.name
+                for candidate in _clob_policy_for_path(rel)
+            )
+        ]
+        restored = []
+        restored_bytes = 0
+        for rel in paths:
+            path = restore_root / rel
+            if not path.exists():
+                continue
+            restored.append(rel)
+            restored_bytes += path.stat().st_size
+        if policy.backup_required and paths and not restored:
+            missing_required.append(policy.name)
+        rows.append({
+            "name": policy.name,
+            "backup_required": policy.backup_required,
+            "recoverability": policy.recoverability,
+            "manifest_files": len(paths),
+            "restored_files": len(restored),
+            "restored_bytes": restored_bytes,
+            "sample_paths": restored[:5],
+        })
+    return {
+        "classes": rows,
+        "summary": {
+            "required_classes_with_manifest_files": sum(
+                1 for row in rows
+                if row.get("backup_required") and row.get("manifest_files")
+            ),
+            "required_classes_restored": sum(
+                1 for row in rows
+                if row.get("backup_required") and row.get("restored_files")
+            ),
+            "missing_required_restore_classes": missing_required,
+        },
+    }
+
+
 def run_restore_drill(
     backup_root=DEFAULT_BACKUP_ROOT,
     restore_root=None,
@@ -631,6 +1007,7 @@ def run_restore_drill(
     failures = []
     schema_checks = []
     generated_reports = []
+    clob_evidence = {"classes": [], "summary": {}}
     try:
         if manifest and valid:
             latest_root = backup_root / LATEST_DIR
@@ -659,6 +1036,7 @@ def run_restore_drill(
                 restore_root / "restore_reports",
                 manifest,
             )
+            clob_evidence = clob_restore_evidence(restore_root, manifest)
         missing_critical = (manifest.get("summary") or {}).get("missing_critical_classes") if manifest else []
         schema_failures = [
             row for row in schema_checks
@@ -683,6 +1061,7 @@ def run_restore_drill(
             "checksum_failures": failures,
             "schema_checks": schema_checks,
             "schema_failures": schema_failures,
+            "clob_restore_evidence": clob_evidence,
             "generated_reports": [str(path) for path in generated_reports],
         }
         write_json(out, payload)
@@ -723,7 +1102,58 @@ def write_restore_report(path, payload):
     return path
 
 
+def run_backup_job(
+    *,
+    source_root=REPO_ROOT,
+    backup_root=DEFAULT_BACKUP_ROOT,
+    status_out=DEFAULT_STATUS_OUT,
+    status_report=DEFAULT_REPORT_OUT,
+    restore_out=DEFAULT_RESTORE_OUT,
+    restore_report=DEFAULT_RESTORE_REPORT,
+    restore_root=None,
+    keep_restore=False,
+    verify_checksums=True,
+    max_age_hours=26,
+    max_restore_age_hours=168,
+):
+    manifest = export_backup(source_root=source_root, backup_root=backup_root)
+    restore = run_restore_drill(
+        backup_root=backup_root,
+        restore_root=restore_root,
+        out=restore_out,
+        report=restore_report,
+        keep_restore=keep_restore,
+    )
+    status = backup_status(
+        backup_root=backup_root,
+        max_age_hours=max_age_hours,
+        verify_checksums=verify_checksums,
+        max_restore_age_hours=max_restore_age_hours,
+        source_root=source_root,
+    )
+    write_json(status_out, status)
+    write_status_report(status_report, status)
+    return {
+        "schema_version": "tape_backup_job_v0.1",
+        "generated_at_utc": utc_iso(),
+        "backup_root": str(backup_root),
+        "manifest_hash": manifest.get("manifest_hash"),
+        "export": manifest.get("backup") or {},
+        "restore_drill": {
+            "status": restore.get("status"),
+            "files_restored": restore.get("files_restored"),
+            "manifest_hash": restore.get("manifest_hash"),
+        },
+        "status": status,
+        "status_out": str(status_out),
+        "status_report": str(status_report),
+        "restore_out": str(restore_out),
+        "restore_report": str(restore_report),
+    }
+
+
 def write_status_report(path, payload):
+    restore = payload.get("last_restore_drill") or {}
     lines = [
         "# Tape Backup Status",
         "",
@@ -732,6 +1162,10 @@ def write_status_report(path, payload):
         f"Backup root: `{payload.get('backup_root')}`",
         f"Manifest age hours: `{payload.get('age_hours')}`",
         f"Files: `{payload.get('file_count')}`",
+        f"Restore drill SLA: **{payload.get('restore_drill_sla_status') or '-'}**",
+        f"Restore drill detail: `{payload.get('restore_drill_sla_detail') or '-'}`",
+        f"Last restore drill: `{restore.get('status') or '-'}`",
+        f"Restore generated: `{restore.get('generated_at_utc') or '-'}`",
         "",
         "## Missing Critical Classes",
         "",
@@ -741,6 +1175,42 @@ def write_status_report(path, payload):
     lines += ["", "## Class Summary", "", "| Class | Critical | Files | Bytes |", "| :--- | :--- | :--- | :--- |"]
     for name, row in sorted((payload.get("class_summaries") or {}).items()):
         lines.append(f"| {name} | {row.get('critical')} | {row.get('file_count')} | {row.get('total_bytes')} |")
+    coverage = payload.get("local_manifest_coverage") or {}
+    lines += [
+        "",
+        "## Local Manifest Coverage",
+        "",
+        f"Source root: `{coverage.get('source_root') or '-'}`",
+        f"Status: **{coverage.get('status') or '-'}**",
+        f"Missing critical files: `{coverage.get('missing_critical_files') or 0}`",
+        f"Missing critical bytes: `{coverage.get('missing_critical_bytes') or 0}`",
+        "",
+    ]
+    missing_samples = coverage.get("missing_critical_samples") or []
+    if missing_samples:
+        lines += ["Missing critical sample paths:"]
+        lines.extend(
+            f"- `{row.get('path')}` ({row.get('size')} bytes; {', '.join(row.get('critical_classes') or [])})"
+            for row in missing_samples[:20]
+        )
+    else:
+        lines.append("- no missing critical local files")
+    clob = payload.get("clob_artifact_coverage") or {}
+    lines += [
+        "",
+        "## CLOB Artifact Coverage",
+        "",
+        "| Artifact | Required | Local Files | Local Bytes | Backed-Up Files | Backed-Up Bytes | Missing Files | Missing Bytes | Excluded Bytes | Warnings |",
+        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in clob.get("classes") or []:
+        lines.append(
+            f"| {row.get('name')} | {row.get('backup_required')} | "
+            f"{row.get('local_files')} | {row.get('local_bytes')} | "
+            f"{row.get('backed_up_files')} | {row.get('backed_up_bytes')} | "
+            f"{row.get('missing_files')} | {row.get('missing_bytes')} | "
+            f"{row.get('excluded_bytes')} | {row.get('warning_count')} |"
+        )
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -781,6 +1251,8 @@ def cmd_status(args):
         backup_root=args.backup_root,
         max_age_hours=args.max_age_hours,
         verify_checksums=args.verify_checksums,
+        max_restore_age_hours=args.max_restore_age_hours,
+        source_root=args.source_root or None,
     )
     write_json(args.out, payload)
     write_status_report(args.report, payload)
@@ -801,6 +1273,24 @@ def cmd_restore_drill(args):
     return 0 if payload["status"] == "PASS" else 2
 
 
+def cmd_run(args):
+    payload = run_backup_job(
+        source_root=args.source_root,
+        backup_root=args.backup_root,
+        status_out=args.status_out,
+        status_report=args.status_report,
+        restore_out=args.restore_out,
+        restore_report=args.restore_report,
+        restore_root=args.restore_root or None,
+        keep_restore=args.keep_restore,
+        verify_checksums=args.verify_checksums,
+        max_age_hours=args.max_age_hours,
+        max_restore_age_hours=args.max_restore_age_hours,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0 if (payload.get("status") or {}).get("status") == "OK" else 2
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Backup and restore-drill irreplaceable weather tapes.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -816,7 +1306,9 @@ def build_parser():
 
     status = sub.add_parser("status")
     status.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
+    status.add_argument("--source-root", default="")
     status.add_argument("--max-age-hours", type=float, default=26.0)
+    status.add_argument("--max-restore-age-hours", type=float, default=168.0)
     status.add_argument("--verify-checksums", action="store_true")
     status.add_argument("--out", default=str(DEFAULT_STATUS_OUT))
     status.add_argument("--report", default=str(DEFAULT_REPORT_OUT))
@@ -829,6 +1321,20 @@ def build_parser():
     drill.add_argument("--out", default=str(DEFAULT_RESTORE_OUT))
     drill.add_argument("--report", default=str(DEFAULT_RESTORE_REPORT))
     drill.set_defaults(func=cmd_restore_drill)
+
+    run = sub.add_parser("run")
+    run.add_argument("--source-root", default=str(REPO_ROOT))
+    run.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
+    run.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
+    run.add_argument("--status-report", default=str(DEFAULT_REPORT_OUT))
+    run.add_argument("--restore-out", default=str(DEFAULT_RESTORE_OUT))
+    run.add_argument("--restore-report", default=str(DEFAULT_RESTORE_REPORT))
+    run.add_argument("--restore-root", default="")
+    run.add_argument("--keep-restore", action="store_true")
+    run.add_argument("--verify-checksums", action="store_true")
+    run.add_argument("--max-age-hours", type=float, default=26.0)
+    run.add_argument("--max-restore-age-hours", type=float, default=168.0)
+    run.set_defaults(func=cmd_run)
     return parser
 
 

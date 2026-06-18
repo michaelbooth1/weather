@@ -2,32 +2,44 @@ import json
 
 from weather.paths import config_path
 
-with config_path("locations.json").open('r', encoding='utf-8') as f:
-    data = json.load(f)
+def main() -> int:
+    with config_path("locations.json").open("r", encoding="utf-8") as f:
+        data = json.load(f)
 
-locations = [l for l in data['locations'] if l['country'] in ('Canada', 'United States') and l['id'] not in ('toronto', 'nyc')]
+    locations = [
+        item
+        for item in data["locations"]
+        if item["country"] in ("Canada", "United States") and item["id"] not in ("toronto", "nyc")
+    ]
 
-specs = []
-for l in locations:
-    var_name = l['id'].upper().replace('-', '_')
-    wu_hist = l['settlement']['station_id'] + (":9:US" if l['country'] == "United States" else ":9:CA")
-    coastal = l['id'] in ("miami", "seattle", "san-francisco", "los-angeles", "boston", "houston")
-    spec = f"""{var_name} = MarketSpec(
-    id="{l['id']}",
-    city_label="{l['city']}",
-    slug_prefix="{l['polymarket']['event_slug_prefix']}",
-    timezone="{l['timezone']}",
-    display_unit="{l['market_unit']}",
+    specs = []
+    for item in locations:
+        var_name = item["id"].upper().replace("-", "_")
+        wu_hist = item["settlement"]["station_id"] + (
+            ":9:US" if item["country"] == "United States" else ":9:CA"
+        )
+        coastal = item["id"] in ("miami", "seattle", "san-francisco", "los-angeles", "boston", "houston")
+        spec = f"""{var_name} = MarketSpec(
+    id="{item['id']}",
+    city_label="{item['city']}",
+    slug_prefix="{item['polymarket']['event_slug_prefix']}",
+    timezone="{item['timezone']}",
+    display_unit="{item['market_unit']}",
     wu_history_id="{wu_hist}",
-    icao="{l['settlement']['station_id']}",
-    lat={l['coordinates']['lat']},
-    lon={l['coordinates']['lon']},
+    icao="{item['settlement']['station_id']}",
+    lat={item['coordinates']['lat']},
+    lon={item['coordinates']['lon']},
     sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo"),
     leading_obs="metar",
     coastal={coastal},
 )"""
-    specs.append(spec)
+        specs.append(spec)
 
-print("\n\n".join(specs))
-ids = ["TORONTO", "NYC"] + [l['id'].upper().replace('-', '_') for l in locations]
-print("\nREGISTRY = {spec.id: spec for spec in (" + ", ".join(ids) + ")}")
+    print("\n\n".join(specs))
+    ids = ["TORONTO", "NYC"] + [item["id"].upper().replace("-", "_") for item in locations]
+    print("\nREGISTRY = {spec.id: spec for spec in (" + ", ".join(ids) + ")}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

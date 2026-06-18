@@ -12,6 +12,7 @@ from weather.model.feature_store import row_forecast_high_native, row_temp_nativ
 from weather.model.toronto_model import TARGET_DATE, TORONTO_TZ
 from weather.sources.daily_summary import native_high
 from weather.sources.wu_history import DEFAULT_DATA_ROOT
+from weather.units import round_half_up, to_float
 
 
 FORECAST_COLUMNS = [
@@ -756,23 +757,6 @@ def horizon_bucket(value):
     if value <= 360:
         return "3-6h"
     return "6h+"
-
-
-def to_float(value):
-    if value in (None, "", "nan"):
-        return None
-    try:
-        if isinstance(value, str) and value.lower() == "nan":
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
 
 
 def mean(values):

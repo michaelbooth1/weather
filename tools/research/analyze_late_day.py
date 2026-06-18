@@ -1,10 +1,9 @@
 import json
 import csv
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date
 from weather.paths import data_path
 
-from collections import defaultdict, Counter
+from collections import defaultdict
 
 DATA_ROOT = data_path() / "wunderground" / "cyyz"
 summary_path = DATA_ROOT / "daily" / "daily_summary.csv"

@@ -1,8 +1,13 @@
 import os
 import sys
+import tempfile
 import unittest
+import warnings
+from pathlib import Path
 from unittest.mock import patch
+import pandas as pd
 from weather.market.market_registry import NYC, SEATTLE, TORONTO
+from weather.calibration.feature_model import feature_model_frame
 from weather.calibration.pooled_feature_model import (
     add_city_features,
     add_dynamic_source_state_features,
@@ -14,6 +19,7 @@ from weather.calibration.pooled_feature_model import (
     band_feature_frame,
     band_prediction_record,
     canonical_density_record,
+    density_residuals_from_means,
     default_band_postprocess,
     dynamic_source_state_features,
     evaluate_density_predictions,
@@ -30,6 +36,7 @@ from weather.calibration.pooled_feature_model import (
     predict_density_rows_for_bundle,
     support_floor_cap,
     train_pooled_density_models,
+    write_density_report,
 )
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 
@@ -125,6 +132,36 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertAlmostEqual(frame.loc[0, "source_redundant_streams"], 2.0)
         self.assertAlmostEqual(frame.loc[1, "source_best_bucket_match"], 0.90)
 
+    def test_feature_frame_builders_do_not_emit_fragmentation_warnings(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        })
+        band = band_prediction_record(record, "eq", 80)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", pd.errors.PerformanceWarning)
+            pooled = feature_frame(
+                [record],
+                include_historical_only=True,
+                include_dynamic_source_state=True,
+            )
+            band_frame = band_feature_frame(
+                [band],
+                include_historical_only=True,
+                include_dynamic_source_state=True,
+            )
+            per_market, feature_cols = feature_model_frame(
+                [self._base_record()],
+                ["S-SW", "Other/variable"],
+                ["Fair/clear", "Other"],
+            )
+
+        self.assertIn("source_supplemental_available", pooled.columns)
+        self.assertIn("band_mid", band_frame.columns)
+        self.assertIn("wind_S-SW", per_market.columns)
+        self.assertIn("wind_S-SW", feature_cols)
+
     def test_canonical_density_record_converts_toronto_temperature_fields_to_f(self):
         record = add_city_features({
             **self._base_record(),
@@ -155,16 +192,59 @@ class TestPooledFeatureModel(unittest.TestCase):
             holdout_year=2025,
             grid_step_f=0.5,
         )
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = write_density_report(
+                Path(tmp) / "density_report.md",
+                records,
+                {"nyc": len(records)},
+                validation_rows,
+                2025,
+                "artifact.pkl",
+                artifact=artifact,
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
         payloads = predict_density_rows_for_bundle(artifact, records[:6])
         score = evaluate_density_predictions(records[:6], payloads)
 
-        self.assertEqual(artifact["schema_version"], "pooled_continuous_density_hgb_v0.1")
+        self.assertEqual(artifact["schema_version"], "pooled_continuous_density_hgb_v0.2")
         self.assertEqual(artifact["prediction_mode"], "continuous_density_f")
+        self.assertEqual(artifact["sigma_policy"]["preferred"], "holdout_residual_rmse")
         self.assertIn("12", artifact["models"])
+        self.assertEqual(artifact["models"]["12"]["sigma_source"], "holdout_residual_rmse")
+        self.assertEqual(artifact["models"]["12"]["sigma_residual_count"], 20)
         self.assertTrue(validation_rows)
+        self.assertEqual(validation_rows[0]["final_sigma_source"], "holdout_residual_rmse")
+        self.assertEqual(validation_rows[0]["holdout_sigma_residual_count"], 20)
+        self.assertIn("training_metrics", validation_rows[0])
+        self.assertIn("matrix_build_seconds", validation_rows[0]["training_metrics"])
+        self.assertIn("Training Throughput", report)
+        self.assertIn("Matrix Columns", report)
+        self.assertIn("holdout_residual_rmse", report)
         self.assertTrue(all(payload and payload["kind"] == "continuous_density_f" for payload in payloads))
         self.assertEqual(score["n"], 6)
         self.assertGreater(score["winning_bucket_brier"], 0.0)
+
+    def test_density_sigma_falls_back_to_in_sample_when_holdout_is_too_small(self):
+        records = self._density_records()[:65]
+
+        artifact, validation_rows = train_pooled_density_models(
+            records,
+            holdout_year=2025,
+            grid_step_f=1.0,
+        )
+
+        self.assertEqual(artifact["models"]["12"]["sigma_source"], "in_sample_residual_rmse")
+        self.assertLess(validation_rows[0]["holdout_sigma_residual_count"], 20)
+        self.assertEqual(validation_rows[0]["final_sigma_source"], "in_sample_residual_rmse")
+
+    def test_density_residuals_from_means_uses_canonical_f_targets(self):
+        rows = [
+            {"final_bucket_f": 80.0},
+            {"final_bucket_f": 82.0},
+            {"final_bucket_f": None},
+        ]
+
+        self.assertEqual(density_residuals_from_means(rows, [79.5, 82.25, 70.0]), [0.5, -0.25])
 
     def test_market_source_reliability_populates_ghcnh_and_reanalysis_priors(self):
         indexes = {

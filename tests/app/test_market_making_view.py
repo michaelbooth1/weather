@@ -1,3 +1,6 @@
+from datetime import date
+
+from app.table_utils import arrow_safe_records
 from app.views.market_making import (
     _df,
     _blocker_rows,
@@ -166,9 +169,11 @@ def test_market_making_value_tables_are_arrow_safe_and_runtime_identity_rows_ren
         {"Metric": "Target date", "Value": "2026-06-15"},
         {"Metric": "Open orders", "Value": 2},
         {"Metric": "Current run counts", "Value": False},
+        {"Metric": "Generated", "Value": date(2026, 6, 15)},
+        {"Metric": "Payload", "Value": {"ok": True}},
     ])
 
-    assert frame["Value"].tolist() == ["2026-06-15", "2", "False"]
+    assert frame["Value"].tolist() == ["2026-06-15", "2", "False", "2026-06-15", '{"ok": true}']
 
     rows = _runtime_identity_rows({
         "loops": [
@@ -188,3 +193,24 @@ def test_market_making_value_tables_are_arrow_safe_and_runtime_identity_rows_ren
     assert rows[0]["Loop"] == "clob_books"
     assert rows[0]["Code state"] == "different"
     assert rows[0]["Running code"] == "old"
+
+
+def test_market_making_mixed_display_columns_are_arrow_safe():
+    frame = _df([
+        {"Market": "atlanta", "Recoverable today": True, "Rows": 2},
+        {"Market": "nyc", "Recoverable today": "-", "Rows": 1},
+    ])
+
+    assert frame["Recoverable today"].tolist() == ["True", "-"]
+    assert frame["Rows"].tolist() == [2, 1]
+
+
+def test_arrow_safe_records_normalizes_mixed_operation_rows():
+    rows = arrow_safe_records([
+        {"Task": "one", "Registered": True, "Last Run": date(2026, 6, 15), "Result": 0},
+        {"Task": "two", "Registered": "-", "Last Run": "-", "Result": "missing"},
+    ])
+
+    assert rows[0]["Registered"] == "True"
+    assert rows[0]["Last Run"] == "2026-06-15"
+    assert rows[0]["Result"] == "0"

@@ -2,86 +2,77 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-try:
-    from .market_config import ensure_date
-    from .market_making_run_constants import (
-        DEFAULT_QUOTE_TTL_SECONDS,
-        RUN_MODES,
-        SCHEMA_VERSION,
-    )
-    from .market_microstructure import (
-        BOOK_AUDIT_STARTUP_GRACE_SECONDS,
-        SNAPSHOT_DATA_ROOT,
-        audit_book_tape,
-        fleet_effective_book_gap_seconds,
-        parse_utc_datetime,
-        read_clob_loop_status,
-    )
-    from .market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
-    from .market_registry import all_specs, spec_for_id
-    from .mm_policy import (
-        DEFAULT_POLICY_CONFIG,
-        POLICY_VERSION,
-        apply_known_edge_permission,
-        bool_value,
-        decide_quote,
-        first_present,
-        load_clob_feature_index,
-        maybe_float,
-        parse_time,
-        resolve_known_edge_record,
-        source_freshness_state_from_rows,
-        utc_now,
-    )
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.market.market_config import ensure_date
-    from weather.market.market_making_run_constants import (
-        DEFAULT_QUOTE_TTL_SECONDS,
-        RUN_MODES,
-        SCHEMA_VERSION,
-    )
-    from weather.market.market_microstructure import (
-        BOOK_AUDIT_STARTUP_GRACE_SECONDS,
-        SNAPSHOT_DATA_ROOT,
-        audit_book_tape,
-        fleet_effective_book_gap_seconds,
-        parse_utc_datetime,
-        read_clob_loop_status,
-    )
-    from weather.market.market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
-    from weather.market.market_registry import all_specs, spec_for_id
-    from weather.market.mm_policy import (
-        DEFAULT_POLICY_CONFIG,
-        POLICY_VERSION,
-        apply_known_edge_permission,
-        bool_value,
-        decide_quote,
-        first_present,
-        load_clob_feature_index,
-        maybe_float,
-        parse_time,
-        resolve_known_edge_record,
-        source_freshness_state_from_rows,
-        utc_now,
-    )
+from weather.io import (
+    append_csv_rows,
+    append_jsonl as io_append_jsonl,
+    csv_encoding_issue,
+    read_csv_rows as io_read_csv_rows,
+    read_csv_rows_with_diagnostics,
+    read_jsonl,
+    write_csv_rows,
+)
+from weather.market.market_config import ensure_date
+from weather.market.market_making_run_constants import (
+    DEFAULT_QUOTE_TTL_SECONDS,
+    RUN_MODES,
+    SCHEMA_VERSION,
+)
+from weather.market.market_microstructure import (
+    BOOK_AUDIT_STARTUP_GRACE_SECONDS,
+    SNAPSHOT_DATA_ROOT,
+    audit_book_tape,
+    fleet_effective_book_gap_seconds,
+    parse_utc_datetime,
+    read_clob_loop_status,
+)
+from weather.market.market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
+from weather.market.market_registry import all_specs, spec_for_id
+from weather.market.mm_policy import (
+    DEFAULT_POLICY_CONFIG,
+    POLICY_VERSION,
+    apply_known_edge_permission,
+    bool_value,
+    decide_quote,
+    first_present,
+    load_clob_feature_index,
+    maybe_float,
+    parse_time,
+    resolve_known_edge_record,
+    source_freshness_state_from_rows,
+    utc_now,
+)
 
 def read_csv_rows(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            return list(csv.DictReader(handle))
-    except UnicodeDecodeError:
-        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
-            return list(csv.DictReader(handle))
+    return io_read_csv_rows(path, attach_diagnostics=True)
+
+
+def csv_read_diagnostics(path):
+    _rows, diagnostics = read_csv_rows_with_diagnostics(path, attach_diagnostics=False)
+    return diagnostics
+
+
+def preflight_csv_encoding_diagnostics(folder):
+    folder = Path(folder)
+    files = [
+        folder / "clob_tokens.csv",
+        folder / "order_books_summary.csv",
+        folder / "clob_features_long.csv",
+        folder / "source_status_long.csv",
+    ]
+    diagnostics = [csv_read_diagnostics(path) for path in files]
+    issues = [row for row in diagnostics if csv_encoding_issue(row)]
+    return {
+        "status": "WARN" if issues else "OK",
+        "issue_count": len(issues),
+        "quarantined_row_count": sum(int(row.get("quarantined_row_count") or 0) for row in issues),
+        "files": issues,
+    }
 
 
 def write_json(path, payload):
@@ -102,28 +93,11 @@ def read_json(path, default=None):
 
 
 def append_jsonl(path, rows):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+    return io_append_jsonl(path, list(rows or []))
 
 
 def read_jsonl_rows(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    rows = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return rows
+    return read_jsonl(path)
 
 
 def last_reserved_from_ledger(path):
@@ -147,25 +121,11 @@ def last_reserved_from_ledger(path):
 
 
 def write_csv(path, fieldnames, rows):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
-        writer.writeheader()
-        writer.writerows(rows)
-    return str(path)
+    return str(write_csv_rows(path, fieldnames, rows))
 
 
 def append_csv(path, fieldnames, rows):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not path.exists()
-    with path.open("a", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
-        if write_header:
-            writer.writeheader()
-        writer.writerows(rows)
-    return str(path)
+    return str(append_csv_rows(path, fieldnames, rows))
 
 
 def normalize_mode(mode):
@@ -337,7 +297,7 @@ def source_status_is_current(rows):
         return False
     return any(
         bool_value(row.get("ok"), False)
-        and str(row.get("status") or "").lower() in {"fresh", "ok", "available", ""}
+        and str(row.get("status") or "").lower() in {"fresh", "fresh_cache", "ok", "available", ""}
         and not bool_value(row.get("stale"), False)
         for row in rows
     )
@@ -406,11 +366,19 @@ def preflight_market(
     folder = Path(folder)
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
     model_age = (now - latest_capture).total_seconds() if latest_capture else None
+    source_status_times = [
+        parse_time(row.get("captured_at_utc") or row.get("fetched_at"))
+        for row in source_rows or []
+    ]
+    source_status_times = [value for value in source_status_times if value is not None]
+    source_status_latest = max(source_status_times) if source_status_times else None
+    source_status_fresh = source_status_is_current(source_rows)
     book_audit = preflight_book_audit(
         folder,
         now=now,
         max_gap_seconds=float(policy_config["max_book_age_seconds"]),
     )
+    csv_encoding = preflight_csv_encoding_diagnostics(folder)
     token_rows = read_csv_rows(folder / "clob_tokens.csv")
     token_count = sum(1 for row in token_rows if row.get("clob_token_id") and str(row.get("outcome") or "").lower() in {"yes", ""})
     condition_count = len({row.get("condition_id") for row in token_rows if row.get("condition_id")})
@@ -435,7 +403,7 @@ def preflight_market(
         "current model snapshot is stale or timestamp is missing",
     )
     add_gate("source_status_rows", bool(source_rows), "missing", "missing current source-status rows")
-    add_gate("source_status_fresh", source_status_is_current(source_rows), "stale", "no fresh source-status row for latest snapshot")
+    add_gate("source_status_fresh", source_status_fresh, "stale", "no fresh source-status row for latest snapshot")
     add_gate("clob_tokens", token_count > 0 and condition_count > 0, "missing", "missing CLOB token ids or condition ids")
     add_gate("clob_books", bool(book_rows), "missing", "missing current CLOB book rows")
     add_gate("clob_features", bool(clob_feature_rows), "missing", "missing band-level CLOB feature rows")
@@ -508,11 +476,14 @@ def preflight_market(
         "latest_capture_utc": latest_capture.isoformat() if latest_capture else None,
         "model_age_seconds": round(model_age, 1) if model_age is not None else None,
         "source_status_rows": len(source_rows),
+        "source_status_latest_utc": source_status_latest.isoformat() if source_status_latest else None,
+        "source_status_fresh": source_status_fresh,
         "clob_token_rows": token_count,
         "condition_ids": condition_count,
         "book_rows": len(book_rows),
         "clob_feature_rows": len(clob_feature_rows),
         "book_audit": book_audit,
+        "csv_encoding": csv_encoding,
         "promotion_state": promotion.get("promotion_state"),
         "promotion_action": promotion.get("action"),
         "reward_metadata": reward_metadata,

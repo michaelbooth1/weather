@@ -5,6 +5,10 @@ commands in order and records one durable status artifact for operators.
 """
 from __future__ import annotations
 
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import argparse
 import json
 import os
@@ -12,9 +16,11 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from weather.io import write_json_atomic
 from weather.paths import data_path
+from weather.time import utc_now as shared_utc_now
 
 from types import SimpleNamespace
 
@@ -27,9 +33,11 @@ from weather.market.market_day_labels import discover_default_folders, parse_ove
 from weather.reporting import disagreement_casebook
 from weather.reporting import data_layer_audit
 from weather.reporting import data_auditor
+from weather.reporting import daily_learning
 from weather.reporting import fleet_observability
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.operations import replay_status_backfill
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
 from weather.reporting import variant_evidence_growth
@@ -54,6 +62,7 @@ STEP_ORDER = (
     "reanalysis_recent_refresh",
     "ingest_quality_gate",
     "market_day_labels_finalize",
+    "replay_status_backfill",
     "promotion_refresh",
     "shadow_ab_monitor",
     "model_variant_evidence_growth",
@@ -62,11 +71,12 @@ STEP_ORDER = (
     "fleet_observability",
     "data_layer_audit",
     "snapshot_evaluation",
+    "daily_learning",
 )
 
 
 def utc_now():
-    return datetime.now(timezone.utc)
+    return shared_utc_now()
 
 
 def utc_iso():
@@ -82,10 +92,7 @@ def backtest_path(args, name):
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def acquire_lock(path, force=False):
@@ -341,6 +348,31 @@ def run_market_day_labels_finalize(args):
     return summary
 
 
+def run_replay_status_backfill_step(args):
+    if getattr(args, "skip_replay_status_backfill", False):
+        return {"status": "SKIPPED", "reason": "skip_replay_status_backfill"}
+    payload = replay_status_backfill.build_backfill_payload(
+        snapshots_root=args.snapshots_root,
+        folders=args.folders if getattr(args, "folders", None) else None,
+        as_of=getattr(args, "as_of", None),
+        overwrite=getattr(args, "overwrite_replay_status", False),
+        reconstruct_missing=getattr(args, "reconstruct_missing_replay_inputs", False),
+        include_active=getattr(args, "include_active_replay_status", False),
+    )
+    json_out, report_out = replay_status_backfill.write_outputs(
+        payload,
+        json_out=backtest_path(args, "replay_status_backfill.json"),
+        report_out=backtest_path(args, "replay_status_backfill_report.md"),
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": "WARN" if summary.get("irreparable_folder_count") else "OK",
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "summary": summary,
+    }
+
+
 def promotion_args(args):
     parser = promotion_refresh.build_parser()
     refresh_args = parser.parse_args([])
@@ -453,6 +485,8 @@ def run_model_variant_evidence_growth_step(args):
             1,
         ),
         min_market_day_increment=getattr(args, "variant_evidence_min_market_days", 1),
+        rolling_7d_min_market_days=getattr(args, "variant_evidence_rolling_7d_min_market_days", 1),
+        per_shadow_market_min_market_days=getattr(args, "variant_evidence_per_shadow_market_min_days", 4),
     )
     json_out = variant_evidence_growth.write_json(
         backtest_path(args, "model_variant_evidence_growth.json"),
@@ -468,6 +502,9 @@ def run_model_variant_evidence_growth_step(args):
         "report_out": as_path(report_out),
         "summary": payload.get("summary") or {},
         "delta_vs_baseline": payload.get("delta_vs_baseline"),
+        "evidence_sla": payload.get("evidence_sla") or {},
+        "no_growth_reasons": payload.get("no_growth_reasons") or [],
+        "trend": payload.get("trend") or [],
         "alerts": payload.get("alerts") or [],
     }
 
@@ -612,10 +649,42 @@ def run_snapshot_evaluation_step(args):
     }
 
 
+def run_daily_learning_step(args):
+    if getattr(args, "skip_daily_learning", False):
+        return {"status": "SKIPPED", "reason": "skip_daily_learning"}
+    steps_so_far = getattr(args, "_daily_refresh_steps_so_far", None) or []
+    daily_refresh_summary = pipeline_summary(steps_so_far) if steps_so_far else None
+    payload = daily_learning.build_learning_payload(
+        backtest_root=args.backtest_root,
+        snapshots_root=args.snapshots_root,
+        run_date=getattr(args, "as_of", None),
+        daily_refresh_summary=daily_refresh_summary,
+    )
+    json_out, report_out = daily_learning.write_outputs(
+        payload,
+        json_out=backtest_path(args, "daily_learning.json"),
+        report_out=backtest_path(args, "daily_learning_report.md"),
+    )
+    summary = payload.get("summary") or {}
+    retrain_plan = payload.get("retrain_plan") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "learning_count": summary.get("learning_count"),
+        "blocker_count": summary.get("blocker_count"),
+        "high_priority_learning_count": summary.get("high_priority_learning_count"),
+        "retrain_input_count": summary.get("retrain_input_count"),
+        "training_ready": retrain_plan.get("training_ready"),
+        "promotion_ready": retrain_plan.get("promotion_ready"),
+    }
+
+
 DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
+    ("replay_status_backfill", run_replay_status_backfill_step),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
@@ -624,6 +693,7 @@ DEFAULT_RUNNERS = (
     ("fleet_observability", run_fleet_observability_step),
     ("data_layer_audit", run_data_layer_audit_step),
     ("snapshot_evaluation", run_snapshot_evaluation_step),
+    ("daily_learning", run_daily_learning_step),
 )
 
 
@@ -653,6 +723,7 @@ def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
+    replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
@@ -661,6 +732,7 @@ def pipeline_summary(steps):
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
+    learning = ((by_name.get("daily_learning") or {}).get("result") or {})
     return {
         "labels": {
             "total": finalize.get("label_count"),
@@ -681,6 +753,10 @@ def pipeline_summary(steps):
             "shadow_markets": promotion.get("shadow_markets") or [],
             "blocked_markets": promotion.get("blocked_markets") or [],
         },
+        "replay_status_backfill": {
+            "status": replay_backfill.get("status"),
+            "summary": replay_backfill.get("summary") or {},
+        },
         "shadow_ab_monitor": {
             "status": shadow_ab.get("status"),
             "summary": shadow_ab.get("summary") or {},
@@ -689,6 +765,9 @@ def pipeline_summary(steps):
             "status": variant_evidence.get("status"),
             "summary": variant_evidence.get("summary") or {},
             "delta_vs_baseline": variant_evidence.get("delta_vs_baseline"),
+            "evidence_sla": variant_evidence.get("evidence_sla") or {},
+            "no_growth_reasons": variant_evidence.get("no_growth_reasons") or [],
+            "trend": variant_evidence.get("trend") or [],
         },
         "progress_answer": progress.get("answer"),
         "casebook": {
@@ -712,6 +791,15 @@ def pipeline_summary(steps):
             "snapshots": evaluation.get("snapshots"),
             "top_gap_count": evaluation.get("top_gap_count"),
         },
+        "daily_learning": {
+            "status": learning.get("status"),
+            "learning_count": learning.get("learning_count"),
+            "blocker_count": learning.get("blocker_count"),
+            "high_priority_learning_count": learning.get("high_priority_learning_count"),
+            "retrain_input_count": learning.get("retrain_input_count"),
+            "training_ready": learning.get("training_ready"),
+            "promotion_ready": learning.get("promotion_ready"),
+        },
     }
 
 
@@ -734,6 +822,16 @@ def render_report(payload):
             detail = step.get("error") or "-"
         elif step.get("name") == "market_day_labels_finalize":
             detail = f"labels {result.get('label_count')} {result.get('quality_counts')}"
+        elif step.get("name") == "replay_status_backfill":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                summary = result.get("summary") or {}
+                detail = (
+                    f"{result.get('status')}; wrote {summary.get('written_folder_count')}; "
+                    f"irreparable {summary.get('irreparable_folder_count')}; "
+                    f"training_ready {summary.get('training_ready_folder_count')}"
+                )
         elif step.get("name") == "reanalysis_recent_refresh":
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
@@ -787,6 +885,15 @@ def render_report(payload):
                 f"{result.get('status')} {result.get('gate_counts')}; "
                 f"snapshots {result.get('snapshots')}; gaps {result.get('top_gap_count')}"
             )
+        elif step.get("name") == "daily_learning":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; learnings {result.get('learning_count')}; "
+                    f"blockers {result.get('blocker_count')}; "
+                    f"training_ready {result.get('training_ready')}"
+                )
         else:
             detail = "-"
         lines.append(
@@ -855,6 +962,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
+            if name == "daily_learning":
+                setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
             try:
                 step = run_step(name, runner, args)
             except Exception as exc:  # noqa: BLE001
@@ -899,6 +1008,11 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             shadow_status = ((shadow_step.get("result") or {}).get("status"))
             if shadow_status == "ALERT" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        if getattr(args, "fail_on_daily_learning_blocker", False):
+            learning_step = next((step for step in payload["steps"] if step.get("name") == "daily_learning"), {})
+            learning_status = ((learning_step.get("result") or {}).get("status"))
+            if learning_status == "BLOCKED" and payload["status"] == "ok":
+                payload["status"] = "critical"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
@@ -942,6 +1056,7 @@ def build_run_parser(parser):
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
     parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
     parser.add_argument("--fail-on-shadow-ab-alert", action="store_true")
+    parser.add_argument("--fail-on-daily-learning-blocker", action="store_true")
     parser.add_argument("--skip-shadow-ab-monitor", action="store_true")
     parser.add_argument("--ab-current-tol", type=float, default=0.003)
     parser.add_argument("--ab-market-tol", type=float, default=0.003)
@@ -958,6 +1073,8 @@ def build_run_parser(parser):
     )
     parser.add_argument("--variant-evidence-min-unique-observations", type=int, default=1)
     parser.add_argument("--variant-evidence-min-market-days", type=int, default=1)
+    parser.add_argument("--variant-evidence-rolling-7d-min-market-days", type=int, default=1)
+    parser.add_argument("--variant-evidence-per-shadow-market-min-days", type=int, default=4)
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--include-reconstructed", action="store_true")
@@ -972,6 +1089,10 @@ def build_run_parser(parser):
     parser.add_argument("--interval-minutes", type=float, default=10.0)
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--skip-polymarket-reconciliation", action="store_true")
+    parser.add_argument("--skip-replay-status-backfill", action="store_true")
+    parser.add_argument("--overwrite-replay-status", action="store_true")
+    parser.add_argument("--reconstruct-missing-replay-inputs", action="store_true")
+    parser.add_argument("--include-active-replay-status", action="store_true")
     parser.add_argument("--no-clob-casebook", action="store_true")
     parser.add_argument("--collection-interval-minutes", type=float, default=10.0)
     parser.add_argument("--collection-tolerance", type=float, default=1.5)
@@ -990,6 +1111,7 @@ def build_run_parser(parser):
     parser.add_argument("--reanalysis-timeout", type=float, default=30)
     parser.add_argument("--reanalysis-end-date", default="")
     parser.add_argument("--skip-data-layer-audit", action="store_true")
+    parser.add_argument("--skip-daily-learning", action="store_true")
     parser.add_argument("--data-layer-historical-start", default="2000-01-01")
     parser.add_argument("--data-layer-historical-end", default="")
     return parser

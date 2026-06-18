@@ -1,5 +1,6 @@
 import math
 from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from weather.model.model_constants import (
@@ -21,9 +22,7 @@ from weather.model.model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from weather.calibration.forecast_error_model import forecast_error_distribution
-from weather.calibration.probability_calibration import apply_exact_distribution_calibration
-from weather.calibration.settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.model.calibration_runtime import apply_exact_distribution_calibration
 from weather.model.model_contracts import DistributionResult
 
 from weather.model.model_distribution_constants import (
@@ -98,19 +97,28 @@ class DistributionMixin(DistributionSignalMixin):
     """The probability engine: priors, blending, live signals, caps, weighting."""
 
     def estimate_distribution_result(self, sources, now=None):
-        distribution = self.estimate_distribution(sources, now=now)
-        return getattr(
-            self,
-            "_last_distribution_result",
-            DistributionResult.from_model(self, distribution),
-        )
+        return self._estimate_distribution_result(sources, now=now)
 
     def estimate_distribution(self, sources, now=None):
+        return self.estimate_distribution_result(sources, now=now).distribution
+
+    def _set_distribution_result_compatibility(self, result, pipeline_state=None):
+        """Populate legacy scratch fields from the explicit result object."""
+        self._last_distribution_result = result
+        self._last_distribution_components = deepcopy(dict(result.component_payload or {}))
+        self._last_probability_calibration_context = deepcopy(dict(result.calibration_context or {}))
+        self._last_family_secondary_gate = deepcopy(dict(result.family_secondary_gate or {}))
+        self.active_model_kind = result.active_model_kind or "empirical"
+        if pipeline_state is not None:
+            self._last_distribution_pipeline_state = pipeline_state
+        return result
+
+    def _estimate_distribution_result(self, sources, now=None):
         self._last_distribution_components = {}
         self._last_distribution_pipeline_state = None
         self._last_probability_calibration_context = {}
         self._last_family_secondary_gate = {}
-        self._last_distribution_result = DistributionResult.from_model(self, {})
+        self._last_distribution_result = DistributionResult()
         self.active_model_kind = "empirical"
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
@@ -190,10 +198,14 @@ class DistributionMixin(DistributionSignalMixin):
         max_signal = self.round_half_up(self.max_value(*live_values))
         if max_signal is None and not scores:
             pipeline = DistributionPipelineState()
-            self._last_distribution_pipeline_state = pipeline
-            self._last_distribution_components = pipeline.payload()
-            self._last_distribution_result = DistributionResult.from_model(self, {})
-            return {}
+            result = DistributionResult(
+                distribution={},
+                component_payload=pipeline.payload(),
+                calibration_context={},
+                active_model_kind="empirical",
+                family_secondary_gate={},
+            )
+            return self._set_distribution_result_compatibility(result, pipeline)
 
         low = min(min(scores), round(self.spec.c_to_native(8)),
                   (hard_floor_bucket or observed_bucket or max_signal or round(self.spec.c_to_native(16))) - round(self.spec.scale_delta(5)))
@@ -205,13 +217,12 @@ class DistributionMixin(DistributionSignalMixin):
         pipeline = DistributionPipelineState()
         self._last_distribution_pipeline_state = pipeline
         pipeline.snapshot("climatology_prior", scores)
-        distribution_components = pipeline.components
 
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
         )
-        self._last_probability_calibration_context = {
+        calibration_context = {
             "cutoff_hour": cutoff_hour,
             "observed_floor_bucket": hard_floor_bucket,
             "wu_history_floor_bucket": observed_bucket,
@@ -391,7 +402,7 @@ class DistributionMixin(DistributionSignalMixin):
             ),
             lockin_strength=lockin_strength,
             high_has_stood_lockin=high_has_stood_context,
-            family_secondary_gate=getattr(self, "_last_family_secondary_gate", {}),
+            family_secondary_gate=pipeline.metadata.get("family_secondary_gate") or {},
             bucket_transition=bucket_transition,
             late_day_continuation=late_day_continuation,
             observed_floor_bucket=hard_floor_bucket,
@@ -400,9 +411,15 @@ class DistributionMixin(DistributionSignalMixin):
             current_observed_bucket=current_observed_bucket,
             observed_support_bucket=observed_support_bucket,
         )
-        self._last_distribution_components = pipeline.payload()
-        self._last_distribution_result = DistributionResult.from_model(self, calibrated_scores)
-        return calibrated_scores
+        component_payload = pipeline.payload()
+        result = DistributionResult(
+            distribution=calibrated_scores,
+            component_payload=component_payload,
+            calibration_context=calibration_context,
+            active_model_kind=str(component_payload.get("active_model_kind") or getattr(self, "active_model_kind", "empirical") or "empirical"),
+            family_secondary_gate=component_payload.get("family_secondary_gate") or {},
+        )
+        return self._set_distribution_result_compatibility(result, pipeline)
 
     def distribution_model_path_stage(
         self,
@@ -430,11 +447,23 @@ class DistributionMixin(DistributionSignalMixin):
         intraday = None
         using_feature_model = False
         using_calibrated_empirical = False
-        feature_probs, active_kind = self.predict_feature_distribution(
-            sources,
-            cutoff_hour,
-            now,
-        )
+        try:
+            feature_result = self.predict_feature_distribution(
+                sources,
+                cutoff_hour,
+                now,
+                include_gate=True,
+            )
+        except TypeError as exc:
+            if "include_gate" not in str(exc):
+                raise
+            feature_result = self.predict_feature_distribution(sources, cutoff_hour, now)
+        if len(feature_result) == 3:
+            feature_probs, active_kind, family_secondary_gate = feature_result
+        else:
+            feature_probs, active_kind = feature_result
+            family_secondary_gate = deepcopy(getattr(self, "_last_family_secondary_gate", {}) or {})
+        pipeline.update_metadata(family_secondary_gate=deepcopy(family_secondary_gate or {}))
         if feature_probs:
             using_feature_model = True
             self.active_model_kind = active_kind

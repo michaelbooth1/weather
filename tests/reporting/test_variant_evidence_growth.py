@@ -47,7 +47,40 @@ class TestVariantEvidenceGrowth(unittest.TestCase):
         )
         categories = {row["category"] for row in payload["alerts"]}
         self.assertIn("insufficient_unique_observation_increment", categories)
+        self.assertIn("broad_promotion_claim_blocked", categories)
+        self.assertFalse(payload["evidence_sla"]["broad_promotion_claim_allowed"])
+        overall_reason = next(
+            row for row in payload["no_growth_reasons"]
+            if row["scope"] == "overall"
+        )
+        self.assertEqual(overall_reason["reason"], "variant_rows_only")
+        self.assertIn("daily_refresh", overall_reason["action"])
         self.assertIn("Model Variant Evidence Growth", render_report(payload))
+
+    def test_records_trend_and_shadow_market_sample_targets(self):
+        baseline = [_row("v1", "2026-06-11", 0.60)]
+        current = [
+            _row("v1", "2026-06-11", 0.60),
+            _row("v1", "2026-06-12", 0.61, snapshot_id="2026-06-12-s1"),
+        ]
+
+        payload = build_payload(
+            current,
+            baseline_rows=baseline,
+            per_shadow_market_min_market_days=3,
+        )
+
+        self.assertEqual(payload["delta_vs_baseline"]["market_day_count"], 1)
+        trend = {row["window"]: row for row in payload["trend"]}
+        self.assertIn("latest_day", trend)
+        self.assertIn("rolling_7d", trend)
+        target = payload["evidence_sla"]["sample_target_rows"][0]
+        self.assertEqual(target["market_id"], "nyc")
+        self.assertEqual(target["status"], "BLOCK")
+        self.assertEqual(target["missing_market_days"], 1)
+        report = render_report(payload)
+        self.assertIn("Evidence SLA", report)
+        self.assertIn("Shadow-Market Sample Targets", report)
 
 
 if __name__ == "__main__":

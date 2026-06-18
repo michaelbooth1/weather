@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 
+from weather.io import read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
 
 
@@ -24,12 +24,8 @@ def read_json(path, default=None):
 
 
 def read_csv(path, limit=None):
-    path = Path(path)
-    if not path.exists():
-        return []
     try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
+        rows = io_read_csv_rows(path, attach_diagnostics=True)
     except OSError:
         return []
     return rows[-limit:] if limit else rows

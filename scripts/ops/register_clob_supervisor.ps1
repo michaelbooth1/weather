@@ -38,6 +38,7 @@ $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
 
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
+    -Hidden `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
     -StartWhenAvailable `
     -AllowStartIfOnBatteries `

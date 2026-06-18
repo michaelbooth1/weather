@@ -14,6 +14,7 @@ from scipy.optimize import minimize
 from weather.artifacts import writable_artifact_path
 from weather.model.feature_store import row_temp_native
 from weather.model.toronto_model import INTRADAY_CUTOFF_HOURS, TorontoHighTempModel
+from weather.units import round_half_up
 
 
 WEIGHT_COMPONENTS = (
@@ -30,12 +31,6 @@ MIN_INTRADAY_MATCHES = 8
 MIN_REGIME_MATCHES = 20
 MARKET_BIN_MIN = 19
 MARKET_BIN_MAX = 29
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
 
 
 def smoothed_dist(buckets, support, alpha=0.10):

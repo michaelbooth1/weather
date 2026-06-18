@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
 
 CLOB_MODEL_FEATURE_COLUMNS = [
@@ -129,15 +130,7 @@ def book_band_key(row):
 
 
 def read_csv_rows(path):
-    path = Path(path)
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            return list(csv.DictReader(handle))
-    except UnicodeDecodeError:
-        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
-            return list(csv.DictReader(handle))
+    return io_read_csv_rows(path, attach_diagnostics=True)
 
 
 def read_jsonl_records(path):
@@ -374,8 +367,6 @@ def features_from_book_point(snapshot_row, points, current_idx, snapshot_time):
     depth_1 = (bid_1 or 0.0) + (ask_1 or 0.0) if bid_1 is not None or ask_1 is not None else None
     depth_5 = (bid_5 or 0.0) + (ask_5 or 0.0) if bid_5 is not None or ask_5 is not None else None
     depth_all = (bid_all or 0.0) + (ask_all or 0.0) if bid_all is not None or ask_all is not None else None
-    model_probability = maybe_float(snapshot_row.get("model_probability"))
-    market_yes = maybe_float(snapshot_row.get("market_yes"))
     values = {
         "clob_feature_available": 1.0,
         "clob_book_age_seconds": (snapshot_time - book_time).total_seconds(),
@@ -535,7 +526,7 @@ def write_clob_feature_rows(folder, out_name="clob_features_long.csv", jsonl_nam
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=CLOB_FEATURE_COLUMNS)
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows(normalize_csv_row(row) for row in rows)
         if jsonl_path is not None:
             with jsonl_path.open("w", encoding="utf-8") as handle:
                 for row in rows:

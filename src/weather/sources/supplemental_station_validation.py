@@ -19,6 +19,7 @@ from weather.sources.supplemental_stations import (
     supplemental_sources,
 )
 from weather.paths import REPO_ROOT, relative_to_repo
+from weather.units import round_half_up
 
 
 VALIDATION_SCHEMA_VERSION = "supplemental_station_validation_v0.1"
@@ -106,10 +107,6 @@ def safe_float(value):
     if math.isnan(number) or number <= -999:
         return None
     return number
-
-
-def round_half_up(value):
-    return int(math.floor(float(value) + 0.5))
 
 
 def pct(part, total):

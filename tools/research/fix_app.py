@@ -1,8 +1,20 @@
-import re
-with open("app.py", "r", encoding="utf-8") as f:
-    content = f.read()
-new_content = re.sub(r"use_container_width=True", "width='stretch'", content)
-new_content = re.sub(r"use_container_width=False", "width='content'", new_content)
-with open("app.py", "w", encoding="utf-8") as f:
-    f.write(new_content)
-print("Fixed app.py")
+"""Retired one-off app patch helper."""
+
+from __future__ import annotations
+
+import argparse
+
+
+RESEARCH_STATUS = "retired"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Retired one-off app patch helper.")
+    parser.parse_args(argv)
+    print("fix_app.py is retired. Update app files directly through reviewed source changes.")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

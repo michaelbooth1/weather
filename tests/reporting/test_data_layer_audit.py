@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -8,11 +9,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from weather.reporting.data_layer_audit import (  # noqa: E402
+    build_remediation_manifest,
     build_recommendations,
     build_gates,
     daily_value_rows_from_csv,
     nearby_history_audit,
     scan_snapshot_csv,
+    snapshot_audit,
     source_status_summary_for_folder,
     season_dates,
 )
@@ -255,6 +258,99 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(out["supplemental_sources"][0]["promotion_state"], "validated_supplemental")
         self.assertEqual(out["supplemental_sources"][0]["bias_vs_wu"]["target_season"]["mae"], 0.1)
 
+    def test_nearby_history_audit_scopes_supplemental_gate_to_adopted_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                test_data_root = Path(tmp) / "data"
+                spec = SimpleNamespace(id="kxxx", icao="KXXX", lat=10.0, lon=20.0)
+
+                def write_daily(path, rows):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with path.open("w", encoding="utf-8", newline="") as handle:
+                        writer = csv.DictWriter(handle, fieldnames=["local_date", "max_temp"])
+                        writer.writeheader()
+                        writer.writerows(rows)
+
+                write_daily(Path("data/noaa_ghcnh/kxxx/daily/daily_summary.csv"), [])
+                write_daily(
+                    Path("data/noaa_ghcnh/kxxx_alt_nearby/daily/daily_summary.csv"),
+                    [
+                        {"local_date": "2020-05-21", "max_temp": "20.2"},
+                        {"local_date": "2020-05-22", "max_temp": "21.0"},
+                    ],
+                )
+                station_path = Path("data/noaa_ghcnh/kxxx_alt_nearby/station.json")
+                station_path.write_text(
+                    '{"GHCN_ID":"USW00000001","NAME":"Nearby AP","LATITUDE":"10.0","LONGITUDE":"20.0"}\n',
+                    encoding="utf-8",
+                )
+                reference_rows = [
+                    {"local_date": "2020-05-21", "max_temp": "20.0"},
+                    {"local_date": "2020-05-22", "max_temp": "21.0"},
+                ]
+                write_daily(Path("data/wunderground/kxxx/daily/daily_summary.csv"), reference_rows)
+                write_daily(Path("data/metar/kxxx/daily/daily_summary.csv"), reference_rows)
+
+                expected = [date(2020, 5, 20), date(2020, 5, 21), date(2020, 5, 22), date(2020, 5, 23)]
+                source = {
+                    "market_id": "kxxx",
+                    "source_id": "ghcnh_kxxx_nearby",
+                    "source_type": "noaa_ghcnh",
+                    "source_role": "supplemental",
+                    "station_id": "USW00000001",
+                    "station_name": "Nearby AP",
+                    "root_path": str(Path("data/noaa_ghcnh/kxxx_alt_nearby").resolve()),
+                    "latitude": 10.0,
+                    "longitude": 20.0,
+                    "elevation_m": None,
+                    "distance_from_canonical_km": 0.0,
+                    "canonical_market_id": "kxxx",
+                    "canonical_station_id": "KXXX",
+                    "validation_status": "candidate",
+                    "adopted_date_windows": [{
+                        "start": "2020-05-21",
+                        "end": "2020-05-22",
+                        "reason": "unit test",
+                    }],
+                    "reason_for_adoption": "unit test registry entry",
+                }
+                with patch("weather.reporting.data_layer_audit.data_path", lambda *parts: test_data_root.joinpath(*parts)):
+                    out = nearby_history_audit(
+                        spec,
+                        {"ghcnh": {"target_season": {"covered_days": 0}}},
+                        expected,
+                        expected,
+                        registry={
+                            "schema_version": "supplemental_station_registry_v0.1",
+                            "sources": [source],
+                        },
+                        validation_report={
+                            "schema_version": "supplemental_station_validation_v0.1",
+                            "artifact_path": "unit-test.json",
+                            "sources": [{
+                                "source_id": "ghcnh_kxxx_nearby",
+                                "source_fingerprint": source_fingerprint(source),
+                                "promotion_state": "validated_supplemental",
+                                "validation_window": {
+                                    "start": "2020-05-21",
+                                    "end": "2020-05-22",
+                                },
+                                "validated_weather_regimes": ["mild"],
+                                "gates": [{
+                                    "name": "distance_from_canonical",
+                                    "severity": "hard",
+                                    "ok": True,
+                                }],
+                            }],
+                        },
+                    )
+            finally:
+                os.chdir(cwd)
+
+        self.assertTrue(out["supplemental_sources"][0]["promotion_gate"]["ok"])
+
     def test_recommendations_use_validated_nearby_history_before_deep_fill(self):
         recs = build_recommendations(
             {
@@ -313,6 +409,61 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(summary["source_count"], 3)
         self.assertEqual(summary["stale_or_failed_rows"], 2)
         self.assertEqual(summary["status_counts"]["fresh"], 1)
+
+    def test_snapshot_audit_excludes_evaluation_only_replay_status_from_training_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["snapshot_id", "captured_at_local", "event_slug", "market_yes"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "market_yes": "0.5",
+                })
+            (folder / "replay_input_status.json").write_text(
+                json.dumps({
+                    "folder_status": "evaluation_only",
+                    "snapshot_count": 1,
+                    "evaluation_only_count": 1,
+                    "counts": {"evaluation_only": 1},
+                }),
+                encoding="utf-8",
+            )
+            with (folder / "replay_input_status_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "snapshot_id",
+                        "captured_at_utc",
+                        "captured_at_local",
+                        "event_slug",
+                        "replay_input_status",
+                        "replay_input_source",
+                        "reason",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_utc": "2026-06-16T18:00:00+00:00",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "replay_input_status": "evaluation_only",
+                    "replay_input_source": "",
+                    "reason": "no captured or reconstructable replay input",
+                })
+
+            audit = snapshot_audit(snapshots_root=tmp)
+
+        self.assertEqual(audit["folder_count"], 1)
+        self.assertEqual(audit["training_ready_folder_count"], 0)
+        self.assertEqual(audit["folders"][0]["training_ready_reason"], "replay_status_evaluation_only")
 
     def test_build_gates_fails_missing_required_artifacts_and_warns_stale_sources(self):
         snapshot = {
@@ -482,6 +633,55 @@ class TestDataLayerAudit(unittest.TestCase):
 
         self.assertEqual(by_name["canonical_history_provenance"]["status"], "FAIL")
         self.assertIn("2 canonical history", by_name["canonical_history_provenance"]["evidence"])
+
+    def test_build_remediation_manifest_classifies_low_fill_and_artifact_gaps(self):
+        snapshot = {
+            "folder_count": 1,
+            "training_ready_folder_count": 1,
+            "artifact_training_ready_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "replay_inputs": 0,
+            },
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "replay_inputs": 0,
+            },
+            "low_fill_fields": [
+                {"field": "best_bid", "nonempty": 4, "total": 10, "fill_rate": 0.4},
+                {"field": "eccc_forecast_high_c", "nonempty": 1, "total": 10, "fill_rate": 0.1},
+                {"field": "runtime_git_commit", "nonempty": 4, "total": 10, "fill_rate": 0.4},
+            ],
+            "folders": [{
+                "training_ready": True,
+                "market_id": "nyc",
+                "target_date": "2026-06-16",
+                "folder": "data/snapshots/nyc",
+                "artifact_presence": {
+                    "replay_inputs": False,
+                    "replay_input_status": True,
+                    "forecasts": True,
+                    "clob_features": True,
+                },
+            }],
+            "source_status": {"row_count": 1, "stale_or_failed_rows": 0, "stale_or_failed_rate": 0.0},
+        }
+        gates = build_gates(snapshot, {"markets": []})
+        manifest = build_remediation_manifest(gates, snapshot, {"markets": []})
+        by_gate = {row["gate"]: row for row in manifest}
+        low_fields = {
+            row["field"]: row["classification"]
+            for row in by_gate["snapshot_low_fill_fields"]["affected_fields"]
+        }
+
+        self.assertEqual(low_fields["best_bid"], "required")
+        self.assertEqual(low_fields["eccc_forecast_high_c"], "intentionally_sparse")
+        self.assertEqual(low_fields["runtime_git_commit"], "retired")
+        self.assertEqual(by_gate["snapshot_artifact_replay_inputs"]["affected_folder_count"], 1)
+        self.assertIn("replay_status_backfill", by_gate["snapshot_artifact_replay_inputs"]["command"])
 
 
 if __name__ == "__main__":

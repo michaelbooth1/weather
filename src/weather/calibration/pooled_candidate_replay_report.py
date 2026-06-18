@@ -16,6 +16,7 @@ def _candidate_table_rows(items):
     for item in items:
         comp = item.get("comparison") if "comparison" in item else item
         trust = item.get("trust") or {}
+        blocked = item.get("blocked_validation") or {}
         rows.append([
             item.get("market_id", item.get("group")),
             item.get("days", "-"),
@@ -28,6 +29,7 @@ def _candidate_table_rows(items):
             _fmt_delta((comp or {}).get("delta_vs_market")),
             fmt_signed((comp or {}).get("candidate_skill"), 3),
             f"{trust.get('trust_score', '-')}/100 {trust.get('grade', '')}".strip() if trust else "-",
+            blocked.get("verdict") or "-",
             item.get("verdict", "-"),
             item.get("reason", "-"),
         ])
@@ -173,6 +175,60 @@ def _bridge_slice_markdown(title, items):
     return lines
 
 
+def _source_state_summary_rows(source_state):
+    gate = (source_state or {}).get("gate") or {}
+    rows = []
+    for label, comp in [
+        ("Aggregate paired rows", gate.get("aggregate") or {}),
+        ("Daily-first equal-day average", gate.get("daily_first") or {}),
+        ("All-fresh rows", gate.get("all_fresh") or {}),
+        ("Degraded-source rows", gate.get("degraded_source") or {}),
+    ]:
+        if not comp:
+            continue
+        rows.append([
+            label,
+            comp.get("n_days", "-"),
+            comp.get("n", 0),
+            fmt_num(comp.get("candidate_brier")),
+            fmt_num(comp.get("current_brier")),
+            fmt_num(comp.get("market_brier")),
+            _fmt_delta(comp.get("delta_vs_current")),
+            _fmt_delta(comp.get("delta_vs_market")),
+            fmt_signed(comp.get("candidate_skill"), 3),
+            fmt_pct(comp.get("base_rate")),
+        ])
+    return rows
+
+
+def _source_state_group_rows(items):
+    return [
+        [
+            str(item.get("group")) if item.get("group") not in (None, "") else "-",
+            item.get("n", 0),
+            fmt_num(item.get("candidate_brier")),
+            fmt_num(item.get("current_brier")),
+            fmt_num(item.get("market_brier")),
+            _fmt_delta(item.get("delta_vs_current")),
+            _fmt_delta(item.get("delta_vs_market")),
+            fmt_signed(item.get("candidate_skill"), 3),
+            fmt_pct(item.get("base_rate")),
+        ]
+        for item in items
+    ]
+
+
+def _source_state_slice_markdown(title, items):
+    lines = ["", f"### {title}", ""]
+    lines += markdown_table(
+        ["Group", "Rows", "Dynamic Source Brier", "Current Brier",
+         "Market Brier", "Delta vs Current", "Delta vs Market",
+         "Dynamic Source Skill", "Base Rate"],
+        _source_state_group_rows(items),
+    )
+    return lines
+
+
 def _market_list(rows, verdict):
     return ", ".join(row["market_id"] for row in rows if row["verdict"] == verdict) or "-"
 
@@ -217,6 +273,38 @@ def _comparison_summary_rows(report):
             fmt_pct(comp.get("base_rate")),
         ])
     return rows
+
+
+def _blocked_validation_rows(blocked_validation):
+    blocked_validation = blocked_validation or {}
+    split_audit = blocked_validation.get("split_audit") or {}
+    daily_first = blocked_validation.get("daily_first") or {}
+    return [
+        ["Verdict", blocked_validation.get("verdict") or "-"],
+        ["Required split", blocked_validation.get("split_mode") or "-"],
+        ["Daily-first days", daily_first.get("n_days", 0)],
+        ["Daily-first rows", daily_first.get("n", 0)],
+        ["Leakage audit", "PASS" if split_audit.get("ok") else "FAIL"],
+        ["Audited splits", split_audit.get("split_count", 0)],
+        ["Leak count", split_audit.get("leak_count", 0)],
+        ["Reasons", "; ".join(blocked_validation.get("reasons") or []) or "-"],
+    ]
+
+
+def _blocked_split_rows(blocked_validation):
+    split_audit = (blocked_validation or {}).get("split_audit") or {}
+    return [
+        [
+            row.get("mode"),
+            row.get("partition_key") or "-",
+            row.get("split_count", 0),
+            row.get("train_rows_min", 0),
+            row.get("validation_rows_min", 0),
+            row.get("validation_rows_max", 0),
+            ", ".join(row.get("held_out_dates_sample") or []) or "-",
+        ]
+        for row in split_audit.get("split_modes") or []
+    ]
 
 
 def _slice_markdown(title, items):
@@ -346,6 +434,17 @@ def write_report(report, out_path):
             ["Replay fidelity", "PASS" if gate.get("fidelity_ok") else "FAIL", gate.get("fidelity_message") or "-"],
         ],
     )
+    blocked_validation = report.get("blocked_validation") or {}
+    lines += ["", "## Blocked Validation Gate", ""]
+    lines += markdown_table(
+        ["Field", "Value"],
+        _blocked_validation_rows(blocked_validation),
+    )
+    lines += ["", "### Split Audit", ""]
+    lines += markdown_table(
+        ["Mode", "Partition", "Splits", "Min Train Rows", "Min Validation Rows", "Max Validation Rows", "Held-Out Dates Sample"],
+        _blocked_split_rows(blocked_validation),
+    )
     lines += ["", "## Aggregate Replay", ""]
     lines += markdown_table(
         ["Scope", "Days", "Rows", "Candidate Brier", "Current Brier",
@@ -409,6 +508,48 @@ def write_report(report, out_path):
              "Market Brier", "Delta vs Current", "Delta vs Market",
              "Candidate ECE", "Base Rate"],
             _exact_winner_day_rows(exact_winner.get("worst_daily_current_regressions") or []),
+        )
+    source_state = report.get("source_state_ablation")
+    if source_state and source_state.get("enabled"):
+        gate = source_state.get("gate") or {}
+        shadow = source_state.get("shadow_variants") or {}
+        feature_groups = source_state.get("feature_groups") or {}
+        lines += [
+            "",
+            "## Source-State Feature Ablation",
+            "",
+            "This non-serving item 105 section treats current serving as the",
+            "no-source-state control and the candidate artifact as the dynamic",
+            "source-state variant. Promotion remains blocked unless paired",
+            "all-fresh and degraded-source slices clear the replay gate.",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Schema", source_state.get("schema_version") or "-"],
+                ["Gate verdict", gate.get("verdict") or "-"],
+                ["Reasons", "; ".join(gate.get("reasons") or []) or "-"],
+                ["Feature groups", json.dumps(feature_groups, sort_keys=True)],
+                ["Shadow variant rows", shadow.get("rows", 0)],
+                ["Shadow variant CSV", shadow.get("path") or "-"],
+                ["Variant IDs", ", ".join(shadow.get("variant_ids") or []) or "-"],
+            ],
+        )
+        lines += ["", "### Gate Scores", ""]
+        lines += markdown_table(
+            ["Scope", "Days", "Rows", "Dynamic Source Brier", "Current Brier",
+             "Market Brier", "Delta vs Current", "Delta vs Market",
+             "Dynamic Source Skill", "Base Rate"],
+            _source_state_summary_rows(source_state),
+        )
+        lines += _source_state_slice_markdown(
+            "By Source Degradation",
+            source_state.get("by_degradation") or [],
+        )
+        lines += _source_state_slice_markdown(
+            "By Source Freshness",
+            source_state.get("by_source_freshness") or [],
         )
     microstructure = report.get("microstructure")
     if microstructure:
@@ -515,7 +656,7 @@ def write_report(report, out_path):
     lines += markdown_table(
         ["Market", "Days", "Snaps", "Rows", "Candidate Brier", "Current Brier",
          "Market Brier", "Delta vs Current", "Delta vs Market", "Candidate Skill",
-         "Trust", "Verdict", "Reason"],
+         "Trust", "Blocked Validation", "Verdict", "Reason"],
         _candidate_table_rows(report["market_rows"]),
     )
     lines += ["", "## Slices", ""]

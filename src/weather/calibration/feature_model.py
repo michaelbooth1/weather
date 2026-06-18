@@ -2,12 +2,15 @@ import json
 import math
 import os
 import pickle
+import time
+import warnings
 import numpy as np
 import pandas as pd
 from datetime import date, datetime
 from collections import Counter, defaultdict
 
 from weather.artifacts import writable_artifact_path
+from weather.calibration.blocked_validation import blocked_validation_audit
 from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
@@ -36,6 +39,7 @@ from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
 )
+from weather.units import round_half_up
 
 # LOO must stay ON: without it the retrain exports artifacts with no
 # validation report AND flat 0.80 blend weights (the per-hour tuning only runs
@@ -80,11 +84,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
-
-def round_half_up(value):
-    if value is None:
-        return None
-    return int(math.floor(float(value) + 0.5))
 
 def get_minute_of_day(time_str):
     try:
@@ -522,23 +521,39 @@ def feature_model_columns(all_wind_groups, all_cloud_groups):
     return numeric_cols, feature_cols
 
 
+def performance_warning_count(caught_warnings):
+    return sum(
+        1 for warning in caught_warnings
+        if issubclass(warning.category, pd.errors.PerformanceWarning)
+    )
+
+
 def feature_model_frame(records, all_wind_groups, all_cloud_groups):
-    df = pd.DataFrame(records).copy()
     numeric_cols, feature_cols = feature_model_columns(
         all_wind_groups,
         all_cloud_groups,
     )
-    for column in numeric_cols:
-        if column not in df:
-            df[column] = np.nan
-    if "wind_group" not in df:
-        df["wind_group"] = None
-    if "cloud_group" not in df:
-        df["cloud_group"] = None
-    for group in all_wind_groups:
-        df[f"wind_{group}"] = (df["wind_group"] == group).astype(float)
-    for group in all_cloud_groups:
-        df[f"cloud_{group}"] = (df["cloud_group"] == group).astype(float)
+    source = pd.DataFrame(records)
+    df = source.reindex(
+        columns=[*numeric_cols, "wind_group", "cloud_group"],
+    ).copy()
+    metadata_cols = [column for column in source.columns if column not in df.columns]
+    metadata = source[metadata_cols].copy() if metadata_cols else pd.DataFrame(index=df.index)
+    wind = pd.DataFrame(
+        {
+            f"wind_{group}": (df["wind_group"] == group).astype(float)
+            for group in all_wind_groups
+        },
+        index=df.index,
+    )
+    cloud = pd.DataFrame(
+        {
+            f"cloud_{group}": (df["cloud_group"] == group).astype(float)
+            for group in all_cloud_groups
+        },
+        index=df.index,
+    )
+    df = pd.concat([df, metadata, wind, cloud], axis=1)
     return df, feature_cols
 
 
@@ -594,6 +609,10 @@ def evaluate_feature_family_segments(
         x_frame = df[feature_cols].copy()
         y = df["final_bucket"].astype(int).reset_index(drop=True)
         folds = feature_validation_folds(df, n_splits=n_splits)
+        split_audit = blocked_validation_audit(
+            records,
+            default_market_id="feature_model",
+        )
         all_idx = np.arange(len(df))
 
         losses = []
@@ -695,6 +714,8 @@ def evaluate_feature_family_segments(
                 "delta_brier_vs_baseline": float(np.mean(baseline_briers) - np.mean(briers)),
                 "folds": len(folds),
                 "skipped_folds": skipped_folds,
+                "blocked_validation": split_audit,
+                "leakage_risk_verdict": "WARN_MODULO_FOLD_NOT_PROMOTION_GRADE",
             })
     return validation_rows, observation_rows
 
@@ -759,6 +780,27 @@ def write_item27_feature_value_report(
             f"{row['delta_logloss_vs_baseline']:+.4f} | "
             f"{_fmt_metric(row['baseline_brier'])} | {_fmt_metric(row['full_brier'])} | "
             f"{row['delta_brier_vs_baseline']:+.4f} | {row['folds']} | {row['skipped_folds']} |"
+        )
+
+    lines += [
+        "",
+        "## Blocked Validation Audit",
+        "",
+        "The model score above still uses deterministic modulo day folds. "
+        "Rows below audit stricter market-day and blocked-date partitions so "
+        "feature-value claims are not treated as promotion-grade when the "
+        "blocked evidence is missing or leaky.",
+        "",
+        "| Cutoff | Risk Verdict | Audit OK | Market Days | Target Dates | Splits | Leaks |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in sorted(validation_rows, key=lambda item: item["hour"]):
+        audit = row.get("blocked_validation") or {}
+        lines.append(
+            f"| {row['hour']:02d}:00 | {row.get('leakage_risk_verdict') or '-'} | "
+            f"{'PASS' if audit.get('ok') else 'FAIL'} | "
+            f"{audit.get('market_day_count', 0)} | {audit.get('target_date_count', 0)} | "
+            f"{audit.get('split_count', 0)} | {audit.get('leak_count', 0)} |"
         )
 
     lines += [
@@ -1267,6 +1309,7 @@ def main(market_id="toronto"):
     calibration_rows = []
     ablation_rows = []
     ablation_observation_rows = []
+    training_metric_rows = []
 
     trained_at = datetime.now().isoformat()
     trained_models_info = {
@@ -1286,54 +1329,52 @@ def main(market_id="toronto"):
             continue
             
         print(f"\nCutoff Hour {hour:02d}:00 ({len(records)} days):")
-        
-        # Convert list of dicts to DataFrame
-        df = pd.DataFrame(records)
-        
-        # Preprocess features (Standard scaling and One-Hot Encoding)
-        # One-hot encode wind_group
-        for g in all_wind_groups:
-            df[f"wind_{g}"] = (df["wind_group"] == g).astype(float)
-        # One-hot encode cloud_group
-        for g in all_cloud_groups:
-            df[f"cloud_{g}"] = (df["cloud_group"] == g).astype(float)
-            
-        numeric_cols = [
-            column for column in FEATURE_COLUMNS
-            if column not in {"wind_group", "cloud_group"}
-        ]
-        n_numeric = len(numeric_cols)
-        feature_cols = numeric_cols + [f"wind_{g}" for g in all_wind_groups] + [f"cloud_{g}" for g in all_cloud_groups]
-        feature_families = feature_family_columns(feature_cols)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", pd.errors.PerformanceWarning)
+            build_started = time.perf_counter()
+            df, feature_cols = feature_model_frame(
+                records,
+                all_wind_groups,
+                all_cloud_groups,
+            )
+            numeric_cols = [
+                column for column in FEATURE_COLUMNS
+                if column not in {"wind_group", "cloud_group"}
+            ]
+            n_numeric = len(numeric_cols)
+            feature_families = feature_family_columns(feature_cols)
 
-        X = df[feature_cols].copy()
-        y = df["final_bucket"].copy()
+            X = df[feature_cols].copy()
+            y = df["final_bucket"].copy()
 
-        # Impute missing values (forecast features are median-filled where absent;
-        # pre-archive that degenerates to a constant high / a redundant gap, so it
-        # is benign, while post-archive rows carry the real forecast signal).
-        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-        X_imputed = imputer.fit_transform(X)
+            # Impute missing values (forecast features are median-filled where absent;
+            # pre-archive that degenerates to a constant high / a redundant gap, so it
+            # is benign, while post-archive rows carry the real forecast signal).
+            imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+            X_imputed = imputer.fit_transform(X)
 
-        # Standardize the numeric columns (the leading n_numeric columns).
-        scaler = StandardScaler()
-        X_scaled = X_imputed.copy()
-        X_scaled[:, :n_numeric] = scaler.fit_transform(X_imputed[:, :n_numeric])
+            # Standardize the numeric columns (the leading n_numeric columns).
+            scaler = StandardScaler()
+            X_scaled = X_imputed.copy()
+            X_scaled[:, :n_numeric] = scaler.fit_transform(X_imputed[:, :n_numeric])
 
-        # HGB version: keep the forecast columns as native NaN where absent (pre
-        # archive) instead of median-filling, so the tree learns "forecast
-        # unknown" rather than splitting on a fake value. (LR can't do NaN, so it
-        # keeps the imputed+scaled matrix above.)
-        forecast_idx = [
-            feature_cols.index(column)
-            for column in NATIVE_NAN_FEATURE_COLUMNS
-            if column in feature_cols
-        ]
-        X_hgb = X_imputed.copy()
-        if forecast_idx:
-            X_hgb[:, forecast_idx] = X[
-                [feature_cols[index] for index in forecast_idx]
-            ].to_numpy(dtype=float)
+            # HGB version: keep the forecast columns as native NaN where absent (pre
+            # archive) instead of median-filling, so the tree learns "forecast
+            # unknown" rather than splitting on a fake value. (LR can't do NaN, so it
+            # keeps the imputed+scaled matrix above.)
+            forecast_idx = [
+                feature_cols.index(column)
+                for column in NATIVE_NAN_FEATURE_COLUMNS
+                if column in feature_cols
+            ]
+            X_hgb = X_imputed.copy()
+            if forecast_idx:
+                X_hgb[:, forecast_idx] = X[
+                    [feature_cols[index] for index in forecast_idx]
+                ].to_numpy(dtype=float)
+            matrix_build_seconds = time.perf_counter() - build_started
+        performance_warnings = performance_warning_count(caught)
+        model_fit_seconds = 0.0
 
         # Run Leave-One-Out cross-validation
         n_samples = len(df)
@@ -1374,7 +1415,6 @@ def main(market_id="toronto"):
             val_actual = df.iloc[val_idx]["final_bucket"]
             
             # Get historical training subset for priors (excluding validation year's date window)
-            train_df = df[train_mask]
             train_days = [d for d in records if d["date"].year != val_date.year]
             
             # --- 1. Compute Baseline predictions ---
@@ -1425,14 +1465,16 @@ def main(market_id="toronto"):
             # Train and fit splits (LR uses scaled+imputed; HGB uses the
             # native-NaN matrix so it sees missing forecasts as missing).
             X_train, y_train = X_scaled[train_mask], y[train_mask]
-            X_val, y_val = X_scaled[val_idx].reshape(1, -1), y[val_idx]
+            X_val = X_scaled[val_idx].reshape(1, -1)
             X_hgb_train = X_hgb[train_mask]
             X_hgb_val = X_hgb[val_idx].reshape(1, -1)
 
             # --- 2. Train & Predict Logistic Regression ---
             # Using simple Logistic Regression
             lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
+            fit_started = time.perf_counter()
             lr.fit(X_train, y_train)
+            model_fit_seconds += time.perf_counter() - fit_started
             
             # Map predictions
             lr_probs_raw = lr.predict_proba(X_val)[0]
@@ -1449,7 +1491,9 @@ def main(market_id="toronto"):
             
             # --- 3. Train & Predict HistGradientBoostingClassifier ---
             hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+            fit_started = time.perf_counter()
             hgb.fit(X_hgb_train, y_train)
+            model_fit_seconds += time.perf_counter() - fit_started
 
             hgb_probs_raw = hgb.predict_proba(X_hgb_val)[0]
             hgb_classes = hgb.classes_
@@ -1576,7 +1620,9 @@ def main(market_id="toronto"):
         
         # Fit final Logistic Regression
         final_lr = LogisticRegression(max_iter=1000, C=0.5, random_state=42)
+        fit_started = time.perf_counter()
         final_lr.fit(X_final_scaled, y)
+        model_fit_seconds += time.perf_counter() - fit_started
         
         # Export model coefficients for quick, dependency-free load in toronto_model
         # W_c^T X + intercept_c.
@@ -1600,7 +1646,17 @@ def main(market_id="toronto"):
                 [feature_cols[index] for index in forecast_idx]
             ].to_numpy(dtype=float)
         final_hgb = HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=15, learning_rate=0.05, random_state=42)
+        fit_started = time.perf_counter()
         final_hgb.fit(X_final_hgb, y)
+        model_fit_seconds += time.perf_counter() - fit_started
+        training_metric_rows.append({
+            "hour": hour,
+            "matrix_rows": len(df),
+            "matrix_columns": len(feature_cols),
+            "matrix_build_seconds": matrix_build_seconds,
+            "model_fit_seconds": model_fit_seconds,
+            "performance_warning_count": performance_warnings,
+        })
         
         # Export HGBC bundle (blend_weight tuned by LOO log loss; 0.80 fallback)
         hgb_models_info[str(hour)] = {
@@ -1651,6 +1707,25 @@ def main(market_id="toronto"):
     print(f"Saved final late-day model coefficients to {ld_coefs_path}")
     
     if RUN_LOO:
+        if training_metric_rows:
+            report_lines.append("\n## Training Throughput\n")
+            report_lines.append(
+                "Rows and columns describe the per-cutoff feature matrix used for "
+                "validation and final fitting. Performance warnings count pandas "
+                "fragmentation warnings observed while building that matrix.\n"
+            )
+            report_lines.append(
+                "| Cutoff | Matrix Rows | Matrix Columns | Build Seconds | Fit Seconds | Performance Warnings |"
+            )
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in sorted(training_metric_rows, key=lambda item: item["hour"]):
+                report_lines.append(
+                    f"| {row['hour']:02d}:00 | {row['matrix_rows']} | "
+                    f"{row['matrix_columns']} | {row['matrix_build_seconds']:.6f} | "
+                    f"{row['model_fit_seconds']:.6f} | "
+                    f"{row['performance_warning_count']} |"
+                )
+
         # Per-hour blend-weight calibration table.
         report_lines.append("\n## HGB climatology-blend calibration (tuned by LOO log loss)\n")
         report_lines.append(

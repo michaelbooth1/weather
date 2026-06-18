@@ -1,4 +1,4 @@
-# 4. ECCC SWOB Historical Layer [CLOSED]
+# 4. ECCC SWOB Historical Layer [COMPLETE]
 
 - [x] Backfill or prospectively collect CYYZ SWOB observations.
 - [x] Normalize SWOB rows into the same local format as WU history.

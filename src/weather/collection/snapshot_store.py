@@ -13,44 +13,25 @@ from pathlib import Path
 
 from weather.paths import data_path
 
-try:
-    from .forecast_archive import (
-        FORECAST_COLUMNS,
-        append_rows as append_forecast_rows,
-        build_forecast_rows,
-    )
-    from ..market.market_config import config_for_date, config_from_event
-    from ..model.feature_store import (
-        FEATURE_AUDIT_COLUMNS,
-        audit_row,
-        row_forecast_high_native,
-        row_max_native,
-        row_max_since_7am_native,
-        row_same_day_max_native,
-        row_temp_native,
-    )
-    from ..model.model_identity import model_replay_identity
-    from ..model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
-    from ..operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
-except ImportError:  # pragma: no cover - compatibility-wrapper execution
-    from weather.collection.forecast_archive import (
-        FORECAST_COLUMNS,
-        append_rows as append_forecast_rows,
-        build_forecast_rows,
-    )
-    from weather.market.market_config import config_for_date, config_from_event
-    from weather.model.feature_store import (
-        FEATURE_AUDIT_COLUMNS,
-        audit_row,
-        row_forecast_high_native,
-        row_max_native,
-        row_max_since_7am_native,
-        row_same_day_max_native,
-        row_temp_native,
-    )
-    from weather.model.model_identity import model_replay_identity
-    from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
-    from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.collection.forecast_archive import (
+    FORECAST_COLUMNS,
+    append_rows as append_forecast_rows,
+    build_forecast_rows,
+)
+from weather.market.market_config import config_for_date, config_from_event
+from weather.model.feature_store import (
+    FEATURE_AUDIT_COLUMNS,
+    audit_row,
+    row_forecast_high_native,
+    row_max_native,
+    row_max_since_7am_native,
+    row_same_day_max_native,
+    row_temp_native,
+)
+from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
+from weather.model.model_identity import model_replay_identity
+from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()
@@ -65,6 +46,12 @@ MODEL_VERSION = MODEL_VERSION_HGB
 REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
 PROCESS_RUNTIME_IDENTITY = get_runtime_identity()
+OPEN_METEO_SOURCE_FAMILY = {
+    "open_meteo",
+    "open_meteo_multimodel",
+    "global_ensemble",
+    "eccc_gem",
+}
 
 
 RUNTIME_IDENTITY_COLUMNS = [
@@ -126,6 +113,9 @@ LONG_COLUMNS = [
     "forecast_source_count",
     "forecast_disagreement",
     "eccc_forecast_high_c",
+    "official_canadian_source_gate",
+    "official_canadian_sources_available",
+    "official_canadian_sources_missing",
 ]
 
 COMPONENT_COLUMNS = [
@@ -157,6 +147,11 @@ SOURCE_STATUS_COLUMNS = [
     "ok",
     "status",
     "stale",
+    "source_family",
+    "http_status",
+    "retry_after_seconds",
+    "degradation_state",
+    "cache_status",
     "fetched_at",
     "age_minutes",
     "ttl_minutes",
@@ -174,7 +169,14 @@ FORECAST_PAYLOAD_COLUMNS = [
     "event_slug",
     "model_version",
     "source",
+    "status",
+    "stale",
+    "source_family",
+    "degradation_state",
+    "cache_status",
     "fetched_at",
+    "age_minutes",
+    "ttl_minutes",
     "provider_issue_time",
     "provider_update_time",
     "payload_hash",
@@ -263,7 +265,8 @@ class SnapshotStore:
         top_probability = distribution.get(top_temp) if top_temp is not None else None
         sources = model.get("sources", {}) or {}
         calibration_context = model.get("probability_calibration_context") or {}
-        source_values = self.source_values(sources, model_client)
+        source_values = self.source_values(sources, model_client, captured_at=captured_at)
+        source_health = self.source_health_summary(sources, model_client, captured_at)
         source_status_rows = self.source_status_rows(
             sources,
             model_client,
@@ -362,6 +365,7 @@ class SnapshotStore:
             "distribution_components": model.get("distribution_components"),
             "source_values": source_values,
             "source_status": source_status_rows,
+            "source_health": source_health,
             "forecast_payloads": forecast_payload_rows,
             "feature_schema_version": feature_schema_version,
             "feature_vector": model.get("feature_vector"),
@@ -491,7 +495,7 @@ class SnapshotStore:
             return None
         return (base + self.interval).isoformat()
 
-    def source_values(self, sources, model_client):
+    def source_values(self, sources, model_client, captured_at=None):
         history = model_client.source_data(sources, "wu_history")
         current = model_client.source_data(sources, "wu_current")
         eccc = model_client.source_data(sources, "eccc_swob")
@@ -521,6 +525,30 @@ class SnapshotStore:
             "forecast_source_count": forecast_ensemble.get("forecast_source_count"),
             "forecast_disagreement": forecast_ensemble.get("forecast_disagreement"),
             "eccc_forecast_high_c": row_forecast_high_native(eccc_city),
+            **self.official_canadian_source_fields(sources, model_client, captured_at),
+        }
+
+    def source_health_summary(self, sources, model_client, captured_at=None):
+        method = getattr(model_client, "toronto_official_source_health", None)
+        if not callable(method):
+            return {}
+        try:
+            return method(sources, now=captured_at)
+        except TypeError:
+            return method(sources)
+
+    def official_canadian_source_fields(self, sources, model_client, captured_at=None):
+        health = self.source_health_summary(sources, model_client, captured_at)
+        if not health or health.get("status") == "NOT_APPLICABLE":
+            return {
+                "official_canadian_source_gate": None,
+                "official_canadian_sources_available": None,
+                "official_canadian_sources_missing": None,
+            }
+        return {
+            "official_canadian_source_gate": health.get("status"),
+            "official_canadian_sources_available": health.get("official_sources_available"),
+            "official_canadian_sources_missing": health.get("official_sources_missing"),
         }
 
     def source_status_rows(self, sources, model_client, snapshot_id, captured_at, model_version):
@@ -530,17 +558,12 @@ class SnapshotStore:
         for source, item in sorted((sources or {}).items()):
             item = item or {}
             data = item.get("data")
-            status = item.get("status")
-            if status is None:
-                if item.get("ok") and not item.get("stale"):
-                    status = "fresh"
-                elif item.get("stale"):
-                    status = "stale_cache"
-                else:
-                    status = "failed"
+            status = self.source_status(item)
             ttl_minutes = item.get("ttl_minutes")
             if ttl_minutes is None and hasattr(model_client, "source_cache_ttl_minutes"):
                 ttl_minutes = model_client.source_cache_ttl_minutes(source)
+            if ttl_minutes is None:
+                ttl_minutes = self.source_ttl_minutes(source)
             age_minutes = item.get("cache_age_minutes")
             if age_minutes is None:
                 age_minutes = self.source_age_minutes(item.get("fetched_at"), captured_at, model_client)
@@ -554,6 +577,11 @@ class SnapshotStore:
                 "ok": bool(item.get("ok")),
                 "status": status,
                 "stale": bool(item.get("stale")),
+                "source_family": self.source_family(source, item),
+                "http_status": item.get("http_status"),
+                "retry_after_seconds": item.get("retry_after_seconds"),
+                "degradation_state": self.source_degradation_state(status, item),
+                "cache_status": self.source_cache_status(status, item),
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
@@ -564,6 +592,51 @@ class SnapshotStore:
                 "error": item.get("error"),
             })
         return rows
+
+    def source_status(self, item):
+        status = item.get("status")
+        if status is not None:
+            return status
+        if item.get("ok") and not item.get("stale"):
+            return "fresh"
+        if item.get("stale"):
+            return "stale_cache"
+        if item.get("http_status") == 429:
+            return "rate_limited"
+        return "failed"
+
+    def source_family(self, source, item=None):
+        item = item or {}
+        if item.get("source_family"):
+            return item.get("source_family")
+        if source in OPEN_METEO_SOURCE_FAMILY:
+            return "open_meteo"
+        return source
+
+    def source_degradation_state(self, status, item):
+        if status == "rate_limited_cache":
+            return "rate_limited_fallback"
+        if status == "stale_cache":
+            return "stale_fallback"
+        if status == "rate_limited":
+            return "rate_limited"
+        if status in {"failed", "error", "missing"} or not item.get("ok"):
+            return "failed"
+        if item.get("degradation_state"):
+            return item.get("degradation_state")
+        return "healthy"
+
+    def source_cache_status(self, status, item):
+        if item.get("cache_status"):
+            return item.get("cache_status")
+        if status == "fresh_cache":
+            return "fresh_cache"
+        if status in {"stale_cache", "rate_limited_cache"}:
+            return "fallback"
+        return "live" if item.get("ok") else "miss"
+
+    def source_ttl_minutes(self, source):
+        return SOURCE_CACHE_TTL_MINUTES.get(source, LIVE_CACHE_MAX_AGE_MINUTES)
 
     def source_age_minutes(self, fetched_at, captured_at, model_client):
         if not fetched_at:
@@ -608,6 +681,13 @@ class SnapshotStore:
             payload = data.get("raw_payload")
             if payload is None:
                 continue
+            status = self.source_status(item)
+            age_minutes = item.get("cache_age_minutes")
+            if age_minutes is None:
+                age_minutes = self.source_age_minutes(item.get("fetched_at"), captured_at, None)
+            ttl_minutes = item.get("ttl_minutes")
+            if ttl_minutes is None:
+                ttl_minutes = self.source_ttl_minutes(source)
             raw_text = json.dumps(payload, sort_keys=True, default=str)
             payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
             safe_source = self.safe_filename_part(source)
@@ -622,7 +702,14 @@ class SnapshotStore:
                 "event_slug": self.event_slug,
                 "model_version": model_version,
                 "source": source,
+                "status": status,
+                "stale": bool(item.get("stale")),
+                "source_family": self.source_family(source, item),
+                "degradation_state": self.source_degradation_state(status, item),
+                "cache_status": self.source_cache_status(status, item),
                 "fetched_at": item.get("fetched_at"),
+                "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+                "ttl_minutes": ttl_minutes,
                 "provider_issue_time": data.get("provider_issue_time"),
                 "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
                 "payload_hash": payload_hash,

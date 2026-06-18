@@ -49,6 +49,7 @@ from weather.model.continuous_density import (
     normalize_density,
 )
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
+from weather.units import round_half_up
 
 
 DEFAULT_ARTIFACT_PATH = resolve_artifact_path("probability_calibration.json")
@@ -74,15 +75,6 @@ def sigmoid(value):
         return 1.0 / (1.0 + z)
     z = math.exp(value)
     return z / (1.0 + z)
-
-
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
 
 
 def normalize(scores):

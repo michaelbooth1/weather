@@ -7,12 +7,15 @@ through ``snapshot_tracker.capture_snapshot`` and tags that evidence as
 """
 from __future__ import annotations
 
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import argparse
 import csv
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -20,7 +23,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from weather.collection.snapshot_tracker import capture_snapshot, pid_is_python
+from weather.collection.snapshot_tracker import capture_snapshot
+from weather.io import read_jsonl as io_read_jsonl
 from weather.market.market_config import config_for_date, date_from_event_slug
 from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
 from weather.model.feature_store import (
@@ -33,12 +37,30 @@ from weather.model.feature_store import (
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT, data_path
 from weather.operations.runtime_identity import get_runtime_identity
+from weather.operations.supervisor import (
+    SupervisorSpec,
+    acquire_file_lock,
+    acquire_writer_lock,
+    age_seconds as supervisor_age_seconds,
+    append_jsonl as supervisor_append_jsonl,
+    attach_status_writer,
+    atomic_write_json,
+    launch_detached,
+    pid_is_python,
+    read_writer_lock,
+    read_json_file,
+    release_file_lock,
+    release_writer_lock,
+    terminate_python_pid,
+)
 from weather.schema_registry import schema_version
 from weather.sources.asos_one_minute import (
     DEFAULT_ROOT as DEFAULT_ASOS_1MIN_ROOT,
     compare_daily_summary_to_wu_print,
     load_daily_summary,
 )
+from weather.time import parse_datetime, utc_now as shared_utc_now
+from weather.units import round_half_up, to_float
 
 
 SCHEMA_VERSION = schema_version("observation_trigger")
@@ -59,66 +81,59 @@ DEFAULT_REPLAY_REPORT = DEFAULT_BACKTEST_ROOT / "observation_trigger_replay_repo
 DEFAULT_TRIGGER_POLICY_MIN_ROWS = 30
 DEFAULT_TRIGGER_POLICY_MAX_DELTA = 0.0
 TASK_NAME = "WeatherObservationTriggerSupervisor"
+OBSERVATION_SUPERVISOR = SupervisorSpec(
+    name="observation_trigger",
+    module="weather.operations.observation_trigger",
+    status_path=STATUS_PATH,
+    diagnostics_path=DIAGNOSTICS_PATH,
+    console_log_path=CONSOLE_LOG_PATH,
+    cwd=REPO_ROOT,
+    pause_flag_path=PAUSE_FLAG_PATH,
+    lock_path=SUPERVISOR_LOCK_PATH,
+    tolerated_states=("RUNNING", "PAUSED", "DEGRADED", "ERRORING"),
+    status_schema_fields=(
+        "schema_version",
+        "runner",
+        "pid",
+        "market",
+        "started_at",
+        "last_heartbeat",
+        "interval_seconds",
+        "consecutive_errors",
+        "last_error",
+        "paused",
+    ),
+)
 
 OBSERVATION_SOURCES = ("wu_history", "wu_current", "metar", "eccc_swob")
 
 
 def utc_now():
-    return datetime.now(timezone.utc)
+    return shared_utc_now()
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    for attempt in range(20):
-        try:
-            tmp.replace(path)
-            break
-        except PermissionError:
-            if attempt == 19:
-                raise
-            time.sleep(0.05)
-    return path
+    return atomic_write_json(path, payload, trailing_newline=True)
 
 
 def read_json(path):
-    path = Path(path)
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    return read_json_file(path)
 
 
 def append_jsonl(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
+    return supervisor_append_jsonl(path, payload)
 
 
-def read_status(path=STATUS_PATH):
-    return read_json(path)
+def read_status(path=None):
+    return read_json(path or STATUS_PATH)
 
 
-def write_status(status, path=STATUS_PATH):
-    return write_json(path, status)
+def write_status(status, path=None):
+    return write_json(path or STATUS_PATH, status)
 
 
-def append_diagnostic(record, path=DIAGNOSTICS_PATH):
-    append_jsonl(path, record)
-
-
-def to_float(value):
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+def append_diagnostic(record, path=None):
+    append_jsonl(path or DIAGNOSTICS_PATH, record)
 
 
 def to_int(value):
@@ -128,32 +143,12 @@ def to_int(value):
         return None
 
 
-def round_half_up(value):
-    value = to_float(value)
-    if value is None:
-        return None
-    return int(value + 0.5) if value >= 0 else int(value - 0.5)
-
-
 def parse_dt(value):
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    return parse_datetime(value, default_tz=timezone.utc)
 
 
 def age_seconds(now, iso_value):
-    parsed = parse_dt(iso_value)
-    if parsed is None:
-        return None
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    return (now.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+    return supervisor_age_seconds(now, iso_value, default_tz=timezone.utc)
 
 
 def market_ids(value):
@@ -606,13 +601,13 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "last_poll_results": poll_results,
         "last_trigger_count": trigger_count,
         "paused": PAUSE_FLAG_PATH.exists(),
-        "trade_permission": latest_trade_permission(
-            status,
-            now=now,
-            stale_seconds=getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
-            policy_path=getattr(args, "trigger_policy", DEFAULT_REPLAY_JSON),
-        ),
     })
+    status["trade_permission"] = latest_trade_permission(
+        status,
+        now=now,
+        stale_seconds=getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
+        policy_path=getattr(args, "trigger_policy", DEFAULT_REPLAY_JSON),
+    )
     write_status(status, status_path)
     append_diagnostic({
         "time": now.astimezone(timezone.utc).isoformat(),
@@ -629,7 +624,7 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
     }
 
 
-def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS):
+def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS, pid_alive=None):
     now = now or utc_now()
     if not status:
         return {"state": "UNKNOWN", "detail": "no observation trigger status file"}
@@ -637,7 +632,11 @@ def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS):
     hb_age = age_seconds(now, status.get("last_heartbeat"))
     errors = int(status.get("consecutive_errors") or 0)
     dead_after = 2 * interval + 30.0
-    if status.get("paused"):
+    if pid_alive is None:
+        pid_alive = pid_is_python(status.get("pid"))
+    if not pid_alive:
+        state = "DEAD"
+    elif status.get("paused"):
         state = "PAUSED"
     elif hb_age is None or hb_age > dead_after:
         state = "DEAD"
@@ -650,6 +649,7 @@ def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS):
     return {
         "state": state,
         "pid": status.get("pid"),
+        "pid_alive": bool(pid_alive),
         "heartbeat_age_seconds": round(hb_age, 1) if hb_age is not None else None,
         "consecutive_errors": errors,
         "last_error": status.get("last_error"),
@@ -660,13 +660,16 @@ def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS):
     }
 
 
-def stop_watcher_loop(now=None, status_path=STATUS_PATH):
+def stop_watcher_loop(now=None, status_path=None):
     now = now or utc_now()
+    status_path = status_path or STATUS_PATH
     status = read_status(status_path)
     pid = (status or {}).get("pid")
     if not pid_is_python(pid):
         return {"stopped": False, "reason": f"no live observation trigger process (pid={pid})"}
-    os.kill(int(pid), signal.SIGTERM)
+    stop = terminate_python_pid(pid)
+    if not stop.get("stopped"):
+        return {"stopped": False, "pid": pid, "reason": stop.get("reason")}
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_status(status, status_path)
@@ -681,30 +684,20 @@ def start_watcher_detached(
     now=None,
 ):
     now = now or utc_now()
-    CONSOLE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    log_handle = CONSOLE_LOG_PATH.open("a", encoding="utf-8")
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    child = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "weather.operations.observation_trigger",
+    child = launch_detached(
+        OBSERVATION_SUPERVISOR.command(
             "loop",
             "--market",
-            str(market),
+            market,
             "--interval-seconds",
-            str(interval_seconds),
+            interval_seconds,
             "--stale-after-seconds",
-            str(stale_after_seconds),
-        ],
-        cwd=str(REPO_ROOT),
-        stdout=log_handle,
-        stderr=log_handle,
-        creationflags=creationflags,
+            stale_after_seconds,
+        ),
+        cwd=OBSERVATION_SUPERVISOR.cwd,
+        console_log_path=CONSOLE_LOG_PATH,
+        popen_fn=subprocess.Popen,
     )
-    log_handle.close()
     write_status({
         "schema_version": SCHEMA_VERSION,
         "runner": "observation_trigger",
@@ -727,32 +720,12 @@ def start_watcher_detached(
     return {"started": True, "pid": child.pid}
 
 
-def acquire_supervisor_lock(path=SUPERVISOR_LOCK_PATH):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        try:
-            if time.time() - path.stat().st_mtime > 120:
-                path.unlink()
-                handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            else:
-                return None
-        except FileNotFoundError:
-            return acquire_supervisor_lock(path)
-    os.write(handle, str(os.getpid()).encode("ascii"))
-    return handle
+def acquire_supervisor_lock(path=None):
+    return acquire_file_lock(path or SUPERVISOR_LOCK_PATH, attempts=2, stale_after_seconds=120)
 
 
-def release_supervisor_lock(handle, path=SUPERVISOR_LOCK_PATH):
-    if handle is None:
-        return
-    os.close(handle)
-    try:
-        Path(path).unlink()
-    except FileNotFoundError:
-        pass
+def release_supervisor_lock(handle, path=None):
+    release_file_lock(handle, path or SUPERVISOR_LOCK_PATH)
 
 
 def source_identity_error(value):
@@ -761,7 +734,7 @@ def source_identity_error(value):
 
 
 def ensure_decision(health_state, pid_alive, last_error=None):
-    if health_state == "ERRORING" and source_identity_error(last_error):
+    if health_state in {"DEGRADED", "ERRORING"} and source_identity_error(last_error):
         return "restart" if pid_alive else "start"
     if health_state in {"RUNNING", "PAUSED", "DEGRADED", "ERRORING"}:
         return "noop"
@@ -782,8 +755,8 @@ def ensure_watcher_loop(
         return {"action": "locked", "reason": "another observation trigger supervisor action is running"}
     try:
         status = read_status()
-        health = watcher_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
+        health = watcher_health(status, now=now, interval_seconds=interval_seconds, pid_alive=alive)
         action = ensure_decision(health["state"], alive, health.get("last_error"))
         result = {"action": action, "state": health["state"], "pid": health.get("pid")}
         if action == "restart":
@@ -799,6 +772,20 @@ def ensure_watcher_loop(
 
 
 def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_observation_state):
+    writer_lock = acquire_writer_lock(
+        args.status_out,
+        owner={"loop": OBSERVATION_SUPERVISOR.name, "module": OBSERVATION_SUPERVISOR.module},
+        stale_after_seconds=max(120.0, float(args.interval_seconds) * 3.0),
+    )
+    if writer_lock is None:
+        existing = read_writer_lock(args.status_out)
+        append_diagnostic({
+            "time": utc_now().isoformat(),
+            "status": "duplicate_writer_blocked",
+            "existing_writer": existing,
+            "pid": os.getpid(),
+        }, path=args.diagnostics_out)
+        return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
     status = read_status(args.status_out) or {"markets": {}, "latest_triggered": {}}
     status.update({
         "schema_version": SCHEMA_VERSION,
@@ -814,46 +801,38 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "last_error": None,
         "runtime_identity": get_runtime_identity(),
     })
+    attach_status_writer(status, writer_lock)
     write_status(status, args.status_out)
-    while True:
-        loop_started = utc_now()
-        status = read_status(args.status_out) or status
-        status["iterations"] = int(status.get("iterations") or 0) + 1
-        status["last_heartbeat"] = loop_started.isoformat()
-        status["paused"] = PAUSE_FLAG_PATH.exists()
-        write_status(status, args.status_out)
-        if status["paused"]:
-            append_diagnostic({"time": loop_started.isoformat(), "status": "paused"}, path=args.diagnostics_out)
-            result = {"status": "paused", "time": loop_started.isoformat()}
-        else:
-            result = run_once(
-                args,
-                capture_func=capture_func,
-                fetch_state_func=fetch_state_func,
-                now=loop_started,
-            )
-        print(json.dumps(result, sort_keys=True, default=str), flush=True)
-        if args.max_iterations is not None and int(status.get("iterations") or 0) >= args.max_iterations:
-            return status
-        elapsed = (utc_now() - loop_started).total_seconds()
-        time.sleep(max(1.0, float(args.interval_seconds) - elapsed))
+    try:
+        while True:
+            loop_started = utc_now()
+            status = read_status(args.status_out) or status
+            attach_status_writer(status, writer_lock)
+            status["iterations"] = int(status.get("iterations") or 0) + 1
+            status["last_heartbeat"] = loop_started.isoformat()
+            status["paused"] = PAUSE_FLAG_PATH.exists()
+            write_status(status, args.status_out)
+            if status["paused"]:
+                append_diagnostic({"time": loop_started.isoformat(), "status": "paused"}, path=args.diagnostics_out)
+                result = {"status": "paused", "time": loop_started.isoformat()}
+            else:
+                result = run_once(
+                    args,
+                    capture_func=capture_func,
+                    fetch_state_func=fetch_state_func,
+                    now=loop_started,
+                )
+            print(json.dumps(result, sort_keys=True, default=str), flush=True)
+            if args.max_iterations is not None and int(status.get("iterations") or 0) >= args.max_iterations:
+                return status
+            elapsed = (utc_now() - loop_started).total_seconds()
+            time.sleep(max(1.0, float(args.interval_seconds) - elapsed))
+    finally:
+        release_writer_lock(writer_lock)
 
 
 def read_jsonl(path):
-    rows = []
-    path = Path(path)
-    if not path.exists():
-        return rows
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return rows
+    return io_read_jsonl(path)
 
 
 def band_key(row):

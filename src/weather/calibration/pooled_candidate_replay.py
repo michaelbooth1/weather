@@ -87,6 +87,7 @@ from weather.calibration.pooled_candidate_scoring import (
     DEFAULT_BRIDGE_VARIANT_OUT,
     DEFAULT_CANDIDATE_VARIANT_OUT,
     DEFAULT_MICROSTRUCTURE_VARIANT_OUT,
+    DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT,
     EXACT_WINNER_TARGET_MARKETS,
     MICROSTRUCTURE_GATE_MAX_DELTA_VS_CANDIDATE,
     MICROSTRUCTURE_GATE_MAX_DELTA_VS_MARKET,
@@ -112,6 +113,7 @@ from weather.calibration.pooled_candidate_scoring import (
     apply_microstructure_gate,
     artifact_hash_for_path,
     band_probability_from_distribution,
+    blocked_candidate_validation_gate,
     bridge_alpha_for_market,
     bridge_comparison,
     bridge_policy_payload,
@@ -134,6 +136,7 @@ from weather.calibration.pooled_candidate_scoring import (
     microstructure_shadow_variant_rows,
     payload_hash,
     probability_view,
+    source_state_ablation_report,
     write_candidate_shadow_variants,
     write_conservative_bridge_shadow_variants,
     write_microstructure_shadow_variants,
@@ -1015,7 +1018,7 @@ def microstructure_shadow_report(
     }
 
 
-def market_verdict(comp, day_count, trust, current_tol, market_tol, min_days, min_trust):
+def market_verdict(comp, day_count, trust, current_tol, market_tol, min_days, min_trust, blocked_validation=None):
     if not comp:
         return "BLOCK", ["no candidate rows scored"]
     reasons = []
@@ -1026,6 +1029,9 @@ def market_verdict(comp, day_count, trust, current_tol, market_tol, min_days, mi
             if delta_current is not None else
             "missing candidate-vs-current delta"
         )
+    if blocked_validation and not blocked_validation.get("passed"):
+        detail = "; ".join(blocked_validation.get("reasons") or []) or "blocked validation failed"
+        reasons.append(f"blocked validation failed: {detail}")
     if reasons:
         return "BLOCK", reasons
 
@@ -1065,6 +1071,12 @@ def _per_market(rows, trust_by_market, args):
             if row.get("snapshot_id") and _valid_probability(row.get("candidate_p"))
         })
         trust = trust_by_market.get(market_id) or {}
+        blocked_validation = blocked_candidate_validation_gate(
+            market_rows,
+            current_tol=args.current_tol,
+            market_tol=args.market_tol,
+            min_days=args.min_days,
+        )
         verdict, reasons = market_verdict(
             comp,
             day_count,
@@ -1073,6 +1085,7 @@ def _per_market(rows, trust_by_market, args):
             args.market_tol,
             args.min_days,
             args.min_trust,
+            blocked_validation=blocked_validation,
         )
         spec = REGISTRY.get(market_id)
         output.append({
@@ -1085,6 +1098,7 @@ def _per_market(rows, trust_by_market, args):
             "trust": trust,
             "verdict": verdict,
             "reason": "; ".join(reasons),
+            "blocked_validation": blocked_validation,
         })
     return output
 
@@ -1263,6 +1277,12 @@ def run_pooled_candidate_replay(args):
         as_of=manifest.get("as_of"),
     )
     trust_by_market = {row["market"]: row for row in trust_rows}
+    blocked_validation = blocked_candidate_validation_gate(
+        candidate_rows,
+        current_tol=args.current_tol,
+        market_tol=args.market_tol,
+        min_days=args.min_days,
+    )
     market_rows = _per_market(candidate_rows, trust_by_market, args)
     aggregate = candidate_comparison(candidate_rows)
     daily_first = daily_first_candidate_comparison(candidate_rows)
@@ -1308,12 +1328,18 @@ def run_pooled_candidate_replay(args):
             variant_out_path=getattr(args, "microstructure_variant_out", DEFAULT_MICROSTRUCTURE_VARIANT_OUT),
             candidate_artifact_hash=artifact_hash,
         )
+    source_state_ablation = source_state_ablation_report(
+        candidate_rows,
+        artifact,
+        candidate_artifact_hash=artifact_hash,
+        variant_out_path=getattr(args, "source_state_ablation_variant_out", DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT),
+    )
     conservative_bridge = conservative_bridge_report(
         candidate_rows,
         variant_out_path=getattr(args, "bridge_variant_out", DEFAULT_BRIDGE_VARIANT_OUT),
     )
     market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
-    verdict = market_verdict if replay_gate["global_ok"] else "BLOCK"
+    verdict = market_verdict if replay_gate["global_ok"] and blocked_validation.get("passed") else "BLOCK"
     adjacent_calibration = postprocess.get("adjacent_calibration") or {}
 
     report = {
@@ -1336,11 +1362,17 @@ def run_pooled_candidate_replay(args):
             "adjacent_calibration_contexts": adjacent_calibration.get("context_count"),
             "current_blend_default_alpha": postprocess.get("current_blend_default_alpha"),
             "current_blend_market_alpha": postprocess.get("current_blend_market_alpha") or {},
+            "blocked_validation": {
+                "schema_version": blocked_validation.get("schema_version"),
+                "split_mode": blocked_validation.get("split_mode"),
+                "verdict": blocked_validation.get("verdict"),
+            },
         },
         "corpus": _manifest_summary(manifest),
         "coverage": coverage,
         "diagnostics": diagnostics,
         "replay_gate": replay_gate,
+        "blocked_validation": blocked_validation,
         "aggregate": aggregate,
         "daily_first": daily_first,
         "market_rows": market_rows,
@@ -1352,6 +1384,7 @@ def run_pooled_candidate_replay(args):
         "candidate_shadow_variants": candidate_shadow_variants,
         "exact_winner_diagnostics": exact_winner_diagnostics,
         "microstructure": microstructure,
+        "source_state_ablation": source_state_ablation,
         "conservative_bridge": conservative_bridge,
         "replay_summary": {
             "snaps_scored": replay_results.get("snaps_scored"),
@@ -1367,12 +1400,7 @@ def run_pooled_candidate_replay(args):
         Path(args.json_out).write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return report
 
-
-
-try:
-    from .pooled_candidate_replay_report import write_report  # noqa: E402
-except ImportError:  # pragma: no cover - direct src compatibility
-    from pooled_candidate_replay_report import write_report  # noqa: E402
+from weather.calibration.pooled_candidate_replay_report import write_report  # noqa: E402
 
 
 def main():
@@ -1408,6 +1436,8 @@ def main():
                         help="Minimum rows required for each out-of-fold CLOB overlay train fold.")
     parser.add_argument("--skip-microstructure-overlay", action="store_true",
                         help="Disable the non-serving Item 38 CLOB overlay score.")
+    parser.add_argument("--source-state-ablation-variant-out", default=str(DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT),
+                        help="Item-69-compatible source-state ablation variant CSV. Empty string disables variant export.")
     parser.add_argument("--bridge-variant-out", default=str(DEFAULT_BRIDGE_VARIANT_OUT),
                         help="Item-69-compatible conservative bridge variant CSV. Empty string disables variant export.")
     parser.add_argument("--require-exact-identity", action="store_true",
@@ -1431,6 +1461,8 @@ def main():
         args.microstructure_artifact = None
     if args.microstructure_variant_out == "":
         args.microstructure_variant_out = None
+    if args.source_state_ablation_variant_out == "":
+        args.source_state_ablation_variant_out = None
     if args.bridge_variant_out == "":
         args.bridge_variant_out = None
 

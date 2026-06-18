@@ -182,6 +182,14 @@ class TestFeatureModelAblation(unittest.TestCase):
 
         self.assertEqual(validation_rows[0]["hour"], 12)
         self.assertGreater(validation_rows[0]["n"], 0)
+        self.assertEqual(
+            validation_rows[0]["blocked_validation"]["schema_version"],
+            "blocked_validation_v0.1",
+        )
+        self.assertEqual(
+            validation_rows[0]["leakage_risk_verdict"],
+            "WARN_MODULO_FOLD_NOT_PROMOTION_GRADE",
+        )
         self.assertIn("month", ablation_rows[0])
         self.assertIn("season", ablation_rows[0])
         self.assertIn("microclimate", {row["family"] for row in ablation_rows})

@@ -5,7 +5,6 @@ normalized hourly/daily artifacts are rebuilt after each market/source.
 """
 import argparse
 import subprocess
-import sys
 import time
 from datetime import date, datetime
 from pathlib import Path

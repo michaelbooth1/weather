@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import math
 
-from weather.calibration.forecast_error_model import forecast_error_distribution
-from weather.calibration.settlement_lag_model import revision_up_probability, settlement_catchup_probability
+from weather.model.calibration_runtime import (
+    forecast_error_distribution,
+    revision_up_probability,
+    settlement_catchup_probability,
+)
 from weather.model.model_distribution_constants import (
     BUCKET_TRANSITION_BLEND_MAX,
     BUCKET_TRANSITION_MIN_SAMPLE,
@@ -554,15 +557,15 @@ class DistributionSignalMixin:
     ):
         values = []
         if weather_forecast_max is not None:
-            values.append({"source": "weather_forecast", "forecast_high_c": weather_forecast_max})
+            values.append({"source": "weather_forecast", "value": weather_forecast_max})
         if open_meteo_max is not None:
-            values.append({"source": "open_meteo", "forecast_high_c": open_meteo_max})
+            values.append({"source": "open_meteo", "value": open_meteo_max})
         if eccc_forecast_high is not None:
-            values.append({"source": "eccc_citypage", "forecast_high_c": eccc_forecast_high})
+            values.append({"source": "eccc_citypage", "value": eccc_forecast_high})
         if nws_forecast_max is not None:
-            values.append({"source": "nws_hourly", "forecast_high_c": nws_forecast_max})
+            values.append({"source": "nws_hourly", "value": nws_forecast_max})
         if global_ensemble_max is not None:
-            values.append({"source": "global_ensemble", "forecast_high_c": global_ensemble_max})
+            values.append({"source": "global_ensemble", "value": global_ensemble_max})
         return forecast_error_distribution(
             support,
             values,

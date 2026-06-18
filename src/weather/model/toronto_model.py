@@ -4,8 +4,13 @@ The implementation is split across concern-specific mixins (model_*.py);
 ``TorontoHighTempModel`` composes them. Constants live in model_constants and
 are re-exported here so existing ``from toronto_model import ...`` callers keep
 working unchanged.
+
+Ownership note: keep serving composition and legacy re-exports here. New
+serving-time calibration/runtime helpers belong in
+``weather.model.calibration_runtime`` or concern-specific model modules.
 """
 import json
+import logging
 from datetime import datetime
 
 from weather.artifacts import resolve_artifact_path
@@ -41,10 +46,14 @@ from weather.model.model_climatology import ClimatologyMixin
 from weather.model.model_distribution import DistributionMixin
 from weather.model.model_features import FeatureModelMixin
 from weather.model.model_presentation import PresentationMixin
-from weather.calibration.forecast_error_model import load_forecast_error_model
-from weather.calibration.family_secondary_artifacts import load_family_secondary_manifest
-from weather.calibration.probability_calibration import load_probability_calibration
-from weather.calibration.settlement_lag_model import load_settlement_lag_model
+from weather.model.calibration_runtime import (
+    load_family_secondary_manifest,
+    load_forecast_error_model,
+    load_probability_calibration,
+    load_settlement_lag_model,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class TorontoHighTempModel(
@@ -93,7 +102,7 @@ class TorontoHighTempModel(
                 with path.open("r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading calibrated weights: {e}")
+                logger.warning("Error loading calibrated weights: %s", e)
         return None
 
     def load_probability_calibration(self):
@@ -177,6 +186,7 @@ class TorontoHighTempModel(
             feature_vector=feature_vector,
             boundary_transitions=self.get_bucket_transitions(sources, now_tz),
             late_day_risk=self.predict_late_day_continuation(sources, cutoff_hour, now_tz),
+            source_health=self.toronto_official_source_health(sources, now=now_tz),
             analog_search=analog_search,
             model_explanation=self.get_model_explanation(
                 sources,

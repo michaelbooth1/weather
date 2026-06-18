@@ -33,6 +33,11 @@ from weather.calibration.pooled_candidate_replay import (
     write_candidate_shadow_variants,
     write_report,
 )
+from weather.calibration.pooled_candidate_scoring import (
+    blocked_candidate_validation_gate,
+    source_state_ablation_report,
+    source_state_ablation_shadow_variant_rows,
+)
 from weather.model.continuous_density import continuous_density_payload
 
 
@@ -77,6 +82,63 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertLess(comp["candidate_brier"], comp["current_brier"])
         self.assertLess(comp["candidate_brier"], comp["market_brier"])
         self.assertLess(comp["delta_vs_current"], 0)
+
+    def test_blocked_candidate_validation_gate_requires_daily_first_pass(self):
+        rows = [
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-01",
+                "candidate_p": 0.80,
+                "replayed_p": 0.60,
+                "recorded_p": 0.60,
+                "market_yes": 0.70,
+                "outcome": 1,
+            },
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-02",
+                "candidate_p": 0.20,
+                "replayed_p": 0.40,
+                "recorded_p": 0.40,
+                "market_yes": 0.30,
+                "outcome": 0,
+            },
+        ]
+
+        gate = blocked_candidate_validation_gate(rows, current_tol=0.0, market_tol=0.0, min_days=2)
+
+        self.assertTrue(gate["passed"])
+        self.assertEqual(gate["verdict"], "PASS")
+        self.assertEqual(gate["split_mode"], "daily_first_market_day")
+        self.assertEqual(gate["split_audit"]["leak_count"], 0)
+
+    def test_blocked_candidate_validation_gate_blocks_daily_first_regression(self):
+        rows = [
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-01",
+                "candidate_p": 0.40,
+                "replayed_p": 0.80,
+                "recorded_p": 0.80,
+                "market_yes": 0.75,
+                "outcome": 1,
+            },
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-02",
+                "candidate_p": 0.60,
+                "replayed_p": 0.20,
+                "recorded_p": 0.20,
+                "market_yes": 0.25,
+                "outcome": 0,
+            },
+        ]
+
+        gate = blocked_candidate_validation_gate(rows, current_tol=0.0, market_tol=0.0, min_days=2)
+
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["verdict"], "BLOCK")
+        self.assertIn("daily-first candidate regresses current", "; ".join(gate["reasons"]))
 
     def test_exact_winner_candidate_diagnostics_scores_item70_slices(self):
         rows = [
@@ -314,6 +376,80 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(row["postprocess_config_hash"], "pooled_feature_band_hgb_v0.4")
         self.assertAlmostEqual(row["probability"], 0.80)
         self.assertAlmostEqual(row["current_probability"], 0.20)
+
+    def test_source_state_ablation_report_scores_control_and_dynamic_candidate(self):
+        rows = [
+            {
+                "market_id": "atlanta",
+                "target_date": "2026-06-14",
+                "snapshot_id": "s1",
+                "range_label": "82-83 F",
+                "bin_type": "eq",
+                "bin_value_c": "82",
+                "candidate_cutoff_hour": 14,
+                "candidate_p": 0.80,
+                "replayed_p": 0.70,
+                "recorded_p": 0.70,
+                "market_yes": 0.75,
+                "outcome": 1,
+                "source_freshness_state": "all_fresh",
+            },
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-14",
+                "snapshot_id": "s2",
+                "range_label": "86-87 F",
+                "bin_type": "eq",
+                "bin_value_c": "86",
+                "candidate_cutoff_hour": 15,
+                "candidate_p": 0.20,
+                "replayed_p": 0.80,
+                "recorded_p": 0.80,
+                "market_yes": 0.60,
+                "outcome": 0,
+                "source_freshness_state": "failed:open_meteo;stale:metar",
+            },
+        ]
+        artifact = {
+            "dynamic_source_state_enabled": True,
+            "dynamic_source_state_columns": [
+                "source_forecast_payload_age_minutes",
+                "source_forecast_max_age_minutes",
+                "source_forecast_failed_count",
+                "source_status_group",
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "source_state_variants.csv"
+            report = source_state_ablation_report(
+                rows,
+                artifact,
+                candidate_artifact_hash="abc123",
+                variant_out_path=out,
+            )
+            variant_rows = source_state_ablation_shadow_variant_rows(
+                rows,
+                experiment_start_date="2026-06-17",
+                candidate_artifact_hash="abc123",
+            )
+
+            self.assertTrue(out.exists())
+
+        self.assertTrue(report["enabled"])
+        self.assertEqual(report["gate"]["verdict"], "READY")
+        self.assertIn("freshest_forecast_age", report["feature_groups"])
+        self.assertIn("max_forecast_age", report["feature_groups"])
+        self.assertIn("forecast_family_degradation", report["feature_groups"])
+        self.assertEqual(report["shadow_variants"]["rows"], 4)
+        self.assertEqual({row["variant_id"] for row in variant_rows}, {
+            "source_state_no_source_state_current",
+            "source_state_dynamic_candidate",
+        })
+        control = [row for row in variant_rows if row["is_control"]][0]
+        dynamic = [row for row in variant_rows if not row["is_control"]][0]
+        self.assertAlmostEqual(control["probability"], 0.70)
+        self.assertAlmostEqual(dynamic["probability"], 0.80)
 
     def test_conservative_bridge_report_writes_item69_variant_rows(self):
         rows = [
@@ -555,6 +691,72 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertIn("### By Source Freshness", text)
         self.assertIn("failed:wu_history", text)
+
+    def test_candidate_report_writes_source_state_ablation_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "report.md"
+            write_report(
+                {
+                    "generated_at": "2026-06-15T00:00:00",
+                    "verdict": "BLOCK",
+                    "candidate_market_verdict": "BLOCK",
+                    "cutover_decision": "DO_NOT_CUT_OVER",
+                    "artifact": {},
+                    "corpus": {},
+                    "coverage": {},
+                    "diagnostics": {},
+                    "replay_gate": {"corpus_ok": True, "fidelity_ok": True},
+                    "aggregate": None,
+                    "daily_first": None,
+                    "microstructure": None,
+                    "source_state_ablation": {
+                        "schema_version": "source_state_ablation_v0.1",
+                        "enabled": True,
+                        "feature_groups": {
+                            "freshest_forecast_age": ["source_forecast_payload_age_minutes"],
+                            "max_forecast_age": ["source_forecast_max_age_minutes"],
+                        },
+                        "shadow_variants": {
+                            "rows": 2,
+                            "path": "data/backtest/source_state_ablation_shadow_variants.csv",
+                            "variant_ids": [
+                                "source_state_dynamic_candidate",
+                                "source_state_no_source_state_current",
+                            ],
+                        },
+                        "gate": {
+                            "verdict": "SHADOW",
+                            "reasons": ["degraded-source rows regress current serving"],
+                            "aggregate": {
+                                "n": 2,
+                                "candidate_brier": 0.20,
+                                "current_brier": 0.15,
+                                "market_brier": 0.10,
+                                "delta_vs_current": 0.05,
+                                "delta_vs_market": 0.10,
+                                "candidate_skill": -1.0,
+                                "base_rate": 0.5,
+                            },
+                        },
+                        "by_degradation": [],
+                        "by_source_freshness": [],
+                    },
+                    "market_rows": [],
+                    "by_market": [],
+                    "by_hour": [],
+                    "by_bin_type": [],
+                    "by_settlement_distance": [],
+                    "by_source_freshness": [],
+                    "replay_summary": {},
+                },
+                out,
+            )
+
+            text = out.read_text(encoding="utf-8")
+
+        self.assertIn("## Source-State Feature Ablation", text)
+        self.assertIn("degraded-source rows regress current serving", text)
+        self.assertIn("source_state_dynamic_candidate", text)
 
     def test_candidate_report_labels_all_market_density_scope(self):
         with tempfile.TemporaryDirectory() as tmp:

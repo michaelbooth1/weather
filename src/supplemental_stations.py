@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib as _importlib
+import runpy as _runpy
 import sys as _sys
 from pathlib import Path as _Path
 
@@ -12,5 +13,8 @@ if str(_SRC_ROOT) not in _sys.path:
 
 _TARGET = "weather.sources.supplemental_stations"
 
-_module = _importlib.import_module(_TARGET)
-_sys.modules[__name__] = _module
+if __name__ == "__main__":
+    _runpy.run_module(_TARGET, run_name="__main__")
+else:
+    _module = _importlib.import_module(_TARGET)
+    _sys.modules[__name__] = _module

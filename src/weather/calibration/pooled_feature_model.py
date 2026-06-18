@@ -9,6 +9,8 @@ import argparse
 import json
 import math
 import pickle
+import time
+import warnings
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +51,8 @@ from weather.reporting.source_redundancy import (
 from weather.sources.forecast_history import daily_path_for, load_forecast_daily, load_forecast_profiles, long_path_for
 from weather.sources.reanalysis_synoptic import load_reanalysis_synoptic_features
 from weather.artifacts import writable_artifact_path
+from weather.calibration.blocked_validation import blocked_validation_audit
+from weather.units import round_half_up
 
 DEFAULT_REPORT = data_path() / "backtest" / "f_family_pooled_model_report.md"
 DEFAULT_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled.pkl")
@@ -166,15 +170,6 @@ CANONICAL_F_DELTA_COLUMNS = (
 )
 
 
-def round_half_up(value):
-    if value is None:
-        return None
-    try:
-        return int(math.floor(float(value) + 0.5))
-    except (TypeError, ValueError):
-        return None
-
-
 def sigmoid(value):
     if value >= 0:
         z = math.exp(-value)
@@ -187,6 +182,10 @@ def clip_probability(value, epsilon=1e-6):
     if value is None:
         return None
     return max(epsilon, min(1.0 - epsilon, float(value)))
+
+
+def performance_warning_count(caught_warnings):
+    return sum(1 for item in caught_warnings if issubclass(item.category, pd.errors.PerformanceWarning))
 
 
 def boolish(value):
@@ -919,10 +918,8 @@ def feature_frame(
     if include_dynamic_source_state:
         categorical += DYNAMIC_SOURCE_CATEGORICAL_COLUMNS
     use = base_numeric + city_numeric + categorical
-    for column in use:
-        if column not in frame:
-            frame[column] = None
-    features = pd.get_dummies(frame[use], columns=categorical, dtype=float)
+    frame = frame.reindex(columns=use).copy()
+    features = pd.get_dummies(frame, columns=categorical, dtype=float)
     if feature_names is not None:
         features = features.reindex(columns=feature_names, fill_value=0.0)
     return features
@@ -1031,9 +1028,7 @@ def band_feature_frame(
         + BAND_NUMERIC_COLUMNS
         + categorical
     )
-    for column in use:
-        if column not in frame:
-            frame[column] = None
+    frame = frame.reindex(columns=use).copy()
     if feature_names is None:
         use = [
             column for column in use
@@ -1115,7 +1110,11 @@ def build_band_rows(records, support):
 
 
 def train_hour_model(train_rows, feature_names=None):
-    train_frame = feature_frame(train_rows, feature_names=feature_names)
+    build_started = time.perf_counter()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        train_frame = feature_frame(train_rows, feature_names=feature_names)
+    build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
     imputer = SimpleImputer(strategy="median")
     x_train = imputer.fit_transform(train_frame)
@@ -1126,8 +1125,17 @@ def train_hour_model(train_rows, feature_names=None):
         learning_rate=0.05,
         random_state=42,
     )
+    fit_started = time.perf_counter()
     model.fit(x_train, y_train)
-    return model, imputer, feature_names
+    fit_seconds = time.perf_counter() - fit_started
+    metrics = {
+        "matrix_rows": int(train_frame.shape[0]),
+        "matrix_columns": int(train_frame.shape[1]),
+        "matrix_build_seconds": round(build_seconds, 6),
+        "model_fit_seconds": round(fit_seconds, 6),
+        "performance_warning_count": performance_warning_count(caught),
+    }
+    return model, imputer, feature_names, metrics
 
 
 def predict_rows(model, imputer, feature_names, rows, support=None, epsilon=1e-4):
@@ -1177,7 +1185,11 @@ def evaluate_distributions(rows, distributions):
 
 
 def train_density_hour_model(train_rows, feature_names=None):
-    train_frame = feature_frame(train_rows, feature_names=feature_names)
+    build_started = time.perf_counter()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        train_frame = feature_frame(train_rows, feature_names=feature_names)
+    build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
     imputer = SimpleImputer(strategy="median")
     x_train = imputer.fit_transform(train_frame)
@@ -1188,10 +1200,19 @@ def train_density_hour_model(train_rows, feature_names=None):
         learning_rate=0.05,
         random_state=42,
     )
+    fit_started = time.perf_counter()
     model.fit(x_train, y_train)
+    fit_seconds = time.perf_counter() - fit_started
     fitted = model.predict(x_train)
     residuals = [float(actual - predicted) for actual, predicted in zip(y_train, fitted)]
-    return model, imputer, feature_names, residuals
+    metrics = {
+        "matrix_rows": int(train_frame.shape[0]),
+        "matrix_columns": int(train_frame.shape[1]),
+        "matrix_build_seconds": round(build_seconds, 6),
+        "model_fit_seconds": round(fit_seconds, 6),
+        "performance_warning_count": performance_warning_count(caught),
+    }
+    return model, imputer, feature_names, residuals, metrics
 
 
 def residual_sigma_f(residuals, floor=0.75, cap=10.0):
@@ -1200,6 +1221,21 @@ def residual_sigma_f(residuals, floor=0.75, cap=10.0):
         return 3.0
     rmse = math.sqrt(sum(value * value for value in clean) / len(clean))
     return max(float(floor), min(float(cap), rmse))
+
+
+def density_residuals_from_means(rows, means):
+    residuals = []
+    for row, mean_f in zip(rows or [], means or []):
+        target_f = row.get("final_bucket_f")
+        if target_f is None or mean_f is None:
+            continue
+        try:
+            residual = float(target_f) - float(mean_f)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(residual):
+            residuals.append(residual)
+    return residuals
 
 
 def density_support_f(rows, margin_f=15.0):
@@ -1224,12 +1260,16 @@ def gaussian_density_f(mean_f, sigma_f, grid_f):
     return continuous_density_payload(density, mean_f=float(mean_f), sigma_f=sigma_f)
 
 
-def predict_density_payloads(model, imputer, feature_names, rows, sigma_f, grid_f):
+def predict_density_means(model, imputer, feature_names, rows):
     if not rows:
         return []
     frame = feature_frame(rows, feature_names=feature_names)
     x_eval = imputer.transform(frame)
-    means = model.predict(x_eval)
+    return [float(value) for value in model.predict(x_eval)]
+
+
+def predict_density_payloads(model, imputer, feature_names, rows, sigma_f, grid_f):
+    means = predict_density_means(model, imputer, feature_names, rows)
     return [gaussian_density_f(mean, sigma_f, grid_f) for mean in means]
 
 
@@ -1277,11 +1317,15 @@ def evaluate_density_predictions(rows, payloads):
 
 
 def train_band_hour_model(train_rows, feature_names=None, include_dynamic_source_state=False):
-    train_frame = band_feature_frame(
-        train_rows,
-        feature_names=feature_names,
-        include_dynamic_source_state=include_dynamic_source_state,
-    )
+    build_started = time.perf_counter()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", pd.errors.PerformanceWarning)
+        train_frame = band_feature_frame(
+            train_rows,
+            feature_names=feature_names,
+            include_dynamic_source_state=include_dynamic_source_state,
+        )
+    build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
     imputer = SimpleImputer(strategy="median")
     x_train = imputer.fit_transform(train_frame)
@@ -1293,8 +1337,17 @@ def train_band_hour_model(train_rows, feature_names=None, include_dynamic_source
         learning_rate=0.05,
         random_state=42,
     )
+    fit_started = time.perf_counter()
     model.fit(x_train, y_train, sample_weight=weights)
-    return model, imputer, feature_names
+    fit_seconds = time.perf_counter() - fit_started
+    metrics = {
+        "matrix_rows": int(train_frame.shape[0]),
+        "matrix_columns": int(train_frame.shape[1]),
+        "matrix_build_seconds": round(build_seconds, 6),
+        "model_fit_seconds": round(fit_seconds, 6),
+        "performance_warning_count": performance_warning_count(caught),
+    }
+    return model, imputer, feature_names, metrics
 
 
 def predict_band_probabilities(model, imputer, feature_names, rows, temperature=1.0):
@@ -1912,6 +1965,7 @@ def train_pooled_models(records, holdout_year=None):
         "family_unit": "F",
         "trained_at": datetime.now().isoformat(),
         "support": sorted({int(row["final_bucket"]) for row in records}),
+        "blocked_validation": blocked_validation_audit(records),
         "models": {},
     }
     support = artifact["support"]
@@ -1925,7 +1979,7 @@ def train_pooled_models(records, holdout_year=None):
             eval_rows = [row for row in hour_rows if int(row["year"]) == int(holdout_year)]
         if len(train_rows) < 50:
             continue
-        model, imputer, feature_names = train_hour_model(train_rows)
+        model, imputer, feature_names, train_metrics = train_hour_model(train_rows)
         eval_score = None
         market_scores = []
         if eval_rows:
@@ -1941,13 +1995,14 @@ def train_pooled_models(records, holdout_year=None):
                 if score:
                     market_scores.append({"market_id": market_id, **score})
 
-        final_model, final_imputer, final_feature_names = train_hour_model(hour_rows)
+        final_model, final_imputer, final_feature_names, final_metrics = train_hour_model(hour_rows)
         artifact["models"][str(hour)] = {
             "model": final_model,
             "imputer": final_imputer,
             "feature_names": final_feature_names,
             "classes": [int(value) for value in final_model.classes_],
             "train_rows": len(hour_rows),
+            "training_metrics": final_metrics,
         }
         validation_rows.append({
             "hour": hour,
@@ -1955,6 +2010,8 @@ def train_pooled_models(records, holdout_year=None):
             "eval_rows": len(eval_rows),
             "eval_score": eval_score,
             "market_scores": market_scores,
+            "training_metrics": train_metrics,
+            "blocked_validation": blocked_validation_audit(hour_rows),
         })
     return artifact, validation_rows
 
@@ -1999,7 +2056,7 @@ def default_band_postprocess(exact_winner_catchup_enabled=False):
     return config
 
 
-def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1):
+def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min_sigma_validation_residuals=20):
     canonical_records = [
         row for row in canonical_density_records(records)
         if row.get("final_bucket_f") is not None
@@ -2011,15 +2068,21 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1):
     low_f, high_f = density_support_f(canonical_records)
     grid_f = canonical_grid_f(low_f, high_f, grid_step_f)
     artifact = {
-        "schema_version": "pooled_continuous_density_hgb_v0.1",
+        "schema_version": "pooled_continuous_density_hgb_v0.2",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "family_unit": "all",
         "prediction_mode": "continuous_density_f",
-        "objective": "canonical_f_density_gaussian_residual",
+        "objective": "canonical_f_density_gaussian_residual_holdout_sigma",
         "trained_at": datetime.now().isoformat(),
         "grid_low_f": low_f,
         "grid_high_f": high_f,
         "grid_step_f": float(grid_step_f),
+        "sigma_policy": {
+            "preferred": "holdout_residual_rmse",
+            "fallback": "in_sample_residual_rmse",
+            "min_validation_residuals": int(min_sigma_validation_residuals),
+        },
+        "blocked_validation": blocked_validation_audit(canonical_records),
         "models": {},
     }
     validation_rows = []
@@ -2032,19 +2095,20 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1):
             eval_rows = [row for row in hour_rows if int(row["year"]) == int(holdout_year)]
         if len(train_rows) < 20:
             continue
-        model, imputer, feature_names, residuals = train_density_hour_model(train_rows)
+        model, imputer, feature_names, residuals, train_metrics = train_density_hour_model(train_rows)
         sigma_f = residual_sigma_f(residuals)
         eval_score = None
         market_scores = []
+        eval_residuals = []
         if eval_rows:
-            predictions = predict_density_payloads(
+            eval_means = predict_density_means(
                 model,
                 imputer,
                 feature_names,
                 eval_rows,
-                sigma_f,
-                grid_f,
             )
+            eval_residuals = density_residuals_from_means(eval_rows, eval_means)
+            predictions = [gaussian_density_f(mean, sigma_f, grid_f) for mean in eval_means]
             eval_score = evaluate_density_predictions(eval_rows, predictions)
             for market_id in sorted({row["market_id"] for row in eval_rows}):
                 subset = [
@@ -2059,8 +2123,14 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1):
                 if score:
                     market_scores.append({"market_id": market_id, **score})
 
-        final_model, final_imputer, final_feature_names, final_residuals = train_density_hour_model(hour_rows)
-        final_sigma_f = residual_sigma_f(final_residuals)
+        final_model, final_imputer, final_feature_names, final_residuals, final_metrics = train_density_hour_model(hour_rows)
+        if len(eval_residuals) >= int(min_sigma_validation_residuals):
+            final_sigma_source = "holdout_residual_rmse"
+            final_sigma_residuals = eval_residuals
+        else:
+            final_sigma_source = "in_sample_residual_rmse"
+            final_sigma_residuals = final_residuals
+        final_sigma_f = residual_sigma_f(final_sigma_residuals)
         artifact["models"][str(hour)] = {
             "model": final_model,
             "imputer": final_imputer,
@@ -2068,14 +2138,23 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1):
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "train_rows": len(hour_rows),
             "sigma_f": final_sigma_f,
+            "sigma_source": final_sigma_source,
+            "sigma_residual_count": len(final_sigma_residuals),
+            "training_metrics": final_metrics,
         }
         validation_rows.append({
             "hour": hour,
             "train_rows": len(train_rows),
             "eval_rows": len(eval_rows),
             "sigma_f": sigma_f,
+            "final_sigma_f": final_sigma_f,
+            "final_sigma_source": final_sigma_source,
+            "final_sigma_residual_count": len(final_sigma_residuals),
+            "holdout_sigma_residual_count": len(eval_residuals),
             "eval_score": eval_score,
             "market_scores": market_scores,
+            "training_metrics": train_metrics,
+            "blocked_validation": blocked_validation_audit(hour_rows),
         })
     return artifact, validation_rows
 
@@ -2143,6 +2222,7 @@ def train_pooled_band_models(
         ),
         "trained_at": datetime.now().isoformat(),
         "support": support,
+        "blocked_validation": blocked_validation_audit(records),
         "models": {},
         "postprocess": default_band_postprocess(
             exact_winner_catchup_enabled=exact_winner_catchup,
@@ -2177,7 +2257,7 @@ def train_pooled_band_models(
         if len(train_band_rows) < 200 or len({row["outcome"] for row in train_band_rows}) < 2:
             continue
 
-        model, imputer, feature_names = train_band_hour_model(
+        model, imputer, feature_names, train_metrics = train_band_hour_model(
             train_band_rows,
             include_dynamic_source_state=dynamic_source_state,
         )
@@ -2229,7 +2309,7 @@ def train_pooled_band_models(
                         market_scores.append({"market_id": market_id, **score})
 
         final_band_rows = build_band_rows(hour_rows, support)
-        final_model, final_imputer, final_feature_names = train_band_hour_model(
+        final_model, final_imputer, final_feature_names, final_metrics = train_band_hour_model(
             final_band_rows,
             include_dynamic_source_state=dynamic_source_state,
         )
@@ -2243,6 +2323,7 @@ def train_pooled_band_models(
             "source_rows": len(hour_rows),
             "temperature": temperature,
             "postprocess": dict(artifact["postprocess"]),
+            "training_metrics": final_metrics,
         }
         validation_rows.append({
             "hour": hour,
@@ -2254,6 +2335,8 @@ def train_pooled_band_models(
             "raw_eval_score": raw_eval_score,
             "eval_score": eval_score,
             "market_scores": market_scores,
+            "training_metrics": train_metrics,
+            "blocked_validation": blocked_validation_audit(hour_rows),
             "_eval_band_rows": eval_band_rows if eval_source_rows else [],
             "_post_probs": post_probs if eval_source_rows else [],
         })
@@ -2333,6 +2416,38 @@ def write_artifact(artifact, path):
     return path
 
 
+def training_metric_rows(validation_rows):
+    rows = []
+    for row in validation_rows:
+        metrics = row.get("training_metrics") or {}
+        if not metrics:
+            continue
+        rows.append([
+            f"{row['hour']:02d}:00",
+            metrics.get("matrix_rows"),
+            metrics.get("matrix_columns"),
+            fmt_num(metrics.get("matrix_build_seconds"), 6),
+            fmt_num(metrics.get("model_fit_seconds"), 6),
+            metrics.get("performance_warning_count", 0),
+        ])
+    return rows
+
+
+def blocked_validation_metric_rows(validation_rows):
+    rows = []
+    for row in validation_rows:
+        audit = row.get("blocked_validation") or {}
+        rows.append([
+            f"{row['hour']:02d}:00",
+            "PASS" if audit.get("ok") else "FAIL",
+            audit.get("market_day_count", 0),
+            audit.get("target_date_count", 0),
+            audit.get("split_count", 0),
+            audit.get("leak_count", 0),
+        ])
+    return rows
+
+
 def write_report(path, records, counts, validation_rows, holdout_year, artifact_path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2354,6 +2469,24 @@ def write_report(path, records, counts, validation_rows, holdout_year, artifact_
     lines += [
         "",
         f"Total rows: {len(records)}",
+        "",
+        "## Training Throughput",
+        "",
+    ]
+    lines += markdown_table(
+        ["Hour", "Matrix Rows", "Matrix Columns", "Build Seconds", "Fit Seconds", "Warnings"],
+        training_metric_rows(validation_rows),
+    )
+    lines += [
+        "",
+        "## Blocked Validation Audit",
+        "",
+    ]
+    lines += markdown_table(
+        ["Hour", "Audit", "Market Days", "Target Dates", "Splits", "Leaks"],
+        blocked_validation_metric_rows(validation_rows),
+    )
+    lines += [
         "",
         "## Hourly Validation",
         "",
@@ -2398,7 +2531,7 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
         "# Pooled Continuous-Density Model",
         "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        f"Schema: `{artifact.get('schema_version') or 'pooled_continuous_density_hgb_v0.1'}`",
+        f"Schema: `{artifact.get('schema_version') or 'pooled_continuous_density_hgb_v0.2'}`",
         f"Feature schema: `{FEATURE_SCHEMA_VERSION}`",
         f"Artifact: `{artifact_path}`",
         f"Holdout year: {holdout_year or '-'}",
@@ -2412,6 +2545,9 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
         "and emits a Gaussian residual density on the canonical-F grid. Market C/F",
         "bands are projected only at serving/replay time through",
         "`continuous_density_f` payloads.",
+        "v0.2 estimates the final Gaussian width from holdout residuals when",
+        "enough holdout rows exist, falling back to in-sample residuals only when",
+        "validation evidence is too sparse.",
         "",
         "## Dataset",
         "",
@@ -2424,17 +2560,37 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
         "",
         f"Total source rows: {len(records)}",
         "",
+        "## Training Throughput",
+        "",
+    ]
+    lines += markdown_table(
+        ["Hour", "Matrix Rows", "Matrix Columns", "Build Seconds", "Fit Seconds", "Warnings"],
+        training_metric_rows(validation_rows),
+    )
+    lines += [
+        "",
+        "## Blocked Validation Audit",
+        "",
+    ]
+    lines += markdown_table(
+        ["Hour", "Audit", "Market Days", "Target Dates", "Splits", "Leaks"],
+        blocked_validation_metric_rows(validation_rows),
+    )
+    lines += [
+        "",
         "## Hourly Holdout Validation",
         "",
     ]
     lines += markdown_table(
-        ["Hour", "Train Rows", "Eval Rows", "Sigma F", "Density LogLoss", "Winner Brier", "MAE F"],
+        ["Hour", "Train Rows", "Eval Rows", "Eval Sigma F", "Final Sigma F", "Sigma Source", "Density LogLoss", "Winner Brier", "MAE F"],
         [
             [
                 f"{row['hour']:02d}:00",
                 row["train_rows"],
                 row["eval_rows"],
                 fmt_num(row.get("sigma_f")),
+                fmt_num(row.get("final_sigma_f")),
+                row.get("final_sigma_source") or "-",
                 fmt_num((row.get("eval_score") or {}).get("density_logloss")),
                 fmt_num((row.get("eval_score") or {}).get("winning_bucket_brier")),
                 fmt_num((row.get("eval_score") or {}).get("mean_absolute_error_f")),
@@ -2501,7 +2657,23 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
         f"{'enabled' if artifact.get('dynamic_source_state_enabled') else 'disabled'}"
         " for this artifact.",
         "",
+        "## Training Throughput",
+        "",
     ]
+    lines += markdown_table(
+        ["Hour", "Matrix Rows", "Matrix Columns", "Build Seconds", "Fit Seconds", "Warnings"],
+        training_metric_rows(validation_rows),
+    )
+    lines.append("")
+    lines += [
+        "## Blocked Validation Audit",
+        "",
+    ]
+    lines += markdown_table(
+        ["Hour", "Audit", "Market Days", "Target Dates", "Splits", "Leaks"],
+        blocked_validation_metric_rows(validation_rows),
+    )
+    lines.append("")
     exact_calibration = postprocess.get("exact_winner_catchup") or {}
     strength_diagnostics = exact_calibration.get("strength_diagnostics") or {}
     selected_strength = strength_diagnostics.get("selected") or {}

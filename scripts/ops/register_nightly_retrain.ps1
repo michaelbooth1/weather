@@ -1,13 +1,14 @@
 # Registers the nightly retrain -> validate -> promote decision refresh.
 #
-# Run from the repo root:  .\scripts\register_nightly_retrain.ps1
+# Run from the repo root:  .\scripts\ops\register_nightly_retrain.ps1
 # Re-running replaces the existing task.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherNightlyRetrainValidatePromote",
     [string]$At = "03:30",
-    [switch]$FailOnBlock = $false
+    [switch]$FailOnBlock = $false,
+    [switch]$FailOnDailyLearningBlocker = $true
 )
 
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
@@ -18,6 +19,9 @@ if (-not (Test-Path $python)) {
 $arguments = "-m weather.operations.nightly_retrain run"
 if ($FailOnBlock) {
     $arguments = "$arguments --fail-on-block"
+}
+if ($FailOnDailyLearningBlocker) {
+    $arguments = "$arguments --fail-on-daily-learning-blocker"
 }
 
 $action = New-ScheduledTaskAction `

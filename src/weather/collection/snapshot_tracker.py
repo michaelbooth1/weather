@@ -1,9 +1,12 @@
+from weather.operations.windows_silent import apply_windows_silent_subprocess_defaults
+
+apply_windows_silent_subprocess_defaults()
+
 import argparse
 import csv
 import hashlib
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -24,41 +27,37 @@ from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CAC
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.operations.supervisor import (
+    SupervisorSpec,
+    age_minutes,
+    append_jsonl,
+    acquire_writer_lock,
+    attach_status_writer,
+    atomic_write_json,
+    default_ensure_decision,
+    launch_detached,
+    pid_is_python,
+    read_writer_lock,
+    read_json_file,
+    release_writer_lock,
+    terminate_python_pid,
+)
 
-
-
-try:
-    from .snapshot_store import (  # noqa: E402
-        COMPONENT_COLUMNS,
-        DEFAULT_MARKET_CONFIG,
-        DEFAULT_SNAPSHOT_ROOT,
-        FORECAST_PAYLOAD_COLUMNS,
-        LONG_COLUMNS,
-        MODEL_VERSION,
-        PROCESS_RUNTIME_IDENTITY,
-        REPLAY_SCHEMA_VERSION,
-        RUNTIME_IDENTITY_COLUMNS,
-        SNAPSHOT_INTERVAL,
-        SNAPSHOT_PROBABILITY_TOLERANCE,
-        SOURCE_STATUS_COLUMNS,
-        SnapshotStore,
-    )
-except ImportError:  # pragma: no cover - direct src compatibility
-    from weather.collection.snapshot_store import (  # noqa: E402
-        COMPONENT_COLUMNS,
-        DEFAULT_MARKET_CONFIG,
-        DEFAULT_SNAPSHOT_ROOT,
-        FORECAST_PAYLOAD_COLUMNS,
-        LONG_COLUMNS,
-        MODEL_VERSION,
-        PROCESS_RUNTIME_IDENTITY,
-        REPLAY_SCHEMA_VERSION,
-        RUNTIME_IDENTITY_COLUMNS,
-        SNAPSHOT_INTERVAL,
-        SNAPSHOT_PROBABILITY_TOLERANCE,
-        SOURCE_STATUS_COLUMNS,
-        SnapshotStore,
-    )
+from weather.collection.snapshot_store import (  # noqa: E402
+    COMPONENT_COLUMNS,
+    DEFAULT_MARKET_CONFIG,
+    DEFAULT_SNAPSHOT_ROOT,
+    FORECAST_PAYLOAD_COLUMNS,
+    LONG_COLUMNS,
+    MODEL_VERSION,
+    PROCESS_RUNTIME_IDENTITY,
+    REPLAY_SCHEMA_VERSION,
+    RUNTIME_IDENTITY_COLUMNS,
+    SNAPSHOT_INTERVAL,
+    SNAPSHOT_PROBABILITY_TOLERANCE,
+    SOURCE_STATUS_COLUMNS,
+    SnapshotStore,
+)
 
 
 def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="scheduled", trigger_context=None):
@@ -92,6 +91,26 @@ LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 RECENT_LOOP_CYCLE_COUNT = 12
+SNAPSHOT_SUPERVISOR = SupervisorSpec(
+    name="snapshot_capture",
+    module="weather.collection.snapshot_tracker",
+    status_path=LOOP_STATUS_PATH,
+    diagnostics_path=DIAGNOSTICS_PATH,
+    console_log_path=LOOP_CONSOLE_LOG_PATH,
+    cwd=REPO_ROOT,
+    pause_flag_path=PAUSE_FLAG_PATH,
+    tolerated_states=("RUNNING", "PAUSED", "ERRORING"),
+    status_schema_fields=(
+        "pid",
+        "started_at",
+        "last_heartbeat",
+        "interval_minutes",
+        "iterations",
+        "consecutive_errors",
+        "last_error",
+        "paused",
+    ),
+)
 
 
 class SourceStatusContext:
@@ -200,44 +219,19 @@ def backfill_source_status(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
 
 
 def read_loop_status():
-    if not LOOP_STATUS_PATH.exists():
-        return None
-    try:
-        with LOOP_STATUS_PATH.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (json.JSONDecodeError, OSError):
-        return None
+    return read_json_file(LOOP_STATUS_PATH)
 
 
 def write_loop_status(status):
-    LOOP_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = LOOP_STATUS_PATH.with_name(f"{LOOP_STATUS_PATH.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(status, handle, indent=2, sort_keys=True, default=str)
-    for attempt in range(20):
-        try:
-            tmp.replace(LOOP_STATUS_PATH)
-            return
-        except PermissionError:
-            if attempt == 19:
-                raise
-            time.sleep(0.05)
+    return atomic_write_json(LOOP_STATUS_PATH, status)
 
 
 def append_diagnostic(record):
-    DIAGNOSTICS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with DIAGNOSTICS_PATH.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
+    return append_jsonl(DIAGNOSTICS_PATH, record)
 
 
 def _age_minutes(now, iso_value):
-    if not iso_value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(iso_value))
-    except ValueError:
-        return None
-    return (now - parsed).total_seconds() / 60.0
+    return age_minutes(now, iso_value, default_tz=TORONTO_TZ)
 
 
 def runtime_identity_status(process_identity, current_identity=None):
@@ -262,7 +256,7 @@ def runtime_identity_status(process_identity, current_identity=None):
     }
 
 
-def loop_health(status, now, interval_minutes=10.0, current_identity=None):
+def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_alive=None):
     """Judge collection liveness from the heartbeat. Liveness is decided by
     heartbeat freshness, not PID (a stale heartbeat means dead regardless, and
     PIDs get reused across reboots)."""
@@ -274,7 +268,11 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None):
     errors = status.get("consecutive_errors", 0)
     dead_after = 2 * interval + 2  # tolerate one full sleep cycle plus slack
     runtime = runtime_identity_status(status.get("runtime_identity"), current_identity)
-    if runtime.get("runtime_code_state") == "stale_code":
+    if pid_alive is None:
+        pid_alive = pid_is_python(status.get("pid"))
+    if not pid_alive:
+        state = "DEAD"
+    elif runtime.get("runtime_code_state") == "stale_code":
         state = "STALE_CODE"
     elif status.get("paused"):
         state = "PAUSED"
@@ -287,6 +285,7 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None):
     return {
         "state": state,
         "pid": status.get("pid"),
+        "pid_alive": bool(pid_alive),
         "heartbeat_age_min": round(hb_age, 1) if hb_age is not None else None,
         "last_snapshot_age_min": round(snap_age, 1) if snap_age is not None else None,
         "consecutive_errors": errors,
@@ -324,26 +323,46 @@ def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1
     )
 
 
-def pid_is_python(pid):
-    """True when ``pid`` exists AND is a python process. Guards against PID
-    reuse by unrelated processes before --stop terminates anything.
-
-    CREATE_NO_WINDOW is load-bearing: the supervisor task runs under
-    pythonw.exe (no console), and a console child like tasklist spawned from
-    a console-less parent makes Windows allocate a NEW VISIBLE console -- a
-    cmd window flashing on the user's screen every 10-minute ensure tick."""
-    if not pid:
-        return False
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+def _normalized_pid(value):
     try:
-        out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=15,
-            creationflags=creationflags,
-        ).stdout
-        return "python" in out.lower()
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return False
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _cleanup_loop_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
+    """Remove this loop's writer lock when its owner has been stopped or died."""
+    attempts = max(1, int(attempts))
+    last_result = None
+    for attempt in range(attempts):
+        lock = read_writer_lock(LOOP_STATUS_PATH)
+        if not lock.get("exists"):
+            return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
+        owner_pid = _normalized_pid(lock.get("pid"))
+        expected = _normalized_pid(expected_pid)
+        if expected is not None and owner_pid == expected:
+            reason = "stopped writer pid"
+        elif owner_pid is not None and not pid_is_python(owner_pid):
+            reason = "dead writer pid"
+        else:
+            return {
+                "removed": False,
+                "reason": "writer lock owner is still live",
+                "pid": owner_pid,
+                "path": lock.get("path"),
+            }
+        try:
+            Path(lock["path"]).unlink()
+        except FileNotFoundError:
+            return {"removed": False, "reason": "writer lock already gone", "pid": owner_pid, "path": lock.get("path")}
+        except OSError as exc:
+            last_result = {"removed": False, "reason": str(exc), "pid": owner_pid, "path": lock.get("path")}
+            if attempt != attempts - 1:
+                time.sleep(float(sleep_seconds))
+                continue
+            return last_result
+        return {"removed": True, "reason": reason, "pid": owner_pid, "path": lock.get("path")}
+    return last_result or {"removed": False, "reason": "writer lock cleanup exhausted attempts", "path": None}
 
 
 def stop_loop(now=None):
@@ -354,12 +373,15 @@ def stop_loop(now=None):
     pid = (status or {}).get("pid")
     if not pid_is_python(pid):
         return {"stopped": False, "reason": f"no live loop process (pid={pid})"}
-    os.kill(int(pid), signal.SIGTERM)
+    stop = terminate_python_pid(pid)
+    if not stop.get("stopped"):
+        return {"stopped": False, "pid": pid, "reason": stop.get("reason")}
+    lock_cleanup = _cleanup_loop_writer_lock(expected_pid=pid, attempts=20, sleep_seconds=0.1)
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_loop_status(status)
-    append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid})
-    return {"stopped": True, "pid": pid}
+    append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "writer_lock": lock_cleanup})
+    return {"stopped": True, "pid": pid, "writer_lock": lock_cleanup}
 
 
 def start_loop_detached(interval_minutes=10.0, now=None):
@@ -367,20 +389,21 @@ def start_loop_detached(interval_minutes=10.0, now=None):
     console output appended to ``loop_console.log``. Writes a provisional
     status immediately so a racing --ensure does not double-start."""
     now = now or datetime.now(TORONTO_TZ)
-    LOOP_CONSOLE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    log_handle = LOOP_CONSOLE_LOG_PATH.open("a", encoding="utf-8")
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    child = subprocess.Popen(
-        [sys.executable, "-m", "weather.collection.snapshot_tracker", "--loop",
-         "--interval-minutes", str(interval_minutes)],
-        cwd=str(REPO_ROOT),
-        stdout=log_handle,
-        stderr=log_handle,
-        creationflags=creationflags,
+    lock_cleanup = _cleanup_loop_writer_lock(attempts=3, sleep_seconds=0.1)
+    if lock_cleanup.get("reason") == "writer lock owner is still live":
+        append_diagnostic({
+            "time": now.isoformat(),
+            "supervisor": "start_blocked",
+            "reason": "writer lock owner is still live",
+            "writer_lock": lock_cleanup,
+        })
+        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+    child = launch_detached(
+        SNAPSHOT_SUPERVISOR.command("--loop", "--interval-minutes", interval_minutes),
+        cwd=SNAPSHOT_SUPERVISOR.cwd,
+        console_log_path=LOOP_CONSOLE_LOG_PATH,
+        popen_fn=subprocess.Popen,
     )
-    log_handle.close()
     write_loop_status({
         "pid": child.pid,
         "started_at": now.isoformat(),
@@ -395,8 +418,8 @@ def start_loop_detached(interval_minutes=10.0, now=None):
         "paused": PAUSE_FLAG_PATH.exists(),
         "started_by": "supervisor",
     })
-    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid})
-    return {"started": True, "pid": child.pid}
+    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid, "writer_lock": lock_cleanup})
+    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
 
 
 def ensure_decision(health_state, pid_alive):
@@ -407,11 +430,11 @@ def ensure_decision(health_state, pid_alive):
     with restarts. A stale heartbeat with a live PID is a HUNG process: kill
     and start fresh. Dead or never-started: start.
     """
-    if health_state in ("RUNNING", "PAUSED", "ERRORING"):
-        return "noop"
-    if pid_alive:
-        return "restart"
-    return "start"
+    return default_ensure_decision(
+        health_state,
+        pid_alive,
+        tolerated_states=SNAPSHOT_SUPERVISOR.tolerated_states,
+    )
 
 
 def ensure_loop(interval_minutes=10.0, now=None):
@@ -467,6 +490,20 @@ def run_loop(
     heartbeat + diagnostics record is written every iteration."""
     now_fn = now_fn or (lambda: datetime.now(TORONTO_TZ))
     capture_fn = capture_fn or capture_snapshot
+    writer_lock = acquire_writer_lock(
+        LOOP_STATUS_PATH,
+        owner={"loop": SNAPSHOT_SUPERVISOR.name, "module": SNAPSHOT_SUPERVISOR.module},
+        stale_after_seconds=max(120.0, float(interval_minutes) * 60.0 * 3.0),
+    )
+    if writer_lock is None:
+        existing = read_writer_lock(LOOP_STATUS_PATH)
+        append_diagnostic({
+            "time": now_fn().isoformat(),
+            "status": "duplicate_writer_blocked",
+            "existing_writer": existing,
+            "pid": os.getpid(),
+        })
+        return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
@@ -479,107 +516,111 @@ def run_loop(
         "last_snapshot_written_at": None,
         "paused": False,
     }
-    while True:
-        now = now_fn()
-        iteration_started = now
-        status["iterations"] += 1
-        status["last_heartbeat"] = now.isoformat()
-        status["paused"] = PAUSE_FLAG_PATH.exists()
-        runtime = runtime_identity_status(status.get("runtime_identity"))
-        status["runtime_guard"] = runtime
-        if runtime.get("runtime_code_state") == "stale_code":
-            status["last_error"] = runtime.get("detail")
-            status["consecutive_errors"] += 1
-            write_loop_status(status)
-            append_diagnostic({
-                "time": now.isoformat(),
-                "status": "stale_code",
-                "detail": runtime.get("detail"),
-            })
-            print(json.dumps({
-                "status": "stale_code",
-                "time": now.isoformat(),
-                "detail": runtime.get("detail"),
-            }, sort_keys=True), flush=True)
-        elif status["paused"]:
-            write_loop_status(status)
-            append_diagnostic({"time": now.isoformat(), "status": "paused"})
-            print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)
-        else:
-            # Capture every registered market each tick; one market's failure is
-            # isolated so it never kills the loop or the other markets.
-            market_results = {}
-            for spec in all_specs():
-                try:
-                    status["last_market_in_progress"] = spec.id
-                    status["last_heartbeat"] = now_fn().isoformat()
-                    write_loop_status(status)
-                    result = capture_fn(force=force, market_id=spec.id)
-                    market_results[spec.id] = result
-                    progress_now = now_fn()
-                    status["last_heartbeat"] = progress_now.isoformat()
-                    if result.get("written"):
-                        status["last_snapshot_id"] = result.get("snapshot_id")
-                        status["last_snapshot_written_at"] = progress_now.isoformat()
-                except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                    market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
-                    status["last_heartbeat"] = now_fn().isoformat()
-                status["last_market_results"] = {
-                    mid: {
-                        "written": bool(result.get("written")),
-                        "snapshot_id": result.get("snapshot_id"),
-                        "error": result.get("error"),
-                    }
-                    for mid, result in market_results.items()
-                }
-                write_loop_status(status)
-            errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
-            if errors:
+    attach_status_writer(status, writer_lock)
+    try:
+        while True:
+            now = now_fn()
+            iteration_started = now
+            status["iterations"] += 1
+            status["last_heartbeat"] = now.isoformat()
+            status["paused"] = PAUSE_FLAG_PATH.exists()
+            runtime = runtime_identity_status(status.get("runtime_identity"))
+            status["runtime_guard"] = runtime
+            if runtime.get("runtime_code_state") == "stale_code":
+                status["last_error"] = runtime.get("detail")
                 status["consecutive_errors"] += 1
-                status["last_error"] = "; ".join(f"{mid}: {err}" for mid, err in errors.items())
+                write_loop_status(status)
+                append_diagnostic({
+                    "time": now.isoformat(),
+                    "status": "stale_code",
+                    "detail": runtime.get("detail"),
+                })
+                print(json.dumps({
+                    "status": "stale_code",
+                    "time": now.isoformat(),
+                    "detail": runtime.get("detail"),
+                }, sort_keys=True), flush=True)
+            elif status["paused"]:
+                write_loop_status(status)
+                append_diagnostic({"time": now.isoformat(), "status": "paused"})
+                print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)
             else:
-                status["consecutive_errors"] = 0
-                status["last_error"] = None
-            status["last_market_in_progress"] = None
-            elapsed_minutes = (now_fn() - iteration_started).total_seconds() / 60.0
-            _record_recent_elapsed(status, elapsed_minutes)
-            try:
-                fleet_health = current_fleet_collection_health(
-                    now=now_fn(),
-                    interval_minutes=interval_minutes,
-                )
-                status["fleet_collection"] = {
-                    "schema_version": fleet_health.get("schema_version"),
-                    "summary": fleet_health.get("summary"),
-                    "attention_markets": [
-                        row["market_id"]
-                        for row in fleet_health.get("markets", [])
-                        if row.get("action_required")
-                    ],
-                }
-            except Exception as exc:  # noqa: BLE001 - observability must not kill collection
-                status["fleet_collection"] = {
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
+                # Capture every registered market each tick; one market's failure is
+                # isolated so it never kills the loop or the other markets.
+                market_results = {}
+                for spec in all_specs():
+                    try:
+                        status["last_market_in_progress"] = spec.id
+                        status["last_heartbeat"] = now_fn().isoformat()
+                        write_loop_status(status)
+                        result = capture_fn(force=force, market_id=spec.id)
+                        market_results[spec.id] = result
+                        progress_now = now_fn()
+                        status["last_heartbeat"] = progress_now.isoformat()
+                        if result.get("written"):
+                            status["last_snapshot_id"] = result.get("snapshot_id")
+                            status["last_snapshot_written_at"] = progress_now.isoformat()
+                    except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                        market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
+                        status["last_heartbeat"] = now_fn().isoformat()
+                    status["last_market_results"] = {
+                        mid: {
+                            "written": bool(result.get("written")),
+                            "snapshot_id": result.get("snapshot_id"),
+                            "error": result.get("error"),
+                        }
+                        for mid, result in market_results.items()
+                    }
+                    write_loop_status(status)
+                errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
+                if errors:
+                    status["consecutive_errors"] += 1
+                    status["last_error"] = "; ".join(f"{mid}: {err}" for mid, err in errors.items())
+                else:
+                    status["consecutive_errors"] = 0
+                    status["last_error"] = None
+                status["last_market_in_progress"] = None
+                elapsed_minutes = (now_fn() - iteration_started).total_seconds() / 60.0
+                _record_recent_elapsed(status, elapsed_minutes)
+                try:
+                    fleet_health = current_fleet_collection_health(
+                        now=now_fn(),
+                        interval_minutes=interval_minutes,
+                    )
+                    status["fleet_collection"] = {
+                        "schema_version": fleet_health.get("schema_version"),
+                        "summary": fleet_health.get("summary"),
+                        "attention_markets": [
+                            row["market_id"]
+                            for row in fleet_health.get("markets", [])
+                            if row.get("action_required")
+                        ],
+                    }
+                except Exception as exc:  # noqa: BLE001 - observability must not kill collection
+                    status["fleet_collection"] = {
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                write_loop_status(status)
+                append_diagnostic({
+                    "time": now.isoformat(),
+                    "markets": {
+                        mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id"), "error": r.get("error")}
+                        for mid, r in market_results.items()
+                    },
+                })
+                print(json.dumps({
+                    "time": now.isoformat(),
+                    "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
+                }, sort_keys=True), flush=True)
+            elapsed_seconds = (now_fn() - iteration_started).total_seconds()
+            sleep_seconds = max(1.0, interval_minutes * 60.0 - elapsed_seconds)
+            status["last_sleep_seconds"] = round(sleep_seconds, 1)
             write_loop_status(status)
-            append_diagnostic({
-                "time": now.isoformat(),
-                "markets": {
-                    mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id"), "error": r.get("error")}
-                    for mid, r in market_results.items()
-                },
-            })
-            print(json.dumps({
-                "time": now.isoformat(),
-                "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
-            }, sort_keys=True), flush=True)
-        elapsed_seconds = (now_fn() - iteration_started).total_seconds()
-        sleep_seconds = max(1.0, interval_minutes * 60.0 - elapsed_seconds)
-        status["last_sleep_seconds"] = round(sleep_seconds, 1)
-        write_loop_status(status)
-        if max_iterations is not None and status["iterations"] >= max_iterations:
-            return status
-        sleep_fn(sleep_seconds)
+            if max_iterations is not None and status["iterations"] >= max_iterations:
+                return status
+            sleep_fn(sleep_seconds)
+    finally:
+        release_writer_lock(writer_lock)
 
 
 def main():
