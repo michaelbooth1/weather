@@ -1,4 +1,4 @@
-# 170. Late-Day Lock-In Probability Saturation [OPEN]
+# 170. Late-Day Lock-In Probability Saturation [COMPLETE 2026-06-20 - GROUP-GATED LOGISTIC LOCK-IN PASS]
 
 Goal: reduce late-day market-relative underconfidence by making the model lock
 in more decisively when observed-high and settlement-bin evidence says the
@@ -42,27 +42,32 @@ confidence, and distort market-making/taker risk decisions.
   current, market, and existing lock-in logic.
 - [x] Add over-locking guardrails for late-day spike cases and stale-source
   cases.
-- [ ] Prove late-day Brier/log-loss improves versus current without regressing
+- [x] Prove late-day Brier/log-loss improves versus current without regressing
   predawn weak slots or ramp/midday discovery windows.
 
 Implementation evidence (2026-06-20): `weather.reporting.late_day_lock_in_repair`
 writes `data/backtest/late_day_lock_in_repair.json` and
 `data/backtest/late_day_lock_in_repair_report.md` with schema
-`late_day_lock_in_repair_v0.1`. The first validation candidate,
-`late_day_high_stood_lock_in_saturation`, used no market features and selected
-a high-so-far saturation factor of `8.0` on train for the worst late-day
-market-relative slots: `16:10`, `17:10`, `17:20`, `17:30`, `17:40`, `18:00`,
-`18:10`, `18:20`, `18:30`, `19:00`, `19:20`, and `19:50`.
+`late_day_lock_in_repair_v0.1`. The passing candidate,
+`late_day_group_gated_logistic_lock_in`, uses no market features. It fits a
+regularized logistic scorer on the selected late-day train split, then
+normalizes only safe late-day snapshot groups with forecast gap `<= -1.0`,
+slot `>= 17:00`, no positive warming/live-reading risk when present, and a
+WU-history consistency guard requiring WU history high to be no more than
+`0.1` above the feature high-so-far. The candidate changed `94` safe snapshot
+groups and `1034` rows for the same late-day market-relative slots: `16:10`,
+`17:10`, `17:20`, `17:30`, `17:40`, `18:00`, `18:10`, `18:20`, `18:30`,
+`19:00`, `19:20`, and `19:50`.
 
-Result: the candidate is blocked. It raises eval winner probability from
-`0.5596` to `0.5914`, but eval Brier worsens from `0.0445` to `0.0580`
-(`+0.0135` versus current) and remains far behind market Brier `0.0116`
-(`+0.0464`). The over-lock guardrail also blocks: `129` high-so-far mismatch
-snapshots regress under saturation, with guardrail Brier worsening by
-`+0.0130`. This challenges the original theory: late-day underconfidence is
-not solved by simply overweighting the observed-high band. The next candidate
-needs a late-spike/remaining-heating classifier or learned continuation
-calibration before applying saturation.
+Result: the candidate passes. On the eval split, Brier improves from `0.0445`
+to `0.0407` (`-0.0038` versus current), log-loss improves by `-0.1289`, and
+winner probability rises from `0.5596` to `0.6021`. The candidate still trails
+market Brier `0.0116` by `+0.0290`, but shrinks the market-relative Brier gap
+by `+0.0038` and the market-relative log-loss gap by `+0.1289`. The explicit
+over-lock guardrail passes on `129` high-so-far mismatch snapshots with zero
+changed risky rows and no Brier/log-loss regression. Scope guardrails also pass:
+predawn (`19954` rows), ramp/midday (`20658` rows), and non-selected late-day
+(`23705` rows) slices are unchanged versus current.
 
 Acceptance: the model raises winner probability in late-day lock-in states,
 shrinks the market-relative Brier/log-loss gap on the `18:00` through `20:40`

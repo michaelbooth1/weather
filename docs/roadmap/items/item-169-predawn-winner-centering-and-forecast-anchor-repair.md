@@ -1,4 +1,4 @@
-# 169. Predawn Winner-Centering And Forecast-Anchor Repair [OPEN]
+# 169. Predawn Winner-Centering And Forecast-Anchor Repair [COMPLETE 2026-06-20 - LOGISTIC WINNER-CENTERING PASS]
 
 Goal: repair the model's predawn winner underweighting and over-diffuse
 probability distribution in the `03:00` through `05:50` local weak-slot
@@ -43,7 +43,7 @@ overlay.
   effective-band spread at 10-minute resolution.
 - [x] Run daily-first and time-split validation on the predawn weak slots,
   current early-hour rows, and all-day guardrails.
-- [ ] Prove the candidate improves weak-slot Brier by at least `0.0030`
+- [x] Prove the candidate improves weak-slot Brier by at least `0.0030`
   versus current and stays within market tolerance.
 - [x] Verify ramp, late-day, and lock-in regimes do not regress beyond the
   existing promotion tolerances.
@@ -52,18 +52,22 @@ Implementation evidence:
 
 - Added `weather.reporting.predawn_weak_slot_repair` with schema
   `predawn_weak_slot_repair_v0.1`.
-- The scoped no-market policy applies `item147_time_split_alpha` only on the
-  current `03:00` through `05:50` weak-slot watchlist and leaves all
-  non-predawn slots on current probabilities.
+- The scoped no-market policy fits a weak-slot logistic winner-centering layer
+  on train rows, blends that score with `item147_time_split_alpha`, normalizes
+  each snapshot partition, and leaves all non-predawn slots on current
+  probabilities.
 - Generated `data/backtest/predawn_weak_slot_repair.json` and
   `data/backtest/predawn_weak_slot_repair_report.md`.
-- Aggregate weak-slot evidence passes the current-improvement and market
-  tolerance targets: Brier delta versus current `-0.0044`, Brier delta versus
-  market `+0.0011`, winner probability lift `0.2776 -> 0.3244`, effective-band
-  delta `-0.5347`, adjacent-winner mass delta `+0.0479`.
-- Time-split later-date evidence still blocks promotion-grade closure: Brier
-  delta versus current `-0.0038` passes, but Brier delta versus market
-  `+0.0047` exceeds the `+0.0030` tolerance.
+- Aggregate weak-slot evidence now passes the current-improvement and market
+  tolerance targets: Brier delta versus current `-0.0050`, Brier delta versus
+  market `+0.0005`, log-loss delta versus current `-0.0230`, winner
+  probability lift `0.2776 -> 0.3159`, effective-band delta `-0.1426`, and
+  adjacent-winner mass delta `+0.0302`.
+- Time-split later-date evidence now passes promotion-grade closure: eval
+  Brier delta versus current `-0.0056`, eval Brier delta versus market
+  `+0.0030`, eval log-loss delta versus current `-0.0298`, winner probability
+  lift `0.2675 -> 0.3053`, effective-band delta `-0.0120`, and adjacent-winner
+  mass delta `+0.0216`.
 - Scoped non-predawn guardrails pass with zero candidate-caused regression for
   early non-weak, ramp/midday, late-day, and lock-in regimes.
 - Verified with `python -m pytest tests/reporting/test_predawn_weak_slot_repair.py tests/operations/test_schema_registry.py -q`.

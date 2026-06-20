@@ -13,38 +13,39 @@ Why this matters: cleanup should not only make the repository smaller. The
 model runtime also needs clearer validation and serving contracts so refactors
 do not preserve hidden calibration defects.
 
-## Design
+Decomposition (2026-06-20): the seven calibration findings now have their own
+standalone OPEN items so each carries its own status, acceptance, and owner.
+This item is the **parent tracker** for that set plus the two leftover
+state-cleanup tasks it still owns directly.
 
-1. Convert each model audit finding into a measurable experiment or serving
-   parity check.
-2. Prioritize issues that can create train/serve skew or overstate validation
-   evidence.
-3. Keep market-aware overlays separate from price-free weather-model
-   calibration evidence.
-4. Add before/after reports for Brier, log loss, winner probability, weak-slot
-   performance, and per-market regressions.
-5. Update promotion gates only after the repaired validation path proves a
+## Delegated findings (tracked as standalone items)
+
+- [ ] Item 178 — Serving-Time Ordinal Smoothing Train/Serve Skew (H1).
+- [ ] Item 179 — Honest Blocked Validation For Feature-Model Tuning (H2).
+- [ ] Item 180 — Unit-Safe Missing-Feature Handling (M1).
+- [ ] Item 181 — Forecast Signal Double-Counting And Dead Capture-Hour (M2).
+- [ ] Item 182 — Distribution Stage-Attribution Harness (M3, measurement
+  substrate for the rest).
+- [ ] Item 183 — Correlated Forecast-Source Clustering On Fallback Path (M4).
+- [ ] Item 184 — Per-Market Climatological Fallback Prior (M5).
+
+## Retained scope (owned here)
+
+1. Keep market-aware overlays separate from price-free weather-model calibration
+   evidence across the delegated items.
+2. Use item 182's stage-attribution harness as the shared before/after report
+   (Brier, log loss, winner probability, weak-slot, per-market regressions).
+3. Update promotion gates only after the repaired validation path proves a
    candidate improves current serving behavior.
 
-- [ ] Add a stage-attribution report for the heuristic stack so each smoothing
-  or postprocessing layer has measured impact.
-- [ ] Replace row-level leave-one-out validation with honest year-blocked or
-  embargoed validation where leakage risk exists.
-- [ ] Either train the ordinal smoothing behavior into the objective or remove
-  the serving-only smoothing layer.
-- [ ] Replace hard-coded Celsius fallback constants with explicit missingness
-  that the trained imputer/model path handles.
-- [ ] Decide whether forecast pull applies only to fallback behavior or to the
-  main model path, and remove dead capture-hour semantics.
-- [ ] Collapse correlated forecast-source fallbacks into source-family clusters
-  before treating evidence as independent.
-- [ ] Replace broad uniform temperature priors with per-market climatological
-  priors.
-- [ ] Bound or invalidate class-level climatology caches.
-- [ ] Finish or retire the half-adopted continuous-density path.
+- [ ] Bound or invalidate the class-level climatology cache
+  (`_historical_target_cache`, unbounded by `market:date`).
+- [ ] Finish or retire the half-adopted continuous-density path (coordinate with
+  item 35).
 
-Acceptance: validation evidence uses an honest blocked split, serving behavior
-matches trained behavior or has explicit measured postprocessing, and promotion
-reports show no hidden regression in the weak-slot, per-market, or late-day
-lock-in slices.
+Acceptance: items 178–184 are resolved, validation evidence uses an honest
+blocked split, serving behavior matches trained behavior or has explicit measured
+postprocessing, the climatology cache is bounded, the continuous-density path is
+finished or retired, and promotion reports show no hidden regression in the
+weak-slot, per-market, or late-day lock-in slices.
 

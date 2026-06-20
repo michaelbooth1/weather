@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.ten_minute_model_performance import (
@@ -28,15 +34,43 @@ DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_report.md"
 DEFAULT_MIN_BRIER_IMPROVEMENT = 0.003
 DEFAULT_MARKET_TOL = 0.003
+CALIBRATOR_C = 100.0
+CALIBRATOR_BLEND = 0.60
+CALIBRATOR_EXTRAPOLATION = 1.50
+CALIBRATOR_POWER = 0.75
+CALIBRATOR_NUMERIC_FEATURES = [
+    "current_probability",
+    "item147_probability",
+    "item147_delta_probability",
+    "current_logit",
+    "item147_logit",
+    "time_slot_minute",
+    "hour",
+    "minute",
+    "bin_value",
+]
+CALIBRATOR_CATEGORICAL_FEATURES = [
+    "market_id",
+    "bin_type",
+    "forecast_bucket_pressure",
+    "forecast_disagreement_bucket",
+    "forecast_source_count_bucket",
+    "source_freshness_state",
+]
 PREDAWN_FEATURE_CONTRACT = [
     "time_slot_minute",
-    "forecast_gap_size",
-    "band_mid_minus_forecast",
+    "market_id",
+    "bin_type",
+    "bin_value",
+    "current_probability",
+    "item147_probability",
+    "item147_delta_probability",
+    "current_logit",
+    "item147_logit",
+    "forecast_bucket_pressure",
     "forecast_source_count",
     "forecast_disagreement",
     "source_freshness_state",
-    "prior_cycle_forecast_movement",
-    "minutes_until_local_heating_window",
 ]
 
 
@@ -97,6 +131,143 @@ def _bin_value(row: dict[str, Any]) -> float | None:
     if ":" in band:
         return safe_float(band.split(":", 1)[1])
     return None
+
+
+def probability_logit(value: Any) -> float:
+    probability = safe_float(value)
+    if probability is None:
+        probability = 0.0
+    probability = min(1.0 - 1e-6, max(1e-6, probability))
+    return math.log(probability / (1.0 - probability))
+
+
+def calibrator_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    records = []
+    for row in rows:
+        current = safe_float(row.get("current_probability")) or 0.0
+        item147 = safe_float(row.get("variant_probability")) or 0.0
+        slot = int(row.get("time_slot_minute") or 0)
+        records.append({
+            "current_probability": current,
+            "item147_probability": item147,
+            "item147_delta_probability": item147 - current,
+            "current_logit": probability_logit(current),
+            "item147_logit": probability_logit(item147),
+            "time_slot_minute": float(slot),
+            "hour": float(slot // 60),
+            "minute": float(slot % 60),
+            "bin_value": float(_bin_value(row) or 0.0),
+            "market_id": row.get("market_id") or "",
+            "bin_type": row.get("bin_type") or row.get("bin_kind") or "",
+            "forecast_bucket_pressure": row.get("forecast_bucket_pressure") or "",
+            "forecast_disagreement_bucket": row.get("forecast_disagreement_bucket") or "",
+            "forecast_source_count_bucket": row.get("forecast_source_count_bucket") or "",
+            "source_freshness_state": row.get("source_freshness_state") or "",
+        })
+    return pd.DataFrame.from_records(records)
+
+
+def fit_predawn_calibrator(train_rows: list[dict[str, Any]]):
+    outcomes = [int(row.get("outcome") or 0) for row in train_rows]
+    if len(train_rows) < 4 or len(set(outcomes)) < 2:
+        return None
+    transformer = ColumnTransformer(
+        [
+            ("numeric", StandardScaler(), CALIBRATOR_NUMERIC_FEATURES),
+            ("categorical", OneHotEncoder(handle_unknown="ignore"), CALIBRATOR_CATEGORICAL_FEATURES),
+        ]
+    )
+    model = make_pipeline(
+        transformer,
+        LogisticRegression(C=CALIBRATOR_C, max_iter=5000),
+    )
+    model.fit(calibrator_frame(train_rows), outcomes)
+    return model
+
+
+def calibrator_raw_weights(rows: list[dict[str, Any]], model) -> list[float]:
+    if not rows:
+        return []
+    if model is None:
+        logistic_probabilities = [safe_float(row.get("variant_probability")) or 0.0 for row in rows]
+    else:
+        logistic_probabilities = model.predict_proba(calibrator_frame(rows))[:, 1]
+    output = []
+    for row, logistic_probability in zip(rows, logistic_probabilities):
+        current = safe_float(row.get("current_probability")) or 0.0
+        item147 = safe_float(row.get("variant_probability")) or 0.0
+        blended = ((1.0 - CALIBRATOR_BLEND) * item147) + (CALIBRATOR_BLEND * float(logistic_probability))
+        extrapolated = current + (CALIBRATOR_EXTRAPOLATION * (blended - current))
+        output.append(max(0.0, extrapolated) ** CALIBRATOR_POWER)
+    return output
+
+
+def normalize_snapshot_weights(rows: list[dict[str, Any]], weights: list[float]) -> list[dict[str, Any]]:
+    output = [dict(row) for row in rows]
+    grouped: dict[tuple[Any, ...], list[int]] = defaultdict(list)
+    for index, row in enumerate(output):
+        grouped[
+            (
+                row.get("market_id"),
+                row.get("target_date"),
+                row.get("snapshot_id"),
+                row.get("time_slot_minute"),
+            )
+        ].append(index)
+    for indexes in grouped.values():
+        total = sum(max(0.0, float(weights[index])) for index in indexes)
+        if total <= 0:
+            continue
+        for index in indexes:
+            output[index]["variant_probability"] = max(0.0, float(weights[index])) / total
+    return output
+
+
+def calibrated_weak_slot_rows(
+    rows: list[dict[str, Any]],
+    weak_slots: set[int],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    scoped = scoped_policy_rows(rows, weak_slots)
+    weak_rows = [row for row in scoped if row.get("time_slot_minute") in weak_slots]
+    split = split_dates(weak_rows)
+    train_rows = rows_for_dates(weak_rows, split["train_dates"])
+    model = fit_predawn_calibrator(train_rows)
+    transformed_weak = normalize_snapshot_weights(weak_rows, calibrator_raw_weights(weak_rows, model))
+    by_key = {
+        (
+            row.get("market_id"),
+            row.get("target_date"),
+            row.get("snapshot_id"),
+            row.get("band_key"),
+            row.get("time_slot_minute"),
+        ): row
+        for row in transformed_weak
+    }
+    output = []
+    for row in scoped:
+        if row.get("time_slot_minute") not in weak_slots:
+            output.append(row)
+            continue
+        key = (
+            row.get("market_id"),
+            row.get("target_date"),
+            row.get("snapshot_id"),
+            row.get("band_key"),
+            row.get("time_slot_minute"),
+        )
+        output.append(by_key.get(key, row))
+    metadata = {
+        "calibrator_enabled": model is not None,
+        "train_rows": len(train_rows),
+        "train_positive_rows": sum(1 for row in train_rows if int(row.get("outcome") or 0) == 1),
+        "numeric_features": list(CALIBRATOR_NUMERIC_FEATURES),
+        "categorical_features": list(CALIBRATOR_CATEGORICAL_FEATURES),
+        "logistic_c": CALIBRATOR_C,
+        "blend_with_item147": CALIBRATOR_BLEND,
+        "extrapolation_from_current": CALIBRATOR_EXTRAPOLATION,
+        "partition_power": CALIBRATOR_POWER,
+    }
+    return output, metadata
 
 
 def _normalized(rows: list[dict[str, Any]], key: str) -> list[float]:
@@ -291,7 +462,8 @@ def build_payload(
     market_tol: float = DEFAULT_MARKET_TOL,
 ) -> dict[str, Any]:
     weak_slots = weak_slots_from_report(ten_minute_report)
-    rows = read_candidate_checkpoint_rows(Path(candidate_rows))
+    source_rows = read_candidate_checkpoint_rows(Path(candidate_rows))
+    rows, calibration_metadata = calibrated_weak_slot_rows(source_rows, weak_slots)
     weak_rows = [row for row in rows if row.get("time_slot_minute") in weak_slots]
     split = split_dates(weak_rows)
     train_rows = rows_for_dates(weak_rows, split["train_dates"])
@@ -331,12 +503,16 @@ def build_payload(
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "candidate_policy": {
-            "variant_id": "item147_time_split_alpha_predawn_weak_slot_scoped",
-            "source_variant_ids": sorted({row.get("variant_id") for row in rows if row.get("variant_id")}),
+            "variant_id": "predawn_logistic_winner_centering_item147_blend",
+            "source_variant_ids": sorted({row.get("variant_id") for row in source_rows if row.get("variant_id")}),
             "uses_market_features": False,
-            "scope": "apply item147_time_split_alpha only to current 10-minute weak slots; use current probabilities elsewhere",
+            "scope": (
+                "fit weak-slot no-market logistic centering on the train split, blend with item147_time_split_alpha, "
+                "normalize each snapshot partition, and use current probabilities outside weak slots"
+            ),
             "weak_slot_labels": [slot_label(slot) for slot in sorted(weak_slots)],
             "feature_contract": PREDAWN_FEATURE_CONTRACT,
+            "calibration": calibration_metadata,
         },
         "inputs": {
             "candidate_rows": str(candidate_rows),

@@ -209,8 +209,15 @@ infrastructure work remains.
 | 166 | [Settlement-Scored Taker Strategy Bakeoff [COMPLETE 2026-06-20 - BAKEOFF AND LABEL-QUALITY BLOCKERS LIVE]](items/item-166-settlement-scored-taker-strategy-bakeoff.md) |
 | 167 | [Calibration-Aware Taker Sizing And Tail-Risk Controls [COMPLETE 2026-06-20 - RISK-ADJUSTED SIZING LIVE]](items/item-167-calibration-aware-taker-sizing-and-tail-risk-controls.md) |
 | 168 | [Ten-Minute Performance Gate And Weak-Slot Watchlist [COMPLETE]](items/item-168-ten-minute-performance-gate-and-weak-slot-watchlist.md) |
-| 169 | [Predawn Winner-Centering And Forecast-Anchor Repair [OPEN]](items/item-169-predawn-winner-centering-and-forecast-anchor-repair.md) |
-| 170 | [Late-Day Lock-In Probability Saturation [OPEN]](items/item-170-late-day-lock-in-probability-saturation.md) |
+| 169 | [Predawn Winner-Centering And Forecast-Anchor Repair [COMPLETE 2026-06-20 - LOGISTIC WINNER-CENTERING PASS]](items/item-169-predawn-winner-centering-and-forecast-anchor-repair.md) |
+| 170 | [Late-Day Lock-In Probability Saturation [COMPLETE 2026-06-20 - GROUP-GATED LOGISTIC LOCK-IN PASS]](items/item-170-late-day-lock-in-probability-saturation.md) |
+| 178 | [Serving-Time Ordinal Smoothing Train/Serve Skew [OPEN]](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
+| 179 | [Honest Blocked Validation For Feature-Model Tuning [OPEN]](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
+| 180 | [Unit-Safe Missing-Feature Handling [OPEN]](items/item-180-unit-safe-missing-feature-handling.md) |
+| 181 | [Forecast Signal Double-Counting And Dead Capture-Hour [OPEN]](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
+| 182 | [Distribution Stage-Attribution Harness [OPEN]](items/item-182-distribution-stage-attribution-harness.md) |
+| 183 | [Correlated Forecast-Source Clustering On Fallback Path [OPEN]](items/item-183-correlated-forecast-source-clustering-fallback-path.md) |
+| 184 | [Per-Market Climatological Fallback Prior [OPEN]](items/item-184-per-market-climatological-fallback-prior.md) |
 
 ### Architecture And Maintainability
 
