@@ -20,9 +20,8 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 
 Roadmap item states are `COMPLETE`, `PARTIAL`, and `OPEN`.
 `COMPLETE` means the item has accepted implementation evidence or an explicit
-final disposition, including superseded or intentionally discontinued work.
-Legacy terminal labels should be written as `COMPLETE`; there is no separate
-terminal state. `PARTIAL` means useful work exists but
+final disposition, including superseded or intentionally discontinued work, and
+has no remaining active roadmap work. `PARTIAL` means useful work exists but
 acceptance is not fully met, and `OPEN` means primary implementation or
 infrastructure work remains.
 
@@ -117,6 +116,9 @@ infrastructure work remains.
 | 146 | [Tape Backup Capacity And CLOB Tiered Retention [PARTIAL 2026-06-19 - LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
 | 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-19 - TRAIN-SIDE MIDPOINT EVIDENCE BLOCKED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
+| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-20 - CADENCE PROOF ADDED, CLEAN ACTIVE DAY PENDING]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
+| 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [PARTIAL 2026-06-20 - PREFLIGHT AND RESUME MODE LIVE, FULL RESUME PENDING]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -198,6 +200,9 @@ infrastructure work remains.
 | 152 | [Active-Day Bot Preflight And Disk Liveness [COMPLETE 2026-06-18 - DISK AND DISCOVERY DENY-BY-DEFAULT GATES]](items/item-152-active-day-bot-preflight-and-disk-liveness.md) |
 | 153 | [Live Observation Monotonicity And Settlement-Bin Normalization [COMPLETE 2026-06-18 - SETTLEMENT-NORMALIZED LIVE HIGH LEDGER]](items/item-153-live-observation-monotonicity-and-settlement-bin-normalization.md) |
 | 155 | [Inactive-Market Price-Free Learning And Current-Max Carryover Guard [COMPLETE 2026-06-19 - 2026-06-18 AUDIT GAP]](items/item-155-inactive-market-price-free-learning-and-current-max-carryover-guard.md) |
+| 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-20 - CANDIDATE GATE PASSES, CURRENT GATE STILL BLOCKED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
+| 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
+| 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
 
 ### Architecture And Maintainability
 
@@ -228,6 +233,7 @@ infrastructure work remains.
 | 131 | [Model Artifact Storage Growth Guard [COMPLETE 2026-06-18 - SIZE AUDIT AND STORAGE POLICY LIVE]](items/item-131-model-artifact-storage-growth-guard.md) |
 | 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
 | 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
+| 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-20 - TAXONOMY AND SOAK REPORT LIVE, ACTIVE-DAY PROOF BLOCKED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 
 ## Maintenance Conventions
 

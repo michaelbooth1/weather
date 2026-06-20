@@ -702,21 +702,73 @@ def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS, 
     }
 
 
+def _normalized_pid(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _cleanup_watcher_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1, status_path=None):
+    attempts = max(1, int(attempts))
+    status_path = status_path or STATUS_PATH
+    last_result = None
+    for attempt in range(attempts):
+        lock = read_writer_lock(status_path)
+        if not lock.get("exists"):
+            return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
+        owner_pid = _normalized_pid(lock.get("pid"))
+        expected = _normalized_pid(expected_pid)
+        if expected is not None and owner_pid == expected:
+            reason = "stopped writer pid"
+        elif owner_pid is not None and not pid_is_python(owner_pid):
+            reason = "dead writer pid"
+        else:
+            return {
+                "removed": False,
+                "reason": "writer lock owner is still live",
+                "pid": owner_pid,
+                "path": lock.get("path"),
+            }
+        try:
+            Path(lock["path"]).unlink()
+        except FileNotFoundError:
+            return {"removed": False, "reason": "writer lock already gone", "pid": owner_pid, "path": lock.get("path")}
+        except OSError as exc:
+            last_result = {"removed": False, "reason": str(exc), "pid": owner_pid, "path": lock.get("path")}
+            if attempt != attempts - 1:
+                time.sleep(float(sleep_seconds))
+                continue
+            return last_result
+        return {"removed": True, "reason": reason, "pid": owner_pid, "path": lock.get("path")}
+    return last_result or {"removed": False, "reason": "writer lock cleanup exhausted attempts", "path": None}
+
+
 def stop_watcher_loop(now=None, status_path=None):
     now = now or utc_now()
     status_path = status_path or STATUS_PATH
     status = read_status(status_path)
     pid = (status or {}).get("pid")
+    lock_cleanup = _cleanup_watcher_writer_lock(
+        expected_pid=pid,
+        attempts=20,
+        sleep_seconds=0.1,
+        status_path=status_path,
+    )
     if not pid_is_python(pid):
-        return {"stopped": False, "reason": f"no live observation trigger process (pid={pid})"}
+        return {
+            "stopped": False,
+            "reason": f"no live observation trigger process (pid={pid})",
+            "writer_lock": lock_cleanup,
+        }
     stop = terminate_python_pid(pid)
     if not stop.get("stopped"):
-        return {"stopped": False, "pid": pid, "reason": stop.get("reason")}
+        return {"stopped": False, "pid": pid, "reason": stop.get("reason"), "writer_lock": lock_cleanup}
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_status(status, status_path)
-    append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid})
-    return {"stopped": True, "pid": pid}
+    append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "writer_lock": lock_cleanup})
+    return {"stopped": True, "pid": pid, "writer_lock": lock_cleanup}
 
 
 def start_watcher_detached(
@@ -726,6 +778,15 @@ def start_watcher_detached(
     now=None,
 ):
     now = now or utc_now()
+    lock_cleanup = _cleanup_watcher_writer_lock(attempts=3, sleep_seconds=0.1)
+    if lock_cleanup.get("reason") == "writer lock owner is still live":
+        append_diagnostic({
+            "time": now.isoformat(),
+            "supervisor": "start_blocked",
+            "reason": "writer lock owner is still live",
+            "writer_lock": lock_cleanup,
+        })
+        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
     child = launch_detached(
         OBSERVATION_SUPERVISOR.command(
             "loop",
@@ -758,8 +819,8 @@ def start_watcher_detached(
         "started_by": "supervisor",
         "paused": PAUSE_FLAG_PATH.exists(),
     })
-    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid})
-    return {"started": True, "pid": child.pid}
+    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid, "writer_lock": lock_cleanup})
+    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
 
 
 def acquire_supervisor_lock(path=None):

@@ -15,6 +15,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_daily_refresh,
     run_ingest_quality_gate_step,
     run_model_variant_evidence_growth_step,
+    run_promotion_refresh_step,
     run_price_free_model_learning_step,
     run_reanalysis_recent_refresh_step,
 )
@@ -36,6 +37,7 @@ def _args(tmp, **overrides):
         "force_long_job_lock": False,
         "dry_run": False,
         "continue_on_error": False,
+        "resume_from_step": "",
         "fail_on_fleet_critical": False,
         "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
@@ -69,6 +71,7 @@ def _args(tmp, **overrides):
         "skip_daily_learning": False,
         "skip_hourly_model_performance": False,
         "skip_price_free_model_learning": False,
+        "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
         "markets": "",
         "hourly_min_rows": 30,
@@ -158,6 +161,28 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["steps"][-1]["name"], "two")
         self.assertIn("boom", payload["steps"][-1]["error"])
 
+    def test_run_daily_refresh_writes_progress_ledger_on_error(self):
+        def bad(_args):
+            raise RuntimeError("boom")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            payload, _status_path, report_path = run_daily_refresh(
+                args,
+                runners=[("promotion_refresh", bad)],
+            )
+            ledger = Path(args.backtest_root) / "daily_progress_ledger.jsonl"
+            latest = Path(args.backtest_root) / "daily_progress_latest.json"
+            lines = ledger.read_text(encoding="utf-8").strip().splitlines()
+            latest_payload = json.loads(latest.read_text(encoding="utf-8"))
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["daily_progress_ledger"]["status"], "OK")
+        self.assertEqual(len(lines), 1)
+        self.assertFalse(latest_payload["broad_improvement_claim_allowed"])
+        self.assertIn("Daily Progress Ledger", report)
+
     def test_run_daily_refresh_continue_on_error_runs_later_steps(self):
         calls = []
 
@@ -205,6 +230,74 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("hourly_model_performance"), names.index("price_free_model_learning"))
         self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
         self.assertLess(names.index("active_variant_shadow"), names.index("model_variant_evidence_growth"))
+
+    def test_promotion_refresh_disk_preflight_blocks_before_candidate_export(self):
+        def after(_args):
+            raise AssertionError("daily refresh should stop at disk preflight")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("weather.operations.daily_refresh.promotion_refresh.run_promotion_refresh") as run_refresh:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            (backtest / "pooled_candidate_replay_latest.json").write_text(
+                json.dumps({"aggregate": {"n": 10}}),
+                encoding="utf-8",
+            )
+
+            payload, _status_path, report_path = run_daily_refresh(
+                _args(
+                    tmp,
+                    disable_long_job_guard=True,
+                    promotion_min_artifact_free_bytes=1000,
+                    disk_usage_fn=lambda _path: SimpleNamespace(total=2000, used=1900, free=100),
+                ),
+                runners=[
+                    ("promotion_refresh", run_promotion_refresh_step),
+                    ("daily_learning", after),
+                ],
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        run_refresh.assert_not_called()
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(len(payload["steps"]), 1)
+        step = payload["steps"][0]
+        result = step["result"]
+        disk = result["disk_preflight"]
+        self.assertEqual(step["status"], "error")
+        self.assertEqual(result["root_cause_class"], "blocked_by_disk")
+        self.assertEqual(disk["status"], "BLOCK")
+        self.assertEqual(disk["projected_export_bytes"], 10 * 1024)
+        self.assertEqual(disk["required_free_bytes"], 1000 + 10 * 1024)
+        self.assertGreater(disk["insufficient_bytes"], 0)
+        self.assertTrue(result["no_partial_export"])
+        self.assertFalse((Path(tmp) / "backtest" / "f_family_promotion_refresh.json").exists())
+        self.assertIn("## Disk Preflight", report)
+        self.assertIn("--resume-from-step promotion_refresh", report)
+
+    def test_resume_from_step_skips_upstream_steps(self):
+        calls = []
+
+        def runner(name):
+            def _run(_args):
+                calls.append(name)
+                return {"name": name}
+            return _run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, disable_long_job_guard=True, resume_from_step="promotion_refresh"),
+                runners=[
+                    ("price_free_model_learning", runner("price_free_model_learning")),
+                    ("promotion_refresh", runner("promotion_refresh")),
+                    ("daily_learning", runner("daily_learning")),
+                ],
+            )
+
+        self.assertEqual(calls, ["promotion_refresh", "daily_learning"])
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["config"]["resume_from_step"], "promotion_refresh")
 
     def test_price_free_model_learning_step_can_be_skipped(self):
         result = run_price_free_model_learning_step(

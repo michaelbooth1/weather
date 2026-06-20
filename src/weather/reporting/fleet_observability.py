@@ -11,13 +11,18 @@ import json
 import pickle
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.backtesting.settlement_io import DEFAULT_SNAPSHOTS_ROOT
 from weather.reporting.formatting import markdown_table
 from weather.collection.snapshot_tracker import SNAPSHOT_SUPERVISOR
-from weather.collection.collection_health import fleet_collection_health
+from weather.collection.collection_health import (
+    SNAPSHOT_FLEET_VERIFY_COMMAND,
+    SNAPSHOT_RESTART_COMMAND,
+    SNAPSHOT_STATUS_COMMAND,
+    fleet_collection_health,
+)
 from weather.market.market_making_preflight import REMEDIATION_RULES
 from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
@@ -28,6 +33,7 @@ from weather.market.market_microstructure import (
 )
 from weather.market.market_registry import all_specs
 from weather.operations.supervisor import jsonl_integrity, read_writer_lock
+from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from weather.operations.observation_trigger import OBSERVATION_SUPERVISOR
 from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
 from weather.operations.observation_trigger import read_status as read_observation_status
@@ -54,11 +60,7 @@ DEFAULT_MM_PAPER_REPORT = data_path() / "backtest" / "mm_paper_report.json"
 DEFAULT_SETTLED_DAY_FRESHNESS = data_path() / "backtest" / "settled_day_freshness.json"
 DEFAULT_MIN_TRUST = 25
 DEFAULT_MIN_SETTLED_DAYS = 2
-BROAD_SLO_VERIFY_COMMAND = (
-    "python -m weather.reporting.fleet_observability report "
-    "--out data/backtest/fleet_observability.json "
-    "--report data/backtest/fleet_observability_report.md"
-)
+BROAD_SLO_VERIFY_COMMAND = SNAPSHOT_FLEET_VERIFY_COMMAND
 BROAD_SLO_REQUIRED_GATES = (
     "snapshot_coverage_gap",
     "latest_model_row_freshness",
@@ -73,19 +75,19 @@ BROAD_SLO_RULES = {
     "snapshot_collection": {
         "root_cause": "snapshot_collection_blocked",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": SNAPSHOT_RESTART_COMMAND,
         "recoverable_same_day": True,
     },
     "snapshot_coverage_gap": {
         "root_cause": "snapshot_capture_gap",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": SNAPSHOT_RESTART_COMMAND,
         "recoverable_same_day": True,
     },
     "latest_model_row_freshness": {
         "root_cause": "stale_model_row",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": SNAPSHOT_RESTART_COMMAND,
         "recoverable_same_day": True,
     },
     "source_status_freshness": {
@@ -100,13 +102,13 @@ BROAD_SLO_RULES = {
     "variant_prediction_freshness": {
         "root_cause": "stale_or_missing_live_variant_prediction_tape",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": SNAPSHOT_RESTART_COMMAND,
         "recoverable_same_day": True,
     },
     "afternoon_window_coverage": {
         "root_cause": "afternoon_window_incomplete",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": SNAPSHOT_RESTART_COMMAND,
         "recoverable_same_day": True,
     },
     "clob_book_freshness": {
@@ -129,7 +131,16 @@ BROAD_SLO_RULES = {
     },
 }
 SOURCE_STATUS_BACKFILL_COMMAND = BROAD_SLO_RULES["source_status_freshness"]["suggested_command"]
-SOURCE_PROVIDER_STATUS_COMMAND = "python -m weather.collection.snapshot_tracker --status"
+SOURCE_PROVIDER_STATUS_COMMAND = SNAPSHOT_STATUS_COMMAND
+CURRENT_CODE_SOAK_SCHEMA_VERSION = "loop_current_code_soak_v0.1"
+LOOP_RESTART_BUDGETS = {
+    "snapshot_capture": 6,
+    "clob_capture": 12,
+    "observation_trigger": 12,
+}
+LOOP_RESTART_BUDGET_WINDOW_HOURS = 24.0
+LOOP_DIAGNOSTIC_WINDOW_DAYS = 7
+COUNTABLE_SOAK_STATES = {"RUNNING"}
 
 
 MARKET_ARTIFACT_TEMPLATES = {
@@ -652,6 +663,309 @@ def loop_integrity_alerts(integrity):
     return alerts
 
 
+def _parse_event_time(value):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _read_diagnostic_events(path, *, since=None):
+    events = []
+    path = Path(path)
+    if not path.exists():
+        return events
+    try:
+        handle = path.open("r", encoding="utf-8", errors="replace")
+    except OSError:
+        return events
+    with handle:
+        for line_number, raw in enumerate(handle, start=1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            event_time = _parse_event_time(event.get("time"))
+            if since and event_time and event_time < since:
+                continue
+            events.append({"line": line_number, "event_time": event_time, "event": event})
+    return events
+
+
+def _event_text(event):
+    try:
+        return json.dumps(event, sort_keys=True, default=str).lower()
+    except TypeError:
+        return str(event).lower()
+
+
+def classify_loop_diagnostic_event(event):
+    text = _event_text(event)
+    status = str(event.get("status") or "").lower()
+    action = str(event.get("action") or "").lower()
+    state = str(event.get("state") or "").lower()
+    supervisor = event.get("supervisor")
+    if status == "duplicate_writer_blocked":
+        existing = event.get("existing_writer") or {}
+        if existing.get("exists"):
+            return "duplicate_writer_incident"
+        return "duplicate_writer_blocked_benign"
+    if "duplicate writer" in text or "matched_process_count" in text or "running_process_count" in text:
+        return "duplicate_writer_prevention"
+    if status == "stale_code" or state == "stale_code" or "code identity differs" in text or "runtime_identity_matches_current\": false" in text:
+        return "stale_code"
+    if "no space left" in text or "disk full" in text or "insufficient" in text and "disk" in text:
+        return "disk_backpressure"
+    if "permissionerror" in text or "access is denied" in text or "access denied" in text:
+        return "permission_write_error"
+    if action in {"start", "restart"} and state in {"dead", "unknown"}:
+        return "process_dead_or_hung"
+    if action == "restart" and state in {"degraded", "erroring"}:
+        return "hung_or_erroring_heartbeat"
+    if supervisor in {"start", "stop"} or action in {"start", "restart"}:
+        return "manual_or_supervisor_restart"
+    if status in {"error", "exception"} or "traceback" in text:
+        return "loop_error"
+    return "operational_event"
+
+
+def _is_restart_event(event, restart_class):
+    action = str(event.get("action") or "").lower()
+    supervisor = event.get("supervisor")
+    if action in {"start", "restart"}:
+        return True
+    if supervisor == "start":
+        return True
+    return restart_class in {
+        "stale_code",
+        "process_dead_or_hung",
+        "hung_or_erroring_heartbeat",
+        "manual_or_supervisor_restart",
+    }
+
+
+def _loop_status_payload(spec):
+    path = Path(spec.status_path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _loop_health_for_spec(spec, status, now, current_identity):
+    if spec.name == SNAPSHOT_SUPERVISOR.name:
+        from weather.collection.snapshot_tracker import loop_health
+        from weather.collection.snapshot_tracker import TORONTO_TZ
+
+        local_now = now.astimezone(TORONTO_TZ)
+        return loop_health(status, local_now, current_identity=current_identity)
+    if spec.name == CLOB_SUPERVISOR.name:
+        return clob_loop_health(status, now=now)
+    if spec.name == OBSERVATION_SUPERVISOR.name:
+        return watcher_health(status, now=now)
+    return {}
+
+
+def _runtime_code_state(status, current_identity):
+    runtime_identity = (status or {}).get("runtime_identity") or {}
+    if not runtime_identity:
+        return "unknown"
+    return "current" if identities_match(runtime_identity, current_identity) else "stale_code"
+
+
+def _status_writer_matches(row):
+    writer = row.get("writer_lock") or {}
+    status_writer = row.get("status_writer") or {}
+    if not writer.get("exists"):
+        return True
+    writer_pid = str(writer.get("pid")) if writer.get("pid") is not None else None
+    status_pid = str(status_writer.get("pid")) if status_writer.get("pid") is not None else None
+    return bool(writer_pid and status_pid and writer_pid == status_pid)
+
+
+def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, window_start, budget_start):
+    status = _loop_status_payload(spec)
+    health = _loop_health_for_spec(spec, status, now, current_identity)
+    integrity = integrity_by_name.get(spec.name) or {}
+    events = _read_diagnostic_events(spec.diagnostics_path, since=window_start)
+    classes = Counter()
+    restart_classes = Counter()
+    diagnostic_restart_classes = Counter()
+    diagnostic_restart_count = 0
+    restart_count = 0
+    latest_restart_at = None
+    for item in events:
+        event = item["event"]
+        restart_class = classify_loop_diagnostic_event(event)
+        classes[restart_class] += 1
+        if _is_restart_event(event, restart_class):
+            diagnostic_restart_count += 1
+            diagnostic_restart_classes[restart_class] += 1
+            if item.get("event_time") and item["event_time"] >= budget_start:
+                restart_count += 1
+                restart_classes[restart_class] += 1
+            if item.get("event_time") and (latest_restart_at is None or item["event_time"] > latest_restart_at):
+                latest_restart_at = item["event_time"]
+    runtime_state = _runtime_code_state(status, current_identity)
+    state = health.get("state") or "UNKNOWN"
+    restart_budget = int(LOOP_RESTART_BUDGETS.get(spec.name, 12))
+    duplicate_writer_incidents = int(classes.get("duplicate_writer_incident") or 0)
+    benign_duplicate_blocks = int(classes.get("duplicate_writer_blocked_benign") or 0)
+    blocking_reasons = []
+    if state not in COUNTABLE_SOAK_STATES:
+        blocking_reasons.append(f"state={state}")
+    if runtime_state != "current":
+        blocking_reasons.append(f"runtime_code_state={runtime_state}")
+    if int(health.get("consecutive_errors") or 0) != 0:
+        blocking_reasons.append(f"consecutive_errors={health.get('consecutive_errors')}")
+    if restart_count > restart_budget:
+        blocking_reasons.append(f"restart_budget_exceeded={restart_count}>{restart_budget}")
+    if duplicate_writer_incidents:
+        blocking_reasons.append(f"duplicate_writer_incidents={duplicate_writer_incidents}")
+    if integrity.get("duplicate_writer") or not _status_writer_matches(integrity):
+        blocking_reasons.append("active_writer_lock_mismatch")
+    if int(integrity.get("malformed_lines") or 0):
+        blocking_reasons.append(f"malformed_loop_lines={integrity.get('malformed_lines')}")
+    return {
+        "name": spec.name,
+        "status": "PASS" if not blocking_reasons else "BLOCK",
+        "counts_toward_active_day": not blocking_reasons,
+        "state": state,
+        "pid": health.get("pid") or status.get("pid"),
+        "runtime_code_state": runtime_state,
+        "running_code": format_runtime_identity(status.get("runtime_identity") or {}),
+        "current_code": format_runtime_identity(current_identity),
+        "consecutive_errors": health.get("consecutive_errors"),
+        "heartbeat_age_seconds": health.get("heartbeat_age_seconds"),
+        "heartbeat_age_minutes": health.get("heartbeat_age_min"),
+        "last_capture_age_seconds": health.get("last_books_age_seconds"),
+        "last_capture_age_minutes": health.get("last_snapshot_age_min"),
+        "last_iteration_elapsed_seconds": health.get("last_iteration_elapsed_seconds"),
+        "max_recent_iteration_elapsed_seconds": health.get("max_recent_iteration_elapsed_seconds"),
+        "last_iteration_elapsed_minutes": health.get("last_iteration_elapsed_minutes"),
+        "max_recent_iteration_elapsed_minutes": health.get("max_recent_iteration_elapsed_minutes"),
+        "restart_count": restart_count,
+        "diagnostic_restart_count": diagnostic_restart_count,
+        "restart_budget": restart_budget,
+        "restart_budget_window_hours": LOOP_RESTART_BUDGET_WINDOW_HOURS,
+        "latest_restart_at_utc": latest_restart_at.isoformat() if latest_restart_at else None,
+        "restart_class_counts": dict(sorted(restart_classes.items())),
+        "diagnostic_restart_class_counts": dict(sorted(diagnostic_restart_classes.items())),
+        "diagnostic_class_counts": dict(sorted(classes.items())),
+        "duplicate_writer_incidents": duplicate_writer_incidents,
+        "benign_duplicate_writer_blocks": benign_duplicate_blocks,
+        "single_writer": not bool(integrity.get("duplicate_writer")) and _status_writer_matches(integrity),
+        "malformed_lines": int(integrity.get("malformed_lines") or 0),
+        "blocking_reasons": blocking_reasons,
+        "status_path": str(spec.status_path),
+        "diagnostics_path": str(spec.diagnostics_path),
+        "restart_command": spec.command("restart" if spec.name != SNAPSHOT_SUPERVISOR.name else "--restart"),
+        "ensure_command": spec.command("ensure" if spec.name != SNAPSHOT_SUPERVISOR.name else "--ensure"),
+    }
+
+
+def current_code_soak_summary(loop_integrity, live_forward_slo, now=None, current_identity=None, specs=None):
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    current_identity = current_identity or get_runtime_identity()
+    window_start = now - timedelta(days=LOOP_DIAGNOSTIC_WINDOW_DAYS)
+    budget_start = now - timedelta(hours=LOOP_RESTART_BUDGET_WINDOW_HOURS)
+    integrity_by_name = {
+        row.get("name"): row
+        for row in (loop_integrity or {}).get("rows") or []
+    }
+    specs = tuple(specs or (SNAPSHOT_SUPERVISOR, CLOB_SUPERVISOR, OBSERVATION_SUPERVISOR))
+    loop_rows = [
+        _current_code_soak_row(
+            spec,
+            integrity_by_name,
+            current_identity=current_identity,
+            now=now,
+            window_start=window_start,
+            budget_start=budget_start,
+        )
+        for spec in specs
+    ]
+    cadence_status = (live_forward_slo or {}).get("status")
+    cadence_counts = bool((live_forward_slo or {}).get("counts_toward_live_forward_gate"))
+    cadence_reason = (live_forward_slo or {}).get("reason")
+    blocking_loop_count = sum(1 for row in loop_rows if row.get("status") != "PASS")
+    counts_toward_active_day = blocking_loop_count == 0 and cadence_counts
+    status = "PASS" if counts_toward_active_day else "BLOCK"
+    class_counts = Counter()
+    restart_class_counts = Counter()
+    for row in loop_rows:
+        class_counts.update(row.get("diagnostic_class_counts") or {})
+        restart_class_counts.update(row.get("restart_class_counts") or {})
+    return {
+        "schema_version": CURRENT_CODE_SOAK_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "window_start_utc": window_start.isoformat(),
+        "restart_budget_window_start_utc": budget_start.isoformat(),
+        "window_days": LOOP_DIAGNOSTIC_WINDOW_DAYS,
+        "status": status,
+        "counts_toward_active_day": counts_toward_active_day,
+        "current_identity": current_identity,
+        "cadence_slo_status": cadence_status,
+        "cadence_slo_counts": cadence_counts,
+        "cadence_slo_reason": cadence_reason,
+        "restart_budgets": LOOP_RESTART_BUDGETS,
+        "restart_budget_window_hours": LOOP_RESTART_BUDGET_WINDOW_HOURS,
+        "loops": loop_rows,
+        "summary": {
+            "loop_count": len(loop_rows),
+            "blocking_loop_count": blocking_loop_count,
+            "restart_count": sum(int(row.get("restart_count") or 0) for row in loop_rows),
+            "diagnostic_restart_count": sum(int(row.get("diagnostic_restart_count") or 0) for row in loop_rows),
+            "restart_class_counts": dict(sorted(restart_class_counts.items())),
+            "diagnostic_class_counts": dict(sorted(class_counts.items())),
+            "duplicate_writer_incident_count": sum(int(row.get("duplicate_writer_incidents") or 0) for row in loop_rows),
+            "benign_duplicate_writer_block_count": sum(int(row.get("benign_duplicate_writer_blocks") or 0) for row in loop_rows),
+            "malformed_lines": sum(int(row.get("malformed_lines") or 0) for row in loop_rows),
+            "current_code_loop_count": sum(1 for row in loop_rows if row.get("runtime_code_state") == "current"),
+            "single_writer_loop_count": sum(1 for row in loop_rows if row.get("single_writer")),
+            "cadence_slo_status": cadence_status,
+            "first_blocking_loop": next((row.get("name") for row in loop_rows if row.get("status") != "PASS"), None),
+            "first_blocking_reason": next(
+                ("; ".join(row.get("blocking_reasons") or []) for row in loop_rows if row.get("status") != "PASS"),
+                None,
+            ) or (cadence_reason if not cadence_counts else None),
+        },
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+    }
+
+
+def current_code_soak_alerts(soak):
+    if not soak or soak.get("status") == "PASS":
+        return []
+    summary = soak.get("summary") or {}
+    return [{
+        "severity": "critical",
+        "market_id": "fleet",
+        "category": "current_code_soak",
+        "message": (
+            "current-code loop soak is BLOCK: "
+            f"{summary.get('first_blocking_loop') or 'cadence_slo'} "
+            f"{summary.get('first_blocking_reason') or soak.get('cadence_slo_reason') or ''}"
+        ).strip(),
+        "detail": {
+            "status": soak.get("status"),
+            "counts_toward_active_day": soak.get("counts_toward_active_day"),
+            "summary": summary,
+            "verification_command": soak.get("verification_command"),
+        },
+    }]
+
+
 def _gate_from_alerts(name, alerts):
     if any(row.get("severity") == "critical" for row in alerts):
         severity = "critical"
@@ -730,13 +1044,14 @@ def _collection_recovery_gates(row):
 def _source_status_recovery(source_status):
     if not source_status:
         return None
+    repair_command = source_status.get("repair_command") or SOURCE_PROVIDER_STATUS_COMMAND
     if source_status.get("available") is False:
         return {
             "detail": source_status.get("reason") or "source_status_long.csv unavailable",
             "rule_override": {
                 "root_cause": "missing_source_status_tape",
                 "owner": "snapshot source-status writer",
-                "suggested_command": SOURCE_STATUS_BACKFILL_COMMAND,
+                "suggested_command": repair_command,
                 "recoverable_same_day": True,
             },
         }
@@ -789,7 +1104,7 @@ def _source_status_recovery(source_status):
                     "rule_override": {
                         "root_cause": "open_meteo_provider_fallback",
                         "owner": "Open-Meteo quota / forecast source collector",
-                        "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                        "suggested_command": repair_command,
                         "recoverable_same_day": False,
                     },
                 }
@@ -799,7 +1114,7 @@ def _source_status_recovery(source_status):
                     "rule_override": {
                         "root_cause": "open_meteo_provider_rate_limited",
                         "owner": "Open-Meteo quota / forecast source collector",
-                        "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                        "suggested_command": repair_command,
                         "recoverable_same_day": False,
                     },
                 }
@@ -808,7 +1123,7 @@ def _source_status_recovery(source_status):
                 "rule_override": {
                     "root_cause": "degraded_source_status",
                     "owner": "snapshot source-status writer",
-                    "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                    "suggested_command": repair_command,
                     "recoverable_same_day": False,
                 },
             }
@@ -817,7 +1132,7 @@ def _source_status_recovery(source_status):
             "rule_override": {
                 "root_cause": "degraded_source_status",
                 "owner": "snapshot source-status writer",
-                "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                "suggested_command": repair_command,
                 "recoverable_same_day": False,
             },
         }
@@ -836,6 +1151,12 @@ def _collection_recovery_rows(collection):
     rows = []
     for row in (collection or {}).get("markets") or []:
         if row.get("snapshot_action_required", row.get("action_required")):
+            cadence_proof = row.get("snapshot_cadence_proof") or {}
+            cadence_override = {
+                "root_cause": cadence_proof.get("root_cause"),
+                "suggested_command": cadence_proof.get("repair_command") or SNAPSHOT_RESTART_COMMAND,
+                "recoverable_same_day": cadence_proof.get("recoverable_same_day"),
+            } if cadence_proof else None
             before = (
                 f"state={row.get('state')}; snapshots={row.get('snapshots')}; "
                 f"latest_age_minutes={row.get('latest_age_minutes')}; reason={row.get('reason')}"
@@ -847,6 +1168,7 @@ def _collection_recovery_rows(collection):
                     row,
                     row.get("reason") or "snapshot collection needs attention",
                     before,
+                    cadence_override,
                 ))
         source_recovery = _source_status_recovery(row.get("source_family_degradation") or {})
         if source_recovery:
@@ -990,6 +1312,124 @@ def _broad_slo_summary(recovery_rows):
     }
 
 
+def _fallback_snapshot_root_cause(row):
+    reason = str(row.get("reason") or "").lower()
+    if "stale code" in reason or "source tree" in reason:
+        return "stale_code_restart"
+    if "duplicate writer" in reason or "writer lock" in reason:
+        return "duplicate_writer_prevention"
+    if "disk" in reason or "headroom" in reason or "backpressure" in reason:
+        return "disk_backpressure"
+    if "provider" in reason or "source delay" in reason or "rate limit" in reason:
+        return "provider_source_delay"
+    if not row.get("snapshots") or "no snapshot" in reason or "no captures" in reason:
+        return "process_down"
+    if "latest capture" in reason:
+        return "long_iteration_or_stalled_loop"
+    if "gap" in reason:
+        return "unknown_snapshot_gap"
+    if not row.get("snapshot_action_required", row.get("action_required")):
+        return "within_cadence"
+    return "unknown"
+
+
+def _snapshot_gap_windows_from_row(row):
+    windows = []
+    for item in (row.get("snapshot_cadence_proof") or {}).get("gap_windows") or []:
+        windows.append({
+            "after": item.get("after"),
+            "before": item.get("before"),
+            "gap_minutes": item.get("gap_minutes"),
+        })
+    return windows
+
+
+def _snapshot_cadence_market_proof(row):
+    proof = dict(row.get("snapshot_cadence_proof") or {})
+    action_required = bool(row.get("snapshot_action_required", row.get("action_required")))
+    proof.setdefault("status", "BLOCK" if action_required else "PASS")
+    proof.setdefault("counts_so_far", not action_required)
+    proof.setdefault("root_cause", _fallback_snapshot_root_cause(row))
+    proof.setdefault("root_cause_class", proof.get("root_cause"))
+    proof.setdefault("state", row.get("state"))
+    proof.setdefault("reason", row.get("reason"))
+    proof.setdefault("snapshot_count", row.get("snapshots", 0))
+    proof.setdefault("latest_snapshot_id", row.get("latest_snapshot_id"))
+    proof.setdefault("latest_age_minutes", row.get("latest_age_minutes"))
+    proof.setdefault("freshness_sla_minutes", row.get("freshness_sla_minutes"))
+    proof.setdefault("gap_count", len(_snapshot_gap_windows_from_row(row)))
+    proof.setdefault("max_gap_minutes", row.get("max_gap_minutes"))
+    proof.setdefault("gap_windows", _snapshot_gap_windows_from_row(row))
+    proof.setdefault("status_command", SNAPSHOT_STATUS_COMMAND)
+    proof.setdefault("repair_command", SNAPSHOT_RESTART_COMMAND)
+    proof.setdefault("verification_command", BROAD_SLO_VERIFY_COMMAND)
+    proof.setdefault("recoverable_same_day", bool(action_required and not proof.get("gap_windows")))
+    proof.setdefault("active_day_countable", proof.get("status") == "PASS")
+    proof["market_id"] = row.get("market_id")
+    proof["event_slug"] = row.get("event_slug")
+    proof["target_date"] = row.get("target_date")
+    return proof
+
+
+def _snapshot_cadence_proof(collection, recovery_rows):
+    provided = (collection or {}).get("snapshot_cadence_proof") or {}
+    markets = [_snapshot_cadence_market_proof(row) for row in (collection or {}).get("markets") or []]
+    recovery_gates_by_market = {}
+    for row in recovery_rows:
+        if row.get("component") != "snapshot_collection":
+            continue
+        market_id = row.get("market_id")
+        recovery_gates_by_market.setdefault(market_id, []).append(row.get("gate"))
+    for row in markets:
+        gates = recovery_gates_by_market.get(row.get("market_id"))
+        if gates:
+            row["blocking_gates"] = _unique_gates(gates)
+            row["status"] = "BLOCK"
+        else:
+            row.setdefault("blocking_gates", [])
+    blocked = [row for row in markets if row.get("status") != "PASS"]
+    gap_markets = {
+        row.get("market_id")
+        for row in markets
+        if int(row.get("gap_count") or 0) > 0
+    }
+    gap_markets.update(
+        row.get("market_id")
+        for row in recovery_rows
+        if row.get("component") == "snapshot_collection" and row.get("gate") == "snapshot_coverage_gap"
+    )
+    max_gaps = [
+        float(row.get("max_gap_minutes"))
+        for row in markets
+        if row.get("max_gap_minutes") is not None
+    ]
+    summary = {
+        "status": "PASS" if not blocked else "BLOCK",
+        "market_count": len(markets),
+        "blocked_market_count": len(blocked),
+        "snapshot_coverage_gap_market_count": len(gap_markets),
+        "snapshot_coverage_gap_blocked_market_count": len(gap_markets),
+        "total_gap_count": sum(int(row.get("gap_count") or 0) for row in markets),
+        "max_gap_minutes": max(max_gaps) if max_gaps else None,
+        "root_cause_counts": dict(sorted(Counter(row.get("root_cause") or "unknown" for row in markets).items())),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+    }
+    summary.update({key: value for key, value in (provided.get("summary") or {}).items() if value is not None})
+    summary["snapshot_coverage_gap_blocked_market_count"] = len(gap_markets)
+    summary["blocked_market_count"] = len(blocked)
+    summary["status"] = "PASS" if not blocked else "BLOCK"
+    return {
+        "schema_version": "snapshot_cadence_proof_v0.1",
+        "summary": summary,
+        "markets": sorted(markets, key=lambda row: row.get("market_id") or ""),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+    }
+
+
 def live_forward_slo_gate(collection, clob, observation):
     """Single fail-closed gate for live-forward MM evidence.
 
@@ -1002,6 +1442,7 @@ def live_forward_slo_gate(collection, clob, observation):
         _gate_from_alerts("observation_trigger", observation_alerts(observation)),
     ]
     recovery_rows = broad_live_forward_recovery_rows(collection, clob, observation)
+    snapshot_cadence = _snapshot_cadence_proof(collection, recovery_rows)
     concrete_gates = _concrete_broad_slo_gates(recovery_rows)
     blockers = [
         message
@@ -1038,6 +1479,7 @@ def live_forward_slo_gate(collection, clob, observation):
         "blockers": blockers,
         "first_blocker": first_blocker,
         "recovery_checklist": recovery_rows,
+        "snapshot_cadence_proof": snapshot_cadence,
         "rerun_command": BROAD_SLO_VERIFY_COMMAND,
         "summary": _broad_slo_summary(recovery_rows),
     }
@@ -1123,6 +1565,51 @@ def settled_day_freshness_alerts(freshness):
     }]
 
 
+def _short_timestamp(value):
+    if value in (None, ""):
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(str(value))
+        return f"{parsed:%H:%M}"
+    except ValueError:
+        return str(value)
+
+
+def _format_gap_windows(windows, limit=2):
+    rows = []
+    for item in (windows or [])[:limit]:
+        rows.append(
+            f"{_short_timestamp(item.get('after'))}->{_short_timestamp(item.get('before'))} "
+            f"({float(item.get('gap_minutes') or 0):.0f}m)"
+        )
+    if len(windows or []) > limit:
+        rows.append("...")
+    return "; ".join(rows) or "-"
+
+
+def _format_source_family_detail(families, limit=2):
+    rows = []
+    for item in (families or [])[:limit]:
+        bits = [
+            f"{item.get('family')}:{item.get('status')}",
+            f"failed={item.get('failed_source_count', 0)}",
+            f"fallback={item.get('fallback_source_count', 0)}",
+            f"rate_limited={item.get('rate_limited_source_count', 0)}",
+            f"cooldown={item.get('provider_cooldown_source_count', 0)}",
+        ]
+        cache_states = item.get("top_cache_states") or {}
+        if cache_states:
+            bits.append("cache=" + ",".join(f"{key}:{value}" for key, value in sorted(cache_states.items())))
+        if item.get("max_retry_after_seconds") is not None:
+            bits.append(f"retry_after={item.get('max_retry_after_seconds')}s")
+        if item.get("max_cache_age_minutes") is not None:
+            bits.append(f"cache_age={item.get('max_cache_age_minutes')}m")
+        rows.append(" ".join(bits))
+    if len(families or []) > limit:
+        rows.append("...")
+    return "; ".join(rows) or "-"
+
+
 def trust_readiness(trust_rows, min_trust=DEFAULT_MIN_TRUST, min_days=DEFAULT_MIN_SETTLED_DAYS):
     rows = {}
     for row in trust_rows:
@@ -1181,6 +1668,7 @@ def build_observability_payload(
     observation = observation_summary()
     loop_integrity = loop_artifact_integrity()
     live_forward_slo = live_forward_slo_gate(collection, clob, observation)
+    current_code_soak = current_code_soak_summary(loop_integrity, live_forward_slo)
     mm_paper_evidence = mm_paper_evidence_summary()
     settled_freshness = settled_day_freshness_summary()
     tape_backup_status = tape_backup.backup_status(
@@ -1194,6 +1682,7 @@ def build_observability_payload(
     alerts.extend(clob_alerts(clob))
     alerts.extend(observation_alerts(observation))
     alerts.extend(loop_integrity_alerts(loop_integrity))
+    alerts.extend(current_code_soak_alerts(current_code_soak))
     alerts.extend(settled_day_freshness_alerts(settled_freshness))
     alerts.extend(tape_backup.backup_alerts(tape_backup_status))
     payload = {
@@ -1209,6 +1698,7 @@ def build_observability_payload(
         "clob": clob,
         "observation_trigger": observation,
         "loop_integrity": loop_integrity,
+        "current_code_soak": current_code_soak,
         "live_forward_slo": live_forward_slo,
         "mm_paper_evidence": mm_paper_evidence,
         "settled_day_freshness": settled_freshness,
@@ -1231,6 +1721,9 @@ def build_observability_payload(
             ),
             "tape_backup_status": tape_backup_status.get("status"),
             "loop_integrity_status": "OK" if (loop_integrity.get("summary") or {}).get("ok") else "WARN",
+            "current_code_soak_status": current_code_soak.get("status"),
+            "current_code_soak_counts": current_code_soak.get("counts_toward_active_day"),
+            "loop_restart_count": ((current_code_soak.get("summary") or {}).get("restart_count")),
         },
     }
     return payload
@@ -1246,6 +1739,7 @@ def write_json(path, payload):
 def write_markdown(path, payload):
     collection_rows = []
     trust = payload.get("trust_readiness") or {}
+    collection = payload.get("collection") or {}
     for row in (payload.get("collection") or {}).get("markets") or []:
         trust_row = trust.get(row["market_id"]) or {}
         collection_rows.append([
@@ -1258,6 +1752,28 @@ def write_markdown(path, payload):
             trust_row.get("trust_gap"),
             trust_row.get("settled_day_gap"),
         ])
+    source_status_proof = collection.get("source_status_proof") or {}
+    source_status_summary = (
+        source_status_proof.get("summary")
+        or ((collection.get("summary") or {}).get("source_family_degradation") or {})
+    )
+    source_status_rows = [
+        [
+            row.get("market_id"),
+            row.get("snapshot_id") or "-",
+            row.get("model_review_allowed"),
+            row.get("paper_trading_allowed"),
+            row.get("live_trade_permission_allowed"),
+            row.get("promotion_readiness_allowed"),
+            row.get("affected_family_count"),
+            row.get("blocking_family_count"),
+            row.get("provider_cooldown_source_count"),
+            row.get("top_degraded_family") or "-",
+            _format_source_family_detail(row.get("affected_families") or []),
+            row.get("repair_command") or "-",
+        ]
+        for row in source_status_proof.get("markets") or []
+    ]
     audit_rows = []
     gap_coverage = (payload.get("historical_gap_coverage") or {}).get("markets") or {}
     for market_id, audit in sorted((payload.get("historical_audits") or {}).items()):
@@ -1305,6 +1821,26 @@ def write_markdown(path, payload):
     lines += markdown_table(
         ["Market", "State", "Snapshots", "Reason", "Trust", "Days", "Trust Gap", "Day Gap"],
         collection_rows,
+    )
+    lines += [
+        "",
+        "## Source Status Proof",
+        "",
+        f"Trading blocked markets: `{source_status_summary.get('source_status_blocked_market_count')}`",
+        f"Live-trade blocked markets: `{source_status_summary.get('live_trade_permission_blocked_market_count')}`",
+        f"Top degraded family: `{source_status_summary.get('top_degraded_family') or '-'}`",
+        f"Provider-cooldown sources: `{source_status_summary.get('provider_cooldown_source_count')}`",
+        f"Repair command: `{source_status_proof.get('repair_command') or SOURCE_STATUS_BACKFILL_COMMAND}`",
+        f"Verification command: `{source_status_proof.get('verification_command') or SOURCE_PROVIDER_STATUS_COMMAND}`",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Market", "Snapshot", "Model Review", "Paper", "Live Trade", "Promotion",
+            "Affected Families", "Blocking Families", "Cooldown Sources", "Top Family",
+            "Family Detail", "Repair Command",
+        ],
+        source_status_rows,
     )
     lines += ["", "## Historical Data Audits", ""]
     lines += markdown_table(
@@ -1382,6 +1918,26 @@ def write_markdown(path, payload):
         ]
         for row in live_forward_slo.get("recovery_checklist") or []
     ]
+    snapshot_cadence = (
+        live_forward_slo.get("snapshot_cadence_proof")
+        or ((payload.get("collection") or {}).get("snapshot_cadence_proof") or {})
+    )
+    snapshot_cadence_summary = snapshot_cadence.get("summary") or {}
+    snapshot_cadence_rows = [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            ", ".join(row.get("blocking_gates") or []) or "-",
+            row.get("snapshot_count"),
+            row.get("gap_count"),
+            row.get("max_gap_minutes"),
+            row.get("latest_age_minutes"),
+            row.get("root_cause"),
+            row.get("recoverable_same_day"),
+            _format_gap_windows(row.get("gap_windows") or []),
+        ]
+        for row in snapshot_cadence.get("markets") or []
+    ]
     first_slo_blocker = live_forward_slo.get("first_blocker") or {}
     lines += [
         "",
@@ -1402,6 +1958,27 @@ def write_markdown(path, payload):
     lines += markdown_table(
         ["Concrete Gate", "Verdict", "Blocked Markets", "Owner", "Repair Command", "Detail"],
         concrete_slo_rows,
+    )
+    lines += [
+        "",
+        "### Snapshot Cadence Proof",
+        "",
+        f"Status: **{snapshot_cadence_summary.get('status') or '-'}**",
+        (
+            "Snapshot coverage-gap blocked markets: "
+            f"`{snapshot_cadence_summary.get('snapshot_coverage_gap_blocked_market_count')}`"
+        ),
+        f"Status command: `{snapshot_cadence.get('status_command') or SNAPSHOT_STATUS_COMMAND}`",
+        f"Repair command: `{snapshot_cadence.get('repair_command') or SNAPSHOT_RESTART_COMMAND}`",
+        f"Verification command: `{snapshot_cadence.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Market", "Status", "Blocking Gates", "Snapshots", "Gaps", "Max Gap min",
+            "Latest Age min", "Root Cause", "Recoverable Same Day", "Gap Windows",
+        ],
+        snapshot_cadence_rows,
     )
     lines += [
         "",
@@ -1484,6 +2061,61 @@ def write_markdown(path, payload):
             ["Loop", "Source", "Path", "Line", "Class", "Sample"],
             sample_rows[:12],
         )
+    current_soak = payload.get("current_code_soak") or {}
+    current_soak_summary = current_soak.get("summary") or {}
+    if current_soak:
+        soak_rows = [
+            [
+                row.get("name"),
+                row.get("status"),
+                row.get("state"),
+                row.get("runtime_code_state"),
+                row.get("single_writer"),
+                row.get("restart_count"),
+                row.get("restart_budget"),
+                row.get("duplicate_writer_incidents"),
+                row.get("benign_duplicate_writer_blocks"),
+                row.get("malformed_lines"),
+                row.get("consecutive_errors"),
+                "; ".join(row.get("blocking_reasons") or []) or "-",
+            ]
+            for row in current_soak.get("loops") or []
+        ]
+        taxonomy_rows = [
+            [name, count]
+            for name, count in sorted((current_soak_summary.get("diagnostic_class_counts") or {}).items())
+        ]
+        restart_taxonomy_rows = [
+            [name, count]
+            for name, count in sorted((current_soak_summary.get("restart_class_counts") or {}).items())
+        ]
+        lines += [
+            "",
+            "## Current-Code Soak Proof",
+            "",
+            f"Status: **{current_soak.get('status')}**",
+            f"Counts toward active day: `{current_soak.get('counts_toward_active_day')}`",
+            f"Window days: `{current_soak.get('window_days')}`",
+            f"Cadence SLO: `{current_soak.get('cadence_slo_status')}`",
+            f"Cadence reason: {current_soak.get('cadence_slo_reason') or '-'}",
+            f"Current code: `{format_runtime_identity(current_soak.get('current_identity') or {})}`",
+            f"Verification command: `{current_soak.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
+                "Budget", "Dup Incidents", "Benign Dup Blocks", "Malformed",
+                "Errors", "Blocking Reasons",
+            ],
+            soak_rows,
+        )
+        if restart_taxonomy_rows:
+            lines += ["", "Restart taxonomy:"]
+            lines += markdown_table(["Class", "Restart Events"], restart_taxonomy_rows)
+        if taxonomy_rows:
+            lines += ["", "Diagnostic taxonomy:"]
+            lines += markdown_table(["Class", "Events"], taxonomy_rows)
     backup = payload.get("tape_backup") or {}
     restore = backup.get("last_restore_drill") or {}
     backup_rows = [

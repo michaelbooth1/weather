@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import sys
 import tempfile
@@ -7,9 +8,11 @@ from pathlib import Path
 from weather.reporting.progress_audit import (  # noqa: E402
     classify_trend,
     core_model_trend_claim,
+    load_daily_progress_ledger,
     load_market_day_labels,
     parse_backtest_report,
     parse_roadmap_baselines,
+    render_report,
 )
 
 
@@ -229,6 +232,55 @@ class TestProgressAudit(unittest.TestCase):
         latest = claim["daily_sequence"][-1]
         self.assertTrue(latest["counts_toward_directional_trend"])
         self.assertFalse(latest["counts_toward_proven_claim"])
+
+    def test_render_report_includes_daily_progress_ledger_cross_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily_progress_latest.json"
+            path.write_text(
+                json.dumps({
+                    "run_date": "2026-06-19",
+                    "broad_improvement_claim_allowed": False,
+                    "broad_improvement_claim_failures": "[\"positive_skill_days_below_3\"]",
+                    "ops_live_forward_slo_status": "BLOCK",
+                    "evidence_independent_baseline_status": "MISSING",
+                    "trading_mm_evidence_mode": "operator_drill",
+                    "trading_taker_quality_status": "SAMPLE_PENDING_NEGATIVE_LATEST",
+                }),
+                encoding="utf-8",
+            )
+
+            ledger = load_daily_progress_ledger(path)
+
+        payload = {
+            "generated_at_utc": "2026-06-20T00:00:00+00:00",
+            "trend_assessment": {
+                "answer": "directional only",
+                "model_skill_gain_vs_initial_strict": 0.1,
+                "model_brier_delta_vs_initial_strict": -0.01,
+            },
+            "core_model_trend_claim": {"summary": {}, "threshold_failures": []},
+            "roadmap_baselines": {
+                "initial_strict_toronto": {},
+                "pre_label_three_day": {},
+                "calibration_pre_label": {},
+            },
+            "current_backtest": {},
+            "market_day_labels": {"quality_counts": {}},
+            "location_trust": {"by_market": {}, "grade_counts": {}},
+            "promotion_refresh": {},
+            "promotion_gauntlet_latest": {},
+            "fleet_observability": {},
+            "loop_statuses": {},
+            "pooled_candidate_series": [],
+            "daily_progress_ledger_latest": ledger,
+        }
+
+        report = render_report(payload)
+
+        self.assertIn("## Daily Progress Ledger Cross-Check", report)
+        self.assertIn("2026-06-19", report)
+        self.assertIn("operator_drill", report)
+        self.assertIn("SAMPLE_PENDING_NEGATIVE_LATEST", report)
 
 
 if __name__ == "__main__":

@@ -372,7 +372,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
             {
                 "market_id": "austin",
                 "source_freshness_state": "all_fresh",
-                "cutoff_regime": "midday",
+                "candidate_cutoff_hour": 12,
                 "candidate_p": 0.80,
                 "replayed_p": 0.20,
             },

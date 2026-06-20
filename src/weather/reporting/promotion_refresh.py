@@ -1049,6 +1049,17 @@ def _operational_gate_rows(payload):
             gate.get("status") or "-",
             first.get("detail") or "no candidate-hourly blocker",
         ])
+    mitigation = (payload.get("readiness") or {}).get("hourly_performance_mitigation") or {}
+    if mitigation:
+        rows.append([
+            "Hourly gate mitigation",
+            "APPLIED" if mitigation.get("applied") else "NOT_APPLIED",
+            (
+                "candidate hourly gate passed and variant id matched"
+                if mitigation.get("applied")
+                else "candidate-hourly evidence did not mitigate current-serving gate"
+            ),
+        ])
     return rows
 
 

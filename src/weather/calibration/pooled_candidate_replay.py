@@ -894,7 +894,12 @@ def current_blend_context_value(row, key):
     if key == "source_freshness_state":
         return row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
     if key == "cutoff_regime":
-        return row.get("cutoff_regime") or row.get("candidate_cutoff_regime") or ""
+        return (
+            row.get("cutoff_regime")
+            or row.get("candidate_cutoff_regime")
+            or cutoff_regime(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+            or ""
+        )
     if key == "cutoff_hour":
         return row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or ""
     return row.get(key)
@@ -1770,6 +1775,7 @@ def run_pooled_candidate_replay(args):
             "current_blend_source_freshness_alpha": (
                 postprocess.get("current_blend_source_freshness_alpha") or {}
             ),
+            "current_blend_context_alpha": postprocess.get("current_blend_context_alpha") or [],
             "market_bias_calibration_enabled": bool(postprocess.get("market_bias_calibration_enabled")),
             "market_bias_calibration_contexts": market_bias_calibration.get("context_count", 0),
             "market_bias_baseline_brier": market_bias_selection.get("baseline_brier"),

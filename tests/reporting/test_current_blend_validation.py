@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from weather.reporting.current_blend_validation import (
+    base_alpha_for_row,
     build_payload,
     candidate_probability,
     reconstruct_raw_probability,
@@ -80,6 +81,45 @@ class CurrentBlendValidationTests(unittest.TestCase):
 
         self.assertAlmostEqual(probability, 0.33)
 
+    def test_context_alpha_reconstructs_raw_rows_when_market_default_is_current(self):
+        schedule = {
+            "default_alpha": 1.0,
+            "market_alpha": {"austin": 0.0},
+            "source_freshness_alpha": {},
+            "source_freshness_default_alpha": 0.0,
+            "context_alpha": [
+                {
+                    "market_id": "austin",
+                    "source_freshness_state": "all_fresh",
+                    "cutoff_regime": ["midday", "late"],
+                    "alpha": 1.0,
+                }
+            ],
+        }
+
+        self.assertEqual(
+            base_alpha_for_row(
+                {
+                    "market_id": "austin",
+                    "source_freshness_state": "all_fresh",
+                    "cutoff_hour": "14",
+                },
+                schedule,
+            ),
+            1.0,
+        )
+        self.assertEqual(
+            base_alpha_for_row(
+                {
+                    "market_id": "austin",
+                    "source_freshness_state": "failed:wu_history",
+                    "cutoff_hour": "14",
+                },
+                schedule,
+            ),
+            0.0,
+        )
+
     def test_build_payload_uses_earlier_dates_for_selection_and_later_dates_for_eval(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows_path = Path(tmp) / "rows.csv"
@@ -104,6 +144,77 @@ class CurrentBlendValidationTests(unittest.TestCase):
         )
         self.assertEqual(fallback["raw_candidate_eval_rows"], 0)
         self.assertGreater(recoverable["raw_candidate_eval_rows"], 0)
+
+    def test_build_payload_counts_context_raw_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows_path = Path(tmp) / "rows.csv"
+            replay_path = Path(tmp) / "replay.json"
+            replay_path.write_text(
+                json.dumps({
+                    "artifact": {
+                        "current_blend_default_alpha": 1.0,
+                        "current_blend_market_alpha": {"austin": 0.0},
+                        "current_blend_context_alpha": [
+                            {
+                                "market_id": "austin",
+                                "source_freshness_state": "all_fresh",
+                                "cutoff_regime": ["midday", "late"],
+                                "alpha": 1.0,
+                            }
+                        ],
+                    }
+                }),
+                encoding="utf-8",
+            )
+            rows = [
+                {
+                    "market_id": "austin",
+                    "target_date": "2026-06-01",
+                    "snapshot_id": "train-1",
+                    "band_key": "eq:80",
+                    "probability": "0.6",
+                    "current_probability": "0.4",
+                    "market_yes": "0.8",
+                    "outcome": "1",
+                    "source_freshness_state": "all_fresh",
+                    "cutoff_regime": "midday",
+                },
+                {
+                    "market_id": "austin",
+                    "target_date": "2026-06-02",
+                    "snapshot_id": "eval-1",
+                    "band_key": "eq:80",
+                    "probability": "0.7",
+                    "current_probability": "0.3",
+                    "market_yes": "0.8",
+                    "outcome": "1",
+                    "source_freshness_state": "all_fresh",
+                    "cutoff_regime": "late",
+                },
+                {
+                    "market_id": "austin",
+                    "target_date": "2026-06-02",
+                    "snapshot_id": "eval-2",
+                    "band_key": "eq:82",
+                    "probability": "0.2",
+                    "current_probability": "0.2",
+                    "market_yes": "0.1",
+                    "outcome": "0",
+                    "source_freshness_state": "failed:wu_history",
+                    "cutoff_regime": "late",
+                },
+            ]
+            with rows_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            payload = build_payload(rows_path, replay_path, alpha_grid="0,1")
+
+        austin = next(row for row in payload["market_results"] if row["market_id"] == "austin")
+        self.assertEqual(austin["selection_reason"], "min_train_brier_on_earlier_market_days")
+        self.assertEqual(austin["raw_candidate_train_rows"], 1)
+        self.assertEqual(austin["raw_candidate_eval_rows"], 1)
 
     def test_markdown_report_includes_development_evidence_caveat(self):
         with tempfile.TemporaryDirectory() as tmp:

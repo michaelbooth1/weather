@@ -832,9 +832,25 @@ class TestPromotionRefresh(unittest.TestCase):
             "family_unit": "F",
             "corpus": {},
             "candidate": {"aggregate": {}, "slices": {}},
-            "readiness": {"status": "OPEN", "blockers": []},
+            "readiness": {
+                "status": "OPEN",
+                "blockers": [],
+                "hourly_performance_mitigation": {"applied": True},
+            },
             "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
             "serving_gauntlet": None,
+            "hourly_performance": {
+                "hourly_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {"detail": "current early-hour Brier trails market"},
+                },
+            },
+            "candidate_hourly_performance": {
+                "candidate_hourly_gate": {
+                    "status": "PASS",
+                    "blocker_count": 0,
+                },
+            },
             "source_family_inventory": {
                 "path": "source_family_inventory.json",
                 "promotion_preflight": {"status": "PASS", "blocked_families": []},
@@ -859,6 +875,9 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("## Operational Promotion Gates", text)
         self.assertIn("Source family preflight", text)
         self.assertIn("Tape backup SLA", text)
+        self.assertIn("Hourly gate mitigation", text)
+        self.assertIn("APPLIED", text)
+        self.assertIn("candidate hourly gate passed and variant id matched", text)
         self.assertIn("fleet_observability.json", text)
 
     def test_write_report_emits_serving_blocking_source_freshness(self):

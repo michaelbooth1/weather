@@ -495,6 +495,102 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
         self.assertEqual(payload["promotion_preflight"]["blocked_families"], ["nws_grid"])
 
+    def test_promotion_preflight_blocks_reanalysis_artifact_lane_that_allows_gate_quarantine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            reanalysis_root = root / "reanalysis"
+            for icao, market_id in [("kaus", "austin"), ("klga", "nyc")]:
+                row = {
+                    "local_date": "2026-06-18",
+                    "market_id": market_id,
+                }
+                row.update({column: "1.0" for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS})
+                write_csv(
+                    reanalysis_root / icao / "features" / "reanalysis_synoptic_features.csv",
+                    [row],
+                )
+            ablation_paths = {
+                "austin": root / "austin_item27.json",
+                "nyc": root / "nyc_item27.json",
+            }
+            ablation_paths["austin"].write_text(
+                json.dumps({
+                    "promotion_decisions": [
+                        {
+                            "family": "reanalysis_synoptic",
+                            "n": 3,
+                            "full_brier": 0.20,
+                            "ablated_brier": 0.26,
+                            "delta_brier": 0.06,
+                        }
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            ablation_paths["nyc"].write_text(
+                json.dumps({
+                    "promotion_decisions": [
+                        {
+                            "family": "reanalysis_synoptic",
+                            "n": 3,
+                            "full_brier": 0.30,
+                            "ablated_brier": 0.25,
+                            "delta_brier": -0.05,
+                        }
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            artifact = backtest_root / "artifact.pkl"
+            artifact.parent.mkdir(parents=True)
+            with artifact.open("wb") as handle:
+                pickle.dump(
+                    {
+                        "models": {
+                            "7": {
+                                "feature_names": ["reanalysis_prev_day_max_temp"],
+                            }
+                        },
+                        "reanalysis_promotion_lane": {
+                            "status": "PARTIAL_POSITIVE_MARKET_SHADOW_LANE",
+                            "policy": "unsafe_test",
+                            "allowed_markets": ["austin", "nyc"],
+                            "quarantined_markets": [],
+                        },
+                    },
+                    handle,
+                )
+            candidate_replay = backtest_root / "candidate_replay.json"
+            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                reanalysis_root=reanalysis_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=candidate_replay,
+                locations_config=locations_config,
+                item27_reanalysis_paths=ablation_paths,
+                item27_required_markets=["austin", "nyc"],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in payload["inventory"]}
+            reanalysis = rows["reanalysis_synoptic"]
+
+        self.assertTrue(reanalysis["model_influence"])
+        self.assertEqual(reanalysis["lineage_status"], "PASS")
+        self.assertEqual(reanalysis["train_serve_parity_status"], "PASS")
+        self.assertEqual(reanalysis["promotion_decision"]["status"], "PROMOTION_CANDIDATE")
+        self.assertEqual(
+            reanalysis["artifact_lane_consistency"]["status"],
+            "BLOCK_ARTIFACT_ALLOWS_QUARANTINED_MARKETS",
+        )
+        self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
+        self.assertEqual(payload["promotion_preflight"]["blocked_families"], ["reanalysis_synoptic"])
+
     def test_promotion_preflight_ignores_imputer_dropped_all_missing_features(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

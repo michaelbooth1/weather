@@ -7,10 +7,9 @@ Status scan: 154 total items, 137 `COMPLETE`, 14 `PARTIAL`, and 3 `OPEN`.
 
 Roadmap item states are `COMPLETE`, `PARTIAL`, and `OPEN`.
 `COMPLETE` means the item has accepted implementation evidence or an explicit
-final disposition, including superseded or intentionally discontinued work.
-Legacy terminal labels should be written as `COMPLETE`; there is no separate
-terminal state. `PARTIAL` means useful work exists but the acceptance condition
-is not met. `OPEN` means the item still has primary
+final disposition, including superseded or intentionally discontinued work, and
+has no remaining active roadmap work. `PARTIAL` means useful work exists but
+the acceptance condition is not met. `OPEN` means the item still has primary
 implementation or infrastructure work left.
 
 ## 2026-06-19 Continuation Update

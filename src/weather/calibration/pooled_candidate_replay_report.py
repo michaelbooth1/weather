@@ -422,6 +422,10 @@ def write_report(report, out_path, min_free_bytes=0):
                 "Current blend source-freshness alpha",
                 json.dumps(artifact.get("current_blend_source_freshness_alpha") or {}, sort_keys=True),
             ],
+            [
+                "Current blend context alpha",
+                json.dumps(artifact.get("current_blend_context_alpha") or [], sort_keys=True),
+            ],
             ["Market bias calibration enabled", bool(artifact.get("market_bias_calibration_enabled"))],
             ["Market bias calibration contexts", artifact.get("market_bias_calibration_contexts") or 0],
             [

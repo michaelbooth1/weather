@@ -569,6 +569,60 @@ def summarize_by_hour_regime(rows):
     return output
 
 
+def early_hour_market_deltas(
+    rows,
+    *,
+    early_brier_regression_tolerance=DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
+    early_logloss_regression_tolerance=DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
+):
+    output = []
+    grouped = rows_for_group(
+        [
+            row for row in rows
+            if hour_regime(row.get("cutoff_hour")) == "early_morning"
+        ],
+        "market_id",
+    )
+    for market_id, market_rows in sorted(grouped.items(), key=lambda item: str(item[0])):
+        if not market_id:
+            continue
+        summary = summarize_rows(market_rows)
+        if not summary:
+            continue
+        brier_delta = safe_float(summary.get("brier_delta"))
+        logloss_delta = safe_float(summary.get("logloss_delta"))
+        blocking_gates = []
+        if brier_delta is not None and brier_delta < -float(early_brier_regression_tolerance):
+            blocking_gates.append("early_hour_brier_regression")
+        if logloss_delta is not None and logloss_delta < -float(early_logloss_regression_tolerance):
+            blocking_gates.append("early_hour_logloss_regression")
+        output.append({
+            "market_id": market_id,
+            "status": "BLOCK" if blocking_gates else "PASS",
+            "blocking_gates": blocking_gates,
+            "n": summary.get("n"),
+            "market_days": summary.get("market_days"),
+            "snapshots": summary.get("snapshots"),
+            "model_brier": summary.get("model_brier"),
+            "market_brier": summary.get("market_brier"),
+            "brier_delta": brier_delta,
+            "model_logloss": summary.get("model_logloss"),
+            "market_logloss": summary.get("market_logloss"),
+            "logloss_delta": logloss_delta,
+            "model_ece": summary.get("model_ece"),
+            "winner_model_probability": summary.get("winner_model_probability"),
+            "winner_market_probability": summary.get("winner_market_probability"),
+        })
+    return sorted(
+        output,
+        key=lambda row: (
+            row.get("status") != "BLOCK",
+            safe_float(row.get("brier_delta")) if row.get("brier_delta") is not None else math.inf,
+            str(row.get("market_id") or ""),
+        ),
+    )
+
+
 def rank_hours(by_hour, min_rows=DEFAULT_MIN_ROWS, top_hours=DEFAULT_TOP_HOURS):
     eligible = [row for row in by_hour if int(row.get("n") or 0) >= int(min_rows)]
     best = sorted(
@@ -827,8 +881,36 @@ def _interpret_remediation(probe_name, delta, uses_market_prices):
     return "weather-only probe regresses this regime"
 
 
-def build_remediation_registry(remediation, by_hour):
+def _serving_mitigation_status(probe_name, regime, uses_market_prices):
+    if regime != "early_morning":
+        return "not_applicable"
+    if uses_market_prices:
+        return "quote_risk_only"
+    return "candidate_hourly_gate_required"
+
+
+def _serving_mitigation_requirement(regime, uses_market_prices):
+    if regime != "early_morning":
+        return "current-serving hourly blocker applies only to the early-hour regime"
+    if uses_market_prices:
+        return "market-aware overlays may reduce quote risk but cannot mitigate a weather-model promotion blocker"
+    return "requires a matching candidate-specific hourly gate PASS before promotion readiness can mitigate the current-serving blocker"
+
+
+def build_remediation_registry(
+    remediation,
+    by_hour,
+    checkpoint_rows=None,
+    *,
+    early_brier_regression_tolerance=DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
+    early_logloss_regression_tolerance=DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
+):
     hour_summary = {int(row["hour"]): row for row in by_hour if row.get("hour") is not None}
+    per_market = early_hour_market_deltas(
+        checkpoint_rows or [],
+        early_brier_regression_tolerance=early_brier_regression_tolerance,
+        early_logloss_regression_tolerance=early_logloss_regression_tolerance,
+    )
     rows = []
     for probe_name, probe in sorted((remediation or {}).items()):
         uses_market_prices = bool(probe.get("uses_market_prices"))
@@ -858,6 +940,7 @@ def build_remediation_registry(remediation, by_hour):
                 best_parameters.append(best.get("parameter"))
             brier_delta = _weighted_mean(joined, "brier_delta_vs_base")
             logloss_delta = _weighted_mean(joined, "logloss_delta_vs_base")
+            serving_status = _serving_mitigation_status(probe_name, regime, uses_market_prices)
             rows.append({
                 "schema_version": REMEDIATION_REGISTRY_SCHEMA_VERSION,
                 "probe_name": probe_name,
@@ -876,17 +959,33 @@ def build_remediation_registry(remediation, by_hour):
                 "owner": owner["owner"],
                 "claim_lane": owner["claim_lane"],
                 "counts_toward_weather_model_promotion": owner["counts_toward_weather_model_promotion"],
+                "serving_mitigation_allowed": False,
+                "serving_mitigation_status": serving_status,
+                "serving_mitigation_requirement": _serving_mitigation_requirement(regime, uses_market_prices),
                 "interpretation": _interpret_remediation(probe_name, brier_delta, uses_market_prices),
             })
+    blocked_markets = [row for row in per_market if row.get("status") == "BLOCK"]
     return {
         "schema_version": REMEDIATION_REGISTRY_SCHEMA_VERSION,
         "rows": rows,
+        "early_hour_market_deltas": per_market,
         "summary": {
             "row_count": len(rows),
             "probe_names": sorted({row["probe_name"] for row in rows}),
             "hour_regimes": sorted({row["hour_regime"] for row in rows}),
             "market_price_probe_count": sum(1 for row in rows if row.get("uses_market_prices")),
             "weather_model_probe_count": sum(1 for row in rows if not row.get("uses_market_prices")),
+            "early_hour_market_delta_count": len(per_market),
+            "early_hour_blocked_market_count": len(blocked_markets),
+            "early_hour_brier_blocked_market_count": sum(
+                1 for row in blocked_markets
+                if "early_hour_brier_regression" in (row.get("blocking_gates") or [])
+            ),
+            "early_hour_logloss_blocked_market_count": sum(
+                1 for row in blocked_markets
+                if "early_hour_logloss_regression" in (row.get("blocking_gates") or [])
+            ),
+            "early_hour_worst_markets": [row.get("market_id") for row in blocked_markets[:5]],
         },
     }
 
@@ -1201,7 +1300,13 @@ def build_hourly_performance(
     best_hours, worst_hours = rank_hours(by_hour, min_rows=min_rows, top_hours=top_hours)
     notes = driver_notes(best_hours, worst_hours, overall_checkpoint) if overall_checkpoint else {"best": [], "worst": []}
     remediation = remediation_candidates(checkpoint_rows)
-    remediation_registry = build_remediation_registry(remediation, by_hour)
+    remediation_registry = build_remediation_registry(
+        remediation,
+        by_hour,
+        checkpoint_rows,
+        early_brier_regression_tolerance=early_brier_regression_tolerance,
+        early_logloss_regression_tolerance=early_logloss_regression_tolerance,
+    )
     gate = hourly_performance_gate(
         by_hour_regime,
         {
@@ -1352,6 +1457,29 @@ def regime_table_rows(rows):
             fmt_signed(row.get("partition_effective_band_gap"), 2),
             fmt_pct(row.get("partition_model_top_probability")),
             fmt_pct(row.get("partition_market_top_probability")),
+        ]
+        for row in rows
+    ]
+
+
+def early_market_delta_table_rows(rows):
+    return [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            ",".join(row.get("blocking_gates") or []) or "-",
+            row.get("n"),
+            row.get("market_days"),
+            row.get("snapshots"),
+            fmt_num(row.get("model_brier")),
+            fmt_num(row.get("market_brier")),
+            fmt_signed(row.get("brier_delta")),
+            fmt_num(row.get("model_logloss")),
+            fmt_num(row.get("market_logloss")),
+            fmt_signed(row.get("logloss_delta")),
+            fmt_num(row.get("model_ece")),
+            fmt_pct(row.get("winner_model_probability")),
+            fmt_pct(row.get("winner_market_probability")),
         ]
         for row in rows
     ]
@@ -1613,6 +1741,44 @@ def render_report(payload):
                 for row in blockers
             ],
         )
+    early_market_deltas = remediation_registry.get("early_hour_market_deltas") or []
+    if early_market_deltas:
+        early_market_summary = remediation_registry.get("summary") or {}
+        lines += [
+            "",
+            "### Early-Hour Per-Market Deltas",
+            "",
+        ]
+        lines += markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Markets scored", early_market_summary.get("early_hour_market_delta_count", 0)],
+                ["Blocked markets", early_market_summary.get("early_hour_blocked_market_count", 0)],
+                ["Brier-blocked markets", early_market_summary.get("early_hour_brier_blocked_market_count", 0)],
+                ["LogLoss-blocked markets", early_market_summary.get("early_hour_logloss_blocked_market_count", 0)],
+                ["Worst markets", ", ".join(early_market_summary.get("early_hour_worst_markets") or []) or "-"],
+            ],
+        )
+        lines += markdown_table(
+            [
+                "Market",
+                "Status",
+                "Blocking Gates",
+                "Rows",
+                "Days",
+                "Snapshots",
+                "Model Brier",
+                "Market Brier",
+                "Brier Delta",
+                "Model LogLoss",
+                "Market LogLoss",
+                "LogLoss Delta",
+                "Model ECE",
+                "Winner Model P",
+                "Winner Market P",
+            ],
+            early_market_delta_table_rows(early_market_deltas),
+        )
 
     lines += [
         "",
@@ -1850,10 +2016,14 @@ def render_report(payload):
             fmt_signed(row.get("logloss_delta")),
             row.get("uses_market_prices"),
             row.get("owner"),
+            row.get("serving_mitigation_status"),
             row.get("interpretation"),
         ])
     lines += markdown_table(
-        ["Probe", "Regime", "Rows", "Markets", "Brier Delta", "LogLoss Delta", "Uses Market", "Owner", "Interpretation"],
+        [
+            "Probe", "Regime", "Rows", "Markets", "Brier Delta", "LogLoss Delta",
+            "Uses Market", "Owner", "Mitigation", "Interpretation",
+        ],
         registry_rows,
     )
     lines += [

@@ -1205,3 +1205,92 @@ actionable than another all-branch basket: the next Item 35/48 model attempt
 should test a predeclared Austin all-fresh midday/late reanalysis guard inside
 the full replay/promotion harness, while keeping NYC/Seattle and
 San Francisco/Los Angeles as separate repair tracks.
+
+## 2026-06-19 replayed Austin reanalysis guard
+
+The predeclared Austin guard was moved into a replayable artifact:
+`data/backtest/item32_reanalysis_austin_all_fresh_midday_late_guard_candidate.pkl`.
+`pooled_candidate_replay` now supports `current_blend_context_alpha` rules, so
+the artifact keeps Austin on current serving except for all-fresh midday/late
+rows where the Item 32 reanalysis branch is used. The full pinned replay is
+`data/backtest/item32_reanalysis_austin_guard_replay_report.md`.
+
+This is a measured improvement, not an Item 35 unblock. Aggregate candidate
+Brier improves slightly versus the prior Item 32 no-pressure branch (`0.04302`
+versus `0.04310`), and Austin moves to `PASS`: candidate `0.03849`, current
+`0.04099`, market `0.03620`, with a `+0.00228` market gap inside tolerance.
+Houston and Los Angeles also pass.
+
+The replay still reports `BLOCK / DO_NOT_CUT_OVER`: aggregate daily-first
+market gap is `+0.00512`, and Chicago, NYC, San Francisco, and Seattle remain
+blocked. This narrows the unified-model repair backlog but does not satisfy
+Item 35's acceptance requirement to beat current per market and lift the
+data-poor side. The next model work should keep the Austin guard and focus on
+NYC/Seattle winner/slice repair plus Chicago/San Francisco non-current skill.
+
+## 2026-06-20 UTC combined guard/raw-alpha replay
+
+The next unified-density diagnostic preserved the Austin all-fresh midpoint/late
+reanalysis guard and reopened only Chicago and NYC to raw candidate alpha:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_candidate.pkl`.
+San Francisco remained current-guarded because the earlier broad raw-alpha
+test regressed current there.
+
+The full pinned replay
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_replay_report.md`
+is still `BLOCK / DO_NOT_CUT_OVER`, so Item 35 remains `PARTIAL`. The useful
+movement is that aggregate candidate Brier improves to `0.04141` versus
+current `0.04349`, and daily-first market gap narrows to `+0.00353` from the
+Austin-only guard's `+0.00512`. Candidate cutover-ready markets remain Austin,
+Houston, and Los Angeles; Atlanta, Dallas, Denver, and Miami remain shadow;
+Chicago, NYC, San Francisco, and Seattle remain blocked.
+
+This does not meet the Item 35 closure bar because the candidate still does
+not beat market/current constraints per market. Chicago and NYC now beat
+current but miss market tolerance (`+0.00418` and `+0.01013`), San Francisco
+still needs non-current signal, and Seattle remains the largest market gap.
+The refreshed repair diagnostic
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_repair_actions_report.md`
+points the next density-model work at Chicago slice repair, NYC/Seattle winner
+probability mass, and independent San Francisco signal rather than another
+broad alpha opening.
+
+The current-blend time-split validator was updated to honor
+`current_blend_context_alpha`, then rerun on the same combined replay rows:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_current_blend_validation_report.md`.
+It remains `BLOCK`. Austin context rows are now counted as raw-candidate rows,
+but earlier-date alpha selection worsens later-date performance versus the
+combined baseline: selected daily-first market gap `+0.00527` versus baseline
+`+0.00491`. This confirms Item 35 should not spend another pass on broad
+current-blend alpha tuning; the remaining work is direct market-specific model
+repair.
+
+The follow-up context-guard scan
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`
+tested inference-time raw/current guards over source freshness, cutoff regime,
+forecast disagreement/pressure, forecast source count, and band type. It also
+rejects this lane: selected daily-first market gap is `+0.00509`, worse than
+the combined baseline's `+0.00491`. Chicago's best guard improves current but
+still misses market tolerance, NYC and Seattle remain far outside market, and
+San Francisco has no raw candidate rows to guard. Item 35 still needs new
+model/source signal rather than policy selection over the current probability
+export.
+
+## 2026-06-20 UTC reproducible two-condition context-guard rejection
+
+I replaced the ad hoc context-guard scan with the registered
+`weather.reporting.context_guard_validation` tool and regenerated the report at
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`.
+The new run tests two-condition no-market policies as well as single-condition
+guards, selecting on earlier market-days and evaluating later market-days.
+
+This still rejects context guarding as the next Item 35 model path. Selected
+daily-first Brier worsens to `0.0439` versus market `0.0385` (`+0.0054`),
+while the observed combined baseline is `0.0434` (`+0.0049`). The best eval
+oracle policies still miss market tolerance for Chicago (`+0.0047`), NYC
+(`+0.0195`), San Francisco (`+0.0056`, with no non-current rows), and Seattle
+(`+0.0161`). The selected policy also newly blocks Austin/Houston/Los Angeles
+on the holdout split, so the unified-density repair should not add another
+context guard over this export. It needs new feature/model signal: Chicago
+slice repair, NYC/Seattle winner-mass repair, San Francisco non-current signal,
+and the Toronto lift requirement from the Item 35 acceptance bar.

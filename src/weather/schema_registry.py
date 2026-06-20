@@ -236,6 +236,13 @@ REGISTERED_SCHEMAS = (
         "Chronological validation for current-blend alpha schedules on variant row exports.",
     ),
     SchemaSpec(
+        "context_guard_validation",
+        "context_guard_validation_v0.1",
+        "weather.reporting.context_guard_validation",
+        "active",
+        "Chronological validation for no-market context guard policies on variant row exports.",
+    ),
+    SchemaSpec(
         "official_guidance_sparse_coverage",
         "official_guidance_sparse_coverage_v0.1",
         "weather.reporting.official_guidance_sparse_coverage",
@@ -337,6 +344,20 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("item27_feature_value_gate", "item27_feature_value_gate_v0.1", "weather.calibration.feature_model", "active"),
     SchemaSpec("fleet_collection_health", "fleet_collection_health_v0.1", "weather.collection.collection_health", "active"),
     SchemaSpec("fleet_observability", "fleet_observability_v0.1", "weather.reporting.fleet_observability", "active"),
+    SchemaSpec(
+        "loop_current_code_soak",
+        "loop_current_code_soak_v0.1",
+        "weather.reporting.fleet_observability",
+        "active",
+        "Current-code loop soak proof with restart budgets, runtime identity, and duplicate-writer counts.",
+    ),
+    SchemaSpec(
+        "snapshot_cadence_proof",
+        "snapshot_cadence_proof_v0.1",
+        "weather.reporting.fleet_observability",
+        "active",
+        "Per-market snapshot cadence proof used by broad live-forward SLO countability.",
+    ),
     SchemaSpec("forecast_daily_legacy", "forecast_daily_legacy_v1", "weather.sources.forecast_history", "legacy"),
     SchemaSpec("forecast_ensemble_features", "forecast_ensemble_features_v0.1", "weather.sources.forecast_history", "active"),
     SchemaSpec(

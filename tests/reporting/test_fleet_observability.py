@@ -5,13 +5,18 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from weather.collection.collection_health import fleet_collection_health, source_family_degradation  # noqa: E402
+from weather.market.market_registry import all_specs  # noqa: E402
+from weather.operations.supervisor import SupervisorSpec
 from weather.reporting.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
+    classify_loop_diagnostic_event,
     clob_alerts,
+    current_code_soak_summary,
     live_forward_slo_gate,
     loop_integrity_alerts,
     mm_paper_evidence_summary,
@@ -78,9 +83,17 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(toronto_sources["families"]["open_meteo"]["fallback_sources"], ["open_meteo"])
         self.assertFalse(toronto_sources["trading_evidence_allowed"])
         self.assertTrue(toronto_sources["model_review_allowed"])
+        toronto_cadence = by_market["toronto"]["snapshot_cadence_proof"]
+        self.assertEqual(toronto_cadence["status"], "PASS")
+        self.assertEqual(toronto_cadence["latest_snapshot_id"], "s48")
+        self.assertEqual(toronto_cadence["gap_count"], 0)
         fleet_sources = payload["summary"]["source_family_degradation"]
         self.assertEqual(fleet_sources["affected_market_count"], 1)
         self.assertEqual(fleet_sources["fallback_source_count"], 1)
+        self.assertEqual(
+            payload["snapshot_cadence_proof"]["summary"]["blocked_market_count"],
+            11,
+        )
 
     def test_source_family_provider_cooldown_is_nonblocking_with_fresh_family_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,6 +122,8 @@ class TestFleetObservability(unittest.TestCase):
                     "cache_status": "provider_cooldown",
                     "source_family": "open_meteo",
                     "degradation_state": "rate_limited",
+                    "retry_after_seconds": "60.0",
+                    "age_minutes": "0.5",
                 },
             ]).to_csv(folder / "source_status_long.csv", index=False)
 
@@ -118,10 +133,25 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(payload["affected_family_count"], 1)
         self.assertEqual(payload["blocking_family_count"], 0)
         self.assertTrue(payload["trading_evidence_allowed"])
+        self.assertTrue(payload["claim_lane_allowance"]["model_review"])
+        self.assertTrue(payload["claim_lane_allowance"]["paper_trading"])
+        self.assertFalse(payload["claim_lane_allowance"]["live_trade_permission"])
+        self.assertFalse(payload["claim_lane_allowance"]["promotion_readiness"])
         self.assertEqual(payload["provider_cooldown_source_count"], 1)
         self.assertEqual(open_meteo["status"], "rate_limited_with_fresh_family_coverage")
         self.assertFalse(open_meteo["trading_blocking"])
         self.assertEqual(open_meteo["provider_cooldown_sources"], ["open_meteo"])
+        self.assertEqual(open_meteo["max_retry_after_seconds"], 60.0)
+        self.assertEqual(open_meteo["top_cache_states"]["provider_cooldown"], 1)
+        self.assertEqual(
+            open_meteo["claim_lane_allowance"],
+            {
+                "model_review": True,
+                "paper_trading": True,
+                "live_trade_permission": False,
+                "promotion_readiness": False,
+            },
+        )
 
     def test_source_family_direct_rate_limit_is_nonblocking_with_fresh_family_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -159,6 +189,7 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(payload["affected_family_count"], 1)
         self.assertEqual(payload["blocking_family_count"], 0)
         self.assertTrue(payload["trading_evidence_allowed"])
+        self.assertFalse(payload["live_trade_permission_allowed"])
         self.assertEqual(open_meteo["status"], "rate_limited_with_fresh_family_coverage")
         self.assertFalse(open_meteo["trading_blocking"])
 
@@ -186,6 +217,8 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(payload["affected_family_count"], 1)
         self.assertEqual(payload["blocking_family_count"], 1)
         self.assertFalse(payload["trading_evidence_allowed"])
+        self.assertFalse(payload["claim_lane_allowance"]["paper_trading"])
+        self.assertFalse(payload["claim_lane_allowance"]["live_trade_permission"])
         self.assertEqual(open_meteo["status"], "degraded")
         self.assertTrue(open_meteo["trading_blocking"])
 
@@ -404,9 +437,69 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("observation_trigger_health", concrete)
         self.assertEqual(gate["first_blocker"]["market_id"], "toronto")
         self.assertEqual(gate["first_blocker"]["owner"], "weather snapshot/model loop")
-        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
+        self.assertIn("snapshot_tracker --restart", gate["first_blocker"]["repair_command"])
         self.assertIn("fleet_observability report", gate["first_blocker"]["verification_command"])
+        cadence = gate["snapshot_cadence_proof"]
+        self.assertEqual(cadence["summary"]["blocked_market_count"], 1)
+        self.assertEqual(cadence["summary"]["snapshot_coverage_gap_blocked_market_count"], 1)
+        self.assertIn("snapshot_tracker --status", cadence["status_command"])
+        self.assertIn("snapshot_tracker --restart", cadence["repair_command"])
         self.assertGreaterEqual(len(gate["recovery_checklist"]), 6)
+
+    def test_live_forward_slo_surfaces_june19_all_market_snapshot_gap_shape(self):
+        market_ids = [spec.id for spec in all_specs()]
+        collection = {
+            "markets": [
+                {
+                    "market_id": market_id,
+                    "action_required": True,
+                    "snapshot_action_required": True,
+                    "state": "PARTIAL",
+                    "reason": "2 gap(s), max 34 min",
+                    "snapshots": 42,
+                    "max_gap_minutes": 34.0,
+                    "snapshot_cadence_proof": {
+                        "status": "BLOCK",
+                        "snapshot_count": 42,
+                        "gap_count": 2,
+                        "max_gap_minutes": 34.0,
+                        "root_cause": "unknown_snapshot_gap",
+                        "recoverable_same_day": False,
+                        "gap_windows": [
+                            {
+                                "after": "2026-06-19T12:00:00-04:00",
+                                "before": "2026-06-19T12:34:00-04:00",
+                                "gap_minutes": 34.0,
+                            }
+                        ],
+                    },
+                }
+                for market_id in market_ids
+            ]
+        }
+        clob = {
+            "loop": {"state": "RUNNING", "heartbeat_age_seconds": 5.0},
+            "books": {"markets": [{"market_id": market_id, "ok": True} for market_id in market_ids]},
+        }
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 5.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+        concrete = {row["name"]: row for row in gate["concrete_gates"]}
+        cadence = gate["snapshot_cadence_proof"]
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(
+            {row["name"] for row in gate["gates"] if not row["ok"]},
+            {"snapshot_collection"},
+        )
+        self.assertFalse(concrete["snapshot_coverage_gap"]["ok"])
+        self.assertEqual(concrete["snapshot_coverage_gap"]["blocked_market_count"], 12)
+        self.assertFalse(gate["first_blocker"]["recoverable_same_day"])
+        self.assertEqual(cadence["summary"]["blocked_market_count"], 12)
+        self.assertEqual(cadence["summary"]["snapshot_coverage_gap_blocked_market_count"], 12)
+        self.assertEqual(cadence["summary"]["total_gap_count"], 24)
+        self.assertTrue(all(row["gap_windows"] for row in cadence["markets"]))
+        self.assertIn("snapshot_tracker --restart", cadence["repair_command"])
 
     def test_live_forward_slo_source_status_provider_fallback_has_specific_repair(self):
         collection = {
@@ -422,6 +515,10 @@ class TestFleetObservability(unittest.TestCase):
                     "affected_family_count": 1,
                     "failed_source_count": 0,
                     "fallback_source_count": 2,
+                    "repair_command": (
+                        "python -m weather.collection.snapshot_tracker --backfill-source-status "
+                        "--overwrite-source-status --source-status-folder data/snapshots/toronto"
+                    ),
                     "families": {
                         "open_meteo": {
                             "status": "degraded",
@@ -445,8 +542,8 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(gate["first_blocker"]["root_cause"], "open_meteo_provider_fallback")
         self.assertEqual(gate["first_blocker"]["owner"], "Open-Meteo quota / forecast source collector")
         self.assertFalse(gate["first_blocker"]["recoverable_same_day"])
-        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
-        self.assertNotIn("backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("--backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("--source-status-folder data/snapshots/toronto", gate["first_blocker"]["repair_command"])
         self.assertIn("fallback_sources=open_meteo,eccc_gem", gate["first_blocker"]["detail"])
 
     def test_live_forward_slo_source_status_rate_limit_has_provider_owner(self):
@@ -464,6 +561,10 @@ class TestFleetObservability(unittest.TestCase):
                     "failed_source_count": 0,
                     "fallback_source_count": 0,
                     "rate_limited_source_count": 2,
+                    "repair_command": (
+                        "python -m weather.collection.snapshot_tracker --backfill-source-status "
+                        "--overwrite-source-status --source-status-folder data/snapshots/toronto"
+                    ),
                     "families": {
                         "open_meteo": {
                             "status": "degraded",
@@ -486,8 +587,8 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(gate["first_blocker"]["component"], "source_status")
         self.assertEqual(gate["first_blocker"]["root_cause"], "open_meteo_provider_rate_limited")
         self.assertEqual(gate["first_blocker"]["owner"], "Open-Meteo quota / forecast source collector")
-        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
-        self.assertNotIn("backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("--backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("--source-status-folder data/snapshots/toronto", gate["first_blocker"]["repair_command"])
         self.assertIn("rate_limited_sources=open_meteo,eccc_gem", gate["first_blocker"]["detail"])
 
     def test_live_forward_slo_has_dedicated_variant_prediction_freshness_gate(self):
@@ -526,7 +627,54 @@ class TestFleetObservability(unittest.TestCase):
             "generated_at_utc": "2026-06-15T00:00:00+00:00",
             "status": "CRITICAL",
             "summary": {"critical_alerts": 1, "warning_alerts": 0},
-            "collection": {"markets": []},
+            "collection": {
+                "markets": [],
+                "source_status_proof": {
+                    "summary": {
+                        "source_status_blocked_market_count": 1,
+                        "live_trade_permission_blocked_market_count": 1,
+                        "promotion_readiness_blocked_market_count": 1,
+                        "top_degraded_family": "open_meteo",
+                        "provider_cooldown_source_count": 1,
+                    },
+                    "repair_command": (
+                        "python -m weather.collection.snapshot_tracker "
+                        "--backfill-source-status --overwrite-source-status"
+                    ),
+                    "verification_command": "python -m weather.collection.snapshot_tracker --status",
+                    "markets": [
+                        {
+                            "market_id": "nyc",
+                            "snapshot_id": "s48",
+                            "model_review_allowed": True,
+                            "paper_trading_allowed": True,
+                            "live_trade_permission_allowed": False,
+                            "promotion_readiness_allowed": False,
+                            "affected_family_count": 1,
+                            "blocking_family_count": 0,
+                            "provider_cooldown_source_count": 1,
+                            "top_degraded_family": "open_meteo",
+                            "affected_families": [
+                                {
+                                    "family": "open_meteo",
+                                    "status": "rate_limited_with_fresh_family_coverage",
+                                    "failed_source_count": 0,
+                                    "fallback_source_count": 0,
+                                    "rate_limited_source_count": 1,
+                                    "provider_cooldown_source_count": 1,
+                                    "top_cache_states": {"provider_cooldown": 1},
+                                    "max_retry_after_seconds": 60.0,
+                                    "max_cache_age_minutes": 0.5,
+                                }
+                            ],
+                            "repair_command": (
+                                "python -m weather.collection.snapshot_tracker --backfill-source-status "
+                                "--overwrite-source-status --source-status-folder data/snapshots/nyc"
+                            ),
+                        }
+                    ],
+                },
+            },
             "historical_audits": {},
             "historical_gap_coverage": {"markets": {}},
             "artifact_provenance": {"markets": {}},
@@ -553,6 +701,36 @@ class TestFleetObservability(unittest.TestCase):
                                 "text": "Traceback sample",
                             }
                         ],
+                    }
+                ],
+            },
+            "current_code_soak": {
+                "schema_version": "loop_current_code_soak_v0.1",
+                "status": "BLOCK",
+                "counts_toward_active_day": False,
+                "window_days": 7,
+                "cadence_slo_status": "BLOCK",
+                "cadence_slo_reason": "clob_book_freshness blocks broad live-forward SLO for nyc",
+                "current_identity": {"git_branch": "master", "git_commit": "abc123", "source_fingerprint": "current"},
+                "verification_command": "python -m weather.reporting.fleet_observability report",
+                "summary": {
+                    "diagnostic_class_counts": {"stale_code": 3, "duplicate_writer_blocked_benign": 2},
+                    "restart_class_counts": {"stale_code": 3},
+                },
+                "loops": [
+                    {
+                        "name": "snapshot_capture",
+                        "status": "BLOCK",
+                        "state": "STALE_CODE",
+                        "runtime_code_state": "stale_code",
+                        "single_writer": True,
+                        "restart_count": 3,
+                        "restart_budget": 6,
+                        "duplicate_writer_incidents": 0,
+                        "benign_duplicate_writer_blocks": 2,
+                        "malformed_lines": 0,
+                        "consecutive_errors": 0,
+                        "blocking_reasons": ["runtime_code_state=stale_code"],
                     }
                 ],
             },
@@ -590,6 +768,38 @@ class TestFleetObservability(unittest.TestCase):
                         "after": "rerun broad live-forward SLO",
                     }
                 ],
+                "snapshot_cadence_proof": {
+                    "summary": {
+                        "status": "BLOCK",
+                        "blocked_market_count": 1,
+                        "snapshot_coverage_gap_blocked_market_count": 1,
+                        "total_gap_count": 1,
+                        "max_gap_minutes": 34.0,
+                    },
+                    "status_command": "python -m weather.collection.snapshot_tracker --status",
+                    "repair_command": "python -m weather.collection.snapshot_tracker --restart",
+                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                    "markets": [
+                        {
+                            "market_id": "nyc",
+                            "status": "BLOCK",
+                            "blocking_gates": ["snapshot_coverage_gap"],
+                            "snapshot_count": 42,
+                            "gap_count": 1,
+                            "max_gap_minutes": 34.0,
+                            "latest_age_minutes": 40.0,
+                            "root_cause": "unknown_snapshot_gap",
+                            "recoverable_same_day": False,
+                            "gap_windows": [
+                                {
+                                    "after": "2026-06-19T12:00:00-04:00",
+                                    "before": "2026-06-19T12:34:00-04:00",
+                                    "gap_minutes": 34.0,
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "rerun_command": "python -m weather.reporting.fleet_observability report",
             },
             "mm_paper_evidence": {
@@ -633,12 +843,22 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("clob_capture", text)
         self.assertIn("loop_jsonl_repair repair", text)
         self.assertIn("Traceback sample", text)
+        self.assertIn("## Current-Code Soak Proof", text)
+        self.assertIn("runtime_code_state=stale_code", text)
+        self.assertIn("duplicate_writer_blocked_benign", text)
         self.assertIn("## Per-Market MM Paper Evidence", text)
         self.assertIn("model_review_evidence", text)
         self.assertIn("nyc", text)
         self.assertIn("### Broad Recovery Checklist", text)
         self.assertIn("clob_book_freshness", text)
         self.assertIn("weather.market.market_microstructure ensure", text)
+        self.assertIn("### Snapshot Cadence Proof", text)
+        self.assertIn("unknown_snapshot_gap", text)
+        self.assertIn("12:00->12:34", text)
+        self.assertIn("weather.collection.snapshot_tracker --restart", text)
+        self.assertIn("## Source Status Proof", text)
+        self.assertIn("open_meteo:rate_limited_with_fresh_family_coverage", text)
+        self.assertIn("--source-status-folder data/snapshots/nyc", text)
 
     def test_mm_paper_evidence_summary_reads_per_market_credit_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -703,6 +923,115 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual([row["severity"] for row in alerts], ["warning", "critical"])
         self.assertEqual({row["category"] for row in alerts}, {"loop_integrity"})
         self.assertIn("loop_jsonl_repair repair", alerts[0]["detail"]["repair_command"])
+
+    def test_loop_restart_taxonomy_separates_stale_code_and_benign_duplicate_writer(self):
+        self.assertEqual(
+            classify_loop_diagnostic_event({
+                "status": "stale_code",
+                "detail": "process code identity differs from current source tree",
+            }),
+            "stale_code",
+        )
+        self.assertEqual(
+            classify_loop_diagnostic_event({
+                "status": "duplicate_writer_blocked",
+                "existing_writer": {"exists": False},
+            }),
+            "duplicate_writer_blocked_benign",
+        )
+        self.assertEqual(
+            classify_loop_diagnostic_event({
+                "status": "duplicate_writer_blocked",
+                "existing_writer": {"exists": True, "pid": 123},
+            }),
+            "duplicate_writer_incident",
+        )
+
+    def test_current_code_soak_blocks_stale_code_restarts_and_counts_benign_duplicates(self):
+        now = datetime(2026, 6, 20, 12, 0, tzinfo=datetime.now().astimezone().tzinfo)
+        current_identity = {
+            "git_branch": "master",
+            "git_commit": "abc123",
+            "source_fingerprint": "current",
+        }
+        stale_identity = {
+            "git_branch": "master",
+            "git_commit": "abc123",
+            "source_fingerprint": "stale",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            diagnostics_path = root / "diagnostics.jsonl"
+            console_path = root / "console.log"
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "pid": 123,
+                        "started_at": now.isoformat(),
+                        "last_heartbeat": now.isoformat(),
+                        "last_snapshot_written_at": now.isoformat(),
+                        "interval_minutes": 10.0,
+                        "consecutive_errors": 0,
+                        "runtime_identity": stale_identity,
+                        "status_writer": {"pid": 123},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            diagnostics_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps({
+                            "time": (now - timedelta(minutes=5)).isoformat(),
+                            "status": "stale_code",
+                            "detail": "code identity differs from current source tree",
+                        }),
+                        json.dumps({
+                            "time": (now - timedelta(minutes=4)).isoformat(),
+                            "status": "duplicate_writer_blocked",
+                            "existing_writer": {"exists": False},
+                        }),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            console_path.write_text("", encoding="utf-8")
+            spec = SupervisorSpec(
+                name="snapshot_capture",
+                module="weather.collection.snapshot_tracker",
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=console_path,
+            )
+
+            with patch("weather.collection.snapshot_tracker.pid_is_python", return_value=True):
+                soak = current_code_soak_summary(
+                    {
+                        "rows": [
+                            {
+                                "name": "snapshot_capture",
+                                "writer_lock": {"exists": False},
+                                "status_writer": {"pid": 123},
+                                "duplicate_writer": False,
+                                "malformed_lines": 0,
+                            }
+                        ]
+                    },
+                    {"status": "PASS", "counts_toward_live_forward_gate": True},
+                    now=now,
+                    current_identity=current_identity,
+                    specs=(spec,),
+                )
+
+        row = soak["loops"][0]
+        self.assertEqual(soak["status"], "BLOCK")
+        self.assertEqual(row["runtime_code_state"], "stale_code")
+        self.assertEqual(row["restart_class_counts"]["stale_code"], 1)
+        self.assertEqual(row["benign_duplicate_writer_blocks"], 1)
+        self.assertEqual(row["duplicate_writer_incidents"], 0)
+        self.assertIn("runtime_code_state=stale_code", row["blocking_reasons"])
 
     def test_settled_day_freshness_alert_names_repair_commands(self):
         alerts = settled_day_freshness_alerts({

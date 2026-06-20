@@ -35,6 +35,18 @@ OPEN_METEO_SOURCE_FAMILY = {
     "global_ensemble",
     "eccc_gem",
 }
+SNAPSHOT_STATUS_COMMAND = "python -m weather.collection.snapshot_tracker --status"
+SNAPSHOT_RESTART_COMMAND = "python -m weather.collection.snapshot_tracker --restart"
+SNAPSHOT_FLEET_VERIFY_COMMAND = (
+    "python -m weather.reporting.fleet_observability report "
+    "--out data/backtest/fleet_observability.json "
+    "--report data/backtest/fleet_observability_report.md"
+)
+SOURCE_STATUS_VERIFY_COMMAND = SNAPSHOT_STATUS_COMMAND
+SOURCE_STATUS_BULK_REPAIR_COMMAND = (
+    "python -m weather.collection.snapshot_tracker "
+    "--backfill-source-status --overwrite-source-status"
+)
 
 
 def parse_times(iso_strings):
@@ -126,6 +138,96 @@ def local_window(target_date, tzinfo=None):
     )
 
 
+def _iso(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _gap_windows(gaps):
+    return [
+        {
+            "after": _iso(item.get("after")),
+            "before": _iso(item.get("before")),
+            "gap_minutes": item.get("gap_minutes"),
+        }
+        for item in gaps or []
+    ]
+
+
+def _snapshot_cadence_root_cause(summary):
+    reason = str(summary.get("reason") or "").lower()
+    if "stale code" in reason or "source tree" in reason:
+        return "stale_code_restart"
+    if "duplicate writer" in reason or "writer lock" in reason:
+        return "duplicate_writer_prevention"
+    if "disk" in reason or "headroom" in reason or "backpressure" in reason:
+        return "disk_backpressure"
+    if "provider" in reason or "source delay" in reason or "rate limit" in reason:
+        return "provider_source_delay"
+    if summary.get("n", 0) == 0 or "no snapshot tape" in reason or "no captures" in reason:
+        return "process_down"
+    if "latest capture" in reason:
+        return "long_iteration_or_stalled_loop"
+    if summary.get("gaps") or "gap" in reason:
+        return "unknown_snapshot_gap"
+    if summary.get("clean") or summary.get("state") == "COLLECTING":
+        return "within_cadence"
+    if "afternoon window" in reason:
+        return "unknown_snapshot_gap"
+    return "unknown"
+
+
+def snapshot_cadence_proof(
+    summary,
+    *,
+    freshness_sla_minutes,
+    latest_snapshot_id=None,
+    latest_snapshot_at_utc=None,
+    latest_snapshot_at_local=None,
+):
+    """Serializable per-market cadence evidence for live-forward SLO reports."""
+    gaps = _gap_windows(summary.get("gaps") or [])
+    action_required = bool(summary.get("action_required", not summary.get("clean")))
+    closed_non_countable = summary.get("state") == "PARTIAL" or (
+        action_required
+        and bool(gaps)
+    )
+    root_cause = _snapshot_cadence_root_cause(summary)
+    return {
+        "status": "BLOCK" if action_required else "PASS",
+        "counts_so_far": not action_required,
+        "active_day_countable": not closed_non_countable,
+        "recoverable_same_day": bool(action_required and not closed_non_countable),
+        "root_cause": root_cause,
+        "root_cause_class": root_cause,
+        "state": summary.get("state") or ("CLEAN" if summary.get("clean") else "CHECK"),
+        "reason": summary.get("reason"),
+        "snapshot_count": summary.get("n", 0),
+        "latest_snapshot_id": latest_snapshot_id,
+        "latest_snapshot_at_utc": latest_snapshot_at_utc,
+        "latest_snapshot_at_local": latest_snapshot_at_local,
+        "latest_age_minutes": summary.get("latest_age_minutes"),
+        "freshness_sla_minutes": freshness_sla_minutes,
+        "window_start": _iso(summary.get("window_start")),
+        "window_end": _iso(summary.get("window_end")),
+        "covers_afternoon": summary.get("covers_afternoon"),
+        "gap_count": len(gaps),
+        "max_gap_minutes": summary.get("max_gap_minutes"),
+        "gap_windows": gaps,
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+        "proof_requirements": [
+            "snapshot loop state RUNNING",
+            "runtime_code_state current",
+            "consecutive_errors 0",
+            "single writer lock owner",
+            "snapshot_coverage_gap blocked markets 0 after rerun",
+        ],
+    }
+
+
 def live_coverage_summary(times, interval_minutes, tolerance=1.5, as_of=None, target_date=None):
     """Collection health for an in-progress market day.
 
@@ -214,16 +316,28 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
     times = snapshot_times(tape) if tape.exists() else []
+    freshness_sla = float(interval_minutes) * float(tolerance)
     target_date = folder_target_date(folder)
     summary = (
         live_coverage_summary(times, interval_minutes, tolerance, as_of=as_of, target_date=target_date)
         if live
         else coverage_summary(times, interval_minutes, tolerance, target_date=target_date)
     )
+    _latest_rows, snapshot_meta = latest_snapshot_rows(folder)
     summary["event_slug"] = folder.name
     summary["folder"] = str(folder)
     summary["tape_path"] = str(tape)
     summary["variant_prediction_tape"] = variant_prediction_tape_health(folder)
+    summary["latest_snapshot_id"] = snapshot_meta.get("snapshot_id")
+    summary["latest_snapshot_at_utc"] = snapshot_meta.get("captured_at_utc")
+    summary["latest_snapshot_at_local"] = snapshot_meta.get("captured_at_local")
+    summary["snapshot_cadence_proof"] = snapshot_cadence_proof(
+        summary,
+        freshness_sla_minutes=freshness_sla,
+        latest_snapshot_id=snapshot_meta.get("snapshot_id"),
+        latest_snapshot_at_utc=snapshot_meta.get("captured_at_utc"),
+        latest_snapshot_at_local=snapshot_meta.get("captured_at_local"),
+    )
     return summary
 
 
@@ -246,6 +360,23 @@ def bool_value(value):
     if value in (None, ""):
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y", "ok"}
+
+
+def maybe_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def source_status_repair_command(folder):
+    return (
+        "python -m weather.collection.snapshot_tracker "
+        "--backfill-source-status --overwrite-source-status "
+        f"--source-status-folder {Path(folder)}"
+    )
 
 
 def source_family_for_row(row):
@@ -284,6 +415,43 @@ def source_degradation_bucket(row):
     return "unknown"
 
 
+def source_status_detail(row, bucket):
+    return {
+        "source": row.get("source"),
+        "source_family": source_family_for_row(row),
+        "status": source_status_for_row(row),
+        "bucket": bucket,
+        "ok": bool_value(row.get("ok")),
+        "stale": bool_value(row.get("stale")),
+        "http_status": row.get("http_status"),
+        "retry_after_seconds": maybe_float(row.get("retry_after_seconds")),
+        "degradation_state": row.get("degradation_state"),
+        "cache_status": row.get("cache_status"),
+        "fetched_at": row.get("fetched_at"),
+        "age_minutes": maybe_float(row.get("age_minutes")),
+        "ttl_minutes": maybe_float(row.get("ttl_minutes")),
+        "latency_ms": maybe_float(row.get("latency_ms")),
+        "row_count": maybe_float(row.get("row_count")),
+        "error": row.get("error"),
+    }
+
+
+def family_claim_lane_allowance(summary):
+    affected = bool(
+        int(summary.get("failed_source_count") or 0)
+        + int(summary.get("fallback_source_count") or 0)
+        + int(summary.get("rate_limited_source_count") or 0)
+        + int(summary.get("unknown_source_count") or 0)
+    )
+    paper_trading = not bool(summary.get("trading_blocking"))
+    return {
+        "model_review": True,
+        "paper_trading": paper_trading,
+        "live_trade_permission": not affected,
+        "promotion_readiness": not affected,
+    }
+
+
 def latest_source_status_rows(folder):
     path = Path(folder) / "source_status_long.csv"
     if not path.exists():
@@ -314,6 +482,7 @@ def latest_source_status_rows(folder):
 
 
 def source_family_degradation(folder):
+    folder = Path(folder)
     rows, metadata = latest_source_status_rows(folder)
     if not metadata.get("available"):
         return {
@@ -325,8 +494,18 @@ def source_family_degradation(folder):
             "fallback_source_count": 0,
             "rate_limited_source_count": 0,
             "provider_cooldown_source_count": 0,
+            "claim_lane_allowance": {
+                "model_review": False,
+                "paper_trading": False,
+                "live_trade_permission": False,
+                "promotion_readiness": False,
+            },
             "model_review_allowed": False,
             "trading_evidence_allowed": False,
+            "live_trade_permission_allowed": False,
+            "promotion_readiness_allowed": False,
+            "repair_command": source_status_repair_command(folder),
+            "verification_command": SOURCE_STATUS_VERIFY_COMMAND,
         }
     families = {}
     for row in rows:
@@ -349,11 +528,13 @@ def source_family_degradation(folder):
                 "rate_limited_sources": [],
                 "provider_cooldown_sources": [],
                 "unknown_sources": [],
+                "source_details": [],
             },
         )
         source = row.get("source")
         summary["source_count"] += 1
         summary["sources"].append(source)
+        summary["source_details"].append(source_status_detail(row, bucket))
         if bucket == "fresh":
             summary["fresh_source_count"] += 1
             summary["fresh_sources"].append(source)
@@ -406,6 +587,39 @@ def source_family_degradation(folder):
             affected_family_count += 1
         if summary["trading_blocking"]:
             blocking_family_count += 1
+        summary["claim_lane_allowance"] = family_claim_lane_allowance(summary)
+        summary["top_cache_states"] = dict(sorted(Counter(
+            detail.get("cache_status") or "unknown"
+            for detail in summary.get("source_details") or []
+        ).items()))
+        summary["max_cache_age_minutes"] = max(
+            (
+                detail.get("age_minutes")
+                for detail in summary.get("source_details") or []
+                if detail.get("age_minutes") is not None
+            ),
+            default=None,
+        )
+        summary["max_retry_after_seconds"] = max(
+            (
+                detail.get("retry_after_seconds")
+                for detail in summary.get("source_details") or []
+                if detail.get("retry_after_seconds") is not None
+            ),
+            default=None,
+        )
+    claim_lane_allowance = {
+        "model_review": True,
+        "paper_trading": blocking_family_count == 0,
+        "live_trade_permission": all(
+            (row.get("claim_lane_allowance") or {}).get("live_trade_permission")
+            for row in families.values()
+        ),
+        "promotion_readiness": all(
+            (row.get("claim_lane_allowance") or {}).get("promotion_readiness")
+            for row in families.values()
+        ),
+    }
     return {
         **metadata,
         "families": dict(sorted(families.items())),
@@ -415,19 +629,62 @@ def source_family_degradation(folder):
         "fallback_source_count": fallback_source_count,
         "rate_limited_source_count": rate_limited_source_count,
         "provider_cooldown_source_count": provider_cooldown_source_count,
+        "claim_lane_allowance": claim_lane_allowance,
         "model_review_allowed": True,
         "trading_evidence_allowed": blocking_family_count == 0,
+        "live_trade_permission_allowed": claim_lane_allowance["live_trade_permission"],
+        "promotion_readiness_allowed": claim_lane_allowance["promotion_readiness"],
+        "repair_command": source_status_repair_command(folder),
+        "verification_command": SOURCE_STATUS_VERIFY_COMMAND,
     }
 
 
 def fleet_source_family_degradation_summary(markets):
     rows = [row.get("source_family_degradation") or {} for row in markets]
     available = [row for row in rows if row.get("available")]
+    affected_by_family = Counter()
+    blocking_by_family = Counter()
+    cooldown_by_family = Counter()
+    fallback_by_family = Counter()
+    rate_limited_by_family = Counter()
+    for row in available:
+        for family, family_row in (row.get("families") or {}).items():
+            affected = (
+                int(family_row.get("failed_source_count") or 0)
+                + int(family_row.get("fallback_source_count") or 0)
+                + int(family_row.get("rate_limited_source_count") or 0)
+                + int(family_row.get("unknown_source_count") or 0)
+            )
+            if affected:
+                affected_by_family[family] += 1
+            if family_row.get("trading_blocking"):
+                blocking_by_family[family] += 1
+            cooldown_by_family[family] += int(family_row.get("provider_cooldown_source_count") or 0)
+            fallback_by_family[family] += int(family_row.get("fallback_source_count") or 0)
+            rate_limited_by_family[family] += int(family_row.get("rate_limited_source_count") or 0)
+    top_degraded_family = None
+    if affected_by_family:
+        top_degraded_family = affected_by_family.most_common(1)[0][0]
     return {
         "market_count": len(rows),
         "markets_with_source_status": len(available),
         "unknown_market_count": sum(1 for row in rows if not row.get("available")),
         "affected_market_count": sum(1 for row in available if row.get("affected_family_count", 0) > 0),
+        "source_status_blocked_market_count": sum(
+            1 for row in rows if not row.get("trading_evidence_allowed")
+        ),
+        "live_trade_permission_blocked_market_count": sum(
+            1 for row in rows if not row.get("live_trade_permission_allowed")
+        ),
+        "promotion_readiness_blocked_market_count": sum(
+            1 for row in rows if not row.get("promotion_readiness_allowed")
+        ),
+        "top_degraded_family": top_degraded_family,
+        "affected_family_market_counts": dict(sorted(affected_by_family.items())),
+        "blocking_family_market_counts": dict(sorted(blocking_by_family.items())),
+        "provider_cooldown_family_source_counts": dict(sorted(cooldown_by_family.items())),
+        "fallback_family_source_counts": dict(sorted(fallback_by_family.items())),
+        "rate_limited_family_source_counts": dict(sorted(rate_limited_by_family.items())),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
         "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
         "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
@@ -440,6 +697,60 @@ def fleet_source_family_degradation_summary(markets):
         "trading_evidence_allowed": bool(available) and all(
             row.get("trading_evidence_allowed") for row in available
         ),
+        "live_trade_permission_allowed": bool(available) and all(
+            row.get("live_trade_permission_allowed") for row in available
+        ),
+        "promotion_readiness_allowed": bool(available) and all(
+            row.get("promotion_readiness_allowed") for row in available
+        ),
+    }
+
+
+def source_status_market_proof(row):
+    source_status = row.get("source_family_degradation") or {}
+    affected = [
+        {
+            "family": family,
+            "status": family_row.get("status"),
+            "trading_blocking": family_row.get("trading_blocking"),
+            "claim_lane_allowance": family_row.get("claim_lane_allowance") or {},
+            "failed_source_count": family_row.get("failed_source_count"),
+            "fallback_source_count": family_row.get("fallback_source_count"),
+            "rate_limited_source_count": family_row.get("rate_limited_source_count"),
+            "provider_cooldown_source_count": family_row.get("provider_cooldown_source_count"),
+            "fallback_sources": family_row.get("fallback_sources") or [],
+            "rate_limited_sources": family_row.get("rate_limited_sources") or [],
+            "provider_cooldown_sources": family_row.get("provider_cooldown_sources") or [],
+            "top_cache_states": family_row.get("top_cache_states") or {},
+            "max_cache_age_minutes": family_row.get("max_cache_age_minutes"),
+            "max_retry_after_seconds": family_row.get("max_retry_after_seconds"),
+            "source_details": family_row.get("source_details") or [],
+        }
+        for family, family_row in sorted((source_status.get("families") or {}).items())
+        if family_row.get("status") != "healthy"
+    ]
+    top_family = affected[0]["family"] if affected else None
+    return {
+        "market_id": row.get("market_id"),
+        "event_slug": row.get("event_slug"),
+        "target_date": row.get("target_date"),
+        "available": source_status.get("available"),
+        "snapshot_id": source_status.get("snapshot_id"),
+        "captured_at_utc": source_status.get("captured_at_utc"),
+        "captured_at_local": source_status.get("captured_at_local"),
+        "reason": source_status.get("reason"),
+        "claim_lane_allowance": source_status.get("claim_lane_allowance") or {},
+        "model_review_allowed": source_status.get("model_review_allowed"),
+        "paper_trading_allowed": source_status.get("trading_evidence_allowed"),
+        "live_trade_permission_allowed": source_status.get("live_trade_permission_allowed"),
+        "promotion_readiness_allowed": source_status.get("promotion_readiness_allowed"),
+        "affected_family_count": source_status.get("affected_family_count", 0),
+        "blocking_family_count": source_status.get("blocking_family_count", 0),
+        "provider_cooldown_source_count": source_status.get("provider_cooldown_source_count", 0),
+        "top_degraded_family": top_family,
+        "affected_families": affected,
+        "repair_command": source_status.get("repair_command"),
+        "verification_command": source_status.get("verification_command"),
     }
 
 
@@ -584,6 +895,30 @@ def fleet_variant_prediction_tape_summary(markets):
     }
 
 
+def fleet_snapshot_cadence_proof_summary(markets):
+    rows = [row.get("snapshot_cadence_proof") or {} for row in markets]
+    root_causes = Counter(row.get("root_cause") or "unknown" for row in rows)
+    blocked = [row for row in rows if row.get("status") != "PASS"]
+    gap_rows = [row for row in rows if int(row.get("gap_count") or 0) > 0]
+    max_gaps = [
+        float(row.get("max_gap_minutes"))
+        for row in rows
+        if row.get("max_gap_minutes") is not None
+    ]
+    return {
+        "status": "PASS" if not blocked else "BLOCK",
+        "market_count": len(rows),
+        "blocked_market_count": len(blocked),
+        "snapshot_coverage_gap_market_count": len(gap_rows),
+        "total_gap_count": sum(int(row.get("gap_count") or 0) for row in rows),
+        "max_gap_minutes": max(max_gaps) if max_gaps else None,
+        "root_cause_counts": dict(sorted(root_causes.items())),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+    }
+
+
 def fleet_collection_health(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -596,14 +931,28 @@ def fleet_collection_health(
     for spec in all_specs():
         folder = latest_market_folder(spec, snapshots_root=snapshots_root)
         if folder is None:
+            missing_summary = {
+                "state": "MISSING",
+                "action_required": True,
+                "clean": False,
+                "n": 0,
+                "reason": "no snapshot tape found",
+            }
+            cadence_proof = snapshot_cadence_proof(
+                missing_summary,
+                freshness_sla_minutes=freshness_sla,
+            )
             markets.append({
                 "market_id": spec.id,
                 "city": spec.city_label,
                 "unit": spec.display_unit,
                 "state": "MISSING",
                 "action_required": True,
+                "snapshot_action_required": True,
                 "freshness_sla_minutes": freshness_sla,
                 "reason": "no snapshot tape found",
+                "snapshots": 0,
+                "snapshot_cadence_proof": cadence_proof,
             })
             continue
         summary = summarize_folder(
@@ -633,11 +982,17 @@ def fleet_collection_health(
             "capture_ratio": summary.get("capture_ratio"),
             "max_gap_minutes": summary.get("max_gap_minutes"),
             "reason": summary.get("reason"),
+            "latest_snapshot_id": summary.get("latest_snapshot_id"),
+            "latest_snapshot_at_utc": summary.get("latest_snapshot_at_utc"),
+            "latest_snapshot_at_local": summary.get("latest_snapshot_at_local"),
+            "snapshot_cadence_proof": summary.get("snapshot_cadence_proof") or {},
             "source_family_degradation": source_degradation,
             "variant_prediction_tape": variant_prediction_tape,
         })
     source_family_summary = fleet_source_family_degradation_summary(markets)
     variant_tape_summary = fleet_variant_prediction_tape_summary(markets)
+    cadence_summary = fleet_snapshot_cadence_proof_summary(markets)
+    source_status_markets = [source_status_market_proof(row) for row in markets]
     return {
         "schema_version": "fleet_collection_health_v0.1",
         "snapshots_root": str(snapshots_root),
@@ -645,6 +1000,25 @@ def fleet_collection_health(
         "tolerance": float(tolerance),
         "freshness_sla_minutes": freshness_sla,
         "markets": markets,
+        "snapshot_cadence_proof": {
+            "summary": cadence_summary,
+            "markets": [
+                {
+                    "market_id": row.get("market_id"),
+                    "event_slug": row.get("event_slug"),
+                    "target_date": row.get("target_date"),
+                    **(row.get("snapshot_cadence_proof") or {}),
+                }
+                for row in markets
+            ],
+        },
+        "source_status_proof": {
+            "schema_version": "source_status_proof_v0.1",
+            "summary": source_family_summary,
+            "markets": source_status_markets,
+            "repair_command": SOURCE_STATUS_BULK_REPAIR_COMMAND,
+            "verification_command": SOURCE_STATUS_VERIFY_COMMAND,
+        },
         "summary": {
             "market_count": len(markets),
             "action_required": sum(1 for row in markets if row.get("action_required")),
@@ -653,7 +1027,9 @@ def fleet_collection_health(
                 for state in sorted({row.get("state") for row in markets})
             },
             "source_family_degradation": source_family_summary,
+            "source_status_proof": source_family_summary,
             "variant_prediction_tape": variant_tape_summary,
+            "snapshot_cadence_proof": cadence_summary,
         },
     }
 

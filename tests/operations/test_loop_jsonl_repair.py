@@ -2,9 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from weather.operations.loop_jsonl_repair import audit_paths, repair_paths
-from weather.operations.supervisor import jsonl_integrity
+from weather.operations.supervisor import jsonl_integrity, writer_lock_path
 
 
 class TestLoopJsonlRepair(unittest.TestCase):
@@ -48,6 +50,35 @@ class TestLoopJsonlRepair(unittest.TestCase):
         self.assertEqual(repaired_lines, ['{"ok": true}', '{"ok": 2}'])
         self.assertTrue(backup_exists)
         self.assertEqual(quarantine_rows[0]["classification"], "non_json_text")
+
+    def test_repair_refuses_malformed_managed_log_with_active_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log_path = root / "loop_console.log"
+            status_path = root / "loop_status.json"
+            log_path.write_text('{"ok": true}\nnot-json\n', encoding="utf-8")
+            writer_lock_path(status_path).write_text(json.dumps({"pid": 1234}), encoding="utf-8")
+            spec = SimpleNamespace(
+                name="test_loop",
+                console_log_path=log_path,
+                status_path=status_path,
+            )
+
+            with (
+                patch("weather.operations.loop_jsonl_repair.managed_loop_specs", return_value=(spec,)),
+                patch("weather.operations.loop_jsonl_repair.pid_is_python", return_value=True),
+            ):
+                after = repair_paths([log_path], backup=True)
+
+            repaired = after["repair"]["repaired"][0]
+            repaired_lines = log_path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(after["status"], "BLOCK")
+        self.assertTrue(repaired["skipped"])
+        self.assertEqual(repaired["reason"], "active_writer_lock")
+        self.assertIsNone(repaired["backup_path"])
+        self.assertIsNone(repaired["quarantine_path"])
+        self.assertEqual(repaired_lines, ['{"ok": true}', "not-json"])
 
 
 if __name__ == "__main__":

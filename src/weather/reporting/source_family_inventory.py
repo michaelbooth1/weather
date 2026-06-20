@@ -748,6 +748,25 @@ def collect_artifact_feature_names(artifact):
     return names
 
 
+def artifact_reanalysis_lane(artifact):
+    if not isinstance(artifact, dict):
+        return None
+    direct = artifact.get("reanalysis_promotion_lane")
+    if isinstance(direct, dict):
+        return direct
+    lanes = artifact.get("source_family_lanes") or {}
+    lane = lanes.get("reanalysis_synoptic") if isinstance(lanes, dict) else None
+    if isinstance(lane, dict):
+        return lane
+    models = artifact.get("models") or {}
+    if isinstance(models, dict):
+        for bundle in models.values():
+            lane = artifact_reanalysis_lane(bundle)
+            if lane:
+                return lane
+    return None
+
+
 def active_model_usage(candidate_replay_payload):
     path = artifact_path_from_candidate_replay(candidate_replay_payload)
     result = {
@@ -756,6 +775,7 @@ def active_model_usage(candidate_replay_payload):
         "feature_count": 0,
         "feature_names": [],
         "active_overlay_families": [],
+        "reanalysis_promotion_lane": None,
         "error": None,
     }
     if path and path.exists():
@@ -763,10 +783,12 @@ def active_model_usage(candidate_replay_payload):
             with path.open("rb") as handle:
                 artifact = pickle.load(handle)
             names = collect_artifact_feature_names(artifact)
+            reanalysis_lane = artifact_reanalysis_lane(artifact)
             result.update({
                 "status": "PRESENT",
                 "feature_count": len(names),
                 "feature_names": sorted(names),
+                "reanalysis_promotion_lane": reanalysis_lane,
             })
         except Exception as exc:  # noqa: BLE001 - inventory should degrade conservatively
             result.update({"status": "ERROR", "error": str(exc)})
@@ -804,6 +826,50 @@ def active_family_usage(spec, usage):
         "active_model_feature_columns": active_features,
         "active_model_feature_count": len(active_features),
         "active_model_usage_status": "ACTIVE_FEATURES" if active_features else "NOT_USED_BY_ACTIVE_ARTIFACT",
+    }
+
+
+def reanalysis_lane_consistency(gate_lane, artifact_lane):
+    if not artifact_lane:
+        return {
+            "status": "NO_ARTIFACT_LANE",
+            "reason": "Candidate artifact does not declare a reanalysis promotion lane.",
+        }
+    gate_allowed = set(gate_lane.get("allowed_markets") or [])
+    gate_quarantined = set(gate_lane.get("quarantined_markets") or [])
+    artifact_allowed = set(artifact_lane.get("allowed_markets") or [])
+    artifact_quarantined = set(artifact_lane.get("quarantined_markets") or [])
+    unsafe_allowed = sorted(artifact_allowed & gate_quarantined)
+    missing_allowed = sorted(gate_allowed - artifact_allowed)
+    if unsafe_allowed:
+        return {
+            "status": "BLOCK_ARTIFACT_ALLOWS_QUARANTINED_MARKETS",
+            "unsafe_allowed_markets": unsafe_allowed,
+            "gate_allowed_markets": sorted(gate_allowed),
+            "artifact_allowed_markets": sorted(artifact_allowed),
+            "reason": "Artifact reanalysis lane allows markets that settlement-scored gates quarantine.",
+        }
+    if artifact_quarantined and not artifact_quarantined.issuperset(gate_quarantined):
+        return {
+            "status": "WARN_ARTIFACT_QUARANTINE_OMITS_GATE_BLOCKS",
+            "missing_quarantined_markets": sorted(gate_quarantined - artifact_quarantined),
+            "gate_quarantined_markets": sorted(gate_quarantined),
+            "artifact_quarantined_markets": sorted(artifact_quarantined),
+            "reason": "Artifact lane does not record every gate-quarantined market, though allowed markets are safe.",
+        }
+    if missing_allowed:
+        return {
+            "status": "ARTIFACT_CONSTRAINS_GATE",
+            "missing_allowed_markets": missing_allowed,
+            "gate_allowed_markets": sorted(gate_allowed),
+            "artifact_allowed_markets": sorted(artifact_allowed),
+            "reason": "Artifact lane is stricter than the settlement-scored gate.",
+        }
+    return {
+        "status": "PASS",
+        "gate_allowed_markets": sorted(gate_allowed),
+        "artifact_allowed_markets": sorted(artifact_allowed),
+        "reason": "Artifact reanalysis lane is consistent with settlement-scored market gates.",
     }
 
 
@@ -963,8 +1029,15 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
         ablation = ablation_for_spec(spec, ablations)
         decision = promotion_decision(spec, lineage, parity, ablation)
         promotion_lane = None
+        artifact_promotion_lane = None
+        artifact_lane_consistency = None
         if spec.family_id == "reanalysis_synoptic":
             promotion_lane = reanalysis_promotion_lane(ablation)
+            artifact_promotion_lane = (model_usage or {}).get("reanalysis_promotion_lane")
+            artifact_lane_consistency = reanalysis_lane_consistency(
+                promotion_lane,
+                artifact_promotion_lane,
+            )
         rows.append({
             "family_id": spec.family_id,
             "label": spec.label,
@@ -1018,6 +1091,8 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
             "ablation": ablation,
             "promotion_decision": decision,
             "promotion_lane": promotion_lane,
+            "artifact_promotion_lane": artifact_promotion_lane,
+            "artifact_lane_consistency": artifact_lane_consistency,
             "sample_folders": sorted(stats["sample_folders"])[:5],
         })
     return rows
@@ -1069,13 +1144,28 @@ def market_expansion_scorecard(locations_config=DEFAULT_LOCATIONS_CONFIG):
     }
 
 
-def promotion_preflight(rows):
+def promotion_preflight(
+    rows,
+    *,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    backtest_root=DEFAULT_BACKTEST_ROOT,
+    ablation_json=DEFAULT_ABLATION_JSON,
+    candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
+):
     blocked = [
         row
         for row in rows
         if row.get("model_influence")
         and str((row.get("promotion_decision") or {}).get("status") or "").startswith("BLOCK")
     ]
+    reanalysis_lane_blocks = [
+        row
+        for row in rows
+        if row.get("family_id") == "reanalysis_synoptic"
+        and row.get("model_influence")
+        and str((row.get("artifact_lane_consistency") or {}).get("status") or "").startswith("BLOCK")
+    ]
+    blocked = [*blocked, *reanalysis_lane_blocks]
     return {
         "status": "BLOCK" if blocked else "PASS",
         "blocked_family_count": len(blocked),
@@ -1087,15 +1177,17 @@ def promotion_preflight(rows):
                 "train_serve_parity_status": row["train_serve_parity_status"],
                 "ablation_status": (row.get("ablation") or {}).get("status"),
                 "decision": (row.get("promotion_decision") or {}).get("status"),
+                "artifact_lane_consistency": (row.get("artifact_lane_consistency") or {}).get("status"),
                 "action": (row.get("promotion_decision") or {}).get("action"),
             }
             for row in blocked
         ],
         "inventory_command": (
             "python -m weather.reporting.source_family_inventory "
-            "--snapshots-root data/snapshots --backtest-root data/backtest "
-            "--ablation-json data/backtest/source_family_ablation.json "
-            "--candidate-replay-json data/backtest/pooled_candidate_replay_latest.json"
+            f"--snapshots-root {Path(snapshots_root).as_posix()} "
+            f"--backtest-root {Path(backtest_root).as_posix()} "
+            f"--ablation-json {Path(ablation_json).as_posix()} "
+            f"--candidate-replay-json {Path(candidate_replay_json).as_posix()}"
         ),
         "ablation_command": (
             "python -m weather.backtesting.replay_ablation "
@@ -1146,7 +1238,13 @@ def build_source_family_inventory(
         merged_ablation_payload["variants"].append(item27_reanalysis)
     merged_ablation_count = len(ablation_by_variant(merged_ablation_payload))
     rows = inventory_rows(stats_by_family, merged_ablation_payload, model_usage=model_usage)
-    preflight = promotion_preflight(rows)
+    preflight = promotion_preflight(
+        rows,
+        snapshots_root=snapshots_root,
+        backtest_root=backtest_root,
+        ablation_json=ablation_json,
+        candidate_replay_json=candidate_replay_json,
+    )
     expansion = market_expansion_scorecard(locations_config)
     blocked = preflight["blocked_family_count"]
     return {
@@ -1247,6 +1345,27 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
                 ["Thin-margin markets", ", ".join(reanalysis_lane.get("thin_margin_markets") or []) or "-"],
                 ["Reason", reanalysis_lane.get("reason")],
                 ["Action", reanalysis_lane.get("action")],
+            ],
+        )
+    artifact_lane = (reanalysis or {}).get("artifact_promotion_lane") or {}
+    consistency = (reanalysis or {}).get("artifact_lane_consistency") or {}
+    if artifact_lane or consistency:
+        lines += ["", "## Reanalysis Artifact Promotion Lane", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Consistency", consistency.get("status")],
+                ["Consistency reason", consistency.get("reason")],
+                ["Status", artifact_lane.get("status")],
+                ["Policy", artifact_lane.get("policy")],
+                ["Allowed markets", ", ".join(artifact_lane.get("allowed_markets") or []) or "-"],
+                ["Quarantined markets", ", ".join(artifact_lane.get("quarantined_markets") or []) or "-"],
+                [
+                    "Blocked reanalysis fields",
+                    ", ".join(artifact_lane.get("blocked_feature_columns") or []) or "-",
+                ],
+                ["Reason", artifact_lane.get("reason")],
+                ["Action", artifact_lane.get("action")],
             ],
         )
     reanalysis_details = ((reanalysis or {}).get("ablation") or {}).get("market_details") or []

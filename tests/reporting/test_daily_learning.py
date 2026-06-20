@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.daily_learning import build_learning_payload, write_outputs
+from weather.reporting.daily_learning import build_learning_payload, render_report, write_outputs
 
 
 def write_daily_artifacts(root, *, blocked=False):
@@ -556,7 +556,26 @@ class TestDailyLearning(unittest.TestCase):
                         },
                         "remediation_registry": {
                             "schema_version": "hourly_remediation_registry_v0.1",
-                            "summary": {"row_count": 1},
+                            "summary": {
+                                "row_count": 1,
+                                "early_hour_market_delta_count": 1,
+                                "early_hour_blocked_market_count": 1,
+                            },
+                            "early_hour_market_deltas": [
+                                {
+                                    "market_id": "toronto",
+                                    "status": "BLOCK",
+                                    "blocking_gates": ["early_hour_brier_regression"],
+                                    "n": 12,
+                                    "market_days": 1,
+                                    "model_brier": 0.080,
+                                    "market_brier": 0.040,
+                                    "brier_delta": -0.040,
+                                    "model_logloss": 0.320,
+                                    "market_logloss": 0.120,
+                                    "logloss_delta": -0.200,
+                                }
+                            ],
                             "rows": [
                                 {
                                     "probe_name": "early_hour_profile_bias",
@@ -583,15 +602,27 @@ class TestDailyLearning(unittest.TestCase):
                 row for row in payload["learnings"]
                 if row["category"] == "hourly_remediation_registry"
             )
+            market_delta_learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "hourly_early_market_delta"
+            )
+            report = render_report(payload)
 
         self.assertEqual(payload["status"], "BLOCKED")
         self.assertEqual(payload["scorecard"]["hourly_model_performance"]["status"], "BLOCK")
+        self.assertEqual(
+            payload["scorecard"]["hourly_model_performance"]["early_hour_market_deltas"][0]["market_id"],
+            "toronto",
+        )
         self.assertTrue(gate_learning["blocker"])
         self.assertIn("early-hour model Brier trails market", gate_learning["signal"])
         self.assertIn("hourly_model_performance", gate_learning["source"])
         self.assertTrue(registry_learning["retrain_input"])
         self.assertIn("early_hour_profile_bias", registry_learning["signal"])
         self.assertIn("weather-only early-hour remediation", registry_learning["signal"])
+        self.assertTrue(market_delta_learning["retrain_input"])
+        self.assertIn("toronto early-hour model trails market", market_delta_learning["signal"])
+        self.assertIn("## Early-Hour Market Deltas", report)
 
     def test_build_learning_payload_counts_per_market_live_forward_credit_without_broad_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -643,6 +674,129 @@ class TestDailyLearning(unittest.TestCase):
             0,
         )
 
+    def test_build_learning_payload_blocks_on_current_code_soak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            fleet = json.loads((backtest_root / "fleet_observability.json").read_text(encoding="utf-8"))
+            fleet["current_code_soak"] = {
+                "status": "BLOCK",
+                "counts_toward_active_day": False,
+                "cadence_slo_status": "PASS",
+                "summary": {
+                    "restart_count": 9,
+                    "first_blocking_loop": "snapshot_capture",
+                    "first_blocking_reason": "runtime_code_state=stale_code",
+                    "benign_duplicate_writer_block_count": 3,
+                    "duplicate_writer_incident_count": 0,
+                },
+                "loops": [
+                    {
+                        "name": "snapshot_capture",
+                        "status": "BLOCK",
+                        "state": "STALE_CODE",
+                        "runtime_code_state": "stale_code",
+                        "single_writer": True,
+                        "restart_count": 9,
+                        "restart_budget": 6,
+                        "duplicate_writer_incidents": 0,
+                        "benign_duplicate_writer_blocks": 3,
+                        "malformed_lines": 0,
+                        "blocking_reasons": ["runtime_code_state=stale_code"],
+                    }
+                ],
+            }
+            (backtest_root / "fleet_observability.json").write_text(json.dumps(fleet), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            learning = next(row for row in payload["learnings"] if row["category"] == "current_code_soak")
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertTrue(learning["blocker"])
+        self.assertIn("snapshot_capture", learning["signal"])
+        self.assertIn("## Current-Code Soak Proof", report)
+        self.assertIn("runtime_code_state=stale_code", report)
+
+    def test_build_learning_payload_tracks_trading_evidence_without_overclaiming(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest_root = root / "backtest"
+            write_daily_artifacts(backtest_root)
+            mm_run = root / "mm_runs" / "2026-06-19" / "mm-1"
+            mm_run.mkdir(parents=True)
+            (mm_run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "mm-1",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-live-forward",
+                        "evidence_mode": "operator_drill",
+                        "counts_toward_live_forward_gate": False,
+                        "preflight_status": "PASS",
+                        "markets": ["toronto"],
+                        "cumulative_quote_permission_rows": 4019,
+                        "cumulative_paper_posted_count": 8026,
+                        "cumulative_live_trade_permission_rows": 0,
+                        "live_forward_gate": {
+                            "status": "BLOCK",
+                            "summary": {"evidence_mode_reason": "operator override"},
+                            "evidence": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            taker_run = root / "taker_runs" / "2026-06-19" / "taker-1"
+            taker_run.mkdir(parents=True)
+            (taker_run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-taker",
+                        "summary": {
+                            "cumulative_filled_orders": 50,
+                            "budget_spent_usdc": 59.80507,
+                            "cumulative_net_pnl_usdc": -17.208695,
+                            "root_cause_class": "policy_no_edge",
+                            "first_failing_gate": "policy",
+                        },
+                        "pnl": {
+                            "summary": {
+                                "filled_order_count": 50,
+                                "net_pnl_usdc": -17.208695,
+                                "mark_to_market_pnl_usdc": -17.208695,
+                                "settled_order_count": 0,
+                                "unsettled_order_count": 50,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            categories = {row["category"] for row in payload["learnings"]}
+            report = render_report(payload)
+
+        self.assertIn("market_making_evidence", categories)
+        self.assertIn("taker_strategy_quality", categories)
+        self.assertEqual(
+            payload["scorecard"]["trading_evidence"]["market_making"]["evidence_mode"],
+            "operator_drill",
+        )
+        self.assertFalse(
+            payload["scorecard"]["trading_evidence"]["market_making"]["counts_toward_live_forward_gate"]
+        )
+        self.assertEqual(
+            payload["scorecard"]["trading_evidence"]["taker"]["quality_gate"]["status"],
+            "SAMPLE_PENDING_NEGATIVE_LATEST",
+        )
+        self.assertIn("## Trading Evidence", report)
+        self.assertIn("operator_drill", report)
+        self.assertIn("SAMPLE_PENDING_NEGATIVE_LATEST", report)
+
     def test_build_learning_payload_blocks_broad_slo_with_recovery_checklist(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -675,12 +829,78 @@ class TestDailyLearning(unittest.TestCase):
                         "verification_command": "python -m weather.reporting.fleet_observability report",
                     }
                 ],
+                "snapshot_cadence_proof": {
+                    "summary": {
+                        "status": "BLOCK",
+                        "blocked_market_count": 1,
+                        "snapshot_coverage_gap_blocked_market_count": 1,
+                        "total_gap_count": 1,
+                        "max_gap_minutes": 34.0,
+                    },
+                    "status_command": "python -m weather.collection.snapshot_tracker --status",
+                    "repair_command": "python -m weather.collection.snapshot_tracker --restart",
+                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                    "markets": [
+                        {
+                            "market_id": "toronto",
+                            "status": "BLOCK",
+                            "blocking_gates": ["snapshot_coverage_gap"],
+                            "snapshot_count": 42,
+                            "gap_count": 1,
+                            "max_gap_minutes": 34.0,
+                            "root_cause": "unknown_snapshot_gap",
+                            "recoverable_same_day": False,
+                            "gap_windows": [
+                                {
+                                    "after": "2026-06-19T12:00:00-04:00",
+                                    "before": "2026-06-19T12:34:00-04:00",
+                                    "gap_minutes": 34.0,
+                                }
+                            ],
+                        }
+                    ],
+                },
                 "rerun_command": "python -m weather.reporting.fleet_observability report",
                 "summary": {
                     "first_blocking_market": "toronto",
                     "first_blocking_gate": "latest_model_row_freshness",
                     "recovery_row_count": 1,
                 },
+            }
+            fleet["collection"] = {
+                "source_status_proof": {
+                    "summary": {
+                        "source_status_blocked_market_count": 1,
+                        "live_trade_permission_blocked_market_count": 1,
+                        "promotion_readiness_blocked_market_count": 1,
+                        "top_degraded_family": "open_meteo",
+                        "provider_cooldown_source_count": 1,
+                    },
+                    "markets": [
+                        {
+                            "market_id": "toronto",
+                            "model_review_allowed": True,
+                            "paper_trading_allowed": True,
+                            "live_trade_permission_allowed": False,
+                            "promotion_readiness_allowed": False,
+                            "affected_family_count": 1,
+                            "blocking_family_count": 0,
+                            "provider_cooldown_source_count": 1,
+                            "top_degraded_family": "open_meteo",
+                            "affected_families": [
+                                {
+                                    "family": "open_meteo",
+                                    "status": "rate_limited_with_fresh_family_coverage",
+                                    "fallback_source_count": 0,
+                                    "rate_limited_source_count": 1,
+                                    "provider_cooldown_source_count": 1,
+                                    "max_retry_after_seconds": 60.0,
+                                    "max_cache_age_minutes": 0.5,
+                                }
+                            ],
+                        }
+                    ],
+                }
             }
             (backtest_root / "fleet_observability.json").write_text(json.dumps(fleet), encoding="utf-8")
 
@@ -701,6 +921,24 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("## Broad Live-Forward SLO Recovery", report)
         self.assertIn("latest_model_row_freshness", report)
         self.assertIn("weather.collection.snapshot_tracker --status", report)
+        self.assertIn("Snapshot cadence proof", report)
+        self.assertIn("unknown_snapshot_gap", report)
+        self.assertIn("12:00->12:34", report)
+        self.assertIn("## Source Status Proof", report)
+        self.assertIn("open_meteo", report)
+        self.assertIn("Live-trade blocked markets", report)
+        self.assertEqual(
+            payload["retrain_plan"]["broad_live_forward_slo"]["snapshot_cadence_proof"]["summary"][
+                "snapshot_coverage_gap_blocked_market_count"
+            ],
+            1,
+        )
+        self.assertEqual(
+            payload["scorecard"]["fleet"]["source_status_proof"]["summary"][
+                "source_status_blocked_market_count"
+            ],
+            1,
+        )
 
     def test_build_learning_payload_surfaces_core_model_trend_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

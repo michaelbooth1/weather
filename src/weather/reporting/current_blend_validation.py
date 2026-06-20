@@ -67,6 +67,12 @@ def load_base_alpha_schedule(path: str | Path) -> dict[str, Any]:
             str(market): float(alpha)
             for market, alpha in (artifact.get("current_blend_market_alpha") or {}).items()
         },
+        "source_freshness_default_alpha": artifact.get("current_blend_source_freshness_default_alpha", 0.0),
+        "source_freshness_alpha": {
+            str(state): float(alpha)
+            for state, alpha in (artifact.get("current_blend_source_freshness_alpha") or {}).items()
+        },
+        "context_alpha": list(artifact.get("current_blend_context_alpha") or []),
         "artifact_hash": artifact.get("artifact_hash"),
         "postprocess_config_hash": artifact.get("postprocess_config_hash"),
     }
@@ -77,6 +83,63 @@ def base_alpha_for_market(market_id: str, schedule: dict[str, Any]) -> float:
     if market_id in market_alpha:
         return max(0.0, min(1.0, float(market_alpha[market_id])))
     return max(0.0, min(1.0, float(schedule.get("default_alpha", 1.0))))
+
+
+def cutoff_regime(hour: Any) -> str:
+    value = _safe_float(hour)
+    if value is None:
+        return ""
+    if value < 9:
+        return "early"
+    if value < 15:
+        return "midday"
+    return "late"
+
+
+def context_value(row: dict[str, Any], key: str) -> Any:
+    if key == "source_freshness_state":
+        return row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
+    if key == "cutoff_regime":
+        return (
+            row.get("cutoff_regime")
+            or row.get("candidate_cutoff_regime")
+            or cutoff_regime(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+            or ""
+        )
+    if key == "cutoff_hour":
+        return row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or ""
+    return row.get(key)
+
+
+def context_rule_matches(row: dict[str, Any], rule: dict[str, Any]) -> bool:
+    for key, expected in (rule or {}).items():
+        if key in {"alpha", "policy_id", "description"}:
+            continue
+        actual = context_value(row, key)
+        expected_values = expected if isinstance(expected, list) else [expected]
+        if str(actual) not in {str(value) for value in expected_values}:
+            return False
+    return True
+
+
+def base_alpha_for_row(row: dict[str, Any], schedule: dict[str, Any]) -> float:
+    market_id = str(row.get("market_id") or "")
+    alpha = base_alpha_for_market(market_id, schedule)
+    source_alpha = schedule.get("source_freshness_alpha") or {}
+    if source_alpha:
+        source_state = context_value(row, "source_freshness_state")
+        source_default = schedule.get("source_freshness_default_alpha", 0.0)
+        try:
+            alpha = min(float(alpha), float(source_alpha.get(source_state, source_default)))
+        except (TypeError, ValueError):
+            alpha = source_alpha.get(source_state, source_default)
+    for rule in schedule.get("context_alpha") or []:
+        if context_rule_matches(row, rule):
+            alpha = rule.get("alpha", alpha)
+    try:
+        return max(0.0, min(1.0, float(alpha)))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def reconstruct_raw_probability(probability: float, current_probability: float, alpha: float) -> float | None:
@@ -105,7 +168,16 @@ def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[d
                 or outcome is None
             ):
                 continue
-            base_alpha = base_alpha_for_market(market_id, base_schedule)
+            context = {
+                "market_id": market_id,
+                "source_freshness_state": source.get("source_freshness_state") or "",
+                "source_status_group": source.get("source_status_group") or "",
+                "cutoff_regime": source.get("cutoff_regime") or "",
+                "candidate_cutoff_regime": source.get("candidate_cutoff_regime") or "",
+                "cutoff_hour": source.get("cutoff_hour") or "",
+                "candidate_cutoff_hour": source.get("candidate_cutoff_hour") or "",
+            }
+            base_alpha = base_alpha_for_row(context, base_schedule)
             rows.append({
                 "market_id": market_id,
                 "target_date": target_date,
@@ -171,7 +243,12 @@ def rows_for_split(rows: list[dict[str, Any]], split: dict[str, dict[str, Any]],
     return selected
 
 
-def score_rows(rows: list[dict[str, Any]], alpha_by_market: dict[str, float]) -> dict[str, Any]:
+def score_rows(
+    rows: list[dict[str, Any]],
+    alpha_by_market: dict[str, float],
+    *,
+    use_observed_probability: bool = False,
+) -> dict[str, Any]:
     if not rows:
         return {
             "rows": 0,
@@ -187,7 +264,12 @@ def score_rows(rows: list[dict[str, Any]], alpha_by_market: dict[str, float]) ->
     for row in rows:
         alpha = alpha_by_market.get(row["market_id"], 1.0)
         outcome = int(row["outcome"])
-        candidate_losses.append(brier(candidate_probability(row, alpha), outcome))
+        candidate = (
+            float(row["probability"])
+            if use_observed_probability
+            else candidate_probability(row, alpha)
+        )
+        candidate_losses.append(brier(candidate, outcome))
         current_losses.append(brier(float(row["current_probability"]), outcome))
         market_losses.append(brier(float(row["market_probability"]), outcome))
     candidate_brier = sum(candidate_losses) / len(candidate_losses)
@@ -203,16 +285,21 @@ def score_rows(rows: list[dict[str, Any]], alpha_by_market: dict[str, float]) ->
     }
 
 
-def score_daily_first(rows: list[dict[str, Any]], alpha_by_market: dict[str, float]) -> dict[str, Any]:
+def score_daily_first(
+    rows: list[dict[str, Any]],
+    alpha_by_market: dict[str, float],
+    *,
+    use_observed_probability: bool = False,
+) -> dict[str, Any]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         grouped[(row["market_id"], row["target_date"])].append(row)
     group_scores = [
-        score_rows(group_rows, alpha_by_market)
+        score_rows(group_rows, alpha_by_market, use_observed_probability=use_observed_probability)
         for group_rows in grouped.values()
     ]
     if not group_scores:
-        return score_rows([], alpha_by_market)
+        return score_rows([], alpha_by_market, use_observed_probability=use_observed_probability)
     keys = ("candidate_brier", "current_brier", "market_brier", "delta_vs_current", "delta_vs_market")
     return {
         "market_days": len(group_scores),
@@ -301,7 +388,7 @@ def build_payload(
     eval_rows = rows_for_split(rows, split, "eval")
     selected_eval = score_rows(eval_rows, selected_alpha)
     selected_daily = score_daily_first(eval_rows, selected_alpha)
-    baseline_eval = score_rows(eval_rows, baseline_alpha)
+    baseline_eval = score_rows(eval_rows, baseline_alpha, use_observed_probability=True)
     selections_by_market = {
         selection["market_id"]: selection
         for selection in selections
@@ -317,7 +404,7 @@ def build_payload(
             if row["market_id"] == market_id
         ]
         selected_score = score_rows(market_eval_rows, selected_alpha)
-        baseline_score = score_rows(market_eval_rows, baseline_alpha)
+        baseline_score = score_rows(market_eval_rows, baseline_alpha, use_observed_probability=True)
         selection = selections_by_market.get(market_id) or {}
         market_results.append({
             "market_id": market_id,
@@ -381,7 +468,11 @@ def build_payload(
         "selections": selections,
         "baseline": {
             "eval": baseline_eval,
-            "eval_daily_first": score_daily_first(eval_rows, baseline_alpha),
+            "eval_daily_first": score_daily_first(
+                eval_rows,
+                baseline_alpha,
+                use_observed_probability=True,
+            ),
         },
         "selected": {
             "train": score_rows(train_rows, selected_alpha),

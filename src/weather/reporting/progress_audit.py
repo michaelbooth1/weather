@@ -884,9 +884,23 @@ def build_audit(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAP
         "location_trust": load_location_trust(backtest_root / "location_trust.json"),
         "fleet_observability": load_fleet_observability(backtest_root / "fleet_observability.json"),
         "loop_statuses": load_loop_statuses(snapshots_root, now=now),
+        "daily_progress_ledger_latest": load_daily_progress_ledger(backtest_root / "daily_progress_latest.json"),
     }
     payload["core_model_trend_claim"] = build_core_model_trend_claim(backtest_root, snapshots_root)
     payload["trend_assessment"] = classify_trend(payload)
+    return payload
+
+
+def load_daily_progress_ledger(path):
+    path = Path(path)
+    if not path.exists():
+        return {"exists": False, "path": str(path)}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"exists": True, "path": str(path), "status": "unreadable", "error": str(exc)}
+    payload["exists"] = True
+    payload["path"] = str(path)
     return payload
 
 
@@ -1092,6 +1106,23 @@ def render_report(payload):
                 "Trend Day", "Proven Claim Day", "Exclusion",
             ],
             sequence_rows,
+        ))
+
+    ledger = payload.get("daily_progress_ledger_latest") or {}
+    if ledger:
+        lines.extend(["", "## Daily Progress Ledger Cross-Check", ""])
+        lines.extend(markdown_table(
+            ["Field", "Value"],
+            [
+                ["Exists", ledger.get("exists")],
+                ["Run date", ledger.get("run_date") or "-"],
+                ["Broad improvement claim allowed", ledger.get("broad_improvement_claim_allowed")],
+                ["Claim failures", ledger.get("broad_improvement_claim_failures") or "[]"],
+                ["Live-forward SLO", ledger.get("ops_live_forward_slo_status") or "-"],
+                ["Independent baseline", ledger.get("evidence_independent_baseline_status") or "-"],
+                ["MM evidence mode", ledger.get("trading_mm_evidence_mode") or "-"],
+                ["Taker quality", ledger.get("trading_taker_quality_status") or "-"],
+            ],
         ))
 
     lines.extend(["", "## Pooled Candidate Trend", ""])

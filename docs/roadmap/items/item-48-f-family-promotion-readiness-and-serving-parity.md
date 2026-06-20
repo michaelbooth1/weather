@@ -1263,3 +1263,183 @@ all-fresh midday/late reanalysis guard into a replayable artifact and rerun the
 full promotion refresh. Los Angeles has a similar near-miss (`not_near_forecast`
 fixed guard `+0.0021`, train-selected `+0.0031`), while NYC, San Francisco,
 and Seattle remain far from readiness under these guarded branches.
+
+## 2026-06-19 Austin guarded replay refresh
+
+The Austin all-fresh midday/late reanalysis guard is now in a replayable
+artifact and has full pinned replay evidence:
+`data/backtest/item32_reanalysis_austin_guard_replay_report.md`. The replay
+uses `current_blend_context_alpha` to keep Austin on current serving except
+for all-fresh midday/late rows, where the Item 32 reanalysis branch is active.
+
+This improves the Item 48 model state but does not clear readiness. Austin
+moves from blocked to `PASS`: candidate Brier `0.03849` versus current
+`0.04099` and market `0.03620`, a `+0.00228` market gap. The candidate action
+set becomes Austin, Houston, and Los Angeles cutover-ready; Atlanta, Dallas,
+Denver, and Miami remain shadow; Chicago, NYC, San Francisco, and Seattle
+remain blocked.
+
+Overall readiness is still `PARTIAL`: the full replay remains
+`BLOCK / DO_NOT_CUT_OVER` with aggregate daily-first market gap `+0.00512`.
+Operational live-forward/source-status gates also remain open. The next Item
+48 model unblock is now smaller: preserve the Austin guarded policy and repair
+Chicago/NYC/San Francisco/Seattle before rerunning a staged promotion refresh.
+
+## 2026-06-20 UTC combined guard/raw-alpha replay refresh
+
+The next promotion-readiness model refresh cloned the Austin guarded artifact
+to `data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_candidate.pkl`,
+kept Austin's `all_fresh` midpoint/late context rule, opened Chicago and NYC
+to raw candidate alpha, and left San Francisco on current fallback after the
+prior raw-alpha regression.
+
+The pinned replay
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_replay_report.md`
+still reports `BLOCK / DO_NOT_CUT_OVER`, but improves the promotion baseline:
+aggregate candidate Brier is `0.04141` versus current `0.04349` and market
+`0.03787`; daily-first candidate Brier is `0.04136` versus current `0.04344`
+and market `0.03783`, a `+0.00353` market gap. Candidate cutover-ready markets
+remain Austin, Houston, and Los Angeles; Atlanta, Dallas, Denver, and Miami
+remain shadow; Chicago, NYC, San Francisco, and Seattle remain blocked.
+
+The refreshed repair-action report
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_repair_actions_report.md`
+updates the readiness backlog: Chicago is now
+`market_gap_without_clear_winner_signal`, NYC and Seattle remain
+`winner_underpricing_vs_market`, and San Francisco remains
+`current_fallback_trails_market`. Item 48 therefore stays `PARTIAL`: this is a
+better model baseline for the next refresh, but readiness still needs those
+four market gaps plus the live-forward/source-status operational gates cleared.
+
+I also reran the current-blend time-split gate after teaching it the same
+`current_blend_context_alpha` semantics used by replay:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_current_blend_validation_report.md`.
+The result is still `BLOCK`: selected daily-first market gap is `+0.00527`,
+worse than the combined replay baseline's `+0.00491`, and Austin, Chicago,
+Los Angeles, NYC, San Francisco, and Seattle remain holdout blocks. Promotion
+readiness should therefore keep the combined replay as the current model
+baseline and move to market-specific repairs, not another alpha-grid sweep.
+
+I also generated a development-only context-guard scan:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`.
+It selects raw/current guards on earlier market-days using only inference-time
+slice keys and evaluates later market-days. This scan also blocks and slightly
+worsens the combined baseline (`+0.00509` selected daily-first market gap
+versus `+0.00491` baseline). The remaining readiness blockers are not cleared:
+Chicago's best guard is still `+0.00461` versus market, NYC and Seattle remain
+well outside tolerance, and San Francisco has no raw candidate rows in this
+artifact. The next promotion refresh should wait for new market-specific signal
+or features, not another guard selection over this export.
+
+The source-family inventory was rerun for the combined Item 32 replay and now
+checks the artifact's reanalysis lane contract directly:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_source_family_inventory_report.md`.
+The source-family preflight is `PASS`; `reanalysis_synoptic` is active with 36
+features, lineage/parity/ablation all pass, and the artifact's no-pressure lane
+is consistent with the settlement-scored market gates. This clears a promotion
+evidence weakness for the staged candidate, but it does not change Item 48
+readiness: the replay remains `DO_NOT_CUT_OVER`, four model markets are still
+blocked, and the operational live-forward/source-status gates remain open.
+
+I then reran a staged promotion refresh using the precomputed combined replay
+and staged source-family inventory:
+`data/backtest/item48_item32_combined_guard_chicago_nyc_raw_promotion_refresh_report.md`.
+This run skipped a fresh serving gauntlet and did not export another variant
+CSV; it is promotion-readiness evidence for the current candidate state, not a
+production cutover. The result is still `OPEN`: candidate verdict `BLOCK`,
+market-only verdict `PARTIAL_PASS`, and cutover decision `DO_NOT_CUT_OVER`.
+The candidate action set is unchanged at 3 promote (Austin, Houston, Los
+Angeles), 4 shadow (Atlanta, Dallas, Denver, Miami), and 4 blocked (Chicago,
+NYC, San Francisco, Seattle). Source-family preflight is now `PASS`, but
+readiness remains blocked by aggregate market skill (`+0.0035`), daily-first
+blocked validation, the four blocked markets, live-forward SLO, and the
+current-serving hourly-performance gate.
+
+## 2026-06-20 UTC candidate-hourly mitigation refresh
+
+I generated candidate-hourly evidence for the combined Item 32
+guard/raw-alpha candidate:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_hourly_candidate_performance_report.md`.
+The candidate-hourly gate passes on 44 market-days and 4,356 early-morning
+rows: variant Brier `0.0543` versus current `0.0553` and market `0.0519`,
+variant log-loss trails market by only `+0.0087` inside the `0.0100`
+tolerance, and ECE is `0.0062` versus the `0.1200` cap.
+
+The staged promotion refresh was rerun with that candidate-hourly report:
+`data/backtest/item48_item32_combined_guard_chicago_nyc_raw_promotion_refresh_with_candidate_hourly_report.md`.
+Readiness remains `OPEN`, but the prior hourly-performance readiness blocker
+is now mitigated because the candidate-hourly gate is `PASS` and the variant
+ID matches `item32_reanalysis_austin_guard_chicago_nyc_raw`. The operational
+gate table still reports the current-serving hourly gate as `BLOCK`, but now
+also shows `Hourly gate mitigation | APPLIED`.
+
+The remaining promotion blockers are therefore narrower and unchanged on model
+quality/ops: aggregate candidate trails market by `+0.0035`, daily-first
+blocked validation still fails, Atlanta/Dallas/Denver/Miami remain shadow,
+Chicago/NYC/San Francisco/Seattle remain blocked, and live-forward SLO is
+still `BLOCK`. Candidate cutover remains `DO_NOT_CUT_OVER`; Item 48 stays
+`PARTIAL` until those gates clear.
+
+Focused validation:
+`python -m pytest tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_hourly_performance.py tests\operations\test_schema_registry.py -q`
+passed with 35 tests. The broader shared reporting/calibration slice
+`python -m pytest tests\reporting\test_source_family_inventory.py tests\calibration\test_promotion_refresh.py tests\reporting\test_current_blend_validation.py tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_variant_basket_selection_validation.py tests\reporting\test_blocked_market_repair_diagnostics.py tests\operations\test_schema_registry.py -q`
+passed with 105 tests. The scoped strict schema audit for the touched reporting
+and replay modules reported `registered=192 discovered=212
+unregistered_versions=0`.
+
+## 2026-06-20 UTC reproducible context-guard rejection
+
+I registered `weather.reporting.context_guard_validation` and regenerated the
+combined Item 32 context-guard report with two-condition policies:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`.
+This is development evidence only, but it is now reproducible instead of an
+ad hoc scan.
+
+The report remains `BLOCK`: train-selected context guards worsen daily-first
+market gap from the observed baseline `+0.0049` to `+0.0054`. It does not
+rescue the promotion blockers. Chicago's best eval oracle guard is still
+`+0.0047` versus market, NYC is `+0.0195`, San Francisco is current-only at
+`+0.0056`, and Seattle is `+0.0161`. The selected policies also make Austin,
+Houston, and Los Angeles fail on the holdout split, so Item 48 should not try
+another guard-selection promotion refresh over this candidate export.
+
+The next promotion-readiness model work remains direct repair: keep the Austin
+guarded replay baseline, add real Chicago slice signal, repair NYC/Seattle
+winner probability mass, and source a non-current San Francisco signal before
+rerunning staged promotion readiness. The operational side still needs the
+live-forward SLO blocker cleared before readiness can become `READY`.
+
+## 2026-06-20 UTC loop-log repair and current-code restart evidence
+
+I repaired the operational logging side of the Item 48 live-forward blocker
+without changing readiness. The initial post-restart fleet report
+`data/backtest/fleet_observability_after_snapshot_restart_report.md` still
+reported `CRITICAL`: source-status proof was green, but live-forward SLO was
+`BLOCK` from `snapshot_coverage_gap` across all 12 active markets. It also
+showed loop artifact integrity debt: 852 malformed console-log lines across
+the snapshot, CLOB, and observation-trigger loops.
+
+`weather.operations.loop_jsonl_repair` now refuses to rewrite a managed loop's
+console log while its matching writer lock belongs to a live process unless
+`--allow-active` is passed. The first repair pass exposed why that guard is
+needed: rewriting the active CLOB console log left one NUL-filled malformed
+line at the writer's old file offset. I stopped/restarted the CLOB writer,
+repaired the final line, and then restarted CLOB and observation-trigger after
+the code change so their runtime identities matched the current tree.
+
+The final evidence is:
+
+- `data/backtest/loop_jsonl_repair_after_loop_restarts_audit.md`: `PASS`,
+  malformed lines `0` across the three managed loop console logs.
+- `data/backtest/fleet_observability_after_log_guard_and_restarts_report.md`:
+  loop artifact integrity `OK`, malformed lines `0`, duplicate writers `0`.
+- The same fleet report still has `Current-Code Soak Proof` `BLOCK`, but the
+  remaining reasons are historical restart budget and duplicate-writer incident
+  counts, not stale/dead loops or malformed logs. All three managed loops are
+  `RUNNING`, current-code, single-writer, and at zero consecutive errors.
+
+Item 48 therefore remains `PARTIAL`: live-forward SLO is still blocked by the
+non-recoverable June 19 snapshot cadence gaps, and promotion readiness still
+needs a future clean active-day soak plus the existing model-quality blockers
+before any `READY` claim.

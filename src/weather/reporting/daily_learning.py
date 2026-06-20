@@ -16,6 +16,7 @@ from pathlib import Path
 from weather.io import read_json, write_json_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.trading_evidence import build_trading_evidence_summary
 from weather.schema_registry import schema_version
 
 
@@ -152,6 +153,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     progress = payloads.get("progress_audit") or {}
     casebook = (payloads.get("disagreement_casebook") or {}).get("summary") or {}
     fleet = payloads.get("fleet_observability") or {}
+    trading = payloads.get("trading_evidence") or {}
     data_layer = payloads.get("data_layer_audit") or {}
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     settled_day = payloads.get("settled_day_freshness") or {}
@@ -184,6 +186,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "daily_summary": hourly.get("daily_summary") or {},
             "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
             "remediation_registry_summary": (hourly.get("remediation_registry") or {}).get("summary") or {},
+            "early_hour_market_deltas": (hourly.get("remediation_registry") or {}).get("early_hour_market_deltas") or [],
         },
         "price_free_model_learning": {
             "status": price_free.get("status"),
@@ -242,9 +245,12 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "status": fleet.get("status"),
             "summary": fleet.get("summary") or {},
             "live_forward_slo": fleet.get("live_forward_slo") or {},
+            "current_code_soak": fleet.get("current_code_soak") or {},
+            "source_status_proof": ((fleet.get("collection") or {}).get("source_status_proof") or {}),
             "tape_backup": fleet.get("tape_backup") or {},
             "mm_paper_evidence": fleet.get("mm_paper_evidence") or {},
         },
+        "trading_evidence": trading,
         "data_layer_audit": {
             "gate_status": (data_layer.get("gate_summary") or {}).get("status"),
             "gate_summary": data_layer.get("gate_summary") or {},
@@ -707,6 +713,24 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             retrain_input=not bool(row.get("uses_market_prices")),
         ))
 
+    for row in (registry.get("early_hour_market_deltas") or [])[:12]:
+        if row.get("status") != "BLOCK":
+            continue
+        gates = ", ".join(row.get("blocking_gates") or []) or "early-hour regression"
+        learnings.append(_learning(
+            "P1",
+            "hourly_early_market_delta",
+            "hourly_model_performance",
+            (
+                f"{row.get('market_id')} early-hour model trails market: "
+                f"Brier delta {fmt_signed(row.get('brier_delta'))}, "
+                f"log-loss delta {fmt_signed(row.get('logloss_delta'))} ({gates})."
+            ),
+            "Track per-market early-hour deltas daily; prioritize weather-only candidate remediation where blockers persist.",
+            evidence=row,
+            retrain_input=True,
+        ))
+
     price_free_corpus = price_free.get("corpus") or {}
     price_free_daily = price_free.get("daily_summary") or {}
     price_free_overall = (price_free.get("overall") or {}).get("hourly_checkpoint") or {}
@@ -903,6 +927,72 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             blocker=True,
         ))
 
+    current_soak = fleet.get("current_code_soak") or {}
+    if current_soak.get("counts_toward_active_day") is False:
+        soak_summary = current_soak.get("summary") or {}
+        learnings.append(_learning(
+            "P0",
+            "current_code_soak",
+            "fleet_observability",
+            (
+                f"Current-code soak is {current_soak.get('status')}: "
+                f"{soak_summary.get('first_blocking_loop') or 'cadence_slo'} "
+                f"{soak_summary.get('first_blocking_reason') or current_soak.get('cadence_slo_reason') or '-'}"
+            ),
+            (
+                "Restart affected loops on current source, keep restart counts within budget, "
+                "and rerun fleet observability after a full active-day cadence proof."
+            ),
+            evidence=current_soak,
+            blocker=True,
+        ))
+
+    trading = scorecard.get("trading_evidence") or {}
+    mm_trading = trading.get("market_making") or {}
+    if mm_trading.get("exists"):
+        counts = bool(mm_trading.get("counts_toward_live_forward_gate"))
+        priority = "P1" if counts else "P2"
+        learnings.append(_learning(
+            priority,
+            "market_making_evidence",
+            "trading_evidence",
+            (
+                f"MM run {mm_trading.get('run_id')} mode={mm_trading.get('evidence_mode')} "
+                f"quote_rows={mm_trading.get('quote_rows')} "
+                f"paper_legs={mm_trading.get('paper_posted_lifecycle_legs')} "
+                f"live_permission_rows={mm_trading.get('live_trade_permission_rows')} "
+                f"counts={counts}."
+            ),
+            (
+                "Count MM as broad live-forward evidence only when evidence_mode is "
+                "`active_day_live_forward` and all selected markets count."
+            ),
+            evidence=mm_trading,
+            retrain_input=counts,
+            blocker=False,
+        ))
+    taker = trading.get("taker") or {}
+    if taker.get("exists"):
+        quality = taker.get("quality_gate") or {}
+        learnings.append(_learning(
+            "P1" if quality.get("sample_ready") else "P2",
+            "taker_strategy_quality",
+            "trading_evidence",
+            (
+                f"Taker run {taker.get('run_id')} fills={taker.get('filled_orders')} "
+                f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))} "
+                f"root_cause={taker.get('root_cause_class')}; "
+                f"quality={quality.get('status')}."
+            ),
+            (
+                "Treat one paper day as operational evidence only; require rolling fills/P&L "
+                "thresholds before making taker strategy-quality claims."
+            ),
+            evidence=taker,
+            retrain_input=False,
+            blocker=quality.get("status") == "BLOCK",
+        ))
+
     if casebook.get("model_loss_count"):
         taxonomy_counts = casebook.get("taxonomy_counts") or {}
         top_taxonomies = sorted(taxonomy_counts.items(), key=lambda item: item[1], reverse=True)[:5]
@@ -967,6 +1057,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
                 or next(iter(live_slo.get("recovery_checklist") or []), {})
             ),
             "recovery_checklist": live_slo.get("recovery_checklist") or [],
+            "snapshot_cadence_proof": live_slo.get("snapshot_cadence_proof") or {},
             "rerun_command": live_slo.get("rerun_command"),
             "summary": live_slo.get("summary") or {},
         },
@@ -1023,6 +1114,11 @@ def build_learning_payload(
     daily_refresh_summary=None,
 ):
     payloads, artifacts = load_inputs(backtest_root)
+    data_root = Path(backtest_root).parent
+    payloads["trading_evidence"] = build_trading_evidence_summary(
+        mm_runs_root=data_root / "mm_runs",
+        taker_runs_root=data_root / "taker_runs",
+    )
     generated = generated_at_utc or utc_iso()
     daily_generated = (payloads.get("daily_refresh_status") or {}).get("generated_at_utc")
     scorecard = _scorecard(payloads, daily_refresh_summary=daily_refresh_summary)
@@ -1058,6 +1154,11 @@ def _scorecard_rows(scorecard):
     hourly = scorecard.get("hourly_model_performance") or {}
     hourly_gate = hourly.get("hourly_performance_gate") or {}
     hourly_daily = hourly.get("daily_summary") or {}
+    early_hour_market_deltas = hourly.get("early_hour_market_deltas") or []
+    early_hour_blocked_markets = [
+        row for row in early_hour_market_deltas
+        if row.get("status") == "BLOCK"
+    ]
     price_free = scorecard.get("price_free_model_learning") or {}
     price_free_daily = price_free.get("daily_summary") or {}
     price_free_carryover = (price_free.get("current_max_carryover") or {}).get("summary") or {}
@@ -1068,6 +1169,14 @@ def _scorecard_rows(scorecard):
     fleet = scorecard.get("fleet") or {}
     live_slo = fleet.get("live_forward_slo") or {}
     live_slo_summary = live_slo.get("summary") or {}
+    current_soak = fleet.get("current_code_soak") or {}
+    current_soak_summary = current_soak.get("summary") or {}
+    source_status = fleet.get("source_status_proof") or {}
+    source_status_summary = source_status.get("summary") or {}
+    trading = scorecard.get("trading_evidence") or {}
+    mm_trading = trading.get("market_making") or {}
+    taker = trading.get("taker") or {}
+    taker_quality = taker.get("quality_gate") or {}
     return [
         ["Labels finalized", labels.get("total")],
         ["Corpus market-days", corpus.get("market_day_count")],
@@ -1083,6 +1192,13 @@ def _scorecard_rows(scorecard):
             (
                 f"{hourly_gate.get('status') or '-'}; "
                 f"worst={', '.join(hourly_daily.get('worst_hours') or []) or '-'}"
+            ),
+        ],
+        [
+            "Early-hour market blockers",
+            (
+                f"blocked={len(early_hour_blocked_markets)}; "
+                f"markets={', '.join(row.get('market_id') for row in early_hour_blocked_markets[:5] if row.get('market_id')) or '-'}"
             ),
         ],
         [
@@ -1105,6 +1221,41 @@ def _scorecard_rows(scorecard):
                 f"counts={live_slo.get('counts_toward_live_forward_gate')}; "
                 f"first={live_slo_summary.get('first_blocking_market') or '-'}:"
                 f"{live_slo_summary.get('first_blocking_gate') or '-'}"
+            ),
+        ],
+        [
+            "Current-code soak",
+            (
+                f"{current_soak.get('status') or '-'}; "
+                f"counts={current_soak.get('counts_toward_active_day')}; "
+                f"restarts={current_soak_summary.get('restart_count', '-')}; "
+                f"first={current_soak_summary.get('first_blocking_loop') or '-'}"
+            ),
+        ],
+        [
+            "Source status proof",
+            (
+                f"blocked={source_status_summary.get('source_status_blocked_market_count', '-')}; "
+                f"live_trade_blocked={source_status_summary.get('live_trade_permission_blocked_market_count', '-')}; "
+                f"top={source_status_summary.get('top_degraded_family') or '-'}"
+            ),
+        ],
+        [
+            "MM trading evidence",
+            (
+                f"mode={mm_trading.get('evidence_mode') or '-'}; "
+                f"quotes={mm_trading.get('quote_rows', '-')}; "
+                f"live_perm={mm_trading.get('live_trade_permission_rows', '-')}; "
+                f"counts={mm_trading.get('counts_toward_live_forward_gate')}"
+            ),
+        ],
+        [
+            "Taker quality",
+            (
+                f"{taker_quality.get('status') or '-'}; "
+                f"fills={taker.get('filled_orders', '-')}; "
+                f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))}; "
+                f"root={taker.get('root_cause_class') or '-'}"
             ),
         ],
         [
@@ -1169,6 +1320,121 @@ def _broad_slo_recovery_rows(live_slo):
     ]
 
 
+def _short_timestamp(value):
+    if value in (None, ""):
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(str(value))
+        return f"{parsed:%H:%M}"
+    except ValueError:
+        return str(value)
+
+
+def _format_gap_windows(windows, limit=2):
+    rows = []
+    for item in (windows or [])[:limit]:
+        rows.append(
+            f"{_short_timestamp(item.get('after'))}->{_short_timestamp(item.get('before'))} "
+            f"({float(item.get('gap_minutes') or 0):.0f}m)"
+        )
+    if len(windows or []) > limit:
+        rows.append("...")
+    return "; ".join(rows) or "-"
+
+
+def _format_source_family_detail(families, limit=2):
+    rows = []
+    for item in (families or [])[:limit]:
+        bits = [
+            f"{item.get('family')}:{item.get('status')}",
+            f"fallback={item.get('fallback_source_count', 0)}",
+            f"rate_limited={item.get('rate_limited_source_count', 0)}",
+            f"cooldown={item.get('provider_cooldown_source_count', 0)}",
+        ]
+        if item.get("max_retry_after_seconds") is not None:
+            bits.append(f"retry_after={item.get('max_retry_after_seconds')}s")
+        if item.get("max_cache_age_minutes") is not None:
+            bits.append(f"cache_age={item.get('max_cache_age_minutes')}m")
+        rows.append(" ".join(bits))
+    if len(families or []) > limit:
+        rows.append("...")
+    return "; ".join(rows) or "-"
+
+
+def _snapshot_cadence_proof_rows(live_slo):
+    proof = (live_slo or {}).get("snapshot_cadence_proof") or {}
+    return [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            ", ".join(row.get("blocking_gates") or []) or "-",
+            row.get("snapshot_count"),
+            row.get("gap_count"),
+            row.get("max_gap_minutes"),
+            row.get("root_cause"),
+            row.get("recoverable_same_day"),
+            _format_gap_windows(row.get("gap_windows") or []),
+        ]
+        for row in proof.get("markets") or []
+    ]
+
+
+def _source_status_proof_rows(source_status_proof):
+    return [
+        [
+            row.get("market_id"),
+            row.get("model_review_allowed"),
+            row.get("paper_trading_allowed"),
+            row.get("live_trade_permission_allowed"),
+            row.get("promotion_readiness_allowed"),
+            row.get("affected_family_count"),
+            row.get("blocking_family_count"),
+            row.get("provider_cooldown_source_count"),
+            row.get("top_degraded_family") or "-",
+            _format_source_family_detail(row.get("affected_families") or []),
+        ]
+        for row in (source_status_proof or {}).get("markets") or []
+    ]
+
+
+def _early_hour_market_delta_rows(rows):
+    return [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            ", ".join(row.get("blocking_gates") or []) or "-",
+            row.get("n"),
+            row.get("market_days"),
+            fmt_num(row.get("model_brier")),
+            fmt_num(row.get("market_brier")),
+            fmt_signed(row.get("brier_delta")),
+            fmt_num(row.get("model_logloss")),
+            fmt_num(row.get("market_logloss")),
+            fmt_signed(row.get("logloss_delta")),
+        ]
+        for row in rows or []
+    ]
+
+
+def _current_code_soak_rows(soak):
+    return [
+        [
+            row.get("name"),
+            row.get("status"),
+            row.get("state"),
+            row.get("runtime_code_state"),
+            row.get("single_writer"),
+            row.get("restart_count"),
+            row.get("restart_budget"),
+            row.get("duplicate_writer_incidents"),
+            row.get("benign_duplicate_writer_blocks"),
+            row.get("malformed_lines"),
+            "; ".join(row.get("blocking_reasons") or []) or "-",
+        ]
+        for row in (soak or {}).get("loops") or []
+    ]
+
+
 def render_report(payload):
     summary = payload.get("summary") or {}
     scorecard = payload.get("scorecard") or {}
@@ -1198,6 +1464,28 @@ def render_report(payload):
     )
     lines += ["", "## Scorecard", ""]
     lines += markdown_table(["Area", "Value"], _scorecard_rows(scorecard))
+    early_hour_market_deltas = (
+        (scorecard.get("hourly_model_performance") or {}).get("early_hour_market_deltas")
+        or []
+    )
+    if early_hour_market_deltas:
+        lines += ["", "## Early-Hour Market Deltas", ""]
+        lines += markdown_table(
+            [
+                "Market",
+                "Status",
+                "Blocking Gates",
+                "Rows",
+                "Days",
+                "Model Brier",
+                "Market Brier",
+                "Brier Delta",
+                "Model LogLoss",
+                "Market LogLoss",
+                "LogLoss Delta",
+            ],
+            _early_hour_market_delta_rows(early_hour_market_deltas),
+        )
     lines += ["", "## Learnings", ""]
     if learnings:
         lines += markdown_table(
@@ -1239,6 +1527,107 @@ def render_report(payload):
             lines += markdown_table(
                 ["Market", "Component", "Gate", "Owner", "Before", "Repair Command", "Verification"],
                 recovery_rows,
+            )
+        cadence_proof = live_slo.get("snapshot_cadence_proof") or {}
+        cadence_summary = cadence_proof.get("summary") or {}
+        cadence_rows = _snapshot_cadence_proof_rows(live_slo)
+        if cadence_proof:
+            lines += ["", "Snapshot cadence proof:"]
+            lines += markdown_table(
+                ["Field", "Value"],
+                [
+                    ["Status", cadence_summary.get("status") or "-"],
+                    [
+                        "Snapshot coverage-gap blocked markets",
+                        cadence_summary.get("snapshot_coverage_gap_blocked_market_count"),
+                    ],
+                    ["Total gaps", cadence_summary.get("total_gap_count")],
+                    ["Max gap minutes", cadence_summary.get("max_gap_minutes")],
+                    ["Status command", cadence_proof.get("status_command") or "-"],
+                    ["Repair command", cadence_proof.get("repair_command") or "-"],
+                    ["Verification command", cadence_proof.get("verification_command") or "-"],
+                ],
+            )
+            if cadence_rows:
+                lines += markdown_table(
+                    [
+                        "Market", "Status", "Blocking Gates", "Snapshots", "Gaps",
+                        "Max Gap min", "Root Cause", "Recoverable Same Day", "Gap Windows",
+                    ],
+                    cadence_rows,
+                )
+    current_soak = ((scorecard.get("fleet") or {}).get("current_code_soak") or {})
+    if current_soak:
+        soak_summary = current_soak.get("summary") or {}
+        lines += ["", "## Current-Code Soak Proof", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", current_soak.get("status") or "-"],
+                ["Counts toward active day", current_soak.get("counts_toward_active_day")],
+                ["Restart count", soak_summary.get("restart_count")],
+                ["First blocking loop", soak_summary.get("first_blocking_loop") or "-"],
+                ["First blocking reason", soak_summary.get("first_blocking_reason") or "-"],
+                ["Cadence SLO", current_soak.get("cadence_slo_status") or "-"],
+                ["Benign duplicate-writer blocks", soak_summary.get("benign_duplicate_writer_block_count")],
+                ["Duplicate-writer incidents", soak_summary.get("duplicate_writer_incident_count")],
+            ],
+        )
+        lines += markdown_table(
+            [
+                "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
+                "Budget", "Dup Incidents", "Benign Dup Blocks", "Malformed", "Blocking Reasons",
+            ],
+            _current_code_soak_rows(current_soak),
+        )
+    trading = scorecard.get("trading_evidence") or {}
+    if trading.get("market_making") or trading.get("taker"):
+        mm_trading = trading.get("market_making") or {}
+        taker = trading.get("taker") or {}
+        taker_quality = taker.get("quality_gate") or {}
+        lines += ["", "## Trading Evidence", ""]
+        lines += markdown_table(
+            ["Area", "Value"],
+            [
+                ["MM run", mm_trading.get("run_id") or "-"],
+                ["MM evidence mode", mm_trading.get("evidence_mode") or "-"],
+                ["MM evidence reason", mm_trading.get("evidence_mode_reason") or "-"],
+                ["MM countable", mm_trading.get("counts_toward_live_forward_gate")],
+                ["MM quote rows", mm_trading.get("quote_rows")],
+                ["MM paper-posted legs", mm_trading.get("paper_posted_lifecycle_legs")],
+                ["MM live-trade permission rows", mm_trading.get("live_trade_permission_rows")],
+                ["MM blockers", ", ".join(mm_trading.get("countability_blockers") or []) or "-"],
+                ["Taker run", taker.get("run_id") or "-"],
+                ["Taker fills", taker.get("filled_orders")],
+                ["Taker net P&L", fmt_signed(taker.get("net_pnl_usdc"))],
+                ["Taker mark-to-market P&L", fmt_signed(taker.get("mark_to_market_pnl_usdc"))],
+                ["Taker root cause", taker.get("root_cause_class") or "-"],
+                ["Taker quality status", taker_quality.get("status") or "-"],
+                ["Taker quality interpretation", taker_quality.get("interpretation") or "-"],
+            ],
+        )
+    source_status_proof = ((scorecard.get("fleet") or {}).get("source_status_proof") or {})
+    if source_status_proof:
+        source_summary = source_status_proof.get("summary") or {}
+        lines += ["", "## Source Status Proof", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Trading blocked markets", source_summary.get("source_status_blocked_market_count")],
+                ["Live-trade blocked markets", source_summary.get("live_trade_permission_blocked_market_count")],
+                ["Promotion blocked markets", source_summary.get("promotion_readiness_blocked_market_count")],
+                ["Top degraded family", source_summary.get("top_degraded_family") or "-"],
+                ["Provider-cooldown sources", source_summary.get("provider_cooldown_source_count")],
+            ],
+        )
+        source_rows = _source_status_proof_rows(source_status_proof)
+        if source_rows:
+            lines += markdown_table(
+                [
+                    "Market", "Model Review", "Paper", "Live Trade", "Promotion",
+                    "Affected", "Blocking", "Cooldown", "Top Family", "Family Detail",
+                ],
+                source_rows,
             )
     steps = retrain.get("recommended_next_steps") or []
     if steps:

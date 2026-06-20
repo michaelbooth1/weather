@@ -836,6 +836,11 @@ def main():
         help="Snapshot root used by backfill commands.",
     )
     parser.add_argument(
+        "--source-status-folder",
+        default="",
+        help="Optional single snapshot folder for --backfill-source-status.",
+    )
+    parser.add_argument(
         "--overwrite-source-status",
         action="store_true",
         help="Overwrite existing source_status_long.csv/jsonl during --backfill-source-status.",
@@ -877,6 +882,14 @@ def main():
         print(json.dumps(ensure_loop(args.interval_minutes), indent=2, sort_keys=True, default=str))
         return
     if args.backfill_source_status:
+        if args.source_status_folder:
+            print(json.dumps(
+                backfill_source_status_for_folder(Path(args.source_status_folder), overwrite=args.overwrite_source_status),
+                indent=2,
+                sort_keys=True,
+                default=str,
+            ))
+            return
         print(json.dumps(
             backfill_source_status(args.snapshots_root, overwrite=args.overwrite_source_status),
             indent=2,

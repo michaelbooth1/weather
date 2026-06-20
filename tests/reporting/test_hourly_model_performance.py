@@ -5,6 +5,7 @@ from pathlib import Path
 
 from weather.reporting.hourly_model_performance import (
     build_hourly_performance,
+    early_hour_market_deltas,
     forecast_anchor_probability,
     forecast_centering_rows,
     write_outputs,
@@ -157,7 +158,10 @@ class TestHourlyModelPerformance(unittest.TestCase):
         self.assertIn("metric_delta", first_registry_row)
         self.assertIn("market_count", first_registry_row)
         self.assertIn("row_count", first_registry_row)
+        self.assertIn("serving_mitigation_status", first_registry_row)
+        self.assertFalse(first_registry_row["serving_mitigation_allowed"])
         self.assertIn("interpretation", first_registry_row)
+        self.assertIn("early_hour_market_deltas", registry)
         self.assertIn("active_remediation_owners", payload["daily_summary"])
         self.assertIn("forecast_centering", registry["summary"]["probe_names"])
         self.assertFalse(
@@ -207,6 +211,53 @@ class TestHourlyModelPerformance(unittest.TestCase):
         self.assertGreater(forecast_anchor_probability(rows[0]), forecast_anchor_probability(rows[1]))
         self.assertGreater(centered[0]["model_probability"], rows[0]["model_probability"])
         self.assertLess(centered[1]["model_probability"], rows[1]["model_probability"])
+
+    def test_early_hour_market_deltas_surface_blocked_markets(self):
+        rows = [
+            {
+                "market_id": "toronto",
+                "target_date": "2026-06-03",
+                "snapshot_id": "s1",
+                "cutoff_hour": 3,
+                "model_probability": 0.90,
+                "market_yes": 0.20,
+                "outcome": 0,
+            },
+            {
+                "market_id": "toronto",
+                "target_date": "2026-06-03",
+                "snapshot_id": "s1",
+                "cutoff_hour": 3,
+                "model_probability": 0.10,
+                "market_yes": 0.80,
+                "outcome": 1,
+            },
+            {
+                "market_id": "austin",
+                "target_date": "2026-06-03",
+                "snapshot_id": "s1",
+                "cutoff_hour": 4,
+                "model_probability": 0.80,
+                "market_yes": 0.20,
+                "outcome": 1,
+            },
+            {
+                "market_id": "austin",
+                "target_date": "2026-06-03",
+                "snapshot_id": "s1",
+                "cutoff_hour": 4,
+                "model_probability": 0.20,
+                "market_yes": 0.80,
+                "outcome": 0,
+            },
+        ]
+
+        deltas = early_hour_market_deltas(rows, early_brier_regression_tolerance=0.003)
+        by_market = {row["market_id"]: row for row in deltas}
+
+        self.assertEqual(by_market["toronto"]["status"], "BLOCK")
+        self.assertIn("early_hour_brier_regression", by_market["toronto"]["blocking_gates"])
+        self.assertEqual(by_market["austin"]["status"], "PASS")
 
 
 if __name__ == "__main__":

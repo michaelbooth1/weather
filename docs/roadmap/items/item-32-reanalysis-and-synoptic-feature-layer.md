@@ -739,3 +739,147 @@ leave-one-day guard still blocks at `+0.0034`, selecting `all_fresh` once and
 than broad reanalysis promotion: predeclare/test an Austin
 all-fresh-midday/late reanalysis guard, then rerun the full pinned replay and
 verify it does not damage the other markets.
+
+## 2026-06-19 Austin guarded replay
+
+The Austin guard is now replayable instead of only a row-export diagnostic.
+`weather.calibration.pooled_candidate_replay` supports artifact-level
+`current_blend_context_alpha` rules, and the diagnostic artifact
+`data/backtest/item32_reanalysis_austin_all_fresh_midday_late_guard_candidate.pkl`
+sets Austin to current by default, then opens the Item 32 branch only when
+`source_freshness_state=all_fresh` and cutoff regime is `midday` or `late`.
+The replay report now renders that context rule explicitly.
+
+The full pinned replay
+`data/backtest/item32_reanalysis_austin_guard_replay_report.md` still returns
+`BLOCK / DO_NOT_CUT_OVER`, but it clears the Austin market blocker:
+
+- Aggregate candidate Brier improves from the unguarded no-pressure replay
+  `0.04310` to `0.04302`, and the market gap narrows from `+0.00523` to
+  `+0.00515`.
+- Austin improves from candidate `0.03939` versus current `0.04099` and market
+  `0.03620` (`+0.00318` market gap) to candidate `0.03849`
+  (`-0.00251` versus current, `+0.00228` versus market). Austin is now
+  `PASS`.
+- Houston and Los Angeles also pass. Atlanta, Dallas, Denver, and Miami remain
+  shadow. Chicago, NYC, San Francisco, and Seattle remain blocked.
+
+This is real Item 32 progress but not completion. The next reanalysis-side
+work should preserve the Austin guarded policy while repairing Chicago/NYC/SF
+current-fallback gaps and Seattle winner mass before another full replay can
+clear the item.
+
+## 2026-06-20 UTC Austin guard plus Chicago/NYC raw-alpha replay
+
+I cloned the replayable Austin guard artifact into
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_candidate.pkl`
+and opened only Chicago and NYC to raw Item 32 candidate alpha. Austin keeps
+the `all_fresh` midpoint/late context rule, and San Francisco stays on current
+fallback because the previous raw-alpha diagnostic regressed current there.
+
+The full pinned replay
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_replay_report.md`
+still reports `BLOCK / DO_NOT_CUT_OVER`, but it materially narrows the Item 32
+model gap. Aggregate candidate Brier is `0.04141` versus current `0.04349`
+and market `0.03787`; daily-first candidate Brier is `0.04136` versus current
+`0.04344` and market `0.03783`, leaving a `+0.00353` daily-first market gap.
+
+Market-level result:
+
+- Austin remains `PASS`: candidate `0.03849`, current `0.04099`, market
+  `0.03620`, gap `+0.00228`.
+- Chicago now beats current (`0.04049` vs `0.04533`) but still trails market by
+  `+0.00418`.
+- NYC now beats current (`0.04619` vs `0.05895`) but still trails market by
+  `+0.01013`.
+- San Francisco is protected from the unsafe raw-alpha branch and remains a
+  current-fallback block at `+0.00503` versus market.
+- Seattle remains a winner-mass block at `+0.01440` versus market.
+
+The refreshed repair diagnostic
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_repair_actions_report.md`
+classifies the remaining blockers as: Chicago
+`market_gap_without_clear_winner_signal`, NYC and Seattle
+`winner_underpricing_vs_market`, and San Francisco
+`current_fallback_trails_market`. The next Item 32 work should keep this
+combined guard as the baseline, then add a Chicago slice repair, richer
+NYC/Seattle winner-mass signal, and a non-current San Francisco signal before
+another full replay.
+
+I also corrected `weather.reporting.current_blend_validation` so row-level
+alpha reconstruction honors `current_blend_context_alpha` rules. The regenerated
+time-split alpha report
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_current_blend_validation_report.md`
+still blocks. It now counts Austin context raw rows correctly (`1,859` train /
+`1,804` eval), but selected alpha over earlier market-days does not generalize:
+selected eval daily-first gap is `+0.00527` versus market, worse than the
+combined replay baseline's `+0.00491`. The selected alphas keep Chicago and
+NYC at `1.0`, Seattle at `0.2`, and choose Austin `0.2`, but Austin, Chicago,
+Los Angeles, NYC, San Francisco, and Seattle all remain holdout blocks. This
+rejects another broad alpha-schedule pass as an Item 32 unblock.
+
+I then ran a stricter context-guard scan over inference-time keys only
+(`source_freshness_state`, `cutoff_regime`, forecast disagreement/pressure,
+forecast source count, and `bin_type`):
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`.
+It also blocks. Selected context policies worsen daily-first holdout market gap
+to `+0.00509` versus the combined replay baseline's `+0.00491`. The useful
+clues are negative: Chicago's best train-selected/eval-oracle guard
+(`current_on_forecast_disagreement_bucket=low_disagreement`) improves the
+later-date candidate but still misses market by `+0.00461`; NYC's best oracle
+still misses by `+0.01972`; Seattle's best oracle still misses by `+0.01525`;
+and San Francisco has no raw candidate rows under this guarded artifact. The
+next Item 32 repair therefore needs new signal/features, not another
+inference-slice raw/current guard over the same probabilities.
+
+## 2026-06-20 UTC artifact-lane source-family inventory
+
+I reran the source-family inventory against the current combined Item 32 replay:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_source_family_inventory_report.md`.
+The report is `PASS` with zero blocking family rows and now points its
+preflight command at
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_replay.json`.
+
+I also tightened `weather.reporting.source_family_inventory` so it extracts the
+artifact-declared `reanalysis_promotion_lane`, reports it separately from the
+gate-derived lane, and blocks preflight if an active reanalysis artifact allows
+markets that the settlement-scored Item 27 gates quarantine. The regenerated
+report proves the combined artifact is using 36 active reanalysis features and
+that its no-pressure artifact lane is consistent with the market gates:
+allowed markets are Atlanta, Austin, Dallas, Houston, Los Angeles, Miami, and
+Seattle; quarantined markets are Chicago, Denver, NYC, San Francisco, and
+Toronto; pressure-level fields remain explicitly blocked. This strengthens the
+Item 32 data-layer evidence, but the item remains `PARTIAL` because the replay
+and market-gap gates still block Chicago, NYC, San Francisco, and Seattle.
+
+## 2026-06-20 UTC reproducible context-guard rejection and pressure refresh
+
+I formalized the prior ad hoc context-guard scan as
+`weather.reporting.context_guard_validation`, registered
+`context_guard_validation_v0.1`, and regenerated the combined Item 32 report:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_context_guard_validation_report.md`.
+The validator selects candidate/current guards on earlier market-days and
+evaluates later market-days using only inference-time fields; this run also
+tests two-condition policies with at least 200 train rows.
+
+The result is still `BLOCK` and is weaker than the observed combined replay
+baseline. Selected daily-first Brier is `0.0439` versus market `0.0385`, a
+`+0.0054` market gap; the observed baseline on the same eval rows is `0.0434`,
+gap `+0.0049`. Seven markets block under train-selected guards: Austin,
+Chicago, Houston, Los Angeles, NYC, San Francisco, and Seattle. The eval oracle
+also confirms the remaining blocker shape: Chicago's best guard still misses
+market by `+0.0047`, NYC by `+0.0195`, San Francisco has no non-current rows
+and stays at `+0.0056`, and Seattle remains `+0.0161`.
+
+I also refreshed the 2026 replay-window pressure-level cache status with remote
+headers:
+`data/backtest/item32_pressure_level_cache_status_2026_replay_window_refresh_report.md`.
+The local `air.2026.nc` and `hgt.2026.nc` files still match NOAA's remote
+sizes and the remote modified timestamps remain March 19, 2026. Metric coverage
+for June 1-13 is still `0/13`, with latest cached metric date `2026-03-17`.
+That makes this a source-lag boundary, not a local rebuild miss.
+
+Focused validation:
+`python -m pytest tests\reporting\test_context_guard_validation.py tests\reporting\test_current_blend_validation.py tests\reporting\test_variant_basket_selection_validation.py tests\operations\test_schema_registry.py -q`
+passed with 18 tests. The strict schema audit for the new report and registry
+entry reported `registered=193 discovered=204 unregistered_versions=0`.

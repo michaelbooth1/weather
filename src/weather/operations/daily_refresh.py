@@ -12,6 +12,7 @@ apply_windows_silent_subprocess_defaults()
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -34,6 +35,7 @@ from weather.reporting import disagreement_casebook
 from weather.reporting import data_layer_audit
 from weather.reporting import data_auditor
 from weather.reporting import daily_learning
+from weather.reporting import daily_progress_ledger
 from weather.reporting import fleet_observability
 from weather.reporting import hourly_model_performance
 from weather.reporting import price_free_model_learning
@@ -53,6 +55,7 @@ from weather.operations.long_job_guard import (
 )
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.schema_registry import schema_version
+from weather.reporting.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
 
 
 SCHEMA_VERSION = schema_version("daily_refresh")
@@ -83,6 +86,12 @@ STEP_ORDER = (
 )
 
 
+class DiskPreflightError(RuntimeError):
+    def __init__(self, message, payload):
+        super().__init__(message)
+        self.payload = payload
+
+
 def utc_now():
     return shared_utc_now()
 
@@ -97,6 +106,80 @@ def as_path(value):
 
 def backtest_path(args, name):
     return str(Path(args.backtest_root) / name)
+
+
+def cleanup_command(args, target_bytes):
+    root = Path(args.backtest_root)
+    manifest = root / "backtest_artifact_cleanup_manifest.json"
+    return (
+        "python -m weather.reporting.backtest_artifact_retention "
+        f"--root {root} "
+        f"--cleanup-manifest {manifest} "
+        f"--cleanup-target-bytes {int(max(0, target_bytes))}"
+    )
+
+
+def resume_command(args, step_name):
+    return (
+        "python -m weather.operations.daily_refresh run "
+        f"--backtest-root {Path(args.backtest_root)} "
+        f"--snapshots-root {Path(args.snapshots_root)} "
+        f"--resume-from-step {step_name}"
+    )
+
+
+def _read_json(path):
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def promotion_export_row_estimate(args):
+    payload = _read_json(backtest_path(args, "pooled_candidate_replay_latest.json"))
+    aggregate = payload.get("aggregate") or {}
+    rows = aggregate.get("n") or aggregate.get("rows") or 0
+    try:
+        return int(float(rows))
+    except (TypeError, ValueError):
+        return 0
+
+
+def promotion_disk_preflight(args, disk_usage_fn=None):
+    disk_usage_fn = disk_usage_fn or shutil.disk_usage
+    out_path = Path(backtest_path(args, "f_family_promotion_refresh.json"))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    usage = disk_usage_fn(out_path.parent)
+    min_free_bytes = int(getattr(
+        args,
+        "promotion_min_artifact_free_bytes",
+        promotion_refresh.DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
+    ) or 0)
+    rows = promotion_export_row_estimate(args)
+    projected_export_bytes = rows * int(max(1, DEFAULT_ROW_EXPORT_BYTES_PER_ROW))
+    required_free_bytes = min_free_bytes + projected_export_bytes
+    free_bytes = int(getattr(usage, "free"))
+    insufficient_bytes = max(0, required_free_bytes - free_bytes)
+    status = "PASS" if insufficient_bytes == 0 else "BLOCK"
+    return {
+        "schema_version": "daily_refresh_disk_preflight_v0.1",
+        "step": "promotion_refresh",
+        "status": status,
+        "path": str(out_path),
+        "free_bytes": free_bytes,
+        "total_bytes": int(getattr(usage, "total", 0)),
+        "required_free_bytes": int(required_free_bytes),
+        "min_free_bytes": int(min_free_bytes),
+        "projected_export_bytes": int(projected_export_bytes),
+        "estimated_export_rows": rows,
+        "bytes_per_row": int(DEFAULT_ROW_EXPORT_BYTES_PER_ROW),
+        "insufficient_bytes": int(insufficient_bytes),
+        "cleanup_command": cleanup_command(args, insufficient_bytes),
+        "resume_command": resume_command(args, "promotion_refresh"),
+    }
 
 
 def write_json(path, payload):
@@ -434,16 +517,41 @@ def promotion_args(args):
     refresh_args.hourly_performance_report = backtest_path(args, "hourly_model_performance.json")
     refresh_args.out = backtest_path(args, "f_family_promotion_refresh.json")
     refresh_args.report = backtest_path(args, "f_family_promotion_refresh_report.md")
+    refresh_args.min_artifact_free_bytes = getattr(
+        args,
+        "promotion_min_artifact_free_bytes",
+        getattr(refresh_args, "min_artifact_free_bytes", promotion_refresh.DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES),
+    )
     return refresh_args
 
 
 def run_promotion_refresh_step(args):
+    disk_preflight = promotion_disk_preflight(args, disk_usage_fn=getattr(args, "disk_usage_fn", None))
+    if disk_preflight["status"] == "BLOCK":
+        raise DiskPreflightError(
+            (
+                "insufficient disk headroom before promotion_refresh: "
+                f"free_bytes={disk_preflight['free_bytes']}, "
+                f"required_free_bytes={disk_preflight['required_free_bytes']}"
+            ),
+            {
+                "status": "BLOCK",
+                "root_cause_class": "blocked_by_disk",
+                "disk_preflight": disk_preflight,
+                "resume_command": disk_preflight["resume_command"],
+                "cleanup_command": disk_preflight["cleanup_command"],
+                "no_partial_export": True,
+            },
+        )
     payload, out_path, report_path = promotion_refresh.run_promotion_refresh(promotion_args(args))
     decisions = payload.get("decisions") or {}
     candidate = payload.get("candidate") or {}
     aggregate = candidate.get("aggregate") or {}
     corpus = payload.get("corpus") or {}
     return {
+        "status": payload.get("status") or "OK",
+        "disk_preflight": disk_preflight,
+        "resume_command": disk_preflight["resume_command"],
         "json_out": as_path(out_path),
         "report_out": as_path(report_path),
         "candidate_verdict": candidate.get("verdict"),
@@ -831,6 +939,22 @@ def run_daily_learning_step(args):
     }
 
 
+def write_daily_progress_ledger(args, daily_refresh_payload):
+    row = daily_progress_ledger.build_progress_row(
+        backtest_root=args.backtest_root,
+        snapshots_root=args.snapshots_root,
+        daily_refresh_status=daily_refresh_payload,
+        generated_at_utc=daily_refresh_payload.get("generated_at_utc"),
+    )
+    return daily_progress_ledger.write_progress_outputs(
+        row,
+        jsonl_out=backtest_path(args, "daily_progress_ledger.jsonl"),
+        csv_out=backtest_path(args, "daily_progress_ledger.csv"),
+        latest_out=backtest_path(args, "daily_progress_latest.json"),
+        report_out=backtest_path(args, "daily_progress_ledger_report.md"),
+    )
+
+
 DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
@@ -862,6 +986,11 @@ def run_step(name, runner, args):
     try:
         row["result"] = runner(args)
         row["status"] = "ok"
+    except DiskPreflightError as exc:
+        row["status"] = "error"
+        row["error"] = str(exc)
+        row["root_cause_class"] = "blocked_by_disk"
+        row["result"] = exc.payload
     except Exception as exc:  # noqa: BLE001
         row["status"] = "error"
         row["error"] = str(exc)
@@ -893,6 +1022,11 @@ def pipeline_summary(steps):
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
     variant_learning_gate = variant_learning_gate_from_steps(steps)
+    disk_preflights = {
+        step.get("name"): (step.get("result") or {}).get("disk_preflight")
+        for step in steps
+        if (step.get("result") or {}).get("disk_preflight")
+    }
     return {
         "labels": {
             "total": finalize.get("label_count"),
@@ -986,6 +1120,7 @@ def pipeline_summary(steps):
             "training_ready": learning.get("training_ready"),
             "promotion_ready": learning.get("promotion_ready"),
         },
+        "disk_preflight": disk_preflights,
     }
 
 
@@ -1005,6 +1140,16 @@ def _variant_blocker(component, gate, detail, remediation_command, extra=None):
         "suggested_command": remediation_command,
         **(extra or {}),
     }
+
+
+def filter_runners_for_resume(runners, resume_from_step=""):
+    if not resume_from_step:
+        return list(runners)
+    if resume_from_step not in STEP_ORDER:
+        raise ValueError(f"unknown resume step: {resume_from_step}")
+    start = STEP_ORDER.index(resume_from_step)
+    allowed = set(STEP_ORDER[start:])
+    return [(name, runner) for name, runner in runners if name in allowed]
 
 
 def _first_no_growth_remediation(evidence):
@@ -1140,10 +1285,18 @@ def render_report(payload):
                     f"sparse {summary.get('markets_with_sparse_days')}"
                 )
         elif step.get("name") == "promotion_refresh":
-            detail = (
-                f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
-                f"actions {result.get('action_counts')}"
-            )
+            disk = result.get("disk_preflight") or {}
+            if result.get("status") == "BLOCK" and disk:
+                detail = (
+                    f"disk BLOCK; free {disk.get('free_bytes')}; "
+                    f"required {disk.get('required_free_bytes')}; "
+                    f"short {disk.get('insufficient_bytes')}"
+                )
+            else:
+                detail = (
+                    f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
+                    f"actions {result.get('action_counts')}"
+                )
         elif step.get("name") == "hourly_model_performance":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -1262,6 +1415,46 @@ def render_report(payload):
             f"Remediation: `{first.get('remediation_command') or '-'}`",
             "",
         ]
+    disk_preflights = (payload.get("summary") or {}).get("disk_preflight") or {}
+    if disk_preflights:
+        lines += ["", "## Disk Preflight", ""]
+        disk_rows = []
+        for step_name, disk in sorted(disk_preflights.items()):
+            disk_rows.append([
+                step_name,
+                disk.get("status"),
+                disk.get("free_bytes"),
+                disk.get("required_free_bytes"),
+                disk.get("projected_export_bytes"),
+                disk.get("insufficient_bytes"),
+                disk.get("cleanup_command"),
+                disk.get("resume_command"),
+            ])
+        lines += [
+            "| Step | Status | Free Bytes | Required Bytes | Projected Export Bytes | Shortfall | Cleanup Command | Resume Command |",
+            "| :--- | :--- | ---: | ---: | ---: | ---: | :--- | :--- |",
+        ]
+        for row in disk_rows:
+            lines.append(
+                f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]} | {row[5]} | {row[6]} | {row[7]} |"
+            )
+    progress_ledger = payload.get("daily_progress_ledger") or {}
+    if progress_ledger:
+        lines += [
+            "",
+            "## Daily Progress Ledger",
+            "",
+            f"Status: `{progress_ledger.get('status')}`",
+            f"Broad improvement claim allowed: `{progress_ledger.get('broad_improvement_claim_allowed')}`",
+            (
+                "Claim failures: "
+                f"`{', '.join(progress_ledger.get('broad_improvement_claim_failures') or []) or '-'}`"
+            ),
+            f"JSONL: `{progress_ledger.get('jsonl_out') or '-'}`",
+            f"CSV: `{progress_ledger.get('csv_out') or '-'}`",
+            f"Report: `{progress_ledger.get('report_out') or '-'}`",
+            "",
+        ]
     lines += [
         "",
         "## Summary",
@@ -1300,7 +1493,10 @@ def run_daily_refresh(args, runners=None):
 def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
-    runners = list(runners or DEFAULT_RUNNERS)
+    runners = filter_runners_for_resume(
+        list(runners or DEFAULT_RUNNERS),
+        getattr(args, "resume_from_step", ""),
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": None,
@@ -1319,6 +1515,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "fail_on_variant_evidence_alert": getattr(args, "fail_on_variant_evidence_alert", True),
             "fail_on_hourly_performance_gate": getattr(args, "fail_on_hourly_performance_gate", True),
             "long_job_guard": long_job_guard_info or {},
+            "resume_from_step": getattr(args, "resume_from_step", ""),
         },
     }
     if args.dry_run:
@@ -1390,6 +1587,15 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
     payload["summary"] = pipeline_summary(payload["steps"])
+    if not args.dry_run and not getattr(args, "skip_daily_progress_ledger", False):
+        try:
+            payload["daily_progress_ledger"] = write_daily_progress_ledger(args, payload)
+        except Exception as exc:  # noqa: BLE001 - status must still persist after refresh errors
+            payload["daily_progress_ledger"] = {
+                "status": "ERROR",
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
     status_path = write_json(args.status_out, payload)
     report_path = write_report(args.report_out, payload)
     return payload, status_path, report_path
@@ -1424,6 +1630,7 @@ def build_run_parser(parser):
     parser.add_argument("--force-long-job-lock", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
@@ -1466,6 +1673,12 @@ def build_run_parser(parser):
     parser.add_argument("--skip-hourly-model-performance", action="store_true")
     parser.add_argument("--skip-price-free-model-learning", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
+    parser.add_argument(
+        "--promotion-min-artifact-free-bytes",
+        type=int,
+        default=promotion_refresh.DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
+        help="Daily-refresh preflight minimum free bytes before promotion refresh artifact exports.",
+    )
     parser.add_argument("--hourly-min-rows", type=int, default=hourly_model_performance.DEFAULT_MIN_ROWS)
     parser.add_argument("--hourly-top-hours", type=int, default=hourly_model_performance.DEFAULT_TOP_HOURS)
     parser.add_argument("--hourly-min-regime-market-days", type=int, default=hourly_model_performance.DEFAULT_MIN_REGIME_MARKET_DAYS)
