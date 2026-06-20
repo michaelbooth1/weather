@@ -1,0 +1,447 @@
+{
+  "artifact_root": "artifacts",
+  "artifacts": [
+    {
+      "artifact_id": "models/hgb/feature_model_hgb.pkl",
+      "bytes": 29230281,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb.pkl\"",
+      "sha256": "bf53fd60db1a8b28cbfc2ae7844370246884e90dab7d63a558fd477a262d732a",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_atlanta.pkl",
+      "bytes": 15149102,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_atlanta.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_atlanta.pkl\"",
+      "sha256": "9f045926126ab37bbc71b2c7db97b79cda8061c36c0fae93f2e12495493c9b9f",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_austin.pkl",
+      "bytes": 13495031,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_austin.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_austin.pkl\"",
+      "sha256": "98f5b72b23814f8886acee79d029de475b834322ad7d89631d7423a443586765",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_chicago.pkl",
+      "bytes": 19713433,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_chicago.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_chicago.pkl\"",
+      "sha256": "be24eab615a9c6375a369537a9ed1dd8e650d49cdca35e941184f524cf1401a2",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_dallas.pkl",
+      "bytes": 14798766,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_dallas.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_dallas.pkl\"",
+      "sha256": "5ee8722d86105067af92838fe4660e757ee26366d06acfe500532691f2152862",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_denver.pkl",
+      "bytes": 22704111,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_denver.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_denver.pkl\"",
+      "sha256": "2047b667fce7654e4879553c237d8561721f12f56eb746874fc0a241347ea7e8",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled.pkl",
+      "bytes": 103734643,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled.pkl\"",
+      "sha256": "47687e207a8e3ffd22e994d460cc37bdd83d6284776540dd4c00ad5525d087c1",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl",
+      "bytes": 191225,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_1.pkl\"",
+      "sha256": "24cd6b19115aa55f48885d1d7cda241e69900941a53291dafd02a208ce57746a",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+      "bytes": 193373,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl\"",
+      "sha256": "e0842a154259d2f31271a9a49944a35427dec29110788e399c79e807a52a82a8",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+          "artifact_required": true,
+          "export_family": "clob_overlay",
+          "lifecycle": "active",
+          "prediction_mode": "market_microstructure_overlay",
+          "roles": [
+            "market-informed",
+            "quote-diagnostic"
+          ],
+          "shadow_only": false,
+          "variant_family": "clob_overlay",
+          "variant_id": "clob_overlay_gated_taxonomy"
+        },
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+          "artifact_required": true,
+          "export_family": "clob_overlay",
+          "lifecycle": "active",
+          "prediction_mode": "market_microstructure_overlay",
+          "roles": [
+            "market-informed",
+            "oof-diagnostic",
+            "partial-coverage"
+          ],
+          "shadow_only": false,
+          "variant_family": "clob_overlay",
+          "variant_id": "clob_overlay_raw_oof"
+        }
+      ]
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl",
+      "bytes": 4958646,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl",
+      "registry_use": "smoke_only",
+      "reproducibility_requirement": "smoke_rebuildable",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_smoke.pkl\"",
+      "sha256": "0a53dc001930d616759eebf3d301216e99c31afe9094b00e392a776d9d0daf10",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
+      "bytes": 5460537,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl\"",
+      "sha256": "ee7b65d078961bf21c3f89ff6e359d0acca5f3fedc90e456bf0192e4656867e9",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
+          "artifact_required": true,
+          "export_family": "dynamic_source_state",
+          "lifecycle": "active",
+          "prediction_mode": "band_binary",
+          "roles": [
+            "candidate",
+            "no-market",
+            "source-state",
+            "active-bakeoff"
+          ],
+          "shadow_only": false,
+          "variant_family": "dynamic_source_state",
+          "variant_id": "pooled_f_dynamic_source_state_v0_1"
+        }
+      ]
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl",
+      "bytes": 5021537,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl",
+      "registry_use": "smoke_only",
+      "reproducibility_requirement": "smoke_rebuildable",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_smoke.pkl\"",
+      "sha256": "6fbbe100c3df3533fbc9033b4c13d1eaf811479996a77013526c0a5aa7643992",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
+      "bytes": 5432706,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl\"",
+      "sha256": "cf1a385b2f92810ba31c7974ce0511cb42653dbab4325599bb29e199a17e7d4d",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
+          "artifact_required": true,
+          "export_family": "exact_winner_catchup",
+          "lifecycle": "active",
+          "prediction_mode": "band_binary",
+          "roles": [
+            "candidate",
+            "no-market",
+            "active-bakeoff"
+          ],
+          "shadow_only": false,
+          "variant_family": "exact_winner_catchup",
+          "variant_id": "pooled_f_exact_winner_catchup_v0_1"
+        }
+      ]
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl",
+      "bytes": 5432466,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha005.pkl\"",
+      "sha256": "6783d8fc4b066fdf22fcd71e5dbd9c57f8f021655f525c3fc513cc1877e56959",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl",
+      "bytes": 5432466,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha01.pkl\"",
+      "sha256": "a7670f04e2b66d0e535e3bf4b5fe19de8b7708060d1ea6f2e2fd5b39e1bab96e",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl",
+      "bytes": 5432466,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1_alpha02.pkl\"",
+      "sha256": "da75d415104644c1c88811cf0cec8d3580f00ff28385cef117db4b34fc1f8956",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_v0_2.pkl",
+      "bytes": 5028078,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_2.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_v0_2.pkl\"",
+      "sha256": "b7933690c80ec9c34e220992de615361e6904518e7792ccf0c705983276b6e89",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
+      "bytes": 5340804,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl\"",
+      "sha256": "dfcd732f9382404713600b2a122e886b0b6f9df6ccaa7cc332686b15ecc77e53",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
+          "artifact_required": true,
+          "export_family": "pooled_f_candidate",
+          "lifecycle": "active",
+          "prediction_mode": "band_binary",
+          "roles": [
+            "candidate",
+            "no-market",
+            "fallback",
+            "active-bakeoff"
+          ],
+          "shadow_only": false,
+          "variant_family": "pooled_f_candidate",
+          "variant_id": "pooled_f_candidate_miami_current_fallback_v0_1"
+        }
+      ]
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_houston.pkl",
+      "bytes": 10575344,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_houston.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_houston.pkl\"",
+      "sha256": "19999a254056ae009fd65089747e158a0b722cbead541d20b3d39cee295c49ba",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_los-angeles.pkl",
+      "bytes": 11152210,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_los-angeles.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_los-angeles.pkl\"",
+      "sha256": "8d9aba849cf95f676be1ec0183431dfe5b04db0e55f8cfca9adadb08ad167b5c",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_miami.pkl",
+      "bytes": 20742776,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_miami.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_miami.pkl\"",
+      "sha256": "7b59bc1175108d08eb3163cac9b31cedd6ac174ec9ffe4cd296c4c4bea15fd9f",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_nyc.pkl",
+      "bytes": 18735619,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_nyc.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_nyc.pkl\"",
+      "sha256": "a8efd8067b2ff19249fdf125fb56dd4bd25f7b1db9454e81f70cf21dd82201d4",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_san-francisco.pkl",
+      "bytes": 18096992,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_san-francisco.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_san-francisco.pkl\"",
+      "sha256": "c9b77d8326bff055466631e413e810c61f428416c5b9f1aad549c5e0bc17972f",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/feature_model_hgb_seattle.pkl",
+      "bytes": 19800416,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/feature_model_hgb_seattle.pkl",
+      "registry_use": "unregistered_runtime_artifact",
+      "reproducibility_requirement": "runtime_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_seattle.pkl\"",
+      "sha256": "ad6229d851484f30c4caaf5f77fd16a018ed5af11bccb67351311f6f3872bfa1",
+      "storage_backend": "git_lfs",
+      "variant_refs": []
+    },
+    {
+      "artifact_id": "models/hgb/item35_density_full_candidate.pkl",
+      "bytes": 7594227,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/item35_density_full_candidate.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/item35_density_full_candidate.pkl\"",
+      "sha256": "56b03f8d5769d76d28aaad78752d78869c0dc816f906e091f10e2ca98c6c88ab",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/item35_density_full_candidate.pkl",
+          "artifact_required": true,
+          "export_family": "pooled_continuous_density",
+          "lifecycle": "active",
+          "prediction_mode": "continuous_density_f",
+          "roles": [
+            "candidate",
+            "density",
+            "expanded-evidence"
+          ],
+          "shadow_only": false,
+          "variant_family": "pooled_continuous_density",
+          "variant_id": "pooled_continuous_density_hgb_v0_1"
+        }
+      ]
+    },
+    {
+      "artifact_id": "models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
+      "bytes": 5978191,
+      "kind": "hgb_model",
+      "path": "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
+      "registry_use": "active_promoted",
+      "reproducibility_requirement": "promotion_restore_required",
+      "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl\"",
+      "sha256": "befe90ef947396b26c24a5f30bc8886624b4bbef23af7270fd84a43a6649f4f5",
+      "storage_backend": "git_lfs",
+      "variant_refs": [
+        {
+          "active_for_headline": true,
+          "artifact_path": "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
+          "artifact_required": true,
+          "export_family": "pooled_f_candidate",
+          "lifecycle": "active",
+          "prediction_mode": "band_binary",
+          "roles": [
+            "candidate",
+            "no-market",
+            "active-bakeoff"
+          ],
+          "shadow_only": false,
+          "variant_family": "pooled_f_candidate",
+          "variant_id": "item50_pooled_forecast_v3_candidate"
+        }
+      ]
+    }
+  ],
+  "generated_at_utc": "2026-06-20T19:25:59.790115+00:00",
+  "managed_artifact_count": 26,
+  "managed_external_bytes": 379425446,
+  "restore_instructions": {
+    "external_artifact_store": "Fetch each artifact from the URI named by its manifest entry and verify SHA-256 before promotion.",
+    "git_lfs": "Install Git LFS, then run `git lfs pull --include=\"artifacts/models/hgb/*.pkl\"` from the repository root after checkout."
+  },
+  "schema_version": "model_artifact_externalization_v0.1",
+  "storage_backend_counts": {
+    "git_lfs": 26
+  }
+}

@@ -18,6 +18,7 @@ These packages are intentionally importable by any owner package:
 - `weather.scoring`
 - `weather.time`
 - `weather.units`
+- `weather.variant_registry`
 
 New helpers that are reused across package owners should land in one of these
 shared modules or in a new small owner module, not in the first CLI or report
@@ -31,7 +32,8 @@ module that needed them.
   distribution estimation, presentation, and runtime calibration artifact
   application.
 - `weather.calibration` owns training, replay-driven calibration, promotion
-  candidate scoring, and artifact writing.
+  candidate scoring, source-state feature transforms for calibration artifacts,
+  and artifact writing.
 - `weather.market` owns market configuration, market-microstructure capture,
   market-making policy, paper scoring, and exchange-adapter boundaries.
 - `weather.backtesting` owns settlement IO, tape scoring, replay, and replay
@@ -41,7 +43,8 @@ module that needed them.
 - `weather.reporting` owns durable reports, dashboards, promotion summaries,
   and audit rendering.
 - `weather.operations` owns orchestration entrypoints, scheduled jobs,
-  supervisors, runtime identity, and long-job guards.
+  supervisors, runtime identity, long-job guards, and architecture/ownership
+  audits that are operational rather than domain-specific.
 
 ## Transitional Edges
 
@@ -83,4 +86,6 @@ Large compatibility facades should remain thin. Public module names can keep
 re-exporting stable helpers, but new shared logic should move to owner modules
 such as `weather.model.calibration_runtime`, `weather.market.mm_exchange_reports`,
 `weather.market.mm_paper_reports`, `weather.reporting.data_layer_audit_report`,
-`weather.operations.supervisor`, or the shared utility modules above.
+`weather.operations.supervisor`,
+`weather.calibration.pooled_feature_source_state`, or the shared utility modules
+above.

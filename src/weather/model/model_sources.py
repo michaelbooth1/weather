@@ -13,8 +13,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-from weather.io import write_json_atomic
-from weather.operations.supervisor import acquire_writer_lock, release_writer_lock
+from weather.io import acquire_writer_lock, release_writer_lock, write_json_atomic
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market

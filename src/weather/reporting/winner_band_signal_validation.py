@@ -310,7 +310,7 @@ def fit_predict_row_signal(
         from sklearn.linear_model import LogisticRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import OneHotEncoder, StandardScaler
-    except ImportError as exc:  # pragma: no cover - dependency is expected in repo env.
+    except ModuleNotFoundError as exc:  # pragma: no cover - dependency is expected in repo env.
         raise RuntimeError("winner-band signal validation requires pandas and scikit-learn") from exc
 
     feature_columns = list(NUMERIC_FEATURES + CAT_FEATURES)

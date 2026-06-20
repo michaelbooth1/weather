@@ -34,6 +34,7 @@ from weather.market.market_day_labels import discover_default_folders, parse_ove
 from weather.reporting import disagreement_casebook
 from weather.reporting import data_layer_audit
 from weather.reporting import data_auditor
+from weather.reporting import data_retention_inventory
 from weather.reporting import daily_learning
 from weather.reporting import daily_progress_ledger
 from weather.reporting import fleet_observability
@@ -84,6 +85,7 @@ STEP_ORDER = (
     "fleet_observability",
     "data_layer_audit",
     "snapshot_evaluation",
+    "data_retention_inventory",
     "daily_learning",
 )
 
@@ -982,6 +984,43 @@ def run_snapshot_evaluation_step(args):
     }
 
 
+def run_data_retention_inventory_step(args):
+    if getattr(args, "skip_data_retention_inventory", False):
+        return {"status": "SKIPPED", "reason": "skip_data_retention_inventory"}
+    root = getattr(args, "data_root", "") or str(Path(args.backtest_root).parent)
+    payload = data_retention_inventory.build_payload(
+        root=root,
+        backup_status_path=Path(args.backtest_root) / "tape_backup_status.json",
+        min_free_bytes=getattr(
+            args,
+            "data_retention_min_free_bytes",
+            data_retention_inventory.DEFAULT_MIN_FREE_BYTES,
+        ),
+        lookback_hours=getattr(
+            args,
+            "data_retention_lookback_hours",
+            data_retention_inventory.DEFAULT_LOOKBACK_HOURS,
+        ),
+        top_n=getattr(args, "data_retention_top_n", data_retention_inventory.DEFAULT_TOP_N),
+    )
+    json_out = data_retention_inventory.write_json(
+        backtest_path(args, "data_retention_inventory.json"),
+        payload,
+    )
+    report_out = data_retention_inventory.write_report(
+        backtest_path(args, "data_retention_inventory_report.md"),
+        payload,
+    )
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "summary": payload.get("summary"),
+        "disk": payload.get("disk"),
+        "backup_status": payload.get("backup_status"),
+    }
+
+
 def run_daily_learning_step(args):
     if getattr(args, "skip_daily_learning", False):
         return {"status": "SKIPPED", "reason": "skip_daily_learning"}
@@ -1047,6 +1086,7 @@ DEFAULT_RUNNERS = (
     ("fleet_observability", run_fleet_observability_step),
     ("data_layer_audit", run_data_layer_audit_step),
     ("snapshot_evaluation", run_snapshot_evaluation_step),
+    ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
 )
 
@@ -1451,6 +1491,17 @@ def render_report(payload):
                 f"{result.get('status')} {result.get('gate_counts')}; "
                 f"snapshots {result.get('snapshots')}; gaps {result.get('top_gap_count')}"
             )
+        elif step.get("name") == "data_retention_inventory":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                summary = result.get("summary") or {}
+                disk = result.get("disk") or {}
+                detail = (
+                    f"{result.get('status')}; data {summary.get('total_human')}; "
+                    f"recent {summary.get('recent_human')}; free {disk.get('free_human')}; "
+                    f"restore_blocks {summary.get('restore_block_count')}"
+                )
         elif step.get("name") == "daily_learning":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -1912,6 +1963,18 @@ def build_run_parser(parser):
     parser.add_argument("--reanalysis-timeout", type=float, default=30)
     parser.add_argument("--reanalysis-end-date", default="")
     parser.add_argument("--skip-data-layer-audit", action="store_true")
+    parser.add_argument("--skip-data-retention-inventory", action="store_true")
+    parser.add_argument(
+        "--data-retention-min-free-bytes",
+        type=int,
+        default=data_retention_inventory.DEFAULT_MIN_FREE_BYTES,
+    )
+    parser.add_argument(
+        "--data-retention-lookback-hours",
+        type=float,
+        default=data_retention_inventory.DEFAULT_LOOKBACK_HOURS,
+    )
+    parser.add_argument("--data-retention-top-n", type=int, default=data_retention_inventory.DEFAULT_TOP_N)
     parser.add_argument("--skip-daily-learning", action="store_true")
     parser.add_argument("--data-layer-historical-start", default="2000-01-01")
     parser.add_argument("--data-layer-historical-end", default="")

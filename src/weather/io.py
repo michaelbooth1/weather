@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -65,6 +66,75 @@ def append_jsonl(path: str | Path, payload: Any) -> Path:
         else:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
     return path
+
+
+def writer_lock_path(path: str | Path) -> Path:
+    path = Path(path)
+    return path.with_name(f".{path.name}.writer.lock")
+
+
+def _writer_owner_payload(status_path: str | Path, owner: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = {
+        "pid": os.getpid(),
+        "status_path": str(Path(status_path)),
+        "acquired_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    payload.update(owner or {})
+    return payload
+
+
+def file_lock_is_stale(path: str | Path, *, max_age_seconds: float = 120.0) -> bool:
+    path = Path(path)
+    try:
+        age = time.time() - path.stat().st_mtime
+    except FileNotFoundError:
+        return False
+    return age > max_age_seconds
+
+
+def acquire_writer_lock(
+    status_path: str | Path,
+    *,
+    owner: dict[str, Any] | None = None,
+    attempts: int = 1,
+    stale_after_seconds: float = 120.0,
+    sleep_seconds: float = 0.1,
+    sleep_fn: SleepFn = time.sleep,
+) -> dict[str, Any] | None:
+    lock_path = writer_lock_path(status_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    attempts = max(1, int(attempts))
+    for attempt in range(attempts):
+        try:
+            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            payload = _writer_owner_payload(status_path, owner)
+            os.write(handle, json.dumps(payload, sort_keys=True).encode("utf-8"))
+            return {"handle": handle, "path": str(lock_path), "owner": payload}
+        except FileExistsError:
+            if file_lock_is_stale(lock_path, max_age_seconds=stale_after_seconds):
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if attempt != attempts - 1:
+                sleep_fn(sleep_seconds)
+    return None
+
+
+def release_writer_lock(lock: dict[str, Any] | None) -> None:
+    if not lock:
+        return
+    handle = lock.get("handle")
+    if handle is not None:
+        try:
+            os.close(handle)
+        except OSError:
+            pass
+    try:
+        Path(lock["path"]).unlink()
+    except (FileNotFoundError, KeyError):
+        pass
 
 
 def read_jsonl(path: str | Path, *, skip_invalid: bool = True) -> list[Any]:

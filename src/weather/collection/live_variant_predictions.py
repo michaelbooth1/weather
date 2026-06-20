@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import REPO_ROOT
-from weather.reporting.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
+from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 from weather.schema_registry import schema_version
 
 

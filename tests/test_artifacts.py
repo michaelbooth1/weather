@@ -7,6 +7,8 @@ from pathlib import Path
 from weather.artifacts import (
     artifact_candidates,
     artifact_path,
+    build_artifact_externalization_manifest,
+    build_artifact_promotion_preflight,
     build_artifact_size_audit,
     build_artifact_registry,
     legacy_artifact_path,
@@ -120,6 +122,45 @@ class TestArtifactPaths(unittest.TestCase):
         self.assertEqual(written, out)
         self.assertEqual(audit["status"], "FAIL")
         self.assertEqual(audit["checks"][0]["artifact_id"], "models/hgb/too_large.pkl")
+
+    def test_externalization_manifest_reports_managed_restore_entries(self):
+        manifest = build_artifact_externalization_manifest(root=Path("missing-artifact-root"))
+
+        self.assertEqual(manifest["schema_version"], "model_artifact_externalization_v0.1")
+        self.assertEqual(manifest["managed_artifact_count"], 0)
+        self.assertIn("git_lfs", manifest["restore_instructions"])
+
+    def test_promotion_preflight_blocks_active_local_data_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            root.mkdir()
+            (root / "demo.json").write_text('{"schema_version":"demo_v1"}\n', encoding="utf-8")
+            registry = Path(tmp) / "model_variant_registry.json"
+            registry.write_text(
+                json.dumps({
+                    "variants": [
+                        {
+                            "variant_id": "active_local",
+                            "lifecycle": "active",
+                            "roles": ["candidate"],
+                            "active_for_headline": True,
+                            "artifact_path": "data/backtest/local_candidate.pkl",
+                            "artifact_required": True,
+                        }
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            payload = build_artifact_promotion_preflight(
+                root=root,
+                variant_registry_path=registry,
+                generated_at="2026-06-20T00:00:00+00:00",
+            )
+
+        self.assertEqual(payload["schema_version"], "model_artifact_promotion_preflight_v0.1")
+        self.assertEqual(payload["status"], "FAIL")
+        self.assertIn("active_local_artifact_path", {row["category"] for row in payload["checks"]})
 
 
 if __name__ == "__main__":

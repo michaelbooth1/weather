@@ -12,6 +12,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     load_status,
     run_active_variant_shadow_step,
     run_clob_order_book_tiering_step,
+    run_data_retention_inventory_step,
     run_daily_refresh,
     run_ingest_quality_gate_step,
     run_model_variant_evidence_growth_step,
@@ -69,6 +70,10 @@ def _args(tmp, **overrides):
         "reanalysis_timeout": 30,
         "reanalysis_end_date": "",
         "skip_data_layer_audit": False,
+        "skip_data_retention_inventory": False,
+        "data_retention_min_free_bytes": 0,
+        "data_retention_lookback_hours": 24.0,
+        "data_retention_top_n": 25,
         "skip_daily_learning": False,
         "skip_hourly_model_performance": False,
         "skip_ten_minute_model_performance": False,
@@ -238,6 +243,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
+        self.assertLess(names.index("data_layer_audit"), names.index("data_retention_inventory"))
+        self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
@@ -604,6 +611,24 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 0)
         self.assertFalse(result["evidence_sla"]["broad_promotion_claim_allowed"])
         self.assertEqual(result["no_growth_reasons"][0]["reason"], "variant_rows_only")
+
+    def test_data_retention_inventory_step_writes_daily_budget_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root
+            snapshot = data_root / "snapshots" / "demo" / "snapshots_long.csv"
+            snapshot.parent.mkdir(parents=True)
+            snapshot.write_text("x" * 16, encoding="utf-8")
+            args = _args(tmp, data_root=str(data_root), data_retention_min_free_bytes=0)
+
+            result = run_data_retention_inventory_step(args)
+            json_exists = Path(result["json_out"]).exists()
+            report_exists = Path(result["report_out"]).exists()
+
+            self.assertEqual(result["status"], "WARN")
+            self.assertTrue(json_exists)
+            self.assertTrue(report_exists)
+            self.assertEqual(result["summary"]["file_count"], 1)
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

@@ -1,4 +1,4 @@
-# 173. Post-Agent Large Module Decomposition And Ownership Split [OPEN]
+# 173. Post-Agent Large Module Decomposition And Ownership Split [OPEN - STARTED 2026-06-20 - SOURCE-STATE OWNER AND SIZE AUDIT LIVE]
 
 Goal: split the newly grown large modules into explicit ownership boundaries
 after active agent work is merged, without disrupting current in-flight edits.
@@ -36,11 +36,46 @@ ratchets less useful.
   training, validation, artifact IO, and serving helpers.
 - [ ] Review `fleet_observability` and `hourly_model_performance` for shared
   slot scoring, gate rendering, and report utility extraction.
-- [ ] Keep compatibility facades until import architecture tests and active
+- [x] Keep compatibility facades until import architecture tests and active
   callers prove the new surfaces are stable.
-- [ ] Add a "no new 2k-line module" architecture warning or audit report.
+- [x] Add a "no new 2k-line module" architecture warning or audit report.
 
 Acceptance: the largest operational files are decomposed around stable
 runtime/reporting/model boundaries, existing CLIs continue to work, and package
 dependency ratchets document the new ownership model.
 
+## 2026-06-20 progress
+
+Completed the unlocked first slice without touching the actively sensitive
+`taker_bot` or `promotion_refresh` facades:
+
+- Extracted dynamic source-state feature transforms from
+  `weather.calibration.pooled_feature_model` into
+  `weather.calibration.pooled_feature_source_state`.
+- Kept the old `pooled_feature_model` imports as compatibility facade exports,
+  so current callers and tests continue to import the same public names.
+- Added direct owner tests in
+  `tests/calibration/test_pooled_feature_source_state.py`.
+- Added an import-architecture guard so
+  `pooled_feature_source_state` cannot import back from
+  `pooled_feature_model`.
+- Added `weather.operations.module_size_audit`, schema
+  `module_size_audit_v0.1`, and the operator map
+  `docs/operations/module-ownership-map.md`.
+
+The generated audit command:
+
+```powershell
+python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
+```
+
+reported `194` Python modules, `6` modules above the `2000`-line warning
+threshold, and owner/next-split rows for every current warning.
+
+Verification:
+
+- `python -m pytest -q tests\calibration\test_pooled_feature_source_state.py tests\calibration\test_pooled_feature_model.py tests\operations\test_module_size_audit.py tests\operations\test_schema_registry.py tests\operations\test_import_architecture.py`
+  passed with 69 tests.
+
+Remaining work stays open: full `taker_bot`, `promotion_refresh`, pooled feature
+training/artifact/report, fleet observability, and hourly performance splits.

@@ -473,7 +473,7 @@ def _read_pressure_level_netcdf3_daily(path, variable_name, level_hpa, spec):
 def _read_pressure_level_netcdf4_daily(path, variable_name, level_hpa, spec):
     try:
         from netCDF4 import Dataset
-    except ImportError as exc:  # pragma: no cover - exercised when optional dep is absent
+    except ModuleNotFoundError as exc:  # pragma: no cover - exercised when optional dep is absent
         raise RuntimeError(
             f"{path} is not readable as classic NetCDF; install netCDF4 to read "
             "NOAA PSL NetCDF4 pressure-level files."

@@ -1,5 +1,18 @@
 {
   "schema_version": 1,
+  "status": "generated_snapshot",
+  "owner": "weather.market",
+  "freshness_policy": {
+    "source": "Gamma API highest-temperature active events",
+    "max_age_days": 7,
+    "refresh_command": "manual_current_source_refresh_required"
+  },
+  "volatile_fields": [
+    "source",
+    "locations[].polymarket.latest_event_slug",
+    "locations[].polymarket.latest_event_url",
+    "locations[].polymarket.active_events"
+  ],
   "generated_at": "2026-06-06",
   "source": {
     "category_url": "https://polymarket.com/weather/high-temperature",

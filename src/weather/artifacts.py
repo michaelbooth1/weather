@@ -5,24 +5,41 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.paths import ARTIFACTS_ROOT, SRC_ROOT, relative_to_repo
+from weather.paths import ARTIFACTS_ROOT, REPO_ROOT, SRC_ROOT, config_path, relative_to_repo
 from weather.schema_registry import schema_version
 
 
 ARTIFACT_REGISTRY_SCHEMA_VERSION = schema_version("model_artifact_registry")
 ARTIFACT_SIZE_AUDIT_SCHEMA_VERSION = schema_version("model_artifact_size_audit")
+ARTIFACT_EXTERNALIZATION_SCHEMA_VERSION = schema_version("model_artifact_externalization")
+ARTIFACT_PROMOTION_PREFLIGHT_SCHEMA_VERSION = schema_version("model_artifact_promotion_preflight")
 DEFAULT_ARTIFACT_REGISTRY_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_registry.json"
 DEFAULT_ARTIFACT_SIZE_AUDIT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_size_audit.json"
+DEFAULT_ARTIFACT_EXTERNALIZATION_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_externalization.json"
+DEFAULT_ARTIFACT_PROMOTION_PREFLIGHT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_promotion_preflight.json"
+DEFAULT_VARIANT_REGISTRY_PATH = config_path() / "model_variant_registry.json"
 
 MIB = 1024 * 1024
 DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES = 90 * MIB
 DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES = 100 * MIB
 DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES = 350 * MIB
 DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES = 500 * MIB
+EXTERNALIZED_BACKENDS = {"git_lfs", "external_artifact_store"}
+VARIANT_CONTRACT_FIELDS = (
+    "artifact_path",
+    "artifact_required",
+    "prediction_function",
+    "prediction_mode",
+    "export_family",
+    "default_export_path",
+    "postprocess_config_hash",
+    "live_runtime",
+)
 
 
 def _artifact_dir(filename: str) -> Path:
@@ -118,6 +135,165 @@ def artifact_kind(path: str | Path) -> str:
     return "misc"
 
 
+def _repo_relative_path(path: str | Path) -> str | None:
+    path = Path(path)
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _repo_relative_value(value: str | Path | None) -> str | None:
+    if value in (None, ""):
+        return None
+    value = str(value).replace("\\", "/")
+    if "://" in value:
+        return None
+    path = Path(value)
+    if path.is_absolute():
+        return _repo_relative_path(path)
+    return value
+
+
+def _variant_contract(variant: dict) -> dict:
+    contract = dict(variant.get("export_contract") or {})
+    for key in VARIANT_CONTRACT_FIELDS:
+        if key in variant and key not in contract:
+            contract[key] = variant.get(key)
+    contract.setdefault("artifact_required", True)
+    contract.setdefault("variant_id", variant.get("variant_id"))
+    contract.setdefault("variant_family", variant.get("variant_family"))
+    contract.setdefault("track", variant.get("track"))
+    return contract
+
+
+def _shadow_only_variant(variant: dict) -> bool:
+    roles = {str(role) for role in variant.get("roles") or []}
+    return variant.get("lifecycle") == "shadow" or "shadow-only" in roles
+
+
+def _git_lfs_attribute_map(paths: list[Path]) -> dict[str, bool]:
+    rel_paths = []
+    for path in paths:
+        rel = _repo_relative_path(path)
+        if rel:
+            rel_paths.append(rel)
+    if not rel_paths:
+        return {}
+    try:
+        result = subprocess.run(
+            ["git", "check-attr", "filter", "--", *rel_paths],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    output: dict[str, bool] = {rel: False for rel in rel_paths}
+    if result.returncode != 0:
+        return output
+    for line in result.stdout.splitlines():
+        try:
+            path_text, _attribute, value = line.split(": ", 2)
+        except ValueError:
+            continue
+        normalized = path_text.strip('"').replace("\\", "/")
+        output[normalized] = value.strip() == "lfs"
+    return output
+
+
+def variant_artifact_references(registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH) -> dict[str, list[dict]]:
+    if registry_path in (None, ""):
+        return {}
+    path = Path(registry_path)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    refs: dict[str, list[dict]] = {}
+    for variant in payload.get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        contract = _variant_contract(variant)
+        artifact_path = contract.get("artifact_path")
+        rel = _repo_relative_value(artifact_path)
+        if not rel:
+            continue
+        roles = [str(role) for role in variant.get("roles") or []]
+        refs.setdefault(rel, []).append({
+            "variant_id": variant.get("variant_id"),
+            "variant_family": variant.get("variant_family"),
+            "lifecycle": variant.get("lifecycle"),
+            "roles": roles,
+            "active_for_headline": bool(variant.get("active_for_headline", True)),
+            "shadow_only": _shadow_only_variant(variant),
+            "artifact_required": bool(contract.get("artifact_required", True)),
+            "artifact_path": artifact_path,
+            "prediction_mode": contract.get("prediction_mode"),
+            "export_family": contract.get("export_family"),
+        })
+    return refs
+
+
+def _registry_use(refs: list[dict], path: Path) -> str:
+    if refs:
+        promoted = [
+            ref for ref in refs
+            if ref.get("lifecycle") == "active"
+            and ref.get("active_for_headline")
+            and not ref.get("shadow_only")
+        ]
+        if promoted:
+            return "active_promoted"
+        if any(ref.get("lifecycle") == "active" for ref in refs):
+            return "active_shadow"
+        if any(ref.get("shadow_only") for ref in refs):
+            return "shadow_only"
+        if any("smoke" in set(ref.get("roles") or []) for ref in refs):
+            return "smoke_only"
+        if any(ref.get("lifecycle") == "archived" for ref in refs):
+            return "historical"
+    name = path.name.lower()
+    if "smoke" in name:
+        return "smoke_only"
+    if artifact_kind(path) in {"hgb_model", "coefs_model", "calibration"}:
+        return "unregistered_runtime_artifact"
+    return "unreferenced"
+
+
+def _reproducibility_requirement(registry_use: str, kind: str) -> str:
+    if registry_use == "active_promoted":
+        return "promotion_restore_required"
+    if registry_use == "active_shadow":
+        return "shadow_replay_restore_required"
+    if registry_use == "shadow_only":
+        return "shadow_only_rebuildable"
+    if registry_use == "smoke_only":
+        return "smoke_rebuildable"
+    if registry_use == "historical":
+        return "historical_replay_restore_required"
+    if kind in {"hgb_model", "coefs_model", "calibration"}:
+        return "runtime_restore_required"
+    return "manifest_only"
+
+
+def _storage_backend(path: Path, *, git_lfs_tracked: bool) -> str:
+    if git_lfs_tracked:
+        return "git_lfs"
+    return "git"
+
+
+def _restore_instruction(path: str, storage_backend: str) -> str:
+    if storage_backend == "git_lfs":
+        return f'git lfs pull --include="{path}"'
+    if storage_backend == "external_artifact_store":
+        return f"fetch external artifact using the manifest entry for {path}"
+    return f"git checkout -- {path}"
+
+
 def json_artifact_versions(path: str | Path) -> dict:
     path = Path(path)
     if path.suffix.lower() != ".json":
@@ -148,11 +324,19 @@ def discover_artifact_files(root: str | Path = ARTIFACTS_ROOT):
         if path.is_file()
         and path.name != DEFAULT_ARTIFACT_REGISTRY_PATH.name
         and path.name != DEFAULT_ARTIFACT_SIZE_AUDIT_PATH.name
+        and path.name != DEFAULT_ARTIFACT_EXTERNALIZATION_PATH.name
+        and path.name != DEFAULT_ARTIFACT_PROMOTION_PREFLIGHT_PATH.name
         and path.suffix.lower() in {".json", ".pkl", ".parquet"}
     )
 
 
-def artifact_record(path: str | Path, root: str | Path = ARTIFACTS_ROOT) -> dict:
+def artifact_record(
+    path: str | Path,
+    root: str | Path = ARTIFACTS_ROOT,
+    *,
+    variant_refs: dict[str, list[dict]] | None = None,
+    git_lfs_tracked: bool = False,
+) -> dict:
     path = Path(path)
     root = Path(root)
     stat = path.stat()
@@ -161,12 +345,27 @@ def artifact_record(path: str | Path, root: str | Path = ARTIFACTS_ROOT) -> dict
     except ValueError:
         artifact_id = relative_to_repo(path)
     versions = json_artifact_versions(path)
+    repo_path = relative_to_repo(path)
+    refs = (variant_refs or {}).get(repo_path, [])
+    kind = artifact_kind(path)
+    registry_use = _registry_use(refs, path)
+    storage_backend = _storage_backend(path, git_lfs_tracked=git_lfs_tracked)
+    storage_managed = storage_backend in EXTERNALIZED_BACKENDS
+    bytes_value = int(stat.st_size)
     return {
         "artifact_id": artifact_id,
-        "path": relative_to_repo(path),
-        "kind": artifact_kind(path),
+        "path": repo_path,
+        "kind": kind,
         "suffix": path.suffix.lower(),
-        "bytes": stat.st_size,
+        "bytes": bytes_value,
+        "unmanaged_git_bytes": 0 if storage_managed else bytes_value,
+        "managed_external_bytes": bytes_value if storage_managed else 0,
+        "storage_backend": storage_backend,
+        "storage_managed": storage_managed,
+        "restore_instruction": _restore_instruction(repo_path, storage_backend),
+        "registry_use": registry_use,
+        "reproducibility_requirement": _reproducibility_requirement(registry_use, kind),
+        "variant_refs": refs,
         "sha256": sha256_file(path),
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "schema_version": versions.get("schema_version"),
@@ -175,22 +374,50 @@ def artifact_record(path: str | Path, root: str | Path = ARTIFACTS_ROOT) -> dict
     }
 
 
-def build_artifact_registry(root: str | Path = ARTIFACTS_ROOT, generated_at=None) -> dict:
+def build_artifact_registry(
+    root: str | Path = ARTIFACTS_ROOT,
+    generated_at=None,
+    *,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
+) -> dict:
     generated_at = generated_at or datetime.now(timezone.utc).isoformat()
-    rows = [artifact_record(path, root=root) for path in discover_artifact_files(root)]
+    files = discover_artifact_files(root)
+    lfs_attrs = _git_lfs_attribute_map(files)
+    refs = variant_artifact_references(variant_registry_path)
+    rows = [
+        artifact_record(
+            path,
+            root=root,
+            variant_refs=refs,
+            git_lfs_tracked=lfs_attrs.get(relative_to_repo(path), False),
+        )
+        for path in files
+    ]
     counts = Counter(row["kind"] for row in rows)
+    storage_counts = Counter(row["storage_backend"] for row in rows)
+    registry_use_counts = Counter(row["registry_use"] for row in rows)
     return {
         "schema_version": ARTIFACT_REGISTRY_SCHEMA_VERSION,
         "generated_at_utc": generated_at,
         "artifact_root": relative_to_repo(root),
         "artifact_count": len(rows),
         "kind_counts": dict(sorted(counts.items())),
+        "storage_backend_counts": dict(sorted(storage_counts.items())),
+        "registry_use_counts": dict(sorted(registry_use_counts.items())),
+        "working_tree_bytes": sum(row["bytes"] for row in rows),
+        "unmanaged_git_bytes": sum(row["unmanaged_git_bytes"] for row in rows),
+        "managed_external_bytes": sum(row["managed_external_bytes"] for row in rows),
         "artifacts": rows,
     }
 
 
-def write_artifact_registry(path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH, root: str | Path = ARTIFACTS_ROOT) -> Path:
-    payload = build_artifact_registry(root=root)
+def write_artifact_registry(
+    path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH,
+    root: str | Path = ARTIFACTS_ROOT,
+    *,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
+) -> Path:
+    payload = build_artifact_registry(root=root, variant_registry_path=variant_registry_path)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -217,6 +444,8 @@ def _threshold_row(kind, status, bytes_value, threshold_bytes, artifact=None):
         row["path"] = artifact.get("path")
         row["suffix"] = artifact.get("suffix")
         row["artifact_kind"] = artifact.get("kind")
+        row["storage_backend"] = artifact.get("storage_backend")
+        row["registry_use"] = artifact.get("registry_use")
     return row
 
 
@@ -229,21 +458,29 @@ def build_artifact_size_audit(
     total_warning_bytes=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES,
     total_failure_bytes=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES,
     largest_limit=10,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
 ) -> dict:
     generated_at = generated_at or datetime.now(timezone.utc).isoformat()
-    registry = build_artifact_registry(root=root, generated_at=generated_at)
+    registry = build_artifact_registry(
+        root=root,
+        generated_at=generated_at,
+        variant_registry_path=variant_registry_path,
+    )
     artifacts = registry["artifacts"]
     total_bytes = sum(row["bytes"] for row in artifacts)
+    unmanaged_git_bytes = sum(row.get("unmanaged_git_bytes", row["bytes"]) for row in artifacts)
+    managed_external_bytes = sum(row.get("managed_external_bytes", 0) for row in artifacts)
     checks = []
     for row in artifacts:
-        if row["bytes"] >= individual_failure_bytes:
-            checks.append(_threshold_row("individual_artifact", "FAIL", row["bytes"], individual_failure_bytes, row))
-        elif row["bytes"] >= individual_warning_bytes:
-            checks.append(_threshold_row("individual_artifact", "WARN", row["bytes"], individual_warning_bytes, row))
-    if total_bytes >= total_failure_bytes:
-        checks.append(_threshold_row("total_artifacts", "FAIL", total_bytes, total_failure_bytes))
-    elif total_bytes >= total_warning_bytes:
-        checks.append(_threshold_row("total_artifacts", "WARN", total_bytes, total_warning_bytes))
+        measured_bytes = row.get("unmanaged_git_bytes", row["bytes"])
+        if measured_bytes >= individual_failure_bytes:
+            checks.append(_threshold_row("individual_artifact", "FAIL", measured_bytes, individual_failure_bytes, row))
+        elif measured_bytes >= individual_warning_bytes:
+            checks.append(_threshold_row("individual_artifact", "WARN", measured_bytes, individual_warning_bytes, row))
+    if unmanaged_git_bytes >= total_failure_bytes:
+        checks.append(_threshold_row("total_artifacts", "FAIL", unmanaged_git_bytes, total_failure_bytes))
+    elif unmanaged_git_bytes >= total_warning_bytes:
+        checks.append(_threshold_row("total_artifacts", "WARN", unmanaged_git_bytes, total_warning_bytes))
 
     largest = sorted(artifacts, key=lambda row: row["bytes"], reverse=True)[:largest_limit]
     thresholds = {
@@ -254,8 +491,9 @@ def build_artifact_size_audit(
         "policy": (
             "Track small JSON calibration artifacts and manifests in Git. "
             "Move binary model artifacts that reach the warning threshold to Git LFS "
-            "or an external artifact store before promotion, and block artifacts at "
-            "the failure threshold."
+            "or an external artifact store before promotion. Size thresholds apply "
+            "to unmanaged Git payload; LFS/externalized artifacts remain counted in "
+            "working_tree_bytes and managed_external_bytes for restore planning."
         ),
     }
     return {
@@ -265,7 +503,12 @@ def build_artifact_size_audit(
         "status": _size_status(checks),
         "artifact_count": registry["artifact_count"],
         "total_bytes": total_bytes,
+        "working_tree_bytes": total_bytes,
+        "unmanaged_git_bytes": unmanaged_git_bytes,
+        "managed_external_bytes": managed_external_bytes,
         "kind_counts": registry["kind_counts"],
+        "storage_backend_counts": registry["storage_backend_counts"],
+        "registry_use_counts": registry["registry_use_counts"],
         "thresholds": thresholds,
         "largest_artifacts": largest,
         "checks": checks,
@@ -284,8 +527,190 @@ def write_artifact_size_audit(
     return path
 
 
+def build_artifact_externalization_manifest(
+    root: str | Path = ARTIFACTS_ROOT,
+    *,
+    generated_at=None,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
+) -> dict:
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat()
+    registry = build_artifact_registry(
+        root=root,
+        generated_at=generated_at,
+        variant_registry_path=variant_registry_path,
+    )
+    managed = [
+        row for row in registry["artifacts"]
+        if row.get("storage_managed")
+    ]
+    backend_counts = Counter(row.get("storage_backend") for row in managed)
+    return {
+        "schema_version": ARTIFACT_EXTERNALIZATION_SCHEMA_VERSION,
+        "generated_at_utc": generated_at,
+        "artifact_root": registry["artifact_root"],
+        "managed_artifact_count": len(managed),
+        "managed_external_bytes": sum(row["bytes"] for row in managed),
+        "storage_backend_counts": dict(sorted(backend_counts.items())),
+        "restore_instructions": {
+            "git_lfs": (
+                "Install Git LFS, then run "
+                '`git lfs pull --include="artifacts/models/hgb/*.pkl"` '
+                "from the repository root after checkout."
+            ),
+            "external_artifact_store": (
+                "Fetch each artifact from the URI named by its manifest entry "
+                "and verify SHA-256 before promotion."
+            ),
+        },
+        "artifacts": [
+            {
+                "artifact_id": row["artifact_id"],
+                "path": row["path"],
+                "kind": row["kind"],
+                "bytes": row["bytes"],
+                "sha256": row["sha256"],
+                "storage_backend": row["storage_backend"],
+                "restore_instruction": row["restore_instruction"],
+                "registry_use": row["registry_use"],
+                "reproducibility_requirement": row["reproducibility_requirement"],
+                "variant_refs": row.get("variant_refs") or [],
+            }
+            for row in managed
+        ],
+    }
+
+
+def write_artifact_externalization_manifest(
+    path: str | Path = DEFAULT_ARTIFACT_EXTERNALIZATION_PATH,
+    root: str | Path = ARTIFACTS_ROOT,
+    **kwargs,
+) -> Path:
+    payload = build_artifact_externalization_manifest(root=root, **kwargs)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def _preflight_check(severity, category, detail, *, artifact_id=None, path=None, variant_id=None):
+    row = {
+        "severity": severity,
+        "category": category,
+        "detail": detail,
+    }
+    if artifact_id is not None:
+        row["artifact_id"] = artifact_id
+    if path is not None:
+        row["path"] = str(path)
+    if variant_id is not None:
+        row["variant_id"] = variant_id
+    return row
+
+
+def _variant_local_path_checks(registry_path: str | Path | None) -> list[dict]:
+    if registry_path in (None, ""):
+        return []
+    path = Path(registry_path)
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return [
+            _preflight_check(
+                "error",
+                "variant_registry_unreadable",
+                "variant registry could not be read as JSON",
+                path=path,
+            )
+        ]
+    checks = []
+    for variant in payload.get("variants") or []:
+        if not isinstance(variant, dict) or variant.get("lifecycle") != "active":
+            continue
+        contract = _variant_contract(variant)
+        artifact_path = contract.get("artifact_path")
+        rel = _repo_relative_value(artifact_path)
+        if not rel or not rel.startswith("data/"):
+            continue
+        severity = "warning" if _shadow_only_variant(variant) else "error"
+        category = (
+            "shadow_local_candidate_artifact_path"
+            if severity == "warning"
+            else "active_local_artifact_path"
+        )
+        checks.append(_preflight_check(
+            severity,
+            category,
+            (
+                "active registry artifacts must live under artifacts/ with "
+                "Git LFS or external manifest coverage unless explicitly "
+                "marked shadow-only"
+            ),
+            path=artifact_path,
+            variant_id=variant.get("variant_id"),
+        ))
+    return checks
+
+
+def build_artifact_promotion_preflight(
+    root: str | Path = ARTIFACTS_ROOT,
+    *,
+    generated_at=None,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
+    individual_warning_bytes=DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES,
+    individual_failure_bytes=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES,
+    total_warning_bytes=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES,
+    total_failure_bytes=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES,
+) -> dict:
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat()
+    size_audit = build_artifact_size_audit(
+        root=root,
+        generated_at=generated_at,
+        variant_registry_path=variant_registry_path,
+        individual_warning_bytes=individual_warning_bytes,
+        individual_failure_bytes=individual_failure_bytes,
+        total_warning_bytes=total_warning_bytes,
+        total_failure_bytes=total_failure_bytes,
+    )
+    checks = list(size_audit.get("checks") or [])
+    checks.extend(_variant_local_path_checks(variant_registry_path))
+    error_count = sum(1 for row in checks if row.get("severity") == "error" or row.get("status") == "FAIL")
+    warning_count = sum(1 for row in checks if row.get("severity") == "warning" or row.get("status") == "WARN")
+    status = "FAIL" if error_count else ("WARN" if warning_count else "PASS")
+    return {
+        "schema_version": ARTIFACT_PROMOTION_PREFLIGHT_SCHEMA_VERSION,
+        "generated_at_utc": generated_at,
+        "status": status,
+        "artifact_root": size_audit.get("artifact_root"),
+        "variant_registry_path": str(variant_registry_path) if variant_registry_path else None,
+        "summary": {
+            "artifact_count": size_audit.get("artifact_count"),
+            "working_tree_bytes": size_audit.get("working_tree_bytes"),
+            "unmanaged_git_bytes": size_audit.get("unmanaged_git_bytes"),
+            "managed_external_bytes": size_audit.get("managed_external_bytes"),
+            "error_count": error_count,
+            "warning_count": warning_count,
+        },
+        "size_audit": size_audit,
+        "checks": checks,
+    }
+
+
+def write_artifact_promotion_preflight(
+    path: str | Path = DEFAULT_ARTIFACT_PROMOTION_PREFLIGHT_PATH,
+    root: str | Path = ARTIFACTS_ROOT,
+    **kwargs,
+) -> Path:
+    payload = build_artifact_promotion_preflight(root=root, **kwargs)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 def cmd_registry(args):
-    out = write_artifact_registry(args.out, root=args.root)
+    out = write_artifact_registry(args.out, root=args.root, variant_registry_path=args.variant_registry)
     payload = json.loads(Path(out).read_text(encoding="utf-8"))
     print(f"Wrote artifact registry to {out}")
     print(f"artifacts={payload.get('artifact_count')} kinds={payload.get('kind_counts')}")
@@ -299,14 +724,16 @@ def cmd_size_audit(args):
         individual_failure_bytes=args.individual_failure_bytes,
         total_warning_bytes=args.total_warning_bytes,
         total_failure_bytes=args.total_failure_bytes,
+        variant_registry_path=args.variant_registry,
     )
     payload = json.loads(Path(out).read_text(encoding="utf-8"))
     print(f"Wrote artifact size audit to {out}")
     print(
-        "status={status} artifacts={count} total_mib={total:.2f}".format(
+        "status={status} artifacts={count} unmanaged_mib={unmanaged:.2f} managed_mib={managed:.2f}".format(
             status=payload.get("status"),
             count=payload.get("artifact_count"),
-            total=(payload.get("total_bytes") or 0) / MIB,
+            unmanaged=(payload.get("unmanaged_git_bytes") or 0) / MIB,
+            managed=(payload.get("managed_external_bytes") or 0) / MIB,
         )
     )
     for row in payload.get("checks") or []:
@@ -323,22 +750,81 @@ def cmd_size_audit(args):
         raise SystemExit(1)
 
 
+def cmd_externalization_manifest(args):
+    out = write_artifact_externalization_manifest(
+        args.out,
+        root=args.root,
+        variant_registry_path=args.variant_registry,
+    )
+    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    print(f"Wrote artifact externalization manifest to {out}")
+    print(
+        "managed_artifacts={count} managed_mib={managed:.2f}".format(
+            count=payload.get("managed_artifact_count"),
+            managed=(payload.get("managed_external_bytes") or 0) / MIB,
+        )
+    )
+
+
+def cmd_promotion_preflight(args):
+    out = write_artifact_promotion_preflight(
+        args.out,
+        root=args.root,
+        variant_registry_path=args.variant_registry,
+        individual_warning_bytes=args.individual_warning_bytes,
+        individual_failure_bytes=args.individual_failure_bytes,
+        total_warning_bytes=args.total_warning_bytes,
+        total_failure_bytes=args.total_failure_bytes,
+    )
+    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    summary = payload.get("summary") or {}
+    print(f"Wrote artifact promotion preflight to {out}")
+    print(
+        "status={status} unmanaged_mib={unmanaged:.2f} managed_mib={managed:.2f} errors={errors} warnings={warnings}".format(
+            status=payload.get("status"),
+            unmanaged=(summary.get("unmanaged_git_bytes") or 0) / MIB,
+            managed=(summary.get("managed_external_bytes") or 0) / MIB,
+            errors=summary.get("error_count"),
+            warnings=summary.get("warning_count"),
+        )
+    )
+    if payload.get("status") == "FAIL" or (args.fail_on_warn and payload.get("status") == "WARN"):
+        raise SystemExit(1)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Artifact path and registry utilities.")
     sub = parser.add_subparsers(dest="command", required=True)
     registry = sub.add_parser("registry")
     registry.add_argument("--root", default=str(ARTIFACTS_ROOT))
     registry.add_argument("--out", default=str(DEFAULT_ARTIFACT_REGISTRY_PATH))
+    registry.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
     registry.set_defaults(func=cmd_registry)
     size_audit = sub.add_parser("size-audit")
     size_audit.add_argument("--root", default=str(ARTIFACTS_ROOT))
     size_audit.add_argument("--out", default=str(DEFAULT_ARTIFACT_SIZE_AUDIT_PATH))
+    size_audit.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
     size_audit.add_argument("--individual-warning-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES)
     size_audit.add_argument("--individual-failure-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES)
     size_audit.add_argument("--total-warning-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES)
     size_audit.add_argument("--total-failure-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES)
     size_audit.add_argument("--fail-on-warn", action="store_true")
     size_audit.set_defaults(func=cmd_size_audit)
+    externalization = sub.add_parser("externalization-manifest")
+    externalization.add_argument("--root", default=str(ARTIFACTS_ROOT))
+    externalization.add_argument("--out", default=str(DEFAULT_ARTIFACT_EXTERNALIZATION_PATH))
+    externalization.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
+    externalization.set_defaults(func=cmd_externalization_manifest)
+    preflight = sub.add_parser("promotion-preflight")
+    preflight.add_argument("--root", default=str(ARTIFACTS_ROOT))
+    preflight.add_argument("--out", default=str(DEFAULT_ARTIFACT_PROMOTION_PREFLIGHT_PATH))
+    preflight.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
+    preflight.add_argument("--individual-warning-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES)
+    preflight.add_argument("--individual-failure-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES)
+    preflight.add_argument("--total-warning-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES)
+    preflight.add_argument("--total-failure-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES)
+    preflight.add_argument("--fail-on-warn", action="store_true")
+    preflight.set_defaults(func=cmd_promotion_preflight)
     return parser
 
 

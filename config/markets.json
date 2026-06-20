@@ -1,4 +1,8 @@
 {
   "schema_version": "market_registry_v0.1",
+  "status": "deprecated_compatibility_shell",
+  "owner": "weather.market.market_registry",
+  "deprecated_at_utc": "2026-06-20T00:00:00+00:00",
+  "freshness_policy": "Built-in MarketSpec definitions are authoritative until this external override file is repopulated.",
   "markets": []
 }

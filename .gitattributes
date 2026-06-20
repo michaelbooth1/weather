@@ -6,3 +6,4 @@
 # Binary artifacts: never touch.
 *.png binary
 *.pkl binary
+artifacts/models/hgb/*.pkl filter=lfs diff=lfs merge=lfs -text

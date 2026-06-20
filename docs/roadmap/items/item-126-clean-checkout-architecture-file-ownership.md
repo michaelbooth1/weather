@@ -1,4 +1,4 @@
-# 126. Clean-Checkout Architecture File Ownership [PARTIAL 2026-06-18 - TRACKED FILE GUARD FAILS ON NEW UNTRACKED SOURCE]
+# 126. Clean-Checkout Architecture File Ownership [COMPLETE 2026-06-20 - CLEAN-CHECKOUT AND PACKAGE RATCHET PASS]
 
 Goal: make every architecture-critical file either tracked source or explicitly
 local-only before tests, runbooks, or scheduled jobs depend on it.
@@ -35,9 +35,9 @@ pass while CI, scheduled jobs, or another machine still lack the same files.
 - [x] Move or ignore local-only files so they do not look like pending source.
 - [x] Add a lightweight guard for untracked `src/weather`, `tests`, `app`,
   `scripts/ops`, `docs/operations`, and `tools` files.
-- [ ] Verify a clean checkout can run the architecture and path-policy tests
+- [x] Verify a clean checkout can run the architecture and path-policy tests
   without hidden local files.
-- [ ] Track, move, or ignore the current project-critical untracked source,
+- [x] Track, move, or ignore the current project-critical untracked source,
   script, and test files reported by the clean-checkout guard.
 
 Acceptance: a clean checkout contains every file required by the documented
@@ -117,3 +117,37 @@ failed in
 `test_project_critical_files_are_tracked_or_ignored` with these offenders.
 Until those files are tracked, moved, or ignored, the clean-checkout acceptance
 criterion is not complete.
+
+## 2026-06-20 closure
+
+The current clean-checkout guard has no untracked project-critical offenders.
+The earlier untracked taker/reporting source files are tracked, and the new
+shared `weather.variant_registry` module is staged as tracked source so
+collection callers no longer depend directly on `weather.reporting`.
+
+The remaining architecture drift found by the focused guard was also repaired:
+
+- `weather.model.model_sources` now uses shared writer-lock helpers from
+  `weather.io` instead of importing `weather.operations.supervisor`.
+- `weather.collection.collection_health` and
+  `weather.collection.live_variant_predictions` use shared variant-registry
+  helpers.
+- Package-boundary documentation and the ratchet include
+  `weather.variant_registry` as a shared utility surface.
+- Optional dependency checks in
+  `winner_band_signal_validation` and `reanalysis_synoptic` now catch the
+  narrower `ModuleNotFoundError`, avoiding broad internal compatibility
+  fallback handlers.
+
+Verification:
+
+- `git ls-files --others --exclude-standard -- src/weather tests app scripts/ops docs/operations tools`
+  returned no rows.
+- `git ls-files --stage src/weather/variant_registry.py` returned the staged
+  source blob for the new shared module.
+- `python -m pytest -q tests\operations\test_import_architecture.py tests\operations\test_path_policy.py tests\model\test_source_cache_ttl.py tests\collection\test_live_variant_predictions.py`
+  passed with 49 tests.
+- `python -m pytest -q tests\operations\test_runtime_utilities.py tests\collection\test_collection_robustness.py tests\reporting\test_fleet_observability.py`
+  passed with 60 tests.
+- `python -m pytest -q tests\market\test_market_microstructure.py tests\operations\test_observation_trigger.py tests\operations\test_loop_jsonl_repair.py`
+  passed with 56 tests.

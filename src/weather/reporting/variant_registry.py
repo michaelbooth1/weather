@@ -109,6 +109,26 @@ def resolve_registry_path(value):
     return REPO_ROOT / path
 
 
+def _repo_relative_registry_value(value):
+    if value in (None, ""):
+        return None
+    value = str(value).replace("\\", "/")
+    if "://" in value:
+        return None
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+        except (OSError, ValueError):
+            return None
+    return value
+
+
+def _shadow_only_variant(variant):
+    roles = {str(role) for role in variant.get("roles") or []}
+    return variant.get("lifecycle") == "shadow" or "shadow-only" in roles
+
+
 def active_export_paths(registry):
     paths = []
     seen = set()
@@ -331,6 +351,20 @@ def audit_registry(
                 "error",
                 "missing_artifact_path",
                 "configured artifact_path does not exist",
+                variant_id=variant_id,
+                path=artifact_path,
+            ))
+        repo_artifact_path = _repo_relative_registry_value(artifact_path)
+        if repo_artifact_path and repo_artifact_path.startswith("data/"):
+            shadow_only = _shadow_only_variant(variant)
+            checks.append(_check(
+                "warning" if shadow_only else "error",
+                "shadow_local_candidate_artifact_path" if shadow_only else "active_local_artifact_path",
+                (
+                    "active registry artifact_path uses ignored local data; "
+                    "move promoted artifacts under artifacts/ with Git LFS or "
+                    "mark the variant shadow-only"
+                ),
                 variant_id=variant_id,
                 path=artifact_path,
             ))

@@ -39,6 +39,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "candidate_ten_minute_performance_gate_v0.1",
         )
         self.assertEqual(schema_version("predawn_weak_slot_repair"), "predawn_weak_slot_repair_v0.1")
+        self.assertEqual(schema_version("config_inventory"), "config_inventory_v0.1")
         self.assertEqual(schema_version("late_day_lock_in_repair"), "late_day_lock_in_repair_v0.1")
         self.assertEqual(schema_version("winner_underpricing_casebook"), "winner_underpricing_casebook_v0.1")
         self.assertEqual(schema_version("forecast_pressure_tilt_validation"), "forecast_pressure_tilt_validation_v0.1")
@@ -49,6 +50,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("market_anchor_time_split_validation"), "market_anchor_time_split_validation_v0.2")
         self.assertEqual(schema_version("clob_coverage_audit"), "clob_coverage_audit_v0.3")
         self.assertEqual(schema_version("clob_capture_status"), "clob_capture_status_v0.1")
+        self.assertEqual(schema_version("data_retention_inventory"), "data_retention_inventory_v0.1")
+        self.assertEqual(schema_version("model_artifact_externalization"), "model_artifact_externalization_v0.1")
+        self.assertEqual(schema_version("model_artifact_promotion_preflight"), "model_artifact_promotion_preflight_v0.1")
+        self.assertEqual(schema_version("module_size_audit"), "module_size_audit_v0.1")
         self.assertEqual(schema_version("pooled_continuous_density_hgb"), "pooled_continuous_density_hgb_v0.7")
         self.assertEqual(schema_version("pooled_all_market_band_hgb"), "pooled_all_market_band_hgb_v0.1")
         self.assertEqual(schema_version("pooled_all_market_band_hgb_exact_winner"), "pooled_all_market_band_hgb_exact_winner_v0.1")

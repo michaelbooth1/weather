@@ -92,6 +92,65 @@ class TestVariantRegistry(unittest.TestCase):
         self.assertIn("missing_export_path", categories)
         self.assertIn("active_variant_missing_from_evidence", categories)
 
+    def test_audit_rejects_active_local_data_artifact_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "variants.csv"
+            export.write_text(
+                "variant_id,variant_family,market_id,target_date,snapshot_id,band_key,probability,current_probability,market_yes,outcome\n"
+                "active_local,demo_family,nyc,2026-06-18,s1,eq:82,0.55,0.50,0.52,1\n",
+                encoding="utf-8",
+            )
+            registry = {
+                "schema_version": SCHEMA_VERSION,
+                "exists": True,
+                "path": "inline",
+                "variants": [
+                    _active_variant(
+                        "active_local",
+                        artifact_required=True,
+                        artifact_path="data/backtest/local_candidate.pkl",
+                        default_export_path=str(export),
+                    )
+                ],
+            }
+
+            payload = audit_registry(registry, check_paths=False)
+
+        self.assertEqual(payload["status"], "ERROR")
+        categories = {row["category"] for row in payload["checks"]}
+        self.assertIn("active_local_artifact_path", categories)
+
+    def test_audit_warns_for_shadow_only_local_data_artifact_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "variants.csv"
+            export.write_text(
+                "variant_id,variant_family,market_id,target_date,snapshot_id,band_key,probability,current_probability,market_yes,outcome\n"
+                "shadow_local,demo_family,nyc,2026-06-18,s1,eq:82,0.55,0.50,0.52,1\n",
+                encoding="utf-8",
+            )
+            registry = {
+                "schema_version": SCHEMA_VERSION,
+                "exists": True,
+                "path": "inline",
+                "variants": [
+                    _active_variant(
+                        "shadow_local",
+                        roles=["candidate", "shadow-only"],
+                        artifact_required=True,
+                        artifact_path="data/backtest/local_candidate.pkl",
+                        default_export_path=str(export),
+                    )
+                ],
+            }
+
+            payload = audit_registry(registry, check_paths=False)
+
+        self.assertEqual(payload["status"], "WARN")
+        categories = {row["category"] for row in payload["checks"]}
+        self.assertIn("shadow_local_candidate_artifact_path", categories)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,7 @@ from weather.paths import data_path
 from weather.collection.live_variant_predictions import active_live_variants
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import all_specs, spec_for_slug
-from weather.reporting.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
+from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.

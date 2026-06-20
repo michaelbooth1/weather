@@ -148,6 +148,13 @@ REGISTERED_SCHEMAS = (
         "active",
         "Append-only per-folder status rows for CLOB token/book capture attempts.",
     ),
+    SchemaSpec(
+        "config_inventory",
+        "config_inventory_v0.1",
+        "weather.operations.config_inventory",
+        "active",
+        "Config ownership, freshness, generated/deprecated classification, and registry hygiene audit.",
+    ),
     SchemaSpec("clob_microstructure_overlay", "clob_microstructure_overlay_v0.2", "weather.calibration.pooled_candidate_replay", "active"),
     SchemaSpec(
         "clob_book_recon",
@@ -371,6 +378,13 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec("daily_source_truth", "daily_source_truth_v0.3", "weather.reporting.source_redundancy", "active"),
     SchemaSpec("data_layer_audit", "data_layer_audit_v0.3", "weather.reporting.data_layer_audit", "active"),
+    SchemaSpec(
+        "data_retention_inventory",
+        "data_retention_inventory_v0.1",
+        "weather.reporting.data_retention_inventory",
+        "active",
+        "Data-tree ownership, retention, restore-gate, and disk-growth inventory.",
+    ),
     SchemaSpec(
         "daily_learning",
         "daily_learning_v0.1",
@@ -659,6 +673,20 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec("model_artifact_registry", "model_artifact_registry_v0.1", "weather.artifacts", "active"),
     SchemaSpec("model_artifact_size_audit", "model_artifact_size_audit_v0.1", "weather.artifacts", "active"),
+    SchemaSpec(
+        "model_artifact_externalization",
+        "model_artifact_externalization_v0.1",
+        "weather.artifacts",
+        "active",
+        "Restore manifest for Git LFS or externally stored model artifacts.",
+    ),
+    SchemaSpec(
+        "model_artifact_promotion_preflight",
+        "model_artifact_promotion_preflight_v0.1",
+        "weather.artifacts",
+        "active",
+        "Local/CI preflight for artifact storage thresholds and active variant artifact paths.",
+    ),
     SchemaSpec("model_variant_registry", "model_variant_registry_v0.1", "weather.reporting.variant_registry", "active"),
     SchemaSpec(
         "multi_variant_shadow_attribution",
@@ -873,6 +901,13 @@ REGISTERED_SCHEMAS = (
         "weather.operations.market_making_tape_encoding",
         "active",
         "Audit and repair artifact for legacy non-UTF-8 market-making and CLOB CSV tapes.",
+    ),
+    SchemaSpec(
+        "module_size_audit",
+        "module_size_audit_v0.1",
+        "weather.operations.module_size_audit",
+        "active",
+        "Large-module line-count audit and ownership split map.",
     ),
     SchemaSpec(
         "tape_backup_manifest",

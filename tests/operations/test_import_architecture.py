@@ -26,6 +26,7 @@ TARGET_MODULES = [
     Path("src/weather/calibration/pooled_candidate_replay_report.py"),
     Path("src/weather/calibration/pooled_candidate_scoring.py"),
     Path("src/weather/calibration/pooled_feature_model.py"),
+    Path("src/weather/calibration/pooled_feature_source_state.py"),
     Path("src/weather/calibration/probability_calibration.py"),
     Path("src/weather/calibration/settlement_lag_model.py"),
     Path("src/weather/collection/collection_health.py"),
@@ -192,6 +193,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.calibration\.pooled_candidate_replay\b)",
         re.MULTILINE,
     ),
+    Path("src/weather/calibration/pooled_feature_source_state.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.calibration\.pooled_feature_model|\.pooled_feature_model)\s+import\b|"
+        r"import\s+weather\.calibration\.pooled_feature_model\b)",
+        re.MULTILINE,
+    ),
     Path("src/weather/market/market_making_preflight.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.market\.market_making_run|\.market_making_run)\s+import\b|"
         r"import\s+weather\.market\.market_making_run\b)",
@@ -255,6 +261,7 @@ SHARED_PACKAGE_ROOTS = {
     "scoring",
     "time",
     "units",
+    "variant_registry",
 }
 
 ALLOWED_PACKAGE_EDGES = {

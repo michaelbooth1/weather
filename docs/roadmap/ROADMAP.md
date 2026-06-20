@@ -240,7 +240,7 @@ infrastructure work remains.
 | 112 | [Single-Writer Loop Status And JSONL Integrity [COMPLETE 2026-06-17 - LOOP INTEGRITY GATE LIVE]](items/item-112-single-writer-loop-status-and-jsonl-integrity.md) |
 | 119 | [Python Repo Audit Reliability Fixes [COMPLETE 2026-06-18 - AUDIT FIXES LIVE]](items/item-119-python-repo-audit-reliability-fixes.md) |
 | 122 | [UI And Loop Serialization Health Cleanup [COMPLETE 2026-06-18 - ARROW SAFE TABLES AND JSONL QUARANTINE]](items/item-122-ui-and-loop-serialization-health-cleanup.md) |
-| 126 | [Clean-Checkout Architecture File Ownership [PARTIAL 2026-06-18 - TRACKED FILE GUARD FAILS ON NEW UNTRACKED SOURCE]](items/item-126-clean-checkout-architecture-file-ownership.md) |
+| 126 | [Clean-Checkout Architecture File Ownership [COMPLETE 2026-06-20 - CLEAN-CHECKOUT AND PACKAGE RATCHET PASS]](items/item-126-clean-checkout-architecture-file-ownership.md) |
 | 127 | [Compatibility Shim Expiration And Removal Plan [COMPLETE 2026-06-18 - EXPIRATION RATCHET LIVE]](items/item-127-compatibility-shim-expiration-and-removal-plan.md) |
 | 128 | [Import Helper Policy And Scheduled Worker Packaging [COMPLETE 2026-06-18 - IMPORT POLICY DOCUMENTED]](items/item-128-import-helper-policy-and-scheduled-worker-packaging.md) |
 | 129 | [Streamlit Single-Market View Extraction [COMPLETE 2026-06-18 - SINGLE-MARKET VIEW SPLIT LIVE]](items/item-129-streamlit-single-market-view-extraction.md) |
@@ -249,10 +249,10 @@ infrastructure work remains.
 | 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
 | 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
 | 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-20 - TAXONOMY AND SOAK REPORT LIVE, ACTIVE-DAY PROOF BLOCKED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
-| 171 | [Local Data Retention And CLOB Tape Storage Cleanup [OPEN]](items/item-171-local-data-retention-and-clob-tape-storage-cleanup.md) |
-| 172 | [Artifact Storage Externalization And Git Object Store Cleanup [OPEN]](items/item-172-artifact-storage-externalization-and-git-object-store-cleanup.md) |
-| 173 | [Post-Agent Large Module Decomposition And Ownership Split [OPEN]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
-| 174 | [Configuration Registry Hygiene And Volatile Metadata Refresh [OPEN]](items/item-174-configuration-registry-hygiene-and-volatile-metadata-refresh.md) |
+| 171 | [Local Data Retention And CLOB Tape Storage Cleanup [COMPLETE 2026-06-20 - DATA RETENTION INVENTORY AND DAILY BUDGET LIVE]](items/item-171-local-data-retention-and-clob-tape-storage-cleanup.md) |
+| 172 | [Artifact Storage Externalization And Git Object Store Cleanup [COMPLETE 2026-06-20 - LFS ARTIFACT PREFLIGHT PASS]](items/item-172-artifact-storage-externalization-and-git-object-store-cleanup.md) |
+| 173 | [Post-Agent Large Module Decomposition And Ownership Split [OPEN - STARTED 2026-06-20 - SOURCE-STATE OWNER AND SIZE AUDIT LIVE]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
+| 174 | [Configuration Registry Hygiene And Volatile Metadata Refresh [OPEN - STARTED 2026-06-20 - CONFIG INVENTORY AND REGISTRY HYGIENE LIVE]](items/item-174-configuration-registry-hygiene-and-volatile-metadata-refresh.md) |
 | 175 | [Roadmap Backlog Normalization And Historical Noise Reduction [OPEN]](items/item-175-roadmap-backlog-normalization-and-historical-noise-reduction.md) |
 | 176 | [Local Generated State And Tooling Cleanup Sweep [OPEN]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | [Core Model Validation And Serving Skew Repair [OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
