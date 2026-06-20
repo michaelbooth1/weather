@@ -42,6 +42,7 @@ def _args(tmp, **overrides):
         "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
         "fail_on_hourly_performance_gate": True,
+        "fail_on_ten_minute_performance_gate": True,
         "fail_on_snapshot_evaluation": False,
         "fail_on_shadow_ab_alert": False,
         "fail_on_variant_evidence_alert": True,
@@ -70,6 +71,7 @@ def _args(tmp, **overrides):
         "skip_data_layer_audit": False,
         "skip_daily_learning": False,
         "skip_hourly_model_performance": False,
+        "skip_ten_minute_model_performance": False,
         "skip_price_free_model_learning": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
@@ -80,6 +82,16 @@ def _args(tmp, **overrides):
         "hourly_early_brier_regression_tolerance": 0.003,
         "hourly_early_logloss_regression_tolerance": 0.01,
         "hourly_early_ece_max": 0.12,
+        "ten_minute_min_rows": 30,
+        "ten_minute_top_slots": 20,
+        "ten_minute_min_weak_market_days": 10,
+        "ten_minute_weak_brier_regression_tolerance": 0.003,
+        "ten_minute_weak_logloss_regression_tolerance": 0.01,
+        "ten_minute_candidate_rows": str(root / "backtest" / "item147_time_split_alpha_variant_rows.csv"),
+        "ten_minute_candidate_min_weak_market_days": 10,
+        "ten_minute_candidate_weak_brier_improvement_min": 0.0,
+        "ten_minute_candidate_weak_market_regression_tolerance": 0.003,
+        "ten_minute_candidate_weak_logloss_regression_tolerance": 0.01,
         "skip_replay_status_backfill": False,
         "skip_clob_order_book_tiering": False,
         "clob_tiering_settled_before": "",
@@ -227,7 +239,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
-        self.assertLess(names.index("hourly_model_performance"), names.index("price_free_model_learning"))
+        self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
+        self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
         self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
         self.assertLess(names.index("active_variant_shadow"), names.index("model_variant_evidence_growth"))
 
@@ -414,6 +427,38 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["summary"]["hourly_model_performance"]["status"], "BLOCK")
         self.assertIn("Hourly Performance Gate", report)
         self.assertIn("early hour regressed", report)
+
+    def test_ten_minute_performance_gate_marks_run_critical_by_default(self):
+        def ten_minute(_args):
+            return {
+                "status": "BLOCK",
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "blocker_count": 1,
+                    "first_blocker": {
+                        "gate": "weak_slot_brier_regression",
+                        "detail": "03:00 weak-slot cluster trails market",
+                        "remediation_command": "run weak-slot remediation",
+                    },
+                },
+                "candidate_ten_minute_gate": {"status": "MISSING"},
+                "daily_summary": {
+                    "weak_slots": ["03:00", "03:10"],
+                    "worst_slots": ["03:00"],
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[("ten_minute_model_performance", ten_minute)],
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["ten_minute_model_performance"]["status"], "BLOCK")
+        self.assertIn("10-Minute Performance Gate", report)
+        self.assertIn("03:00 weak-slot cluster trails market", report)
 
     def test_fail_on_snapshot_evaluation_marks_run_critical(self):
         def evaluation(_args):

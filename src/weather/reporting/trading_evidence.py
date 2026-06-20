@@ -125,6 +125,29 @@ def summarize_market_making_run(path, payload):
 def _taker_summary_fields(payload, settled_payload=None):
     summary = payload.get("summary") or {}
     pnl = (payload.get("pnl") or {}).get("summary") or {}
+    pnl_payload = payload.get("pnl") or {}
+    if settled_payload:
+        pnl_payload = settled_payload.get("pnl") or pnl_payload
+    strategy_comparison = pnl_payload.get("strategy_comparison") or {}
+    by_strategy = pnl_payload.get("by_strategy") or []
+    countable_candidate = strategy_comparison.get("countable_strategy_quality_candidate") or {}
+    strategy_fields = {
+        "strategy_count": strategy_comparison.get("strategy_count") or len(by_strategy),
+        "best_strategy_id": strategy_comparison.get("best_strategy_id"),
+        "best_strategy_net_pnl_usdc": _float_value(strategy_comparison.get("best_strategy_net_pnl_usdc")),
+        "best_settlement_scored_strategy_id": strategy_comparison.get("best_settlement_scored_strategy_id"),
+        "best_settlement_scored_net_pnl_usdc": _float_value(
+            strategy_comparison.get("best_settlement_scored_net_pnl_usdc")
+        ),
+        "strategy_quality_candidate_id": countable_candidate.get("strategy_id"),
+        "strategy_quality_candidate_status": (
+            strategy_comparison.get("countable_strategy_quality_candidate_status")
+            or "MISSING_SETTLED_SAMPLE"
+        ),
+        "strategy_quality_candidate_net_pnl_usdc": _float_value(countable_candidate.get("net_pnl_usdc")),
+        "strategy_comparison": strategy_comparison,
+        "by_strategy": by_strategy,
+    }
     if settled_payload:
         settled_summary = settled_payload.get("summary") or {}
         settled_pnl = (settled_payload.get("pnl") or {}).get("summary") or {}
@@ -161,6 +184,7 @@ def _taker_summary_fields(payload, settled_payload=None):
             "reported_mark_to_market_pnl_usdc": settled_summary.get("reported_mark_to_market_pnl_usdc"),
             "reported_settled_order_count": settled_summary.get("reported_settled_order_count"),
             "reported_unsettled_order_count": settled_summary.get("reported_unsettled_order_count"),
+            **strategy_fields,
         }
     pnl_source = (
         "settlement" if _int_value(pnl.get("settled_order_count")) > 0 else
@@ -188,6 +212,7 @@ def _taker_summary_fields(payload, settled_payload=None):
         "reported_mark_to_market_pnl_usdc": None,
         "reported_settled_order_count": None,
         "reported_unsettled_order_count": None,
+        **strategy_fields,
     }
 
 

@@ -161,7 +161,29 @@ class TestTradingEvidence(unittest.TestCase):
                                 "settled_order_count": 4,
                                 "unsettled_order_count": 0,
                                 "reason_counts": {"BUY_EDGE": 4},
-                            }
+                            },
+                            "by_strategy": [
+                                {
+                                    "strategy_id": "raw_edge_control",
+                                    "filled_order_count": 4,
+                                    "settled_order_count": 4,
+                                    "unsettled_order_count": 0,
+                                    "net_pnl_usdc": 36.687839,
+                                    "quality_candidate_countable": True,
+                                }
+                            ],
+                            "strategy_comparison": {
+                                "strategy_count": 1,
+                                "best_strategy_id": "raw_edge_control",
+                                "best_strategy_net_pnl_usdc": 36.687839,
+                                "best_settlement_scored_strategy_id": "raw_edge_control",
+                                "best_settlement_scored_net_pnl_usdc": 36.687839,
+                                "countable_strategy_quality_candidate_status": "COUNTABLE_SETTLED",
+                                "countable_strategy_quality_candidate": {
+                                    "strategy_id": "raw_edge_control",
+                                    "net_pnl_usdc": 36.687839,
+                                },
+                            },
                         },
                         "reconciliation": {
                             "status": "WARN",
@@ -188,6 +210,9 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(taker["settlement_reconciliation_status"], "WARN")
         self.assertEqual(taker["quality_gate"]["status"], "SAMPLE_PENDING")
         self.assertEqual(taker["reported_unsettled_order_count"], 50)
+        self.assertEqual(taker["best_strategy_id"], "raw_edge_control")
+        self.assertEqual(taker["strategy_quality_candidate_id"], "raw_edge_control")
+        self.assertEqual(taker["strategy_quality_candidate_status"], "COUNTABLE_SETTLED")
 
 
 if __name__ == "__main__":

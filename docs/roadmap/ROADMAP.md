@@ -205,9 +205,12 @@ infrastructure work remains.
 | 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
 | 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
 | 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE 2026-06-20 - SETTLED TAKER FINALIZATION LIVE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
-| 165 | [Taker Strategy Experiment Harness And Arm Attribution [OPEN]](items/item-165-taker-strategy-experiment-harness-and-arm-attribution.md) |
-| 166 | [Settlement-Scored Taker Strategy Bakeoff [OPEN]](items/item-166-settlement-scored-taker-strategy-bakeoff.md) |
-| 167 | [Calibration-Aware Taker Sizing And Tail-Risk Controls [OPEN]](items/item-167-calibration-aware-taker-sizing-and-tail-risk-controls.md) |
+| 165 | [Taker Strategy Experiment Harness And Arm Attribution [COMPLETE 2026-06-20 - MULTI-ARM ATTRIBUTION LIVE]](items/item-165-taker-strategy-experiment-harness-and-arm-attribution.md) |
+| 166 | [Settlement-Scored Taker Strategy Bakeoff [COMPLETE 2026-06-20 - BAKEOFF AND LABEL-QUALITY BLOCKERS LIVE]](items/item-166-settlement-scored-taker-strategy-bakeoff.md) |
+| 167 | [Calibration-Aware Taker Sizing And Tail-Risk Controls [COMPLETE 2026-06-20 - RISK-ADJUSTED SIZING LIVE]](items/item-167-calibration-aware-taker-sizing-and-tail-risk-controls.md) |
+| 168 | [Ten-Minute Performance Gate And Weak-Slot Watchlist [COMPLETE]](items/item-168-ten-minute-performance-gate-and-weak-slot-watchlist.md) |
+| 169 | [Predawn Winner-Centering And Forecast-Anchor Repair [OPEN]](items/item-169-predawn-winner-centering-and-forecast-anchor-repair.md) |
+| 170 | [Late-Day Lock-In Probability Saturation [OPEN]](items/item-170-late-day-lock-in-probability-saturation.md) |
 
 ### Architecture And Maintainability
 
@@ -239,6 +242,13 @@ infrastructure work remains.
 | 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
 | 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
 | 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-20 - TAXONOMY AND SOAK REPORT LIVE, ACTIVE-DAY PROOF BLOCKED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
+| 171 | [Local Data Retention And CLOB Tape Storage Cleanup [OPEN]](items/item-171-local-data-retention-and-clob-tape-storage-cleanup.md) |
+| 172 | [Artifact Storage Externalization And Git Object Store Cleanup [OPEN]](items/item-172-artifact-storage-externalization-and-git-object-store-cleanup.md) |
+| 173 | [Post-Agent Large Module Decomposition And Ownership Split [OPEN]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
+| 174 | [Configuration Registry Hygiene And Volatile Metadata Refresh [OPEN]](items/item-174-configuration-registry-hygiene-and-volatile-metadata-refresh.md) |
+| 175 | [Roadmap Backlog Normalization And Historical Noise Reduction [OPEN]](items/item-175-roadmap-backlog-normalization-and-historical-noise-reduction.md) |
+| 176 | [Local Generated State And Tooling Cleanup Sweep [OPEN]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
+| 177 | [Core Model Validation And Serving Skew Repair [OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 
 ## Maintenance Conventions
 

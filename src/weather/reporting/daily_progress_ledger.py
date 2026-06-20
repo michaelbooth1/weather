@@ -283,6 +283,15 @@ def build_progress_row(
         "trading_taker_reconciliation_status": taker.get("settlement_reconciliation_status"),
         "trading_taker_root_cause": taker.get("root_cause_class"),
         "trading_taker_quality_status": taker_quality.get("status"),
+        "trading_taker_strategy_count": taker.get("strategy_count"),
+        "trading_taker_best_strategy_id": taker.get("best_strategy_id"),
+        "trading_taker_best_strategy_net_pnl_usdc": taker.get("best_strategy_net_pnl_usdc"),
+        "trading_taker_best_settlement_scored_strategy_id": taker.get("best_settlement_scored_strategy_id"),
+        "trading_taker_strategy_quality_candidate_id": taker.get("strategy_quality_candidate_id"),
+        "trading_taker_strategy_quality_candidate_status": taker.get("strategy_quality_candidate_status"),
+        "trading_taker_strategy_quality_candidate_net_pnl_usdc": taker.get(
+            "strategy_quality_candidate_net_pnl_usdc"
+        ),
         "daily_learning_status": daily_learning.get("status"),
     }
     failures = broad_claim_failures(row)
@@ -397,6 +406,12 @@ def render_report(rows):
             ["Taker P&L source", latest.get("trading_taker_pnl_source") or "-"],
             ["Taker settled / unsettled", f"{latest.get('trading_taker_settled_orders')}/{latest.get('trading_taker_unsettled_orders')}"],
             ["Taker reconciliation", latest.get("trading_taker_reconciliation_status") or "-"],
+            ["Taker best strategy", latest.get("trading_taker_best_strategy_id") or "-"],
+            ["Taker strategy candidate", latest.get("trading_taker_strategy_quality_candidate_id") or "-"],
+            [
+                "Taker strategy candidate status",
+                latest.get("trading_taker_strategy_quality_candidate_status") or "-",
+            ],
         ],
     )
     lines += ["", "## 7 And 14 Day Rollup", ""]

@@ -120,6 +120,8 @@ def build_taker_bot_command(
     runs_root=None,
     once=False,
     config_overrides=None,
+    strategies=None,
+    experiment_id=None,
 ):
     command = [
         str(python_executable or sys.executable),
@@ -138,6 +140,10 @@ def build_taker_bot_command(
         command.append("--loop")
     if runs_root:
         command.extend(["--runs-root", str(runs_root)])
+    if strategies:
+        command.extend(["--strategies", str(strategies)])
+    if experiment_id:
+        command.extend(["--experiment-id", str(experiment_id)])
     for override in config_overrides or []:
         command.extend(["--config", str(override)])
     return command
@@ -255,6 +261,8 @@ def start_for_date(
     force=False,
     once=False,
     config_overrides=None,
+    strategies=None,
+    experiment_id=None,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
     now=None,
@@ -273,6 +281,8 @@ def start_for_date(
         runs_root=runs_root,
         once=once,
         config_overrides=config_overrides,
+        strategies=strategies,
+        experiment_id=experiment_id,
     )
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
@@ -401,6 +411,8 @@ def build_start_parser(parser):
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--once", action="store_true", help="Debug mode: start a one-tick run.")
     parser.add_argument("--config", action="append", default=[], help="Config override passed to taker_bot.")
+    parser.add_argument("--strategies", default=None, help="Comma-separated taker strategy IDs to run.")
+    parser.add_argument("--experiment-id", default=None, help="Stable taker strategy experiment ID.")
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
     return parser
 
@@ -419,6 +431,8 @@ def cmd_start(args):
         force=args.force,
         once=args.once,
         config_overrides=args.config,
+        strategies=args.strategies,
+        experiment_id=args.experiment_id,
         min_free_bytes=args.min_free_bytes,
         now=parse_datetime(args.now),
     )

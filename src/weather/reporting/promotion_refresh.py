@@ -60,6 +60,8 @@ DEFAULT_SERVING_GAUNTLET_REPORT = data_path() / "backtest" / "promotion_gauntlet
 DEFAULT_SERVING_REPLAY_REPORT = data_path() / "backtest" / "promotion_replay_latest_report.md"
 DEFAULT_HOURLY_PERFORMANCE = data_path() / "backtest" / "hourly_model_performance.json"
 DEFAULT_CANDIDATE_HOURLY_PERFORMANCE = ""
+DEFAULT_TEN_MINUTE_PERFORMANCE = data_path() / "backtest" / "ten_minute_model_performance.json"
+DEFAULT_CANDIDATE_TEN_MINUTE_PERFORMANCE = DEFAULT_TEN_MINUTE_PERFORMANCE
 DEFAULT_SOURCE_FAMILY_INVENTORY = data_path() / "backtest" / "source_family_inventory.json"
 DEFAULT_FLEET_OBSERVABILITY = data_path() / "backtest" / "fleet_observability.json"
 DEFAULT_INCOMPLETE_MANIFEST = data_path() / "backtest" / "f_family_promotion_refresh_incomplete.json"
@@ -387,6 +389,58 @@ def _read_candidate_hourly_performance_report(path):
     return payload
 
 
+def _read_ten_minute_performance_report(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "ten_minute_performance_gate": {
+                "status": "MISSING",
+                "blockers": [
+                    {
+                        "gate": "ten_minute_performance_missing",
+                        "detail": "10-minute performance gate artifact is missing",
+                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                    }
+                ],
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = dict(payload)
+    payload["path"] = str(path)
+    payload["exists"] = True
+    return payload
+
+
+def _read_candidate_ten_minute_performance_report(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "candidate_ten_minute_gate": {
+                "status": "MISSING",
+                "blockers": [
+                    {
+                        "gate": "candidate_ten_minute_performance_missing",
+                        "detail": "candidate 10-minute performance artifact is missing",
+                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance --item147-rows <candidate_rows.csv>",
+                    }
+                ],
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = dict(payload)
+    payload["path"] = str(path)
+    payload["exists"] = True
+    return payload
+
+
 def _read_source_family_inventory(path):
     if not path:
         return None
@@ -616,6 +670,24 @@ def _readiness_market_details(decisions, action):
     ]
 
 
+def _candidate_ten_minute_variant_ids(candidate_ten_minute_performance):
+    payload = candidate_ten_minute_performance or {}
+    ids = set()
+    for value in payload.get("variant_ids") or []:
+        if value not in (None, ""):
+            ids.add(str(value))
+    for key in ("candidate_ten_minute_performance", "candidate_item147"):
+        nested = payload.get(key) or {}
+        for value in nested.get("variant_ids") or []:
+            if value not in (None, ""):
+                ids.add(str(value))
+    gate = payload.get("candidate_ten_minute_gate") or {}
+    for value in gate.get("variant_ids") or []:
+        if value not in (None, ""):
+            ids.add(str(value))
+    return ids
+
+
 def promotion_readiness(
     candidate,
     serving,
@@ -623,6 +695,8 @@ def promotion_readiness(
     extra_location_transfer=None,
     hourly_performance=None,
     candidate_hourly_performance=None,
+    ten_minute_performance=None,
+    candidate_ten_minute_performance=None,
     source_family_inventory=None,
     fleet_observability=None,
 ):
@@ -769,6 +843,39 @@ def promotion_readiness(
             ),
             "evidence": hourly_gate,
         })
+    ten_minute_gate = (ten_minute_performance or {}).get("ten_minute_performance_gate") or {}
+    ten_minute_status = ten_minute_gate.get("status")
+    candidate_ten_minute_gate = (candidate_ten_minute_performance or {}).get("candidate_ten_minute_gate") or {}
+    candidate_ten_minute_status = candidate_ten_minute_gate.get("status")
+    candidate_ten_minute_variant_ids = _candidate_ten_minute_variant_ids(candidate_ten_minute_performance)
+    candidate_ten_minute_matches = bool(
+        candidate_variant_id and str(candidate_variant_id) in candidate_ten_minute_variant_ids
+    )
+    ten_minute_mitigation = {
+        "applied": bool(
+            ten_minute_status in {"BLOCK", "MISSING"}
+            and candidate_ten_minute_status == "PASS"
+            and candidate_ten_minute_matches
+        ),
+        "current_ten_minute_status": ten_minute_status,
+        "candidate_ten_minute_status": candidate_ten_minute_status,
+        "candidate_variant_id": candidate_variant_id,
+        "candidate_ten_minute_variant_ids": sorted(candidate_ten_minute_variant_ids),
+        "candidate_ten_minute_matches": candidate_ten_minute_matches,
+        "current_ten_minute_gate": ten_minute_gate,
+        "candidate_ten_minute_gate": candidate_ten_minute_gate,
+    }
+    if ten_minute_status in {"BLOCK", "MISSING"} and not ten_minute_mitigation["applied"]:
+        first = ten_minute_gate.get("first_blocker") or next(iter(ten_minute_gate.get("blockers") or []), {})
+        blockers.append({
+            "category": "ten_minute_performance_gate",
+            "severity": "block" if ten_minute_status == "BLOCK" else "open",
+            "detail": (
+                f"10-minute performance gate is {ten_minute_status}: "
+                + (first.get("detail") or "inspect 10-minute model performance report")
+            ),
+            "evidence": ten_minute_gate,
+        })
     extra_gate = (extra_location_transfer or {}).get("promotion_gate") or {}
     extra_gate_status = extra_gate.get("status")
     if extra_gate_status in {"BLOCK", "BLOCKED", "MISSING"}:
@@ -798,6 +905,7 @@ def promotion_readiness(
         "shadow_market_details": shadow_details,
         "blocked_market_details": blocked_details,
         "hourly_performance_mitigation": hourly_mitigation,
+        "ten_minute_performance_mitigation": ten_minute_mitigation,
     }
 
 
@@ -1049,6 +1157,24 @@ def _operational_gate_rows(payload):
             gate.get("status") or "-",
             first.get("detail") or "no candidate-hourly blocker",
         ])
+    ten_minute = payload.get("ten_minute_performance") or {}
+    if ten_minute:
+        gate = ten_minute.get("ten_minute_performance_gate") or {}
+        first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+        rows.append([
+            "Current-serving 10-minute gate",
+            gate.get("status") or "-",
+            first.get("detail") or "no 10-minute blocker",
+        ])
+    candidate_ten_minute = payload.get("candidate_ten_minute_performance") or {}
+    if candidate_ten_minute:
+        gate = candidate_ten_minute.get("candidate_ten_minute_gate") or {}
+        first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+        rows.append([
+            "Candidate 10-minute gate",
+            gate.get("status") or "-",
+            first.get("detail") or "no candidate 10-minute blocker",
+        ])
     mitigation = (payload.get("readiness") or {}).get("hourly_performance_mitigation") or {}
     if mitigation:
         rows.append([
@@ -1058,6 +1184,17 @@ def _operational_gate_rows(payload):
                 "candidate hourly gate passed and variant id matched"
                 if mitigation.get("applied")
                 else "candidate-hourly evidence did not mitigate current-serving gate"
+            ),
+        ])
+    ten_minute_mitigation = (payload.get("readiness") or {}).get("ten_minute_performance_mitigation") or {}
+    if ten_minute_mitigation:
+        rows.append([
+            "10-minute gate mitigation",
+            "APPLIED" if ten_minute_mitigation.get("applied") else "NOT_APPLIED",
+            (
+                "candidate 10-minute gate passed and variant id matched"
+                if ten_minute_mitigation.get("applied")
+                else "candidate 10-minute evidence did not mitigate current-serving gate"
             ),
         ])
     return rows
@@ -1452,6 +1589,8 @@ def write_report(path, payload, min_free_bytes=0):
             ["Candidate report", candidate.get("report_path") or "-"],
             ["Serving gauntlet", (serving or {}).get("report_path") or "skipped"],
             ["Candidate hourly performance", (payload.get("candidate_hourly_performance") or {}).get("path") or "-"],
+            ["10-minute performance", (payload.get("ten_minute_performance") or {}).get("path") or "-"],
+            ["Candidate 10-minute performance", (payload.get("candidate_ten_minute_performance") or {}).get("path") or "-"],
             ["Source family inventory", (payload.get("source_family_inventory") or {}).get("path") or "-"],
             ["Fleet observability", (payload.get("fleet_observability") or {}).get("path") or "-"],
         ],
@@ -2057,6 +2196,12 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     candidate_hourly_performance = _read_candidate_hourly_performance_report(
         getattr(args, "candidate_hourly_performance_report", DEFAULT_CANDIDATE_HOURLY_PERFORMANCE)
     )
+    ten_minute_performance = _read_ten_minute_performance_report(
+        getattr(args, "ten_minute_performance_report", DEFAULT_TEN_MINUTE_PERFORMANCE)
+    )
+    candidate_ten_minute_performance = _read_candidate_ten_minute_performance_report(
+        getattr(args, "candidate_ten_minute_performance_report", DEFAULT_CANDIDATE_TEN_MINUTE_PERFORMANCE)
+    )
     source_family_inventory = _read_source_family_inventory(
         getattr(args, "source_family_inventory", DEFAULT_SOURCE_FAMILY_INVENTORY)
     )
@@ -2090,6 +2235,8 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "extra_location_transfer": extra_location_transfer,
         "hourly_performance": hourly_performance,
         "candidate_hourly_performance": candidate_hourly_performance,
+        "ten_minute_performance": ten_minute_performance,
+        "candidate_ten_minute_performance": candidate_ten_minute_performance,
         "source_family_inventory": source_family_inventory,
         "fleet_observability": fleet_observability,
         "readiness": promotion_readiness(
@@ -2099,6 +2246,8 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
             extra_location_transfer=extra_location_transfer,
             hourly_performance=hourly_performance,
             candidate_hourly_performance=candidate_hourly_performance,
+            ten_minute_performance=ten_minute_performance,
+            candidate_ten_minute_performance=candidate_ten_minute_performance,
             source_family_inventory=source_family_inventory,
             fleet_observability=fleet_observability,
         ),
@@ -2158,6 +2307,12 @@ def build_parser():
         "--candidate-hourly-performance-report",
         default=str(DEFAULT_CANDIDATE_HOURLY_PERFORMANCE),
         help="Optional candidate-hourly JSON that can mitigate a current-serving hourly gate for this candidate.",
+    )
+    parser.add_argument("--ten-minute-performance-report", default=str(DEFAULT_TEN_MINUTE_PERFORMANCE))
+    parser.add_argument(
+        "--candidate-ten-minute-performance-report",
+        default=str(DEFAULT_CANDIDATE_TEN_MINUTE_PERFORMANCE),
+        help="Optional candidate 10-minute JSON that can mitigate a current-serving weak-slot gate for this candidate.",
     )
     parser.add_argument("--source-family-inventory", default=str(DEFAULT_SOURCE_FAMILY_INVENTORY))
     parser.add_argument("--fleet-observability-report", default=str(DEFAULT_FLEET_OBSERVABILITY))

@@ -333,6 +333,65 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(readiness["hourly_performance_mitigation"]["candidate_hourly_status"], "PASS")
         self.assertTrue(readiness["hourly_performance_mitigation"]["candidate_hourly_matches"])
 
+    def test_promotion_readiness_blocks_on_ten_minute_performance_gate(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            ten_minute_performance={
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {
+                        "gate": "weak_slot_brier_regression",
+                        "detail": "03:00 weak-slot model Brier trails market",
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(readiness["status"], "OPEN")
+        blocker = next(row for row in readiness["blockers"] if row["category"] == "ten_minute_performance_gate")
+        self.assertEqual(blocker["severity"], "block")
+        self.assertIn("03:00 weak-slot model Brier trails market", blocker["detail"])
+        self.assertFalse(readiness["ten_minute_performance_mitigation"]["applied"])
+
+    def test_promotion_readiness_accepts_candidate_ten_minute_gate_mitigation(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+            },
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            ten_minute_performance={
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {
+                        "gate": "weak_slot_brier_regression",
+                        "detail": "current 10-minute weak slots trail market",
+                    },
+                }
+            },
+            candidate_ten_minute_performance={
+                "variant_ids": ["candidate_v1"],
+                "candidate_ten_minute_gate": {
+                    "status": "PASS",
+                    "blocker_count": 0,
+                    "weak_slot_overlap": {
+                        "delta_vs_current": -0.0044,
+                        "delta_vs_market": 0.0011,
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(readiness["status"], "READY")
+        self.assertNotIn("ten_minute_performance_gate", {row["category"] for row in readiness["blockers"]})
+        self.assertTrue(readiness["ten_minute_performance_mitigation"]["applied"])
+        self.assertEqual(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_status"], "PASS")
+        self.assertTrue(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_matches"])
+
     def test_promotion_readiness_blocks_market_informed_candidate_as_core_readiness(self):
         readiness = promotion_readiness(
             {
@@ -836,6 +895,7 @@ class TestPromotionRefresh(unittest.TestCase):
                 "status": "OPEN",
                 "blockers": [],
                 "hourly_performance_mitigation": {"applied": True},
+                "ten_minute_performance_mitigation": {"applied": True},
             },
             "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
             "serving_gauntlet": None,
@@ -847,6 +907,18 @@ class TestPromotionRefresh(unittest.TestCase):
             },
             "candidate_hourly_performance": {
                 "candidate_hourly_gate": {
+                    "status": "PASS",
+                    "blocker_count": 0,
+                },
+            },
+            "ten_minute_performance": {
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {"detail": "current weak-slot Brier trails market"},
+                },
+            },
+            "candidate_ten_minute_performance": {
+                "candidate_ten_minute_gate": {
                     "status": "PASS",
                     "blocker_count": 0,
                 },
@@ -876,8 +948,10 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("Source family preflight", text)
         self.assertIn("Tape backup SLA", text)
         self.assertIn("Hourly gate mitigation", text)
+        self.assertIn("10-minute gate mitigation", text)
         self.assertIn("APPLIED", text)
         self.assertIn("candidate hourly gate passed and variant id matched", text)
+        self.assertIn("candidate 10-minute gate passed and variant id matched", text)
         self.assertIn("fleet_observability.json", text)
 
     def test_write_report_emits_serving_blocking_source_freshness(self):

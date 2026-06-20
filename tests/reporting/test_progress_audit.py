@@ -268,6 +268,24 @@ class TestProgressAudit(unittest.TestCase):
             "market_day_labels": {"quality_counts": {}},
             "location_trust": {"by_market": {}, "grade_counts": {}},
             "promotion_refresh": {},
+            "ten_minute_model_performance": {
+                "exists": True,
+                "status": "BLOCK",
+                "weak_slot_labels": ["03:00", "03:10"],
+                "weak_slot_summary": {
+                    "n": 42,
+                    "market_days": 12,
+                    "model_brier": 0.0721,
+                    "market_brier": 0.0592,
+                    "brier_delta": -0.0129,
+                },
+                "candidate_gate": {"status": "MISSING"},
+                "gate": {
+                    "first_blocker": {
+                        "detail": "10-minute weak-slot model Brier trails market",
+                    }
+                },
+            },
             "promotion_gauntlet_latest": {},
             "fleet_observability": {},
             "loop_statuses": {},
@@ -281,6 +299,9 @@ class TestProgressAudit(unittest.TestCase):
         self.assertIn("2026-06-19", report)
         self.assertIn("operator_drill", report)
         self.assertIn("SAMPLE_PENDING_NEGATIVE_LATEST", report)
+        self.assertIn("## 10-Minute Weak-Slot Watchlist", report)
+        self.assertIn("03:00, 03:10", report)
+        self.assertIn("10-minute weak-slot model Brier trails market", report)
 
 
 if __name__ == "__main__":

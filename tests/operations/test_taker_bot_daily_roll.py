@@ -60,6 +60,21 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertNotIn("--loop", command)
         self.assertEqual(command[-2:], ["--config", "min_edge=0.05"])
 
+    def test_build_command_can_launch_strategy_experiment(self):
+        command = build_taker_bot_command(
+            "2026-06-18",
+            python_executable="python.exe",
+            strategies="raw_edge_control,small_order_probe",
+            experiment_id="exp-1",
+            config_overrides=["min_edge=0.05"],
+        )
+
+        self.assertIn("--strategies", command)
+        self.assertIn("raw_edge_control,small_order_probe", command)
+        self.assertIn("--experiment-id", command)
+        self.assertIn("exp-1", command)
+        self.assertEqual(command[-2:], ["--config", "min_edge=0.05"])
+
     def test_start_for_date_records_child_pid_and_avoids_duplicate_same_day_run(self):
         calls = []
 

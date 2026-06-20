@@ -134,7 +134,29 @@ class TestDailyProgressLedger(unittest.TestCase):
                             "mark_to_market_pnl_usdc": 0.0,
                             "settled_order_count": 4,
                             "unsettled_order_count": 0,
-                        }
+                        },
+                        "by_strategy": [
+                            {
+                                "strategy_id": "raw_edge_control",
+                                "filled_order_count": 4,
+                                "settled_order_count": 4,
+                                "unsettled_order_count": 0,
+                                "net_pnl_usdc": 36.687839,
+                                "quality_candidate_countable": True,
+                            }
+                        ],
+                        "strategy_comparison": {
+                            "strategy_count": 1,
+                            "best_strategy_id": "raw_edge_control",
+                            "best_strategy_net_pnl_usdc": 36.687839,
+                            "best_settlement_scored_strategy_id": "raw_edge_control",
+                            "best_settlement_scored_net_pnl_usdc": 36.687839,
+                            "countable_strategy_quality_candidate_status": "COUNTABLE_SETTLED",
+                            "countable_strategy_quality_candidate": {
+                                "strategy_id": "raw_edge_control",
+                                "net_pnl_usdc": 36.687839,
+                            },
+                        },
                     },
                     "reconciliation": {
                         "status": "WARN",
@@ -182,6 +204,9 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["trading_taker_settled_orders"], 4)
         self.assertEqual(row["trading_taker_unsettled_orders"], 0)
         self.assertEqual(row["trading_taker_reconciliation_status"], "WARN")
+        self.assertEqual(row["trading_taker_best_strategy_id"], "raw_edge_control")
+        self.assertEqual(row["trading_taker_strategy_quality_candidate_id"], "raw_edge_control")
+        self.assertEqual(row["trading_taker_strategy_quality_candidate_status"], "COUNTABLE_SETTLED")
 
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

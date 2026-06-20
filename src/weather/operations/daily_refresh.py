@@ -38,6 +38,7 @@ from weather.reporting import daily_learning
 from weather.reporting import daily_progress_ledger
 from weather.reporting import fleet_observability
 from weather.reporting import hourly_model_performance
+from weather.reporting import ten_minute_model_performance
 from weather.reporting import price_free_model_learning
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
@@ -72,6 +73,7 @@ STEP_ORDER = (
     "clob_order_book_tiering",
     "replay_status_backfill",
     "hourly_model_performance",
+    "ten_minute_model_performance",
     "price_free_model_learning",
     "promotion_refresh",
     "shadow_ab_monitor",
@@ -515,6 +517,8 @@ def promotion_args(args):
     refresh_args.serving_gauntlet_report = backtest_path(args, "promotion_gauntlet_latest_report.md")
     refresh_args.serving_replay_report = backtest_path(args, "promotion_replay_latest_report.md")
     refresh_args.hourly_performance_report = backtest_path(args, "hourly_model_performance.json")
+    refresh_args.ten_minute_performance_report = backtest_path(args, "ten_minute_model_performance.json")
+    refresh_args.candidate_ten_minute_performance_report = backtest_path(args, "ten_minute_model_performance.json")
     refresh_args.out = backtest_path(args, "f_family_promotion_refresh.json")
     refresh_args.report = backtest_path(args, "f_family_promotion_refresh_report.md")
     refresh_args.min_artifact_free_bytes = getattr(
@@ -614,6 +618,76 @@ def run_hourly_model_performance_step(args):
         "daily_summary": payload.get("daily_summary") or {},
         "hourly_performance_gate": gate,
         "remediation_registry_summary": registry.get("summary") or {},
+    }
+
+
+def run_ten_minute_model_performance_step(args):
+    if getattr(args, "skip_ten_minute_model_performance", False):
+        return {"status": "SKIPPED", "reason": "skip_ten_minute_model_performance"}
+    payload = ten_minute_model_performance.build_ten_minute_performance(
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        snapshots_root=args.snapshots_root,
+        quality_grades=getattr(args, "quality_grades", ",".join(ten_minute_model_performance.DEFAULT_QUALITY_GRADES)),
+        markets=getattr(args, "markets", ""),
+        min_rows=getattr(args, "ten_minute_min_rows", ten_minute_model_performance.DEFAULT_MIN_ROWS),
+        top_slots=getattr(args, "ten_minute_top_slots", ten_minute_model_performance.DEFAULT_TOP_SLOTS),
+        item147_rows=getattr(args, "ten_minute_candidate_rows", ten_minute_model_performance.DEFAULT_ITEM147_ROWS),
+        min_weak_market_days=getattr(
+            args,
+            "ten_minute_min_weak_market_days",
+            ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+        ),
+        weak_brier_regression_tolerance=getattr(
+            args,
+            "ten_minute_weak_brier_regression_tolerance",
+            ten_minute_model_performance.DEFAULT_WEAK_BRIER_REGRESSION_TOLERANCE,
+        ),
+        weak_logloss_regression_tolerance=getattr(
+            args,
+            "ten_minute_weak_logloss_regression_tolerance",
+            ten_minute_model_performance.DEFAULT_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+        ),
+        candidate_min_weak_market_days=getattr(
+            args,
+            "ten_minute_candidate_min_weak_market_days",
+            ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+        ),
+        candidate_weak_brier_improvement_min=getattr(
+            args,
+            "ten_minute_candidate_weak_brier_improvement_min",
+            ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_BRIER_IMPROVEMENT_MIN,
+        ),
+        candidate_weak_market_regression_tolerance=getattr(
+            args,
+            "ten_minute_candidate_weak_market_regression_tolerance",
+            ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_MARKET_REGRESSION_TOLERANCE,
+        ),
+        candidate_weak_logloss_regression_tolerance=getattr(
+            args,
+            "ten_minute_candidate_weak_logloss_regression_tolerance",
+            ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+        ),
+    )
+    json_out, report_out, csv_out, candidate_csv_out = ten_minute_model_performance.write_outputs(
+        payload,
+        json_out=backtest_path(args, "ten_minute_model_performance.json"),
+        report_out=backtest_path(args, "ten_minute_model_performance_report.md"),
+        slot_csv_out=backtest_path(args, "ten_minute_model_performance_by_slot.csv"),
+        candidate_csv_out=backtest_path(args, "ten_minute_item147_candidate_by_slot.csv"),
+    )
+    gate = payload.get("ten_minute_performance_gate") or {}
+    candidate_gate = payload.get("candidate_ten_minute_gate") or {}
+    return {
+        "status": gate.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "csv_out": as_path(csv_out),
+        "candidate_csv_out": as_path(candidate_csv_out) if candidate_csv_out else None,
+        "daily_summary": payload.get("daily_summary") or {},
+        "ten_minute_performance_gate": gate,
+        "candidate_ten_minute_gate": candidate_gate,
+        "weak_slots": (payload.get("weak_slots") or {}).get("slot_labels") or [],
+        "variant_ids": payload.get("variant_ids") or [],
     }
 
 
@@ -962,6 +1036,7 @@ DEFAULT_RUNNERS = (
     ("clob_order_book_tiering", run_clob_order_book_tiering_step),
     ("replay_status_backfill", run_replay_status_backfill_step),
     ("hourly_model_performance", run_hourly_model_performance_step),
+    ("ten_minute_model_performance", run_ten_minute_model_performance_step),
     ("price_free_model_learning", run_price_free_model_learning_step),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
@@ -1011,6 +1086,7 @@ def pipeline_summary(steps):
     replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
     hourly = ((by_name.get("hourly_model_performance") or {}).get("result") or {})
+    ten_minute = ((by_name.get("ten_minute_model_performance") or {}).get("result") or {})
     price_free = ((by_name.get("price_free_model_learning") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
@@ -1059,6 +1135,14 @@ def pipeline_summary(steps):
             "daily_summary": hourly.get("daily_summary") or {},
             "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
             "remediation_registry_summary": hourly.get("remediation_registry_summary") or {},
+        },
+        "ten_minute_model_performance": {
+            "status": ten_minute.get("status"),
+            "daily_summary": ten_minute.get("daily_summary") or {},
+            "ten_minute_performance_gate": ten_minute.get("ten_minute_performance_gate") or {},
+            "candidate_ten_minute_gate": ten_minute.get("candidate_ten_minute_gate") or {},
+            "weak_slots": ten_minute.get("weak_slots") or [],
+            "variant_ids": ten_minute.get("variant_ids") or [],
         },
         "price_free_model_learning": {
             "status": price_free.get("status"),
@@ -1307,6 +1391,16 @@ def render_report(payload):
                     f"{gate.get('status')}; blockers {gate.get('blocker_count', 0)}; "
                     f"worst {', '.join(daily.get('worst_hours') or []) or '-'}"
                 )
+        elif step.get("name") == "ten_minute_model_performance":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                gate = result.get("ten_minute_performance_gate") or {}
+                daily = result.get("daily_summary") or {}
+                detail = (
+                    f"{gate.get('status')}; blockers {gate.get('blocker_count', 0)}; "
+                    f"weak {', '.join(daily.get('weak_slots') or []) or '-'}"
+                )
         elif step.get("name") == "price_free_model_learning":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -1384,6 +1478,24 @@ def render_report(payload):
             f"Status: `{hourly_gate.get('status')}`",
             f"Best hours: {', '.join(daily.get('best_hours') or []) or '-'}",
             f"Worst hours: {', '.join(daily.get('worst_hours') or []) or '-'}",
+            f"First blocker: {first.get('detail') or '-'}",
+            f"Remediation: `{first.get('remediation_command') or '-'}`",
+            "",
+        ]
+    ten_minute_summary = (payload.get("summary") or {}).get("ten_minute_model_performance") or {}
+    ten_minute_gate = ten_minute_summary.get("ten_minute_performance_gate") or {}
+    if ten_minute_gate:
+        first = ten_minute_gate.get("first_blocker") or {}
+        daily = ten_minute_summary.get("daily_summary") or {}
+        candidate_gate = ten_minute_summary.get("candidate_ten_minute_gate") or {}
+        lines += [
+            "",
+            "## 10-Minute Performance Gate",
+            "",
+            f"Status: `{ten_minute_gate.get('status')}`",
+            f"Weak slots: {', '.join(daily.get('weak_slots') or []) or '-'}",
+            f"Worst slots: {', '.join(daily.get('worst_slots') or []) or '-'}",
+            f"Candidate gate: `{candidate_gate.get('status') or '-'}`",
             f"First blocker: {first.get('detail') or '-'}",
             f"Remediation: `{first.get('remediation_command') or '-'}`",
             "",
@@ -1514,6 +1626,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "continue_on_error": args.continue_on_error,
             "fail_on_variant_evidence_alert": getattr(args, "fail_on_variant_evidence_alert", True),
             "fail_on_hourly_performance_gate": getattr(args, "fail_on_hourly_performance_gate", True),
+            "fail_on_ten_minute_performance_gate": getattr(args, "fail_on_ten_minute_performance_gate", True),
             "long_job_guard": long_job_guard_info or {},
             "resume_from_step": getattr(args, "resume_from_step", ""),
         },
@@ -1563,6 +1676,14 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             hourly_step = next((step for step in payload["steps"] if step.get("name") == "hourly_model_performance"), {})
             hourly_status = ((hourly_step.get("result") or {}).get("status"))
             if hourly_status == "BLOCK" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        if getattr(args, "fail_on_ten_minute_performance_gate", True):
+            ten_minute_step = next(
+                (step for step in payload["steps"] if step.get("name") == "ten_minute_model_performance"),
+                {},
+            )
+            ten_minute_status = ((ten_minute_step.get("result") or {}).get("status"))
+            if ten_minute_status == "BLOCK" and payload["status"] == "ok":
                 payload["status"] = "critical"
         if getattr(args, "fail_on_snapshot_evaluation", False):
             evaluation_step = next((step for step in payload["steps"] if step.get("name") == "snapshot_evaluation"), {})
@@ -1637,6 +1758,17 @@ def build_run_parser(parser):
     parser.set_defaults(fail_on_hourly_performance_gate=True)
     parser.add_argument("--fail-on-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_true")
     parser.add_argument("--allow-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_false")
+    parser.set_defaults(fail_on_ten_minute_performance_gate=True)
+    parser.add_argument(
+        "--fail-on-ten-minute-performance-gate",
+        dest="fail_on_ten_minute_performance_gate",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--allow-ten-minute-performance-gate",
+        dest="fail_on_ten_minute_performance_gate",
+        action="store_false",
+    )
     parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
     parser.add_argument("--fail-on-shadow-ab-alert", action="store_true")
     parser.set_defaults(fail_on_variant_evidence_alert=True)
@@ -1671,6 +1803,7 @@ def build_run_parser(parser):
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--skip-hourly-model-performance", action="store_true")
+    parser.add_argument("--skip-ten-minute-model-performance", action="store_true")
     parser.add_argument("--skip-price-free-model-learning", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
     parser.add_argument(
@@ -1693,6 +1826,47 @@ def build_run_parser(parser):
         default=hourly_model_performance.DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
     )
     parser.add_argument("--hourly-early-ece-max", type=float, default=hourly_model_performance.DEFAULT_EARLY_ECE_MAX)
+    parser.add_argument("--ten-minute-min-rows", type=int, default=ten_minute_model_performance.DEFAULT_MIN_ROWS)
+    parser.add_argument("--ten-minute-top-slots", type=int, default=ten_minute_model_performance.DEFAULT_TOP_SLOTS)
+    parser.add_argument(
+        "--ten-minute-min-weak-market-days",
+        type=int,
+        default=ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+    )
+    parser.add_argument(
+        "--ten-minute-weak-brier-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_WEAK_BRIER_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-weak-logloss-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-rows",
+        default=str(ten_minute_model_performance.DEFAULT_ITEM147_ROWS),
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-min-weak-market-days",
+        type=int,
+        default=ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-brier-improvement-min",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_BRIER_IMPROVEMENT_MIN,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-market-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_MARKET_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-logloss-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+    )
     parser.add_argument("--include-reconstructed", action="store_true")
     parser.add_argument("--allow-unsettled", action="store_true")
     parser.add_argument("--skip-serving-gauntlet", action="store_true")

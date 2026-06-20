@@ -31,6 +31,7 @@ ARTIFACT_FILES = {
     "ingest_quality_gate": "ingest_quality_gate.json",
     "promotion_refresh": "f_family_promotion_refresh.json",
     "hourly_model_performance": "hourly_model_performance.json",
+    "ten_minute_model_performance": "ten_minute_model_performance.json",
     "price_free_model_learning": "price_free_model_learning.json",
     "candidate_replay": "pooled_candidate_replay_latest.json",
     "shadow_ab_monitor": "shadow_ab_monitor.json",
@@ -142,6 +143,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     ) or {}
     promotion = payloads.get("promotion_refresh") or {}
     hourly = payloads.get("hourly_model_performance") or {}
+    ten_minute = payloads.get("ten_minute_model_performance") or {}
     price_free = payloads.get("price_free_model_learning") or {}
     price_free_current_max = price_free.get("current_max_carryover") or {}
     candidate = _candidate_from_payloads(payloads)
@@ -187,6 +189,14 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
             "remediation_registry_summary": (hourly.get("remediation_registry") or {}).get("summary") or {},
             "early_hour_market_deltas": (hourly.get("remediation_registry") or {}).get("early_hour_market_deltas") or [],
+        },
+        "ten_minute_model_performance": {
+            "status": (ten_minute.get("ten_minute_performance_gate") or {}).get("status"),
+            "daily_summary": ten_minute.get("daily_summary") or {},
+            "ten_minute_performance_gate": ten_minute.get("ten_minute_performance_gate") or {},
+            "candidate_ten_minute_gate": ten_minute.get("candidate_ten_minute_gate") or {},
+            "weak_slots": ten_minute.get("weak_slots") or {},
+            "rankings": ten_minute.get("rankings") or {},
         },
         "price_free_model_learning": {
             "status": price_free.get("status"),
@@ -519,6 +529,7 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     promotion_payload = payloads.get("promotion_refresh") or {}
     hourly_payload = payloads.get("hourly_model_performance") or {}
     hourly = scorecard.get("hourly_model_performance") or {}
+    ten_minute = scorecard.get("ten_minute_model_performance") or {}
     price_free = scorecard.get("price_free_model_learning") or {}
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     promotion = scorecard["promotion"]
@@ -692,6 +703,37 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             ),
             "Keep hour-regime evidence attached to promotion decisions.",
             evidence=hourly_gate,
+            retrain_input=True,
+        ))
+
+    ten_minute_gate = ten_minute.get("ten_minute_performance_gate") or {}
+    if ten_minute_gate.get("status") == "BLOCK":
+        first = ten_minute_gate.get("first_blocker") or {}
+        weak_slots = (ten_minute.get("weak_slots") or {}).get("slot_labels") or []
+        learnings.append(_learning(
+            "P0",
+            "ten_minute_performance_gate",
+            "ten_minute_model_performance",
+            (
+                f"10-minute weak-slot gate blocked: {first.get('detail') or 'inspect weak-slot blockers'}. "
+                f"Weak slots: {', '.join(weak_slots) or '-'}."
+            ),
+            first.get("remediation_command") or "Run weather.reporting.ten_minute_model_performance and remediate weak-slot blockers.",
+            evidence=ten_minute_gate,
+            blocker=True,
+        ))
+    elif ten_minute_gate.get("status") == "PASS":
+        daily = ten_minute.get("daily_summary") or {}
+        learnings.append(_learning(
+            "P1",
+            "ten_minute_performance_gate",
+            "ten_minute_model_performance",
+            (
+                "10-minute weak-slot gate passed; weak slots under watch: "
+                + (", ".join(daily.get("weak_slots") or []) or "-")
+            ),
+            "Keep 10-minute weak-slot evidence attached to candidate promotion decisions.",
+            evidence=ten_minute_gate,
             retrain_input=True,
         ))
 
@@ -1163,6 +1205,9 @@ def _scorecard_rows(scorecard):
         row for row in early_hour_market_deltas
         if row.get("status") == "BLOCK"
     ]
+    ten_minute = scorecard.get("ten_minute_model_performance") or {}
+    ten_minute_gate = ten_minute.get("ten_minute_performance_gate") or {}
+    ten_minute_daily = ten_minute.get("daily_summary") or {}
     price_free = scorecard.get("price_free_model_learning") or {}
     price_free_daily = price_free.get("daily_summary") or {}
     price_free_carryover = (price_free.get("current_max_carryover") or {}).get("summary") or {}
@@ -1196,6 +1241,13 @@ def _scorecard_rows(scorecard):
             (
                 f"{hourly_gate.get('status') or '-'}; "
                 f"worst={', '.join(hourly_daily.get('worst_hours') or []) or '-'}"
+            ),
+        ],
+        [
+            "10-minute performance gate",
+            (
+                f"{ten_minute_gate.get('status') or '-'}; "
+                f"weak={', '.join(ten_minute_daily.get('weak_slots') or []) or '-'}"
             ),
         ],
         [
@@ -1492,6 +1544,23 @@ def render_report(payload):
                 "LogLoss Delta",
             ],
             _early_hour_market_delta_rows(early_hour_market_deltas),
+        )
+    ten_minute = scorecard.get("ten_minute_model_performance") or {}
+    ten_minute_gate = ten_minute.get("ten_minute_performance_gate") or {}
+    if ten_minute_gate:
+        ten_daily = ten_minute.get("daily_summary") or {}
+        candidate_gate = ten_minute.get("candidate_ten_minute_gate") or {}
+        first = ten_minute_gate.get("first_blocker") or {}
+        lines += ["", "## 10-Minute Weak-Slot Gate", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", ten_minute_gate.get("status") or "-"],
+                ["Weak slots", ", ".join(ten_daily.get("weak_slots") or []) or "-"],
+                ["Worst slots", ", ".join(ten_daily.get("worst_slots") or []) or "-"],
+                ["Candidate gate", candidate_gate.get("status") or "-"],
+                ["First blocker", first.get("detail") or "-"],
+            ],
         )
     lines += ["", "## Learnings", ""]
     if learnings:

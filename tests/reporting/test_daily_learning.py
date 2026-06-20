@@ -624,6 +624,54 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("toronto early-hour model trails market", market_delta_learning["signal"])
         self.assertIn("## Early-Hour Market Deltas", report)
 
+    def test_build_learning_payload_blocks_on_ten_minute_performance_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "ten_minute_model_performance.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "ten_minute_model_performance_v0.1",
+                        "ten_minute_performance_gate": {
+                            "schema_version": "ten_minute_performance_gate_v0.1",
+                            "status": "BLOCK",
+                            "first_blocker": {
+                                "gate": "weak_slot_brier_regression",
+                                "detail": "03:00 weak-slot model Brier trails market by 0.0129",
+                                "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                            },
+                            "blockers": [],
+                        },
+                        "candidate_ten_minute_gate": {
+                            "schema_version": "candidate_ten_minute_performance_gate_v0.1",
+                            "status": "MISSING",
+                        },
+                        "weak_slots": {
+                            "slot_labels": ["03:00", "03:10"],
+                        },
+                        "daily_summary": {
+                            "weak_slots": ["03:00", "03:10"],
+                            "worst_slots": ["03:00"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate_learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "ten_minute_performance_gate"
+            )
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(payload["scorecard"]["ten_minute_model_performance"]["status"], "BLOCK")
+        self.assertTrue(gate_learning["blocker"])
+        self.assertIn("03:00 weak-slot model Brier trails market", gate_learning["signal"])
+        self.assertIn("03:00, 03:10", gate_learning["signal"])
+        self.assertIn("## 10-Minute Weak-Slot Gate", report)
+
     def test_build_learning_payload_counts_per_market_live_forward_credit_without_broad_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

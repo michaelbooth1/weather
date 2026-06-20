@@ -1,4 +1,4 @@
-# 167. Calibration-Aware Taker Sizing And Tail-Risk Controls [OPEN]
+# 167. Calibration-Aware Taker Sizing And Tail-Risk Controls [COMPLETE 2026-06-20 - RISK-ADJUSTED SIZING LIVE]
 
 Goal: stop raw model edge from over-allocating to fragile low-price tails and
 repeated same-band opinions, while preserving a controlled lane for genuine
@@ -29,15 +29,15 @@ well-calibrated winner-adjacent edge from a cheap tail with thin support.
 5. Require CLOB continuity and price-history sanity before using mark-to-market
    or taking very low-price asks late in the day.
 
-- [ ] Add calibrated/reliability-adjusted fair probability fields to taker
+- [x] Add calibrated/reliability-adjusted fair probability fields to taker
   candidate rows and reports.
-- [ ] Implement strategy-arm sizing rules for flat, capped fractional Kelly,
+- [x] Implement strategy-arm sizing rules for flat, capped fractional Kelly,
   EV-tiered, and tail-lottery budgets.
-- [ ] Add concentration metrics for market, bin, adjacent-bin cluster,
+- [x] Add concentration metrics for market, bin, adjacent-bin cluster,
   low-price tail, and repeated snapshot exposure.
-- [ ] Add hard guards for stale/resolved mark outliers and missing CLOB
+- [x] Add hard guards for stale/resolved mark outliers and missing CLOB
   continuity before a fill can count toward strategy-quality evidence.
-- [ ] Backtest and live-shadow the sizing rules through item 166's bakeoff
+- [x] Backtest and live-shadow the sizing rules through item 166's bakeoff
   before changing the active default.
 
 Acceptance: taker fills include both raw and reliability-adjusted edge, sizing
@@ -45,3 +45,50 @@ is traceable to a named rule, tail/repetition exposure is bounded, and strategy
 reports can show whether calibrated sizing improves settled P&L and drawdown
 versus the raw-edge control.
 
+## 2026-06-20 Completion Notes
+
+Implemented reliability/risk annotations on every taker candidate row:
+`reliability_context_key`, `reliability_confidence`,
+`reliability_adjusted_fair_probability`, `risk_adjusted_edge`,
+`risk_adjusted_expected_profit_per_share`, `low_price_tail`,
+`tail_risk_bucket`, `current_high_band_distance`,
+`adjacent_bin_cluster_key`, `clob_continuity_status`, and
+`mark_sanity_status`.
+
+Implemented named sizing rules:
+
+- `flat_notional`: current control behavior.
+- `fractional_kelly`: capped by reliability confidence for `calibrated_edge`.
+- `ev_tiered`: edge-tiered sizing for winner/current-high and late-day arms.
+- `tail_lottery`: small-budget lane for cheap tails with explicit tail caps.
+
+Implemented hard exposure controls for market notional, adjacent-bin clusters,
+low-price tail notional, and repeated same-opinion fills. Strategy reports and
+bakeoff reports now include raw expected P&L, risk-adjusted expected P&L, tail
+spend, top-market concentration, adjacent-cluster concentration, repeated
+opinion counts, CLOB-continuity failures, and mark-sanity outliers.
+
+Backtested through the item 166 bakeoff artifacts:
+
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_221a357c.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_221a357c.md`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_3d3450f0.md`
+- `data/backtest/taker_strategy_bakeoff_2026-06-20_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-20_3d3450f0.md`
+
+June 19 broad-run result after risk sizing: `winner_centered_or_adjacent`
+passed and improved over `raw_edge_control` by `+3.1666` USDC settled net P&L.
+`low_price_tail_capped` was capped to `2.50` USDC spent and blocked on negative
+settled ROI. The Seattle stale-MTM run blocked all arms; raw edge, late-day,
+and winner-adjacent all failed on negative settled ROI and resolved stale-mark
+sign flips. June 20 remains non-promotable because no `2026-06-20` settlement
+labels exist yet.
+
+Verification:
+
+```powershell
+python -m pytest -q tests\market\test_taker_bot.py tests\operations\test_taker_bot_daily_roll.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_progress_ledger.py tests\operations\test_schema_registry.py
+```
+
+Result: `33 passed`.

@@ -32,6 +32,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("price_free_model_learning"), "price_free_model_learning_v0.1")
         self.assertEqual(schema_version("candidate_hourly_performance"), "candidate_hourly_performance_v0.1")
         self.assertEqual(schema_version("candidate_hourly_performance_gate"), "candidate_hourly_performance_gate_v0.1")
+        self.assertEqual(schema_version("ten_minute_model_performance"), "ten_minute_model_performance_v0.1")
+        self.assertEqual(schema_version("ten_minute_performance_gate"), "ten_minute_performance_gate_v0.1")
+        self.assertEqual(
+            schema_version("candidate_ten_minute_performance_gate"),
+            "candidate_ten_minute_performance_gate_v0.1",
+        )
+        self.assertEqual(schema_version("predawn_weak_slot_repair"), "predawn_weak_slot_repair_v0.1")
+        self.assertEqual(schema_version("late_day_lock_in_repair"), "late_day_lock_in_repair_v0.1")
         self.assertEqual(schema_version("winner_underpricing_casebook"), "winner_underpricing_casebook_v0.1")
         self.assertEqual(schema_version("forecast_pressure_tilt_validation"), "forecast_pressure_tilt_validation_v0.1")
         self.assertEqual(schema_version("candidate_rank_sharpening_validation"), "candidate_rank_sharpening_validation_v0.1")
@@ -52,6 +60,9 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("taker_bot_run"), "taker_bot_run_v0.1")
         self.assertEqual(schema_version("taker_settlement_finalization"), "taker_settlement_finalization_v0.1")
         self.assertEqual(schema_version("taker_bot_daily_roll"), "taker_bot_daily_roll_v0.1")
+        self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
+        self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
+        self.assertEqual(schema_version("taker_strategy_bakeoff"), "taker_strategy_bakeoff_v0.1")
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))

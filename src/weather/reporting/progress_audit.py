@@ -411,6 +411,29 @@ def load_promotion_refresh(path):
     }
 
 
+def load_ten_minute_performance(path):
+    payload = read_json(path, default={}) or {}
+    if not payload:
+        return {"path": str(path), "exists": False}
+    gate = payload.get("ten_minute_performance_gate") or {}
+    candidate_gate = payload.get("candidate_ten_minute_gate") or {}
+    weak = payload.get("weak_slots") or {}
+    weak_summary = weak.get("summary") or {}
+    return {
+        "path": str(path),
+        "exists": True,
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "schema_version": payload.get("schema_version"),
+        "status": gate.get("status"),
+        "gate": gate,
+        "candidate_gate": candidate_gate,
+        "weak_slot_labels": weak.get("slot_labels") or [],
+        "weak_slot_summary": weak_summary,
+        "daily_summary": payload.get("daily_summary") or {},
+        "overall": payload.get("overall") or {},
+    }
+
+
 def parse_promotion_gauntlet_report(path):
     text = read_text(path)
     if not text:
@@ -879,6 +902,7 @@ def build_audit(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAP
         "current_backtest": parse_backtest_report(backtest_root / "backtest_report.md"),
         "pooled_candidate_series": load_pooled_series(backtest_root),
         "promotion_refresh": load_promotion_refresh(backtest_root / "f_family_promotion_refresh.json"),
+        "ten_minute_model_performance": load_ten_minute_performance(backtest_root / "ten_minute_model_performance.json"),
         "promotion_gauntlet_latest": parse_promotion_gauntlet_report(backtest_root / "promotion_gauntlet_latest_report.md"),
         "market_day_labels": load_market_day_labels(backtest_root / "market_day_labels.csv"),
         "location_trust": load_location_trust(backtest_root / "location_trust.json"),
@@ -926,6 +950,7 @@ def render_report(payload):
     labels = payload["market_day_labels"]
     trust = payload["location_trust"]
     refresh = payload["promotion_refresh"]
+    ten_minute = payload.get("ten_minute_model_performance") or {}
     gauntlet = payload["promotion_gauntlet_latest"]
     fleet = payload["fleet_observability"]
     loops = payload["loop_statuses"]
@@ -1003,8 +1028,37 @@ def render_report(payload):
             "always-on capture and book tape shipped",
             "Strong improvement",
         ],
+        [
+            "10-minute weak slots",
+            "not tracked as a promotion gate",
+            (
+                f"{ten_minute.get('status') or '-'}; "
+                f"weak={', '.join(ten_minute.get('weak_slot_labels') or []) or '-'}"
+            ),
+            "slot-level regressions are explicit",
+            "Gate required before broad claims",
+        ],
     ]
     lines.extend(markdown_table(["Dimension", "Starting Evidence", "Latest Evidence", "Movement", "Read"], scorecard_rows))
+    if ten_minute.get("exists"):
+        weak_summary = ten_minute.get("weak_slot_summary") or {}
+        first = ((ten_minute.get("gate") or {}).get("first_blocker") or {})
+        candidate_gate = ten_minute.get("candidate_gate") or {}
+        lines.extend(["", "## 10-Minute Weak-Slot Watchlist", ""])
+        lines.extend(markdown_table(
+            ["Field", "Value"],
+            [
+                ["Gate status", ten_minute.get("status") or "-"],
+                ["Weak slots", ", ".join(ten_minute.get("weak_slot_labels") or []) or "-"],
+                ["Rows", weak_summary.get("n")],
+                ["Market-days", weak_summary.get("market_days")],
+                ["Model Brier", fmt_brier(weak_summary.get("model_brier"))],
+                ["Market Brier", fmt_brier(weak_summary.get("market_brier"))],
+                ["Brier delta", fmt_signed(weak_summary.get("brier_delta"), 4)],
+                ["Candidate gate", candidate_gate.get("status") or "-"],
+                ["First blocker", first.get("detail") or "-"],
+            ],
+        ))
     lines.extend(["", "## Model Skill Trend", ""])
     lines.extend(markdown_table(
         ["Checkpoint", "Days", "Rows", "Model Brier", "Market Brier", "Brier Skill", "Read"],

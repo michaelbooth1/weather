@@ -1,4 +1,4 @@
-# 165. Taker Strategy Experiment Harness And Arm Attribution [OPEN]
+# 165. Taker Strategy Experiment Harness And Arm Attribution [COMPLETE 2026-06-20 - MULTI-ARM ATTRIBUTION LIVE]
 
 Goal: make taker-bot strategy tests explicit, auditable, and comparable instead
 of inferring strategy differences from ad hoc policy hashes.
@@ -31,14 +31,14 @@ fills and config drift can be mistaken for strategy learning.
    settled P&L when available, concentration, stale-source/book blocks, and
    sample count by strategy arm.
 
-- [ ] Define the taker strategy registry schema and default
+- [x] Define the taker strategy registry schema and default
   `raw_edge_control` arm.
-- [ ] Extend taker tapes and finalization artifacts with strategy attribution.
-- [ ] Add a multi-arm paper mode that shares inputs but isolates budgets,
+- [x] Extend taker tapes and finalization artifacts with strategy attribution.
+- [x] Add a multi-arm paper mode that shares inputs but isolates budgets,
   positions, and scoring by arm.
-- [ ] Add a daily strategy comparison report and tests covering control versus
+- [x] Add a daily strategy comparison report and tests covering control versus
   candidate attribution.
-- [ ] Wire the best current arm into daily progress as a strategy-quality
+- [x] Wire the best current arm into daily progress as a strategy-quality
   candidate only when its sample is settlement-scored and countable.
 
 Acceptance: the taker bot can run at least two named strategy arms on the same
@@ -46,3 +46,32 @@ active-day inputs, every row can be traced back to its arm and experiment, and
 daily/settled reports compare the arms without relying on policy-hash
 guesswork.
 
+## Completion - 2026-06-20
+
+Implemented a registered taker strategy surface in `weather.market.taker_bot`:
+`taker_strategy_registry_v0.1` defines `raw_edge_control`,
+`small_order_probe`, and `strict_edge_probe`, with `raw_edge_control` as the
+stable control arm.
+
+Order tapes, settled tapes, budget ledger events, run config, run summary,
+daily P&L, settled P&L, and daily-progress trading evidence now carry
+`experiment_id`, `strategy_id`, `strategy_family`, `assignment_rule`,
+`control_strategy_id`, and `strategy_config_hash`. Legacy rows without those
+fields normalize to `raw_edge_control` for backward-compatible reporting.
+
+`python -m weather.market.taker_bot` now accepts `--strategies` and
+`--experiment-id`. A single run discovers snapshot/book/model inputs once, then
+applies each selected arm with isolated budgets, positions, and scoring. The
+daily-roll launcher can pass the same strategy arguments.
+
+Each run writes `strategy_summary.json` and `strategy_report.md`, and
+settlement finalization writes `settled_strategy_summary.json` and
+`settled_strategy_report.md`. The reports compare arm-level fills, spend,
+independent opinions, settled/unsettled counts, settlement P&L, MTM P&L, net
+P&L, and countability. Daily progress records the best strategy and only marks
+a taker strategy-quality candidate when a settlement-scored arm is countable.
+
+Verification:
+
+- `python -m pytest -q tests\market\test_taker_bot.py tests\operations\test_taker_bot_daily_roll.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_progress_ledger.py tests\operations\test_schema_registry.py`
+  -> `29 passed`.
