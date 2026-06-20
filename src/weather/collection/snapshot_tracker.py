@@ -26,6 +26,7 @@ from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.operations.power import keep_system_awake
 from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from weather.operations.supervisor import (
     SupervisorSpec,
@@ -635,10 +636,13 @@ def run_loop(
             "pid": os.getpid(),
         })
         return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
+    sleep_inhibitor = keep_system_awake("weather snapshot capture loop")
+    power_request = sleep_inhibitor.start()
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
         "runtime_identity": PROCESS_RUNTIME_IDENTITY,
+        "power_request": power_request,
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,
@@ -751,6 +755,7 @@ def run_loop(
                 return status
             sleep_fn(sleep_seconds)
     finally:
+        sleep_inhibitor.stop()
         release_writer_lock(writer_lock)
 
 

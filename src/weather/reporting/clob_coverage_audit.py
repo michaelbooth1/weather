@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import glob
 import json
 import math
 import re
@@ -15,7 +16,7 @@ from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
 
 
-SCHEMA_VERSION = "clob_coverage_audit_v0.2"
+SCHEMA_VERSION = "clob_coverage_audit_v0.3"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "clob_coverage_audit.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "clob_coverage_audit_report.md"
@@ -222,13 +223,105 @@ def audit_folder(folder: str | Path) -> dict[str, Any]:
     return summary
 
 
+def _iter_manifest_paths(value: Any):
+    if isinstance(value, dict):
+        path = value.get("path")
+        if isinstance(path, str):
+            yield path
+        for child in value.values():
+            yield from _iter_manifest_paths(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_manifest_paths(child)
+
+
+def _normalize_manifest_path(path: str) -> str:
+    return str(path or "").replace("\\", "/").lstrip("./")
+
+
+def backup_manifest_path_index(manifest_paths: list[str | Path]) -> dict[str, list[str]]:
+    index: dict[str, list[str]] = {}
+    for manifest_path in manifest_paths:
+        manifest = Path(manifest_path)
+        if not manifest.exists():
+            continue
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for raw_path in _iter_manifest_paths(payload):
+            normalized = _normalize_manifest_path(raw_path)
+            if normalized:
+                index.setdefault(normalized, []).append(manifest.name)
+    return index
+
+
+def _manifest_matches(
+    path_index: dict[str, list[str]],
+    prefix: str,
+    filenames: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    rows = []
+    for filename in filenames:
+        rel_path = f"{prefix}{filename}"
+        manifests = sorted(set(path_index.get(rel_path) or []))
+        if manifests:
+            rows.append({"path": rel_path, "manifests": manifests})
+    return rows
+
+
+def restore_source_audit(
+    folder_rows: list[dict[str, Any]],
+    manifest_paths: list[str | Path],
+) -> dict[str, Any]:
+    manifests = [Path(path) for path in manifest_paths if Path(path).exists()]
+    path_index = backup_manifest_path_index(manifests)
+    rows = []
+    for row in folder_rows:
+        event_slug = row.get("event_slug") or Path(row.get("folder") or "").name
+        prefix = f"data/snapshots/{event_slug}/"
+        raw_book_matches = _manifest_matches(path_index, prefix, RAW_BOOK_FILES)
+        token_matches = _manifest_matches(path_index, prefix, TOKEN_FILES)
+        feature_matches = _manifest_matches(path_index, prefix, ("clob_features.jsonl", "clob_features_long.csv"))
+        rows.append({
+            "event_slug": event_slug,
+            "market_id": row.get("market_id"),
+            "target_date": row.get("target_date"),
+            "classification": row.get("classification"),
+            "raw_book_restore_available": bool(raw_book_matches),
+            "token_map_restore_available": bool(token_matches),
+            "full_raw_restore_available": bool(raw_book_matches and token_matches),
+            "feature_shell_in_manifest": bool(feature_matches),
+            "raw_book_manifest_paths": raw_book_matches,
+            "token_manifest_paths": token_matches,
+            "feature_manifest_paths": feature_matches,
+        })
+    summary = {
+        "manifest_count": len(manifests),
+        "indexed_path_count": len(path_index),
+        "folders": len(rows),
+        "raw_book_restore_folders": sum(1 for row in rows if row["raw_book_restore_available"]),
+        "token_map_restore_folders": sum(1 for row in rows if row["token_map_restore_available"]),
+        "full_raw_restore_folders": sum(1 for row in rows if row["full_raw_restore_available"]),
+        "feature_shell_folders": sum(1 for row in rows if row["feature_shell_in_manifest"]),
+        "missing_full_raw_restore_folders": sum(1 for row in rows if not row["full_raw_restore_available"]),
+        "manifest_names": [path.name for path in manifests],
+    }
+    return {"summary": summary, "folders": rows}
+
+
 def _coverage_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
     feature_rows = sum(int((row.get("features") or {}).get("feature_rows") or 0) for row in rows)
     midpoint_rows = sum(int((row.get("features") or {}).get("midpoint_rows") or 0) for row in rows)
     token_rows = sum(int((row.get("features") or {}).get("token_rows") or 0) for row in rows)
     available_rows = sum(int((row.get("features") or {}).get("feature_available_rows") or 0) for row in rows)
+    classifications: dict[str, int] = {}
+    for row in rows:
+        classification = str(row.get("classification") or "unknown")
+        classifications[classification] = classifications.get(classification, 0) + 1
     return {
         "folders": len(rows),
+        "classifications": classifications,
         "feature_rows": feature_rows,
         "midpoint_rows": midpoint_rows,
         "midpoint_coverage": midpoint_rows / feature_rows if feature_rows else 0.0,
@@ -318,6 +411,7 @@ def chronological_split_coverage(
 def build_payload(
     folders: list[str | Path],
     min_train_midpoint_coverage: float = DEFAULT_MIN_TRAIN_MIDPOINT_COVERAGE,
+    backup_manifest_paths: list[str | Path] | None = None,
 ) -> dict[str, Any]:
     folder_rows = [audit_folder(folder) for folder in folders]
     classifications: dict[str, int] = {}
@@ -327,7 +421,7 @@ def build_payload(
         folder_rows,
         min_train_midpoint_coverage=min_train_midpoint_coverage,
     )
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "evidence_classification": "diagnostic_not_promotion_evidence",
@@ -346,6 +440,9 @@ def build_payload(
         },
         "folders": folder_rows,
     }
+    if backup_manifest_paths:
+        payload["restore_source_audit"] = restore_source_audit(folder_rows, backup_manifest_paths)
+    return payload
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
@@ -378,6 +475,53 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Classifications", json.dumps(summary.get("classifications") or {}, sort_keys=True)],
         ],
     )
+    restore = payload.get("restore_source_audit") or {}
+    if restore:
+        restore_summary = restore.get("summary") or {}
+        lines += [
+            "",
+            "## Backup Restore Source Audit",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Manifest count", restore_summary.get("manifest_count")],
+                ["Indexed paths", restore_summary.get("indexed_path_count")],
+                ["Folders", restore_summary.get("folders")],
+                ["Raw-book restore folders", restore_summary.get("raw_book_restore_folders")],
+                ["Token-map restore folders", restore_summary.get("token_map_restore_folders")],
+                ["Full raw restore folders", restore_summary.get("full_raw_restore_folders")],
+                ["Feature-shell folders", restore_summary.get("feature_shell_folders")],
+                ["Missing full raw restore folders", restore_summary.get("missing_full_raw_restore_folders")],
+            ],
+        )
+        lines += [
+            "",
+            "## Restore Sources By Folder",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Folder",
+                "Class",
+                "Raw Book Restore",
+                "Token Restore",
+                "Full Raw Restore",
+                "Feature Shell",
+            ],
+            [
+                [
+                    row.get("event_slug"),
+                    row.get("classification"),
+                    row.get("raw_book_restore_available"),
+                    row.get("token_map_restore_available"),
+                    row.get("full_raw_restore_available"),
+                    row.get("feature_shell_in_manifest"),
+                ]
+                for row in restore.get("folders") or []
+            ],
+        )
     split = payload.get("split_coverage_gate") or {}
     lines += [
         "",
@@ -393,9 +537,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Train folders", (split.get("train") or {}).get("folders")],
             ["Train midpoint coverage", fmt_num((split.get("train") or {}).get("midpoint_coverage"))],
             ["Train midpoint folders", (split.get("train") or {}).get("midpoint_available_folders")],
+            ["Train classifications", json.dumps((split.get("train") or {}).get("classifications") or {}, sort_keys=True)],
             ["Eval folders", (split.get("eval") or {}).get("folders")],
             ["Eval midpoint coverage", fmt_num((split.get("eval") or {}).get("midpoint_coverage"))],
             ["Eval midpoint folders", (split.get("eval") or {}).get("midpoint_available_folders")],
+            ["Eval classifications", json.dumps((split.get("eval") or {}).get("classifications") or {}, sort_keys=True)],
         ],
     )
     lines += [
@@ -409,9 +555,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             "Train Dates",
             "Train Midpoint Cov",
             "Train Midpoint Folders",
+            "Train Classes",
             "Eval Dates",
             "Eval Midpoint Cov",
             "Eval Midpoint Folders",
+            "Eval Classes",
         ],
         [
             [
@@ -419,9 +567,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 ", ".join(row.get("train_dates") or []) or "-",
                 fmt_num((row.get("train") or {}).get("midpoint_coverage")),
                 (row.get("train") or {}).get("midpoint_available_folders"),
+                json.dumps((row.get("train") or {}).get("classifications") or {}, sort_keys=True),
                 ", ".join(row.get("eval_dates") or []) or "-",
                 fmt_num((row.get("eval") or {}).get("midpoint_coverage")),
                 (row.get("eval") or {}).get("midpoint_available_folders"),
+                json.dumps((row.get("eval") or {}).get("classifications") or {}, sort_keys=True),
             ]
             for row in split.get("markets") or []
         ],
@@ -475,10 +625,26 @@ def main() -> None:
         default=DEFAULT_MIN_TRAIN_MIDPOINT_COVERAGE,
         help="Minimum train-side midpoint coverage required for the split coverage gate.",
     )
+    parser.add_argument(
+        "--backup-manifest",
+        action="append",
+        default=[],
+        help="Backup manifest JSON to scan for restorable raw CLOB/token files. Repeatable.",
+    )
+    parser.add_argument(
+        "--backup-manifest-glob",
+        action="append",
+        default=[],
+        help="Glob of backup manifest JSON files to scan for restorable raw CLOB/token files. Repeatable.",
+    )
     args = parser.parse_args()
+    manifest_paths = [Path(path) for path in args.backup_manifest]
+    for pattern in args.backup_manifest_glob:
+        manifest_paths.extend(Path(path) for path in glob.glob(pattern))
     payload = build_payload(
         args.folders,
         min_train_midpoint_coverage=args.min_train_midpoint_coverage,
+        backup_manifest_paths=manifest_paths,
     )
     out = write_json(args.out, payload)
     report = write_markdown_report(args.report, payload)

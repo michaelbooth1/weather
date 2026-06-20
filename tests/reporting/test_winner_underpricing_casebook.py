@@ -93,6 +93,17 @@ class WinnerUnderpricingCasebookTests(unittest.TestCase):
         self.assertEqual(case["winner_market_rank"], 1)
         self.assertGreater(case["winner_probability_gap_vs_market"], 0.50)
         self.assertGreater(case["candidate_effective_bands"], case["market_effective_bands"])
+        pattern_rows = payload["summary"]["pattern_summary"]
+        self.assertIn({
+            "market_id": "seattle",
+            "field": "forecast_bucket_pressure",
+            "value": "near",
+            "cases": 1,
+            "share": 1.0,
+            "avg_winner_probability_gap_vs_market": case["winner_probability_gap_vs_market"],
+            "avg_winner_rank_gap_vs_market": case["winner_rank_gap_vs_market"],
+            "avg_effective_band_gap_vs_market": case["effective_band_gap_vs_market"],
+        }, pattern_rows)
 
     def test_build_payload_skips_late_snapshots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,6 +146,8 @@ class WinnerUnderpricingCasebookTests(unittest.TestCase):
 
             text = report_path.read_text(encoding="utf-8")
         self.assertIn("Winner Underpricing Casebook", text)
+        self.assertIn("Dominant Patterns", text)
+        self.assertIn("forecast_bucket_pressure", text)
         self.assertIn("eq:72", text)
 
 

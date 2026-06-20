@@ -21,6 +21,7 @@ from weather.market.market_microstructure_features import write_clob_feature_row
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
+from weather.operations.power import keep_system_awake
 from weather.operations.runtime_identity import get_runtime_identity, identities_match
 from weather.operations.supervisor import (
     SupervisorSpec,
@@ -962,11 +963,14 @@ def run_book_loop(
             "pid": os.getpid(),
         })
         return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
+    sleep_inhibitor = keep_system_awake("weather CLOB book capture loop")
+    power_request = sleep_inhibitor.start()
     last_midpoints = {}
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
         "runtime_identity": get_runtime_identity(),
+        "power_request": power_request,
         "market_id": market_id,
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
@@ -1111,6 +1115,7 @@ def run_book_loop(
             elapsed = (now_fn() - loop_started).total_seconds()
             sleep_fn(max(1.0, sleep_seconds - elapsed))
     finally:
+        sleep_inhibitor.stop()
         release_writer_lock(writer_lock)
 
 

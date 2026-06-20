@@ -73,20 +73,36 @@ creating sparse/NUL-filled console-log gaps. The cleanup quarantined the prior
 malformed console text and repaired the final active CLOB sparse-line artifact
 after stopping the CLOB writer.
 
+I also fixed the observation-trigger supervisor stop/start path. It now removes
+the stopped or dead writer PID's lock before launching a detached watcher, and
+blocks start when a live writer lock is still present. This matches the
+snapshot/CLOB supervisor behavior and prevents restart attempts from producing
+short-lived watchers that immediately exit with `duplicate_writer_blocked`.
+
 New evidence:
 
-- `data/backtest/loop_jsonl_repair_after_loop_restarts_audit.md`: `PASS`,
+- `data/backtest/loop_jsonl_repair_final_fixed_supervisor_audit.md`: `PASS`,
   malformed lines `0` across snapshot, CLOB, and observation-trigger console
   logs.
-- `data/backtest/fleet_observability_after_log_guard_and_restarts_report.md`:
+- `data/backtest/fleet_observability_after_observation_lock_fix_report.md`:
   loop artifact integrity `OK`, duplicate writers `0`, and all three managed
   loops `RUNNING`, current-code, single-writer, with zero consecutive errors.
 
 The soak item remains `PARTIAL`, not complete. The same fleet report still
 blocks on historical restart and duplicate-writer incident counts inside the
-soak window: snapshot `280>6` restarts with 4 incidents, CLOB `279>12` with 34
-incidents, and observation-trigger `583>12` with 42 incidents. A future active
+soak window: snapshot `298>6` restarts with 4 incidents, CLOB `294>12` with 34
+incidents, and observation-trigger `618>12` with 48 incidents. A future active
 day must age out that noise and keep the cadence SLO passing.
+
+## 2026-06-20 Post-Resume Refresh
+
+The daily-refresh resume regenerated fleet observability after the promotion
+step completed. Loop artifact integrity remains `OK`, malformed lines are `0`,
+and all three managed loops still report current-code and single-writer status.
+The current-code soak proof remains blocked by the latest 24-hour restart
+budget and the cadence SLO: total restart count `1226`, seven-day diagnostic
+restart-class events `4080`, and first blocker `snapshot_capture` with
+`restart_budget_exceeded=304>6; duplicate_writer_incidents=4`.
 
 Acceptance: fleet observability can prove a full active day where all managed
 loops stayed current-code, single-writer, under restart budget, and within

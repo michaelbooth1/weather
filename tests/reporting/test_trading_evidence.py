@@ -98,6 +98,97 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(taker["quality_gate"]["status"], "SAMPLE_PENDING_NEGATIVE_LATEST")
         self.assertFalse(taker["quality_gate"]["sample_ready"])
 
+    def test_taker_evidence_prefers_settled_finalization_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "taker_runs" / "2026-06-19" / "taker-1"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "taker_bot_run_v0.1",
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-taker",
+                        "summary": {
+                            "cumulative_filled_orders": 50,
+                            "budget_spent_usdc": 59.80507,
+                            "cumulative_net_pnl_usdc": -17.208695,
+                            "root_cause_class": "policy_no_edge",
+                        },
+                        "pnl": {
+                            "summary": {
+                                "filled_order_count": 50,
+                                "net_pnl_usdc": -17.208695,
+                                "mark_to_market_pnl_usdc": -17.208695,
+                                "settled_order_count": 0,
+                                "unsettled_order_count": 50,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settled_path = run / "settled_pnl.json"
+            settled_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "taker_settlement_finalization_v0.1",
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "settled_pnl_path": str(settled_path),
+                        "settled_report_path": str(run / "settled_report.md"),
+                        "summary": {
+                            "filled_order_count": 4,
+                            "budget_spent_usdc": 59.80507,
+                            "net_pnl_usdc": 36.687839,
+                            "settlement_pnl_usdc": 36.687839,
+                            "mark_to_market_pnl_usdc": 0.0,
+                            "settled_order_count": 4,
+                            "unsettled_order_count": 0,
+                            "pnl_source": "settlement_finalization",
+                            "reported_net_pnl_usdc": -17.208695,
+                            "reported_mark_to_market_pnl_usdc": -17.208695,
+                            "reported_unsettled_order_count": 50,
+                        },
+                        "pnl": {
+                            "summary": {
+                                "filled_order_count": 4,
+                                "budget_spent_usdc": 59.80507,
+                                "net_pnl_usdc": 36.687839,
+                                "settlement_pnl_usdc": 36.687839,
+                                "mark_to_market_pnl_usdc": 0.0,
+                                "settled_order_count": 4,
+                                "unsettled_order_count": 0,
+                                "reason_counts": {"BUY_EDGE": 4},
+                            }
+                        },
+                        "reconciliation": {
+                            "status": "WARN",
+                            "preferred_pnl_source": "settlement_finalization",
+                            "warnings": [
+                                {"code": "reported_mark_to_market_diverges_from_settlement", "detail": "diff"}
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+            )
+
+        taker = summary["taker"]
+        self.assertEqual(taker["filled_orders"], 4)
+        self.assertAlmostEqual(taker["net_pnl_usdc"], 36.687839)
+        self.assertAlmostEqual(taker["settlement_pnl_usdc"], 36.687839)
+        self.assertEqual(taker["pnl_source"], "settlement_finalization")
+        self.assertEqual(taker["settlement_reconciliation_status"], "WARN")
+        self.assertEqual(taker["quality_gate"]["status"], "SAMPLE_PENDING")
+        self.assertEqual(taker["reported_unsettled_order_count"], 50)
+
 
 if __name__ == "__main__":
     unittest.main()

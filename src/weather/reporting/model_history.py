@@ -709,6 +709,23 @@ def format_day_table(rows):
     return pd.DataFrame(table)
 
 
+def format_daily_brier_table(rows):
+    table = []
+    for row in rows:
+        table.append(
+            {
+                "Date": row.get("target_date"),
+                "Location": row.get("city"),
+                "Brier Score": fmt_score(row.get("model_brier")),
+                "Market Brier": fmt_score(row.get("market_brier")),
+                "Brier Skill": fmt_signed_pct(row.get("brier_skill_score")),
+                "Rows": row.get("scored_rows", 0),
+                "Status": row.get("status_label"),
+            }
+        )
+    return pd.DataFrame(table)
+
+
 def format_group_table(rows, group_label):
     table = []
     for row in rows:

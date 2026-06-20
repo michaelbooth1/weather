@@ -15,6 +15,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [Open and blocked audit - 2026-06-18](open-blocker-audit-2026-06-18.md)
 - [2026-05-28 Codex audit summary](audits/codex-audit-summary-2026-05-28.md)
 - [2026-05-28 deep model audit](audits/codex-deep-model-audit-2026-05-28.md)
+- [2026-06-20 taker bot log audit](audits/taker-bot-log-audit-2026-06-20.md)
 
 ## Status Taxonomy
 
@@ -92,7 +93,7 @@ infrastructure work remains.
 | 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE COMPLETE]](items/item-29-deepen-and-widen-the-historical-record.md) |
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
-| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-19 - RICH+PRESSURE REPLAY BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
+| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-20 - PRESSURE-LEVEL SOURCE-LAG AND CLOB CONTINUITY BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 39 | [Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
@@ -115,10 +116,10 @@ infrastructure work remains.
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
 | 146 | [Tape Backup Capacity And CLOB Tiered Retention [PARTIAL 2026-06-19 - LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
-| 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-19 - TRAIN-SIDE MIDPOINT EVIDENCE BLOCKED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
+| 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 | 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-20 - CADENCE PROOF ADDED, CLEAN ACTIVE DAY PENDING]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
-| 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [PARTIAL 2026-06-20 - PREFLIGHT AND RESUME MODE LIVE, FULL RESUME PENDING]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
+| 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -126,7 +127,7 @@ infrastructure work remains.
 | ---: | --- |
 | 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
-| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-19 - SOURCE-GUARD HOLDOUT BLOCKED]](items/item-35-unified-continuous-density-model.md) |
+| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-20 - TARGET-DAY SIGNAL, CURRENT REGRESSION, AND CLOB CONTINUITY BLOCKED]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
 | 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
 | 38 | [Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]](items/item-38-cross-market-and-market-microstructure-signal.md) |
@@ -138,7 +139,7 @@ infrastructure work remains.
 | 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-19 - AGGREGATE GATE PASS, MARKET BLOCKS REMAIN]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-20 - MARKET, SLO, AND CLOB CONTINUITY BLOCKED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [COMPLETE 2026-06-16 - CORE BACKFILL AND SHADOW EVIDENCE]](items/item-50-scholarly-weather-input-gap-closure.md) |
 | 51 | [Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]](items/item-51-model-architecture-health-refactor.md) |
@@ -203,6 +204,10 @@ infrastructure work remains.
 | 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-20 - CANDIDATE GATE PASSES, CURRENT GATE STILL BLOCKED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
 | 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
+| 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE 2026-06-20 - SETTLED TAKER FINALIZATION LIVE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
+| 165 | [Taker Strategy Experiment Harness And Arm Attribution [OPEN]](items/item-165-taker-strategy-experiment-harness-and-arm-attribution.md) |
+| 166 | [Settlement-Scored Taker Strategy Bakeoff [OPEN]](items/item-166-settlement-scored-taker-strategy-bakeoff.md) |
+| 167 | [Calibration-Aware Taker Sizing And Tail-Risk Controls [OPEN]](items/item-167-calibration-aware-taker-sizing-and-tail-risk-controls.md) |
 
 ### Architecture And Maintainability
 

@@ -43,6 +43,26 @@ def _all_run_summaries(root):
     return rows
 
 
+def _float_value(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_value(value, default=0):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _settled_taker_payload(summary_path):
+    if not summary_path:
+        return None
+    return _read_json(Path(summary_path).with_name("settled_pnl.json"))
+
+
 def _evidence_class(payload, class_name):
     gate = payload.get("live_forward_gate") or {}
     evidence = gate.get("evidence") or {}
@@ -102,29 +122,88 @@ def summarize_market_making_run(path, payload):
     }
 
 
-def _taker_summary_fields(payload):
+def _taker_summary_fields(payload, settled_payload=None):
     summary = payload.get("summary") or {}
     pnl = (payload.get("pnl") or {}).get("summary") or {}
+    if settled_payload:
+        settled_summary = settled_payload.get("summary") or {}
+        settled_pnl = (settled_payload.get("pnl") or {}).get("summary") or {}
+        reconciliation = settled_payload.get("reconciliation") or {}
+        warnings = reconciliation.get("warnings") or []
+        return {
+            "filled_orders": _int_value(settled_pnl.get("filled_order_count") or settled_summary.get("filled_order_count")),
+            "budget_spent_usdc": _float_value(
+                settled_pnl.get("budget_spent_usdc") or settled_summary.get("budget_spent_usdc")
+            ),
+            "net_pnl_usdc": _float_value(settled_pnl.get("net_pnl_usdc") or settled_summary.get("net_pnl_usdc")),
+            "mark_to_market_pnl_usdc": _float_value(
+                settled_pnl.get("mark_to_market_pnl_usdc") or settled_summary.get("mark_to_market_pnl_usdc")
+            ),
+            "settlement_pnl_usdc": _float_value(
+                settled_pnl.get("settlement_pnl_usdc") or settled_summary.get("settlement_pnl_usdc")
+            ),
+            "settled_order_count": _int_value(
+                settled_pnl.get("settled_order_count") or settled_summary.get("settled_order_count")
+            ),
+            "unsettled_order_count": _int_value(
+                settled_pnl.get("unsettled_order_count") or settled_summary.get("unsettled_order_count")
+            ),
+            "reason_counts": settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {},
+            "root_cause_class": summary.get("root_cause_class"),
+            "first_failing_gate": summary.get("first_failing_gate"),
+            "pnl_source": settled_summary.get("pnl_source") or reconciliation.get("preferred_pnl_source"),
+            "settlement_finalization_status": "available",
+            "settlement_reconciliation_status": reconciliation.get("status"),
+            "settlement_reconciliation_warnings": warnings,
+            "settled_pnl_path": settled_payload.get("settled_pnl_path"),
+            "settled_report_path": settled_payload.get("settled_report_path"),
+            "reported_net_pnl_usdc": settled_summary.get("reported_net_pnl_usdc"),
+            "reported_mark_to_market_pnl_usdc": settled_summary.get("reported_mark_to_market_pnl_usdc"),
+            "reported_settled_order_count": settled_summary.get("reported_settled_order_count"),
+            "reported_unsettled_order_count": settled_summary.get("reported_unsettled_order_count"),
+        }
+    pnl_source = (
+        "settlement" if _int_value(pnl.get("settled_order_count")) > 0 else
+        "mark_to_market" if _float_value(pnl.get("mark_to_market_pnl_usdc")) != 0.0 else
+        "unscored"
+    )
     return {
-        "filled_orders": int(summary.get("cumulative_filled_orders") or pnl.get("filled_order_count") or 0),
-        "budget_spent_usdc": float(summary.get("budget_spent_usdc") or pnl.get("budget_spent_usdc") or 0.0),
-        "net_pnl_usdc": float(summary.get("cumulative_net_pnl_usdc") or pnl.get("net_pnl_usdc") or 0.0),
-        "mark_to_market_pnl_usdc": float(pnl.get("mark_to_market_pnl_usdc") or 0.0),
-        "settlement_pnl_usdc": float(pnl.get("settlement_pnl_usdc") or 0.0),
-        "settled_order_count": int(pnl.get("settled_order_count") or 0),
-        "unsettled_order_count": int(pnl.get("unsettled_order_count") or 0),
+        "filled_orders": _int_value(summary.get("cumulative_filled_orders") or pnl.get("filled_order_count")),
+        "budget_spent_usdc": _float_value(summary.get("budget_spent_usdc") or pnl.get("budget_spent_usdc")),
+        "net_pnl_usdc": _float_value(summary.get("cumulative_net_pnl_usdc") or pnl.get("net_pnl_usdc")),
+        "mark_to_market_pnl_usdc": _float_value(pnl.get("mark_to_market_pnl_usdc")),
+        "settlement_pnl_usdc": _float_value(pnl.get("settlement_pnl_usdc")),
+        "settled_order_count": _int_value(pnl.get("settled_order_count")),
+        "unsettled_order_count": _int_value(pnl.get("unsettled_order_count")),
         "reason_counts": pnl.get("reason_counts") or summary.get("reason_counts") or {},
         "root_cause_class": summary.get("root_cause_class"),
         "first_failing_gate": summary.get("first_failing_gate"),
+        "pnl_source": pnl_source,
+        "settlement_finalization_status": "missing",
+        "settlement_reconciliation_status": None,
+        "settlement_reconciliation_warnings": [],
+        "settled_pnl_path": None,
+        "settled_report_path": None,
+        "reported_net_pnl_usdc": None,
+        "reported_mark_to_market_pnl_usdc": None,
+        "reported_settled_order_count": None,
+        "reported_unsettled_order_count": None,
     }
 
 
-def summarize_taker_run(path, payload, rolling_payloads=None):
+def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=None):
     if not payload:
         return {"exists": False}
-    latest = _taker_summary_fields(payload)
+    latest = _taker_summary_fields(payload, settled_payload=settled_payload)
     rolling_payloads = rolling_payloads or []
-    rolling_fields = [_taker_summary_fields(item) for item in rolling_payloads]
+    rolling_fields = [
+        _taker_summary_fields(
+            item[0],
+            settled_payload=item[1] if isinstance(item, tuple) and len(item) > 1 else None,
+        )
+        if isinstance(item, tuple) else _taker_summary_fields(item)
+        for item in rolling_payloads
+    ]
     rolling_runs = len(rolling_fields)
     rolling_fills = sum(row["filled_orders"] for row in rolling_fields)
     rolling_net_pnl = sum(row["net_pnl_usdc"] for row in rolling_fields)
@@ -176,9 +255,18 @@ def build_trading_evidence_summary(
 ):
     mm_path, mm_payload = _latest_run_summary(mm_runs_root)
     taker_path, taker_payload = _latest_run_summary(taker_runs_root)
-    taker_payloads = [payload for _path, payload in _all_run_summaries(taker_runs_root)]
+    taker_settled_payload = _settled_taker_payload(taker_path)
+    taker_payloads = [
+        (payload, _settled_taker_payload(path))
+        for path, payload in _all_run_summaries(taker_runs_root)
+    ]
     return {
         "schema_version": "trading_evidence_summary_v0.1",
         "market_making": summarize_market_making_run(mm_path, mm_payload),
-        "taker": summarize_taker_run(taker_path, taker_payload, taker_payloads),
+        "taker": summarize_taker_run(
+            taker_path,
+            taker_payload,
+            taker_payloads,
+            settled_payload=taker_settled_payload,
+        ),
     }

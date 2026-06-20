@@ -775,6 +775,46 @@ class TestDailyLearning(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (taker_run / "settled_pnl.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "taker_settlement_finalization_v0.1",
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "settled_pnl_path": str(taker_run / "settled_pnl.json"),
+                        "settled_report_path": str(taker_run / "settled_report.md"),
+                        "summary": {
+                            "filled_order_count": 4,
+                            "budget_spent_usdc": 59.80507,
+                            "net_pnl_usdc": 36.687839,
+                            "settlement_pnl_usdc": 36.687839,
+                            "mark_to_market_pnl_usdc": 0.0,
+                            "settled_order_count": 4,
+                            "unsettled_order_count": 0,
+                            "pnl_source": "settlement_finalization",
+                        },
+                        "pnl": {
+                            "summary": {
+                                "filled_order_count": 4,
+                                "budget_spent_usdc": 59.80507,
+                                "net_pnl_usdc": 36.687839,
+                                "settlement_pnl_usdc": 36.687839,
+                                "mark_to_market_pnl_usdc": 0.0,
+                                "settled_order_count": 4,
+                                "unsettled_order_count": 0,
+                            }
+                        },
+                        "reconciliation": {
+                            "status": "WARN",
+                            "preferred_pnl_source": "settlement_finalization",
+                            "warnings": [
+                                {"code": "reported_mark_to_market_diverges_from_settlement", "detail": "diff"}
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             payload = build_learning_payload(backtest_root=backtest_root)
             categories = {row["category"] for row in payload["learnings"]}
@@ -791,11 +831,19 @@ class TestDailyLearning(unittest.TestCase):
         )
         self.assertEqual(
             payload["scorecard"]["trading_evidence"]["taker"]["quality_gate"]["status"],
-            "SAMPLE_PENDING_NEGATIVE_LATEST",
+            "SAMPLE_PENDING",
+        )
+        self.assertEqual(
+            payload["scorecard"]["trading_evidence"]["taker"]["pnl_source"],
+            "settlement_finalization",
+        )
+        self.assertAlmostEqual(
+            payload["scorecard"]["trading_evidence"]["taker"]["settlement_pnl_usdc"],
+            36.687839,
         )
         self.assertIn("## Trading Evidence", report)
         self.assertIn("operator_drill", report)
-        self.assertIn("SAMPLE_PENDING_NEGATIVE_LATEST", report)
+        self.assertIn("settlement_finalization", report)
 
     def test_build_learning_payload_blocks_broad_slo_with_recovery_checklist(self):
         with tempfile.TemporaryDirectory() as tmp:

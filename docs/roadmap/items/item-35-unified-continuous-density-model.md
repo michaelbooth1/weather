@@ -1,4 +1,4 @@
-# 35. Unified Continuous-Density Model [PARTIAL 2026-06-19 - FULL V0.7 REPLAY BLOCKED]
+# 35. Unified Continuous-Density Model [PARTIAL 2026-06-20 - TARGET-DAY SIGNAL, CURRENT REGRESSION, AND CLOB CONTINUITY BLOCKED]
 
 Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 
@@ -1294,3 +1294,151 @@ on the holdout split, so the unified-density repair should not add another
 context guard over this export. It needs new feature/model signal: Chicago
 slice repair, NYC/Seattle winner-mass repair, San Francisco non-current signal,
 and the Toronto lift requirement from the Item 35 acceptance bar.
+
+## 2026-06-20 UTC winner-mass repair targeting
+
+I regenerated the current-baseline winner-underpricing casebook after adding
+full-case dominant-pattern reporting:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_underpricing_casebook_report.md`.
+The report finds `312` early cases where the market ranked the eventual winner
+well but the combined candidate underweighted it or spread too much mass across
+nearby bands.
+
+The useful Item 35 repair split is now sharper:
+
+- NYC is the strongest direct winner-mass target: `131` cases, `122` all-fresh,
+  `91` high-disagreement, and repeated `eq:88.0-89.0` / `eq:94.0-95.0`
+  underpricing with average winner gaps of `+0.2492` and `+0.1873`.
+- Seattle is the second direct winner-mass target: `113` cases, `80`
+  warm-side, with `eq:74.0-75.0` and `eq:64.0-65.0` carrying average winner
+  gaps of `+0.2116` and `+0.2494`.
+- Chicago still needs a slice repair first: it has `44` cases, but average
+  spread gap is `-0.1355`, so the candidate is not simply too diffuse around
+  the winner.
+- San Francisco needs independent non-current signal: all `24` cases are
+  `near_forecast` and `high_disagreement`, with a smaller average winner gap
+  (`+0.0509`) but a large positive spread gap (`+0.6974`).
+
+This does not change Item 35 status. The item remains `PARTIAL` until a
+candidate beats current per market, clears the full pinned replay, and lifts
+Toronto without replay-row tuning.
+
+## 2026-06-20 UTC band-key contextual winner repair validation
+
+I extended `weather.reporting.contextual_winner_validation` to
+`contextual_winner_time_split_validation_v0.2` so it can fit split-safe
+band-key contextual factors and report a diagnostic eval oracle. The current
+combined replay artifact is:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_contextual_winner_validation_report.md`.
+
+This is a useful direction but not an Item 35 unblock. On the full later-date
+combined holdout, selected contextual factors improve daily-first Brier from
+baseline `0.0434` to `0.0426` versus market `0.0385`, reducing the market gap
+from `+0.0049` to `+0.0041`. However, it still leaves the key blocked markets
+outside tolerance: Chicago `+0.0097`, NYC `+0.0207`, San Francisco `+0.0056`,
+and Seattle `+0.0164`.
+
+The eval-oracle section explains why static winner-mass postprocessing is not
+enough. Future-selected band-key factors would clear these markets
+diagnostically, but the selected train factors target the wrong bands on the
+later dates. NYC train factors target `eq:80.0-81.0` and `eq:74.0-75.0`, while
+the eval oracle needs `eq:94.0-95.0` and `eq:88.0-89.0`; Seattle train factors
+target `eq:60.0-61.0`, while the eval oracle needs `eq:74.0-75.0`. This
+narrows the next density-model requirement: add an inference-time signal that
+predicts the correct target-day winner band context before applying contextual
+mass, rather than fitting another prior-day exact-band multiplier.
+
+Focused validation for the code path:
+`python -m pytest tests\reporting\test_contextual_winner_validation.py tests\operations\test_schema_registry.py -q`
+passed with 9 tests, and strict schema audit reported
+`registered=197 discovered=210 unregistered_versions=0`.
+
+## 2026-06-20 UTC nested winner-band row-signal rejection
+
+I added and ran the registered nested row-signal validator:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_band_signal_validation_report.md`.
+It tests whether a pooled logistic row model over inference-time distribution
+shape and forecast/source context can identify the target-day winner band
+without eval-date selection. The no-leakage audit passes: transform selection
+uses `2026-06-08`, then the final model is scored on `2026-06-12` and
+`2026-06-13`.
+
+The selected transform is `baseline`, so this is not an Item 35 candidate.
+The selection holdout rejects `row_norm` (`0.0443` versus baseline `0.0383`).
+On the later eval dates, `row_norm` is the best hindsight diagnostic
+(`0.0424` versus baseline `0.0434` and contextual winner `0.0426`), but it is
+not selectable and still leaves the density blocker intact: Chicago
+`+0.0075`, NYC `+0.0175`, Seattle `+0.0180`, Houston `+0.0064`, and
+Los Angeles `+0.0051` versus market. San Francisco improves to `+0.0024` in
+that eval-only diagnostic, which is useful targeting evidence but not a
+promotion path.
+
+This rules out a generic row-shape classifier as the next continuous-density
+repair. Item 35 still needs a real new signal that predicts the target-day band
+shift, plus the existing acceptance bar: beat current per market, clear the
+full pinned replay, and lift Toronto without replay-row tuning.
+
+## 2026-06-20 UTC CLOB continuity blocks market-informed density repair
+
+I regenerated the combined Item 32/35/48 CLOB coverage audit:
+`data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
+It now emits `clob_coverage_audit_v0.3`, uses the exact replay-window split
+that the current combined candidate relies on, and scans all local tape-backup
+manifests for restorable raw CLOB sources.
+
+The audit blocks any CLOB-informed density repair on the current export. Train
+coverage is `0.0000`: all `24` train-side folders are
+`missing_raw_clob_tape_and_token_map`, with no raw-book folders, no token-map
+folders, and no midpoint rows. Eval coverage is asymmetric and only diagnostic:
+`16` folders have midpoint coverage, `8` are one-sided/no-midpoint, and eval
+midpoint row coverage is `0.2380`.
+The restore-source scan finds no local raw recovery path for the train split:
+the June 7/8 train folders have feature shells in manifests, but `0/24` have
+raw-book restore paths, token-map restore paths, or full raw restore
+availability. All `24` June 12/13 eval folders do have full raw restore
+sources.
+
+This keeps Item 35 `PARTIAL`. CLOB may still be the right target-day
+band-selection signal for NYC/Seattle winner-mass repair and San Francisco
+non-current signal, but it cannot be selected or fitted split-safely until the
+train side has raw CLOB continuity. The next density-model unblock is therefore
+data work first: find an external/off-machine restore for the missing June 7/8
+raw books and token maps, or collect new predeclared train/eval market days
+with full CLOB continuity, then rerun the coverage audit before attempting
+another market-informed density candidate.
+
+## 2026-06-20 UTC v0.7 row-export repair diagnostic
+
+I reran the full v0.7 density candidate replay with candidate variant-row
+export enabled:
+`data/backtest/item35_density_v0_7_row_export_replay_report.md` and
+`data/backtest/item35_density_v0_7_variant_rows.csv`. The replay still returns
+`BLOCK / DO_NOT_CUT_OVER` over `76,879` rows. Aggregate candidate Brier is
+`0.04539` versus current `0.04267` and market `0.03732`; daily-first candidate
+Brier is `0.04463` versus current `0.04192` and market `0.03667`.
+
+The repair diagnostic
+`data/backtest/item35_density_v0_7_repair_diagnostics_report.md` confirms that
+the miss is not just one market or one missing export. The same nine markets
+remain blocked versus current/market acceptance: Austin, Chicago, Denver,
+Los Angeles, Miami, NYC, San Francisco, Seattle, and Toronto. Nine markets also
+regress current on daily-first evidence: Austin, Chicago, Dallas, Denver,
+Los Angeles, Miami, San Francisco, Seattle, and Toronto. Winner underpricing
+versus market appears in eight markets: Austin, Chicago, Denver, Los Angeles,
+Miami, NYC, San Francisco, and Seattle.
+
+The strict early winner-underpricing casebook
+`data/backtest/item35_density_v0_7_winner_underpricing_casebook_report.md`
+finds `673` cases across Austin, Los Angeles, NYC, San Francisco, and Seattle.
+Average winner probability gaps versus market are largest in NYC (`+0.2796`),
+Los Angeles (`+0.1765`), Seattle (`+0.1463`), Austin (`+0.1362`), and
+San Francisco (`+0.1051`). NYC remains the cleanest direct winner-mass repair
+target, but most other blocked markets also need a split-safe current
+regression guard or new target-day band-selection signal.
+
+This keeps Item 35 `PARTIAL`. The useful unblock path is now explicit: do not
+spend another pass on broad density blending alone. First restore or collect
+split-safe CLOB/microstructure continuity, then train a target-day
+band-selection repair that can lift winner mass and pass a current-regression
+guard on later dates, including Toronto, before rerunning the full pinned
+replay.

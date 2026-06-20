@@ -42,6 +42,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -Hidden `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
     -StartWhenAvailable `
+    -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 

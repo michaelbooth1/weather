@@ -26,12 +26,13 @@ from weather.reporting.winner_boost_validation import (
 )
 
 
-SCHEMA_VERSION = "contextual_winner_time_split_validation_v0.1"
+SCHEMA_VERSION = "contextual_winner_time_split_validation_v0.2"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "contextual_winner_validation.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "contextual_winner_validation_report.md"
 DEFAULT_MARKET_TOL = 0.003
 INFERENCE_CONTEXT_FIELDS = (
+    "band_key",
     "cutoff_regime",
     "forecast_bucket_pressure",
     "forecast_disagreement_bucket",
@@ -45,6 +46,10 @@ DEFAULT_TEMPLATES = (
     "forecast_disagreement_bucket",
     "forecast_source_count_bucket",
     "source_freshness_state",
+    "band_key",
+    "band_key+forecast_bucket_pressure",
+    "band_key+forecast_disagreement_bucket",
+    "band_key+forecast_bucket_pressure+forecast_disagreement_bucket",
     "cutoff_regime+forecast_disagreement_bucket",
     "cutoff_regime+forecast_bucket_pressure",
     "forecast_bucket_pressure+forecast_disagreement_bucket",
@@ -230,6 +235,17 @@ def select_template(
     }
 
 
+def _pass_status(score: dict[str, Any], market_tol: float) -> str:
+    if (
+        score.get("delta_vs_current") is not None
+        and score["delta_vs_current"] <= 0.0
+        and score.get("delta_vs_market") is not None
+        and score["delta_vs_market"] <= float(market_tol)
+    ):
+        return "PASS"
+    return "BLOCK"
+
+
 def serialize_factors(factors: dict[tuple[str, ...], dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
     rows = []
     for key, entry in factors.items():
@@ -282,6 +298,7 @@ def build_payload(
     train_rows_all = []
     eval_rows_all = []
     selections: dict[str, dict[str, Any]] = {}
+    oracle_selections: dict[str, dict[str, Any]] = {}
     market_results = []
 
     for market_id, market_split in sorted(split.items()):
@@ -297,12 +314,25 @@ def build_payload(
             factor_min=factor_min,
             factor_max=factor_max,
         )
+        eval_oracle = select_template(
+            eval_rows,
+            templates,
+            min_rows=min_rows,
+            prior_rows=prior_rows,
+            factor_min=factor_min,
+            factor_max=factor_max,
+        )
         selections[market_id] = selection
+        oracle_selections[market_id] = eval_oracle
         template = tuple(selection.get("template_fields") or [])
         factors = selection.get("factors") or {}
         eval_probabilities = contextual_probabilities(eval_rows, template, factors)
         selected_eval = score_probabilities(eval_rows, eval_probabilities)
         baseline_eval = score_probabilities(eval_rows)
+        oracle_template = tuple(eval_oracle.get("template_fields") or [])
+        oracle_factors = eval_oracle.get("factors") or {}
+        oracle_probabilities = contextual_probabilities(eval_rows, oracle_template, oracle_factors)
+        oracle_eval = score_probabilities(eval_rows, oracle_probabilities)
         serialized_factors = serialize_factors(factors)
         market_results.append({
             "market_id": market_id,
@@ -318,16 +348,14 @@ def build_payload(
             "top_factors": serialized_factors,
             "baseline_eval": baseline_eval,
             "eval": selected_eval,
-            "holdout_status": (
-                "PASS"
-                if (
-                    selected_eval.get("delta_vs_current") is not None
-                    and selected_eval["delta_vs_current"] <= 0.0
-                    and selected_eval.get("delta_vs_market") is not None
-                    and selected_eval["delta_vs_market"] <= float(market_tol)
-                )
-                else "BLOCK"
-            ),
+            "eval_oracle": {
+                "classification": "diagnostic_only_later_date_selected",
+                "selected_template": eval_oracle["template"],
+                "selected_factor_count": eval_oracle["factor_count"],
+                "score": oracle_eval,
+                "top_factors": serialize_factors(oracle_factors),
+            },
+            "holdout_status": _pass_status(selected_eval, market_tol),
         })
 
     serializable_selections = {
@@ -359,8 +387,9 @@ def build_payload(
             "primary_evidence_unit": "market_day",
             "detail": (
                 "Context templates are selected on earlier target dates and evaluated on later "
-                "target dates. Factor keys use only market id, cutoff, forecast pressure, "
-                "forecast disagreement, forecast source-count, and source-freshness columns."
+                "target dates. Factor keys use only market id, candidate band key, cutoff, "
+                "forecast pressure, forecast disagreement, forecast source-count, and "
+                "source-freshness columns."
             ),
         },
         "row_counts": {
@@ -381,6 +410,10 @@ def build_payload(
         },
         "selected": {
             "eval_daily_first": score_daily_first(eval_rows_all, selections),
+        },
+        "eval_oracle": {
+            "classification": "diagnostic_only_later_date_selected",
+            "eval_daily_first": score_daily_first(eval_rows_all, oracle_selections),
         },
         "market_results": market_results,
         "readiness_status": readiness_status,
@@ -403,6 +436,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     selected_daily = payload.get("selected", {}).get("eval_daily_first") or {}
     baseline_daily = payload.get("baseline", {}).get("eval_daily_first") or {}
+    oracle_daily = (payload.get("eval_oracle") or {}).get("eval_daily_first") or {}
     lines = [
         "# Contextual Winner Time-Split Validation",
         "",
@@ -450,6 +484,14 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 fmt_signed(baseline_daily.get("delta_vs_current")),
                 fmt_signed(baseline_daily.get("delta_vs_market")),
             ],
+            [
+                "eval oracle (diagnostic)",
+                fmt_num(oracle_daily.get("candidate_brier")),
+                fmt_num(oracle_daily.get("current_brier")),
+                fmt_num(oracle_daily.get("market_brier")),
+                fmt_signed(oracle_daily.get("delta_vs_current")),
+                fmt_signed(oracle_daily.get("delta_vs_market")),
+            ],
         ],
     )
     lines += [
@@ -469,6 +511,8 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             "Current",
             "Market",
             "Delta Market",
+            "Oracle Template",
+            "Oracle Gap",
             "Status",
         ],
         [
@@ -483,6 +527,8 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 fmt_num((row.get("eval") or {}).get("current_brier")),
                 fmt_num((row.get("eval") or {}).get("market_brier")),
                 fmt_signed((row.get("eval") or {}).get("delta_vs_market")),
+                (row.get("eval_oracle") or {}).get("selected_template"),
+                fmt_signed(((row.get("eval_oracle") or {}).get("score") or {}).get("delta_vs_market")),
                 row.get("holdout_status"),
             ]
             for row in payload.get("market_results") or []

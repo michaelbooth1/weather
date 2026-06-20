@@ -288,7 +288,77 @@ def summarize_cases(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "case_count": len(cases),
         "markets": sorted(by_market),
         "market_summary": market_rows,
+        "pattern_summary": build_pattern_summary(by_market),
     }
+
+
+def _pattern_key_value(case: dict[str, Any], field: str) -> Any:
+    if field == "winner_band_key":
+        return case.get("winner_band_key")
+    return case.get(field)
+
+
+def build_pattern_summary(
+    by_market: dict[str, list[dict[str, Any]]],
+    top_n: int = 5,
+) -> list[dict[str, Any]]:
+    fields = [
+        "forecast_bucket_pressure",
+        "forecast_disagreement_bucket",
+        "source_freshness_state",
+        "capture_hour",
+        "winner_band_key",
+        "winner_bin_type",
+    ]
+
+    def average(items: list[float]) -> float | None:
+        return sum(items) / len(items) if items else None
+
+    rows: list[dict[str, Any]] = []
+    for market_id, market_cases in sorted(by_market.items()):
+        for field in fields:
+            by_value: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for case in market_cases:
+                value = _pattern_key_value(case, field)
+                value_text = str(value) if value not in (None, "") else "missing"
+                by_value[value_text].append(case)
+            ranked = sorted(
+                by_value.items(),
+                key=lambda item: (
+                    len(item[1]),
+                    average([
+                        float(case["winner_probability_gap_vs_market"])
+                        for case in item[1]
+                        if case.get("winner_probability_gap_vs_market") is not None
+                    ]) or 0.0,
+                    item[0],
+                ),
+                reverse=True,
+            )
+            for value, value_cases in ranked[: max(0, int(top_n))]:
+                rows.append({
+                    "market_id": market_id,
+                    "field": field,
+                    "value": value,
+                    "cases": len(value_cases),
+                    "share": len(value_cases) / len(market_cases) if market_cases else None,
+                    "avg_winner_probability_gap_vs_market": average([
+                        float(case["winner_probability_gap_vs_market"])
+                        for case in value_cases
+                        if case.get("winner_probability_gap_vs_market") is not None
+                    ]),
+                    "avg_winner_rank_gap_vs_market": average([
+                        float(case["winner_rank_gap_vs_market"])
+                        for case in value_cases
+                        if case.get("winner_rank_gap_vs_market") is not None
+                    ]),
+                    "avg_effective_band_gap_vs_market": average([
+                        float(case["effective_band_gap_vs_market"])
+                        for case in value_cases
+                        if case.get("effective_band_gap_vs_market") is not None
+                    ]),
+                })
+    return rows
 
 
 def build_payload(
@@ -385,6 +455,22 @@ def _case_rows(cases: list[dict[str, Any]]) -> list[list[Any]]:
     return rows
 
 
+def _pattern_rows(summary: dict[str, Any]) -> list[list[Any]]:
+    rows = []
+    for item in summary.get("pattern_summary") or []:
+        rows.append([
+            item.get("market_id"),
+            item.get("field"),
+            item.get("value"),
+            item.get("cases"),
+            fmt_num(item.get("share")),
+            fmt_signed(item.get("avg_winner_probability_gap_vs_market")),
+            fmt_num(item.get("avg_winner_rank_gap_vs_market")),
+            fmt_num(item.get("avg_effective_band_gap_vs_market")),
+        ])
+    return rows
+
+
 def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path = Path(path)
     summary = payload.get("summary") or {}
@@ -422,6 +508,26 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             "Avg Spread Gap",
         ],
         _summary_rows(summary),
+    )
+    lines += [
+        "",
+        "## Dominant Patterns",
+        "",
+        "All rows in this section are computed from every detected case, not only the displayed case limit.",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Market",
+            "Field",
+            "Value",
+            "Cases",
+            "Share",
+            "Avg Winner Gap",
+            "Avg Rank Gap",
+            "Avg Spread Gap",
+        ],
+        _pattern_rows(summary),
     )
     lines += [
         "",

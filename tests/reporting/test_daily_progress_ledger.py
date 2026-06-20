@@ -109,6 +109,42 @@ class TestDailyProgressLedger(unittest.TestCase):
                     "pnl": {"summary": {"mark_to_market_pnl_usdc": -17.2087}},
                 },
             )
+            write_json(
+                taker / "settled_pnl.json",
+                {
+                    "schema_version": "taker_settlement_finalization_v0.1",
+                    "run_id": "taker-1",
+                    "target_date": "2026-06-19",
+                    "settled_pnl_path": str(taker / "settled_pnl.json"),
+                    "settled_report_path": str(taker / "settled_report.md"),
+                    "summary": {
+                        "filled_order_count": 4,
+                        "net_pnl_usdc": 36.687839,
+                        "settlement_pnl_usdc": 36.687839,
+                        "mark_to_market_pnl_usdc": 0.0,
+                        "settled_order_count": 4,
+                        "unsettled_order_count": 0,
+                        "pnl_source": "settlement_finalization",
+                    },
+                    "pnl": {
+                        "summary": {
+                            "filled_order_count": 4,
+                            "net_pnl_usdc": 36.687839,
+                            "settlement_pnl_usdc": 36.687839,
+                            "mark_to_market_pnl_usdc": 0.0,
+                            "settled_order_count": 4,
+                            "unsettled_order_count": 0,
+                        }
+                    },
+                    "reconciliation": {
+                        "status": "WARN",
+                        "preferred_pnl_source": "settlement_finalization",
+                        "warnings": [
+                            {"code": "reported_mark_to_market_diverges_from_settlement", "detail": "diff"}
+                        ],
+                    },
+                },
+            )
             daily_refresh = {
                 "status": "error",
                 "generated_at_utc": "2026-06-20T01:00:00+00:00",
@@ -141,6 +177,11 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["ops_disk_headroom_bytes"], -583606784)
         self.assertEqual(row["trading_mm_evidence_mode"], "operator_drill")
         self.assertEqual(row["trading_taker_root_cause"], "policy_no_edge")
+        self.assertAlmostEqual(row["trading_taker_net_pnl_usdc"], 36.687839)
+        self.assertEqual(row["trading_taker_pnl_source"], "settlement_finalization")
+        self.assertEqual(row["trading_taker_settled_orders"], 4)
+        self.assertEqual(row["trading_taker_unsettled_orders"], 0)
+        self.assertEqual(row["trading_taker_reconciliation_status"], "WARN")
 
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import math
+import sys
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, time as dt_time, timezone
@@ -48,13 +49,18 @@ from weather.market.mm_policy import (
     parse_time,
     source_freshness_state_from_rows,
 )
+from weather.operations.power import keep_system_awake
 from weather.paths import data_path
 
 
 SCHEMA_VERSION = "taker_bot_run_v0.1"
+FINALIZATION_SCHEMA_VERSION = "taker_settlement_finalization_v0.1"
 POLICY_VERSION = "taker_bot_policy_v0.1"
 DEFAULT_RUNS_ROOT = data_path() / "taker_runs"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
+DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
+RECONCILIATION_WARNING_USDC = 1.0
+SETTLEMENT_PNL_SOURCES = {"settlement", "settlement_finalized"}
 
 DEFAULT_CONFIG = {
     "policy_version": POLICY_VERSION,
@@ -916,6 +922,81 @@ def settlement_outcome_for_order(row, settlement):
         return 1.0 if resolve_outcome(kind, value, bucket, value_hi) else 0.0
 
 
+def load_settlement_labels(labels_csv=DEFAULT_LABELS_CSV):
+    """Load finalized market-day labels keyed by event slug and market/date."""
+    labels = {
+        "by_event_slug": {},
+        "by_market_date": {},
+    }
+    for row in read_csv_rows(labels_csv, attach_diagnostics=True):
+        event_slug = row.get("event_slug") or ""
+        market_id = row.get("market_id") or ""
+        target_date = row.get("target_date") or ""
+        if event_slug:
+            labels["by_event_slug"][event_slug] = row
+        if market_id and target_date:
+            labels["by_market_date"][(market_id, target_date)] = row
+    return labels
+
+
+def settlement_label_for_order(row, labels):
+    event_slug = row.get("event_slug") or ""
+    if event_slug and event_slug in labels.get("by_event_slug", {}):
+        return labels["by_event_slug"][event_slug]
+    key = (row.get("market_id") or "", row.get("target_date") or "")
+    return labels.get("by_market_date", {}).get(key)
+
+
+def score_orders_against_labels(order_rows, labels):
+    """Score filled taker orders against finalized labels without touching raw tape."""
+    scored = []
+    matched = 0
+    unmatched = 0
+    for row in order_rows or []:
+        out = dict(row)
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            scored.append(out)
+            continue
+        label = settlement_label_for_order(row, labels)
+        outcome = settlement_outcome_for_order(row, label)
+        out["settlement_outcome"] = compact_float(outcome)
+        if outcome is None:
+            unmatched += 1
+            out.update({
+                "settlement_status": "unsettled",
+                "settlement_payout_usdc": None,
+                "settlement_pnl_usdc": None,
+                "mark_pnl_usdc": None,
+                "pnl_source": "unscored",
+                "net_pnl_usdc": None,
+            })
+            scored.append(out)
+            continue
+        matched += 1
+        fill_size = maybe_float(row.get("fill_size")) or 0.0
+        fill_notional = maybe_float(row.get("fill_notional_usdc"))
+        if fill_notional is None:
+            fill_notional = maybe_float(row.get("total_spent_usdc")) or 0.0
+        fee = maybe_float(row.get("fee_usdc")) or 0.0
+        cost = fill_notional + fee
+        payout = float(outcome) * fill_size
+        pnl = payout - cost
+        out.update({
+            "settlement_status": "settled",
+            "settlement_payout_usdc": compact_float(payout),
+            "settlement_pnl_usdc": compact_float(pnl),
+            "mark_pnl_usdc": None,
+            "pnl_source": "settlement_finalized",
+            "net_pnl_usdc": compact_float(pnl),
+        })
+        scored.append(out)
+    return scored, {
+        "matched_filled_orders": matched,
+        "unmatched_filled_orders": unmatched,
+        "label_count": len(labels.get("by_event_slug", {})),
+    }
+
+
 def load_mark_rows(folder):
     folder = Path(folder)
     rows = []
@@ -1010,7 +1091,7 @@ def sum_field(rows, key):
 def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
     now = utc_now(now)
     filled = [row for row in order_rows if str(row.get("order_status") or "").upper() == "FILLED"]
-    settled = [row for row in filled if row.get("pnl_source") == "settlement"]
+    settled = [row for row in filled if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
     marked = [row for row in filled if row.get("pnl_source") == "mark_to_market"]
     unscored = [row for row in filled if row.get("pnl_source") == "unscored"]
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in order_rows)
@@ -1215,6 +1296,334 @@ def render_report(payload):
     ))
     lines.append("")
     return "\n".join(lines)
+
+
+def first_numeric(*values, default=None):
+    for value in values:
+        number = maybe_float(value)
+        if number is not None:
+            return number
+    return default
+
+
+def first_int(*values, default=0):
+    number = first_numeric(*values, default=None)
+    return int(number) if number is not None else int(default)
+
+
+def reported_taker_pnl_summary(run_summary=None, daily_pnl=None):
+    run_summary = run_summary or {}
+    daily_pnl = daily_pnl or {}
+    summary = run_summary.get("summary") or {}
+    run_pnl = (run_summary.get("pnl") or {}).get("summary") or {}
+    daily_summary = daily_pnl.get("summary") or {}
+    return {
+        "reported_filled_order_count": first_int(
+            summary.get("cumulative_filled_orders"),
+            run_pnl.get("filled_order_count"),
+            daily_summary.get("filled_order_count"),
+        ),
+        "reported_unsettled_order_count": first_int(
+            run_pnl.get("unsettled_order_count"),
+            daily_summary.get("unsettled_order_count"),
+        ),
+        "reported_settled_order_count": first_int(
+            run_pnl.get("settled_order_count"),
+            daily_summary.get("settled_order_count"),
+        ),
+        "reported_net_pnl_usdc": first_numeric(
+            summary.get("cumulative_net_pnl_usdc"),
+            run_pnl.get("net_pnl_usdc"),
+            daily_summary.get("net_pnl_usdc"),
+        ),
+        "reported_mark_to_market_pnl_usdc": first_numeric(
+            run_pnl.get("mark_to_market_pnl_usdc"),
+            daily_summary.get("mark_to_market_pnl_usdc"),
+        ),
+        "reported_settlement_pnl_usdc": first_numeric(
+            run_pnl.get("settlement_pnl_usdc"),
+            daily_summary.get("settlement_pnl_usdc"),
+        ),
+    }
+
+
+def reconciliation_warning(code, detail, **values):
+    out = {"code": code, "detail": detail}
+    for key, value in values.items():
+        if isinstance(value, float):
+            out[key] = compact_float(value)
+        else:
+            out[key] = value
+    return out
+
+
+def build_settlement_reconciliation(final_summary, reported_summary, threshold_usdc=RECONCILIATION_WARNING_USDC):
+    final_summary = final_summary or {}
+    reported_summary = reported_summary or {}
+    settled_orders = int(final_summary.get("settled_order_count") or 0)
+    unsettled_orders = int(final_summary.get("unsettled_order_count") or 0)
+    final_net = first_numeric(final_summary.get("net_pnl_usdc"), default=0.0)
+    final_settlement = first_numeric(final_summary.get("settlement_pnl_usdc"), default=0.0)
+    reported_net = first_numeric(reported_summary.get("reported_net_pnl_usdc"), default=None)
+    reported_mtm = first_numeric(reported_summary.get("reported_mark_to_market_pnl_usdc"), default=None)
+    reported_unsettled = int(reported_summary.get("reported_unsettled_order_count") or 0)
+    gross_cost = first_numeric(final_summary.get("gross_cost_usdc"), default=0.0)
+    warnings = []
+
+    if settled_orders > 0 and reported_unsettled > 0:
+        warnings.append(reconciliation_warning(
+            "reported_unsettled_after_labels_available",
+            "Run summary still treated filled orders as unsettled after finalized labels were available.",
+            reported_unsettled_order_count=reported_unsettled,
+            finalized_settled_order_count=settled_orders,
+        ))
+    if settled_orders > 0 and reported_mtm is not None:
+        diff_mtm = final_net - reported_mtm
+        if abs(diff_mtm) > threshold_usdc:
+            warnings.append(reconciliation_warning(
+                "reported_mark_to_market_diverges_from_settlement",
+                "Reported mark-to-market P&L differs materially from settlement-finalized P&L.",
+                difference_usdc=diff_mtm,
+                reported_mark_to_market_pnl_usdc=reported_mtm,
+                finalized_net_pnl_usdc=final_net,
+            ))
+        if gross_cost > 0 and abs(reported_mtm) > max(threshold_usdc, gross_cost * 2.0):
+            warnings.append(reconciliation_warning(
+                "resolved_mark_to_market_outlier",
+                "Resolved-day mark-to-market was too large relative to filled cost; treat it as stale CLOB mark evidence.",
+                reported_mark_to_market_pnl_usdc=reported_mtm,
+                finalized_gross_cost_usdc=gross_cost,
+            ))
+        if final_settlement != 0 and reported_mtm * final_settlement < 0 and abs(diff_mtm) > threshold_usdc:
+            warnings.append(reconciliation_warning(
+                "resolved_mark_to_market_sign_flip",
+                "Reported mark-to-market and settlement-finalized P&L have opposite signs.",
+                reported_mark_to_market_pnl_usdc=reported_mtm,
+                settlement_pnl_usdc=final_settlement,
+            ))
+    if settled_orders > 0 and reported_net is not None:
+        diff_net = final_net - reported_net
+        if abs(diff_net) > threshold_usdc:
+            warnings.append(reconciliation_warning(
+                "reported_net_pnl_diverges_from_settlement",
+                "Reported net P&L differs materially from settlement-finalized P&L.",
+                difference_usdc=diff_net,
+                reported_net_pnl_usdc=reported_net,
+                finalized_net_pnl_usdc=final_net,
+            ))
+
+    if settled_orders > 0 and unsettled_orders == 0:
+        preferred = "settlement_finalization"
+    elif settled_orders > 0:
+        preferred = "mixed_settlement_and_unscored"
+    elif reported_mtm is not None:
+        preferred = "mark_to_market"
+    else:
+        preferred = "unscored"
+    return {
+        "status": "WARN" if warnings else "PASS",
+        "preferred_pnl_source": preferred,
+        "large_difference_threshold_usdc": threshold_usdc,
+        "reported": reported_summary,
+        "finalized": {
+            "settled_order_count": settled_orders,
+            "unsettled_order_count": unsettled_orders,
+            "net_pnl_usdc": compact_float(final_net),
+            "settlement_pnl_usdc": compact_float(final_settlement),
+        },
+        "differences": {
+            "net_minus_reported_net_usdc": (
+                compact_float(final_net - reported_net) if reported_net is not None else None
+            ),
+            "net_minus_reported_mark_to_market_usdc": (
+                compact_float(final_net - reported_mtm) if reported_mtm is not None else None
+            ),
+        },
+        "warnings": warnings,
+    }
+
+
+def render_settlement_report(payload):
+    summary = payload.get("summary") or {}
+    pnl = payload.get("pnl") or {}
+    pnl_summary = pnl.get("summary") or {}
+    reconciliation = payload.get("reconciliation") or {}
+    warnings = reconciliation.get("warnings") or []
+    lines = [
+        "# Taker Settlement Finalization Report",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Run ID: `{payload.get('run_id')}`",
+        f"Target date: `{payload.get('target_date')}`",
+        f"Source run folder: `{payload.get('run_folder')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Filled orders", pnl_summary.get("filled_order_count")],
+            ["Settled / unsettled", f"{pnl_summary.get('settled_order_count')} / {pnl_summary.get('unsettled_order_count')}"],
+            ["P&L source", summary.get("pnl_source")],
+            ["Reconciliation status", reconciliation.get("status")],
+            ["Warnings", len(warnings)],
+            ["Labels CSV", payload.get("labels_csv")],
+        ],
+    ))
+    lines.extend(["", "## P&L", ""])
+    lines.extend(markdown_table(
+        ["Component", "USDC"],
+        [
+            ["Gross cost", fmt_num(pnl_summary.get("gross_cost_usdc"), 4)],
+            ["Fees", fmt_num(pnl_summary.get("fees_usdc"), 4)],
+            ["Settlement payout", fmt_num(pnl_summary.get("settlement_payout_usdc"), 4)],
+            ["Settlement P&L", fmt_num(pnl_summary.get("settlement_pnl_usdc"), 4)],
+            ["Finalized net P&L", fmt_num(pnl_summary.get("net_pnl_usdc"), 4)],
+            ["Reported net P&L", fmt_num(summary.get("reported_net_pnl_usdc"), 4)],
+            ["Reported mark-to-market P&L", fmt_num(summary.get("reported_mark_to_market_pnl_usdc"), 4)],
+        ],
+    ))
+    lines.extend(["", "## Reconciliation", ""])
+    lines.extend(markdown_table(
+        ["Check", "Value"],
+        [
+            ["Status", reconciliation.get("status")],
+            ["Net minus reported net", fmt_num((reconciliation.get("differences") or {}).get("net_minus_reported_net_usdc"), 4)],
+            [
+                "Net minus reported MTM",
+                fmt_num((reconciliation.get("differences") or {}).get("net_minus_reported_mark_to_market_usdc"), 4),
+            ],
+        ],
+    ))
+    if warnings:
+        lines.extend(["", "## Warnings", ""])
+        lines.extend(markdown_table(
+            ["Code", "Detail"],
+            [[row.get("code"), row.get("detail")] for row in warnings],
+        ))
+    lines.extend(["", "## Markets", ""])
+    lines.extend(markdown_table(
+        ["Market", "Filled", "Shares", "Spent", "Net P&L"],
+        [
+            [
+                row.get("market_id"),
+                row.get("filled_order_count"),
+                fmt_num(row.get("filled_shares"), 3),
+                fmt_num(row.get("spent_usdc"), 2),
+                fmt_num(row.get("net_pnl_usdc"), 4),
+            ]
+            for row in pnl.get("by_market") or []
+        ],
+    ))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
+    run_folder = Path(run_folder)
+    order_path = run_folder / "orders_long.csv"
+    if not order_path.exists():
+        raise FileNotFoundError(f"missing taker orders tape: {order_path}")
+    now = utc_now(now)
+    run_summary = read_json(run_folder / "run_summary.json", {}) or {}
+    daily_pnl = read_json(run_folder / "daily_pnl.json", {}) or {}
+    target_date = (
+        run_summary.get("target_date")
+        or daily_pnl.get("target_date")
+        or run_folder.parent.name
+    )
+    run_id = run_summary.get("run_id") or daily_pnl.get("run_id") or run_folder.name
+    summary = run_summary.get("summary") or {}
+    daily_summary = daily_pnl.get("summary") or {}
+    budget_usdc = first_numeric(
+        summary.get("budget_usdc"),
+        daily_summary.get("budget_usdc"),
+        run_summary.get("budget_usdc"),
+        default=0.0,
+    )
+
+    labels = load_settlement_labels(labels_csv)
+    raw_orders = read_order_rows(order_path)
+    scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
+    pnl_payload = build_pnl_payload(scored_orders, budget_usdc, run_id, target_date, now=now)
+    reported_summary = reported_taker_pnl_summary(run_summary, daily_pnl)
+    reconciliation = build_settlement_reconciliation(pnl_payload.get("summary") or {}, reported_summary)
+    settled_orders_path = run_folder / "settled_orders_long.csv"
+    settled_pnl_path = run_folder / "settled_pnl.json"
+    settled_report_path = run_folder / "settled_report.md"
+    final_summary = {
+        **(pnl_payload.get("summary") or {}),
+        "pnl_source": reconciliation.get("preferred_pnl_source"),
+        "reconciliation_status": reconciliation.get("status"),
+        "reconciliation_warning_count": len(reconciliation.get("warnings") or []),
+        "settled_orders_path": str(settled_orders_path),
+        "settled_report_path": str(settled_report_path),
+        **reported_summary,
+    }
+    payload = {
+        "schema_version": FINALIZATION_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "run_id": run_id,
+        "target_date": ensure_date(target_date).isoformat(),
+        "run_folder": str(run_folder),
+        "orders_path": str(order_path),
+        "settled_orders_path": str(settled_orders_path),
+        "settled_pnl_path": str(settled_pnl_path),
+        "settled_report_path": str(settled_report_path),
+        "labels_csv": str(Path(labels_csv)),
+        "label_summary": label_summary,
+        "summary": final_summary,
+        "pnl": pnl_payload,
+        "reconciliation": reconciliation,
+        "warnings": reconciliation.get("warnings") or [],
+    }
+    write_csv_rows(settled_orders_path, ORDER_COLUMNS, scored_orders)
+    write_json(settled_pnl_path, payload)
+    settled_report_path.write_text(render_settlement_report(payload), encoding="utf-8")
+    return payload
+
+
+def taker_run_folders(runs_root=DEFAULT_RUNS_ROOT, target_date=None):
+    root = Path(runs_root)
+    if target_date:
+        pattern_root = root / ensure_date(target_date).isoformat()
+        candidates = sorted(pattern_root.glob("*"))
+    else:
+        candidates = sorted(root.glob("*/*"))
+    return [path for path in candidates if path.is_dir() and (path / "orders_long.csv").exists()]
+
+
+def finalize_taker_runs(
+    target_date=None,
+    runs_root=DEFAULT_RUNS_ROOT,
+    labels_csv=DEFAULT_LABELS_CSV,
+    run_folder=None,
+    now=None,
+):
+    now = utc_now(now)
+    folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
+    payloads = [finalize_taker_run(folder, labels_csv=labels_csv, now=now) for folder in folders]
+    return {
+        "schema_version": FINALIZATION_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "target_date": ensure_date(target_date).isoformat() if target_date else None,
+        "run_count": len(payloads),
+        "runs": [
+            {
+                "run_id": payload.get("run_id"),
+                "target_date": payload.get("target_date"),
+                "run_folder": payload.get("run_folder"),
+                "settled_pnl_path": payload.get("settled_pnl_path"),
+                "settled_report_path": payload.get("settled_report_path"),
+                "net_pnl_usdc": (payload.get("summary") or {}).get("net_pnl_usdc"),
+                "settled_order_count": (payload.get("summary") or {}).get("settled_order_count"),
+                "unsettled_order_count": (payload.get("summary") or {}).get("unsettled_order_count"),
+                "reconciliation_status": (payload.get("reconciliation") or {}).get("status"),
+            }
+            for payload in payloads
+        ],
+    }
 
 
 def discover_inputs(
@@ -1446,25 +1855,26 @@ def run_loop(
     until = parse_time(until_utc) if until_utc else paper_until_utc(target_date, markets=markets)
     results = []
     tick = 0
-    while True:
-        now = utc_now()
-        if until is not None and now > until:
-            break
-        if max_ticks is not None and tick >= int(max_ticks):
-            break
-        payload = build_run_once(
-            target_date,
-            budget_usdc,
-            markets=markets,
-            now=now,
-            append=True,
-            **kwargs,
-        )
-        results.append(payload)
-        tick += 1
-        if max_ticks is not None and tick >= int(max_ticks):
-            break
-        time.sleep(float(interval_seconds))
+    with keep_system_awake("weather taker bot loop"):
+        while True:
+            now = utc_now()
+            if until is not None and now > until:
+                break
+            if max_ticks is not None and tick >= int(max_ticks):
+                break
+            payload = build_run_once(
+                target_date,
+                budget_usdc,
+                markets=markets,
+                now=now,
+                append=True,
+                **kwargs,
+            )
+            results.append(payload)
+            tick += 1
+            if max_ticks is not None and tick >= int(max_ticks):
+                break
+            time.sleep(float(interval_seconds))
     return results[-1] if results else None
 
 
@@ -1488,7 +1898,36 @@ def parse_config_overrides(items):
     return config
 
 
+def finalize_main(argv=None):
+    parser = argparse.ArgumentParser(description="Finalize taker-bot paper P&L against settled labels.")
+    parser.add_argument("--date", default=None, help="Target market date to finalize, YYYY-MM-DD.")
+    parser.add_argument("--run-folder", default=None, help="Finalize one taker run folder.")
+    parser.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
+    parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
+    parser.add_argument("--now", default=None, help="Testing/replay timestamp.")
+    args = parser.parse_args(argv)
+    payload = finalize_taker_runs(
+        target_date=args.date,
+        runs_root=Path(args.runs_root),
+        labels_csv=Path(args.labels_csv),
+        run_folder=Path(args.run_folder) if args.run_folder else None,
+        now=args.now,
+    )
+    print(f"Taker finalization: {payload['run_count']} run(s) finalized")
+    for row in payload["runs"]:
+        print(
+            f"- {row['run_id']} {row['target_date']}: "
+            f"net={row['net_pnl_usdc']} USDC, "
+            f"settled/unsettled={row['settled_order_count']}/{row['unsettled_order_count']}, "
+            f"reconciliation={row['reconciliation_status']} -> {row['settled_pnl_path']}"
+        )
+    return payload
+
+
 def main(argv=None):
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] == "finalize":
+        return finalize_main(raw_argv[1:])
     parser = argparse.ArgumentParser(description="Run the daily paper taker-bot simulator.")
     parser.add_argument("--date", required=True, help="Target market date, YYYY-MM-DD.")
     parser.add_argument("--budget-usdc", type=float, required=True, help="Daily simulated spend budget.")
@@ -1505,7 +1944,7 @@ def main(argv=None):
     parser.add_argument("--until-utc", default=None)
     parser.add_argument("--max-ticks", type=int, default=None)
     parser.add_argument("--ledger-root", default=None)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     common = {
         "markets": args.markets,

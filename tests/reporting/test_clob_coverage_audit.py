@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -148,9 +149,39 @@ class ClobCoverageAuditTests(unittest.TestCase):
                     clob_spread="0.02",
                 )
             ])
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text(
+                json.dumps({
+                    "files": [
+                        {
+                            "path": (
+                                "data/snapshots/highest-temperature-in-nyc-on-june-7-2026/"
+                                "clob_features_long.csv"
+                            )
+                        },
+                        {
+                            "path": (
+                                "data/snapshots/highest-temperature-in-nyc-on-june-13-2026/"
+                                "order_books_summary.csv"
+                            )
+                        },
+                        {
+                            "path": (
+                                "data/snapshots/highest-temperature-in-nyc-on-june-13-2026/"
+                                "clob_tokens.csv"
+                            )
+                        },
+                    ]
+                }),
+                encoding="utf-8",
+            )
             report = Path(tmp) / "report.md"
 
-            payload = build_payload([first, second], min_train_midpoint_coverage=0.05)
+            payload = build_payload(
+                [first, second],
+                min_train_midpoint_coverage=0.05,
+                backup_manifest_paths=[manifest],
+            )
             write_markdown_report(report, payload)
             text = report.read_text(encoding="utf-8")
 
@@ -158,10 +189,29 @@ class ClobCoverageAuditTests(unittest.TestCase):
         self.assertIn("missing_raw_clob_tape_and_token_map", payload["summary"]["classifications"])
         self.assertEqual(payload["split_coverage_gate"]["status"], "BLOCK")
         self.assertEqual(payload["split_coverage_gate"]["train"]["folders"], 1)
+        self.assertEqual(
+            payload["split_coverage_gate"]["train"]["classifications"]["missing_raw_clob_tape_and_token_map"],
+            1,
+        )
         self.assertEqual(payload["split_coverage_gate"]["eval"]["midpoint_available_folders"], 1)
+        self.assertEqual(payload["split_coverage_gate"]["eval"]["classifications"]["midpoint_available"], 1)
         self.assertIn("midpoint_available", text)
         self.assertIn("Chronological Split Coverage", text)
         self.assertIn("Split coverage gate", text)
+        self.assertIn("Train classifications", text)
+        restore = payload["restore_source_audit"]
+        self.assertEqual(restore["summary"]["manifest_count"], 1)
+        self.assertEqual(restore["summary"]["feature_shell_folders"], 1)
+        self.assertEqual(restore["summary"]["full_raw_restore_folders"], 1)
+        self.assertEqual(restore["summary"]["missing_full_raw_restore_folders"], 1)
+        first_restore = next(
+            row for row in restore["folders"]
+            if row["event_slug"] == "highest-temperature-in-nyc-on-june-7-2026"
+        )
+        self.assertTrue(first_restore["feature_shell_in_manifest"])
+        self.assertFalse(first_restore["raw_book_restore_available"])
+        self.assertFalse(first_restore["token_map_restore_available"])
+        self.assertIn("Backup Restore Source Audit", text)
 
     def test_split_coverage_gate_passes_when_train_midpoint_coverage_clears_threshold(self):
         with tempfile.TemporaryDirectory() as tmp:

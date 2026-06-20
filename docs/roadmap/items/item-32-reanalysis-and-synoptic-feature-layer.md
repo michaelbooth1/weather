@@ -1,4 +1,4 @@
-# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-19 - RICH+PRESSURE REPLAY BLOCKED]
+# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-20 - PRESSURE-LEVEL SOURCE-LAG AND CLOB CONTINUITY BLOCKED]
 
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
@@ -883,3 +883,152 @@ Focused validation:
 `python -m pytest tests\reporting\test_context_guard_validation.py tests\reporting\test_current_blend_validation.py tests\reporting\test_variant_basket_selection_validation.py tests\operations\test_schema_registry.py -q`
 passed with 18 tests. The strict schema audit for the new report and registry
 entry reported `registered=193 discovered=204 unregistered_versions=0`.
+
+## 2026-06-20 UTC winner-underpricing casebook pattern summary
+
+I strengthened the current combined Item 32 diagnostic by extending
+`weather.reporting.winner_underpricing_casebook` with a dominant-pattern
+summary computed from every detected case, not just the displayed case limit.
+The regenerated artifact is
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_underpricing_casebook_report.md`.
+It scans `24,530` rows and finds `312` early winner-underpricing cases across
+Chicago, NYC, San Francisco, and Seattle.
+
+The all-case pattern summary turns the remaining blocker shape into actionable
+model work:
+
+- Chicago has `44` cases, led by winner band `eq:80.0-81.0` (`32` cases,
+  `73%` share), but average spread gap is negative (`-0.1355`). That keeps
+  Chicago in slice-repair territory rather than generic winner-mass
+  sharpening.
+- NYC has `131` cases with concentrated cool-side, all-fresh winner
+  underpricing: `eq:88.0-89.0` (`47` cases, average winner gap `+0.2492`) and
+  `eq:94.0-95.0` (`45` cases, average winner gap `+0.1873`). This supports a
+  direct NYC winner-mass repair target.
+- San Francisco has `24` cases, all `near_forecast` and `high_disagreement`,
+  with `eq:66.0-67.0` covering `21` cases. The average gap is smaller
+  (`+0.0509`) but paired with positive spread gap (`+0.6974`), so it still
+  needs non-current signal rather than another current guard.
+- Seattle has `113` cases, dominated by warm-side underpricing (`80` cases,
+  average winner gap `+0.2007`) and repeated `eq:74.0-75.0` / `eq:64.0-65.0`
+  winner bands. This supports a Seattle winner-mass repair lane.
+
+This is development evidence only. Item 32 remains `PARTIAL`: the source-family
+inventory is clean, but replay gates still block Chicago, NYC, San Francisco,
+and Seattle until these targeted repairs improve settlement-scored performance.
+
+## 2026-06-20 UTC split-safe winner-mass repair validation
+
+I reran the shallow postprocess repair validators on the current combined
+Item 32 replay rows for Chicago, NYC, San Francisco, and Seattle:
+
+- `data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_candidate_rank_sharpening_validation_report.md`
+- `data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_forecast_pressure_tilt_validation_report.md`
+- `data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_forecast_side_rank_validation_report.md`
+
+All three remain `BLOCK`. Candidate-rank sharpening worsens later-date
+daily-first Brier from baseline `0.0501` to `0.0579`; forecast-pressure tilt
+worsens it to `0.0565`; forecast-side rank worsens it to `0.0576`. Their
+no-leakage audits pass, so this is a real rejection of simple rank/pressure
+mass shaping on the current combined export.
+
+I then upgraded `weather.reporting.contextual_winner_validation` to schema
+`contextual_winner_time_split_validation_v0.2`, adding `band_key` contexts and
+diagnostic eval-oracle reporting, and regenerated:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_contextual_winner_validation_report.md`.
+This is the first postprocess repair to improve the full combined later-date
+holdout: selected daily-first Brier improves from baseline `0.0434` to
+`0.0426` versus market `0.0385`, narrowing the market gap from `+0.0049` to
+`+0.0041`. It still blocks Item 32 because the selected earlier-date factors
+do not fix the four remaining blocked markets: Chicago gap `+0.0097`, NYC
+`+0.0207`, San Francisco `+0.0056`, and Seattle `+0.0164`.
+
+The diagnostic eval oracle is useful but not promotion evidence. It shows that
+later-date band-key factors could pass the blocked markets if selected with
+future knowledge: Chicago oracle gap `-0.0103`, NYC `-0.0034`, San Francisco
+`-0.0112`, and Seattle `-0.0092`. The train-selected factors miss because the
+winner bands shift by date: for example NYC train selects `eq:80.0-81.0` /
+`eq:74.0-75.0` contexts while the eval oracle uses `eq:94.0-95.0` and
+`eq:88.0-89.0`; Seattle train leans on `eq:60.0-61.0` while the eval oracle
+uses `eq:74.0-75.0`. The next Item 32 repair therefore needs an inference-time
+signal that predicts which exact band context deserves mass on the target day,
+not another static multiplier selected from prior days.
+
+## 2026-06-20 UTC nested winner-band signal validation
+
+I added `weather.reporting.winner_band_signal_validation`, registered
+`winner_band_signal_validation_v0.1`, and generated:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_band_signal_validation_report.md`.
+The validator fits a pooled logistic row model from inference-time fields only
+(`probability`, current/recorded probability, within-snapshot ranks, band
+value/type, cutoff, forecast pressure/disagreement/source count, and source
+freshness). It selects the transform on the pre-eval market day
+`2026-06-08`, refits on all pre-eval rows, and scores only `2026-06-12` /
+`2026-06-13`.
+
+The nested selector rejects this as an Item 32 unblock. The pre-eval selection
+holdout chooses `baseline` (`0.0383`) over all row-signal transforms; `row_norm`
+looks better only with eval hindsight (`0.0424` versus baseline `0.0434`) and
+is therefore diagnostic only. Even that eval-best diagnostic remains blocked:
+Chicago gap `+0.0075`, NYC `+0.0175`, Seattle `+0.0180`, Houston `+0.0064`,
+and Los Angeles `+0.0051`; San Francisco is the only key blocked market moved
+inside tolerance by the eval-only row signal (`+0.0024`).
+
+This narrows the next reanalysis/synoptic repair again: generic inference-time
+row shape is not enough. The useful next signal has to explain target-day band
+movement directly, likely from a new weather/source feature family or a market
+microstructure signal with train-side continuity, before rerunning the
+settlement-scored replay gates.
+
+## 2026-06-20 UTC CLOB train-side continuity audit
+
+I regenerated the exact combined replay CLOB coverage audit after adding
+chronological split classification counts:
+`data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
+The v0.3 audit covers the same June 7/8 train-side and June 12/13 eval-side
+replay window across all 12 markets, and scans all local tape-backup manifests
+for raw CLOB restore sources.
+
+The result is a hard data continuity blocker, not a model-selection result.
+The split coverage gate is `BLOCK`: all `24` train-side folders are classified
+as `missing_raw_clob_tape_and_token_map`, with `0.0000` midpoint coverage,
+zero raw-book folders, and zero token-map folders. Eval-side coverage is
+partially useful but asymmetric: `16` eval folders are `midpoint_available`,
+`8` are `one_sided_books_no_midpoint`, and midpoint row coverage is `0.2380`.
+The backup restore-source section proves this is not locally recoverable:
+all `24` train folders have feature shells in backup manifests, but `0/24`
+have raw-book restore paths, `0/24` have token-map restore paths, and `0/24`
+have full raw restore availability.
+
+This means CLOB/microstructure remains a plausible target-day band-selection
+signal, but it is not currently promotable or split-safe for Item 32 repair.
+The next unblock is either an external/off-machine restore of the June 7/8 raw
+CLOB book tapes and token maps, or fresh predeclared train-side market days
+with full raw-book/token continuity. After that, rerun source-family inventory,
+CLOB coverage audit, ablation, and settlement-scored replay gates. Another
+selector over the current replay rows would only be eval-side hindsight.
+
+## 2026-06-20 UTC reanalysis sidecar replay-window coverage audit
+
+I added `weather.reporting.reanalysis_sidecar_coverage_audit`, registered
+`reanalysis_sidecar_coverage_audit_v0.1`, and generated:
+`data/backtest/item32_reanalysis_sidecar_coverage_audit_report.md`.
+The audit reads the actual `data/reanalysis/<station>/features`
+`reanalysis_synoptic_features.csv` sidecars and scores feature-group coverage
+inside the combined replay target window, `2026-06-07` through `2026-06-13`.
+
+This clarifies the remaining reanalysis data-layer blocker. All 12 markets
+have seven target-window sidecar rows and `PASS 100.0%` coverage for core
+antecedent weather, rich Open-Meteo archive fields, and lagged teleconnection
+features. The pressure-level group is the only target-window sidecar gap:
+all 12 markets are `MISSING 0.0%` for NOAA PSL 850 hPa temperature, 500 hPa
+height, and 1000-500 hPa thickness, with last complete pressure-level sidecar
+coverage on `2026-03-18`.
+
+This means the earlier rich-field blocker is cleared for the replay window,
+but Item 32 remains `PARTIAL` because target-day pressure-level signal is
+source-lagged and the CLOB train-side continuity audit still blocks split-safe
+market-informed repair. The next unblock is to refresh the NOAA PSL
+pressure-level cache once the upstream daily files include June 2026, rebuild
+all market sidecars, rerun this sidecar coverage audit, then rerun the
+source-family inventory, Item 27 reanalysis gates, and full pinned replay.

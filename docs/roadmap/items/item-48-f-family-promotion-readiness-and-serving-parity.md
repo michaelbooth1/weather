@@ -1,4 +1,4 @@
-# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-19 - MARKET AND SLO BLOCKS REMAIN]
+# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-20 - MARKET, SLO, AND CLOB CONTINUITY BLOCKED]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -1426,13 +1426,17 @@ console log while its matching writer lock belongs to a live process unless
 needed: rewriting the active CLOB console log left one NUL-filled malformed
 line at the writer's old file offset. I stopped/restarted the CLOB writer,
 repaired the final line, and then restarted CLOB and observation-trigger after
-the code change so their runtime identities matched the current tree.
+the code change so their runtime identities matched the current tree. I also
+fixed the observation-trigger supervisor's stop/start path so a stopped or
+dead writer PID has its writer lock removed before the next detached watcher
+starts; without that cleanup, restarted watchers exited immediately with
+`duplicate_writer_blocked`.
 
 The final evidence is:
 
-- `data/backtest/loop_jsonl_repair_after_loop_restarts_audit.md`: `PASS`,
+- `data/backtest/loop_jsonl_repair_final_fixed_supervisor_audit.md`: `PASS`,
   malformed lines `0` across the three managed loop console logs.
-- `data/backtest/fleet_observability_after_log_guard_and_restarts_report.md`:
+- `data/backtest/fleet_observability_after_observation_lock_fix_report.md`:
   loop artifact integrity `OK`, malformed lines `0`, duplicate writers `0`.
 - The same fleet report still has `Current-Code Soak Proof` `BLOCK`, but the
   remaining reasons are historical restart budget and duplicate-writer incident
@@ -1443,3 +1447,199 @@ Item 48 therefore remains `PARTIAL`: live-forward SLO is still blocked by the
 non-recoverable June 19 snapshot cadence gaps, and promotion readiness still
 needs a future clean active-day soak plus the existing model-quality blockers
 before any `READY` claim.
+
+## 2026-06-20 UTC winner-underpricing repair targeting
+
+I regenerated the combined Item 32/48 winner-underpricing casebook after adding
+all-case dominant-pattern reporting:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_underpricing_casebook_report.md`.
+It scans `24,530` rows and finds `312` early winner-underpricing cases across
+the still-blocked Chicago, NYC, San Francisco, and Seattle promotion markets.
+
+This supports the same promotion-readiness direction as the prior repair
+diagnostics but with better targeting:
+
+- NYC and Seattle should get direct winner-mass repair before another staged
+  promotion refresh. NYC has `131` cases, mostly all-fresh and cool-side; the
+  repeated `eq:88.0-89.0` and `eq:94.0-95.0` winner bands have average
+  underpricing gaps of `+0.2492` and `+0.1873`. Seattle has `113` cases,
+  mostly warm-side, with `eq:74.0-75.0` and `eq:64.0-65.0` carrying gaps of
+  `+0.2116` and `+0.2494`.
+- Chicago should remain a slice-repair task rather than a generic mass
+  sharpening task because its average spread gap is negative (`-0.1355`).
+- San Francisco remains a non-current signal task: all `24` cases are
+  `near_forecast` and `high_disagreement`, with positive spread gap but only a
+  small average winner gap (`+0.0509`).
+
+This is not promotion evidence. Item 48 remains `PARTIAL` until model-quality
+gates, daily-first validation, and the live-forward SLO/clean active-day soak
+all clear.
+
+Because the casebook report changed source identity, I also refreshed the
+operational evidence after restarting the observation watcher onto the current
+tree:
+`data/backtest/fleet_observability_after_casebook_pattern_refresh_report.md`.
+The report is still `CRITICAL` from non-recoverable June 19
+`snapshot_coverage_gap`, but observation-trigger health is now `PASS`, loop
+artifact integrity remains clean (`0` malformed lines, `0` duplicate writers),
+and all three managed loops are `RUNNING`, `current`, single-writer, and at
+zero consecutive errors. Current-code soak remains `BLOCK` only because of
+historical restart-budget and duplicate-writer incident counts.
+
+## 2026-06-20 UTC contextual winner repair validation
+
+I extended `weather.reporting.contextual_winner_validation` to
+`contextual_winner_time_split_validation_v0.2` with `band_key` contexts and an
+eval-oracle diagnostic, then regenerated:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_contextual_winner_validation_report.md`.
+
+The selected split-safe contextual factors are not promotion evidence, but they
+move the aggregate model-quality gate in the right direction: daily-first
+holdout improves from baseline `0.0434` to `0.0426` versus market `0.0385`,
+shrinking the market gap from `+0.0049` to `+0.0041`. Promotion readiness still
+cannot advance because Chicago (`+0.0097`), NYC (`+0.0207`), San Francisco
+(`+0.0056`), and Seattle (`+0.0164`) remain outside tolerance, and the
+live-forward SLO/clean active-day soak remains blocked.
+
+The important promotion implication is negative: do not rerun staged promotion
+refresh on this contextual postprocess yet. The eval oracle shows target-day
+band-key mass can clear the blocked markets diagnostically, but train-selected
+factors do not identify the right later-date bands. The next promotable repair
+needs a real inference-time band-selection signal, then a full pinned replay
+and staged promotion refresh.
+
+I also regenerated fleet observability after the contextual-winner source
+change:
+`data/backtest/fleet_observability_after_contextual_winner_v0_2_refresh_report.md`.
+The report is still `CRITICAL`, but the operational blocker shape is now
+current-code evidence rather than stale-loop ambiguity. Loop artifact integrity
+is `OK` with malformed lines `0` and duplicate writers `0`; snapshot, CLOB,
+and observation-trigger loops are all `RUNNING`, `current`, single-writer, and
+at zero consecutive errors. The remaining active-day countability blockers are
+non-recoverable June 19 `snapshot_coverage_gap` across 12 markets,
+historical restart-budget/duplicate-writer incident counts in current-code
+soak, and `MISSING_CRITICAL_FILES` tape backup status. Item 48 therefore stays
+`PARTIAL` until a future clean active-day soak and the model-quality blockers
+both clear.
+
+## 2026-06-20 UTC winner-band row-signal promotion check
+
+I added `weather.reporting.winner_band_signal_validation` and generated the
+combined Item 32/48 report:
+`data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_winner_band_signal_validation_report.md`.
+It tests a pooled logistic row model over inference-time row shape and
+forecast/source context, with transform selection on `2026-06-08` and later
+holdout scoring on `2026-06-12` / `2026-06-13`.
+
+The result is `BLOCK` and should not trigger staged promotion refresh. The
+pre-eval selector chooses `baseline`; the only aggregate improvement,
+`row_norm` (`0.0424` versus baseline `0.0434`), is eval-only diagnostic
+hindsight and still leaves Chicago `+0.0075`, NYC `+0.0175`, Seattle
+`+0.0180`, Houston `+0.0064`, and Los Angeles `+0.0051` versus market.
+San Francisco improves to `+0.0024` under that eval-only row signal, so it is
+useful for targeting but not enough for readiness.
+
+Promotion implication: keep Item 48 out of `READY`. The next refresh needs a
+real target-day band-selection signal and a full pinned replay, not a generic
+row-shape classifier layered on the current export.
+
+After adding the row-signal validator, I refreshed all managed loops and
+regenerated fleet observability again:
+`data/backtest/fleet_observability_after_winner_band_signal_refresh_report.md`.
+The report remains `CRITICAL`, but the current-code evidence is clean for the
+new source fingerprint `1e38db421dace6a5`: loop artifact integrity is `OK`,
+malformed lines `0`, duplicate writers `0`, and snapshot/CLOB/observation
+loops are `RUNNING`, `current`, single-writer, and at zero consecutive errors.
+The remaining blockers are still June 19 `snapshot_coverage_gap`, historical
+restart-budget/duplicate-writer incident counts, and tape backup status
+`MISSING_CRITICAL_FILES`.
+
+## 2026-06-20 UTC CLOB continuity check for promotion readiness
+
+I regenerated the exact combined replay CLOB coverage audit with split
+classification counts:
+`data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
+The v0.3 promotion implication is negative and concrete. The train side of the
+current replay window has no usable CLOB evidence and no local restore source:
+all `24` June 7/8 folders are `missing_raw_clob_tape_and_token_map`, with
+`0.0000` midpoint coverage, zero raw-book folders, zero token-map folders, and
+`0/24` full raw restore availability in local backup manifests. The June 12/13
+eval side is partially informative (`0.2380` midpoint row coverage, `16`
+midpoint-available folders, `8` one-sided/no-midpoint folders), and all `24`
+eval folders have raw restore sources, but that is not split-safe selection
+evidence.
+
+Item 48 therefore stays `PARTIAL` and should not run a staged promotion
+refresh that depends on CLOB/microstructure repair from the current export.
+The next promotion-readiness unblock is to restore/backfill train-side raw
+CLOB books and token maps from an external/off-machine source, or collect fresh
+clean train/eval market days, then rerun CLOB coverage, full pinned replay,
+staged promotion refresh, and the live-forward SLO/clean active-day soak.
+Until then, CLOB can be cited only as diagnostic eval-side targeting evidence,
+not as promotable readiness evidence.
+
+I also regenerated fleet observability under the v0.3 restore-audit source
+fingerprint:
+`data/backtest/fleet_observability_after_clob_coverage_v0_3_restore_audit_refresh_report.md`.
+The report remains `CRITICAL`, but current-code loop health is clean for source
+fingerprint `acccd8c28ec22b2a`: loop artifact integrity is `OK` with malformed
+lines `0` and duplicate writers `0`; snapshot, CLOB, and observation-trigger
+loops are all `RUNNING`, `current`, single-writer, and at zero consecutive
+errors. The remaining operational blockers are the non-recoverable June 19
+`snapshot_coverage_gap`, historical restart-budget/duplicate-writer incident
+counts in current-code soak, and tape backup status `MISSING_CRITICAL_FILES`.
+
+## 2026-06-20 UTC reanalysis sidecar coverage promotion check
+
+I added a replay-window sidecar audit for the reanalysis/synoptic layer and
+generated:
+`data/backtest/item32_reanalysis_sidecar_coverage_audit_report.md`.
+The promotion implication is mixed but useful. For the June 7-13 combined
+replay window, all 12 markets have full core antecedent weather, rich
+Open-Meteo archive, and teleconnection sidecar coverage. The remaining
+reanalysis data blocker is narrower: all 12 markets have `0.0%` pressure-level
+coverage for NOAA PSL 850 hPa temperature, 500 hPa height, and 1000-500 hPa
+thickness, with last complete pressure-level coverage on `2026-03-18`.
+
+Item 48 therefore remains `PARTIAL`: staged promotion should not run on a
+claim that pressure-level reanalysis is available for the replay target
+window, and the model-quality/CLOB continuity gates still block readiness.
+The next promotion refresh must wait for a pressure-level cache refresh and
+sidecar rebuild, or explicitly declare a no-pressure reanalysis lane, then
+rerun source-family inventory, Item 27 gates, full pinned replay, and staged
+promotion refresh.
+
+I refreshed fleet observability after adding the sidecar coverage audit:
+`data/backtest/fleet_observability_after_reanalysis_sidecar_coverage_audit_refresh_report.md`.
+The report remains `CRITICAL`, but current-code loop health is still clean for
+source fingerprint `8ddc6e8f6ae42e83`: loop artifact integrity is `OK` with
+malformed lines `0` and duplicate writers `0`; the three managed loops are
+all `RUNNING`, `current`, single-writer, and at zero consecutive errors. The
+remaining operational blockers are unchanged: June 19 `snapshot_coverage_gap`
+across 12 markets, historical restart-budget/duplicate-writer incident counts
+in current-code soak, and tape backup status `MISSING_CRITICAL_FILES`.
+
+## 2026-06-20 UTC v0.7 density row-export promotion check
+
+I reran the full v0.7 density replay with candidate row export enabled:
+`data/backtest/item35_density_v0_7_row_export_replay_report.md`. This remains
+`BLOCK / DO_NOT_CUT_OVER`: aggregate candidate Brier is `0.04539` versus
+current `0.04267` and market `0.03732`, and daily-first candidate Brier is
+`0.04463` versus current `0.04192` and market `0.03667`.
+
+The row-level repair diagnostics are promotion-negative. The report at
+`data/backtest/item35_density_v0_7_repair_diagnostics_report.md` leaves nine
+markets blocked: Austin, Chicago, Denver, Los Angeles, Miami, NYC,
+San Francisco, Seattle, and Toronto. The same export also shows current
+regression in nine markets and winner underpricing versus market in eight
+markets, while
+`data/backtest/item35_density_v0_7_winner_underpricing_casebook_report.md`
+finds `673` strict early underpricing cases across Austin, Los Angeles, NYC,
+San Francisco, and Seattle.
+
+Item 48 therefore stays `PARTIAL`; this v0.7 artifact should not be staged for
+promotion. The readiness unblock is the same as Item 35: restore or collect
+split-safe CLOB/microstructure continuity, build a target-day band-selection
+repair that passes current-regression checks on later dates, rerun the full
+pinned replay, then refresh staged promotion only after model-quality and
+live-forward operational gates both clear.

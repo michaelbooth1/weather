@@ -275,7 +275,12 @@ def build_progress_row(
         "trading_mm_live_trade_permission_rows": mm.get("live_trade_permission_rows"),
         "trading_taker_fills": taker.get("filled_orders"),
         "trading_taker_net_pnl_usdc": taker.get("net_pnl_usdc"),
+        "trading_taker_settlement_pnl_usdc": taker.get("settlement_pnl_usdc"),
         "trading_taker_mark_to_market_pnl_usdc": taker.get("mark_to_market_pnl_usdc"),
+        "trading_taker_pnl_source": taker.get("pnl_source"),
+        "trading_taker_settled_orders": taker.get("settled_order_count"),
+        "trading_taker_unsettled_orders": taker.get("unsettled_order_count"),
+        "trading_taker_reconciliation_status": taker.get("settlement_reconciliation_status"),
         "trading_taker_root_cause": taker.get("root_cause_class"),
         "trading_taker_quality_status": taker_quality.get("status"),
         "daily_learning_status": daily_learning.get("status"),
@@ -389,6 +394,9 @@ def render_report(rows):
             ["MM evidence mode", latest.get("trading_mm_evidence_mode") or "-"],
             ["Taker quality", latest.get("trading_taker_quality_status") or "-"],
             ["Taker net P&L", fmt(latest.get("trading_taker_net_pnl_usdc"))],
+            ["Taker P&L source", latest.get("trading_taker_pnl_source") or "-"],
+            ["Taker settled / unsettled", f"{latest.get('trading_taker_settled_orders')}/{latest.get('trading_taker_unsettled_orders')}"],
+            ["Taker reconciliation", latest.get("trading_taker_reconciliation_status") or "-"],
         ],
     )
     lines += ["", "## 7 And 14 Day Rollup", ""]
@@ -417,7 +425,7 @@ def render_report(rows):
     lines += markdown_table(
         [
             "Date", "Claim", "Rolling Skill", "Positive Days", "Promo Days",
-            "Live SLO", "Snapshot Gaps", "MM Mode", "Taker P&L",
+            "Live SLO", "Snapshot Gaps", "MM Mode", "Taker P&L", "Taker Source",
         ],
         [
             [
@@ -430,6 +438,7 @@ def render_report(rows):
                 row.get("ops_snapshot_gap_count"),
                 row.get("trading_mm_evidence_mode"),
                 fmt(row.get("trading_taker_net_pnl_usdc")),
+                row.get("trading_taker_pnl_source") or "-",
             ]
             for row in rows[-14:]
         ],

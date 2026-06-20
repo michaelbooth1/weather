@@ -981,6 +981,10 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             (
                 f"Taker run {taker.get('run_id')} fills={taker.get('filled_orders')} "
                 f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))} "
+                f"source={taker.get('pnl_source') or '-'} "
+                f"settled={taker.get('settled_order_count', '-')}/"
+                f"{taker.get('unsettled_order_count', '-')} "
+                f"reconciliation={taker.get('settlement_reconciliation_status') or '-'} "
                 f"root_cause={taker.get('root_cause_class')}; "
                 f"quality={quality.get('status')}."
             ),
@@ -1255,6 +1259,9 @@ def _scorecard_rows(scorecard):
                 f"{taker_quality.get('status') or '-'}; "
                 f"fills={taker.get('filled_orders', '-')}; "
                 f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))}; "
+                f"source={taker.get('pnl_source') or '-'}; "
+                f"settled={taker.get('settled_order_count', '-')}/"
+                f"{taker.get('unsettled_order_count', '-')}; "
                 f"root={taker.get('root_cause_class') or '-'}"
             ),
         ],
@@ -1600,7 +1607,18 @@ def render_report(payload):
                 ["Taker run", taker.get("run_id") or "-"],
                 ["Taker fills", taker.get("filled_orders")],
                 ["Taker net P&L", fmt_signed(taker.get("net_pnl_usdc"))],
+                ["Taker P&L source", taker.get("pnl_source") or "-"],
+                ["Taker settlement P&L", fmt_signed(taker.get("settlement_pnl_usdc"))],
                 ["Taker mark-to-market P&L", fmt_signed(taker.get("mark_to_market_pnl_usdc"))],
+                ["Taker settled / unsettled", f"{taker.get('settled_order_count')}/{taker.get('unsettled_order_count')}"],
+                ["Taker reconciliation", taker.get("settlement_reconciliation_status") or "-"],
+                [
+                    "Taker reconciliation warnings",
+                    ", ".join(
+                        row.get("code") or str(row)
+                        for row in taker.get("settlement_reconciliation_warnings") or []
+                    ) or "-",
+                ],
                 ["Taker root cause", taker.get("root_cause_class") or "-"],
                 ["Taker quality status", taker_quality.get("status") or "-"],
                 ["Taker quality interpretation", taker_quality.get("interpretation") or "-"],

@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.market.taker_bot import build_run_once
+from weather.market.taker_bot import (
+    FINALIZATION_SCHEMA_VERSION,
+    ORDER_COLUMNS,
+    build_run_once,
+    finalize_taker_run,
+)
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -163,6 +168,74 @@ def write_observation_status(path, market_ledger):
     }), encoding="utf-8")
 
 
+def order_row(
+    market_id,
+    event_slug,
+    range_label,
+    bin_value,
+    bin_value_hi,
+    fill_size,
+    fill_notional,
+):
+    return {
+        "schema_version": "taker_bot_run_v0.1",
+        "policy_version": "taker_bot_policy_v0.1",
+        "target_date": "2026-06-19",
+        "market_id": market_id,
+        "event_slug": event_slug,
+        "range_label": range_label,
+        "bin_kind": "eq",
+        "bin_value": str(bin_value),
+        "bin_value_hi": str(bin_value_hi),
+        "clob_token_id": f"token-{market_id}-{bin_value}",
+        "order_status": "FILLED",
+        "action": "BUY",
+        "fill_size": str(fill_size),
+        "fill_notional_usdc": str(fill_notional),
+        "total_spent_usdc": str(fill_notional),
+        "fee_usdc": "0",
+        "reason_code": "BUY_EDGE",
+    }
+
+
+def write_taker_run(root, run_id, rows, reported_net, reported_mtm, reported_unsettled):
+    run = root / "taker_runs" / "2026-06-19" / run_id
+    run.mkdir(parents=True)
+    write_csv(run / "orders_long.csv", ORDER_COLUMNS, rows)
+    payload = {
+        "schema_version": "taker_bot_run_v0.1",
+        "run_id": run_id,
+        "target_date": "2026-06-19",
+        "mode": "paper-taker",
+        "summary": {
+            "budget_usdc": 100,
+            "budget_spent_usdc": 59.80507,
+            "cumulative_filled_orders": len(rows),
+            "cumulative_net_pnl_usdc": reported_net,
+            "root_cause_class": "policy_no_edge",
+        },
+        "pnl": {
+            "summary": {
+                "budget_usdc": 100,
+                "filled_order_count": len(rows),
+                "net_pnl_usdc": reported_net,
+                "mark_to_market_pnl_usdc": reported_mtm,
+                "settled_order_count": 0,
+                "unsettled_order_count": reported_unsettled,
+                "reason_counts": {"BUY_EDGE": len(rows)},
+            }
+        },
+    }
+    (run / "run_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+    (run / "daily_pnl.json").write_text(json.dumps(payload["pnl"]), encoding="utf-8")
+    return run
+
+
+def write_labels(path, rows):
+    fieldnames = ["event_slug", "market_id", "target_date", "settlement_bucket", "winning_band", "quality_grade"]
+    write_csv(path, fieldnames, rows)
+
+
 class TestTakerBot(unittest.TestCase):
     def test_buys_positive_edge_and_scores_settlement_pnl(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,6 +319,152 @@ class TestTakerBot(unittest.TestCase):
             self.assertEqual(pnl["unsettled_order_count"], 1)
             self.assertAlmostEqual(pnl["mark_to_market_pnl_usdc"], 2.0)
             self.assertAlmostEqual(payload["summary"]["cumulative_net_pnl_usdc"], 2.0)
+
+    def test_finalize_taker_run_scores_june_19_labels_without_mutating_orders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = [
+                order_row(
+                    "miami",
+                    "highest-temperature-in-miami-on-june-19-2026",
+                    "92-93 F",
+                    92,
+                    93,
+                    14.705882,
+                    10.0,
+                ),
+                order_row(
+                    "nyc",
+                    "highest-temperature-in-new-york-city-on-june-19-2026",
+                    "86-87 F",
+                    86,
+                    87,
+                    1.0,
+                    18.0746,
+                ),
+                order_row(
+                    "atlanta",
+                    "highest-temperature-in-atlanta-on-june-19-2026",
+                    "88-89 F",
+                    88,
+                    89,
+                    54.76,
+                    11.73047,
+                ),
+                order_row(
+                    "toronto",
+                    "highest-temperature-in-toronto-on-june-19-2026",
+                    "22 C",
+                    22,
+                    22,
+                    27.027027,
+                    20.0,
+                ),
+            ]
+            run = write_taker_run(
+                root,
+                "taker-20260619-221a357c",
+                rows,
+                reported_net=-17.208695,
+                reported_mtm=-17.208695,
+                reported_unsettled=50,
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-miami-on-june-19-2026",
+                    "market_id": "miami",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 92,
+                    "winning_band": "92-93 F",
+                    "quality_grade": "complete",
+                },
+                {
+                    "event_slug": "highest-temperature-in-new-york-city-on-june-19-2026",
+                    "market_id": "nyc",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 82,
+                    "winning_band": "82-83 F",
+                    "quality_grade": "complete",
+                },
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 88,
+                    "winning_band": "88-89 F",
+                    "quality_grade": "complete",
+                },
+                {
+                    "event_slug": "highest-temperature-in-toronto-on-june-19-2026",
+                    "market_id": "toronto",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 22,
+                    "winning_band": "22 C",
+                    "quality_grade": "complete",
+                },
+            ])
+            raw_before = (run / "orders_long.csv").read_text(encoding="utf-8")
+
+            finalized = finalize_taker_run(run, labels_csv=labels, now="2026-06-20T12:00:00+00:00")
+
+            self.assertEqual((run / "orders_long.csv").read_text(encoding="utf-8"), raw_before)
+            self.assertEqual(finalized["schema_version"], FINALIZATION_SCHEMA_VERSION)
+            self.assertTrue((run / "settled_orders_long.csv").exists())
+            self.assertTrue((run / "settled_pnl.json").exists())
+            self.assertTrue((run / "settled_report.md").exists())
+            summary = finalized["summary"]
+            self.assertEqual(summary["settled_order_count"], 4)
+            self.assertEqual(summary["unsettled_order_count"], 0)
+            self.assertEqual(summary["pnl_source"], "settlement_finalization")
+            self.assertAlmostEqual(summary["settlement_pnl_usdc"], 36.687839)
+            self.assertAlmostEqual(summary["net_pnl_usdc"], 36.687839)
+            self.assertEqual(finalized["reconciliation"]["status"], "WARN")
+            warning_codes = {row["code"] for row in finalized["warnings"]}
+            self.assertIn("reported_unsettled_after_labels_available", warning_codes)
+            self.assertIn("reported_mark_to_market_diverges_from_settlement", warning_codes)
+
+    def test_finalize_taker_run_flags_seattle_resolved_mark_outlier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "taker-20260619-3d3450f0",
+                [
+                    order_row(
+                        "seattle",
+                        "highest-temperature-in-seattle-on-june-19-2026",
+                        "82-83 F",
+                        82,
+                        83,
+                        1250.0,
+                        10.0,
+                    )
+                ],
+                reported_net=1238.75,
+                reported_mtm=1238.75,
+                reported_unsettled=1,
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-seattle-on-june-19-2026",
+                    "market_id": "seattle",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "complete",
+                }
+            ])
+
+            finalized = finalize_taker_run(run, labels_csv=labels, now="2026-06-20T12:00:00+00:00")
+
+            self.assertEqual(finalized["summary"]["settled_order_count"], 1)
+            self.assertEqual(finalized["summary"]["unsettled_order_count"], 0)
+            self.assertAlmostEqual(finalized["summary"]["net_pnl_usdc"], -10.0)
+            warning_codes = {row["code"] for row in finalized["warnings"]}
+            self.assertIn("resolved_mark_to_market_outlier", warning_codes)
+            self.assertIn("resolved_mark_to_market_sign_flip", warning_codes)
 
     def test_missing_clob_token_blocks_taker_buy(self):
         with tempfile.TemporaryDirectory() as tmp:

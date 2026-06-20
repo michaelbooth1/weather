@@ -19,6 +19,7 @@ from weather.operations.observation_trigger import (  # noqa: E402
     run_once,
     watcher_health,
 )
+from weather.operations.supervisor import writer_lock_path
 from weather.market.live_observation_normalization import (
     current_high_probability_summary,
     update_monotonic_high_ledger,
@@ -160,6 +161,45 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertIn("--stale-after-seconds", calls["command"])
         self.assertFalse(calls["stdout_closed_during_call"])
         self.assertTrue(calls["stderr_is_stdout"])
+
+    def test_start_watcher_detached_blocks_live_writer_lock(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            writer_lock_path(status_path).write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch.object(observation_trigger.subprocess, "Popen") as popen:
+                result = observation_trigger.start_watcher_detached(now=now)
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "writer lock owner is still live")
+        popen.assert_not_called()
+
+    def test_stop_watcher_loop_removes_stopped_writer_lock(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            status_path.write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+            lock_path = writer_lock_path(status_path)
+            lock_path.write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch.object(observation_trigger, "terminate_python_pid", return_value={"pid": 2468, "stopped": True}):
+                result = observation_trigger.stop_watcher_loop(now=now, status_path=status_path)
+
+            lock_exists = lock_path.exists()
+
+        self.assertTrue(result["stopped"])
+        self.assertEqual(result["writer_lock"]["reason"], "stopped writer pid")
+        self.assertFalse(lock_exists)
 
     def test_observation_state_reads_native_aliases_first(self):
         model = TorontoHighTempModel(target_date="2026-06-13", market_id="nyc")

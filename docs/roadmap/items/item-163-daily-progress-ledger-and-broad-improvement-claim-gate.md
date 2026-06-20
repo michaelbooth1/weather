@@ -51,14 +51,15 @@ daily refresh finalization after daily learning, records blockers on error, and
 upserts by `run_date` so reruns keep exactly one daily row. Progress audit now
 loads `daily_progress_latest.json` and renders a cross-check section.
 
-Latest generated row: `run_date=2026-06-19`,
+Latest generated row: `run_date=2026-06-20`,
 `broad_improvement_claim_allowed=false`,
 `model_rolling_daily_first_brier_skill=-0.3334277590701413`,
 `model_positive_skill_days=1`, `evidence_promotion_grade_market_days=48`,
 `ops_live_forward_slo_status=BLOCK`,
 `evidence_independent_baseline_status=MISSING`,
 `ops_snapshot_gap_count=71`, `ops_source_status_blocked_markets=0`,
-`ops_disk_preflight_status=BLOCK`, `trading_mm_evidence_mode=operator_drill`,
+`ops_disk_preflight_status=PASS`, `ops_disk_headroom_bytes=128886111744`,
+`trading_mm_evidence_mode=operator_drill`,
 and `trading_taker_quality_status=SAMPLE_PENDING_NEGATIVE_LATEST`.
 
 Current broad-improvement claim failures are:

@@ -37,6 +37,7 @@ from weather.model.feature_store import (
 )
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT, data_path
+from weather.operations.power import keep_system_awake
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.operations.supervisor import (
     SupervisorSpec,
@@ -889,11 +890,14 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
             "pid": os.getpid(),
         }, path=args.diagnostics_out)
         return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
+    sleep_inhibitor = keep_system_awake("weather observation trigger loop")
+    power_request = sleep_inhibitor.start()
     status = read_status(args.status_out) or {"markets": {}, "latest_triggered": {}}
     status.update({
         "schema_version": SCHEMA_VERSION,
         "runner": "observation_trigger",
         "pid": os.getpid(),
+        "power_request": power_request,
         "market": args.market,
         "started_at": utc_now().isoformat(),
         "last_heartbeat": utc_now().isoformat(),
@@ -931,6 +935,7 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
             elapsed = (utc_now() - loop_started).total_seconds()
             time.sleep(max(1.0, float(args.interval_seconds) - elapsed))
     finally:
+        sleep_inhibitor.stop()
         release_writer_lock(writer_lock)
 
 

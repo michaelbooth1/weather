@@ -11,11 +11,12 @@ def _metric_value(formatter, value):
     return formatter(value) if value is not None else "-"
 
 
-def render_history_page(days=3):
+def render_history_page(days=5):
     import weather.reporting.model_history as history_model
 
     history_model = importlib.reload(history_model)
     build_history_payload = history_model.build_history_payload
+    format_daily_brier_table = history_model.format_daily_brier_table
     fmt_pct = history_model.fmt_pct
     fmt_score = history_model.fmt_score
     fmt_signed = history_model.fmt_signed
@@ -71,6 +72,10 @@ def render_history_page(days=3):
     if day_table.empty:
         st.info("No history rows found for the selected window.")
         st.stop()
+
+    daily_brier = format_daily_brier_table(payload.get("days") or [])
+    st.subheader("Daily Brier By Location")
+    st.dataframe(daily_brier, width="stretch", hide_index=True)
 
     st.subheader("Location / Day Summary")
     st.dataframe(day_table, width="stretch", hide_index=True)

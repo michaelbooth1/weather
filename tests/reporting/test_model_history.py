@@ -6,6 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 from weather.reporting.model_history import (  # noqa: E402
     build_history_payload,
+    format_daily_brier_table,
     format_group_table,
     format_location_hour_table,
     recent_completed_dates,
@@ -190,6 +191,20 @@ def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path):
     group_table = format_group_table(payload["by_location"], "Location")
     assert "Winner Catch-Up" in group_table.columns
     assert group_table.iloc[0]["Winner Catch-Up"] == "+12.0%"
+
+    daily_brier = format_daily_brier_table(payload["days"])
+    assert list(daily_brier.columns) == [
+        "Date",
+        "Location",
+        "Brier Score",
+        "Market Brier",
+        "Brier Skill",
+        "Rows",
+        "Status",
+    ]
+    assert daily_brier.iloc[0]["Brier Score"] == "0.1057"
+    assert daily_brier.iloc[0]["Market Brier"] == "0.1742"
+    assert daily_brier.iloc[0]["Brier Skill"] == "+39.3%"
 
     hour_table = format_location_hour_table(payload["by_location_hour"])
     assert list(hour_table["Hour"]) == ["10:00", "11:00"]

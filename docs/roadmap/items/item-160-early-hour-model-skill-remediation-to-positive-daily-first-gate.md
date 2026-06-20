@@ -64,6 +64,16 @@ Remaining blocker: do not close this item until progress audit shows
 non-negative rolling daily-first skill after an accepted candidate and the full
 promotion report is regenerated from a successful promotion refresh.
 
+2026-06-20 post-resume refresh: `promotion_refresh` now reruns to completion
+inside daily refresh, and progress audit was regenerated afterward. The
+candidate promotion verdict is still `BLOCK` with
+`candidate_cutover_decision=DO_NOT_CUT_OVER`, while progress audit remains
+`DIRECTIONAL` and `claim_allowed=False`. The current comparable-day summary is
+still `1` positive-skill day, rolling daily-first skill
+`-0.3334277590701413`, and `48` promotion-grade market-days. This keeps the
+item partial: the hourly candidate evidence is useful, but it has not produced
+an accepted candidate plus non-negative rolling daily-first proof.
+
 Acceptance: a promotion candidate may clear this item only when its
 candidate-specific hourly gate passes for the 00:00-08:00 window, daily-first
 skill is non-negative over the required rolling window, and the promotion

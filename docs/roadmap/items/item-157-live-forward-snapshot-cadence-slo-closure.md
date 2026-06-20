@@ -57,9 +57,17 @@ and `daily_learning_report.md` marks broad live-forward evidence countable.
 healthy (`RUNNING`, current runtime identity, fresh heartbeat, zero consecutive
 errors). The regenerated fleet reports
 `data/backtest/fleet_observability_after_snapshot_restart_report.md` and
-`data/backtest/fleet_observability_after_log_guard_and_restarts_report.md`
+`data/backtest/fleet_observability_after_observation_lock_fix_report.md`
 still block broad countability because the June 19 gap windows remain
 non-recoverable: `snapshot_coverage_gap` blocks all 12 markets, with 71 total
 gaps and max gap `28.46` minutes. Loop integrity is now clean, so the next
 unblock is not another same-day repair command; it is collecting a future
 active day where this section reports zero blocked markets.
+
+2026-06-20 post-resume refresh: the full daily-refresh resume regenerated
+`data/backtest/fleet_observability.json` and kept the same live-forward blocker
+shape. `live_forward_slo` is still `BLOCK`; snapshot cadence still blocks all
+12 markets, with `71` total gaps, max gap `28.46219113333333` minutes, and
+`unknown_snapshot_gap` as the root cause for all 12 markets. Source status is no
+longer the cadence blocker; the remaining acceptance evidence is a future
+active day with zero snapshot-coverage-gap blocked markets.

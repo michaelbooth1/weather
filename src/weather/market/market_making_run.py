@@ -123,6 +123,7 @@ from weather.operations.runtime_identity import (  # noqa: E402
     get_runtime_identity,
     identities_match,
 )
+from weather.operations.power import keep_system_awake
 from weather.market.market_making_preflight import (  # noqa: E402
     REMEDIATION_RULES,
     SECRET_FIELD_NAMES,
@@ -1007,28 +1008,29 @@ def run_loop(
     run_id = kwargs.pop("run_id", None)
     results = []
     tick = 0
-    while True:
-        now = utc_now()
-        if until is not None and now > until:
-            break
-        if max_ticks is not None and tick >= int(max_ticks):
-            break
-        result = build_run_once(
-            target_date,
-            budget_usdc,
-            mode=mode,
-            markets=[spec.id for spec in specs],
-            run_id=run_id,
-            now=now,
-            append=tick > 0,
-            **kwargs,
-        )
-        run_id = result["run_id"]
-        results.append(result)
-        tick += 1
-        if max_ticks is not None and tick >= int(max_ticks):
-            break
-        time.sleep(float(interval_seconds))
+    with keep_system_awake("weather market-making bot loop"):
+        while True:
+            now = utc_now()
+            if until is not None and now > until:
+                break
+            if max_ticks is not None and tick >= int(max_ticks):
+                break
+            result = build_run_once(
+                target_date,
+                budget_usdc,
+                mode=mode,
+                markets=[spec.id for spec in specs],
+                run_id=run_id,
+                now=now,
+                append=tick > 0,
+                **kwargs,
+            )
+            run_id = result["run_id"]
+            results.append(result)
+            tick += 1
+            if max_ticks is not None and tick >= int(max_ticks):
+                break
+            time.sleep(float(interval_seconds))
     return results[-1] if results else None
 
 

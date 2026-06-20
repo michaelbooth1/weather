@@ -67,6 +67,13 @@ class ContextualWinnerValidationTests(unittest.TestCase):
 
         self.assertEqual(key, ("nyc", "early", "cool_side"))
 
+    def test_context_key_can_use_candidate_band_key(self):
+        source = row("2026-06-01", "s1", "eq:80", 0.20, 0.20, 0.80, 1)
+
+        key = context_key(source, ("band_key", "forecast_bucket_pressure"))
+
+        self.assertEqual(key, ("nyc", "eq:80", "cool_side"))
+
     def test_contextual_probabilities_normalize_within_snapshot(self):
         rows = [
             {
@@ -140,8 +147,37 @@ class ContextualWinnerValidationTests(unittest.TestCase):
         self.assertEqual(result["train_dates"], ["2026-06-01"])
         self.assertEqual(result["eval_dates"], ["2026-06-02"])
         self.assertIn(result["selected_template"], {"market", "cutoff_regime"})
+        self.assertIn("eval_oracle", result)
+        self.assertEqual(payload["eval_oracle"]["classification"], "diagnostic_only_later_date_selected")
         self.assertEqual(payload["no_leakage_audit"]["status"], "PASS")
+        self.assertIn("eval oracle", report_text)
         self.assertIn("not promotion evidence", report_text)
+
+    def test_build_payload_accepts_band_key_templates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows_path = Path(tmp) / "rows.csv"
+            write_rows(rows_path, [
+                row("2026-06-01", "s1", "eq:80", 0.20, 0.20, 0.60, 1),
+                row("2026-06-01", "s1", "eq:82", 0.30, 0.30, 0.20, 0),
+                row("2026-06-01", "s1", "gte:84", 0.50, 0.50, 0.20, 0, bin_type="gte"),
+                row("2026-06-02", "s2", "eq:80", 0.25, 0.25, 0.55, 1),
+                row("2026-06-02", "s2", "eq:82", 0.25, 0.25, 0.25, 0),
+                row("2026-06-02", "s2", "gte:84", 0.50, 0.50, 0.20, 0, bin_type="gte"),
+            ])
+
+            payload = build_payload(
+                [rows_path],
+                templates_csv="market,band_key,band_key+forecast_bucket_pressure",
+                min_rows=1,
+                prior_rows=0.0,
+                factor_max=4.0,
+            )
+
+        self.assertEqual(payload["schema_version"], "contextual_winner_time_split_validation_v0.2")
+        self.assertIn(
+            payload["selected_template_by_market"]["nyc"],
+            {"market", "band_key", "band_key+forecast_bucket_pressure"},
+        )
 
 
 if __name__ == "__main__":
