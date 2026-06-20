@@ -90,5 +90,5 @@ The 2026-06-18 audit triaged every remaining unchecked roadmap box. Items 32,
 respectively, pressure-level backfills plus settlement-scored gates, empirical
 continuous-density lift, empirical promotion readiness, and eligible live
 exchange-account evidence. Item 40 has one post-promotion evidence follow-up.
-Those blockers are now dated in their owning items and were not closed by
+Those blockers are now dated in their owning items and were not marked complete by
 papering over the acceptance criteria.

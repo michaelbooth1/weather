@@ -323,6 +323,43 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertEqual(signals[1], (25.0, 0.6, 0.8))
         self.assertEqual(signals[2], (26.0, 0.5, 1.2))
 
+    def test_live_signal_stage_nulls_pre_reset_current_max(self):
+        feature_signals = self.model.distribution_live_signals(
+            using_feature_model=True,
+            using_calibrated_empirical=False,
+            hour=6,
+            history_max=20.0,
+            current_temp=20.0,
+            current_max=30.0,
+            eccc_max=None,
+            metar_live_signal=None,
+            weather_forecast_max=None,
+            open_meteo_max=None,
+            nws_forecast_max=None,
+            global_ensemble_max=None,
+            eccc_forecast_high=None,
+            observed_bucket=20,
+        )
+        empirical_signals = self.model.distribution_live_signals(
+            using_feature_model=False,
+            using_calibrated_empirical=False,
+            hour=6,
+            history_max=20.0,
+            current_temp=20.0,
+            current_max=30.0,
+            eccc_max=None,
+            metar_live_signal=None,
+            weather_forecast_max=None,
+            open_meteo_max=None,
+            nws_forecast_max=None,
+            global_ensemble_max=None,
+            eccc_forecast_high=None,
+            observed_bucket=20,
+        )
+
+        self.assertEqual(feature_signals[0], (None, 1.1, 1.0))
+        self.assertEqual(empirical_signals[2], (None, 2.3, 0.75))
+
     def test_calibrated_empirical_live_signal_stage_is_minimal(self):
         signals = self.model.distribution_live_signals(
             using_feature_model=False,

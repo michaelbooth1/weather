@@ -62,7 +62,9 @@ BROAD_SLO_VERIFY_COMMAND = (
 BROAD_SLO_REQUIRED_GATES = (
     "snapshot_coverage_gap",
     "latest_model_row_freshness",
+    "variant_prediction_freshness",
     "source_status_freshness",
+    "clob_discovery",
     "clob_book_freshness",
     "observation_trigger_health",
     "afternoon_window_coverage",
@@ -71,19 +73,19 @@ BROAD_SLO_RULES = {
     "snapshot_collection": {
         "root_cause": "snapshot_collection_blocked",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
     },
     "snapshot_coverage_gap": {
         "root_cause": "snapshot_capture_gap",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
     },
     "latest_model_row_freshness": {
         "root_cause": "stale_model_row",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
     },
     "source_status_freshness": {
@@ -95,16 +97,28 @@ BROAD_SLO_RULES = {
         ),
         "recoverable_same_day": True,
     },
+    "variant_prediction_freshness": {
+        "root_cause": "stale_or_missing_live_variant_prediction_tape",
+        "owner": "weather snapshot/model loop",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "recoverable_same_day": True,
+    },
     "afternoon_window_coverage": {
         "root_cause": "afternoon_window_incomplete",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
     },
     "clob_book_freshness": {
         "root_cause": "stale_clob_book_tape",
         "owner": "CLOB book supervisor",
         "suggested_command": "python -m weather.market.market_microstructure ensure",
+        "recoverable_same_day": True,
+    },
+    "clob_discovery": {
+        "root_cause": "blank_or_inactive_clob_discovery",
+        "owner": "CLOB token discovery / Gamma event discovery",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all",
         "recoverable_same_day": True,
     },
     "observation_trigger_health": {
@@ -114,6 +128,8 @@ BROAD_SLO_RULES = {
         "recoverable_same_day": True,
     },
 }
+SOURCE_STATUS_BACKFILL_COMMAND = BROAD_SLO_RULES["source_status_freshness"]["suggested_command"]
+SOURCE_PROVIDER_STATUS_COMMAND = "python -m weather.collection.snapshot_tracker --status"
 
 
 MARKET_ARTIFACT_TEMPLATES = {
@@ -463,11 +479,22 @@ def clob_alerts(clob):
         "pid": loop.get("pid"),
         "heartbeat_age_seconds": loop.get("heartbeat_age_seconds"),
         "last_error": loop.get("last_error"),
+        "discovery_sanity": loop.get("discovery_sanity"),
     }
     if state in ("DEAD", "UNKNOWN", "ERRORING"):
         add_alert(alerts, "critical", "fleet", "clob", f"CLOB book loop is {state}", loop_detail)
     elif state in ("PAUSED", "DEGRADED"):
         add_alert(alerts, "warning", "fleet", "clob", f"CLOB book loop is {state}", loop_detail)
+    discovery = loop.get("discovery_sanity") or {}
+    if discovery and not discovery.get("ok", True):
+        add_alert(
+            alerts,
+            "critical",
+            "fleet",
+            "clob",
+            discovery.get("reason") or "CLOB discovery sanity gate failed",
+            discovery,
+        )
     loop_down = state not in ("RUNNING", "DEGRADED")
     for row in (clob.get("books") or {}).get("markets") or []:
         if row.get("ok"):
@@ -650,8 +677,10 @@ def _broad_slo_rule(gate_name):
     }
 
 
-def _recovery_row(component, gate, market, detail, before):
+def _recovery_row(component, gate, market, detail, before, rule_override=None):
     rule = _broad_slo_rule(gate)
+    if rule_override:
+        rule.update({key: value for key, value in rule_override.items() if value is not None})
     return {
         "component": component,
         "gate": gate,
@@ -698,28 +727,115 @@ def _collection_recovery_gates(row):
     return _unique_gates(gates)
 
 
-def _source_status_recovery_detail(source_status):
+def _source_status_recovery(source_status):
     if not source_status:
         return None
     if source_status.get("available") is False:
-        return source_status.get("reason") or "source_status_long.csv unavailable"
+        return {
+            "detail": source_status.get("reason") or "source_status_long.csv unavailable",
+            "rule_override": {
+                "root_cause": "missing_source_status_tape",
+                "owner": "snapshot source-status writer",
+                "suggested_command": SOURCE_STATUS_BACKFILL_COMMAND,
+                "recoverable_same_day": True,
+            },
+        }
     if source_status.get("trading_evidence_allowed") is False:
         families = source_status.get("families") or {}
-        affected = [
-            name
-            for name, row in sorted(families.items())
-            if row.get("status") != "healthy"
-        ]
+        affected = [(name, row) for name, row in sorted(families.items()) if row.get("status") != "healthy"]
         if affected:
-            return "source-status degraded families: " + ", ".join(affected)
-        return "source-status degradation blocks trading-grade broad evidence"
+            names = [name for name, _ in affected]
+            counts = [
+                (
+                    f"{name} "
+                    f"failed={row.get('failed_source_count', 0)} "
+                    f"fallback={row.get('fallback_source_count', 0)} "
+                    f"rate_limited={row.get('rate_limited_source_count', 0)}"
+                )
+                for name, row in affected
+            ]
+            fallback_sources = {
+                name: [source for source in row.get("fallback_sources") or [] if source]
+                for name, row in affected
+                if row.get("fallback_source_count")
+            }
+            rate_limited_sources = {
+                name: [source for source in row.get("rate_limited_sources") or [] if source]
+                for name, row in affected
+                if row.get("rate_limited_source_count")
+            }
+            detail = (
+                "source-status degraded families: "
+                + ", ".join(names)
+                + " ("
+                + "; ".join(counts)
+                + ")"
+            )
+            if fallback_sources:
+                source_bits = [
+                    f"{name} fallback_sources={','.join(sources)}"
+                    for name, sources in sorted(fallback_sources.items())
+                ]
+                detail += "; " + "; ".join(source_bits)
+            if rate_limited_sources:
+                source_bits = [
+                    f"{name} rate_limited_sources={','.join(sources)}"
+                    for name, sources in sorted(rate_limited_sources.items())
+                ]
+                detail += "; " + "; ".join(source_bits)
+            if any(name == "open_meteo" and row.get("fallback_source_count") for name, row in affected):
+                return {
+                    "detail": detail,
+                    "rule_override": {
+                        "root_cause": "open_meteo_provider_fallback",
+                        "owner": "Open-Meteo quota / forecast source collector",
+                        "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                        "recoverable_same_day": False,
+                    },
+                }
+            if any(name == "open_meteo" and row.get("rate_limited_source_count") for name, row in affected):
+                return {
+                    "detail": detail,
+                    "rule_override": {
+                        "root_cause": "open_meteo_provider_rate_limited",
+                        "owner": "Open-Meteo quota / forecast source collector",
+                        "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                        "recoverable_same_day": False,
+                    },
+                }
+            return {
+                "detail": detail,
+                "rule_override": {
+                    "root_cause": "degraded_source_status",
+                    "owner": "snapshot source-status writer",
+                    "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                    "recoverable_same_day": False,
+                },
+            }
+        return {
+            "detail": "source-status degradation blocks trading-grade broad evidence",
+            "rule_override": {
+                "root_cause": "degraded_source_status",
+                "owner": "snapshot source-status writer",
+                "suggested_command": SOURCE_PROVIDER_STATUS_COMMAND,
+                "recoverable_same_day": False,
+            },
+        }
+    return None
+
+
+def _variant_prediction_recovery_detail(variant_tape):
+    if not variant_tape:
+        return None
+    if variant_tape.get("action_required"):
+        return variant_tape.get("reason") or "variant_predictions_long.csv is missing or stale"
     return None
 
 
 def _collection_recovery_rows(collection):
     rows = []
     for row in (collection or {}).get("markets") or []:
-        if row.get("action_required"):
+        if row.get("snapshot_action_required", row.get("action_required")):
             before = (
                 f"state={row.get('state')}; snapshots={row.get('snapshots')}; "
                 f"latest_age_minutes={row.get('latest_age_minutes')}; reason={row.get('reason')}"
@@ -732,8 +848,8 @@ def _collection_recovery_rows(collection):
                     row.get("reason") or "snapshot collection needs attention",
                     before,
                 ))
-        source_detail = _source_status_recovery_detail(row.get("source_family_degradation") or {})
-        if source_detail:
+        source_recovery = _source_status_recovery(row.get("source_family_degradation") or {})
+        if source_recovery:
             before = (
                 f"snapshot_id={(row.get('source_family_degradation') or {}).get('snapshot_id')}; "
                 f"affected_family_count={(row.get('source_family_degradation') or {}).get('affected_family_count')}; "
@@ -744,7 +860,24 @@ def _collection_recovery_rows(collection):
                 "source_status",
                 "source_status_freshness",
                 row,
-                source_detail,
+                source_recovery["detail"],
+                before,
+                source_recovery.get("rule_override"),
+            ))
+        variant_detail = _variant_prediction_recovery_detail(row.get("variant_prediction_tape") or {})
+        if variant_detail:
+            variant_tape = row.get("variant_prediction_tape") or {}
+            before = (
+                f"snapshot_id={variant_tape.get('snapshot_id')}; "
+                f"active_variant_count={variant_tape.get('active_variant_count')}; "
+                f"latest_rows={variant_tape.get('latest_rows')}; "
+                f"expected_latest_rows={variant_tape.get('expected_latest_rows')}"
+            )
+            rows.append(_recovery_row(
+                "variant_prediction_tape",
+                "variant_prediction_freshness",
+                row,
+                variant_detail,
                 before,
             ))
     return rows
@@ -764,6 +897,18 @@ def _clob_recovery_rows(clob):
             (
                 f"state={state}; heartbeat_age_seconds={loop.get('heartbeat_age_seconds')}; "
                 f"last_books_age_seconds={loop.get('last_books_age_seconds')}; last_error={loop.get('last_error')}"
+            ),
+        ))
+    discovery = loop.get("discovery_sanity") or {}
+    if discovery and not discovery.get("ok", True):
+        rows.append(_recovery_row(
+            "clob_book_capture",
+            "clob_discovery",
+            {"market_id": "fleet"},
+            discovery.get("reason") or "CLOB discovery sanity gate failed",
+            (
+                f"status={discovery.get('status')}; root_cause={discovery.get('root_cause')}; "
+                f"market_count={discovery.get('market_count')}"
             ),
         ))
     for row in (clob.get("books") or {}).get("markets") or []:

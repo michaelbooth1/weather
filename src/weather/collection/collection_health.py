@@ -14,13 +14,16 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
 from weather.paths import data_path
 
+from weather.collection.live_variant_predictions import active_live_variants
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import all_specs, spec_for_slug
+from weather.reporting.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.
@@ -220,6 +223,7 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     summary["event_slug"] = folder.name
     summary["folder"] = str(folder)
     summary["tape_path"] = str(tape)
+    summary["variant_prediction_tape"] = variant_prediction_tape_health(folder)
     return summary
 
 
@@ -316,9 +320,11 @@ def source_family_degradation(folder):
             **metadata,
             "families": {},
             "affected_family_count": 0,
+            "blocking_family_count": 0,
             "failed_source_count": 0,
             "fallback_source_count": 0,
             "rate_limited_source_count": 0,
+            "provider_cooldown_source_count": 0,
             "model_review_allowed": False,
             "trading_evidence_allowed": False,
         }
@@ -334,48 +340,83 @@ def source_family_degradation(folder):
                 "failed_source_count": 0,
                 "fallback_source_count": 0,
                 "rate_limited_source_count": 0,
+                "provider_cooldown_source_count": 0,
                 "unknown_source_count": 0,
                 "sources": [],
+                "fresh_sources": [],
+                "failed_sources": [],
+                "fallback_sources": [],
+                "rate_limited_sources": [],
+                "provider_cooldown_sources": [],
+                "unknown_sources": [],
             },
         )
+        source = row.get("source")
         summary["source_count"] += 1
-        summary["sources"].append(row.get("source"))
+        summary["sources"].append(source)
         if bucket == "fresh":
             summary["fresh_source_count"] += 1
+            summary["fresh_sources"].append(source)
         elif bucket == "failed":
             summary["failed_source_count"] += 1
+            summary["failed_sources"].append(source)
         elif bucket == "fallback":
             summary["fallback_source_count"] += 1
+            summary["fallback_sources"].append(source)
         elif bucket == "rate_limited":
             summary["rate_limited_source_count"] += 1
+            summary["rate_limited_sources"].append(source)
+            if str(row.get("cache_status") or "").strip().lower() == "provider_cooldown":
+                summary["provider_cooldown_source_count"] += 1
+                summary["provider_cooldown_sources"].append(source)
         else:
             summary["unknown_source_count"] += 1
+            summary["unknown_sources"].append(source)
     affected_family_count = 0
+    blocking_family_count = 0
     failed_source_count = 0
     fallback_source_count = 0
     rate_limited_source_count = 0
+    provider_cooldown_source_count = 0
     for summary in families.values():
         failed_source_count += summary["failed_source_count"]
         fallback_source_count += summary["fallback_source_count"]
         rate_limited_source_count += summary["rate_limited_source_count"]
+        provider_cooldown_source_count += summary["provider_cooldown_source_count"]
         affected = (
             summary["failed_source_count"]
             + summary["fallback_source_count"]
             + summary["rate_limited_source_count"]
             + summary["unknown_source_count"]
         )
-        summary["status"] = "degraded" if affected else "healthy"
+        nonblocking_rate_limit_with_fresh_coverage = (
+            affected
+            and summary["fresh_source_count"] > 0
+            and summary["failed_source_count"] == 0
+            and summary["fallback_source_count"] == 0
+            and summary["unknown_source_count"] == 0
+            and summary["rate_limited_source_count"] > 0
+        )
+        summary["trading_blocking"] = bool(affected and not nonblocking_rate_limit_with_fresh_coverage)
+        if nonblocking_rate_limit_with_fresh_coverage:
+            summary["status"] = "rate_limited_with_fresh_family_coverage"
+        else:
+            summary["status"] = "degraded" if affected else "healthy"
         if affected:
             affected_family_count += 1
+        if summary["trading_blocking"]:
+            blocking_family_count += 1
     return {
         **metadata,
         "families": dict(sorted(families.items())),
         "affected_family_count": affected_family_count,
+        "blocking_family_count": blocking_family_count,
         "failed_source_count": failed_source_count,
         "fallback_source_count": fallback_source_count,
         "rate_limited_source_count": rate_limited_source_count,
+        "provider_cooldown_source_count": provider_cooldown_source_count,
         "model_review_allowed": True,
-        "trading_evidence_allowed": affected_family_count == 0,
+        "trading_evidence_allowed": blocking_family_count == 0,
     }
 
 
@@ -388,13 +429,158 @@ def fleet_source_family_degradation_summary(markets):
         "unknown_market_count": sum(1 for row in rows if not row.get("available")),
         "affected_market_count": sum(1 for row in available if row.get("affected_family_count", 0) > 0),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
+        "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
         "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
         "fallback_source_count": sum(int(row.get("fallback_source_count") or 0) for row in available),
         "rate_limited_source_count": sum(int(row.get("rate_limited_source_count") or 0) for row in available),
+        "provider_cooldown_source_count": sum(
+            int(row.get("provider_cooldown_source_count") or 0) for row in available
+        ),
         "model_review_allowed": bool(available),
         "trading_evidence_allowed": bool(available) and all(
             row.get("trading_evidence_allowed") for row in available
         ),
+    }
+
+
+def read_csv_rows(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def row_sort_time(row):
+    parsed = parse_times([row.get("captured_at_utc") or row.get("captured_at_local")])
+    return parsed[0].timestamp() if parsed else float("-inf")
+
+
+def latest_snapshot_rows(folder):
+    path = Path(folder) / "snapshots_long.csv"
+    rows = read_csv_rows(path)
+    if not rows:
+        return [], {"available": False, "reason": "snapshots_long.csv missing or empty", "path": str(path)}
+    latest = max(rows, key=row_sort_time)
+    snapshot_id = latest.get("snapshot_id")
+    latest_rows = [row for row in rows if row.get("snapshot_id") == snapshot_id]
+    return latest_rows, {
+        "available": True,
+        "snapshot_id": snapshot_id,
+        "captured_at_utc": latest.get("captured_at_utc"),
+        "captured_at_local": latest.get("captured_at_local"),
+        "path": str(path),
+    }
+
+
+def _active_variant_ids(registry_path=DEFAULT_REGISTRY_PATH):
+    registry = load_registry(registry_path)
+    variants = active_live_variants(registry)
+    return sorted(str(row.get("variant_id")) for row in variants if row.get("variant_id"))
+
+
+def variant_prediction_tape_health(folder, registry_path=DEFAULT_REGISTRY_PATH):
+    """Freshness check for the live active-variant prediction tape."""
+    folder = Path(folder)
+    snapshot_rows, snapshot_meta = latest_snapshot_rows(folder)
+    if not snapshot_meta.get("available"):
+        return {
+            "available": False,
+            "state": "MISSING",
+            "action_required": True,
+            "reason": snapshot_meta.get("reason"),
+            "path": str(folder / "variant_predictions_long.csv"),
+        }
+    try:
+        active_ids = _active_variant_ids(registry_path)
+        registry_error = None
+    except Exception as exc:  # noqa: BLE001 - collection health must remain reportable
+        active_ids = []
+        registry_error = f"{type(exc).__name__}: {exc}"
+    if registry_error:
+        return {
+            "available": False,
+            "state": "REGISTRY_ERROR",
+            "action_required": True,
+            "reason": f"variant registry unreadable: {registry_error}",
+            "path": str(folder / "variant_predictions_long.csv"),
+            "snapshot_id": snapshot_meta.get("snapshot_id"),
+        }
+    if not active_ids:
+        return {
+            "available": True,
+            "state": "OK",
+            "action_required": False,
+            "reason": "no active variants require live rows",
+            "path": str(folder / "variant_predictions_long.csv"),
+            "snapshot_id": snapshot_meta.get("snapshot_id"),
+            "active_variant_count": 0,
+        }
+
+    path = folder / "variant_predictions_long.csv"
+    rows = read_csv_rows(path)
+    if not rows:
+        return {
+            "available": False,
+            "state": "MISSING",
+            "action_required": True,
+            "reason": "variant_predictions_long.csv missing or empty",
+            "path": str(path),
+            "snapshot_id": snapshot_meta.get("snapshot_id"),
+            "active_variant_count": len(active_ids),
+        }
+    latest_snapshot_id = snapshot_meta.get("snapshot_id")
+    latest_rows = [row for row in rows if row.get("snapshot_id") == latest_snapshot_id]
+    serving_band_count = len(snapshot_rows)
+    expected_rows = len(active_ids) * serving_band_count
+    statuses = Counter(str(row.get("prediction_status") or "missing").lower() for row in latest_rows)
+    present_ids = sorted({row.get("variant_id") for row in latest_rows if row.get("variant_id")})
+    missing_ids = sorted(set(active_ids) - set(present_ids))
+    invalid_status_rows = sum(
+        count
+        for status, count in statuses.items()
+        if status not in {"predicted", "skipped", "failed"}
+    )
+    ok = bool(latest_rows) and not missing_ids and len(latest_rows) >= expected_rows and invalid_status_rows == 0
+    reasons = []
+    if not latest_rows:
+        reasons.append("latest serving snapshot has no variant rows")
+    if missing_ids:
+        reasons.append("missing active variants: " + ", ".join(missing_ids))
+    if len(latest_rows) < expected_rows:
+        reasons.append(f"{len(latest_rows)}/{expected_rows} expected latest variant-band rows")
+    if invalid_status_rows:
+        reasons.append(f"{invalid_status_rows} rows have invalid prediction_status")
+    return {
+        "available": True,
+        "state": "OK" if ok else "STALE",
+        "action_required": not ok,
+        "reason": "; ".join(reasons) if reasons else "latest active-variant rows are fresh",
+        "path": str(path),
+        "snapshot_id": latest_snapshot_id,
+        "captured_at_utc": snapshot_meta.get("captured_at_utc"),
+        "captured_at_local": snapshot_meta.get("captured_at_local"),
+        "active_variant_count": len(active_ids),
+        "active_variant_ids": active_ids,
+        "present_variant_ids": present_ids,
+        "missing_variant_ids": missing_ids,
+        "serving_band_count": serving_band_count,
+        "expected_latest_rows": expected_rows,
+        "latest_rows": len(latest_rows),
+        "status_counts": dict(sorted(statuses.items())),
+    }
+
+
+def fleet_variant_prediction_tape_summary(markets):
+    rows = [row.get("variant_prediction_tape") or {} for row in markets]
+    return {
+        "market_count": len(rows),
+        "markets_with_variant_tape": sum(1 for row in rows if row.get("available")),
+        "action_required": sum(1 for row in rows if row.get("action_required")),
+        "missing_or_stale_market_count": sum(
+            1 for row in rows if row.get("state") in {"MISSING", "STALE", "REGISTRY_ERROR"}
+        ),
+        "active_variant_count": max((int(row.get("active_variant_count") or 0) for row in rows), default=0),
     }
 
 
@@ -428,12 +614,16 @@ def fleet_collection_health(
             as_of=as_of,
         )
         source_degradation = source_family_degradation(folder)
+        variant_prediction_tape = summary.get("variant_prediction_tape") or {}
+        snapshot_action_required = bool(summary.get("action_required", not summary.get("clean")))
+        action_required = snapshot_action_required or bool(variant_prediction_tape.get("action_required"))
         markets.append({
             "market_id": spec.id,
             "city": spec.city_label,
             "unit": spec.display_unit,
             "state": summary.get("state") or ("CLEAN" if summary.get("clean") else "CHECK"),
-            "action_required": bool(summary.get("action_required", not summary.get("clean"))),
+            "action_required": action_required,
+            "snapshot_action_required": snapshot_action_required,
             "freshness_sla_minutes": freshness_sla,
             "latest_age_minutes": summary.get("latest_age_minutes"),
             "event_slug": summary.get("event_slug"),
@@ -444,8 +634,10 @@ def fleet_collection_health(
             "max_gap_minutes": summary.get("max_gap_minutes"),
             "reason": summary.get("reason"),
             "source_family_degradation": source_degradation,
+            "variant_prediction_tape": variant_prediction_tape,
         })
     source_family_summary = fleet_source_family_degradation_summary(markets)
+    variant_tape_summary = fleet_variant_prediction_tape_summary(markets)
     return {
         "schema_version": "fleet_collection_health_v0.1",
         "snapshots_root": str(snapshots_root),
@@ -461,6 +653,7 @@ def fleet_collection_health(
                 for state in sorted({row.get("state") for row in markets})
             },
             "source_family_degradation": source_family_summary,
+            "variant_prediction_tape": variant_tape_summary,
         },
     }
 

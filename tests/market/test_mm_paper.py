@@ -483,6 +483,131 @@ class TestMMPaper(unittest.TestCase):
             self.assertIn(("chicago", "harvest_only"), permissions)
             self.assertIn(("san-francisco", "no_quote"), permissions)
 
+    def test_early_hour_guardrail_shadow_compares_loss_reduction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root = root / "mm_runs"
+            run_folder = runs_root / TARGET_DATE / "early-hour-run"
+            run_folder.mkdir(parents=True)
+            (run_folder / "run_config.json").write_text(json.dumps({
+                "run_id": "early-hour-run",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+            }), encoding="utf-8")
+            quote_row = {
+                "run_id": "early-hour-run",
+                "target_date": TARGET_DATE,
+                "run_mode": "paper-live-forward",
+                "generated_at_utc": "2026-06-14T09:00:00+00:00",
+                "captured_at_utc": "2026-06-14T08:59:30+00:00",
+                "policy_hash": "locked-policy",
+                "quote_permission": "True",
+                "market_id": "atlanta",
+                "event_slug": EVENT,
+                "range_label": "80-81 F",
+                "bin_kind": "eq",
+                "bin_value": "80",
+                "bin_value_hi": "81",
+                "clob_token_id": "token-early",
+                "fair_probability": "0.52",
+                "market_mid": "0.50",
+                "bid_price": "0.49",
+                "bid_size": "5",
+                "ask_price": "",
+                "ask_size": "",
+                "regime": "harvest",
+                "source_fresh": "True",
+                "source_freshness_state": "failed:open_meteo",
+                "book_imbalance_1pct": "0.10",
+                "min_order_size": "1",
+                "reason_code": "QUOTE_HARVEST_MID",
+            }
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
+
+            snapshots_root = root / "snapshots"
+            folder = snapshots_root / EVENT
+            folder.mkdir(parents=True)
+            trades = [
+                {
+                    "trade_time_utc": "2026-06-14T09:00:10+00:00",
+                    "clob_token_id": "token-early",
+                    "price": "0.48",
+                    "size": "5",
+                    "side": "SELL",
+                },
+            ]
+            write_csv(folder / "trades_long.csv", list(trades[0].keys()), trades)
+            books = [
+                {
+                    "captured_at_utc": "2026-06-14T08:59:50+00:00",
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "range_label": "80-81 F",
+                    "bin_kind": "eq",
+                    "bin_value": "80",
+                    "bin_value_hi": "81",
+                    "clob_token_id": "token-early",
+                    "best_bid": "0.49",
+                    "best_ask": "0.51",
+                    "midpoint": "0.50",
+                    "bid_size_at_best": "10",
+                    "ask_size_at_best": "10",
+                    "bid_depth_1pct": "10",
+                    "ask_depth_1pct": "10",
+                    "tick_size": "0.001",
+                },
+            ]
+            write_csv(folder / "order_books_summary.csv", list(books[0].keys()), books)
+            marks = [
+                {
+                    "point_time_utc": "2026-06-14T09:30:30+00:00",
+                    "clob_token_id": "token-early",
+                    "price": "0.40",
+                },
+            ]
+            write_csv(folder / "price_history.csv", list(marks[0].keys()), marks)
+            (folder / "settlement.json").write_text(json.dumps({
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "settlement_bucket": 79,
+                "winning_band": "79-80 F",
+                "quality_grade": "complete",
+            }), encoding="utf-8")
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=snapshots_root,
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+
+            shadow = payload["summary"]["early_hour_guardrail_shadow"]
+            self.assertEqual(shadow["status"], "REDUCED_EARLY_HOUR_LOSS")
+            self.assertEqual(shadow["early_hour_fill_rows"], 1)
+            self.assertGreater(shadow["early_hour_market_aware_delta_vs_base_usdc"], 0.0)
+            self.assertGreater(shadow["early_hour_base_loss_usdc"], shadow["early_hour_capped_loss_usdc"])
+            self.assertEqual(shadow["early_hour_market_aware_loss_usdc"], 0.0)
+            exposure = shadow["quote_exposure"]
+            self.assertEqual(exposure["early_hour_quote_rows"], 1)
+            self.assertEqual(exposure["market_aware_standdown_rows"], 1)
+            fill = payload["fills"][0]
+            self.assertEqual(fill["hourly_trust_band"], "early_00_08")
+            self.assertEqual(fill["early_hour_guardrail_status"], "active")
+            self.assertAlmostEqual(float(fill["fair_probability"]), 0.52)
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+            self.assertIn("## Early-Hour Market-Aware Guardrail", report)
+
     def test_no_runs_writes_empty_report_and_fail_closed_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

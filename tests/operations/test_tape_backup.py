@@ -3,9 +3,12 @@ import os
 import sys
 import tempfile
 import unittest
+from collections import namedtuple
 from pathlib import Path
 from unittest.mock import patch
 from weather.operations.tape_backup import (  # noqa: E402
+    TapeBackupCapacityError,
+    apply_unmanifested_backup_cleanup,
     backup_status,
     build_backup_manifest,
     classify_path,
@@ -14,7 +17,11 @@ from weather.operations.tape_backup import (  # noqa: E402
     run_backup_job,
     run_restore_drill,
     sha256_file,
+    unmanifested_backup_cleanup_plan,
 )
+
+
+DiskUsage = namedtuple("DiskUsage", "total used free")
 
 
 def write(path, text="x\n"):
@@ -87,6 +94,7 @@ class TestTapeBackup(unittest.TestCase):
             "clob_tokens.jsonl",
             "order_books_summary.csv",
             "order_books_long.csv",
+            "order_books_long.csv.gz",
             "order_books.jsonl",
             "price_history.csv",
             "price_history.jsonl",
@@ -98,13 +106,43 @@ class TestTapeBackup(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn("clob_tapes", classify_path(f"data/snapshots/event/{name}"))
 
+    def test_manifest_retains_lifecycle_manifest_and_skips_zero_byte_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            write(
+                root / "data/backtest/f_family_promotion_refresh_incomplete.json",
+                json.dumps({
+                    "schema_version": "promotion_refresh_incomplete_v0.1",
+                    "status": "INCOMPLETE",
+                }),
+            )
+            write(root / "data/mm_runs/run-1/preflight.json", "")
+            write(root / "data/mm_runs/run-1/order_lifecycle_empty.jsonl", "")
+
+            manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
+            drill = run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "drill.json",
+                report=Path(tmp) / "drill.md",
+                keep_restore=True,
+            )
+
+        paths = {row["path"] for row in manifest["files"]}
+        self.assertIn("data/backtest/f_family_promotion_refresh_incomplete.json", paths)
+        self.assertNotIn("data/mm_runs/run-1/preflight.json", paths)
+        self.assertNotIn("data/mm_runs/run-1/order_lifecycle_empty.jsonl", paths)
+        self.assertEqual(drill["status"], "PASS")
+
     def test_export_backup_writes_manifest_and_restore_drill_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
 
-            export_manifest = export_backup(root, backup_root)
+            export_manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
             loaded, manifest_path = load_backup_manifest(backup_root)
             drill = run_restore_drill(
                 backup_root=backup_root,
@@ -130,7 +168,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
 
             status = backup_status(backup_root)
 
@@ -142,7 +180,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
             run_restore_drill(
                 backup_root=backup_root,
                 restore_root=Path(tmp) / "restore",
@@ -164,7 +202,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             write(root / "data/snapshots/event/snapshots.jsonl", "{}\n")
-            export_backup(root, backup_root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
             run_restore_drill(
                 backup_root=backup_root,
                 restore_root=Path(tmp) / "restore",
@@ -183,7 +221,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
             run_restore_drill(
                 backup_root=backup_root,
                 restore_root=Path(tmp) / "restore",
@@ -196,18 +234,94 @@ class TestTapeBackup(unittest.TestCase):
                 "capture_id,side,level_index,price,size\nb2,ask,1,0.46,10\n",
             )
 
-            status = backup_status(backup_root)
+            with patch(
+                "weather.operations.tape_backup.shutil.disk_usage",
+                return_value=DiskUsage(total=10_000, used=1_000, free=9_000_000_000),
+            ):
+                status = backup_status(backup_root)
 
         self.assertEqual(status["status"], "MISSING_CRITICAL_FILES")
         self.assertEqual(status["missing_critical_files"], 1)
         self.assertIn("order_books_long_extra.csv", status["missing_critical_file_samples"][0]["path"])
+        self.assertEqual(status["capacity_preflight"]["status"], "PASS")
+
+    def test_backup_status_reports_insufficient_capacity_for_missing_critical_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "drill.json",
+                report=Path(tmp) / "drill.md",
+                keep_restore=True,
+            )
+            write(
+                root / "data/snapshots/event/order_books_long_extra.csv",
+                "capture_id,side,level_index,price,size\nb2,ask,1,0.46,10\n",
+            )
+
+            with patch(
+                "weather.operations.tape_backup.shutil.disk_usage",
+                return_value=DiskUsage(total=10_000, used=9_999, free=1),
+            ):
+                status = backup_status(backup_root)
+
+        self.assertEqual(status["status"], "INSUFFICIENT_BACKUP_CAPACITY")
+        self.assertGreater(status["capacity_preflight"]["insufficient_bytes"], 0)
+
+    def test_export_backup_capacity_preflight_prevents_partial_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+
+            with patch(
+                "weather.operations.tape_backup.shutil.disk_usage",
+                return_value=DiskUsage(total=10_000, used=9_999, free=1),
+            ), patch("weather.operations.tape_backup.shutil.copy2") as copy2:
+                with self.assertRaises(TapeBackupCapacityError) as raised:
+                    export_backup(root, backup_root, capacity_margin_bytes=0)
+
+        self.assertEqual(raised.exception.preflight["status"], "INSUFFICIENT_BACKUP_CAPACITY")
+        self.assertEqual(copy2.call_count, 0)
+        self.assertFalse((backup_root / "latest" / "tape_backup_manifest.json").exists())
+
+    def test_run_backup_job_writes_status_when_capacity_preflight_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            status_out = Path(tmp) / "status.json"
+
+            with patch(
+                "weather.operations.tape_backup.shutil.disk_usage",
+                return_value=DiskUsage(total=10_000, used=9_999, free=1),
+            ):
+                payload = run_backup_job(
+                    source_root=root,
+                    backup_root=backup_root,
+                    status_out=status_out,
+                    status_report=Path(tmp) / "status.md",
+                    restore_out=Path(tmp) / "restore.json",
+                    restore_report=Path(tmp) / "restore.md",
+                    restore_root=Path(tmp) / "restore",
+                    capacity_margin_bytes=0,
+                )
+            written = json.loads(status_out.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"]["status"], "INSUFFICIENT_BACKUP_CAPACITY")
+        self.assertEqual(payload["restore_drill"]["status"], "SKIPPED")
+        self.assertEqual(written["status"], "INSUFFICIENT_BACKUP_CAPACITY")
 
     def test_backup_status_detects_checksum_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
             backed_up = backup_root / "latest" / "data/snapshots/event/snapshots.jsonl"
             backed_up.write_text("corrupt\n", encoding="utf-8")
 
@@ -230,7 +344,7 @@ class TestTapeBackup(unittest.TestCase):
                 return result
 
             with patch("weather.operations.tape_backup.shutil.copy2", mutating_copy):
-                manifest = export_backup(root, backup_root)
+                manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
 
             backed_up = backup_root / "latest" / "data/snapshots/event/snapshots.jsonl"
             entry = next(row for row in manifest["files"] if row["path"] == "data/snapshots/event/snapshots.jsonl")
@@ -254,6 +368,7 @@ class TestTapeBackup(unittest.TestCase):
                 restore_root=Path(tmp) / "restore",
                 keep_restore=True,
                 verify_checksums=True,
+                capacity_margin_bytes=0,
             )
             status_exists = (Path(tmp) / "status.json").exists()
             status_report = (Path(tmp) / "status.md").read_text(encoding="utf-8")
@@ -264,6 +379,30 @@ class TestTapeBackup(unittest.TestCase):
         self.assertIn("Restore drill SLA: **OK**", status_report)
         self.assertIn("## CLOB Artifact Coverage", status_report)
         self.assertIn("order_book_long", status_report)
+
+    def test_unmanifested_backup_cleanup_deletes_only_source_backed_partials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
+            backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
+            missing_source_extra = write(backup_root / "latest/data/snapshots/event/missing_source.csv", "only backup\n")
+
+            plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
+            plan["apply"] = apply_unmanifested_backup_cleanup(plan)
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = source_extra.exists()
+            missing_source_extra_exists = missing_source_extra.exists()
+
+        self.assertEqual(plan["summary"]["candidate_files"], 1)
+        self.assertEqual(plan["summary"]["blocked_files"], 1)
+        self.assertFalse(backup_extra_exists)
+        self.assertTrue(source_extra_exists)
+        self.assertTrue(missing_source_extra_exists)
+        self.assertEqual(plan["apply"]["summary"]["deleted_files"], 1)
+        self.assertEqual(plan["apply"]["summary"]["skipped_files"], 1)
 
 
 if __name__ == "__main__":

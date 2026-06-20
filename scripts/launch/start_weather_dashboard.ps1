@@ -30,7 +30,7 @@ try {
 
 if (-not $isListening) {
     $arguments = @(
-        "-m", "streamlit", "run", "app.py",
+        "-m", "streamlit", "run", "app/streamlit_app.py",
         "--server.port", "$Port",
         "--server.headless", "true",
         "--browser.gatherUsageStats", "false"

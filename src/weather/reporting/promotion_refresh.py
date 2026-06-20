@@ -21,12 +21,15 @@ from weather.reporting.formatting import (
     fmt_signed,
     markdown_table,
 )
+from weather.reporting.artifact_disk_budget import ensure_artifact_disk_headroom
 from weather.reporting.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
 from weather.reporting.location_trust import score_all_markets
 from weather.market.market_registry import all_specs
 from weather.calibration.pooled_candidate_replay import (
     DEFAULT_CASEBOOK,
     DEFAULT_MICROSTRUCTURE_ARTIFACT,
+    DEFAULT_VARIANT_REGISTRY_PATH,
+    DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
     run_pooled_candidate_replay,
 )
 from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
@@ -55,6 +58,11 @@ DEFAULT_CANDIDATE_JSON = data_path() / "backtest" / "pooled_candidate_replay_lat
 DEFAULT_CURRENT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_latest_report.md"
 DEFAULT_SERVING_GAUNTLET_REPORT = data_path() / "backtest" / "promotion_gauntlet_latest_report.md"
 DEFAULT_SERVING_REPLAY_REPORT = data_path() / "backtest" / "promotion_replay_latest_report.md"
+DEFAULT_HOURLY_PERFORMANCE = data_path() / "backtest" / "hourly_model_performance.json"
+DEFAULT_CANDIDATE_HOURLY_PERFORMANCE = ""
+DEFAULT_SOURCE_FAMILY_INVENTORY = data_path() / "backtest" / "source_family_inventory.json"
+DEFAULT_FLEET_OBSERVABILITY = data_path() / "backtest" / "fleet_observability.json"
+DEFAULT_INCOMPLETE_MANIFEST = data_path() / "backtest" / "f_family_promotion_refresh_incomplete.json"
 DEFAULT_FAMILY_UNIT = "F"
 
 
@@ -62,10 +70,17 @@ def _utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _write_json(path, payload):
+def _write_json(path, payload, min_free_bytes=0, context="promotion refresh JSON export"):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    ensure_artifact_disk_headroom(
+        path,
+        estimated_bytes=len(text.encode("utf-8")),
+        min_free_bytes=min_free_bytes,
+        context=context,
+    )
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -221,12 +236,31 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
         "slices": {
             "by_market": market_slices,
             "by_cutoff_hour": candidate_report.get("by_hour") or [],
+            "by_cutoff_regime": candidate_report.get("by_cutoff_regime") or [],
             "by_band_type": candidate_report.get("by_bin_type") or [],
             "by_settlement_distance": candidate_report.get("by_settlement_distance") or [],
             "by_clob_taxonomy": micro_gated.get("by_taxonomy") or microstructure.get("by_taxonomy") or [],
             "by_source_freshness": candidate_report.get("by_source_freshness") or [],
+            "by_forecast_source_count": candidate_report.get("by_forecast_source_count") or [],
+            "by_forecast_disagreement": candidate_report.get("by_forecast_disagreement") or [],
+            "by_forecast_bucket_pressure": candidate_report.get("by_forecast_bucket_pressure") or [],
         },
+        "forecast_profile_guardrails": candidate_report.get("forecast_profile_guardrails") or {},
     }
+
+
+def load_precomputed_candidate_report(path, manifest):
+    path = Path(path)
+    candidate_report = json.loads(path.read_text(encoding="utf-8"))
+    candidate_corpus = candidate_report.get("corpus") or {}
+    candidate_hash = candidate_corpus.get("corpus_hash")
+    manifest_hash = manifest.get("corpus_hash")
+    if candidate_hash and manifest_hash and candidate_hash != manifest_hash:
+        raise ValueError(
+            "precomputed candidate corpus hash mismatch: "
+            f"candidate={candidate_hash}, manifest={manifest_hash}"
+        )
+    return candidate_report
 
 
 def _candidate_evidence_accounting(candidate_report):
@@ -276,6 +310,149 @@ def _comparison_metrics(comp):
         "candidate_skill": comp.get("candidate_skill"),
         "candidate_ece": comp.get("candidate_ece"),
         "base_rate": comp.get("base_rate"),
+    }
+
+
+def _read_extra_location_transfer_report(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "promotion_gate": {
+                "status": "MISSING",
+                "serving_promotion_allowed": False,
+                "reasons": ["extra-location transfer report is missing"],
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = dict(payload)
+    payload["path"] = str(path)
+    payload["exists"] = True
+    return payload
+
+
+def _read_hourly_performance_report(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "hourly_performance_gate": {
+                "status": "MISSING",
+                "blockers": [
+                    {
+                        "gate": "hourly_performance_missing",
+                        "detail": "hourly performance gate artifact is missing",
+                        "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                    }
+                ],
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = dict(payload)
+    payload["path"] = str(path)
+    payload["exists"] = True
+    return payload
+
+
+def _read_candidate_hourly_performance_report(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "candidate_hourly_gate": {
+                "status": "MISSING",
+                "blockers": [
+                    {
+                        "gate": "candidate_hourly_performance_missing",
+                        "detail": "candidate hourly performance artifact is missing",
+                        "remediation_command": "python -m weather.reporting.candidate_hourly_performance",
+                    }
+                ],
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = dict(payload)
+    payload["path"] = str(path)
+    payload["exists"] = True
+    return payload
+
+
+def _read_source_family_inventory(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "promotion_preflight": {
+                "status": "MISSING",
+                "blocked_families": [],
+                "blocking_rows": [],
+                "blocked_family_count": None,
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    preflight = payload.get("promotion_preflight") or {}
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "summary": payload.get("summary") or {},
+        "promotion_preflight": preflight,
+    }
+
+
+def _read_fleet_observability(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "summary": {
+                "live_forward_slo_status": "MISSING",
+                "tape_backup_status": "MISSING",
+            },
+            "tape_backup": {"status": "MISSING"},
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    tape = payload.get("tape_backup") or {}
+    capacity = tape.get("capacity_preflight") or {}
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "summary": payload.get("summary") or {},
+        "tape_backup": {
+            "status": tape.get("status"),
+            "backup_root": tape.get("backup_root"),
+            "missing_critical_files": tape.get("missing_critical_files"),
+            "restore_drill_sla_status": tape.get("restore_drill_sla_status"),
+            "capacity_preflight": {
+                "status": capacity.get("status"),
+                "free_bytes": capacity.get("free_bytes"),
+                "required_bytes": capacity.get("required_bytes"),
+                "insufficient_bytes": capacity.get("insufficient_bytes"),
+            },
+        },
     }
 
 
@@ -439,10 +616,30 @@ def _readiness_market_details(decisions, action):
     ]
 
 
-def promotion_readiness(candidate, serving, decisions):
+def promotion_readiness(
+    candidate,
+    serving,
+    decisions,
+    extra_location_transfer=None,
+    hourly_performance=None,
+    candidate_hourly_performance=None,
+    source_family_inventory=None,
+    fleet_observability=None,
+):
     blockers = []
     market_scope = _market_scope_phrase(decisions.get("family_unit"))
     aggregate = candidate.get("aggregate") or {}
+    candidate_shadow = candidate.get("candidate_shadow_variants") or {}
+    if candidate_shadow.get("uses_market_features"):
+        blockers.append({
+            "category": "market_informed_candidate",
+            "severity": "block",
+            "detail": (
+                "candidate variant uses market features; market-informed evidence may support "
+                "quote/risk gates but cannot satisfy weather-only core promotion readiness"
+            ),
+            "evidence": candidate_shadow,
+        })
     delta_vs_market = aggregate.get("delta_vs_market")
     if delta_vs_market is not None and delta_vs_market > 0:
         blockers.append({
@@ -494,11 +691,113 @@ def promotion_readiness(candidate, serving, decisions):
             "severity": "block",
             "detail": "current-serving gauntlet is BLOCK; inspect serving market rows before promotion",
         })
+    source_preflight = (source_family_inventory or {}).get("promotion_preflight") or {}
+    source_status = source_preflight.get("status")
+    if source_family_inventory is not None and source_status != "PASS":
+        blocked_families = source_preflight.get("blocked_families") or []
+        blockers.append({
+            "category": "source_family_preflight",
+            "severity": "block",
+            "detail": (
+                f"source-family promotion preflight is {source_status or 'MISSING'}"
+                + (f": {', '.join(blocked_families)}" if blocked_families else "")
+            ),
+            "evidence": source_preflight,
+        })
+    fleet_summary = (fleet_observability or {}).get("summary") or {}
+    live_forward_status = fleet_summary.get("live_forward_slo_status")
+    if fleet_observability is not None and live_forward_status not in {None, "OK", "PASS"}:
+        blockers.append({
+            "category": "live_forward_slo",
+            "severity": "block" if live_forward_status in {"BLOCK", "CRITICAL", "MISSING"} else "open",
+            "detail": f"live-forward collection SLO is {live_forward_status}; inspect fleet observability",
+            "evidence": {
+                "status": live_forward_status,
+                "fleet_status": (fleet_observability or {}).get("status"),
+                "path": (fleet_observability or {}).get("path"),
+            },
+        })
+    tape = (fleet_observability or {}).get("tape_backup") or {}
+    tape_status = tape.get("status") or fleet_summary.get("tape_backup_status")
+    if fleet_observability is not None and tape_status not in {None, "OK", "PASS"}:
+        capacity = tape.get("capacity_preflight") or {}
+        insufficient = capacity.get("insufficient_bytes")
+        detail = f"tape backup status is {tape_status}; promotion readiness requires current backup/restore evidence"
+        if insufficient is not None:
+            detail += f" ({insufficient} bytes short)"
+        blockers.append({
+            "category": "tape_backup_sla",
+            "severity": "block" if tape_status not in {"WARN"} else "open",
+            "detail": detail,
+            "evidence": tape,
+        })
+    hourly_gate = (hourly_performance or {}).get("hourly_performance_gate") or {}
+    hourly_status = hourly_gate.get("status")
+    candidate_hourly_gate = (candidate_hourly_performance or {}).get("candidate_hourly_gate") or {}
+    candidate_hourly_status = candidate_hourly_gate.get("status")
+    candidate_variant_id = (candidate.get("candidate_shadow_variants") or {}).get("variant_id")
+    candidate_hourly_variant_ids = {
+        str(value)
+        for value in (candidate_hourly_performance or {}).get("variant_ids") or []
+        if value not in (None, "")
+    }
+    candidate_hourly_matches = bool(
+        candidate_variant_id and str(candidate_variant_id) in candidate_hourly_variant_ids
+    )
+    hourly_mitigation = {
+        "applied": bool(
+            hourly_status in {"BLOCK", "MISSING"}
+            and candidate_hourly_status == "PASS"
+            and candidate_hourly_matches
+        ),
+        "current_hourly_status": hourly_status,
+        "candidate_hourly_status": candidate_hourly_status,
+        "candidate_variant_id": candidate_variant_id,
+        "candidate_hourly_variant_ids": sorted(candidate_hourly_variant_ids),
+        "candidate_hourly_matches": candidate_hourly_matches,
+        "current_hourly_gate": hourly_gate,
+        "candidate_hourly_gate": candidate_hourly_gate,
+    }
+    if hourly_status in {"BLOCK", "MISSING"} and not hourly_mitigation["applied"]:
+        first = hourly_gate.get("first_blocker") or next(iter(hourly_gate.get("blockers") or []), {})
+        blockers.append({
+            "category": "hourly_performance_gate",
+            "severity": "block" if hourly_status == "BLOCK" else "open",
+            "detail": (
+                f"hourly performance gate is {hourly_status}: "
+                + (first.get("detail") or "inspect hourly model performance report")
+            ),
+            "evidence": hourly_gate,
+        })
+    extra_gate = (extra_location_transfer or {}).get("promotion_gate") or {}
+    extra_gate_status = extra_gate.get("status")
+    if extra_gate_status in {"BLOCK", "BLOCKED", "MISSING"}:
+        blockers.append({
+            "category": "no_market_extra_location_shadow_lane",
+            "severity": "block" if extra_gate_status != "MISSING" else "open",
+            "detail": (
+                "extra-location shadow lane gate is "
+                f"{extra_gate_status}: "
+                + ("; ".join(extra_gate.get("reasons") or []) or "inspect transfer report")
+            ),
+            "evidence": extra_gate,
+        })
+    elif extra_gate_status == "SHADOW_ONLY":
+        blockers.append({
+            "category": "no_market_extra_location_shadow_lane",
+            "severity": "open",
+            "detail": (
+                "extra-location shadow lane is inconclusive and cannot affect serving: "
+                + ("; ".join(extra_gate.get("reasons") or []) or "inspect transfer report")
+            ),
+            "evidence": extra_gate,
+        })
     return {
         "status": "READY" if not blockers else "OPEN",
         "blockers": blockers,
         "shadow_market_details": shadow_details,
         "blocked_market_details": blocked_details,
+        "hourly_performance_mitigation": hourly_mitigation,
     }
 
 
@@ -613,7 +912,7 @@ def _gap_rule(slice_name, group):
             "claim_lane": "weather_only_core_model",
             "counts_toward_core_skill_claim": True,
         }
-    if slice_name == "market" and group_text in {"nyc", "seattle"}:
+    if slice_name == "market":
         return {
             "owner": f"{group_text} residual calibration",
             "roadmap_owner": "Item 48",
@@ -708,7 +1007,76 @@ def build_gap_owner_table(gap_drivers, decisions=None, *, limit=12):
     return rows
 
 
-def market_skill_diagnostics(candidate, decisions, markets=("nyc", "seattle")):
+def _operational_gate_rows(payload):
+    rows = []
+    source_family = payload.get("source_family_inventory") or {}
+    if source_family:
+        preflight = source_family.get("promotion_preflight") or {}
+        rows.append([
+            "Source family preflight",
+            preflight.get("status") or source_family.get("status") or "-",
+            ", ".join(preflight.get("blocked_families") or []) or "no blocked active input families",
+        ])
+    fleet = payload.get("fleet_observability") or {}
+    if fleet:
+        summary = fleet.get("summary") or {}
+        tape = fleet.get("tape_backup") or {}
+        rows.append([
+            "Live-forward SLO",
+            summary.get("live_forward_slo_status") or "-",
+            f"fleet status {fleet.get('status') or '-'}",
+        ])
+        rows.append([
+            "Tape backup SLA",
+            tape.get("status") or summary.get("tape_backup_status") or "-",
+            f"backup root {tape.get('backup_root') or '-'}",
+        ])
+    hourly = payload.get("hourly_performance") or {}
+    if hourly:
+        gate = hourly.get("hourly_performance_gate") or {}
+        first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+        rows.append([
+            "Current-serving hourly gate",
+            gate.get("status") or "-",
+            first.get("detail") or "no hourly blocker",
+        ])
+    candidate_hourly = payload.get("candidate_hourly_performance") or {}
+    if candidate_hourly:
+        gate = candidate_hourly.get("candidate_hourly_gate") or {}
+        first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+        rows.append([
+            "Candidate hourly gate",
+            gate.get("status") or "-",
+            first.get("detail") or "no candidate-hourly blocker",
+        ])
+    return rows
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _diagnostic_markets_from_decisions(decisions):
+    rows = []
+    for row in (decisions or {}).get("markets") or []:
+        market_id = row.get("market_id")
+        if not market_id or row.get("action") == "PROMOTE_CANDIDATE":
+            continue
+        metrics = row.get("metrics") or {}
+        delta_market = _slice_delta_vs_market(metrics)
+        rows.append((
+            market_id,
+            row.get("action") == "BLOCK_CANDIDATE",
+            float(delta_market) if delta_market is not None else -1.0,
+        ))
+    rows.sort(key=lambda item: (not item[1], -item[2], item[0]))
+    return [market_id for market_id, _blocked, _delta in rows]
+
+
+def market_skill_diagnostics(candidate, decisions, markets=None):
     by_market = {
         str(row.get("group")): row
         for row in ((candidate or {}).get("slices") or {}).get("by_market") or []
@@ -720,21 +1088,30 @@ def market_skill_diagnostics(candidate, decisions, markets=("nyc", "seattle")):
         if row.get("market_id")
     }
     rows = []
+    markets = list(markets) if markets is not None else _diagnostic_markets_from_decisions(decisions)
     for market_id in markets:
         slice_row = by_market.get(market_id) or {}
         decision = decision_by_market.get(market_id) or {}
         metrics = decision.get("metrics") or {}
+        rule = _gap_rule("market", market_id)
         rows.append({
             "market_id": market_id,
+            "slice": "market",
+            "group": market_id,
             "action": decision.get("action") or "-",
             "reason": decision.get("reason") or "-",
-            "candidate_brier": metrics.get("candidate_brier") or slice_row.get("candidate_brier"),
-            "current_brier": metrics.get("current_brier") or slice_row.get("current_brier"),
-            "market_brier": metrics.get("market_brier") or slice_row.get("market_brier"),
-            "delta_vs_current": metrics.get("delta_vs_current") or slice_row.get("delta_vs_current"),
-            "delta_vs_market": metrics.get("delta_vs_market") or slice_row.get("delta_vs_market"),
-            "next_experiment": _gap_rule("market", market_id)["next_experiment"],
-            "experiment_artifact": _gap_rule("market", market_id)["experiment_artifact"],
+            "candidate_brier": _first_present(metrics.get("candidate_brier"), slice_row.get("candidate_brier")),
+            "current_brier": _first_present(metrics.get("current_brier"), slice_row.get("current_brier")),
+            "market_brier": _first_present(metrics.get("market_brier"), slice_row.get("market_brier")),
+            "delta_vs_current": _first_present(metrics.get("delta_vs_current"), slice_row.get("delta_vs_current")),
+            "delta_vs_market": _first_present(metrics.get("delta_vs_market"), slice_row.get("delta_vs_market")),
+            "excess_brier_rows": None,
+            **rule,
+            "affected_markets": [market_id],
+            "clearance_rule": (
+                "Paired daily-first replay must improve this market, aggregate "
+                "delta_vs_market must be <= 0, and no promoted/shadow market may regress."
+            ),
         })
     return rows
 
@@ -779,12 +1156,16 @@ def model_skill_claims(candidate, gap_owner_table=None):
     }
 
 
-def write_gap_experiment_artifacts(rows):
+def write_gap_experiment_artifacts(rows, min_free_bytes=0):
     written = []
+    seen = set()
     for row in rows or []:
         artifact = row.get("experiment_artifact")
         if not artifact:
             continue
+        if artifact in seen:
+            continue
+        seen.add(artifact)
         payload = {
             "schema_version": "market_skill_gap_experiment_v0.1",
             "status": "OPEN",
@@ -806,7 +1187,12 @@ def write_gap_experiment_artifacts(rows):
                 "no_promoted_or_shadow_market_regression": True,
             },
         }
-        written_path = _write_json(artifact, payload)
+        written_path = _write_json(
+            artifact,
+            payload,
+            min_free_bytes=min_free_bytes,
+            context="promotion refresh gap experiment manifest export",
+        )
         row["experiment_artifact_exists"] = True
         written.append(str(written_path))
     return written
@@ -946,7 +1332,7 @@ def _serving_blocking_source_freshness_rows(serving):
     return rows
 
 
-def write_report(path, payload):
+def write_report(path, payload, min_free_bytes=0):
     path = Path(path)
     corpus = payload.get("corpus") or {}
     candidate = payload.get("candidate") or {}
@@ -1007,6 +1393,40 @@ def write_report(path, payload):
             ],
             readiness_details,
         )
+    operational_gate_rows = _operational_gate_rows(payload)
+    if operational_gate_rows:
+        lines += [
+            "",
+            "## Operational Promotion Gates",
+            "",
+        ]
+        lines += markdown_table(
+            ["Gate", "Status", "Detail"],
+            operational_gate_rows,
+        )
+    extra_transfer = payload.get("extra_location_transfer") or {}
+    if extra_transfer:
+        extra_gate = extra_transfer.get("promotion_gate") or {}
+        extra_evidence = extra_transfer.get("evidence_accounting") or {}
+        lines += [
+            "",
+            "## No-Market Extra-Location Shadow Lane",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Report", extra_transfer.get("path") or "-"],
+                ["Exists", extra_transfer.get("exists")],
+                ["Status", extra_transfer.get("status") or "-"],
+                ["Gate", extra_gate.get("status") or "-"],
+                ["Serving promotion allowed", extra_gate.get("serving_promotion_allowed")],
+                ["Target market-days scored", extra_evidence.get("target_market_days_scored", 0)],
+                ["Extra location-days", extra_evidence.get("extra_location_days", 0)],
+                ["Row multiplier", fmt_num(extra_evidence.get("row_multiplier"))],
+                ["Reasons", "; ".join(extra_gate.get("reasons") or []) or "-"],
+            ],
+        )
     lines += [
         "",
         "## Refresh Artifacts",
@@ -1020,6 +1440,9 @@ def write_report(path, payload):
             ["Candidate JSON", candidate.get("json_path") or "-"],
             ["Candidate report", candidate.get("report_path") or "-"],
             ["Serving gauntlet", (serving or {}).get("report_path") or "skipped"],
+            ["Candidate hourly performance", (payload.get("candidate_hourly_performance") or {}).get("path") or "-"],
+            ["Source family inventory", (payload.get("source_family_inventory") or {}).get("path") or "-"],
+            ["Fleet observability", (payload.get("fleet_observability") or {}).get("path") or "-"],
         ],
     )
     lines += [
@@ -1062,6 +1485,50 @@ def write_report(path, payload):
             ["Delta vs market", fmt_signed(candidate_agg.get("delta_vs_market"), 4)],
         ],
     )
+    candidate_artifact = candidate.get("artifact") or {}
+    if candidate_artifact.get("feature_subset") == "forecast_profile":
+        guardrails = candidate.get("forecast_profile_guardrails") or {}
+        contract = candidate_artifact.get("feature_subset_contract") or {}
+        lines += [
+            "",
+            "### Forecast-Profile Calibration Lane",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Subset", candidate_artifact.get("feature_subset")],
+                ["Anchor", contract.get("anchor_feature") or "forecast_high"],
+                ["Allowed families", ", ".join(contract.get("allowed_feature_families") or []) or "-"],
+                ["Blocked high-disagreement markets", ", ".join(guardrails.get("blocked_markets") or []) or "-"],
+                ["Promotion blocker", (candidate_artifact.get("forecast_profile_calibration") or {}).get("promotion_blocker") or "-"],
+            ],
+        )
+        if (candidate.get("slices") or {}).get("by_cutoff_regime"):
+            lines += ["", "#### Cutoff-Regime Replay", ""]
+            lines += markdown_table(
+                [
+                    "Regime",
+                    "Rows",
+                    "Candidate Brier",
+                    "Current Brier",
+                    "Market Brier",
+                    "Delta Current",
+                    "Delta Market",
+                ],
+                [
+                    [
+                        row.get("group") or "-",
+                        row.get("n", 0),
+                        fmt_num(row.get("candidate_brier")),
+                        fmt_num(row.get("current_brier")),
+                        fmt_num(row.get("market_brier")),
+                        fmt_signed(row.get("delta_vs_current"), 4),
+                        fmt_signed(row.get("delta_vs_market"), 4),
+                    ]
+                    for row in (candidate.get("slices") or {}).get("by_cutoff_regime") or []
+                ],
+            )
     gap_drivers = _candidate_gap_driver_rows(candidate)
     lines += [
         "",
@@ -1118,7 +1585,7 @@ def write_report(path, payload):
     if market_diagnostics:
         lines += [
             "",
-            "### NYC/Seattle Market-Skill Diagnostics",
+            "### Market-Skill Diagnostics",
             "",
         ]
         lines += markdown_table(
@@ -1321,8 +1788,15 @@ def write_report(path, payload):
         ],
         _decision_table_rows(decisions.get("markets") or []),
     )
+    text = "\n".join(lines) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ensure_artifact_disk_headroom(
+        path,
+        estimated_bytes=len(text.encode("utf-8")),
+        min_free_bytes=min_free_bytes,
+        context="promotion refresh Markdown report export",
+    )
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -1350,6 +1824,7 @@ def _candidate_args(args, corpus_path, long_job_guard_info=None):
         corpus=str(corpus_path),
         snapshots_root=args.snapshots_root,
         artifact=args.artifact,
+        variant_registry=getattr(args, "variant_registry", str(DEFAULT_VARIANT_REGISTRY_PATH)),
         out=args.candidate_report,
         json_out=args.candidate_json,
         replay_report=args.current_replay_report,
@@ -1367,9 +1842,11 @@ def _candidate_args(args, corpus_path, long_job_guard_info=None):
             getattr(args, "candidate_variant_uses_market_features", False)
         ),
         candidate_variant_control=bool(getattr(args, "candidate_variant_control", False)),
+        disable_candidate_variant_export=bool(getattr(args, "disable_candidate_variant_export", False)),
         microstructure_artifact=args.microstructure_artifact or None,
         microstructure_min_train_rows=args.microstructure_min_train_rows,
         skip_microstructure_overlay=args.skip_microstructure_overlay,
+        min_artifact_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
         require_exact_identity=args.require_exact_identity,
         require_all_markets=args.require_all_markets,
         long_job_guard_info=long_job_guard_info,
@@ -1386,7 +1863,118 @@ def run_promotion_refresh(args):
         enabled=not getattr(args, "disable_long_job_guard", False),
         force_lock=getattr(args, "force_long_job_lock", False),
     ) as guard:
-        return _run_promotion_refresh_guarded(args, long_job_guard_info=guard)
+        try:
+            _write_started_manifest(args, long_job_guard_info=guard)
+            result = _run_promotion_refresh_guarded(args, long_job_guard_info=guard)
+            payload, out_path, report_path = result
+            _write_complete_manifest(
+                args,
+                payload,
+                out_path,
+                report_path,
+                long_job_guard_info=guard,
+            )
+            return result
+        except Exception as exc:
+            _write_incomplete_manifest(args, exc, long_job_guard_info=guard)
+            raise
+
+
+def _incomplete_manifest_path(args):
+    path = Path(getattr(args, "incomplete_manifest", DEFAULT_INCOMPLETE_MANIFEST) or DEFAULT_INCOMPLETE_MANIFEST)
+    return path
+
+
+def _manifest_paths(args):
+    return {
+        "out": _as_path(getattr(args, "out", None)),
+        "report": _as_path(getattr(args, "report", None)),
+        "corpus_out": _as_path(getattr(args, "corpus_out", None)),
+        "trust_out": _as_path(getattr(args, "trust_out", None)),
+        "candidate_json": _as_path(getattr(args, "candidate_json", None)),
+        "candidate_report": _as_path(getattr(args, "candidate_report", None)),
+    }
+
+
+def _write_started_manifest(args, long_job_guard_info=None):
+    path = _incomplete_manifest_path(args)
+    payload = {
+        "schema_version": "promotion_refresh_incomplete_v0.1",
+        "status": "STARTED",
+        "generated_at_utc": _utc_now(),
+        "family_unit": getattr(args, "family_unit", DEFAULT_FAMILY_UNIT),
+        "paths": _manifest_paths(args),
+        "min_artifact_free_bytes": int(getattr(args, "min_artifact_free_bytes", 0) or 0),
+        "long_job_guard": long_job_guard_info or {},
+    }
+    try:
+        return _write_json(
+            path,
+            payload,
+            min_free_bytes=0,
+            context="promotion refresh started manifest export",
+        )
+    except OSError:
+        return None
+
+
+def _write_complete_manifest(args, payload, out_path, report_path, long_job_guard_info=None):
+    path = _incomplete_manifest_path(args)
+    readiness = payload.get("readiness") or {}
+    decisions = payload.get("decisions") or {}
+    summary = {
+        "readiness_status": readiness.get("status"),
+        "promote_count": len(decisions.get("promote_markets") or []),
+        "shadow_count": len(decisions.get("shadow_markets") or []),
+        "blocked_count": len(decisions.get("blocked_markets") or []),
+    }
+    manifest = {
+        "schema_version": "promotion_refresh_incomplete_v0.1",
+        "status": "COMPLETE",
+        "generated_at_utc": _utc_now(),
+        "family_unit": getattr(args, "family_unit", DEFAULT_FAMILY_UNIT),
+        "paths": {
+            **_manifest_paths(args),
+            "written_out": _as_path(out_path),
+            "written_report": _as_path(report_path),
+        },
+        "summary": summary,
+        "min_artifact_free_bytes": int(getattr(args, "min_artifact_free_bytes", 0) or 0),
+        "long_job_guard": long_job_guard_info or {},
+    }
+    try:
+        return _write_json(
+            path,
+            manifest,
+            min_free_bytes=0,
+            context="promotion refresh completion manifest export",
+        )
+    except OSError:
+        return None
+
+
+def _write_incomplete_manifest(args, exc, long_job_guard_info=None):
+    path = _incomplete_manifest_path(args)
+    payload = {
+        "schema_version": "promotion_refresh_incomplete_v0.1",
+        "status": "INCOMPLETE",
+        "generated_at_utc": _utc_now(),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+        "family_unit": getattr(args, "family_unit", DEFAULT_FAMILY_UNIT),
+        "paths": _manifest_paths(args),
+        "min_artifact_free_bytes": int(getattr(args, "min_artifact_free_bytes", 0) or 0),
+        "long_job_guard": long_job_guard_info or {},
+    }
+    try:
+        return _write_json(
+            path,
+            payload,
+            min_free_bytes=0,
+            context="promotion refresh incomplete manifest export",
+        )
+    except OSError:
+        return None
 
 
 def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
@@ -1409,20 +1997,60 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     )
     trust_path = _write_json(args.trust_out, trust_rows)
 
-    candidate_report = run_pooled_candidate_replay(
-        _candidate_args(args, corpus_path, long_job_guard_info=long_job_guard_info)
-    )
+    precomputed_candidate_json = getattr(args, "precomputed_candidate_json", None)
+    precomputed_candidate = None
+    if precomputed_candidate_json:
+        candidate_report = load_precomputed_candidate_report(
+            precomputed_candidate_json,
+            manifest,
+        )
+        candidate_json_path = precomputed_candidate_json
+        candidate_report_path = (
+            getattr(args, "precomputed_candidate_report", None)
+            or args.candidate_report
+        )
+        precomputed_candidate = {
+            "enabled": True,
+            "json_path": _as_path(candidate_json_path),
+            "report_path": _as_path(candidate_report_path),
+            "corpus_hash": (candidate_report.get("corpus") or {}).get("corpus_hash"),
+        }
+    else:
+        candidate_report = run_pooled_candidate_replay(
+            _candidate_args(args, corpus_path, long_job_guard_info=long_job_guard_info)
+        )
+        candidate_json_path = args.candidate_json
+        candidate_report_path = args.candidate_report
 
     serving_report = None
     if not args.skip_serving_gauntlet:
         serving_report = run_promotion_gauntlet(_serving_gauntlet_args(args, corpus_path))
 
     family_ids = [spec.id for spec in _family_specs(args.family_unit)]
-    candidate_summary = _candidate_summary(candidate_report, args.candidate_json, args.candidate_report)
+    candidate_summary = _candidate_summary(
+        candidate_report,
+        candidate_json_path,
+        candidate_report_path,
+    )
     serving_summary = _serving_gauntlet_summary(
         serving_report,
         args.serving_gauntlet_report,
         args.serving_replay_report,
+    )
+    extra_location_transfer = _read_extra_location_transfer_report(
+        getattr(args, "extra_location_transfer_report", None)
+    )
+    hourly_performance = _read_hourly_performance_report(
+        getattr(args, "hourly_performance_report", DEFAULT_HOURLY_PERFORMANCE)
+    )
+    candidate_hourly_performance = _read_candidate_hourly_performance_report(
+        getattr(args, "candidate_hourly_performance_report", DEFAULT_CANDIDATE_HOURLY_PERFORMANCE)
+    )
+    source_family_inventory = _read_source_family_inventory(
+        getattr(args, "source_family_inventory", DEFAULT_SOURCE_FAMILY_INVENTORY)
+    )
+    fleet_observability = _read_fleet_observability(
+        getattr(args, "fleet_observability_report", DEFAULT_FLEET_OBSERVABILITY)
     )
     decisions = build_family_decisions(
         manifest,
@@ -1432,9 +2060,12 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     )
     gap_drivers = _candidate_gap_driver_rows(candidate_summary)
     gap_owner_table = build_gap_owner_table(gap_drivers, decisions)
-    gap_experiment_artifacts = write_gap_experiment_artifacts(gap_owner_table)
     claim_lanes = model_skill_claims(candidate_summary, gap_owner_table)
     market_diagnostics = market_skill_diagnostics(candidate_summary, decisions)
+    gap_experiment_artifacts = write_gap_experiment_artifacts(
+        [*gap_owner_table, *market_diagnostics],
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": _utc_now(),
@@ -1442,17 +2073,41 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "corpus": _manifest_summary(manifest, corpus_path),
         "trust": _trust_summary(trust_rows, trust_path, family_ids),
         "candidate": candidate_summary,
+        "precomputed_candidate": precomputed_candidate or {"enabled": False},
         "serving_gauntlet": serving_summary,
         "decisions": decisions,
-        "readiness": promotion_readiness(candidate_summary, serving_summary, decisions),
+        "extra_location_transfer": extra_location_transfer,
+        "hourly_performance": hourly_performance,
+        "candidate_hourly_performance": candidate_hourly_performance,
+        "source_family_inventory": source_family_inventory,
+        "fleet_observability": fleet_observability,
+        "readiness": promotion_readiness(
+            candidate_summary,
+            serving_summary,
+            decisions,
+            extra_location_transfer=extra_location_transfer,
+            hourly_performance=hourly_performance,
+            candidate_hourly_performance=candidate_hourly_performance,
+            source_family_inventory=source_family_inventory,
+            fleet_observability=fleet_observability,
+        ),
         "gap_owner_table": gap_owner_table,
         "gap_experiment_artifacts": gap_experiment_artifacts,
         "market_skill_diagnostics": market_diagnostics,
         "model_skill_claims": claim_lanes,
         "long_job_guard": long_job_guard_info or {},
     }
-    out_path = _write_json(args.out, payload)
-    report_path = write_report(args.report, payload)
+    out_path = _write_json(
+        args.out,
+        payload,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+        context="promotion refresh summary JSON export",
+    )
+    report_path = write_report(
+        args.report,
+        payload,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+    )
     return payload, out_path, report_path
 
 
@@ -1471,17 +2126,37 @@ def build_parser():
     parser.add_argument("--corpus-out", default=str(DEFAULT_CORPUS))
     parser.add_argument("--trust-out", default=str(DEFAULT_TRUST_OUT))
     parser.add_argument("--artifact", default=str(DEFAULT_BAND_ARTIFACT))
+    parser.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
     parser.add_argument("--candidate-report", default=str(DEFAULT_CANDIDATE_REPORT))
     parser.add_argument("--candidate-json", default=str(DEFAULT_CANDIDATE_JSON))
+    parser.add_argument(
+        "--precomputed-candidate-json",
+        default="",
+        help="Use an existing pooled-candidate replay JSON instead of rerunning candidate replay.",
+    )
+    parser.add_argument(
+        "--precomputed-candidate-report",
+        default="",
+        help="Optional Markdown report path paired with --precomputed-candidate-json.",
+    )
     parser.add_argument("--current-replay-report", default=str(DEFAULT_CURRENT_REPLAY_REPORT))
     parser.add_argument("--serving-gauntlet-report", default=str(DEFAULT_SERVING_GAUNTLET_REPORT))
     parser.add_argument("--serving-replay-report", default=str(DEFAULT_SERVING_REPLAY_REPORT))
+    parser.add_argument("--hourly-performance-report", default=str(DEFAULT_HOURLY_PERFORMANCE))
+    parser.add_argument(
+        "--candidate-hourly-performance-report",
+        default=str(DEFAULT_CANDIDATE_HOURLY_PERFORMANCE),
+        help="Optional candidate-hourly JSON that can mitigate a current-serving hourly gate for this candidate.",
+    )
+    parser.add_argument("--source-family-inventory", default=str(DEFAULT_SOURCE_FAMILY_INVENTORY))
+    parser.add_argument("--fleet-observability-report", default=str(DEFAULT_FLEET_OBSERVABILITY))
     parser.add_argument("--forecast-tracker", default=str(DEFAULT_FORECAST_TRACKER))
     parser.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     parser.add_argument("--no-baseline", action="store_true")
     parser.add_argument("--skip-serving-gauntlet", action="store_true")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
+    parser.add_argument("--incomplete-manifest", default=str(DEFAULT_INCOMPLETE_MANIFEST))
     parser.add_argument("--current-tol", type=float, default=0.003)
     parser.add_argument("--tol", type=float, default=0.003)
     parser.add_argument("--market-tol", type=float, default=0.003)
@@ -1490,12 +2165,21 @@ def build_parser():
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
     parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK))
-    parser.add_argument("--candidate-variant-out", default="",
-                        help="Item-69-compatible candidate variant CSV. Empty string disables variant export.")
+    parser.add_argument("--candidate-variant-out", default=None,
+                        help="Item-69-compatible candidate variant CSV. Defaults to the active registry contract when available.")
     parser.add_argument("--candidate-variant-id", default=None)
     parser.add_argument("--candidate-variant-family", default=None)
     parser.add_argument("--candidate-variant-uses-market-features", action="store_true")
     parser.add_argument("--candidate-variant-control", action="store_true")
+    parser.add_argument("--disable-candidate-variant-export", action="store_true",
+                        help="Disable registry-default candidate variant export.")
+    parser.add_argument("--min-artifact-free-bytes", type=int, default=DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
+                        help="Require this much free disk headroom after estimated variant CSV exports. Use 0 to disable.")
+    parser.add_argument(
+        "--extra-location-transfer-report",
+        default="",
+        help="Optional no-market target-vs-extra transfer JSON to surface as a promotion blocker.",
+    )
     parser.add_argument("--microstructure-artifact", default=str(DEFAULT_MICROSTRUCTURE_ARTIFACT))
     parser.add_argument("--microstructure-min-train-rows", type=int, default=500)
     parser.add_argument("--skip-microstructure-overlay", action="store_true")

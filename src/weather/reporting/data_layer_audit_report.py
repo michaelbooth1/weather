@@ -106,6 +106,9 @@ def _snapshot_market_rows(snapshot):
             row.get("forecast_days"),
             row.get("forecast_payload_days"),
             row.get("clob_feature_days"),
+            row.get("clob_capture_status_days"),
+            row.get("clob_token_artifact_days"),
+            row.get("clob_raw_book_artifact_days"),
             fmt_num(row.get("median_snapshots_per_day"), 1),
             fmt_num(row.get("median_gap_minutes"), 2),
             fmt_num(row.get("max_gap_minutes"), 1),
@@ -117,6 +120,13 @@ def _snapshot_market_rows(snapshot):
 def _count_summary(counts):
     counts = counts or {}
     return ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "-"
+
+
+def _artifact_day_summary(snapshot, count, training_ready_count):
+    return (
+        f"{count}/{snapshot.get('folder_count', 0)} total; "
+        f"{training_ready_count}/{snapshot.get('training_ready_folder_count', 0)} training-ready"
+    )
 
 
 def _folder_sample(rows):
@@ -137,6 +147,7 @@ def write_report(path, payload):
     gate_counts = payload.get("gate_summary") or {}
     remediation = payload.get("remediation_manifest") or []
     gap_investigation = payload.get("historical_gap_investigation") or {}
+    clob_raw_artifacts = snapshot.get("clob_raw_artifacts") or {}
     lines = [
         "# Data Layer Audit",
         "",
@@ -181,6 +192,30 @@ def write_report(path, payload):
             ["Replay input status rows", _count_summary((snapshot.get("replay_input_status") or {}).get("status_counts"))],
             ["CLOB feature rows", (snapshot.get("clob_features") or {}).get("row_count")],
             ["CLOB book available rate", _fmt_pct((snapshot.get("clob_features") or {}).get("book_available_rate"))],
+            [
+                "CLOB capture-status days",
+                _artifact_day_summary(
+                    snapshot,
+                    clob_raw_artifacts.get("capture_status_days", 0),
+                    clob_raw_artifacts.get("training_ready_capture_status_days", 0),
+                ),
+            ],
+            [
+                "CLOB token artifact days",
+                _artifact_day_summary(
+                    snapshot,
+                    clob_raw_artifacts.get("token_artifact_days", 0),
+                    clob_raw_artifacts.get("training_ready_token_artifact_days", 0),
+                ),
+            ],
+            [
+                "CLOB raw-book artifact days",
+                _artifact_day_summary(
+                    snapshot,
+                    clob_raw_artifacts.get("raw_book_artifact_days", 0),
+                    clob_raw_artifacts.get("training_ready_raw_book_artifact_days", 0),
+                ),
+            ],
             ["Forecast payload rows", (snapshot.get("forecast_payloads") or {}).get("row_count")],
         ],
     )
@@ -248,7 +283,8 @@ def write_report(path, payload):
         [
             "Market", "Days", "Settled", "Clean", "Replay", "Replay Status",
             "Source Status", "Features", "Components", "Forecasts",
-            "Payloads", "CLOB Feat", "Median Snaps", "Median Gap", "Max Gap",
+            "Payloads", "CLOB Feat", "CLOB Status", "CLOB Tokens", "CLOB Books",
+            "Median Snaps", "Median Gap", "Max Gap",
         ],
         _snapshot_market_rows(snapshot),
     )

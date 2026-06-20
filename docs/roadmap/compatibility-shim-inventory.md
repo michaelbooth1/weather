@@ -4,6 +4,52 @@ Generated for roadmap item 87. These wrappers are retained only for external or 
 
 Policy: first-party app code, tests, README commands, scheduled tasks, GitHub Actions, and reusable tools should call the target `weather.*` module directly. The owner of each wrapper is the target module. Removal is allowed after one clean migration window with no first-party callers and no known external automation depending on the wrapper.
 
+## Expiration Policy
+
+Migration window start: 2026-06-18.
+
+Minimum migration window: 30 days.
+
+Default expiration date: 2026-07-18.
+
+Current removal status: retain compatibility shims until 2026-07-18 as
+external/local operator fallback only. After that date, any shim group whose
+first-party caller scan is clean and has no known external automation
+dependency is eligible for removal. Expired shims should be deleted in batches
+instead of kept as permanent aliases.
+
+The supported first-party surfaces during the migration window are:
+
+- `python -m weather...` module commands.
+- `app/streamlit_app.py` for direct Streamlit execution.
+- `scripts/ops/*` for scheduled-task registration.
+- `scripts/launch/*` for dashboard launchers.
+- `tools/*` for reusable helper scripts.
+
+The temporary operator fallback is the existing root-level shim surface:
+`python -m src.<module>`, `app.py`, `backfill_all.py`, `scratch.py`,
+`train_all_markets.ps1`, and root `scripts/*.ps1` or
+`scripts/start_weather_dashboard.*` launchers. These fallback paths are
+external/local legacy entrypoints only and should not be added to new runbooks,
+tests, scheduled tasks, CI, or reusable tools.
+
+## Shim Classes
+
+| Class | Count | Owner | Allowed caller | Expiration | Removal status |
+| --- | ---: | --- | --- | --- | --- |
+| Flat Python module wrappers under `src/*.py` | 86 | Target `weather.*` module | External/local legacy commands only | 2026-07-18 | Retain until expiration, then remove wrappers whose caller scan stays clean. |
+| Root Streamlit wrapper `app.py` | 1 | `app/streamlit_app.py` | External/local legacy dashboard launches only | 2026-07-18 | Retain until expiration; first-party launchers use `app/streamlit_app.py`. |
+| Root helper wrappers `backfill_all.py`, `scratch.py`, `train_all_markets.ps1` | 3 | Matching `tools/*` helper | External/local legacy helper invocations only | 2026-07-18 | Retain until expiration; first-party docs use `tools/*`. |
+| Root scheduled-task and dashboard scripts under `scripts/*` | 9 | Matching `scripts/ops/*` or `scripts/launch/*` script | External/local legacy operator invocations only | 2026-07-18 | Retain until expiration; first-party docs use `scripts/ops/*` and `scripts/launch/*`. |
+
+The caller ratchet lives in
+`tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`.
+It scans README, CI, app, tests, tools, scripts, and active operations docs for
+`python -m src.*`, direct `app.py` Streamlit/Test usage, and root script shim
+paths.
+
+## Flat Python Wrappers
+
 | Wrapper | Target / Owner | Current Allowed Caller | Removal Condition |
 | --- | --- | --- | --- |
 | `src/artifacts.py` | `weather.artifacts` | External/local legacy commands only | No first-party callers for one migration window |

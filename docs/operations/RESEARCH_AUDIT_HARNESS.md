@@ -22,6 +22,18 @@ Live same-day investigations should start from maintained package reports:
 .\venv\Scripts\python.exe -m weather.reporting.fleet_observability
 ```
 
+No-market extra-location transfer experiments should use the package harness
+instead of scratch scripts:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.reporting.extra_location_registry
+.\venv\Scripts\python.exe -m weather.reporting.no_market_location_transfer observations.csv --target-markets nyc --extra-locations boston,philadelphia --holdout-years 2025 --cutoff-regimes early --scoring-backend fast_residual
+```
+
+The transfer harness is price-free by design: it scores target-only,
+target-plus-extra, extra-only, and similarity-weighted candidates on held-out
+target labels, then emits JSON, CSV, and Markdown under `data/backtest/`.
+
 Before adding a new file under `tools/research`, add it to
 `SCRIPT_INVENTORY` in `tools/research/research_harness.py` and give it a
 network-free smoke mode. Live scripts that require external APIs should stay

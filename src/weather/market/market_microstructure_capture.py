@@ -37,6 +37,10 @@ from weather.market.market_microstructure_features import write_clob_feature_row
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
+from weather.schema_registry import schema_version
+
+
+CLOB_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_capture_status")
 
 
 def utc_now():
@@ -467,6 +471,7 @@ class MarketMicrostructureStore:
     def __init__(self, root=None, event_slug=None):
         self.event_slug = event_slug
         self.root = Path(root) if root is not None else data_path() / "snapshots" / str(event_slug)
+        self.capture_status_path = self.root / "clob_capture_status.jsonl"
         self.token_path = self.root / "clob_tokens.csv"
         self.token_jsonl_path = self.root / "clob_tokens.jsonl"
         self.books_summary_path = self.root / "order_books_summary.csv"
@@ -523,6 +528,48 @@ class MarketMicrostructureStore:
     def write_ws_events(self, rows, raw_record):
         self.append_csv(self.ws_events_path, WS_EVENT_COLUMNS, rows)
         self.append_jsonl(self.ws_jsonl_path, raw_record)
+
+    def write_capture_status(self, payload):
+        self.append_jsonl(self.capture_status_path, payload)
+
+
+def capture_status_from_result(result, outcomes, include_price_history, include_ws_events, store, captured_at, status=None, error_stage=None, error=None):
+    captured_tokens = int(result.get("captured_tokens") or 0)
+    books = int(result.get("books") or 0)
+    if status is None:
+        if captured_tokens <= 0:
+            status = "NO_ACTIVE_TOKENS"
+        elif books <= 0:
+            status = "NO_BOOKS"
+        else:
+            status = "OK"
+    return {
+        "schema_version": CLOB_CAPTURE_STATUS_SCHEMA_VERSION,
+        "captured_at_utc": captured_at.isoformat(),
+        "event_slug": result.get("event_slug"),
+        "market_id": result.get("market_id"),
+        "status": status,
+        "error_stage": error_stage,
+        "error": error,
+        "outcomes": outcomes,
+        "include_price_history": bool(include_price_history),
+        "include_ws_events": bool(include_ws_events),
+        "token_rows": int(result.get("token_rows") or 0),
+        "captured_tokens": captured_tokens,
+        "books": books,
+        "levels": int(result.get("levels") or 0),
+        "price_history_rows": int(result.get("price_history_rows") or 0),
+        "ws_messages": int(result.get("ws_messages") or 0),
+        "ws_event_rows": int(result.get("ws_event_rows") or 0),
+        "ws_error": result.get("ws_error"),
+        "clob_feature_rows": int(result.get("clob_feature_rows") or 0),
+        "clob_features_error": result.get("clob_features_error"),
+        "capture_status_path": str(store.capture_status_path),
+        "order_books_summary_path": str(store.books_summary_path),
+        "order_books_long_path": str(store.books_long_path),
+        "order_books_jsonl_path": str(store.books_jsonl_path),
+        "clob_tokens_path": str(store.token_path),
+    }
 
 
 def capture_market_books(
@@ -590,98 +637,131 @@ def capture_event_books(
     market_id = market_id or config.market_id
     store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
     clob_client = clob_client or ClobClient()
-    all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
-    token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
-    store.write_token_rows(all_token_rows)
-    token_lookup = {str(row["clob_token_id"]): row for row in token_rows if row.get("clob_token_id")}
-    books = clob_client.get_order_books(list(token_lookup), batch_size=batch_size)
-
+    all_token_rows = []
+    token_rows = []
     summaries = []
     level_rows = []
-    raw_records = []
-    midpoint_by_token = {}
-    for book in books:
-        token_id = str(book.get("asset_id") or "")
-        token_row = token_lookup.get(token_id, {"clob_token_id": token_id})
-        capture_id = capture_id_for_book(captured_at, token_id, book)
-        summary = summarize_order_book(book, token_row, captured_at, capture_id=capture_id)
-        summaries.append(summary)
-        midpoint_by_token[token_id] = summary.get("midpoint")
-        level_rows.extend(order_book_level_rows(book, token_row, captured_at, capture_id))
-        raw_records.append({
-            "capture_id": capture_id,
-            "captured_at_utc": captured_at.isoformat(),
-            "event_slug": config.event_slug,
-            "market_id": market_id,
-            "clob_token_id": token_id,
-            "token": token_row,
-            "book": book,
-        })
-    store.write_books(summaries, level_rows, raw_records)
-
     history_rows = []
-    history_raw = []
-    if include_price_history:
-        end_ts = int(captured_at.timestamp())
-        start_ts = end_ts - int(history_minutes * 60)
-        for token_id, token_row in token_lookup.items():
-            response = clob_client.get_price_history(
-                token_id,
-                start_ts=start_ts,
-                end_ts=end_ts,
-                interval=history_interval,
-                fidelity_minutes=fidelity_minutes,
-            )
-            rows = price_history_rows(
-                response,
-                token_row,
-                captured_at,
-                interval=history_interval,
-                fidelity_minutes=fidelity_minutes,
-            )
-            history_rows.extend(rows)
-            history_raw.append({
+    ws_result = {"messages": 0}
+    feature_result = {"rows": 0, "csv_path": None, "jsonl_path": None}
+    midpoint_by_token = {}
+    stage = "tokens"
+    try:
+        all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
+        token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
+        store.write_token_rows(all_token_rows)
+        token_lookup = {str(row["clob_token_id"]): row for row in token_rows if row.get("clob_token_id")}
+        stage = "order_books"
+        books = clob_client.get_order_books(list(token_lookup), batch_size=batch_size)
+
+        raw_records = []
+        for book in books:
+            token_id = str(book.get("asset_id") or "")
+            token_row = token_lookup.get(token_id, {"clob_token_id": token_id})
+            capture_id = capture_id_for_book(captured_at, token_id, book)
+            summary = summarize_order_book(book, token_row, captured_at, capture_id=capture_id)
+            summaries.append(summary)
+            midpoint_by_token[token_id] = summary.get("midpoint")
+            level_rows.extend(order_book_level_rows(book, token_row, captured_at, capture_id))
+            raw_records.append({
+                "capture_id": capture_id,
                 "captured_at_utc": captured_at.isoformat(),
                 "event_slug": config.event_slug,
                 "market_id": market_id,
                 "clob_token_id": token_id,
-                "start_ts": start_ts,
-                "end_ts": end_ts,
-                "interval": history_interval,
-                "fidelity_minutes": fidelity_minutes,
-                "response": response,
+                "token": token_row,
+                "book": book,
             })
-        store.write_price_history(history_rows, history_raw)
+        store.write_books(summaries, level_rows, raw_records)
 
-    ws_result = {"messages": 0}
-    if include_ws_events:
-        try:
-            ws_result = record_market_websocket(
-                event,
-                market_id=market_id,
-                root=root,
-                outcomes=outcomes,
-                seconds=ws_seconds,
-                message_limit=ws_message_limit,
-                heartbeat_seconds=ws_heartbeat_seconds,
-                connect_timeout=ws_connect_timeout,
-                websocket_factory=websocket_factory,
-            )
-        except Exception as exc:  # noqa: BLE001 - WS capture should not drop REST book data
-            ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
+        history_raw = []
+        if include_price_history:
+            stage = "price_history"
+            end_ts = int(captured_at.timestamp())
+            start_ts = end_ts - int(history_minutes * 60)
+            for token_id, token_row in token_lookup.items():
+                response = clob_client.get_price_history(
+                    token_id,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    interval=history_interval,
+                    fidelity_minutes=fidelity_minutes,
+                )
+                rows = price_history_rows(
+                    response,
+                    token_row,
+                    captured_at,
+                    interval=history_interval,
+                    fidelity_minutes=fidelity_minutes,
+                )
+                history_rows.extend(rows)
+                history_raw.append({
+                    "captured_at_utc": captured_at.isoformat(),
+                    "event_slug": config.event_slug,
+                    "market_id": market_id,
+                    "clob_token_id": token_id,
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "interval": history_interval,
+                    "fidelity_minutes": fidelity_minutes,
+                    "response": response,
+                })
+            store.write_price_history(history_rows, history_raw)
 
-    feature_result = {"rows": 0, "csv_path": None, "jsonl_path": None}
-    if (store.root / "snapshots_long.csv").exists():
-        try:
-            feature_result = write_clob_feature_rows(
-                store.root,
-                max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-                market_id=market_id,
-            )
-        except Exception as exc:  # noqa: BLE001 - derived features should not drop raw CLOB evidence
-            feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+        if include_ws_events:
+            try:
+                ws_result = record_market_websocket(
+                    event,
+                    market_id=market_id,
+                    root=root,
+                    outcomes=outcomes,
+                    seconds=ws_seconds,
+                    message_limit=ws_message_limit,
+                    heartbeat_seconds=ws_heartbeat_seconds,
+                    connect_timeout=ws_connect_timeout,
+                    websocket_factory=websocket_factory,
+                )
+            except Exception as exc:  # noqa: BLE001 - WS capture should not drop REST book data
+                ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
 
-    return {
+        if (store.root / "snapshots_long.csv").exists():
+            try:
+                feature_result = write_clob_feature_rows(
+                    store.root,
+                    max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+                    market_id=market_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - derived features should not drop raw CLOB evidence
+                feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:
+        result = {
+            "event_slug": config.event_slug,
+            "market_id": market_id,
+            "token_rows": len(all_token_rows),
+            "captured_tokens": len(token_rows),
+            "books": len(summaries),
+            "levels": len(level_rows),
+            "price_history_rows": len(history_rows),
+            "ws_messages": ws_result.get("messages", 0),
+            "ws_event_rows": ws_result.get("event_rows", 0),
+            "ws_error": ws_result.get("error"),
+            "clob_feature_rows": feature_result.get("rows", 0),
+            "clob_features_error": feature_result.get("error"),
+        }
+        store.write_capture_status(capture_status_from_result(
+            result,
+            outcomes,
+            include_price_history,
+            include_ws_events,
+            store,
+            captured_at,
+            status="ERROR",
+            error_stage=stage,
+            error=f"{type(exc).__name__}: {exc}",
+        ))
+        raise
+
+    result = {
         "event_slug": config.event_slug,
         "market_id": market_id,
         "token_rows": len(all_token_rows),
@@ -700,8 +780,18 @@ def capture_event_books(
         "order_books_long_path": str(store.books_long_path),
         "order_books_jsonl_path": str(store.books_jsonl_path),
         "clob_tokens_path": str(store.token_path),
+        "clob_capture_status_path": str(store.capture_status_path),
         "midpoint_by_token": midpoint_by_token,
     }
+    store.write_capture_status(capture_status_from_result(
+        result,
+        outcomes,
+        include_price_history,
+        include_ws_events,
+        store,
+        captured_at,
+    ))
+    return result
 
 
 def capture_fleet_books(

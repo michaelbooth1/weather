@@ -71,3 +71,14 @@ class needed to replay or audit settled days.
   ready, with next run `2026-06-18 02:15` local time.
 - `python -m pytest -q tests\operations\test_tape_backup.py tests\operations\test_schema_registry.py tests\reporting\test_fleet_observability.py tests\reporting\test_daily_learning.py`
   passes with `29 passed`.
+
+## 2026-06-18 capacity regression
+
+The SLA machinery is still working, but the current local backup root cannot
+hold the CLOB-heavy critical tape set. A manual
+`weather.operations.tape_backup run --backup-root data\tape_backups --verify-checksums`
+failed with `No space left on device`. The repaired preflight/status path now
+reports `INSUFFICIENT_BACKUP_CAPACITY` before copying: roughly 534 critical
+files and 108 GB of critical tapes are missing from backup while the local C:
+drive has only about 2.3 GB free. Follow-up storage provisioning and CLOB
+tiering work is tracked in item 146.

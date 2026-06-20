@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,9 +25,10 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas.errors import PerformanceWarning
 from scipy import stats
 from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.linear_model import ElasticNet, Ridge
+from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 
@@ -41,9 +43,9 @@ MIN_ROWS = 100
 MIN_DAYS = 10
 ML_MIN_ROWS = 250
 ML_MIN_DAYS = 15
-BOOTSTRAPS = 100
-PERM_REPEATS = 2
-HGB_MAX_ITER = 140
+BOOTSTRAPS = 40
+PERM_REPEATS = 1
+HGB_MAX_ITER = 80
 
 METADATA_COLUMNS = {
     "snapshot_id",
@@ -75,6 +77,8 @@ CATEGORICAL_FEATURES = ["wind_group", "cloud_group"]
 
 CONTEXT_FEATURES = ["cutoff_hour"]
 
+warnings.simplefilter("ignore", PerformanceWarning)
+
 
 @dataclass
 class LoadedFolder:
@@ -92,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prefix", default="input_variable_significance_2026_06_18")
     parser.add_argument("--include-mismatches", action="store_true")
     parser.add_argument("--include-diagnostics", action="store_true")
-    parser.add_argument("--max-hgb-features", type=int, default=70)
+    parser.add_argument("--max-hgb-features", type=int, default=45)
     parser.add_argument("--bootstraps", type=int, default=BOOTSTRAPS)
     parser.add_argument("--perm-repeats", type=int, default=PERM_REPEATS)
     parser.add_argument("--hgb-max-iter", type=int, default=HGB_MAX_ITER)
@@ -604,29 +608,6 @@ def grouped_cv_splits(groups: pd.Series, max_splits: int = 5):
     return list(splitter.split(dummy, groups=groups))
 
 
-def tune_elastic_net_alpha(X: pd.DataFrame, y: pd.Series, groups: pd.Series) -> float:
-    alphas = [0.001, 0.003, 0.01, 0.03, 0.1]
-    splits = grouped_cv_splits(groups, max_splits=5)
-    if not splits:
-        return 0.01
-    best_alpha = alphas[0]
-    best_mae = math.inf
-    x_np = X.to_numpy(dtype=float)
-    y_np = y.to_numpy(dtype=float)
-    for alpha in alphas:
-        maes = []
-        for train_idx, test_idx in splits:
-            model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=RANDOM_SEED, max_iter=10000)
-            model.fit(x_np[train_idx], y_np[train_idx])
-            preds = model.predict(x_np[test_idx])
-            maes.append(mean_absolute_error(y_np[test_idx], preds))
-        avg_mae = float(np.mean(maes))
-        if avg_mae < best_mae:
-            best_mae = avg_mae
-            best_alpha = alpha
-    return best_alpha
-
-
 def linear_bootstrap_analysis(
     data: pd.DataFrame,
     X: pd.DataFrame,
@@ -636,7 +617,7 @@ def linear_bootstrap_analysis(
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if X.empty:
         return pd.DataFrame(), {}
-    alpha = tune_elastic_net_alpha(X, y, groups)
+    alpha = 10.0
     x_np = X.to_numpy(dtype=float)
     y_np = y.to_numpy(dtype=float)
     unique_groups = np.array(sorted(groups.dropna().unique()))
@@ -645,7 +626,7 @@ def linear_bootstrap_analysis(
     splits = grouped_cv_splits(groups, max_splits=5)
     cv_metrics = []
     for train_idx, test_idx in splits:
-        model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=RANDOM_SEED, max_iter=10000)
+        model = Ridge(alpha=alpha)
         model.fit(x_np[train_idx], y_np[train_idx])
         preds = model.predict(x_np[test_idx])
         cv_metrics.append(
@@ -670,7 +651,7 @@ def linear_bootstrap_analysis(
     for _ in range(BOOTSTRAPS):
         sampled_groups = rng.choice(unique_groups, size=len(unique_groups), replace=True)
         sample_indices = np.concatenate([group_to_indices[group] for group in sampled_groups])
-        model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=RANDOM_SEED, max_iter=10000)
+        model = Ridge(alpha=alpha)
         model.fit(x_np[sample_indices], y_np[sample_indices])
         coefs = model.coef_
         for feature, columns in feature_to_columns.items():
@@ -678,7 +659,7 @@ def linear_bootstrap_analysis(
             if not idxs:
                 continue
             values = coefs[idxs]
-            selected_by_feature[feature].append(int(np.any(np.abs(values) > 1e-8)))
+            selected_by_feature[feature].append(int(np.any(np.abs(values) > 0.01)))
             single = numeric_feature_single_col.get(feature)
             if single and single in col_index:
                 coef_by_feature[feature].append(float(coefs[col_index[single]]))
@@ -686,7 +667,7 @@ def linear_bootstrap_analysis(
                 coef_by_feature[feature].append(float(np.linalg.norm(values, ord=2)))
 
     rows = []
-    full_model = ElasticNet(alpha=alpha, l1_ratio=0.5, random_state=RANDOM_SEED, max_iter=10000)
+    full_model = Ridge(alpha=alpha)
     full_model.fit(x_np, y_np)
     full_coefs = full_model.coef_
     for feature, columns in feature_to_columns.items():
@@ -718,13 +699,15 @@ def linear_bootstrap_analysis(
                 "selection_frequency": float(np.mean(selected)) if len(selected) else math.nan,
                 "n_encoded_columns": len(idxs),
                 "alpha": alpha,
+                "regularized_model": "ridge",
             }
         )
     result = pd.DataFrame(rows)
     if not result.empty:
         result["bootstrap_sign_q"] = fdr_bh(result["bootstrap_sign_p"])
     metrics = {
-        "elastic_net_alpha": alpha,
+        "regularized_model": "ridge",
+        "ridge_alpha": alpha,
         "cv_mae_mean": float(np.mean([m["mae"] for m in cv_metrics])) if cv_metrics else math.nan,
         "cv_r2_mean": float(np.mean([m["r2"] for m in cv_metrics])) if cv_metrics else math.nan,
         "cv_folds": cv_metrics,
@@ -1070,7 +1053,7 @@ def write_report(
         "## Method Summary",
         "",
         "- Univariate: within-market standardized feature values vs within-market standardized settlement high, with row-level Pearson/Spearman, latest-row-per-market-day tests, and market-day bootstrap sign p-values.",
-        "- Linear: ElasticNet with grouped CV, plus market-day bootstrap selection frequency and coefficient sign p-values. Ridge coefficients are included as a less sparse linear check.",
+        "- Linear: ridge regression with grouped CV, plus market-day bootstrap coefficient sign p-values and thresholded stability frequency. A second ridge fold check is included for coefficient stability.",
         "- Nonlinear: HistGradientBoostingRegressor with GroupKFold by market-day and grouped permutation importance; p-values are one-sided t-tests over fold/repeat permutation deltas.",
         "- Families: HGB permutation of all encoded variables in each feature family.",
         "",
@@ -1142,7 +1125,7 @@ def write_report(
         "",
         "## Model Fit Diagnostics",
         "",
-        f"- ElasticNet grouped-CV MAE/R2: {fmt(metrics.get('elastic_net', {}).get('cv_mae_mean'))} / {fmt(metrics.get('elastic_net', {}).get('cv_r2_mean'))}",
+        f"- Regularized linear grouped-CV MAE/R2: {fmt(metrics.get('elastic_net', {}).get('cv_mae_mean'))} / {fmt(metrics.get('elastic_net', {}).get('cv_r2_mean'))}",
         f"- Ridge grouped-CV MAE/R2: {fmt(metrics.get('ridge', {}).get('cv_mae_mean'))} / {fmt(metrics.get('ridge', {}).get('cv_r2_mean'))}",
         f"- HGB all-row grouped-CV MAE/R2: {fmt(metrics.get('hgb_all', {}).get('cv_mae_mean'))} / {fmt(metrics.get('hgb_all', {}).get('cv_r2_mean'))}",
         "",
@@ -1217,18 +1200,22 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    print("Loading settled feature corpus...", flush=True)
     data, load_log = load_dataset(snapshots_root, include_mismatches=args.include_mismatches)
     if data.empty:
         raise SystemExit("No analyzable settled feature rows found.")
 
+    print(f"Loaded {len(data):,} rows across {data['market_day'].nunique():,} market-days.", flush=True)
     data = add_standardized_target(data)
     features = candidate_features(data, include_diagnostics=args.include_diagnostics)
     numeric_frame, numeric, categorical = numeric_feature_frame(data, features)
     z_frame = within_market_z(data, numeric_frame)
     coverage = coverage_table(data, numeric_frame, z_frame, categorical)
 
+    print("Running univariate/day-level significance tests...", flush=True)
     univariate = univariate_analysis(data, z_frame, categorical, coverage)
     ml_features = select_ml_features(coverage, args.max_hgb_features)
+    print(f"Building grouped ML matrix with {len(ml_features)} features...", flush=True)
     ml_categorical = [feature for feature in categorical if feature in ml_features]
     X, feature_to_columns = build_ml_matrix(data, z_frame, ml_features, ml_categorical)
     y = data["target_market_z"].astype(float)
@@ -1237,8 +1224,11 @@ def main() -> int:
     y = y.loc[valid_y]
     groups = data.loc[valid_y, "market_day"]
 
+    print("Running regularized linear bootstrap...", flush=True)
     linear, linear_metrics = linear_bootstrap_analysis(data.loc[valid_y], X, y, groups, feature_to_columns)
+    print("Running ridge coefficient check...", flush=True)
     ridge, ridge_metrics = ridge_coefficient_analysis(X, y, groups, feature_to_columns)
+    print("Running all-row HGB permutation importance...", flush=True)
     hgb_perm, family_perm, hgb_metrics = hgb_permutation_analysis(X, y, groups, feature_to_columns, ml_features, "all")
 
     family_slice_frames = [family_perm]
@@ -1247,6 +1237,7 @@ def main() -> int:
         mask = data.loc[valid_y, "time_slice"].eq(slice_name)
         if int(mask.sum()) < 500 or groups.loc[mask].nunique() < 20:
             continue
+        print(f"Running {slice_name} family-level HGB permutation...", flush=True)
         _, family_slice, metrics = hgb_permutation_analysis(
             X.loc[mask],
             y.loc[mask],
@@ -1260,6 +1251,7 @@ def main() -> int:
         hgb_slice_metrics[slice_name] = metrics
     family_perm = pd.concat([frame for frame in family_slice_frames if not frame.empty], ignore_index=True)
 
+    print("Writing analysis artifacts...", flush=True)
     summary = consensus_summary(coverage, univariate, linear, ridge, hgb_perm)
 
     prefix = args.prefix

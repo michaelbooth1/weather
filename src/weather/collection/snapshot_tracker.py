@@ -121,6 +121,18 @@ class SourceStatusContext:
         return SOURCE_CACHE_TTL_MINUTES.get(name, LIVE_CACHE_MAX_AGE_MINUTES)
 
 
+FORECAST_PAYLOAD_RECONSTRUCTABLE_SOURCES = {
+    "open_meteo",
+    "weather_forecast",
+    "eccc_citypage",
+    "eccc_gem",
+    "nws_hourly",
+    "nws_grid",
+    "open_meteo_multimodel",
+    "global_ensemble",
+}
+
+
 def read_jsonl_records(path):
     path = Path(path)
     if not path.exists():
@@ -160,14 +172,31 @@ def write_rows_csv(path, columns, rows):
         writer.writerows(rows)
 
 
+def replay_inputs_path_for_folder(folder):
+    folder = Path(folder)
+    replay_inputs_path = folder / "replay_inputs.jsonl"
+    if replay_inputs_path.exists():
+        return replay_inputs_path
+    reconstructed_path = folder / "replay_inputs_reconstructed.jsonl"
+    if reconstructed_path.exists():
+        return reconstructed_path
+    return replay_inputs_path
+
+
 def backfill_source_status_for_folder(folder, overwrite=False):
     folder = Path(folder)
     status_path = folder / "source_status_long.csv"
     if status_path.exists() and not overwrite:
         return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "source_status_long.csv exists"}
-    records = read_jsonl_records(folder / "replay_inputs.jsonl")
+    replay_inputs_path = replay_inputs_path_for_folder(folder)
+    records = read_jsonl_records(replay_inputs_path)
     if not records:
-        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "no replay_inputs.jsonl"}
+        return {
+            "folder": str(folder),
+            "rows": 0,
+            "skipped": True,
+            "reason": "no replay_inputs.jsonl or replay_inputs_reconstructed.jsonl",
+        }
 
     spec = spec_for_slug(folder.name)
     context = SourceStatusContext(spec)
@@ -203,10 +232,112 @@ def backfill_source_status_for_folder(folder, overwrite=False):
     return {"folder": str(folder), "rows": len(rows), "path": str(status_path)}
 
 
+def backfill_forecast_payloads_for_folder(folder, overwrite=False):
+    folder = Path(folder)
+    payload_path = folder / "forecast_payloads_long.csv"
+    if payload_path.exists() and not overwrite:
+        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "forecast_payloads_long.csv exists"}
+    replay_inputs_path = replay_inputs_path_for_folder(folder)
+    records = read_jsonl_records(replay_inputs_path)
+    if not records:
+        return {
+            "folder": str(folder),
+            "rows": 0,
+            "skipped": True,
+            "reason": "no replay_inputs.jsonl or replay_inputs_reconstructed.jsonl",
+        }
+
+    spec = spec_for_slug(folder.name)
+    store = SnapshotStore(root=folder, event_slug=folder.name)
+    rows = []
+    seen = set()
+    for record in records:
+        snapshot_id = record.get("snapshot_id")
+        sources = record.get("sources") or {}
+        captured_at = parse_capture_time(record, spec)
+        if not snapshot_id or not sources or captured_at is None:
+            continue
+        captured_utc = captured_at.astimezone(timezone.utc).isoformat()
+        captured_local = captured_at.isoformat()
+        for source, item in sorted(sources.items()):
+            if source not in FORECAST_PAYLOAD_RECONSTRUCTABLE_SOURCES:
+                continue
+            item = item or {}
+            data = item.get("data") or {}
+            if not isinstance(data, dict) or not data:
+                continue
+            key = (snapshot_id, source)
+            if key in seen:
+                continue
+            seen.add(key)
+            payload = data.get("raw_payload") if "raw_payload" in data else data
+            raw_text = json.dumps(payload, sort_keys=True, default=str)
+            payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+            suffix = "raw" if "raw_payload" in data else "reconstructed"
+            filename = f"{snapshot_id}_{store.safe_filename_part(source)}_{payload_hash[:12]}_{suffix}.json"
+            raw_payload_path = folder / "forecast_payloads" / filename
+            raw_payload_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            age_minutes = item.get("cache_age_minutes")
+            if age_minutes is None:
+                age_minutes = store.source_age_minutes(item.get("fetched_at"), captured_at, None)
+            ttl_minutes = item.get("ttl_minutes")
+            if ttl_minutes is None:
+                ttl_minutes = store.source_ttl_minutes(source)
+            status = store.source_status(item)
+            rows.append({
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": captured_utc,
+                "captured_at_local": captured_local,
+                "event_slug": record.get("event_slug") or folder.name,
+                "model_version": record.get("model_version"),
+                "source": source,
+                "status": status,
+                "stale": bool(item.get("stale")),
+                "source_family": store.source_family(source, item),
+                "degradation_state": store.source_degradation_state(status, item),
+                "cache_status": store.source_cache_status(status, item),
+                "fetched_at": item.get("fetched_at"),
+                "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+                "ttl_minutes": ttl_minutes,
+                "provider_issue_time": data.get("provider_issue_time"),
+                "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
+                "payload_hash": payload_hash,
+                "payload_bytes": len(raw_text.encode("utf-8")),
+                "row_count": store.source_row_count(data),
+                "source_url": data.get("url"),
+                "raw_payload_path": str(raw_payload_path),
+            })
+
+    if not rows:
+        return {"folder": str(folder), "rows": 0, "skipped": True, "reason": "no forecast payload rows"}
+
+    write_rows_csv(payload_path, FORECAST_PAYLOAD_COLUMNS, rows)
+    with (folder / "forecast_payloads.jsonl").open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+    return {"folder": str(folder), "rows": len(rows), "path": str(payload_path)}
+
+
 def backfill_source_status(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
     root = Path(snapshots_root)
     results = [
         backfill_source_status_for_folder(folder, overwrite=overwrite)
+        for folder in sorted(path for path in root.iterdir() if path.is_dir())
+    ]
+    return {
+        "snapshots_root": str(root),
+        "folders": len(results),
+        "written_folders": sum(1 for result in results if result.get("rows", 0) > 0),
+        "rows": sum(result.get("rows", 0) for result in results),
+        "results": results,
+    }
+
+
+def backfill_forecast_payloads(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
+    root = Path(snapshots_root)
+    results = [
+        backfill_forecast_payloads_for_folder(folder, overwrite=overwrite)
         for folder in sorted(path for path in root.iterdir() if path.is_dir())
     ]
     return {
@@ -686,17 +817,33 @@ def main():
     parser.add_argument(
         "--backfill-source-status",
         action="store_true",
-        help="Rebuild source_status_long.csv/jsonl from replay_inputs.jsonl under --snapshots-root.",
+        help=(
+            "Rebuild source_status_long.csv/jsonl from replay_inputs.jsonl "
+            "or replay_inputs_reconstructed.jsonl under --snapshots-root."
+        ),
+    )
+    parser.add_argument(
+        "--backfill-forecast-payloads",
+        action="store_true",
+        help=(
+            "Rebuild forecast_payloads_long.csv/jsonl and reconstructed payload JSON files "
+            "from replay_inputs.jsonl or replay_inputs_reconstructed.jsonl under --snapshots-root."
+        ),
     )
     parser.add_argument(
         "--snapshots-root",
         default=str(SNAPSHOT_DATA_ROOT),
-        help="Snapshot root used by --backfill-source-status.",
+        help="Snapshot root used by backfill commands.",
     )
     parser.add_argument(
         "--overwrite-source-status",
         action="store_true",
         help="Overwrite existing source_status_long.csv/jsonl during --backfill-source-status.",
+    )
+    parser.add_argument(
+        "--overwrite-forecast-payloads",
+        action="store_true",
+        help="Overwrite existing forecast_payloads_long.csv/jsonl during --backfill-forecast-payloads.",
     )
     args = parser.parse_args()
 
@@ -732,6 +879,14 @@ def main():
     if args.backfill_source_status:
         print(json.dumps(
             backfill_source_status(args.snapshots_root, overwrite=args.overwrite_source_status),
+            indent=2,
+            sort_keys=True,
+            default=str,
+        ))
+        return
+    if args.backfill_forecast_payloads:
+        print(json.dumps(
+            backfill_forecast_payloads(args.snapshots_root, overwrite=args.overwrite_forecast_payloads),
             indent=2,
             sort_keys=True,
             default=str,

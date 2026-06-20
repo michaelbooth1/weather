@@ -21,10 +21,16 @@ from weather.market.market_registry import spec_for_id
 from weather.schema_registry import schema_version
 from weather.sources.historical_schema import to_float
 from weather.sources.marine_context import registry_for_market
-from weather.sources.reanalysis_history import ReanalysisStore, parse_local_datetime, value_at
+from weather.sources.reanalysis_history import (
+    DEFAULT_ROOT as REANALYSIS_DEFAULT_ROOT,
+    ReanalysisStore,
+    parse_local_datetime,
+    value_at,
+)
 
 
 REANALYSIS_SYNOPTIC_SCHEMA_VERSION = schema_version("reanalysis_synoptic_features")
+PRESSURE_LEVEL_CACHE_STATUS_SCHEMA_VERSION = schema_version("pressure_level_cache_status")
 SOURCE = "open_meteo_era5_reanalysis_synoptic"
 CPC_ONI_URL = "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
 CPC_PNA_URL = "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/norm.pna.monthly.b5001.current.ascii"
@@ -205,6 +211,8 @@ def default_feature_path(spec, root=None):
 
 
 def default_pressure_level_root(spec, root=None):
+    if root is None:
+        return REANALYSIS_DEFAULT_ROOT / "pressure_level"
     store = ReanalysisStore(spec, root)
     return store.root / "pressure_level"
 
@@ -398,9 +406,16 @@ def _parse_netcdf_time_units(units):
 def _netcdf_time_dates(time_variable):
     if time_variable is None:
         return []
-    unit, base = _parse_netcdf_time_units(getattr(time_variable, "units", ""))
+    values = getattr(time_variable, "data", None)
+    if values is None:
+        values = time_variable[:]
+    return _netcdf_time_dates_from_values(values, getattr(time_variable, "units", ""))
+
+
+def _netcdf_time_dates_from_values(values, units):
+    unit, base = _parse_netcdf_time_units(units)
     dates = []
-    for raw in time_variable.data:
+    for raw in values:
         value = float(raw)
         delta = timedelta(hours=value) if unit == "hours" else timedelta(days=value)
         dates.append((base + delta).date())
@@ -416,14 +431,7 @@ def _temperature_to_c(value, units):
     return value
 
 
-def read_pressure_level_netcdf_daily(path, variable_name, level_hpa, spec):
-    """Read one pressure-level daily series at the nearest grid point.
-
-    NOAA PSL's NCEP/NCAR daily pressure-level files are classic NetCDF and are
-    readable with SciPy, which is already a project dependency. The function is
-    intentionally cache-only; callers download files explicitly before sidecar
-    builds consume them.
-    """
+def _read_pressure_level_netcdf3_daily(path, variable_name, level_hpa, spec):
     from scipy.io import netcdf_file
 
     path = Path(path)
@@ -460,6 +468,67 @@ def read_pressure_level_netcdf_daily(path, variable_name, level_hpa, spec):
             value = _scaled_netcdf_value(variable.data[tuple(indexes)], variable)
             out[local_date] = value
         return out
+
+
+def _read_pressure_level_netcdf4_daily(path, variable_name, level_hpa, spec):
+    try:
+        from netCDF4 import Dataset
+    except ImportError as exc:  # pragma: no cover - exercised when optional dep is absent
+        raise RuntimeError(
+            f"{path} is not readable as classic NetCDF; install netCDF4 to read "
+            "NOAA PSL NetCDF4 pressure-level files."
+        ) from exc
+
+    path = Path(path)
+    with Dataset(path, "r") as dataset:
+        dataset.set_auto_maskandscale(False)
+        variable = _find_netcdf_variable(dataset, (variable_name,))
+        time_variable = _find_netcdf_variable(dataset, ("time",))
+        level_variable = _find_netcdf_variable(dataset, ("level", "lev"))
+        lat_variable = _find_netcdf_variable(dataset, ("lat", "latitude"))
+        lon_variable = _find_netcdf_variable(dataset, ("lon", "longitude"))
+        dates = _netcdf_time_dates_from_values(time_variable[:], getattr(time_variable, "units", ""))
+        levels = [float(value) for value in level_variable[:]]
+        lats = [float(value) for value in lat_variable[:]]
+        lons = [float(value) for value in lon_variable[:]]
+        level_index = _nearest_index(levels, level_hpa)
+        lat_index = _nearest_index(lats, spec.lat)
+        lon_index = _nearest_index(lons, _grid_target_lon(lons, spec.lon))
+        dim_indexes = {
+            "time": None,
+            "level": level_index,
+            "lev": level_index,
+            "lat": lat_index,
+            "latitude": lat_index,
+            "lon": lon_index,
+            "longitude": lon_index,
+        }
+        out = {}
+        for time_index, local_date in enumerate(dates):
+            indexes = []
+            for dimension in variable.dimensions:
+                if dimension == "time":
+                    indexes.append(time_index)
+                else:
+                    indexes.append(dim_indexes[dimension])
+            value = _scaled_netcdf_value(variable[tuple(indexes)], variable)
+            out[local_date] = value
+        return out
+
+
+def read_pressure_level_netcdf_daily(path, variable_name, level_hpa, spec):
+    """Read one pressure-level daily series at the nearest grid point.
+
+    NOAA PSL's NCEP/NCAR daily pressure-level files may be classic NetCDF or
+    NetCDF4/HDF5 depending on vintage. Prefer SciPy for classic files and fall
+    back to netCDF4 for current HDF5 downloads.
+    """
+    try:
+        return _read_pressure_level_netcdf3_daily(path, variable_name, level_hpa, spec)
+    except TypeError as exc:
+        if "valid NetCDF 3 file" not in str(exc):
+            raise
+        return _read_pressure_level_netcdf4_daily(path, variable_name, level_hpa, spec)
 
 
 def _pressure_level_paths(root, variable):
@@ -518,6 +587,225 @@ def download_pressure_level_file(root, variable, year, timeout=60, skip_existing
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(response.content)
     return path, True
+
+
+def pressure_level_remote_status(variable, year, timeout=30):
+    import requests
+
+    response = requests.head(pressure_level_url(variable, year), timeout=timeout)
+    response.raise_for_status()
+    length = response.headers.get("Content-Length")
+    return {
+        "url": pressure_level_url(variable, year),
+        "status_code": int(response.status_code),
+        "content_length": int(length) if str(length or "").isdigit() else None,
+        "last_modified": response.headers.get("Last-Modified"),
+    }
+
+
+def pressure_level_local_file_status(root, variable, year, check_remote=False, timeout=30):
+    path = pressure_level_raw_path(root, variable, year)
+    local = {
+        "path": str(path),
+        "exists": path.exists(),
+        "size_bytes": path.stat().st_size if path.exists() else None,
+        "last_modified_utc": (
+            datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+            if path.exists()
+            else None
+        ),
+    }
+    remote = None
+    if check_remote:
+        try:
+            remote = pressure_level_remote_status(variable, year, timeout=timeout)
+        except Exception as exc:  # pragma: no cover - exercised by live commands.
+            remote = {
+                "url": pressure_level_url(variable, year),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    return {
+        "variable": variable,
+        "year": int(year),
+        "local": local,
+        "remote": remote,
+        "local_matches_remote_size": (
+            bool(local["exists"])
+            and remote is not None
+            and remote.get("content_length") is not None
+            and local.get("size_bytes") == remote.get("content_length")
+        ),
+        "remote_larger_than_local": (
+            bool(local["exists"])
+            and remote is not None
+            and remote.get("content_length") is not None
+            and local.get("size_bytes") is not None
+            and remote["content_length"] > local["size_bytes"]
+        ),
+    }
+
+
+def date_range(start, end):
+    current = parse_date(start)
+    end = parse_date(end)
+    while current <= end:
+        yield current
+        current = current + timedelta(days=1)
+
+
+def pressure_level_metric_coverage(spec, root, start, end):
+    metrics = load_pressure_level_daily_metrics(spec, root=root)
+    requested = list(date_range(start, end))
+    complete_keys = (
+        "reanalysis_prev_day_temperature_850hpa_c",
+        "reanalysis_prev_day_geopotential_height_500hpa_m",
+        "reanalysis_prev_day_thickness_1000_500hpa_m",
+    )
+    complete_dates = [
+        item for item in requested
+        if all((metrics.get(item) or {}).get(key) is not None for key in complete_keys)
+    ]
+    complete_date_set = set(complete_dates)
+    all_metric_dates = sorted(metrics)
+    return {
+        "requested_start": parse_date(start).isoformat(),
+        "requested_end": parse_date(end).isoformat(),
+        "requested_days": len(requested),
+        "complete_days": len(complete_dates),
+        "missing_days": len(requested) - len(complete_dates),
+        "first_complete_date": complete_dates[0].isoformat() if complete_dates else None,
+        "last_complete_date": complete_dates[-1].isoformat() if complete_dates else None,
+        "latest_cached_metric_date": all_metric_dates[-1].isoformat() if all_metric_dates else None,
+        "missing_dates_sample": [
+            item.isoformat()
+            for item in requested
+            if item not in complete_date_set
+        ][:20],
+    }
+
+
+def build_pressure_level_cache_status(
+    spec,
+    start,
+    end,
+    root=None,
+    variables=None,
+    check_remote=False,
+    timeout=30,
+    include_metrics=True,
+):
+    root = Path(root) if root else default_pressure_level_root(spec)
+    start_date = parse_date(start)
+    end_date = parse_date(end)
+    variables = list(variables or PRESSURE_LEVEL_VARIABLES)
+    years = list(range(start_date.year, end_date.year + 1))
+    files = [
+        pressure_level_local_file_status(
+            root,
+            variable,
+            year,
+            check_remote=check_remote,
+            timeout=timeout,
+        )
+        for year in years
+        for variable in variables
+    ]
+    missing = [
+        item for item in files
+        if not (item.get("local") or {}).get("exists")
+    ]
+    remote_larger = [
+        item for item in files
+        if item.get("remote_larger_than_local")
+    ]
+    metric_coverage = (
+        pressure_level_metric_coverage(spec, root, start_date, end_date)
+        if include_metrics
+        else None
+    )
+    return {
+        "schema_version": PRESSURE_LEVEL_CACHE_STATUS_SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "market_id": spec.id,
+        "source": PRESSURE_LEVEL_REANALYSIS_SOURCE,
+        "pressure_level_root": str(root),
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "years": years,
+        "variables": variables,
+        "check_remote": bool(check_remote),
+        "files": files,
+        "metric_coverage": metric_coverage,
+        "status": (
+            "REFRESH_AVAILABLE"
+            if remote_larger
+            else ("MISSING_LOCAL_FILES" if missing else "CACHE_CURRENT")
+        ),
+        "summary": {
+            "file_count": len(files),
+            "missing_local_files": len(missing),
+            "remote_larger_files": len(remote_larger),
+            "local_remote_size_matches": sum(1 for item in files if item.get("local_matches_remote_size")),
+        },
+    }
+
+
+def render_pressure_level_cache_status_markdown(payload):
+    def fmt(value):
+        if value is None:
+            return "-"
+        return str(value)
+
+    lines = [
+        "# Pressure-Level Reanalysis Cache Status",
+        "",
+        f"Generated: `{payload.get('generated_at_utc')}`",
+        f"Status: `{payload.get('status')}`",
+        f"Market: `{payload.get('market_id')}`",
+        f"Date range: `{payload.get('start')}` to `{payload.get('end')}`",
+        f"Cache root: `{payload.get('pressure_level_root')}`",
+        "",
+        "## Files",
+        "",
+        "| Variable | Year | Local Exists | Local Size | Remote Size | Remote Modified | Remote Larger |",
+        "| :--- | ---: | :--- | ---: | ---: | :--- | :--- |",
+    ]
+    for item in payload.get("files") or []:
+        local = item.get("local") or {}
+        remote = item.get("remote") or {}
+        lines.append(
+            "| "
+            f"`{item.get('variable')}` | "
+            f"{item.get('year')} | "
+            f"{fmt(local.get('exists'))} | "
+            f"{fmt(local.get('size_bytes'))} | "
+            f"{fmt(remote.get('content_length'))} | "
+            f"{fmt(remote.get('last_modified'))} | "
+            f"{fmt(item.get('remote_larger_than_local'))} |"
+        )
+    coverage = payload.get("metric_coverage")
+    if coverage:
+        lines.extend([
+            "",
+            "## Metric Coverage",
+            "",
+            "| Field | Value |",
+            "| :--- | :--- |",
+        ])
+        for key in (
+            "requested_days",
+            "complete_days",
+            "missing_days",
+            "first_complete_date",
+            "last_complete_date",
+            "latest_cached_metric_date",
+            "missing_dates_sample",
+        ):
+            value = coverage.get(key)
+            if isinstance(value, list):
+                value = ", ".join(value) if value else "-"
+            lines.append(f"| `{key}` | {fmt(value)} |")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def reanalysis_static_features(spec):
@@ -975,6 +1263,48 @@ def cmd_download_pressure_levels(args):
             print(f"{status}: {variable}.{year} -> {path}")
 
 
+def cmd_pressure_level_status(args):
+    spec = spec_for_id(args.market)
+    root = (
+        Path(args.pressure_level_root)
+        if args.pressure_level_root
+        else default_pressure_level_root(spec, root=args.data_root or None)
+    )
+    variables = [
+        variable.strip()
+        for variable in str(args.variables or "").split(",")
+        if variable.strip()
+    ]
+    payload = build_pressure_level_cache_status(
+        spec,
+        args.start,
+        args.end,
+        root=root,
+        variables=variables,
+        check_remote=args.check_remote,
+        timeout=args.timeout,
+        include_metrics=not args.skip_metrics,
+    )
+    if args.json_out:
+        write_json(args.json_out, payload)
+    if args.report_out:
+        report_out = Path(args.report_out)
+        report_out.parent.mkdir(parents=True, exist_ok=True)
+        report_out.write_text(render_pressure_level_cache_status_markdown(payload), encoding="utf-8")
+    print(f"Pressure-level cache status: {payload['status']}")
+    coverage = payload.get("metric_coverage") or {}
+    if coverage:
+        print(
+            "Metric coverage: "
+            f"{coverage.get('complete_days', 0)}/{coverage.get('requested_days', 0)} complete; "
+            f"latest cached metric date {coverage.get('latest_cached_metric_date')}"
+        )
+    if args.json_out:
+        print(f"JSON written to {args.json_out}")
+    if args.report_out:
+        print(f"Report written to {args.report_out}")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Build gated reanalysis/synoptic feature sidecars.")
     parser.add_argument("--market", default="toronto")
@@ -998,6 +1328,18 @@ def build_parser():
     download.add_argument("--timeout", type=float, default=60)
     download.add_argument("--skip-existing", action="store_true")
     download.set_defaults(func=cmd_download_pressure_levels)
+
+    status = sub.add_parser("pressure-level-status")
+    status.add_argument("--start", required=True)
+    status.add_argument("--end", required=True)
+    status.add_argument("--pressure-level-root", default="")
+    status.add_argument("--variables", default=",".join(PRESSURE_LEVEL_VARIABLES))
+    status.add_argument("--timeout", type=float, default=30)
+    status.add_argument("--check-remote", action="store_true")
+    status.add_argument("--skip-metrics", action="store_true")
+    status.add_argument("--json-out", default="")
+    status.add_argument("--report-out", default="")
+    status.set_defaults(func=cmd_pressure_level_status)
     return parser
 
 

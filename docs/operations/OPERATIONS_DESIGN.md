@@ -21,12 +21,12 @@ registered supervisor tasks.
    - `WeatherSnapshotLoopSupervisor`
    - `WeatherClobBookLoopSupervisor`
 2. Those tasks run short-lived `ensure` commands:
-   - `python -m src.snapshot_tracker --ensure`
-   - `python -m src.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15`
+   - `python -m weather.collection.snapshot_tracker --ensure`
+   - `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15`
 3. Each `ensure` command starts or repairs exactly one detached loop.
 4. Open the dashboard with:
-   - `scripts/start_weather_dashboard.cmd`
-   - or `scripts/start_weather_dashboard.ps1`
+   - `scripts/launch/start_weather_dashboard.cmd`
+   - or `scripts/launch/start_weather_dashboard.ps1`
 5. The launcher opens:
    - `http://localhost:8501/?market=ops`
 

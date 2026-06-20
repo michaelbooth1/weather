@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,6 +13,57 @@ from weather import time as weather_time
 from weather.model.calibration_runtime import load_probability_calibration
 from weather.operations.ops_monitor import nightly_retrain_status_rows, scheduled_task_rows
 from weather.operations.supervisor import jsonl_integrity
+from weather.paths import REPO_ROOT, SRC_ROOT
+
+
+def test_repo_root_import_helpers_are_tracked():
+    result = subprocess.run(
+        ["git", "ls-files", "sitecustomize.py", "weather/__init__.py"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert set(result.stdout.splitlines()) == {"sitecustomize.py", "weather/__init__.py"}
+
+
+def test_repo_root_subprocess_imports_weather_with_tracked_helpers():
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import weather.paths; print(weather.paths.REPO_ROOT)",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert Path(result.stdout.strip()) == REPO_ROOT
+
+
+def test_non_repo_subprocess_imports_weather_with_explicit_package_path(tmp_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_ROOT)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import weather.paths; print(weather.paths.REPO_ROOT)",
+        ],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert Path(result.stdout.strip()) == REPO_ROOT
 
 
 def test_json_helpers_write_tolerantly_read_and_append_jsonl(tmp_path):

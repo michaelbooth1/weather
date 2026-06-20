@@ -14,12 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import REPO_ROOT, relative_to_repo, data_path
+from weather.reporting.formatting import markdown_table
 from weather.schema_registry import SCHEMAS_BY_VERSION, schema_version
 
 
 MANIFEST_SCHEMA_VERSION = schema_version("tape_backup_manifest")
 RESTORE_DRILL_SCHEMA_VERSION = schema_version("tape_restore_drill")
 POLICY_VERSION = "tape_retention_policy_v0.1"
+DEFAULT_CAPACITY_MARGIN_BYTES = 1024 * 1024 * 1024
 DEFAULT_BACKUP_ROOT = (
     Path(os.environ["WEATHER_TAPE_BACKUP_ROOT"])
     if os.environ.get("WEATHER_TAPE_BACKUP_ROOT")
@@ -29,8 +31,14 @@ DEFAULT_STATUS_OUT = data_path() / "backtest" / "tape_backup_status.json"
 DEFAULT_REPORT_OUT = data_path() / "backtest" / "tape_backup_status_report.md"
 DEFAULT_RESTORE_OUT = data_path() / "backtest" / "tape_restore_drill.json"
 DEFAULT_RESTORE_REPORT = data_path() / "backtest" / "tape_restore_drill_report.md"
+DEFAULT_UNMANIFESTED_CLEANUP_OUT = data_path() / "backtest" / "tape_backup_unmanifested_cleanup.json"
+DEFAULT_UNMANIFESTED_CLEANUP_REPORT = data_path() / "backtest" / "tape_backup_unmanifested_cleanup_report.md"
 DEFAULT_TASK_NAME = "WeatherTapeBackupAndRestoreDrill"
 LATEST_DIR = "latest"
+LATEST_CONTROL_FILES = {
+    "tape_backup_manifest.json",
+    "tape_restore_drill.json",
+}
 
 
 @dataclass(frozen=True)
@@ -74,8 +82,8 @@ CLOB_ARTIFACT_POLICIES = (
         "order_book_long",
         "irreplaceable_full_depth_book",
         True,
-        "Full depth long-table order-book evidence; highest storage-risk CLOB artifact.",
-        ("data/snapshots/*/order_books_long.csv",),
+        "Full depth long-table order-book evidence, raw or gzip-tiered.",
+        ("data/snapshots/*/order_books_long.csv", "data/snapshots/*/order_books_long.csv.gz"),
         per_file_warn_bytes=1_000_000_000,
         total_warn_bytes=100_000_000_000,
     ),
@@ -146,6 +154,7 @@ RETENTION_RULES = (
             "data/snapshots/*/clob*.csv",
             "data/snapshots/*/clob*.jsonl",
             "data/snapshots/*/order_books*.csv",
+            "data/snapshots/*/order_books*.csv.gz",
             "data/snapshots/*/order_books*.jsonl",
             "data/snapshots/*/price_history*.csv",
             "data/snapshots/*/price_history*.jsonl",
@@ -322,6 +331,8 @@ def iter_candidate_files(source_root=REPO_ROOT):
         for pattern in rule.patterns:
             for path in source_root.glob(pattern):
                 if not path.is_file():
+                    continue
+                if path.stat().st_size == 0:
                     continue
                 rel = path.relative_to(source_root).as_posix()
                 if rel in seen or _excluded(rel, rule.excludes):
@@ -609,6 +620,100 @@ def _same_backup_file(path, sha256):
     return path.exists() and sha256_file(path) == sha256
 
 
+class TapeBackupCapacityError(RuntimeError):
+    def __init__(self, preflight):
+        self.preflight = preflight
+        super().__init__(
+            "insufficient backup capacity: "
+            f"need {preflight.get('required_bytes')} bytes including margin, "
+            f"free {preflight.get('free_bytes')} bytes"
+        )
+
+
+def disk_usage_root(path):
+    path = Path(path)
+    probe = path if path.exists() else path.parent
+    while probe and not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return probe
+
+
+def backup_capacity_preflight(
+    manifest,
+    backup_root=DEFAULT_BACKUP_ROOT,
+    *,
+    margin_bytes=DEFAULT_CAPACITY_MARGIN_BYTES,
+    exact=True,
+):
+    backup_root = Path(backup_root)
+    latest_root = backup_root / LATEST_DIR
+    planned = []
+    skipped = 0
+    planned_bytes = 0
+    largest = None
+    for entry in manifest.get("files") or []:
+        dst = latest_root / entry["path"]
+        same = False
+        if exact:
+            same = _same_backup_file(dst, entry.get("sha256"))
+        elif dst.exists():
+            same = int(dst.stat().st_size) == int(entry.get("size") or 0)
+        if same:
+            skipped += 1
+            continue
+        size = int(entry.get("size") or 0)
+        planned_bytes += size
+        row = {"path": entry.get("path"), "size": size}
+        planned.append(row)
+        if largest is None or size > int(largest.get("size") or 0):
+            largest = row
+    usage_path = disk_usage_root(backup_root)
+    usage = shutil.disk_usage(usage_path)
+    required = planned_bytes + int(margin_bytes or 0)
+    free = int(usage.free)
+    status = "PASS" if free >= required else "INSUFFICIENT_BACKUP_CAPACITY"
+    return {
+        "status": status,
+        "backup_root": str(backup_root),
+        "latest_root": str(latest_root),
+        "disk_usage_path": str(usage_path),
+        "free_bytes": free,
+        "required_bytes": required,
+        "planned_copy_bytes": planned_bytes,
+        "capacity_margin_bytes": int(margin_bytes or 0),
+        "insufficient_bytes": max(0, required - free),
+        "planned_copy_files": len(planned),
+        "skipped_unchanged_files": skipped,
+        "largest_planned_copy": largest,
+        "planned_copy_samples": planned[:20],
+    }
+
+
+def coverage_capacity_preflight(
+    coverage,
+    backup_root=DEFAULT_BACKUP_ROOT,
+    *,
+    margin_bytes=DEFAULT_CAPACITY_MARGIN_BYTES,
+):
+    backup_root = Path(backup_root)
+    usage_path = disk_usage_root(backup_root)
+    usage = shutil.disk_usage(usage_path)
+    missing_bytes = int((coverage or {}).get("missing_critical_bytes") or 0)
+    required = missing_bytes + int(margin_bytes or 0)
+    free = int(usage.free)
+    status = "PASS" if missing_bytes == 0 or free >= required else "INSUFFICIENT_BACKUP_CAPACITY"
+    return {
+        "status": status,
+        "backup_root": str(backup_root),
+        "disk_usage_path": str(usage_path),
+        "free_bytes": free,
+        "required_bytes": required,
+        "missing_critical_bytes": missing_bytes,
+        "capacity_margin_bytes": int(margin_bytes or 0),
+        "insufficient_bytes": max(0, required - free),
+    }
+
+
 def write_json(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -616,15 +721,39 @@ def write_json(path, payload):
     return path
 
 
-def export_backup(source_root=REPO_ROOT, backup_root=DEFAULT_BACKUP_ROOT, dry_run=False):
+def export_backup(
+    source_root=REPO_ROOT,
+    backup_root=DEFAULT_BACKUP_ROOT,
+    dry_run=False,
+    capacity_preflight=True,
+    capacity_margin_bytes=DEFAULT_CAPACITY_MARGIN_BYTES,
+):
     source_root = Path(source_root)
     backup_root = Path(backup_root)
     manifest = build_backup_manifest(source_root)
     latest_root = backup_root / LATEST_DIR
     copied = 0
     skipped = 0
+    preflight = None
     if not dry_run:
         latest_root.mkdir(parents=True, exist_ok=True)
+        if capacity_preflight:
+            preflight = backup_capacity_preflight(
+                manifest,
+                backup_root,
+                margin_bytes=capacity_margin_bytes,
+                exact=True,
+            )
+            if preflight["status"] != "PASS":
+                manifest["backup"] = {
+                    "backup_root": str(backup_root),
+                    "latest_root": str(latest_root),
+                    "dry_run": bool(dry_run),
+                    "capacity_preflight": preflight,
+                    "copied_files": 0,
+                    "skipped_unchanged_files": preflight.get("skipped_unchanged_files", 0),
+                }
+                raise TapeBackupCapacityError(preflight)
     for entry in manifest["files"]:
         src = source_root / entry["path"]
         dst = latest_root / entry["path"]
@@ -657,6 +786,7 @@ def export_backup(source_root=REPO_ROOT, backup_root=DEFAULT_BACKUP_ROOT, dry_ru
         "backup_root": str(backup_root),
         "latest_root": str(latest_root),
         "dry_run": bool(dry_run),
+        "capacity_preflight": preflight,
         "copied_files": copied,
         "skipped_unchanged_files": skipped,
     }
@@ -678,6 +808,208 @@ def load_backup_manifest(backup_root=DEFAULT_BACKUP_ROOT):
         return None, path
     payload = json.loads(path.read_text(encoding="utf-8"))
     return payload, path
+
+
+def _is_path_under(path, root):
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def unmanifested_backup_cleanup_plan(
+    backup_root=DEFAULT_BACKUP_ROOT,
+    source_root=REPO_ROOT,
+):
+    backup_root = Path(backup_root)
+    source_root = Path(source_root)
+    latest_root = backup_root / LATEST_DIR
+    manifest, manifest_path = load_backup_manifest(backup_root)
+    if not latest_root.exists():
+        return {
+            "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
+            "generated_at_utc": utc_iso(),
+            "status": "SKIPPED",
+            "reason": "latest backup root does not exist",
+            "backup_root": str(backup_root),
+            "latest_root": str(latest_root),
+            "manifest_path": str(manifest_path),
+            "source_root": str(source_root),
+            "summary": {"candidate_files": 0, "candidate_bytes": 0, "blocked_files": 0, "blocked_bytes": 0},
+            "files": [],
+        }
+    if not manifest:
+        return {
+            "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
+            "generated_at_utc": utc_iso(),
+            "status": "SKIPPED",
+            "reason": "latest backup manifest does not exist",
+            "backup_root": str(backup_root),
+            "latest_root": str(latest_root),
+            "manifest_path": str(manifest_path),
+            "source_root": str(source_root),
+            "summary": {"candidate_files": 0, "candidate_bytes": 0, "blocked_files": 0, "blocked_bytes": 0},
+            "files": [],
+        }
+    manifest_paths = set(_manifest_entry_map(manifest))
+    rows = []
+    for path in sorted(latest_root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(latest_root).as_posix()
+        if rel in LATEST_CONTROL_FILES or rel in manifest_paths:
+            continue
+        size = path.stat().st_size
+        source_path = source_root / rel
+        source_exists = source_path.exists()
+        source_size = source_path.stat().st_size if source_exists else None
+        status = "candidate" if source_exists else "blocked_missing_source"
+        rows.append({
+            "path": str(path),
+            "rel_path": rel,
+            "size": size,
+            "source_path": str(source_path),
+            "source_exists": source_exists,
+            "source_size": source_size,
+            "source_same_size": bool(source_exists and int(source_size or 0) == size),
+            "status": status,
+            "reason": (
+                "unmanifested partial backup duplicate; source exists"
+                if source_exists
+                else "unmanifested backup file has no source counterpart"
+            ),
+        })
+    candidate_rows = [row for row in rows if row.get("status") == "candidate"]
+    blocked_rows = [row for row in rows if row.get("status") != "candidate"]
+    status = "WARN" if candidate_rows else "PASS"
+    if blocked_rows:
+        status = "WARN"
+    return {
+        "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
+        "generated_at_utc": utc_iso(),
+        "status": status,
+        "reason": "ok" if rows else "no unmanifested backup files",
+        "backup_root": str(backup_root),
+        "latest_root": str(latest_root),
+        "manifest_path": str(manifest_path),
+        "source_root": str(source_root),
+        "manifest_hash": manifest.get("manifest_hash"),
+        "summary": {
+            "unmanifested_files": len(rows),
+            "unmanifested_bytes": sum(int(row.get("size") or 0) for row in rows),
+            "candidate_files": len(candidate_rows),
+            "candidate_bytes": sum(int(row.get("size") or 0) for row in candidate_rows),
+            "blocked_files": len(blocked_rows),
+            "blocked_bytes": sum(int(row.get("size") or 0) for row in blocked_rows),
+            "source_same_size_files": sum(1 for row in candidate_rows if row.get("source_same_size")),
+        },
+        "files": rows,
+    }
+
+
+def apply_unmanifested_backup_cleanup(payload):
+    latest_root = Path(payload.get("latest_root") or Path(payload.get("backup_root") or DEFAULT_BACKUP_ROOT) / LATEST_DIR)
+    actions = []
+    for row in payload.get("files") or []:
+        action = {
+            "path": row.get("path"),
+            "rel_path": row.get("rel_path"),
+            "size": int(row.get("size") or 0),
+            "source_exists": bool(row.get("source_exists")),
+            "source_same_size": bool(row.get("source_same_size")),
+        }
+        if row.get("status") != "candidate":
+            action["status"] = "skipped"
+            action["reason"] = row.get("reason") or "not a cleanup candidate"
+            actions.append(action)
+            continue
+        path = Path(row.get("path") or "")
+        if not _is_path_under(path, latest_root):
+            action["status"] = "skipped"
+            action["reason"] = "path escapes latest backup root"
+        elif not path.exists():
+            action["status"] = "skipped"
+            action["reason"] = "already missing"
+        else:
+            path.unlink()
+            action["status"] = "deleted"
+        actions.append(action)
+    return {
+        "enabled": True,
+        "status": "PASS",
+        "actions": actions,
+        "summary": {
+            "deleted_files": sum(1 for row in actions if row.get("status") == "deleted"),
+            "deleted_bytes": sum(int(row.get("size") or 0) for row in actions if row.get("status") == "deleted"),
+            "skipped_files": sum(1 for row in actions if row.get("status") == "skipped"),
+        },
+    }
+
+
+def render_unmanifested_cleanup_report(payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Tape Backup Unmanifested Cleanup",
+        "",
+        f"Generated: `{payload.get('generated_at_utc')}`",
+        f"Status: **{payload.get('status')}**",
+        f"Backup root: `{payload.get('backup_root')}`",
+        f"Latest root: `{payload.get('latest_root')}`",
+        f"Manifest: `{payload.get('manifest_path')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines += markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Unmanifested files", summary.get("unmanifested_files")],
+            ["Unmanifested MiB", round(int(summary.get("unmanifested_bytes") or 0) / (1024 * 1024), 1)],
+            ["Candidate files", summary.get("candidate_files")],
+            ["Candidate MiB", round(int(summary.get("candidate_bytes") or 0) / (1024 * 1024), 1)],
+            ["Blocked files", summary.get("blocked_files")],
+            ["Source same-size files", summary.get("source_same_size_files")],
+        ],
+    )
+    candidates = [row for row in payload.get("files") or [] if row.get("status") == "candidate"]
+    candidates.sort(key=lambda row: int(row.get("size") or 0), reverse=True)
+    if candidates:
+        lines += ["", "## Largest Candidates", ""]
+        lines += markdown_table(
+            ["Path", "MiB", "Source Exists", "Same Size"],
+            [
+                [
+                    row.get("rel_path"),
+                    round(int(row.get("size") or 0) / (1024 * 1024), 1),
+                    row.get("source_exists"),
+                    row.get("source_same_size"),
+                ]
+                for row in candidates[:50]
+            ],
+        )
+    apply_payload = payload.get("apply") or {}
+    if apply_payload.get("enabled"):
+        apply_summary = apply_payload.get("summary") or {}
+        lines += ["", "## Apply", ""]
+        lines += markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", apply_payload.get("status")],
+                ["Deleted files", apply_summary.get("deleted_files")],
+                ["Deleted MiB", round(int(apply_summary.get("deleted_bytes") or 0) / (1024 * 1024), 1)],
+                ["Skipped files", apply_summary.get("skipped_files")],
+            ],
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_unmanifested_cleanup_report(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_unmanifested_cleanup_report(payload), encoding="utf-8")
+    return path
 
 
 def validate_manifest(manifest):
@@ -778,6 +1110,7 @@ def backup_status(
     missing = (manifest.get("summary") or {}).get("missing_critical_classes") or []
     coverage_source_root = Path(source_root or manifest.get("source_root") or REPO_ROOT)
     coverage = local_manifest_coverage_audit(coverage_source_root, manifest)
+    capacity = coverage_capacity_preflight(coverage, backup_root)
     status = "OK"
     if not valid:
         status = "CORRUPT_MANIFEST"
@@ -785,6 +1118,8 @@ def backup_status(
         status = "CHECKSUM_FAIL"
     elif missing:
         status = "MISSING_CRITICAL_CLASS"
+    elif coverage.get("missing_critical_files") and capacity.get("status") != "PASS":
+        status = "INSUFFICIENT_BACKUP_CAPACITY"
     elif coverage.get("missing_critical_files"):
         status = "MISSING_CRITICAL_FILES"
     elif age_hours is not None and age_hours > float(max_age_hours):
@@ -812,6 +1147,7 @@ def backup_status(
         "total_bytes": (manifest.get("summary") or {}).get("total_bytes"),
         "class_summaries": manifest.get("class_summaries") or {},
         "local_manifest_coverage": coverage,
+        "capacity_preflight": capacity,
         "clob_artifact_coverage": coverage.get("clob_artifacts") or {},
         "missing_critical_classes": missing,
         "missing_critical_files": coverage.get("missing_critical_files", 0),
@@ -845,6 +1181,7 @@ def backup_alerts(status):
         "CHECKSUM_FAIL",
         "MISSING_CRITICAL_CLASS",
         "MISSING_CRITICAL_FILES",
+        "INSUFFICIENT_BACKUP_CAPACITY",
         "RESTORE_DRILL_MISSING",
         "RESTORE_DRILL_FAIL",
         "RESTORE_DRILL_STALE",
@@ -1115,8 +1452,55 @@ def run_backup_job(
     verify_checksums=True,
     max_age_hours=26,
     max_restore_age_hours=168,
+    capacity_margin_bytes=DEFAULT_CAPACITY_MARGIN_BYTES,
 ):
-    manifest = export_backup(source_root=source_root, backup_root=backup_root)
+    try:
+        manifest = export_backup(
+            source_root=source_root,
+            backup_root=backup_root,
+            capacity_margin_bytes=capacity_margin_bytes,
+        )
+    except TapeBackupCapacityError as exc:
+        status = {
+            "status": "INSUFFICIENT_BACKUP_CAPACITY",
+            "backup_root": str(backup_root),
+            "generated_at_utc": utc_iso(),
+            "manifest_path": str(latest_manifest_path(backup_root)),
+            "manifest_valid": False,
+            "manifest_detail": "backup capacity preflight failed before export",
+            "capacity_preflight": exc.preflight,
+            "missing_critical_classes": [],
+            "missing_critical_files": None,
+            "missing_critical_bytes": None,
+            "checksum_checked_files": 0,
+            "checksum_failures": [],
+            "last_restore_drill": load_restore_drill_status(backup_root),
+            "restore_drill_sla_status": "-",
+            "restore_drill_sla_detail": "restore drill skipped because export did not run",
+        }
+        write_json(status_out, status)
+        write_status_report(status_report, status)
+        return {
+            "schema_version": "tape_backup_job_v0.1",
+            "generated_at_utc": utc_iso(),
+            "backup_root": str(backup_root),
+            "manifest_hash": None,
+            "export": {
+                "backup_root": str(backup_root),
+                "capacity_preflight": exc.preflight,
+                "copied_files": 0,
+                "skipped_unchanged_files": exc.preflight.get("skipped_unchanged_files", 0),
+            },
+            "restore_drill": {
+                "status": "SKIPPED",
+                "reason": "backup capacity preflight failed before export",
+            },
+            "status": status,
+            "status_out": str(status_out),
+            "status_report": str(status_report),
+            "restore_out": str(restore_out),
+            "restore_report": str(restore_report),
+        }
     restore = run_restore_drill(
         backup_root=backup_root,
         restore_root=restore_root,
@@ -1167,6 +1551,31 @@ def write_status_report(path, payload):
         f"Last restore drill: `{restore.get('status') or '-'}`",
         f"Restore generated: `{restore.get('generated_at_utc') or '-'}`",
         "",
+        "## Capacity Preflight",
+        "",
+    ]
+    capacity = payload.get("capacity_preflight") or {}
+    if capacity:
+        lines.extend([
+            f"Status: **{capacity.get('status')}**",
+            f"Disk usage path: `{capacity.get('disk_usage_path')}`",
+            f"Free bytes: `{capacity.get('free_bytes')}`",
+            f"Required bytes: `{capacity.get('required_bytes')}`",
+            f"Insufficient bytes: `{capacity.get('insufficient_bytes')}`",
+            f"Planned copy files: `{capacity.get('planned_copy_files') or '-'}`",
+            f"Planned copy bytes: `{capacity.get('planned_copy_bytes') or '-'}`",
+            "",
+        ])
+        largest = capacity.get("largest_planned_copy") or {}
+        if largest:
+            lines.extend([
+                "Largest planned copy:",
+                f"- `{largest.get('path')}` ({largest.get('size')} bytes)",
+                "",
+            ])
+    else:
+        lines.extend(["- no capacity preflight recorded", ""])
+    lines += [
         "## Missing Critical Classes",
         "",
     ]
@@ -1237,6 +1646,7 @@ def cmd_export(args):
         source_root=args.source_root,
         backup_root=args.backup_root,
         dry_run=args.dry_run,
+        capacity_margin_bytes=args.capacity_margin_bytes,
     )
     print(
         f"Tape backup manifest {manifest.get('manifest_hash')} "
@@ -1258,6 +1668,26 @@ def cmd_status(args):
     write_status_report(args.report, payload)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0 if payload.get("status") == "OK" else 2
+
+
+def cmd_prune_unmanifested(args):
+    payload = unmanifested_backup_cleanup_plan(
+        backup_root=args.backup_root,
+        source_root=args.source_root,
+    )
+    if args.apply:
+        payload["apply"] = apply_unmanifested_backup_cleanup(payload)
+    else:
+        payload["apply"] = {"enabled": False}
+    write_json(args.out, payload)
+    write_unmanifested_cleanup_report(args.report, payload)
+    print(
+        f"Tape backup unmanifested cleanup: {payload.get('status')} "
+        f"candidates={(payload.get('summary') or {}).get('candidate_files', 0)}"
+    )
+    print(f"JSON written to {args.out}")
+    print(f"Report written to {args.report}")
+    return 0 if payload.get("status") in {"PASS", "WARN", "SKIPPED"} else 2
 
 
 def cmd_restore_drill(args):
@@ -1286,6 +1716,7 @@ def cmd_run(args):
         verify_checksums=args.verify_checksums,
         max_age_hours=args.max_age_hours,
         max_restore_age_hours=args.max_restore_age_hours,
+        capacity_margin_bytes=args.capacity_margin_bytes,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0 if (payload.get("status") or {}).get("status") == "OK" else 2
@@ -1302,6 +1733,7 @@ def build_parser():
     export.add_argument("--source-root", default=str(REPO_ROOT))
     export.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
     export.add_argument("--dry-run", action="store_true")
+    export.add_argument("--capacity-margin-bytes", type=int, default=DEFAULT_CAPACITY_MARGIN_BYTES)
     export.set_defaults(func=cmd_export)
 
     status = sub.add_parser("status")
@@ -1313,6 +1745,14 @@ def build_parser():
     status.add_argument("--out", default=str(DEFAULT_STATUS_OUT))
     status.add_argument("--report", default=str(DEFAULT_REPORT_OUT))
     status.set_defaults(func=cmd_status)
+
+    prune = sub.add_parser("prune-unmanifested")
+    prune.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
+    prune.add_argument("--source-root", default=str(REPO_ROOT))
+    prune.add_argument("--apply", action="store_true")
+    prune.add_argument("--out", default=str(DEFAULT_UNMANIFESTED_CLEANUP_OUT))
+    prune.add_argument("--report", default=str(DEFAULT_UNMANIFESTED_CLEANUP_REPORT))
+    prune.set_defaults(func=cmd_prune_unmanifested)
 
     drill = sub.add_parser("restore-drill")
     drill.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
@@ -1334,6 +1774,7 @@ def build_parser():
     run.add_argument("--verify-checksums", action="store_true")
     run.add_argument("--max-age-hours", type=float, default=26.0)
     run.add_argument("--max-restore-age-hours", type=float, default=168.0)
+    run.add_argument("--capacity-margin-bytes", type=int, default=DEFAULT_CAPACITY_MARGIN_BYTES)
     run.set_defaults(func=cmd_run)
     return parser
 

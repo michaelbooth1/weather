@@ -15,17 +15,25 @@ from weather.paths import data_path
 
 from weather.artifacts import sha256_file
 from weather.calibration.blocked_validation import blocked_validation_audit
+from weather.reporting.artifact_disk_budget import (
+    DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
+    DEFAULT_ROW_EXPORT_BYTES_PER_ROW,
+    ensure_row_export_disk_headroom,
+)
 from weather.scoring.metrics import (
     expected_calibration_error,
     group_sort_key,
     score_rows,
     winner_band_catchup,
 )
+from weather.schema_registry import schema_version
 
 DEFAULT_CANDIDATE_VARIANT_OUT = data_path() / "backtest" / "pooled_candidate_shadow_variants.csv"
 DEFAULT_MICROSTRUCTURE_VARIANT_OUT = data_path() / "backtest" / "clob_overlay_shadow_variants.csv"
 DEFAULT_BRIDGE_VARIANT_OUT = data_path() / "backtest" / "conservative_bridge_shadow_variants.csv"
 DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT = data_path() / "backtest" / "source_state_ablation_shadow_variants.csv"
+DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES = DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES
+DEFAULT_VARIANT_EXPORT_BYTES_PER_ROW = DEFAULT_ROW_EXPORT_BYTES_PER_ROW
 MICROSTRUCTURE_SCHEMA_VERSION = "clob_microstructure_overlay_v0.2"
 MICROSTRUCTURE_GATE_SCHEMA_VERSION = "clob_microstructure_taxonomy_gate_v0.1"
 CONSERVATIVE_BRIDGE_SCHEMA_VERSION = "conservative_bridge_policy_v0.1"
@@ -33,6 +41,24 @@ SOURCE_STATE_ABLATION_SCHEMA_VERSION = "source_state_ablation_v0.1"
 SOURCE_STATE_ABLATION_FAMILY = "source_state_ablation"
 SOURCE_STATE_ABLATION_ALL_FRESH_MAX_REGRESSION = 0.0
 SOURCE_STATE_ABLATION_DEGRADED_MAX_REGRESSION = 0.0
+ATTRIBUTION_SCHEMA_VERSION = schema_version("multi_variant_shadow_attribution")
+ATTRIBUTION_FEATURE_FIELDS = [
+    "candidate_cutoff_hour",
+    "candidate_cutoff_regime",
+    "source_freshness_state",
+    "settlement_distance_bucket",
+    "forecast_source_count",
+    "forecast_disagreement",
+    "forecast_gap",
+    "forecast_source_count_bucket",
+    "forecast_disagreement_bucket",
+    "forecast_bucket_pressure",
+    "clob_feature_available",
+    "clob_midpoint",
+    "clob_spread",
+    "clob_liquidity_score",
+    "casebook_taxonomy",
+]
 MICROSTRUCTURE_TARGET_TAXONOMIES = (
     "market_lead",
     "book_liquidity_artifact",
@@ -73,11 +99,31 @@ MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS = [
     "artifact_hash",
     "postprocess_config_hash",
     "experiment_start_date",
+    "attribution_schema_version",
     "captured_at_local",
     "range_label",
     "bin_type",
     "bin_value",
     "cutoff_hour",
+    "cutoff_regime",
+    "source_freshness_state",
+    "settlement_distance_bucket",
+    "forecast_source_count_bucket",
+    "forecast_disagreement_bucket",
+    "forecast_bucket_pressure",
+    "casebook_taxonomy",
+    "casebook_case_id",
+    "casebook_result",
+    "casebook_slice_type",
+    "feature_schema_version",
+    "feature_family_hash",
+    "feature_missingness_hash",
+    "clob_feature_available",
+    "clob_midpoint",
+    "clob_spread",
+    "clob_liquidity_score",
+    "micro_gate_taxonomy",
+    "micro_gate_reason",
 ]
 
 def load_artifact(path):
@@ -471,6 +517,15 @@ def _shadow_variant_row(row, variant, experiment_start_date):
     probability = row.get(variant["probability_field"])
     if not _valid_probability(probability):
         return None
+    feature_payload = {
+        field: row.get(field)
+        for field in ATTRIBUTION_FEATURE_FIELDS
+        if row.get(field) not in (None, "")
+    }
+    missingness_payload = {
+        field: row.get(field) in (None, "")
+        for field in ATTRIBUTION_FEATURE_FIELDS
+    }
     return {
         "variant_id": variant["variant_id"],
         "variant_family": variant["variant_family"],
@@ -488,11 +543,31 @@ def _shadow_variant_row(row, variant, experiment_start_date):
         "artifact_hash": variant.get("artifact_hash") or row.get("artifact_hash") or "",
         "postprocess_config_hash": variant.get("postprocess_config_hash") or "",
         "experiment_start_date": experiment_start_date,
+        "attribution_schema_version": ATTRIBUTION_SCHEMA_VERSION,
         "captured_at_local": row.get("captured_at_local"),
         "range_label": row.get("range_label"),
         "bin_type": row.get("bin_type") or row.get("bin_kind"),
         "bin_value": row.get("bin_value_c") or row.get("bin_value"),
         "cutoff_hour": row.get("candidate_cutoff_hour"),
+        "cutoff_regime": row.get("candidate_cutoff_regime"),
+        "source_freshness_state": row.get("source_freshness_state"),
+        "settlement_distance_bucket": row.get("settlement_distance_bucket"),
+        "forecast_source_count_bucket": row.get("forecast_source_count_bucket"),
+        "forecast_disagreement_bucket": row.get("forecast_disagreement_bucket"),
+        "forecast_bucket_pressure": row.get("forecast_bucket_pressure"),
+        "casebook_taxonomy": row.get("casebook_taxonomy"),
+        "casebook_case_id": row.get("casebook_case_id"),
+        "casebook_result": row.get("casebook_result"),
+        "casebook_slice_type": row.get("casebook_slice_type"),
+        "feature_schema_version": row.get("feature_schema_version"),
+        "feature_family_hash": row.get("feature_family_hash") or (payload_hash(feature_payload) if feature_payload else ""),
+        "feature_missingness_hash": row.get("feature_missingness_hash") or payload_hash(missingness_payload),
+        "clob_feature_available": row.get("clob_feature_available"),
+        "clob_midpoint": row.get("clob_midpoint"),
+        "clob_spread": row.get("clob_spread"),
+        "clob_liquidity_score": row.get("clob_liquidity_score"),
+        "micro_gate_taxonomy": row.get("micro_gate_taxonomy"),
+        "micro_gate_reason": row.get("micro_gate_reason"),
     }
 
 
@@ -505,6 +580,22 @@ def _settled_shadow_source_rows(rows):
         ):
             continue
         yield row
+
+
+def ensure_variant_export_disk_headroom(
+    path,
+    row_count,
+    min_free_bytes=0,
+    bytes_per_row=DEFAULT_VARIANT_EXPORT_BYTES_PER_ROW,
+):
+    """Fail before writing large generated variant exports when disk is low."""
+    return ensure_row_export_disk_headroom(
+        path,
+        row_count,
+        min_free_bytes=min_free_bytes,
+        bytes_per_row=bytes_per_row,
+        context="variant export",
+    )
 
 
 def candidate_shadow_variant_rows(
@@ -545,6 +636,7 @@ def write_candidate_shadow_variants(
     is_control=False,
     artifact_hash="",
     postprocess_config_hash="",
+    min_free_bytes=0,
 ):
     if not path:
         return None, 0
@@ -558,7 +650,7 @@ def write_candidate_shadow_variants(
         postprocess_config_hash=postprocess_config_hash,
     )
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_variant_export_disk_headroom(path, len(variant_rows), min_free_bytes=min_free_bytes)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS)
         writer.writeheader()
@@ -674,11 +766,11 @@ def source_state_ablation_shadow_variant_rows(
     return output
 
 
-def write_source_state_ablation_shadow_variants(path, rows):
+def write_source_state_ablation_shadow_variants(path, rows, min_free_bytes=0):
     if not path:
         return None
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_variant_export_disk_headroom(path, len(rows), min_free_bytes=min_free_bytes)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS)
         writer.writeheader()
@@ -756,6 +848,7 @@ def source_state_ablation_report(
     artifact,
     candidate_artifact_hash="",
     variant_out_path=DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT,
+    min_free_bytes=0,
 ):
     feature_groups = source_state_ablation_feature_groups(artifact)
     enabled = bool((artifact or {}).get("dynamic_source_state_enabled") or feature_groups)
@@ -770,7 +863,11 @@ def source_state_ablation_report(
         rows,
         candidate_artifact_hash=candidate_artifact_hash,
     )
-    variant_path = write_source_state_ablation_shadow_variants(variant_out_path, variant_rows)
+    variant_path = write_source_state_ablation_shadow_variants(
+        variant_out_path,
+        variant_rows,
+        min_free_bytes=min_free_bytes,
+    )
     return {
         "schema_version": SOURCE_STATE_ABLATION_SCHEMA_VERSION,
         "enabled": True,
@@ -833,11 +930,11 @@ def microstructure_shadow_variant_rows(
     return output
 
 
-def write_microstructure_shadow_variants(path, rows):
+def write_microstructure_shadow_variants(path, rows, min_free_bytes=0):
     if not path:
         return None
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_variant_export_disk_headroom(path, len(rows), min_free_bytes=min_free_bytes)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS)
         writer.writeheader()
@@ -974,11 +1071,11 @@ def conservative_bridge_shadow_variant_rows(
     return output
 
 
-def write_conservative_bridge_shadow_variants(path, rows):
+def write_conservative_bridge_shadow_variants(path, rows, min_free_bytes=0):
     if not path:
         return None
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_variant_export_disk_headroom(path, len(rows), min_free_bytes=min_free_bytes)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS)
         writer.writeheader()
@@ -986,7 +1083,11 @@ def write_conservative_bridge_shadow_variants(path, rows):
     return str(path)
 
 
-def conservative_bridge_report(rows, variant_out_path=DEFAULT_BRIDGE_VARIANT_OUT):
+def conservative_bridge_report(
+    rows,
+    variant_out_path=DEFAULT_BRIDGE_VARIANT_OUT,
+    min_free_bytes=0,
+):
     policy = apply_conservative_bridge(rows)
     policy_hash = payload_hash(policy)
     variant_rows = conservative_bridge_shadow_variant_rows(
@@ -994,7 +1095,11 @@ def conservative_bridge_report(rows, variant_out_path=DEFAULT_BRIDGE_VARIANT_OUT
         candidate_artifact_hash=rows[0].get("candidate_artifact_hash") if rows else "",
         policy_hash=policy_hash,
     )
-    variant_path = write_conservative_bridge_shadow_variants(variant_out_path, variant_rows)
+    variant_path = write_conservative_bridge_shadow_variants(
+        variant_out_path,
+        variant_rows,
+        min_free_bytes=min_free_bytes,
+    )
     return {
         "schema_version": CONSERVATIVE_BRIDGE_SCHEMA_VERSION,
         "enabled": True,

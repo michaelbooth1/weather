@@ -12,8 +12,19 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [Platform era reconciliation](platform-era-reconciliation.md)
 - [Sequencing the two tracks](sequencing.md)
 - [Research questions](research-questions.md)
+- [Open and blocked audit - 2026-06-18](open-blocker-audit-2026-06-18.md)
 - [2026-05-28 Codex audit summary](audits/codex-audit-summary-2026-05-28.md)
 - [2026-05-28 deep model audit](audits/codex-deep-model-audit-2026-05-28.md)
+
+## Status Taxonomy
+
+Roadmap item states are `COMPLETE`, `PARTIAL`, and `OPEN`.
+`COMPLETE` means the item has accepted implementation evidence or an explicit
+final disposition, including superseded or intentionally discontinued work.
+Legacy terminal labels should be written as `COMPLETE`; there is no separate
+terminal state. `PARTIAL` means useful work exists but
+acceptance is not fully met, and `OPEN` means primary implementation or
+infrastructure work remains.
 
 ## Numbered Items
 
@@ -79,10 +90,10 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | Item | File |
 | ---: | --- |
 | 28 | [Settlement Ground-Truth Ledger [COMPLETE - LEDGER LIVE]](items/item-28-settlement-ground-truth-ledger.md) |
-| 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE CLOSED]](items/item-29-deepen-and-widen-the-historical-record.md) |
+| 29 | [Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE COMPLETE]](items/item-29-deepen-and-widen-the-historical-record.md) |
 | 30 | [Source Redundancy And Gap-Filling [COMPLETE - REDUNDANCY REPORT LIVE]](items/item-30-source-redundancy-and-gap-filling.md) |
 | 31 | [Data Integrity And Observability At Scale [COMPLETE - FLEET REPORT LIVE]](items/item-31-data-integrity-and-observability-at-scale.md) |
-| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-18 - PRESSURE SOURCE ADDED, GATE BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
+| 32 | [Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-19 - RICH+PRESSURE REPLAY BLOCKED]](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 39 | [Data Layer Audit Findings (2026-06-09) [COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED]](items/item-39-data-layer-audit-findings-2026-06-09.md) |
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
@@ -103,6 +114,9 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 114 | [Data-Layer P0 Gate Closure For Retrain Eligibility [COMPLETE 2026-06-17 - DATA P0 CLEARED]](items/item-114-data-layer-p0-gate-closure-for-retrain-eligibility.md) |
 | 120 | [Settled-Day Finalization Freshness SLA [COMPLETE 2026-06-18 - NIGHTLY PREFLIGHT LIVE]](items/item-120-settled-day-finalization-freshness-sla.md) |
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
+| 146 | [Tape Backup Capacity And CLOB Tiered Retention [PARTIAL 2026-06-19 - LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
+| 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
+| 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-19 - TRAIN-SIDE MIDPOINT EVIDENCE BLOCKED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -110,7 +124,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | ---: | --- |
 | 33 | [Family-Pooled Model + City Features [COMPLETE 2026-06-15 - PIPELINE LIVE, READINESS SPLIT TO ITEM 48]](items/item-33-family-pooled-model-and-city-features.md) |
 | 34 | [Per-Market Calibration And F-Family Secondary Artifacts [COMPLETE - EMPIRICAL GATED]](items/item-34-per-market-calibration-and-f-family-secondary-artifacts.md) |
-| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-18 - HOLDOUT SIGMA ADDED, EMPIRICAL LIFT BLOCKED]](items/item-35-unified-continuous-density-model.md) |
+| 35 | [Unified Continuous-Density Model [PARTIAL 2026-06-19 - SOURCE-GUARD HOLDOUT BLOCKED]](items/item-35-unified-continuous-density-model.md) |
 | 36 | [Production Validation, Gating, And Promotion [COMPLETE]](items/item-36-production-validation-gating-and-promotion.md) |
 | 37 | [MLOps And Always-On Production Hardening [COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE]](items/item-37-mlops-and-always-on-production-hardening.md) |
 | 38 | [Cross-Market And Market-Microstructure Signal [COMPLETE 2026-06-16 - SETTLEMENT-SCORED CLOB EDGE PROVEN]](items/item-38-cross-market-and-market-microstructure-signal.md) |
@@ -122,7 +136,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-18 - EMPIRICAL PROMOTION BLOCKED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-19 - AGGREGATE GATE PASS, MARKET BLOCKS REMAIN]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [COMPLETE 2026-06-16 - CORE BACKFILL AND SHADOW EVIDENCE]](items/item-50-scholarly-weather-input-gap-closure.md) |
 | 51 | [Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]](items/item-51-model-architecture-health-refactor.md) |
@@ -162,8 +176,28 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 117 | [Core Model Day-Over-Day Skill Trend Gate [COMPLETE 2026-06-17 - TREND CLAIM GATE LIVE]](items/item-117-core-model-day-over-day-skill-trend-gate.md) |
 | 118 | [Broad Live-Forward SLO Recovery [COMPLETE 2026-06-17 - RECOVERY CHECKLIST LIVE]](items/item-118-broad-live-forward-slo-recovery.md) |
 | 121 | [Market-Making Tape Encoding And CSV Read Robustness [COMPLETE 2026-06-18 - ROBUST CSV READER LIVE]](items/item-121-market-making-tape-encoding-and-csv-read-robustness.md) |
-| 123 | [Cross-Hub Readiness Transfer And Promotion Guardrails [OPEN 2026-06-18 - HUB LESSONS NEED REPEATABLE GATES]](items/item-123-cross-hub-readiness-transfer-and-promotion-guardrails.md) |
+| 123 | [Cross-Hub Readiness Transfer And Promotion Guardrails [COMPLETE 2026-06-18 - READINESS REPORT LIVE]](items/item-123-cross-hub-readiness-transfer-and-promotion-guardrails.md) |
 | 125 | [Weather Input Value Attribution And Promotion Queue [COMPLETE 2026-06-18 - SOURCE-FAMILY PREFLIGHT LIVE]](items/item-125-weather-input-value-attribution-and-promotion-queue.md) |
+| 134 | [Early-Day Forecast Profile Calibration [PARTIAL 2026-06-19 - ALL-HOUR REPLAY COMPLETE, PROMOTION BLOCKED]](items/item-134-early-day-forecast-profile-calibration.md) |
+| 135 | [Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-19 - FINAL LOCK-IN PASS, REGIME GAPS BLOCKED]](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
+| 136 | [Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-18 - RELIABILITY SHADOW LIVE, DEGRADED SLICE BLOCKED]](items/item-136-forecast-source-state-reliability-calibrator.md) |
+| 137 | [Official Guidance Sparse-Coverage Evidence Growth [PARTIAL 2026-06-18 - COVERAGE GATE LIVE, ROW GROWTH BLOCKED]](items/item-137-official-guidance-sparse-coverage-evidence-growth.md) |
+| 138 | [Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-18 - DISPOSITION REPORT LIVE, ACTIVE ARTIFACT PRUNING BLOCKED]](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
+| 139 | [Scheduled Active Variant Shadow Refresh [PARTIAL 2026-06-18 - REGISTRY SOURCES OK, INLINE EXECUTION REMAINS]](items/item-139-scheduled-active-variant-shadow-refresh.md) |
+| 140 | [Live First-Class Variant Prediction Tape [PARTIAL 2026-06-18 - LIVE VARIANT TAPE CONTRACT LIVE, RUNTIME EXECUTION BLOCKED]](items/item-140-live-first-class-variant-prediction-tape.md) |
+| 141 | [Variant Learning Operational Gates [COMPLETE 2026-06-18 - VARIANT LEARNING BLOCKING GATE LIVE]](items/item-141-variant-learning-operational-gates.md) |
+| 142 | [Active Variant Registry Export Contract [COMPLETE 2026-06-18 - ACTIVE EXPORT CONTRACTS AUDITED]](items/item-142-active-variant-registry-export-contract.md) |
+| 143 | [Variant Attribution Shadow Schema [COMPLETE 2026-06-18 - ATTRIBUTION SCHEMA AND SIDECAR LIVE]](items/item-143-variant-attribution-shadow-schema.md) |
+| 144 | [Early-Hour Market-Aware Risk Guardrail [PARTIAL 2026-06-18 - GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED]](items/item-144-early-hour-market-aware-risk-guardrail.md) |
+| 145 | [Hourly Performance Gate And Remediation Registry [COMPLETE 2026-06-18 - HOURLY GATE AND REGISTRY LIVE]](items/item-145-hourly-performance-gate-and-remediation-registry.md) |
+| 147 | [Early-Hour Winner-Centering Candidate [PARTIAL 2026-06-19 - AGGREGATE GATE PASS, FIVE MARKETS BLOCKED]](items/item-147-early-hour-winner-centering-candidate.md) |
+| 148 | [No-Market Extra-Location Shadow Lane [COMPLETE 2026-06-18 - SHADOW LANE QUARANTINED]](items/item-148-no-market-extra-location-shadow-lane.md) |
+| 149 | [Target-Vs-Extra Location Validation Harness [COMPLETE 2026-06-18 - PRICE-FREE TRANSFER HARNESS LIVE]](items/item-149-target-vs-extra-location-validation-harness.md) |
+| 150 | [Extra-Location Compatibility Registry [COMPLETE 2026-06-18 - COMPATIBILITY GATE LIVE]](items/item-150-extra-location-compatibility-registry.md) |
+| 151 | [Location-Similarity Partial Pooling [COMPLETE 2026-06-18 - WEIGHTED TRANSFER PATH LIVE]](items/item-151-location-similarity-partial-pooling.md) |
+| 152 | [Active-Day Bot Preflight And Disk Liveness [COMPLETE 2026-06-18 - DISK AND DISCOVERY DENY-BY-DEFAULT GATES]](items/item-152-active-day-bot-preflight-and-disk-liveness.md) |
+| 153 | [Live Observation Monotonicity And Settlement-Bin Normalization [COMPLETE 2026-06-18 - SETTLEMENT-NORMALIZED LIVE HIGH LEDGER]](items/item-153-live-observation-monotonicity-and-settlement-bin-normalization.md) |
+| 155 | [Inactive-Market Price-Free Learning And Current-Max Carryover Guard [COMPLETE 2026-06-19 - 2026-06-18 AUDIT GAP]](items/item-155-inactive-market-price-free-learning-and-current-max-carryover-guard.md) |
 
 ### Architecture And Maintainability
 
@@ -186,6 +220,14 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 | 112 | [Single-Writer Loop Status And JSONL Integrity [COMPLETE 2026-06-17 - LOOP INTEGRITY GATE LIVE]](items/item-112-single-writer-loop-status-and-jsonl-integrity.md) |
 | 119 | [Python Repo Audit Reliability Fixes [COMPLETE 2026-06-18 - AUDIT FIXES LIVE]](items/item-119-python-repo-audit-reliability-fixes.md) |
 | 122 | [UI And Loop Serialization Health Cleanup [COMPLETE 2026-06-18 - ARROW SAFE TABLES AND JSONL QUARANTINE]](items/item-122-ui-and-loop-serialization-health-cleanup.md) |
+| 126 | [Clean-Checkout Architecture File Ownership [PARTIAL 2026-06-18 - TRACKED FILE GUARD FAILS ON NEW UNTRACKED SOURCE]](items/item-126-clean-checkout-architecture-file-ownership.md) |
+| 127 | [Compatibility Shim Expiration And Removal Plan [COMPLETE 2026-06-18 - EXPIRATION RATCHET LIVE]](items/item-127-compatibility-shim-expiration-and-removal-plan.md) |
+| 128 | [Import Helper Policy And Scheduled Worker Packaging [COMPLETE 2026-06-18 - IMPORT POLICY DOCUMENTED]](items/item-128-import-helper-policy-and-scheduled-worker-packaging.md) |
+| 129 | [Streamlit Single-Market View Extraction [COMPLETE 2026-06-18 - SINGLE-MARKET VIEW SPLIT LIVE]](items/item-129-streamlit-single-market-view-extraction.md) |
+| 130 | [Large Module Decomposition Phase 2 [COMPLETE 2026-06-18 - REPORT AND EVIDENCE OWNER SPLITS LIVE]](items/item-130-large-module-decomposition-phase-2.md) |
+| 131 | [Model Artifact Storage Growth Guard [COMPLETE 2026-06-18 - SIZE AUDIT AND STORAGE POLICY LIVE]](items/item-131-model-artifact-storage-growth-guard.md) |
+| 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
+| 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
 
 ## Maintenance Conventions
 

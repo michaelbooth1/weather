@@ -17,7 +17,7 @@ Codex update (2026-05-31): unchanged. Keep this item open until analog distance
 uses the same forecast information as the feature model, or explicitly proves
 that forecast distance does not improve analog usefulness.
 
-Implementation status (2026-06-13): closed -- the open checkbox was delivered by
+Implementation status (2026-06-13): complete -- the open checkbox was delivered by
 item 22's analog work (2026-05-31) and verified here. `find_analog_days`
 (`src/model_features.py`) computes today's Open-Meteo `forecast_gap` (forecast
 high minus high-so-far), loads the historical per-day forecast index, and

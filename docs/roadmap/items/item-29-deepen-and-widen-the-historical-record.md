@@ -1,4 +1,4 @@
-# 29. Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE CLOSED]
+# 29. Deepen And Widen The Historical Record [COMPLETE 2026-06-16 - SOURCE-LIMITED QUEUE COMPLETE]
 
 Goal: give each market the deepest faithful history its sources allow (currently
 7 years × a narrow May-June window).
@@ -172,7 +172,7 @@ Validation results for this increment:
   `USW00012839`, San Francisco `USW00023234`, Seattle `USW00024233`.
 - `.\venv\Scripts\python.exe -m src.reanalysis_history --market nyc --data-root scratch\reanalysis_smoke backfill --start 2026-06-01 --end 2026-06-01 --skip-existing`: fetched and rebuilt 20 hourly rows / 1 daily row from the ERA5-style archive path.
 
-Completion update (2026-06-16): item 29 is now closed as a source-limited,
+Completion update (2026-06-16): item 29 is now complete as a source-limited,
 fully rebuildable historical archive. The final 2000-01-01 through 2026-06-13
 Item 29 policy plan
 (`data/backtest/item29_historical_backfill_plan_2000_2026_policy.json`) has

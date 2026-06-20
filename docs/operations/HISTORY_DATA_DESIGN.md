@@ -10,13 +10,13 @@ machine-readable proxy for settlement.
 Use the collector CLI:
 
 ```powershell
-.\venv\Scripts\python.exe -m src.wu_history backfill --start 2026-05-20 --end 2026-05-27
+.\venv\Scripts\python.exe -m weather.sources.wu_history backfill --start 2026-05-20 --end 2026-05-27
 ```
 
 For a larger backfill, use a wider date range and keep the default chunking:
 
 ```powershell
-.\venv\Scripts\python.exe -m src.wu_history backfill --start 2015-01-01 --end 2026-05-27 --chunk-days 14
+.\venv\Scripts\python.exe -m weather.sources.wu_history backfill --start 2015-01-01 --end 2026-05-27 --chunk-days 14
 ```
 
 The collector fetches historical observations in chunks, writes raw daily
@@ -52,7 +52,7 @@ model features. The daily CSV is the fast path for climatology and backtests.
 Run the May 27 climatology window:
 
 ```powershell
-.\venv\Scripts\python.exe -m src.wu_history analyze --month 5 --day 27
+.\venv\Scripts\python.exe -m weather.sources.wu_history analyze --month 5 --day 27
 ```
 
 This reports bucket frequencies for a +/-7-day calendar window, plus the rate at

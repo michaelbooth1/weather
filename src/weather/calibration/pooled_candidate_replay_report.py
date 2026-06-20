@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from weather.reporting.formatting import fmt_num, fmt_pct, fmt_signed, markdown_table
+from weather.reporting.artifact_disk_budget import ensure_artifact_disk_headroom
 
 def _fmt_delta(value):
     return fmt_signed(value, 4)
@@ -357,8 +358,9 @@ def _exact_winner_day_rows(items):
     ]
 
 
-def write_report(report, out_path):
+def write_report(report, out_path, min_free_bytes=0):
     artifact = report.get("artifact") or {}
+    density_postprocess = artifact.get("density_postprocess") or {}
     corpus = report.get("corpus") or {}
     coverage = report.get("coverage") or {}
     diagnostics = report.get("diagnostics") or {}
@@ -392,14 +394,58 @@ def write_report(report, out_path):
             ["Family unit", artifact.get("family_unit") or "-"],
             ["Prediction mode", artifact.get("prediction_mode") or "-"],
             ["Objective", artifact.get("objective") or "-"],
+            ["Feature subset", artifact.get("feature_subset") or "-"],
             ["Trained at", artifact.get("trained_at") or "-"],
             ["Support", f"{artifact.get('support_min')}-{artifact.get('support_max')}"],
             ["Hour models", ", ".join(str(hour) for hour in artifact.get("hour_models") or []) or "-"],
             ["Adjacent calibration contexts", artifact.get("adjacent_calibration_contexts") or 0],
+            ["Density postprocess", density_postprocess.get("policy_id") or "-"],
+            ["Density postprocess enabled", bool(density_postprocess.get("enabled"))],
+            ["Density postprocess rows", density_postprocess.get("calibration_rows", 0)],
+            ["Density postprocess Brier", (
+                f"{fmt_num(density_postprocess.get('baseline_market_band_brier'))} -> "
+                f"{fmt_num(density_postprocess.get('selected_market_band_brier'))}"
+            )],
+            ["Density forecast-relative enabled", bool(density_postprocess.get("forecast_relative_calibration_enabled"))],
+            ["Density forecast-relative contexts", density_postprocess.get("forecast_relative_contexts", 0)],
+            ["Density forecast-relative strength", fmt_num(density_postprocess.get("forecast_relative_strength"))],
             ["Current blend default alpha", fmt_num(artifact.get("current_blend_default_alpha"))],
             [
                 "Current blend market alpha",
                 json.dumps(artifact.get("current_blend_market_alpha") or {}, sort_keys=True),
+            ],
+            [
+                "Current blend source-freshness default alpha",
+                fmt_num(artifact.get("current_blend_source_freshness_default_alpha")),
+            ],
+            [
+                "Current blend source-freshness alpha",
+                json.dumps(artifact.get("current_blend_source_freshness_alpha") or {}, sort_keys=True),
+            ],
+            ["Market bias calibration enabled", bool(artifact.get("market_bias_calibration_enabled"))],
+            ["Market bias calibration contexts", artifact.get("market_bias_calibration_contexts") or 0],
+            [
+                "Market bias holdout Brier",
+                (
+                    f"{fmt_num(artifact.get('market_bias_baseline_brier'))} -> "
+                    f"{fmt_num(artifact.get('market_bias_candidate_brier'))}"
+                ),
+            ],
+            ["Market bias holdout delta", fmt_signed(artifact.get("market_bias_delta_brier"))],
+            [
+                "Market bias excluded markets",
+                ", ".join(artifact.get("market_bias_excluded_markets") or []) or "-",
+            ],
+            [
+                "Market bias allowed source states",
+                ", ".join(artifact.get("market_bias_allowed_source_freshness_states") or []) or "-",
+            ],
+            ["Forecast centering enabled", bool(artifact.get("forecast_centering_enabled"))],
+            ["Forecast centering sigma", fmt_num(artifact.get("forecast_centering_sigma"))],
+            ["Forecast centering early alpha", fmt_num(artifact.get("forecast_centering_early_alpha"))],
+            [
+                "Forecast centering alpha by hour",
+                json.dumps(artifact.get("forecast_centering_alpha_by_hour") or {}, sort_keys=True),
             ],
         ],
     )
@@ -662,9 +708,38 @@ def write_report(report, out_path):
     lines += ["", "## Slices", ""]
     lines += _slice_markdown("By Market", report.get("by_market") or [])
     lines += _slice_markdown("By Candidate Cutoff Hour", report.get("by_hour") or [])
+    lines += _slice_markdown("By Cutoff Regime", report.get("by_cutoff_regime") or [])
     lines += _slice_markdown("By Band Type", report.get("by_bin_type") or [])
     lines += _slice_markdown("By Settlement Distance", report.get("by_settlement_distance") or [])
     lines += _slice_markdown("By Source Freshness", report.get("by_source_freshness") or [])
+    if report.get("by_forecast_source_count"):
+        lines += _slice_markdown("By Forecast Source Count", report.get("by_forecast_source_count") or [])
+    if report.get("by_forecast_disagreement"):
+        lines += _slice_markdown("By Forecast Disagreement", report.get("by_forecast_disagreement") or [])
+    if report.get("by_forecast_bucket_pressure"):
+        lines += _slice_markdown("By Forecast-Relative Bucket Pressure", report.get("by_forecast_bucket_pressure") or [])
+
+    guardrails = report.get("forecast_profile_guardrails") or {}
+    guardrail_rows = guardrails.get("rows") or []
+    if guardrail_rows:
+        lines += ["", "## Forecast-Profile High-Disagreement Guardrails", ""]
+        lines += markdown_table(
+            ["Market", "Status", "Rows", "Candidate Brier", "Current Brier", "Market Brier", "Delta Current", "Delta Market", "Reasons"],
+            [
+                [
+                    row.get("market_id"),
+                    row.get("status"),
+                    (row.get("comparison") or {}).get("n", 0),
+                    fmt_num((row.get("comparison") or {}).get("candidate_brier")),
+                    fmt_num((row.get("comparison") or {}).get("current_brier")),
+                    fmt_num((row.get("comparison") or {}).get("market_brier")),
+                    _fmt_delta((row.get("comparison") or {}).get("delta_vs_current")),
+                    _fmt_delta((row.get("comparison") or {}).get("delta_vs_market")),
+                    "; ".join(row.get("reasons") or []) or "-",
+                ]
+                for row in guardrail_rows
+            ],
+        )
 
     warnings = (report.get("replay_summary") or {}).get("corpus_warnings") or []
     if warnings:
@@ -681,5 +756,14 @@ def write_report(report, out_path):
             for item in errors
         ]
 
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    text = "\n".join(lines) + "\n"
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_artifact_disk_headroom(
+        out_path,
+        estimated_bytes=len(text.encode("utf-8")),
+        min_free_bytes=min_free_bytes,
+        context="pooled candidate Markdown report export",
+    )
+    out_path.write_text(text, encoding="utf-8")
+    return out_path

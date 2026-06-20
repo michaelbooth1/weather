@@ -1,5 +1,6 @@
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -17,6 +18,7 @@ TARGET_MODULES = [
     Path("src/weather/units.py"),
     Path("src/weather/calibration/family_secondary_artifacts.py"),
     Path("src/weather/calibration/feature_model.py"),
+    Path("src/weather/calibration/feature_model_reports.py"),
     Path("src/weather/calibration/forecast_error_model.py"),
     Path("src/weather/calibration/intraday_calibration.py"),
     Path("src/weather/calibration/model_ensemble.py"),
@@ -45,6 +47,7 @@ TARGET_MODULES = [
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
     Path("src/weather/market/mm_paper.py"),
+    Path("src/weather/market/mm_paper_evidence.py"),
     Path("src/weather/market/mm_paper_reports.py"),
     Path("src/weather/market/mm_policy.py"),
     Path("src/weather/market/polymarket_client.py"),
@@ -68,12 +71,14 @@ TARGET_MODULES = [
     Path("src/weather/operations/tape_backup.py"),
     Path("src/weather/reporting/data_auditor.py"),
     Path("src/weather/reporting/data_layer_audit.py"),
+    Path("src/weather/reporting/data_layer_audit_remediation.py"),
     Path("src/weather/reporting/data_layer_audit_report.py"),
     Path("src/weather/reporting/disagreement_casebook.py"),
     Path("src/weather/reporting/fleet_observability.py"),
     Path("src/weather/reporting/location_trust.py"),
     Path("src/weather/reporting/multi_variant_shadow.py"),
     Path("src/weather/reporting/overview_helpers.py"),
+    Path("src/weather/reporting/price_free_model_learning.py"),
     Path("src/weather/reporting/progress_audit.py"),
     Path("src/weather/reporting/promotion_corpus.py"),
     Path("src/weather/reporting/promotion_gauntlet.py"),
@@ -133,13 +138,14 @@ WRAPPER_MODULE_NAMES = sorted(
 LEGACY_IMPORT_RE = re.compile(
     r"^(?:from|import)\s+("
     r"backtest|canonical_history_guardrails|collection_health|daily_summary|"
-    r"data_auditor|feature_probability_calibration|feature_store|"
+    r"data_auditor|data_layer_audit_remediation|"
+    r"feature_model_reports|feature_probability_calibration|feature_store|"
     r"forecast_archive|forecast_error_model|forecast_history|location_trust|"
     r"historical_schema|"
     r"market_config|market_making_run_constants|market_making_run_support|market_registry|"
     r"market_microstructure|market_microstructure_constants|"
     r"market_microstructure_features|mm_exchange|mm_exchange_reports|"
-    r"mm_paper_constants|mm_paper_reports|"
+    r"mm_paper_constants|mm_paper_evidence|mm_paper_reports|"
     r"mm_policy|model_constants|model_identity|model_presentation|model_sources|"
     r"noaa_ghcnh_history|observation_trigger|polymarket_client|pooled_candidate_replay|"
     r"pooled_feature_model|probability_calibration|promotion_corpus|"
@@ -176,6 +182,11 @@ BACKTEST_CLI_IMPORT_RE = re.compile(
 REPO_OWNED_RELATIVE_ROOT_RE = re.compile(r"Path\(\s*['\"](?:data|config|docs)['\"]\s*\)")
 
 EXTRACTED_MODULE_IMPORT_RULES = {
+    Path("src/weather/calibration/feature_model_reports.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.calibration\.feature_model|\.feature_model)\s+import\b|"
+        r"import\s+weather\.calibration\.feature_model\b)",
+        re.MULTILINE,
+    ),
     Path("src/weather/calibration/pooled_candidate_scoring.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.calibration\.pooled_candidate_replay|\.pooled_candidate_replay)\s+import\b|"
         r"import\s+weather\.calibration\.pooled_candidate_replay\b)",
@@ -189,6 +200,16 @@ EXTRACTED_MODULE_IMPORT_RULES = {
     Path("src/weather/market/mm_exchange_reports.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.market\.mm_exchange|\.mm_exchange)\s+import\b|"
         r"import\s+weather\.market\.mm_exchange\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/market/mm_paper_evidence.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
+        r"import\s+weather\.market\.mm_paper\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/reporting/data_layer_audit_remediation.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.data_layer_audit|\.data_layer_audit)\s+import\b|"
+        r"import\s+weather\.reporting\.data_layer_audit\b)",
         re.MULTILINE,
     ),
 }
@@ -282,6 +303,69 @@ TRANSITIONAL_PACKAGE_EDGES = {
 
 PACKAGE_BOUNDARY_DOC = Path("docs/operations/package-boundaries.md")
 
+PROJECT_CRITICAL_UNTRACKED_PATHS = [
+    "src/weather",
+    "tests",
+    "app",
+    "scripts/ops",
+    "docs/operations",
+    "tools",
+]
+
+FIRST_PARTY_SHIM_CALLER_ROOTS = [
+    Path("README.md"),
+    Path(".github"),
+    Path("app"),
+    Path("tests"),
+    Path("tools"),
+    Path("scripts"),
+    Path("docs/operations"),
+]
+
+FIRST_PARTY_SHIM_CALL_RE = re.compile(
+    r"pythonw?\.exe\s+-m\s+src\.|"
+    r"python\s+-m\s+src\.|"
+    r"-m\s+src\.|"
+    r"streamlit\s+run\s+app\.py|"
+    r"AppTest\.from_file\(\s*['\"]app\.py['\"]\s*\)|"
+    r"(?:^|[\s`'\"])(?:\.\\)?scripts\\(?!ops\\|launch\\)"
+    r"(?:register_[A-Za-z0-9_]+\.ps1|start_weather_dashboard\.(?:cmd|ps1|vbs))|"
+    r"(?:^|[\s`'\"])(?:\./)?scripts/(?!ops/|launch/)"
+    r"(?:register_[A-Za-z0-9_]+\.ps1|start_weather_dashboard\.(?:cmd|ps1|vbs))",
+    re.MULTILINE,
+)
+
+FIRST_PARTY_SHIM_CALL_SCAN_EXCLUDED = {
+    Path("tests/operations/test_import_architecture.py"),
+}
+
+ACTIVE_DOC_FILES = [
+    Path("README.md"),
+    Path(".github/workflows/retrain.yml"),
+    Path("docs/operations/AGENT_CONTEXT.md"),
+    Path("docs/operations/HISTORY_DATA_DESIGN.md"),
+    Path("docs/operations/OPERATIONS_DESIGN.md"),
+    Path("docs/operations/artifact-storage-policy.md"),
+    Path("docs/operations/package-boundaries.md"),
+    Path("docs/operations/path-policy.md"),
+    Path("docs/research/MARKET_MAKING_LIVE_RUNBOOK_2026-06-15.md"),
+    Path("docs/research/MM_INITIAL_TEST_RUN_DESIGN.md"),
+]
+
+ACTIVE_DOC_LEGACY_MODULE_RE = re.compile(
+    r"(?:pythonw?\.exe\s+-m\s+src\.|python\s+-m\s+src\.|-m\s+src\.|`src\.[A-Za-z0-9_]+)",
+    re.MULTILINE,
+)
+
+TEMP_DATA_FIXTURE_MARKERS = (
+    "tmp_path",
+    "tmpdir",
+    "TemporaryDirectory",
+    "monkeypatch.chdir",
+    "os.chdir(tmp",
+    "Path(tmp)",
+)
+
 
 def source_package(path):
     relative = path.relative_to(Path("src/weather"))
@@ -335,6 +419,102 @@ def test_migrated_modules_do_not_mutate_sys_path():
             offenders.append(str(path))
 
     assert offenders == []
+
+
+def test_project_critical_files_are_tracked_or_ignored():
+    result = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *PROJECT_CRITICAL_UNTRACKED_PATHS,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    offenders = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    ]
+
+    assert offenders == []
+
+
+def _first_party_caller_files():
+    for root in FIRST_PARTY_SHIM_CALLER_ROOTS:
+        if root in FIRST_PARTY_SHIM_CALL_SCAN_EXCLUDED:
+            continue
+        if root.is_file():
+            yield root
+            continue
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if (
+                path.is_file()
+                and "__pycache__" not in path.parts
+                and path not in FIRST_PARTY_SHIM_CALL_SCAN_EXCLUDED
+            ):
+                yield path
+
+
+def test_first_party_surfaces_do_not_call_compatibility_shims():
+    offenders = {}
+    for path in _first_party_caller_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        matches = [match.group(0).strip() for match in FIRST_PARTY_SHIM_CALL_RE.finditer(text)]
+        if matches:
+            offenders[str(path)] = matches
+
+    assert offenders == {}
+
+
+def test_active_docs_use_canonical_weather_commands():
+    offenders = {}
+    for path in ACTIVE_DOC_FILES:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        matches = [match.group(0).strip() for match in ACTIVE_DOC_LEGACY_MODULE_RE.finditer(text)]
+        if matches:
+            offenders[str(path)] = matches
+
+    assert offenders == {}
+
+
+def test_tests_do_not_depend_on_repo_root_data_tree():
+    offenders = {}
+    for path in Path("tests").rglob("*.py"):
+        if path == Path("tests/operations/test_import_architecture.py"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        has_temp_fixture = any(marker in text for marker in TEMP_DATA_FIXTURE_MARKERS)
+        tree = ast.parse(text)
+        matches = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            func_name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if func_name not in {"Path", "open"} or not node.args:
+                continue
+            first_arg = node.args[0]
+            if not isinstance(first_arg, ast.Constant) or not isinstance(first_arg.value, str):
+                continue
+            normalized = first_arg.value.replace("\\", "/")
+            if normalized == "data" or normalized.startswith("data/"):
+                matches.append((node.lineno, first_arg.value))
+        if matches and not has_temp_fixture:
+            offenders[str(path)] = matches
+
+    assert offenders == {}
 
 
 def test_app_and_tests_do_not_mutate_sys_path():

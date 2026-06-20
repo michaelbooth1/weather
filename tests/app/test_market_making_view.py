@@ -96,7 +96,7 @@ def test_market_making_cockpit_helpers_render_artifact_drilldowns():
                 "root_cause": "missing_source_status_row",
                 "owner": "snapshot source-status writer",
                 "recoverable_same_day": True,
-                "suggested_command": "python -m weather.collection.snapshot_tracker status",
+                "suggested_command": "python -m weather.collection.snapshot_tracker --status",
             }
         ],
     }

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-from weather.collection.collection_health import fleet_collection_health  # noqa: E402
+from weather.collection.collection_health import fleet_collection_health, source_family_degradation  # noqa: E402
 from weather.reporting.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
@@ -75,11 +75,119 @@ class TestFleetObservability(unittest.TestCase):
         toronto_sources = by_market["toronto"]["source_family_degradation"]
         self.assertEqual(toronto_sources["affected_family_count"], 1)
         self.assertEqual(toronto_sources["fallback_source_count"], 1)
+        self.assertEqual(toronto_sources["families"]["open_meteo"]["fallback_sources"], ["open_meteo"])
         self.assertFalse(toronto_sources["trading_evidence_allowed"])
         self.assertTrue(toronto_sources["model_review_allowed"])
         fleet_sources = payload["summary"]["source_family_degradation"]
         self.assertEqual(fleet_sources["affected_market_count"], 1)
         self.assertEqual(fleet_sources["fallback_source_count"], 1)
+
+    def test_source_family_provider_cooldown_is_nonblocking_with_fresh_family_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame([
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                    "captured_at_local": "2026-06-19T18:00:00-04:00",
+                    "source": "global_ensemble",
+                    "ok": True,
+                    "stale": False,
+                    "status": "fresh_cache",
+                    "cache_status": "fresh_cache",
+                    "source_family": "open_meteo",
+                    "degradation_state": "healthy",
+                },
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                    "captured_at_local": "2026-06-19T18:00:00-04:00",
+                    "source": "open_meteo",
+                    "ok": False,
+                    "stale": False,
+                    "status": "rate_limited",
+                    "cache_status": "provider_cooldown",
+                    "source_family": "open_meteo",
+                    "degradation_state": "rate_limited",
+                },
+            ]).to_csv(folder / "source_status_long.csv", index=False)
+
+            payload = source_family_degradation(folder)
+
+        open_meteo = payload["families"]["open_meteo"]
+        self.assertEqual(payload["affected_family_count"], 1)
+        self.assertEqual(payload["blocking_family_count"], 0)
+        self.assertTrue(payload["trading_evidence_allowed"])
+        self.assertEqual(payload["provider_cooldown_source_count"], 1)
+        self.assertEqual(open_meteo["status"], "rate_limited_with_fresh_family_coverage")
+        self.assertFalse(open_meteo["trading_blocking"])
+        self.assertEqual(open_meteo["provider_cooldown_sources"], ["open_meteo"])
+
+    def test_source_family_direct_rate_limit_is_nonblocking_with_fresh_family_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame([
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                    "captured_at_local": "2026-06-19T18:00:00-04:00",
+                    "source": "global_ensemble",
+                    "ok": True,
+                    "stale": False,
+                    "status": "fresh_cache",
+                    "cache_status": "fresh_cache",
+                    "source_family": "open_meteo",
+                    "degradation_state": "healthy",
+                },
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                    "captured_at_local": "2026-06-19T18:00:00-04:00",
+                    "source": "open_meteo",
+                    "ok": False,
+                    "stale": False,
+                    "status": "rate_limited",
+                    "cache_status": "miss",
+                    "source_family": "open_meteo",
+                    "degradation_state": "rate_limited",
+                },
+            ]).to_csv(folder / "source_status_long.csv", index=False)
+
+            payload = source_family_degradation(folder)
+
+        open_meteo = payload["families"]["open_meteo"]
+        self.assertEqual(payload["affected_family_count"], 1)
+        self.assertEqual(payload["blocking_family_count"], 0)
+        self.assertTrue(payload["trading_evidence_allowed"])
+        self.assertEqual(open_meteo["status"], "rate_limited_with_fresh_family_coverage")
+        self.assertFalse(open_meteo["trading_blocking"])
+
+    def test_source_family_provider_cooldown_blocks_without_fresh_family_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame([
+                {
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                    "captured_at_local": "2026-06-19T18:00:00-04:00",
+                    "source": "open_meteo",
+                    "ok": False,
+                    "stale": False,
+                    "status": "rate_limited",
+                    "cache_status": "provider_cooldown",
+                    "source_family": "open_meteo",
+                    "degradation_state": "rate_limited",
+                },
+            ]).to_csv(folder / "source_status_long.csv", index=False)
+
+            payload = source_family_degradation(folder)
+
+        open_meteo = payload["families"]["open_meteo"]
+        self.assertEqual(payload["affected_family_count"], 1)
+        self.assertEqual(payload["blocking_family_count"], 1)
+        self.assertFalse(payload["trading_evidence_allowed"])
+        self.assertEqual(open_meteo["status"], "degraded")
+        self.assertTrue(open_meteo["trading_blocking"])
 
     def test_artifact_metadata_records_schema_and_hash(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -296,9 +404,122 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("observation_trigger_health", concrete)
         self.assertEqual(gate["first_blocker"]["market_id"], "toronto")
         self.assertEqual(gate["first_blocker"]["owner"], "weather snapshot/model loop")
-        self.assertIn("snapshot_tracker status", gate["first_blocker"]["repair_command"])
+        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
         self.assertIn("fleet_observability report", gate["first_blocker"]["verification_command"])
         self.assertGreaterEqual(len(gate["recovery_checklist"]), 6)
+
+    def test_live_forward_slo_source_status_provider_fallback_has_specific_repair(self):
+        collection = {
+            "markets": [{
+                "market_id": "toronto",
+                "action_required": False,
+                "state": "CLEAN",
+                "reason": "ok",
+                "snapshots": 49,
+                "source_family_degradation": {
+                    "available": True,
+                    "trading_evidence_allowed": False,
+                    "affected_family_count": 1,
+                    "failed_source_count": 0,
+                    "fallback_source_count": 2,
+                    "families": {
+                        "open_meteo": {
+                            "status": "degraded",
+                            "failed_source_count": 0,
+                            "fallback_source_count": 2,
+                            "rate_limited_source_count": 0,
+                            "fallback_sources": ["open_meteo", "eccc_gem"],
+                        },
+                        "weather_forecast": {"status": "healthy"},
+                    },
+                },
+            }]
+        }
+        clob = {"loop": {"state": "RUNNING"}, "books": {"markets": []}}
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["first_blocker"]["component"], "source_status")
+        self.assertEqual(gate["first_blocker"]["root_cause"], "open_meteo_provider_fallback")
+        self.assertEqual(gate["first_blocker"]["owner"], "Open-Meteo quota / forecast source collector")
+        self.assertFalse(gate["first_blocker"]["recoverable_same_day"])
+        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
+        self.assertNotIn("backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("fallback_sources=open_meteo,eccc_gem", gate["first_blocker"]["detail"])
+
+    def test_live_forward_slo_source_status_rate_limit_has_provider_owner(self):
+        collection = {
+            "markets": [{
+                "market_id": "toronto",
+                "action_required": False,
+                "state": "CLEAN",
+                "reason": "ok",
+                "snapshots": 49,
+                "source_family_degradation": {
+                    "available": True,
+                    "trading_evidence_allowed": False,
+                    "affected_family_count": 1,
+                    "failed_source_count": 0,
+                    "fallback_source_count": 0,
+                    "rate_limited_source_count": 2,
+                    "families": {
+                        "open_meteo": {
+                            "status": "degraded",
+                            "failed_source_count": 0,
+                            "fallback_source_count": 0,
+                            "rate_limited_source_count": 2,
+                            "rate_limited_sources": ["open_meteo", "eccc_gem"],
+                        },
+                        "weather_forecast": {"status": "healthy"},
+                    },
+                },
+            }]
+        }
+        clob = {"loop": {"state": "RUNNING"}, "books": {"markets": []}}
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["first_blocker"]["component"], "source_status")
+        self.assertEqual(gate["first_blocker"]["root_cause"], "open_meteo_provider_rate_limited")
+        self.assertEqual(gate["first_blocker"]["owner"], "Open-Meteo quota / forecast source collector")
+        self.assertIn("snapshot_tracker --status", gate["first_blocker"]["repair_command"])
+        self.assertNotIn("backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("rate_limited_sources=open_meteo,eccc_gem", gate["first_blocker"]["detail"])
+
+    def test_live_forward_slo_has_dedicated_variant_prediction_freshness_gate(self):
+        collection = {
+            "markets": [{
+                "market_id": "toronto",
+                "action_required": True,
+                "snapshot_action_required": False,
+                "state": "CLEAN",
+                "reason": "capture cadence healthy",
+                "snapshots": 49,
+                "variant_prediction_tape": {
+                    "action_required": True,
+                    "state": "MISSING",
+                    "reason": "variant_predictions_long.csv missing or empty",
+                    "snapshot_id": "s48",
+                    "active_variant_count": 1,
+                    "latest_rows": 0,
+                    "expected_latest_rows": 1,
+                },
+            }]
+        }
+        clob = {"loop": {"state": "RUNNING"}, "books": {"markets": []}}
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+        concrete = {row["name"]: row for row in gate["concrete_gates"]}
+
+        self.assertFalse(gate["ok"])
+        self.assertFalse(concrete["variant_prediction_freshness"]["ok"])
+        self.assertNotIn("snapshot_collection", {row["gate"] for row in gate["recovery_checklist"]})
+        self.assertEqual(gate["first_blocker"]["component"], "variant_prediction_tape")
 
     def test_markdown_surfaces_tape_backup_status(self):
         payload = {

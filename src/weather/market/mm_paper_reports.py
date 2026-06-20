@@ -60,6 +60,8 @@ def markdown_table(headers, rows):
 def render_paper_report(payload):
     summary = payload["summary"]
     pnl = summary.get("pnl") or {}
+    guardrail = summary.get("early_hour_guardrail_shadow") or {}
+    guardrail_exposure = guardrail.get("quote_exposure") or {}
     evidence = summary.get("trade_evidence_gaps") or {}
     anti = summary.get("anti_overfit") or {}
     event_gate = summary.get("event_gate_score") or {}
@@ -108,6 +110,46 @@ def render_paper_report(payload):
             ["Liquidity reward estimate", fmt_num(pnl.get("liquidity_reward_estimate_usdc"), 4)],
             ["Flattening fee estimate", fmt_num(pnl.get("flattening_fee_estimate_usdc"), 4)],
             ["Net after fees/incentives", fmt_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4)],
+        ],
+    ))
+    lines.extend([
+        "",
+        "## Early-Hour Market-Aware Guardrail",
+        "",
+        "Market-aware probabilities are risk overlays only; no-market fair probabilities remain separate promotion evidence.",
+        "",
+    ])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Status", guardrail.get("status") or "-"],
+            ["Early-hour fill rows", guardrail.get("early_hour_fill_rows", 0)],
+            ["Live-forward fill rows", guardrail.get("live_forward_fill_rows", 0)],
+            ["Settlement fill rows", guardrail.get("settlement_fill_rows", 0)],
+            ["Early-hour base net", fmt_num(guardrail.get("early_hour_base_net_pnl_usdc"), 4)],
+            ["Early-hour capped net", fmt_num(guardrail.get("early_hour_capped_net_pnl_usdc"), 4)],
+            ["Early-hour market-aware net", fmt_num(guardrail.get("early_hour_market_aware_net_pnl_usdc"), 4)],
+            ["Capped delta vs base", fmt_num(guardrail.get("early_hour_capped_delta_vs_base_usdc"), 4)],
+            ["Market-aware delta vs base", fmt_num(guardrail.get("early_hour_market_aware_delta_vs_base_usdc"), 4)],
+            ["Early-hour base loss", fmt_num(guardrail.get("early_hour_base_loss_usdc"), 4)],
+            ["Early-hour capped loss", fmt_num(guardrail.get("early_hour_capped_loss_usdc"), 4)],
+            ["Early-hour market-aware loss", fmt_num(guardrail.get("early_hour_market_aware_loss_usdc"), 4)],
+            ["Market overlay risk-only", guardrail.get("market_overlay_is_risk_only", True)],
+            ["No-market probability preserved", guardrail.get("no_market_probability_preserved", True)],
+        ],
+    ))
+    lines.extend(["", "### Early-Hour Exposure", ""])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Quote permission rows", guardrail_exposure.get("quote_permission_rows", 0)],
+            ["Early-hour quote rows", guardrail_exposure.get("early_hour_quote_rows", 0)],
+            ["Active guardrail rows", guardrail_exposure.get("early_hour_active_guardrail_rows", 0)],
+            ["Override rows", guardrail_exposure.get("early_hour_override_rows", 0)],
+            ["Market-aware stand-down rows", guardrail_exposure.get("market_aware_standdown_rows", 0)],
+            ["Early-hour base quote size", fmt_num(guardrail_exposure.get("early_hour_base_quote_size"), 4)],
+            ["Early-hour capped quote size", fmt_num(guardrail_exposure.get("early_hour_capped_quote_size"), 4)],
+            ["Market-aware quote size", fmt_num(guardrail_exposure.get("market_aware_guardrail_quote_size"), 4)],
         ],
     ))
     lines.extend(["", "## Queue Companion", ""])

@@ -78,9 +78,10 @@ Design (feature schema v0.3):
   runs back-to-back). Measure specifically by minutes-past-print buckets
   (0-19 / 20-39 / 40-59): the gain should concentrate in the 20-59 windows
   where the staircase flats live.
-- [ ] After promotion: re-run the per-source ablation for wu_current and the
-  current-observed floor -- once the model learns live readings as features,
-  the floor heuristic is likely redundant and should be retired by evidence.
+Follow-up owned by item 105: after the next eligible promotion artifact,
+re-run the per-source ablation for `wu_current` and the current-observed floor.
+Once the model learns live readings as features, the floor heuristic is likely
+redundant and should be retired only by evidence.
 
 Acceptance: pinned replay improves in the 20-59 minutes-past-print windows
 without regressing the 0-19 window, and the feature-skew parity suite passes.

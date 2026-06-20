@@ -10,11 +10,15 @@ from unittest.mock import patch
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     load_status,
+    run_active_variant_shadow_step,
+    run_clob_order_book_tiering_step,
     run_daily_refresh,
     run_ingest_quality_gate_step,
     run_model_variant_evidence_growth_step,
+    run_price_free_model_learning_step,
     run_reanalysis_recent_refresh_step,
 )
+from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
 
 def _args(tmp, **overrides):
@@ -35,12 +39,17 @@ def _args(tmp, **overrides):
         "fail_on_fleet_critical": False,
         "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
+        "fail_on_hourly_performance_gate": True,
         "fail_on_snapshot_evaluation": False,
         "fail_on_shadow_ab_alert": False,
+        "fail_on_variant_evidence_alert": True,
         "fail_on_daily_learning_blocker": False,
         "skip_shadow_ab_monitor": False,
         "ab_current_tol": 0.003,
         "ab_market_tol": 0.003,
+        "skip_active_variant_shadow": False,
+        "active_variant_shadow_sources": "",
+        "variant_registry": str(root / "config" / "model_variant_registry.json"),
         "skip_model_variant_evidence_growth": False,
         "variant_evidence_current": "",
         "variant_evidence_baseline": "",
@@ -58,7 +67,22 @@ def _args(tmp, **overrides):
         "reanalysis_end_date": "",
         "skip_data_layer_audit": False,
         "skip_daily_learning": False,
+        "skip_hourly_model_performance": False,
+        "skip_price_free_model_learning": False,
+        "quality_grades": "complete,manual_override",
+        "markets": "",
+        "hourly_min_rows": 30,
+        "hourly_top_hours": 3,
+        "hourly_min_regime_market_days": 10,
+        "hourly_early_brier_regression_tolerance": 0.003,
+        "hourly_early_logloss_regression_tolerance": 0.01,
+        "hourly_early_ece_max": 0.12,
         "skip_replay_status_backfill": False,
+        "skip_clob_order_book_tiering": False,
+        "clob_tiering_settled_before": "",
+        "clob_tiering_min_free_bytes": 1024 * 1024 * 1024,
+        "clob_tiering_limit": None,
+        "clob_tiering_delete_source": True,
         "overwrite_replay_status": False,
         "reconstruct_missing_replay_inputs": False,
         "include_active_replay_status": False,
@@ -168,13 +192,27 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 13)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * len(DEFAULT_RUNNERS))
 
     def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
+        self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
+        self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
+        self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
+        self.assertLess(names.index("hourly_model_performance"), names.index("price_free_model_learning"))
+        self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
+        self.assertLess(names.index("active_variant_shadow"), names.index("model_variant_evidence_growth"))
+
+    def test_price_free_model_learning_step_can_be_skipped(self):
+        result = run_price_free_model_learning_step(
+            _args(tempfile.gettempdir(), skip_price_free_model_learning=True)
+        )
+
+        self.assertEqual(result["status"], "SKIPPED")
+        self.assertEqual(result["reason"], "skip_price_free_model_learning")
 
     def test_fail_on_ingest_quality_marks_run_critical(self):
         def ingest(_args):
@@ -189,6 +227,60 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["ingest_quality_gate"]["status"], "FAIL")
 
+    def test_clob_order_book_tiering_step_applies_settled_compression(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("weather.operations.daily_refresh.clob_order_book_tiering.run") as run, \
+                patch("weather.operations.daily_refresh.clob_order_book_tiering.write_outputs") as write_outputs:
+            root = Path(tmp)
+            payload = {
+                "status": "PASS",
+                "settled_before": "2026-06-19",
+                "summary": {"candidate_files": 2},
+                "apply": {
+                    "delete_source": True,
+                    "summary": {
+                        "compressed_files": 2,
+                        "deleted_sources": 2,
+                        "insufficient_headroom": 0,
+                    },
+                },
+            }
+            run.return_value = payload
+            write_outputs.return_value = (
+                root / "backtest" / "clob_order_book_tiering.json",
+                root / "backtest" / "clob_order_book_tiering_report.md",
+            )
+
+            result = run_clob_order_book_tiering_step(
+                _args(
+                    tmp,
+                    clob_tiering_settled_before="2026-06-19",
+                    clob_tiering_min_free_bytes=123,
+                    clob_tiering_limit=5,
+                )
+            )
+
+        run.assert_called_once_with(
+            snapshots_root=str(root / "snapshots"),
+            settled_before="2026-06-19",
+            min_free_bytes=123,
+            apply=True,
+            delete_source=True,
+            limit=5,
+        )
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["summary"]["candidate_files"], 2)
+        self.assertEqual(result["apply_summary"]["compressed_files"], 2)
+        self.assertTrue(result["delete_source"])
+
+    def test_clob_order_book_tiering_step_can_be_skipped(self):
+        result = run_clob_order_book_tiering_step(
+            _args(tempfile.gettempdir(), skip_clob_order_book_tiering=True)
+        )
+
+        self.assertEqual(result["status"], "SKIPPED")
+        self.assertEqual(result["reason"], "skip_clob_order_book_tiering")
+
     def test_fail_on_data_layer_audit_marks_run_critical(self):
         def audit(_args):
             return {"gate_status": "FAIL", "gate_summary": {"status": "FAIL"}}
@@ -201,6 +293,34 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["data_layer_audit"]["gate_status"], "FAIL")
+
+    def test_hourly_performance_gate_marks_run_critical_by_default(self):
+        def hourly(_args):
+            return {
+                "status": "BLOCK",
+                "hourly_performance_gate": {
+                    "status": "BLOCK",
+                    "blocker_count": 1,
+                    "first_blocker": {
+                        "gate": "early_hour_brier_regression",
+                        "detail": "early hour regressed",
+                        "remediation_command": "run hourly remediation",
+                    },
+                },
+                "daily_summary": {"worst_hours": ["03:00"]},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[("hourly_model_performance", hourly)],
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["hourly_model_performance"]["status"], "BLOCK")
+        self.assertIn("Hourly Performance Gate", report)
+        self.assertIn("early hour regressed", report)
 
     def test_fail_on_snapshot_evaluation_marks_run_critical(self):
         def evaluation(_args):
@@ -227,6 +347,83 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["shadow_ab_monitor"]["status"], "ALERT")
+
+    def test_variant_evidence_alert_marks_run_critical_by_default(self):
+        def active_shadow(_args):
+            return {"status": "OK", "summary": {"canonical_rows": 10}}
+
+        def evidence(_args):
+            return {
+                "status": "ALERT",
+                "summary": {"alert_count": 1, "unique_observation_count": 1},
+                "evidence_sla": {
+                    "status": "BLOCK",
+                    "reasons": ["scored rows grew without independent observations"],
+                },
+                "no_growth_reasons": [
+                    {
+                        "scope": "overall",
+                        "status": "BLOCK",
+                        "reason": "variant_rows_only",
+                        "action": "Collect new settled labels.",
+                    }
+                ],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[
+                    ("active_variant_shadow", active_shadow),
+                    ("model_variant_evidence_growth", evidence),
+                ],
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        gate = payload["summary"]["variant_learning_gate"]
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["first_blocker"]["gate"], "variant_evidence_sla")
+        self.assertIn("Collect new settled labels.", gate["first_blocker"]["remediation_command"])
+        self.assertIn("Variant Learning Gate", report)
+        self.assertIn("Collect new settled labels.", report)
+
+    def test_variant_evidence_alert_can_be_allowed_for_research_runs(self):
+        def evidence(_args):
+            return {
+                "status": "ALERT",
+                "evidence_sla": {"status": "BLOCK", "reasons": ["no independent growth"]},
+                "no_growth_reasons": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_variant_evidence_alert=False),
+                runners=[("model_variant_evidence_growth", evidence)],
+            )
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["summary"]["variant_learning_gate"]["status"], "BLOCK")
+
+    def test_missing_active_variant_shadow_evidence_marks_run_critical(self):
+        def active_shadow(_args):
+            return {
+                "status": "BLOCK",
+                "blockers": ["active registry variants missing from canonical shadow output"],
+                "missing_active_variant_ids": ["v1"],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[("active_variant_shadow", active_shadow)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(
+            payload["summary"]["variant_learning_gate"]["first_blocker"]["gate"],
+            "active_variant_shadow_coverage",
+        )
 
     def test_fail_on_daily_learning_blocker_marks_run_critical(self):
         def learning(_args):
@@ -269,6 +466,108 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 0)
         self.assertFalse(result["evidence_sla"]["broad_promotion_claim_allowed"])
         self.assertEqual(result["no_growth_reasons"][0]["reason"], "variant_rows_only")
+
+    def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.csv"
+            source.write_text(header + row, encoding="utf-8")
+            registry = root / "config" / "model_variant_registry.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(json.dumps({
+                "schema_version": "model_variant_registry_v0.1",
+                "variants": [
+                    {"variant_id": "active_v", "lifecycle": "active", "track": "no_market", "active_for_headline": True},
+                    {"variant_id": "missing_v", "lifecycle": "active", "track": "no_market", "active_for_headline": True},
+                ],
+            }), encoding="utf-8")
+            args = _args(
+                tmp,
+                active_variant_shadow_sources=str(source),
+                variant_registry=str(registry),
+            )
+
+            result = run_active_variant_shadow_step(args)
+            long_exists = (root / "backtest" / "active_variant_shadow_long.csv").exists()
+            sidecar_exists = (root / "backtest" / "active_variant_shadow_attribution.jsonl").exists()
+            json_exists = (root / "backtest" / "active_variant_shadow.json").exists()
+            report_exists = (root / "backtest" / "active_variant_shadow_report.md").exists()
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["summary"]["canonical_rows"], 1)
+        self.assertEqual(result["missing_active_variant_ids"], ["missing_v"])
+        self.assertTrue(long_exists)
+        self.assertTrue(sidecar_exists)
+        self.assertTrue(result["attribution_sidecar_out"].endswith("active_variant_shadow_attribution.jsonl"))
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+
+    def test_active_variant_shadow_uses_registry_export_paths_by_default(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.csv"
+            source.write_text(header + row, encoding="utf-8")
+            registry = root / "model_variant_registry.json"
+            registry.write_text(json.dumps({
+                "schema_version": "model_variant_registry_v0.1",
+                "variants": [
+                    {
+                        "variant_id": "active_v",
+                        "variant_family": "f_family",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "active_for_headline": True,
+                        "artifact_required": False,
+                        "prediction_function": "weather.tests:predict",
+                        "prediction_mode": "demo_mode",
+                        "export_family": "f_family",
+                        "default_export_path": str(source),
+                        "live_runtime": "demo_runtime",
+                    },
+                ],
+            }), encoding="utf-8")
+
+            payload = build_active_variant_shadow_payload([], registry_path=registry)
+
+        self.assertEqual(payload["status"], "OK")
+        self.assertEqual(payload["registry"]["contract_status"], "OK")
+        self.assertEqual(payload["summary"]["source_path_count"], 1)
+        self.assertEqual(payload["registry"]["reported_active_variant_ids"], ["active_v"])
+
+    def test_model_variant_evidence_growth_defaults_to_active_variant_shadow_long(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir()
+            (backtest / "active_variant_shadow_long.csv").write_text(header + row, encoding="utf-8")
+            args = _args(tmp)
+
+            result = run_model_variant_evidence_growth_step(args)
+            payload = json.loads((backtest / "model_variant_evidence_growth.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result["summary"]["unique_observation_count"], 1)
+        self.assertEqual(payload["input_paths"], [str(backtest / "active_variant_shadow_long.csv")])
 
     def test_reanalysis_recent_refresh_fetches_missing_ranges_without_raising(self):
         stores = []

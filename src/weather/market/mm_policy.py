@@ -31,11 +31,17 @@ from weather.market.info_event_calendar import (
     summarize_event_gate_rows,
 )
 from weather.market.market_microstructure_features import snapshot_band_key
-from weather.market.market_registry import REGISTRY, spec_for_slug
+from weather.market.market_registry import REGISTRY, spec_for_id, spec_for_slug
+from weather.market.live_observation_normalization import (
+    current_high_probability_summary,
+    normalized_high_fields,
+    normalized_high_for_market,
+)
 
 
 SCHEMA_VERSION = "mm_quote_intent_v0.2"
 POLICY_VERSION = "mm_policy_v0.2"
+EARLY_HOUR_GUARDRAIL_SCHEMA_VERSION = "early_hour_market_guardrail_v0.1"
 DEFAULT_PROMOTION_REFRESH = data_path() / "backtest" / "f_family_promotion_refresh.json"
 DEFAULT_KNOWN_EDGE_MAP = data_path() / "backtest" / "mm_known_edge_map.json"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -73,7 +79,28 @@ DEFAULT_POLICY_CONFIG = {
     "event_gate_exception_risk_cap_usdc": 0.0,
     "clob_recon_policy_enabled": True,
     "clob_recon_path": str(DEFAULT_CLOB_RECON),
+    "hourly_trust_multiplier_00_08": 0.35,
+    "hourly_trust_multiplier_09_14": 0.85,
+    "hourly_trust_multiplier_15_19": 1.0,
+    "hourly_trust_multiplier_20_23": 0.75,
+    "early_hour_guardrail_enabled": True,
+    "early_hour_guardrail_market_weight": 0.35,
+    "early_hour_guardrail_size_multiplier": 0.35,
+    "early_hour_guardrail_quote_widen_buffer": 0.01,
+    "early_hour_guardrail_min_edge_multiplier": 1.5,
+    "early_hour_guardrail_override_min_edge": 0.10,
+    "early_hour_guardrail_override_source_states": "all_fresh",
+    "early_hour_guardrail_override_count_buckets": "normal_count,high_count,full_count",
+    "early_hour_guardrail_override_disagreement_buckets": "low_disagreement,moderate_disagreement",
+    "early_hour_guardrail_override_max_forecast_disagreement": 1.5,
 }
+
+HOURLY_TRUST_BANDS = [
+    ("early_00_08", 0, 8, "hourly_trust_multiplier_00_08"),
+    ("midday_09_14", 9, 14, "hourly_trust_multiplier_09_14"),
+    ("late_15_19", 15, 19, "hourly_trust_multiplier_15_19"),
+    ("closing_20_23", 20, 23, "hourly_trust_multiplier_20_23"),
+]
 
 QUOTE_COLUMNS = [
     "schema_version",
@@ -139,6 +166,20 @@ QUOTE_COLUMNS = [
     "book_age_seconds",
     "model_age_seconds",
     "watcher_age_seconds",
+    "raw_current_high",
+    "raw_current_high_bucket",
+    "settlement_current_high",
+    "high_source",
+    "revision_state",
+    "settlement_bin_key",
+    "raw_current_high_bin_key",
+    "probability_on_raw_current_high",
+    "probability_on_settlement_current_high",
+    "capture_hour_utc",
+    "capture_hour_local",
+    "capture_timezone",
+    "hourly_trust_band",
+    "hourly_trust_multiplier",
     "source_fresh",
     "source_freshness_state",
     "heartbeat_ok",
@@ -146,6 +187,17 @@ QUOTE_COLUMNS = [
     "expected_reward_score",
     "expected_rebate_value",
     "adverse_selection_buffer",
+    "early_hour_guardrail_schema_version",
+    "early_hour_guardrail_status",
+    "early_hour_guardrail_reason",
+    "early_hour_guardrail_min_edge",
+    "early_hour_guardrail_size_multiplier",
+    "early_hour_guardrail_quote_widen_buffer",
+    "early_hour_guardrail_override_allowed",
+    "early_hour_guardrail_market_weight",
+    "market_aware_overlay_probability",
+    "market_aware_overlay_edge",
+    "market_aware_overlay_used_for_risk_only",
     "final_size_limiter",
 ]
 
@@ -201,6 +253,177 @@ def bool_value(value, default=False):
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "y", "ok", "pass"}
+
+
+def _csv_tokens(value):
+    return {
+        normalize_token(item)
+        for item in str(value or "").replace(";", ",").split(",")
+        if normalize_token(item)
+    }
+
+
+def _market_spec_for_row(row):
+    market_id = row.get("market_id")
+    if market_id:
+        return spec_for_id(market_id)
+    return spec_for_slug(row.get("event_slug")) or spec_for_id(None)
+
+
+def _row_capture_time(row, now=None):
+    return parse_time(first_present(
+        row,
+        "generated_at_utc",
+        "quote_time_utc",
+        "captured_at_utc",
+        "fill_time_utc",
+    )) or parse_time(now)
+
+
+def _hour_from_text(value):
+    if value in (None, ""):
+        return None
+    text = str(value).strip().upper().replace("Z", "")
+    if ":" in text:
+        text = text.split(":", 1)[0]
+    try:
+        hour = int(float(text))
+    except ValueError:
+        return None
+    return hour if 0 <= hour <= 23 else None
+
+
+def hourly_trust_state(row, config=None, now=None):
+    """Return the market-local hour bucket used for quote-risk controls."""
+    config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
+    parsed = _row_capture_time(row, now=now)
+    spec = _market_spec_for_row(row)
+    timezone_name = getattr(spec, "timezone", "UTC")
+    hour_utc = parsed.hour if parsed is not None else _hour_from_text(row.get("hour_utc"))
+    hour_local = _hour_from_text(row.get("capture_hour_local"))
+    if hour_local is None and parsed is not None:
+        try:
+            hour_local = parsed.astimezone(spec.tz).hour
+        except Exception:
+            hour_local = parsed.hour
+    if hour_local is None:
+        hour_local = hour_utc
+
+    band_name = "unknown"
+    multiplier = 1.0
+    if hour_local is not None:
+        for name, start, end, key in HOURLY_TRUST_BANDS:
+            if start <= hour_local <= end:
+                band_name = name
+                multiplier = float(config.get(key, 1.0))
+                break
+    return {
+        "capture_hour_utc": hour_utc,
+        "capture_hour_local": hour_local,
+        "capture_timezone": timezone_name,
+        "hourly_trust_band": band_name,
+        "hourly_trust_multiplier": multiplier,
+    }
+
+
+def _forecast_count_bucket(row):
+    return normalize_token(first_present(
+        row,
+        "forecast_source_count_bucket",
+        "source_count_bucket",
+        "forecast_count_bucket",
+    ))
+
+
+def _forecast_disagreement_bucket(row):
+    return normalize_token(first_present(
+        row,
+        "forecast_disagreement_bucket",
+        "source_disagreement_bucket",
+    ))
+
+
+def _strong_early_hour_override(row, config, edge):
+    if edge is None or abs(edge) < float(config["early_hour_guardrail_override_min_edge"]):
+        return False, "edge_below_override_minimum"
+    source_state = _row_source_freshness_state(row)
+    source_states = _csv_tokens(config.get("early_hour_guardrail_override_source_states"))
+    if source_state not in source_states:
+        return False, "source_freshness_not_override_eligible"
+    if not bool_value(row.get("source_fresh"), False):
+        return False, "source_fresh_false"
+
+    count_bucket = _forecast_count_bucket(row)
+    count_buckets = _csv_tokens(config.get("early_hour_guardrail_override_count_buckets"))
+    if count_bucket not in count_buckets:
+        return False, "forecast_source_count_not_override_eligible"
+
+    disagreement_bucket = _forecast_disagreement_bucket(row)
+    disagreement_buckets = _csv_tokens(config.get("early_hour_guardrail_override_disagreement_buckets"))
+    if disagreement_bucket not in disagreement_buckets:
+        return False, "forecast_disagreement_not_override_eligible"
+
+    disagreement = maybe_float(row.get("forecast_disagreement"))
+    if disagreement is not None and disagreement > float(config["early_hour_guardrail_override_max_forecast_disagreement"]):
+        return False, "forecast_disagreement_above_override_max"
+    return True, "strong_source_agreement_override"
+
+
+def early_hour_guardrail_state(row, config=None, now=None):
+    """Risk-only market-aware guardrail metadata for quote decisions."""
+    config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
+    trust = hourly_trust_state(row, config=config, now=now)
+    fair = clamp_probability(first_present(row, "fair_probability", "model_probability", "candidate_p"))
+    mid = _midpoint(row)
+    edge = fair - mid if fair is not None and mid is not None else None
+    market_weight = max(0.0, min(1.0, float(config["early_hour_guardrail_market_weight"])))
+    overlay = None
+    overlay_edge = None
+    if fair is not None and mid is not None:
+        overlay = (1.0 - market_weight) * fair + market_weight * mid
+        overlay_edge = overlay - mid
+    base_min_edge = (
+        float(config["edge_min_advantage"])
+        + float(config["edge_fee_buffer"])
+        + float(config["adverse_selection_buffer"])
+    )
+    min_edge = base_min_edge * float(config["early_hour_guardrail_min_edge_multiplier"])
+    enabled = bool_value(config.get("early_hour_guardrail_enabled"), True)
+    status = "disabled"
+    reason = "guardrail_disabled"
+    size_multiplier = 1.0
+    widen = 0.0
+    override_allowed = False
+    if enabled:
+        if trust["hourly_trust_band"] != "early_00_08":
+            status = "inactive"
+            reason = "outside_early_hour_band"
+        else:
+            override_allowed, reason = _strong_early_hour_override(row, config, edge)
+            if override_allowed:
+                status = "override_allowed"
+                size_multiplier = 1.0
+            else:
+                status = "active"
+                size_multiplier = min(
+                    float(config["early_hour_guardrail_size_multiplier"]),
+                    float(trust["hourly_trust_multiplier"]),
+                )
+                widen = float(config["early_hour_guardrail_quote_widen_buffer"])
+    return {
+        **trust,
+        "early_hour_guardrail_schema_version": EARLY_HOUR_GUARDRAIL_SCHEMA_VERSION,
+        "early_hour_guardrail_status": status,
+        "early_hour_guardrail_reason": reason,
+        "early_hour_guardrail_min_edge": min_edge,
+        "early_hour_guardrail_size_multiplier": max(0.0, min(1.0, size_multiplier)),
+        "early_hour_guardrail_quote_widen_buffer": max(0.0, widen),
+        "early_hour_guardrail_override_allowed": override_allowed,
+        "early_hour_guardrail_market_weight": market_weight,
+        "market_aware_overlay_probability": overlay,
+        "market_aware_overlay_edge": overlay_edge,
+        "market_aware_overlay_used_for_risk_only": True,
+    }
 
 
 def policy_hash(config):
@@ -506,6 +729,11 @@ def load_observation_status(path=DEFAULT_OBSERVATION_STATUS, now=None, config=No
         and watcher_age <= float(config["max_watcher_age_seconds"])
         and consecutive_errors == 0
     )
+    markets = payload.get("markets") or {}
+    market_normalization = {
+        market_id: normalized_high_for_market({"markets": markets}, market_id)
+        for market_id in markets
+    }
     return {
         "path": str(path),
         "exists": True,
@@ -514,6 +742,8 @@ def load_observation_status(path=DEFAULT_OBSERVATION_STATUS, now=None, config=No
         "watcher_age_seconds": watcher_age,
         "last_heartbeat": payload.get("last_heartbeat"),
         "consecutive_errors": consecutive_errors,
+        "markets": markets,
+        "market_normalization": market_normalization,
         "reason": "fresh" if fresh else "stale or erroring observation watcher",
     }
 
@@ -576,6 +806,7 @@ def _base_output(row, config, now, reason_code, reason_detail):
     fair = clamp_probability(first_present(row, "fair_probability", "model_probability", "candidate_p"))
     mid = _midpoint(row)
     edge = fair - mid if fair is not None and mid is not None else None
+    guardrail = early_hour_guardrail_state(row, config=config, now=now)
     uncertainty = maybe_float(row.get("uncertainty"))
     if uncertainty is None and fair is not None:
         uncertainty = math.sqrt(max(0.0, fair * (1.0 - fair)))
@@ -633,6 +864,20 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "book_age_seconds": book_age,
         "model_age_seconds": model_age,
         "watcher_age_seconds": watcher_age,
+        "raw_current_high": row.get("raw_current_high"),
+        "raw_current_high_bucket": row.get("raw_current_high_bucket"),
+        "settlement_current_high": row.get("settlement_current_high"),
+        "high_source": row.get("high_source") or "",
+        "revision_state": row.get("revision_state") or "",
+        "settlement_bin_key": row.get("settlement_bin_key") or "",
+        "raw_current_high_bin_key": row.get("raw_current_high_bin_key") or "",
+        "probability_on_raw_current_high": maybe_float(row.get("probability_on_raw_current_high")),
+        "probability_on_settlement_current_high": maybe_float(row.get("probability_on_settlement_current_high")),
+        "capture_hour_utc": guardrail["capture_hour_utc"],
+        "capture_hour_local": guardrail["capture_hour_local"],
+        "capture_timezone": guardrail["capture_timezone"],
+        "hourly_trust_band": guardrail["hourly_trust_band"],
+        "hourly_trust_multiplier": guardrail["hourly_trust_multiplier"],
         "source_fresh": bool_value(row.get("source_fresh"), False),
         "source_freshness_state": row.get("source_freshness_state") or "",
         "heartbeat_ok": bool_value(row.get("heartbeat_ok"), False),
@@ -640,6 +885,17 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "expected_reward_score": 0.0,
         "expected_rebate_value": 0.0,
         "adverse_selection_buffer": float(config["adverse_selection_buffer"]),
+        "early_hour_guardrail_schema_version": guardrail["early_hour_guardrail_schema_version"],
+        "early_hour_guardrail_status": guardrail["early_hour_guardrail_status"],
+        "early_hour_guardrail_reason": guardrail["early_hour_guardrail_reason"],
+        "early_hour_guardrail_min_edge": guardrail["early_hour_guardrail_min_edge"],
+        "early_hour_guardrail_size_multiplier": guardrail["early_hour_guardrail_size_multiplier"],
+        "early_hour_guardrail_quote_widen_buffer": guardrail["early_hour_guardrail_quote_widen_buffer"],
+        "early_hour_guardrail_override_allowed": guardrail["early_hour_guardrail_override_allowed"],
+        "early_hour_guardrail_market_weight": guardrail["early_hour_guardrail_market_weight"],
+        "market_aware_overlay_probability": guardrail["market_aware_overlay_probability"],
+        "market_aware_overlay_edge": guardrail["market_aware_overlay_edge"],
+        "market_aware_overlay_used_for_risk_only": guardrail["market_aware_overlay_used_for_risk_only"],
         "final_size_limiter": "-",
     }
     output.update(quote_event_gate_fields(row.get("_event_gate")))
@@ -652,6 +908,14 @@ def _no_quote(row, config, now, reason_code, reason_detail):
 
 def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_price=None):
     output = _base_output(row, config, now, reason_code, "quote permitted by shadow policy")
+    widen = maybe_float(output.get("early_hour_guardrail_quote_widen_buffer")) or 0.0
+    if output.get("early_hour_guardrail_status") == "active" and widen > 0.0:
+        min_price = float(config["min_price"])
+        max_price = float(config["max_price"])
+        if bid_price is not None:
+            bid_price = max(min_price, float(bid_price) - widen)
+        if ask_price is not None:
+            ask_price = min(max_price, float(ask_price) + widen)
     price_for_size = 0.0
     if bid_price is not None:
         price_for_size += max(0.0, float(bid_price))
@@ -660,6 +924,10 @@ def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_pric
     if price_for_size <= 0:
         price_for_size = bid_price if bid_price is not None else ask_price
     size, limiter, event_remaining = _risk_limited_size(row, config, price_for_size)
+    size_multiplier = maybe_float(output.get("early_hour_guardrail_size_multiplier")) or 1.0
+    if output.get("early_hour_guardrail_status") == "active" and size_multiplier < 1.0:
+        size *= max(0.0, size_multiplier)
+        limiter = "early_hour_market_guardrail"
     if size <= 0:
         return _no_quote(row, config, now, "NO_QUOTE_RISK_CAP", f"{limiter} leaves no quote size")
     output.update({
@@ -755,8 +1023,20 @@ def decide_quote(row, config=None, now=None):
         + float(config["edge_fee_buffer"])
         + float(config["adverse_selection_buffer"])
     )
+    guardrail = early_hour_guardrail_state(row, config=config, now=now)
 
     if promotion_state == "PASS" and known_edge_allowed and abs(edge) >= edge_threshold:
+        if (
+            guardrail.get("early_hour_guardrail_status") == "active"
+            and abs(edge) < float(guardrail["early_hour_guardrail_min_edge"])
+        ):
+            return _no_quote(
+                row,
+                config,
+                now,
+                "NO_QUOTE_EARLY_HOUR_GUARDRAIL_MIN_EDGE",
+                "early-hour guardrail requires stronger no-market edge or source-agreement override",
+            )
         if spread > float(config["max_edge_spread"]):
             return _no_quote(row, config, now, "NO_QUOTE_WIDE_SPREAD", "spread too wide for edge mode")
         best_bid = clamp_probability(first_present(row, "clob_best_bid", "best_bid"))
@@ -905,6 +1185,10 @@ def assemble_policy_inputs(
     rows = []
     for market_id, folder in sorted(latest_folders_by_market(snapshots_root, markets=markets).items()):
         snapshot_rows = load_latest_snapshot_rows(folder)
+        high_assessment = current_high_probability_summary(
+            snapshot_rows,
+            normalized_high_for_market(observation_status, market_id),
+        )
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
         source_freshness_state = source_freshness_state_from_rows(
             load_source_status_rows(folder, snapshot_id)
@@ -929,6 +1213,7 @@ def assemble_policy_inputs(
             merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
             merged["source_fresh"] = observation_status.get("fresh", False)
             merged["source_freshness_state"] = source_freshness_state
+            merged.update(normalized_high_fields(high_assessment))
             record = resolve_known_edge_record(merged, known_edge_records or [])
             merged = apply_known_edge_permission(
                 merged,

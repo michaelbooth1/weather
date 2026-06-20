@@ -239,6 +239,78 @@ class TestBucketAgnosticDeepDive(unittest.TestCase):
         explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
         self.assertNotIn("marine_context", explanation)
 
+    def test_diagnostic_only_marine_context_is_not_active_model_evidence(self):
+        sources = self._sources()
+        sources["wu_current"]["data"]["temp_native"] = 18.0
+        sources["marine_context"] = {"ok": True, "data": {
+            "market": "toronto",
+            "stations": [{
+                "station_id": "45159",
+                "usable": True,
+                "latest_age_minutes": 15,
+                "missing_sensors": [],
+                "distance_km": 43,
+                "onshore_direction_min": 60.0,
+                "onshore_direction_max": 160.0,
+                "latest": {
+                    "water_temp_native": 14.0,
+                    "air_temp_native": 18.0,
+                    "wind_speed_kmh": 16.0,
+                    "wind_direction_degrees": 120.0,
+                },
+                "rows": [],
+            }],
+        }}
+        self.model._last_distribution_components = {
+            "weak_input_family_preflight": {
+                "schema_version": "weak_input_family_disposition_v0.1",
+                "status": "WARN",
+                "diagnostic_only_families": ["marine_microclimate"],
+            },
+            "components": COMPONENTS,
+        }
+
+        explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
+
+        self.assertIn("marine_microclimate", explanation["diagnostic_only_input_families"])
+        self.assertNotIn("marine_context", explanation)
+
+    def test_forecast_profile_calibration_metadata_surfaces_when_present(self):
+        sources = self._sources()
+        self.model._last_distribution_components = {
+            "forecast_profile_calibration": {
+                "schema_version": "forecast_profile_calibration_v0.1",
+                "status": "shadow_candidate",
+                "anchor_feature": "forecast_high",
+            },
+            "components": COMPONENTS,
+        }
+
+        explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
+
+        self.assertEqual(
+            explanation["forecast_profile_calibration"]["anchor_feature"],
+            "forecast_high",
+        )
+
+    def test_source_state_reliability_metadata_surfaces_when_present(self):
+        sources = self._sources()
+        self.model._last_distribution_components = {
+            "source_state_reliability": {
+                "schema_version": "forecast_source_state_reliability_v0.1",
+                "risk_bucket": "high_risk",
+                "reason": "high forecast disagreement",
+            },
+            "components": COMPONENTS,
+        }
+
+        explanation = self.model.get_model_explanation(sources, {24: 0.2, 25: 0.3, 26: 0.5})
+
+        self.assertEqual(
+            explanation["source_state_reliability"]["reason"],
+            "high forecast disagreement",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

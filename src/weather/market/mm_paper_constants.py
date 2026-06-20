@@ -6,6 +6,7 @@ from weather.paths import data_path
 
 SCHEMA_VERSION = "mm_paper_v0.1"
 KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
+EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION = "early_hour_market_guardrail_shadow_v0.1"
 
 DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -77,6 +78,23 @@ FILL_COLUMNS = [
     "queue_depleted_ahead",
     "queue_reason",
     "market_mid",
+    "fair_probability",
+    "edge",
+    "capture_hour_utc",
+    "capture_hour_local",
+    "capture_timezone",
+    "hourly_trust_band",
+    "hourly_trust_multiplier",
+    "early_hour_guardrail_status",
+    "early_hour_guardrail_reason",
+    "early_hour_guardrail_min_edge",
+    "early_hour_guardrail_size_multiplier",
+    "early_hour_guardrail_quote_widen_buffer",
+    "early_hour_guardrail_override_allowed",
+    "early_hour_guardrail_market_weight",
+    "market_aware_overlay_probability",
+    "market_aware_overlay_edge",
+    "market_aware_overlay_used_for_risk_only",
     "spread_capture_usdc",
     "adverse_selection_30m_usdc",
     "settlement_pnl_usdc",

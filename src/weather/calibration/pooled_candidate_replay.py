@@ -6,6 +6,7 @@ artifact against the same settled rows as a shadow candidate. Live serving is
 not changed by this module.
 """
 import argparse
+import bisect
 import csv
 import hashlib
 import json
@@ -36,6 +37,10 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, row_temp_native
+from weather.sources.reanalysis_synoptic import (
+    REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
+    load_reanalysis_synoptic_features,
+)
 from weather.reporting.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
@@ -45,12 +50,22 @@ from weather.market.market_microstructure_features import (
 from weather.market.market_registry import REGISTRY
 from weather.model.continuous_density import (
     band_probability_from_distribution as density_band_probability_from_distribution,
+    bucket_interval_native,
+    density_f_from_payload,
+    native_interval_to_f,
+    normalize_density,
 )
 from weather.calibration.pooled_feature_model import (
     DEFAULT_BAND_ARTIFACT,
+    FEATURE_SUBSET_FORECAST_PROFILE,
     add_dynamic_source_state_features,
     add_city_features,
+    apply_adjacent_calibration,
+    apply_band_postprocessing,
+    apply_exact_winner_catchup,
+    apply_forecast_relative_density_calibration,
     band_prediction_record,
+    apply_reanalysis_promotion_lane_to_record,
     market_climate_stats,
     market_source_reliability,
     predict_band_rows_for_bundle,
@@ -80,6 +95,12 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
+from weather.reporting.variant_registry import (
+    DEFAULT_REGISTRY_PATH as DEFAULT_VARIANT_REGISTRY_PATH,
+    load_registry as load_variant_registry,
+    variant_contract_for_artifact,
+)
+from weather.reporting.artifact_disk_budget import ensure_artifact_disk_headroom
 
 from weather.calibration.pooled_candidate_scoring import (
     CONSERVATIVE_BRIDGE_ALPHA_BY_MARKET,
@@ -88,6 +109,7 @@ from weather.calibration.pooled_candidate_scoring import (
     DEFAULT_CANDIDATE_VARIANT_OUT,
     DEFAULT_MICROSTRUCTURE_VARIANT_OUT,
     DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT,
+    DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
     EXACT_WINNER_TARGET_MARKETS,
     MICROSTRUCTURE_GATE_MAX_DELTA_VS_CANDIDATE,
     MICROSTRUCTURE_GATE_MAX_DELTA_VS_MARKET,
@@ -167,6 +189,96 @@ MICROSTRUCTURE_CATEGORICAL_FEATURES = [
     "bin_type",
     "candidate_cutoff_hour_bucket",
 ]
+POOLED_REPLAY_PREDICTION_FUNCTION = "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay"
+
+
+def cutoff_regime(hour):
+    try:
+        hour = int(float(hour))
+    except (TypeError, ValueError):
+        return "unknown"
+    if hour <= 8:
+        return "early"
+    if hour <= 14:
+        return "midday"
+    return "late"
+
+
+def forecast_source_count_bucket(value):
+    try:
+        value = int(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= 1:
+        return "low_count"
+    if value == 2:
+        return "two_sources"
+    return "three_plus_sources"
+
+
+def forecast_disagreement_bucket(value):
+    try:
+        value = abs(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 1.0:
+        return "low_disagreement"
+    if value < 2.5:
+        return "moderate_disagreement"
+    return "high_disagreement"
+
+
+def forecast_bucket_pressure(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= -1.0:
+        return "cool_side"
+    if value >= 1.0:
+        return "warm_side"
+    return "near_forecast"
+
+
+def density_projection_index(payload):
+    density = normalize_density(density_f_from_payload(payload) or {})
+    if not density:
+        return None
+    grid = sorted(float(value) for value in density)
+    cumulative = [0.0]
+    total = 0.0
+    for value in grid:
+        total += float(density.get(value, 0.0))
+        cumulative.append(total)
+    return grid, cumulative
+
+
+def density_projection_probability(index, unit, kind, value, value_hi=None):
+    if not index:
+        return None
+    grid, cumulative = index
+    low_native, high_native = bucket_interval_native(kind, value, value_hi)
+    low_f, high_f = native_interval_to_f(low_native, high_native, unit)
+    left = 0 if low_f is None else bisect.bisect_left(grid, float(low_f))
+    right = len(grid) if high_f is None else bisect.bisect_left(grid, float(high_f))
+    if right < left:
+        return 0.0
+    return max(0.0, min(1.0, float(cumulative[right] - cumulative[left])))
+
+
+def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None):
+    feature_row = feature_row or {}
+    band_row = band_row or {}
+    source_count = feature_row.get("forecast_source_count")
+    disagreement = feature_row.get("forecast_disagreement")
+    forecast_gap = feature_row.get("forecast_gap")
+    pressure = band_row.get("band_mid_minus_forecast")
+    copy["forecast_source_count"] = source_count
+    copy["forecast_disagreement"] = disagreement
+    copy["forecast_gap"] = forecast_gap
+    copy["forecast_source_count_bucket"] = forecast_source_count_bucket(source_count)
+    copy["forecast_disagreement_bucket"] = forecast_disagreement_bucket(disagreement)
+    copy["forecast_bucket_pressure"] = forecast_bucket_pressure(pressure)
 
 def _model_for_market(models, market_id):
     if market_id not in models:
@@ -186,7 +298,43 @@ def _source_reliability_for_market(source_reliability, spec):
     return source_reliability[spec.id]
 
 
-def _record_feature_row(model, spec, climate, record, source_reliability=None):
+def _artifact_feature_names(artifact):
+    names = set()
+    for bundle in ((artifact or {}).get("models") or {}).values():
+        if isinstance(bundle, dict):
+            names.update(str(name) for name in bundle.get("feature_names") or [])
+    return names
+
+
+def _artifact_reanalysis_lane(artifact):
+    return (
+        (artifact or {}).get("reanalysis_promotion_lane")
+        or ((artifact or {}).get("source_family_lanes") or {}).get("reanalysis_synoptic")
+    )
+
+
+def _artifact_needs_reanalysis(artifact):
+    lane = _artifact_reanalysis_lane(artifact)
+    if lane:
+        return True
+    return any(name.startswith("reanalysis_") for name in _artifact_feature_names(artifact))
+
+
+def _reanalysis_index_for_market(indexes, spec):
+    if spec.id not in indexes:
+        indexes[spec.id] = load_reanalysis_synoptic_features(spec=spec)
+    return indexes[spec.id]
+
+
+def _record_feature_row(
+    model,
+    spec,
+    climate,
+    record,
+    source_reliability=None,
+    reanalysis_synoptic_features=None,
+    reanalysis_promotion_lane=None,
+):
     now = parse_built_at(record)
     if now is None:
         raise ValueError("replay record is missing a parseable built_at/captured_at_local timestamp")
@@ -206,19 +354,27 @@ def _record_feature_row(model, spec, climate, record, source_reliability=None):
     ]
     observed_support = model.max_value(*support_values)
     row = {column: features.get(column) for column in FEATURE_COLUMNS}
+    for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS:
+        if reanalysis_synoptic_features and column in reanalysis_synoptic_features:
+            row[column] = reanalysis_synoptic_features.get(column)
+    row["feature_schema_version"] = FEATURE_SCHEMA_VERSION
     row["cutoff_hour"] = int(cutoff_hour)
     row["target_date"] = target_date.isoformat() if target_date else record.get("target_date")
     row["observed_support_bucket"] = model.round_half_up(observed_support)
     add_city_features(row, spec, climate, source_reliability=source_reliability)
+    apply_reanalysis_promotion_lane_to_record(row, reanalysis_promotion_lane)
     add_dynamic_source_state_features(row, sources=sources, captured_at=now)
     return row
 
 
-def build_candidate_features(manifest, snapshots_root, family_unit):
+def build_candidate_features(manifest, snapshots_root, family_unit, artifact=None):
     """Return (market_id, snapshot_id) -> feature row for candidate scoring."""
     models = {}
     climates = {}
     source_reliability = {}
+    reanalysis_indexes = {}
+    reanalysis_promotion_lane = _artifact_reanalysis_lane(artifact)
+    needs_reanalysis = _artifact_needs_reanalysis(artifact)
     diagnostics = {
         "family_unit": family_unit,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -230,6 +386,8 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
         "missing_hour_models": 0,
         "feature_errors": [],
         "hour_counts": {},
+        "reanalysis_sidecar_loaded_markets": [],
+        "reanalysis_promotion_lane": reanalysis_promotion_lane or {},
     }
     include_reconstructed = bool(manifest.get("include_reconstructed"))
     features = {}
@@ -257,7 +415,22 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
                 continue
             diagnostics["candidate_snapshots"] += 1
             try:
-                feature_row = _record_feature_row(model, spec, climate, record, source_reliability=reliability)
+                reanalysis_features = None
+                target_date = record_target_date(record)
+                if needs_reanalysis and target_date is not None:
+                    reanalysis_features = _reanalysis_index_for_market(
+                        reanalysis_indexes,
+                        spec,
+                    ).get(target_date.isoformat())
+                feature_row = _record_feature_row(
+                    model,
+                    spec,
+                    climate,
+                    record,
+                    source_reliability=reliability,
+                    reanalysis_synoptic_features=reanalysis_features,
+                    reanalysis_promotion_lane=reanalysis_promotion_lane,
+                )
             except Exception as exc:  # noqa: BLE001 - diagnostics should survive bad rows
                 if len(diagnostics["feature_errors"]) < 20:
                     diagnostics["feature_errors"].append({
@@ -271,6 +444,7 @@ def build_candidate_features(manifest, snapshots_root, family_unit):
                 diagnostics["hour_counts"].get(str(feature_row["cutoff_hour"]), 0) + 1
             )
             features[(market_id, snapshot_id)] = feature_row
+    diagnostics["reanalysis_sidecar_loaded_markets"] = sorted(reanalysis_indexes)
     return features, diagnostics
 
 
@@ -344,7 +518,7 @@ def build_candidate_distributions(manifest, snapshots_root, artifact):
     family_unit = artifact.get("family_unit") or "F"
     models_by_hour = artifact.get("models") or {}
     support = artifact.get("support")
-    feature_rows, diagnostics = build_candidate_features(manifest, snapshots_root, family_unit)
+    feature_rows, diagnostics = build_candidate_features(manifest, snapshots_root, family_unit, artifact=artifact)
     by_hour = defaultdict(list)
     for (market_id, snapshot_id), feature_row in feature_rows.items():
         hour = str(feature_row["cutoff_hour"])
@@ -368,6 +542,7 @@ def build_candidate_distributions(manifest, snapshots_root, artifact):
             predictions[(market_id, snapshot_id)] = {
                 "distribution": distribution,
                 "cutoff_hour": feature_row["cutoff_hour"],
+                "feature_schema_version": feature_row.get("feature_schema_version") or FEATURE_SCHEMA_VERSION,
             }
     diagnostics["predicted_snapshots"] = len(predictions)
     return predictions, diagnostics
@@ -400,6 +575,7 @@ def attach_candidate_probabilities(replay_results, predictions, family_unit, sou
         if candidate:
             kind, value, value_hi = snapshot_band_key(row)
             copy["candidate_cutoff_hour"] = candidate.get("cutoff_hour")
+            copy["feature_schema_version"] = candidate.get("feature_schema_version")
             copy["candidate_p"] = band_probability_from_distribution(
                 candidate.get("distribution"),
                 kind,
@@ -453,6 +629,7 @@ def attach_band_candidate_probabilities(
         )
         feature_row = feature_rows.get((market_id, snapshot_id))
         if feature_row:
+            copy["feature_schema_version"] = feature_row.get("feature_schema_version") or FEATURE_SCHEMA_VERSION
             kind, value, value_hi = snapshot_band_key(row)
             band_row = band_prediction_record(
                 feature_row,
@@ -460,6 +637,8 @@ def attach_band_candidate_probabilities(
                 value,
                 value_hi=value_hi,
             )
+            copy["_band_postprocess_row"] = band_row
+            attach_forecast_profile_slice_context(copy, feature_row=feature_row, band_row=band_row)
             clob_key = (market_id, snapshot_id, kind, value, value_hi)
             clob_row = (clob_features or {}).get(clob_key)
             if clob_row:
@@ -476,14 +655,33 @@ def attach_band_candidate_probabilities(
             coverage["missing_candidate_rows"] += 1
         rows.append(copy)
 
+    postprocess = artifact.get("postprocess") or {}
+    band_postprocess_enabled = any(
+        key in postprocess
+        for key in (
+            "hard_floor_enabled",
+            "support_floor_enabled",
+            "late_lockin_enabled",
+            "adjacent_calibration_enabled",
+            "exact_winner_catchup_enabled",
+            "forecast_centering_enabled",
+        )
+    )
     for hour, items in sorted(by_hour.items(), key=lambda item: int(item[0])):
         bundle = models_by_hour[hour]
         band_rows = [item[1] for item in items]
-        probabilities = predict_band_rows_for_bundle(bundle, band_rows, postprocess=True)
-        for (row_index, _), probability in zip(items, probabilities):
+        probabilities = predict_band_rows_for_bundle(bundle, band_rows, postprocess=False)
+        for (row_index, band_row), probability in zip(items, probabilities):
+            if band_postprocess_enabled:
+                probability = apply_band_postprocessing(
+                    probability,
+                    rows[row_index].get("_band_postprocess_row") or band_row,
+                    config=postprocess,
+                )
             rows[row_index]["candidate_p"] = probability
 
-    postprocess = artifact.get("postprocess") or {}
+    for row in rows:
+        row.pop("_band_postprocess_row", None)
     if postprocess.get("partition_normalization_enabled", True):
         normalize_partition_probabilities(
             rows,
@@ -534,6 +732,7 @@ def attach_density_candidate_probabilities(
         feature_row = feature_rows.get((market_id, snapshot_id))
         if feature_row:
             copy["candidate_cutoff_hour"] = feature_row.get("cutoff_hour")
+            copy["feature_schema_version"] = feature_row.get("feature_schema_version") or FEATURE_SCHEMA_VERSION
             key = (market_id, snapshot_id)
             if key not in payload_indexes:
                 payload_indexes[key] = len(snapshot_rows)
@@ -547,6 +746,8 @@ def attach_density_candidate_probabilities(
         key: payloads[index] if index < len(payloads) else None
         for key, index in payload_indexes.items()
     }
+    projection_cache = {}
+    density_postprocess = artifact.get("density_postprocess") or {}
     for row in rows:
         if _valid_probability(row.get("candidate_p")):
             continue
@@ -557,28 +758,86 @@ def attach_density_candidate_probabilities(
         if not payload or not spec:
             continue
         feature_row = feature_rows.get((market_id, snapshot_id)) or {}
-        payload = apply_continuous_density_calibration(
-            payload,
-            artifact,
-            floor_bucket=feature_row.get("observed_floor_bucket"),
-            unit=spec.display_unit,
-            cutoff_hour=feature_row.get("cutoff_hour"),
-        )
         kind, value, value_hi = snapshot_band_key(row)
-        probability = density_band_probability_from_distribution(
-            payload,
-            spec,
-            {
-                "kind": kind,
-                "value": value,
-                "value_hi": value_hi,
-                "unit": spec.display_unit,
-            },
+        band_row = (
+            band_prediction_record(feature_row, kind, value, value_hi=value_hi)
+            if feature_row
+            else {}
         )
+        band_row["source_freshness_state"] = row.get("source_freshness_state")
+        attach_forecast_profile_slice_context(row, feature_row=feature_row, band_row=band_row)
+        cache_key = (market_id, snapshot_id)
+        cached = projection_cache.get(cache_key)
+        if cached is None:
+            calibrated_payload = apply_continuous_density_calibration(
+                payload,
+                artifact,
+                floor_bucket=band_row.get("observed_floor_bucket"),
+                unit=spec.display_unit,
+                resolution_weight=band_row.get("late_lockin_strength", 0.0),
+                cutoff_hour=feature_row.get("cutoff_hour"),
+            )
+            cached = {
+                "payload": calibrated_payload,
+                "projection_index": density_projection_index(calibrated_payload),
+                "floor_bucket": band_row.get("observed_floor_bucket"),
+                "lockin_strength": band_row.get("late_lockin_strength"),
+            }
+            projection_cache[cache_key] = cached
+        payload = cached.get("payload") or payload
+        probability = density_projection_probability(
+            cached.get("projection_index"),
+            spec.display_unit,
+            kind,
+            value,
+            value_hi=value_hi,
+        )
+        if probability is None:
+            probability = density_band_probability_from_distribution(
+                payload,
+                spec,
+                {
+                    "kind": kind,
+                    "value": value,
+                    "value_hi": value_hi,
+                    "unit": spec.display_unit,
+                },
+            )
         if _valid_probability(probability):
+            if density_postprocess.get("enabled"):
+                if density_postprocess.get("adjacent_calibration_enabled", False):
+                    probability = apply_adjacent_calibration(
+                        probability,
+                        band_row,
+                        config={"adjacent_calibration": density_postprocess.get("adjacent_calibration") or {}},
+                    )
+                if density_postprocess.get("exact_winner_catchup_enabled", False):
+                    probability = apply_exact_winner_catchup(
+                        probability,
+                        band_row,
+                        config={"exact_winner_catchup": density_postprocess.get("exact_winner_catchup") or {}},
+                    )
+                if density_postprocess.get("forecast_relative_calibration_enabled", False):
+                    probability = apply_forecast_relative_density_calibration(
+                        probability,
+                        band_row,
+                        config={
+                            "forecast_relative_calibration": (
+                                density_postprocess.get("forecast_relative_calibration") or {}
+                            ),
+                        },
+                    )
             row["candidate_p"] = _clamp_probability(probability)
             row["candidate_density_mean_f"] = payload.get("mean_f")
             row["candidate_density_sigma_f"] = payload.get("sigma_f")
+            row["candidate_density_floor_bucket"] = cached.get("floor_bucket")
+            row["candidate_density_lockin_strength"] = cached.get("lockin_strength")
+
+    if density_postprocess.get("enabled") and density_postprocess.get("partition_normalization_enabled", False):
+        normalize_partition_probabilities(
+            rows,
+            gamma=float(density_postprocess.get("partition_normalization_gamma", 1.25)),
+        )
 
     candidate_rows = sum(1 for row in rows if _valid_probability(row.get("candidate_p")))
     coverage["candidate_rows"] = candidate_rows
@@ -622,10 +881,34 @@ def current_blend_alpha(row, config):
             alpha = min(float(alpha), float(source_state_alpha))
         except (TypeError, ValueError):
             alpha = source_state_alpha
+    for rule in config.get("current_blend_context_alpha") or []:
+        if current_blend_context_rule_matches(row, rule):
+            alpha = rule.get("alpha", alpha)
     try:
         return max(0.0, min(1.0, float(alpha)))
     except (TypeError, ValueError):
         return 1.0
+
+
+def current_blend_context_value(row, key):
+    if key == "source_freshness_state":
+        return row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
+    if key == "cutoff_regime":
+        return row.get("cutoff_regime") or row.get("candidate_cutoff_regime") or ""
+    if key == "cutoff_hour":
+        return row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or ""
+    return row.get(key)
+
+
+def current_blend_context_rule_matches(row, rule):
+    for key, expected in (rule or {}).items():
+        if key in {"alpha", "policy_id", "description"}:
+            continue
+        actual = current_blend_context_value(row, key)
+        expected_values = expected if isinstance(expected, list) else [expected]
+        if str(actual) not in {str(value) for value in expected_values}:
+            return False
+    return True
 
 
 def apply_current_blend_guardrail(rows, config):
@@ -931,6 +1214,7 @@ def microstructure_shadow_report(
     min_train_rows=500,
     variant_out_path=DEFAULT_MICROSTRUCTURE_VARIANT_OUT,
     candidate_artifact_hash="",
+    min_free_bytes=0,
 ):
     casebook_index, casebook_diagnostics = load_casebook_index(casebook_path or DEFAULT_CASEBOOK)
     matched = annotate_casebook_rows(rows, casebook_index)
@@ -988,7 +1272,11 @@ def microstructure_shadow_report(
         candidate_artifact_hash=candidate_artifact_hash,
         microstructure_artifact_hash=microstructure_artifact_hash,
     )
-    variant_path = write_microstructure_shadow_variants(variant_out_path, variant_rows)
+    variant_path = write_microstructure_shadow_variants(
+        variant_out_path,
+        variant_rows,
+        min_free_bytes=min_free_bytes,
+    )
     diagnostics["casebook_matched_rows"] = matched
     diagnostics["casebook"] = casebook_diagnostics
     diagnostics["artifact_path"] = written_artifact
@@ -1185,22 +1473,89 @@ def _manifest_summary(manifest):
     }
 
 
-def candidate_variant_defaults(artifact):
+def candidate_variant_defaults(artifact, *, variant_registry=None, artifact_path=None):
+    contract = variant_contract_for_artifact(
+        variant_registry,
+        artifact_path,
+        prediction_function=POOLED_REPLAY_PREDICTION_FUNCTION,
+    ) if variant_registry and artifact_path else None
+    if contract:
+        return contract.get("variant_id"), contract.get("export_family") or contract.get("variant_family")
     prediction_mode = artifact.get("prediction_mode") or "bucket_distribution"
+    if artifact.get("feature_subset") == FEATURE_SUBSET_FORECAST_PROFILE:
+        return "item134_forecast_profile_v0_1", "forecast_profile_calibration"
     if prediction_mode == "continuous_density_f":
-        return "pooled_continuous_density_hgb_v0_1", "pooled_continuous_density"
+        schema = artifact.get("schema_version") or "pooled_continuous_density_hgb_v0.1"
+        return str(schema).replace(".", "_"), "pooled_continuous_density"
     return "pooled_f_candidate", "pooled_f_candidate"
+
+
+def forecast_profile_guardrails(rows, min_rows=50, tolerance=0.003):
+    by_market = defaultdict(list)
+    for row in rows:
+        if row.get("forecast_disagreement_bucket") != "high_disagreement":
+            continue
+        by_market[row.get("market_id") or "unknown"].append(row)
+    output = []
+    for market_id, market_rows in sorted(by_market.items()):
+        comp = candidate_comparison(market_rows)
+        if not comp:
+            continue
+        reasons = []
+        if int(comp.get("n") or 0) < int(min_rows):
+            reasons.append(f"high-disagreement rows {comp.get('n', 0)} < {int(min_rows)}")
+        delta_current = comp.get("delta_vs_current")
+        delta_market = comp.get("delta_vs_market")
+        if delta_current is None or delta_current > float(tolerance):
+            reasons.append("candidate not proven safe versus current on high-disagreement rows")
+        if delta_market is None or delta_market > float(tolerance):
+            reasons.append("candidate not proven safe versus market on high-disagreement rows")
+        output.append({
+            "market_id": market_id,
+            "comparison": comp,
+            "status": "pass" if not reasons else "blocked",
+            "reasons": reasons,
+        })
+    return {
+        "schema_version": "forecast_profile_guardrails_v0.1",
+        "high_disagreement_min_rows": int(min_rows),
+        "tolerance": float(tolerance),
+        "rows": output,
+        "blocked_markets": [row["market_id"] for row in output if row["status"] != "pass"],
+    }
 
 
 def run_pooled_candidate_replay(args):
     manifest = load_manifest(args.corpus)
     artifact = load_artifact(args.artifact)
+    variant_registry = load_variant_registry(getattr(args, "variant_registry", DEFAULT_VARIANT_REGISTRY_PATH))
+    registry_contract = variant_contract_for_artifact(
+        variant_registry,
+        args.artifact,
+        prediction_function=POOLED_REPLAY_PREDICTION_FUNCTION,
+    )
     artifact_hash = artifact.get("artifact_hash") or artifact_hash_for_path(args.artifact)
     family_unit = artifact.get("family_unit") or "F"
     prediction_mode = artifact.get("prediction_mode") or "bucket_distribution"
-    default_variant_id, default_variant_family = candidate_variant_defaults(artifact)
+    default_variant_id, default_variant_family = candidate_variant_defaults(
+        artifact,
+        variant_registry=variant_registry,
+        artifact_path=args.artifact,
+    )
     candidate_variant_id = getattr(args, "candidate_variant_id", None) or default_variant_id
     candidate_variant_family = getattr(args, "candidate_variant_family", None) or default_variant_family
+    candidate_variant_out = getattr(args, "candidate_variant_out", None)
+    if (
+        not candidate_variant_out
+        and registry_contract
+        and not getattr(args, "disable_candidate_variant_export", False)
+    ):
+        candidate_variant_out = registry_contract.get("default_export_path")
+    postprocess_config_hash = (
+        (registry_contract or {}).get("postprocess_config_hash")
+        or artifact.get("schema_version")
+        or ""
+    )
     folders = [str(folder) for folder in folders_from_manifest(manifest, args.snapshots_root)]
     replay_results = run_replay_backtest(
         folders,
@@ -1218,7 +1573,12 @@ def run_pooled_candidate_replay(args):
         require_exact_identity=getattr(args, "require_exact_identity", False),
     )
     if prediction_mode == "band_binary":
-        feature_rows, diagnostics = build_candidate_features(manifest, args.snapshots_root, family_unit)
+        feature_rows, diagnostics = build_candidate_features(
+            manifest,
+            args.snapshots_root,
+            family_unit,
+            artifact=artifact,
+        )
         clob_features, clob_diagnostics = build_clob_feature_index(
             manifest,
             args.snapshots_root,
@@ -1241,7 +1601,12 @@ def run_pooled_candidate_replay(args):
             source_freshness=source_freshness,
         )
     elif prediction_mode == "continuous_density_f":
-        feature_rows, diagnostics = build_candidate_features(manifest, args.snapshots_root, family_unit)
+        feature_rows, diagnostics = build_candidate_features(
+            manifest,
+            args.snapshots_root,
+            family_unit,
+            artifact=artifact,
+        )
         source_freshness, source_freshness_diagnostics = build_source_freshness_index(
             manifest,
             args.snapshots_root,
@@ -1271,6 +1636,10 @@ def run_pooled_candidate_replay(args):
         )
     for row in candidate_rows:
         row["candidate_artifact_hash"] = artifact_hash
+        row["candidate_cutoff_regime"] = cutoff_regime(row.get("candidate_cutoff_hour"))
+        row.setdefault("forecast_source_count_bucket", "unknown")
+        row.setdefault("forecast_disagreement_bucket", "unknown")
+        row.setdefault("forecast_bucket_pressure", "unknown")
 
     trust_rows = score_all_markets(
         root=args.snapshots_root,
@@ -1288,18 +1657,23 @@ def run_pooled_candidate_replay(args):
     daily_first = daily_first_candidate_comparison(candidate_rows)
     by_market = grouped_candidate_comparison(candidate_rows, "market_id")
     by_hour = grouped_candidate_comparison(candidate_rows, "candidate_cutoff_hour")
+    by_cutoff_regime = grouped_candidate_comparison(candidate_rows, "candidate_cutoff_regime")
     by_bin_type = grouped_candidate_comparison(candidate_rows, "bin_type")
     by_settlement_distance = grouped_candidate_comparison(candidate_rows, "settlement_distance_bucket")
     by_source_freshness = grouped_candidate_comparison(candidate_rows, "source_freshness_state")
+    by_forecast_source_count = grouped_candidate_comparison(candidate_rows, "forecast_source_count_bucket")
+    by_forecast_disagreement = grouped_candidate_comparison(candidate_rows, "forecast_disagreement_bucket")
+    by_forecast_bucket_pressure = grouped_candidate_comparison(candidate_rows, "forecast_bucket_pressure")
     candidate_variant_path, candidate_variant_rows_count = write_candidate_shadow_variants(
-        getattr(args, "candidate_variant_out", None),
+        candidate_variant_out,
         candidate_rows,
         variant_id=candidate_variant_id,
         variant_family=candidate_variant_family,
         uses_market_features=getattr(args, "candidate_variant_uses_market_features", False),
         is_control=getattr(args, "candidate_variant_control", False),
         artifact_hash=artifact_hash,
-        postprocess_config_hash=artifact.get("schema_version") or "",
+        postprocess_config_hash=postprocess_config_hash,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
     )
     candidate_shadow_variants = None
     if candidate_variant_path:
@@ -1310,6 +1684,7 @@ def run_pooled_candidate_replay(args):
             "variant_family": candidate_variant_family,
             "uses_market_features": bool(getattr(args, "candidate_variant_uses_market_features", False)),
             "is_control": bool(getattr(args, "candidate_variant_control", False)),
+            "registry_contract": bool(registry_contract),
         }
     postprocess = artifact.get("postprocess") or {}
     exact_winner_diagnostics = None
@@ -1327,20 +1702,28 @@ def run_pooled_candidate_replay(args):
             min_train_rows=getattr(args, "microstructure_min_train_rows", 500),
             variant_out_path=getattr(args, "microstructure_variant_out", DEFAULT_MICROSTRUCTURE_VARIANT_OUT),
             candidate_artifact_hash=artifact_hash,
+            min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
         )
     source_state_ablation = source_state_ablation_report(
         candidate_rows,
         artifact,
         candidate_artifact_hash=artifact_hash,
         variant_out_path=getattr(args, "source_state_ablation_variant_out", DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT),
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
     )
     conservative_bridge = conservative_bridge_report(
         candidate_rows,
         variant_out_path=getattr(args, "bridge_variant_out", DEFAULT_BRIDGE_VARIANT_OUT),
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
     )
     market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
     verdict = market_verdict if replay_gate["global_ok"] and blocked_validation.get("passed") else "BLOCK"
     adjacent_calibration = postprocess.get("adjacent_calibration") or {}
+    market_bias_calibration = postprocess.get("market_bias_calibration") or {}
+    market_bias_selection = market_bias_calibration.get("selection") or {}
+    density_postprocess = artifact.get("density_postprocess") or {}
+    density_postprocess_selection = density_postprocess.get("selection") or {}
+    density_forecast_relative = density_postprocess.get("forecast_relative_calibration") or {}
 
     report = {
         "generated_at": datetime.now().isoformat(),
@@ -1355,13 +1738,52 @@ def run_pooled_candidate_replay(args):
             "family_unit": family_unit,
             "prediction_mode": prediction_mode,
             "objective": artifact.get("objective"),
+            "feature_subset": artifact.get("feature_subset"),
+            "feature_subset_contract": artifact.get("feature_subset_contract") or {},
+            "forecast_profile_calibration": artifact.get("forecast_profile_calibration") or {},
             "trained_at": artifact.get("trained_at"),
             "support_min": min(artifact.get("support") or []) if artifact.get("support") else None,
             "support_max": max(artifact.get("support") or []) if artifact.get("support") else None,
             "hour_models": sorted(int(hour) for hour in (artifact.get("models") or {})),
             "adjacent_calibration_contexts": adjacent_calibration.get("context_count"),
+            "density_postprocess": {
+                "schema_version": density_postprocess.get("schema_version"),
+                "enabled": bool(density_postprocess.get("enabled")),
+                "policy_id": density_postprocess.get("policy_id"),
+                "calibration_rows": density_postprocess.get("calibration_rows", 0),
+                "baseline_market_band_brier": density_postprocess_selection.get("baseline_market_band_brier"),
+                "selected_market_band_brier": density_postprocess_selection.get("selected_market_band_brier"),
+                "adjacent_contexts": (density_postprocess.get("adjacent_calibration") or {}).get("context_count", 0),
+                "exact_winner_contexts": (density_postprocess.get("exact_winner_catchup") or {}).get("context_count", 0),
+                "exact_winner_strength": (density_postprocess.get("exact_winner_catchup") or {}).get("strength"),
+                "forecast_relative_calibration_enabled": bool(
+                    density_postprocess.get("forecast_relative_calibration_enabled")
+                ),
+                "forecast_relative_contexts": density_forecast_relative.get("context_count", 0),
+                "forecast_relative_strength": density_forecast_relative.get("strength"),
+            },
             "current_blend_default_alpha": postprocess.get("current_blend_default_alpha"),
             "current_blend_market_alpha": postprocess.get("current_blend_market_alpha") or {},
+            "current_blend_source_freshness_default_alpha": (
+                postprocess.get("current_blend_source_freshness_default_alpha")
+            ),
+            "current_blend_source_freshness_alpha": (
+                postprocess.get("current_blend_source_freshness_alpha") or {}
+            ),
+            "market_bias_calibration_enabled": bool(postprocess.get("market_bias_calibration_enabled")),
+            "market_bias_calibration_contexts": market_bias_calibration.get("context_count", 0),
+            "market_bias_baseline_brier": market_bias_selection.get("baseline_brier"),
+            "market_bias_candidate_brier": market_bias_selection.get("candidate_brier"),
+            "market_bias_delta_brier": market_bias_selection.get("delta_brier"),
+            "market_bias_excluded_markets": market_bias_calibration.get("excluded_markets") or [],
+            "market_bias_allowed_source_freshness_states": (
+                market_bias_calibration.get("allowed_source_freshness_states") or []
+            ),
+            "forecast_centering_enabled": bool(postprocess.get("forecast_centering_enabled")),
+            "forecast_centering_sigma": postprocess.get("forecast_centering_sigma"),
+            "forecast_centering_default_alpha": postprocess.get("forecast_centering_default_alpha"),
+            "forecast_centering_early_alpha": postprocess.get("forecast_centering_early_alpha"),
+            "forecast_centering_alpha_by_hour": postprocess.get("forecast_centering_alpha_by_hour") or {},
             "blocked_validation": {
                 "schema_version": blocked_validation.get("schema_version"),
                 "split_mode": blocked_validation.get("split_mode"),
@@ -1378,10 +1800,16 @@ def run_pooled_candidate_replay(args):
         "market_rows": market_rows,
         "by_market": by_market,
         "by_hour": by_hour,
+        "by_cutoff_regime": by_cutoff_regime,
         "by_bin_type": by_bin_type,
         "by_settlement_distance": by_settlement_distance,
         "by_source_freshness": by_source_freshness,
+        "by_forecast_source_count": by_forecast_source_count,
+        "by_forecast_disagreement": by_forecast_disagreement,
+        "by_forecast_bucket_pressure": by_forecast_bucket_pressure,
+        "forecast_profile_guardrails": forecast_profile_guardrails(candidate_rows),
         "candidate_shadow_variants": candidate_shadow_variants,
+        "active_registry_contract": registry_contract or {},
         "exact_winner_diagnostics": exact_winner_diagnostics,
         "microstructure": microstructure,
         "source_state_ablation": source_state_ablation,
@@ -1394,10 +1822,21 @@ def run_pooled_candidate_replay(args):
         },
         "long_job_guard": getattr(args, "long_job_guard_info", None) or {},
     }
-    write_report(report, args.out)
+    write_report(
+        report,
+        args.out,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+    )
     if args.json_out:
         Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.json_out).write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        text = json.dumps(report, indent=2, sort_keys=True)
+        ensure_artifact_disk_headroom(
+            args.json_out,
+            estimated_bytes=len(text.encode("utf-8")),
+            min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+            context="pooled candidate JSON report export",
+        )
+        Path(args.json_out).write_text(text, encoding="utf-8")
     return report
 
 from weather.calibration.pooled_candidate_replay_report import write_report  # noqa: E402
@@ -1408,6 +1847,7 @@ def main():
     parser.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--artifact", default=str(DEFAULT_BAND_ARTIFACT))
+    parser.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--replay-report", default=str(DEFAULT_REPLAY_REPORT),
@@ -1422,12 +1862,16 @@ def main():
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
     parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK),
                         help="Disagreement casebook JSON used to score Item 38 target slices.")
-    parser.add_argument("--candidate-variant-out", default="",
-                        help="Item-69-compatible candidate variant CSV. Empty string disables variant export.")
+    parser.add_argument("--candidate-variant-out", default=None,
+                        help="Item-69-compatible candidate variant CSV. Defaults to the active registry contract when available.")
     parser.add_argument("--candidate-variant-id", default=None)
     parser.add_argument("--candidate-variant-family", default=None)
     parser.add_argument("--candidate-variant-uses-market-features", action="store_true")
     parser.add_argument("--candidate-variant-control", action="store_true")
+    parser.add_argument("--disable-candidate-variant-export", action="store_true",
+                        help="Disable registry-default candidate variant export.")
+    parser.add_argument("--min-artifact-free-bytes", type=int, default=DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
+                        help="Require this much free disk headroom after estimated variant CSV exports. Use 0 to disable.")
     parser.add_argument("--microstructure-artifact", default=str(DEFAULT_MICROSTRUCTURE_ARTIFACT),
                         help="Shadow CLOB overlay artifact path. Empty string disables artifact writing.")
     parser.add_argument("--microstructure-variant-out", default=str(DEFAULT_MICROSTRUCTURE_VARIANT_OUT),

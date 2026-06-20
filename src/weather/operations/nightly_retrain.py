@@ -382,6 +382,9 @@ def daily_learning_summary(path):
     broad_slo = retrain_plan.get("broad_live_forward_slo") or (
         ((payload.get("scorecard") or {}).get("fleet") or {}).get("live_forward_slo") or {}
     )
+    variant_learning_gate = retrain_plan.get("variant_learning_gate") or (
+        (payload.get("scorecard") or {}).get("variant_learning_gate") or {}
+    )
     blockers = [
         {
             "priority": row.get("priority"),
@@ -405,6 +408,7 @@ def daily_learning_summary(path):
         "training_ready": retrain_plan.get("training_ready"),
         "promotion_ready": retrain_plan.get("promotion_ready"),
         "broad_live_forward_slo": broad_slo,
+        "variant_learning_gate": variant_learning_gate,
         "blockers": blockers,
     }
 

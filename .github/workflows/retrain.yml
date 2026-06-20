@@ -32,6 +32,11 @@ jobs:
       - name: Train Feature Models for All Markets
         run: python -m weather.calibration.feature_model --all
 
+      - name: Audit Model Artifacts
+        run: |
+          python -m weather.artifacts registry
+          python -m weather.artifacts size-audit
+
       - name: Commit and Push Updated Artifacts
         run: |
           git config --global user.name "github-actions[bot]"

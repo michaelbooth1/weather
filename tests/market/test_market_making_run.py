@@ -78,7 +78,7 @@ def test_preflight_book_audit_uses_clob_startup_gap_policy():
     assert result["ignored_gap_cutoff_utc"] == "2026-06-16T13:55:00+00:00"
 
 
-def write_market_fixture(root, stale_book=False):
+def write_market_fixture(root, stale_book=False, blank_tokens=False, inactive_tokens=False):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
     folder.mkdir(parents=True)
@@ -90,14 +90,15 @@ def write_market_fixture(root, stale_book=False):
     book_rows = []
     for value in (80, 82):
         label = f"{value}-{value + 1} F"
-        token = f"token-{value}"
+        token = "" if blank_tokens else f"token-{value}"
+        condition = "" if blank_tokens else f"condition-{value}"
         snapshot_rows.append({
             "snapshot_id": "s1",
             "captured_at_utc": snapshot_time,
             "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
             "model_version": "candidate",
             "range_label": label,
-            "condition_id": f"condition-{value}",
+            "condition_id": condition,
             "clob_yes_token_id": token,
             "bin_kind": "eq",
             "bin_value_c": str(value),
@@ -134,7 +135,7 @@ def write_market_fixture(root, stale_book=False):
             "market_id": "atlanta",
             "polymarket_url": "https://polymarket.com/event/highest-temperature-in-atlanta-on-june-14-2026",
             "polymarket_market_id": f"pm-{value}",
-            "condition_id": f"condition-{value}",
+            "condition_id": condition,
             "question": label,
             "range_label": label,
             "bin_kind": "eq",
@@ -145,8 +146,8 @@ def write_market_fixture(root, stale_book=False):
             "outcome_index": "0",
             "clob_token_id": token,
             "enable_order_book": "true",
-            "active": "true",
-            "closed": "false",
+            "active": "false" if inactive_tokens else "true",
+            "closed": "true" if inactive_tokens else "false",
             "gamma_yes": "0.50",
             "gamma_no": "0.50",
             "gamma_outcome_price": "",
@@ -163,7 +164,7 @@ def write_market_fixture(root, stale_book=False):
             "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
             "market_id": "atlanta",
             "polymarket_market_id": f"pm-{value}",
-            "condition_id": f"condition-{value}",
+            "condition_id": condition,
             "range_label": label,
             "bin_kind": "eq",
             "bin_value": str(value),
@@ -281,11 +282,14 @@ def append_latest_snapshot_without_clob_features(snapshots_root):
     return folder
 
 
-def write_observation_status(path, heartbeat="2026-06-14T15:59:50+00:00"):
-    path.write_text(json.dumps({
+def write_observation_status(path, heartbeat="2026-06-14T15:59:50+00:00", market_ledger=None):
+    payload = {
         "last_heartbeat": heartbeat,
         "consecutive_errors": 0,
-    }), encoding="utf-8")
+    }
+    if market_ledger:
+        payload["markets"] = {"atlanta": {"monotonic_high_ledger": market_ledger}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def write_known_edge_map(path, permission="harvest_only", reason="promotion_shadow"):
@@ -321,7 +325,8 @@ def write_live_readiness(path):
     return path
 
 
-def write_data_layer_audit(path, ok=True):
+def write_data_layer_audit(path, ok=True, raw_clob_artifacts=None):
+    raw_ok = ok if raw_clob_artifacts is None else raw_clob_artifacts
     path.write_text(json.dumps({
         "schema_version": "data_layer_audit_v0.3",
         "generated_at_utc": NOW,
@@ -335,7 +340,11 @@ def write_data_layer_audit(path, ok=True):
             "folders": [{
                 "target_date": TARGET_DATE,
                 "rows_with_market_token_ids": 2 if ok else 0,
-                "artifact_presence": {"clob_features": ok},
+                "artifact_presence": {
+                    "clob_features": ok,
+                    "clob_tokens": raw_ok,
+                    "order_books_summary": raw_ok,
+                },
                 "clob_features": {"book_available_rows": 2 if ok else 0},
             }],
         },
@@ -406,6 +415,23 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertFalse(bad_gate["ok"])
         self.assertIn("has_market_token_ids", bad_gate["missing"])
         self.assertFalse(load_data_layer_live_gate(bad, TARGET_DATE, "shadow")["required"])
+
+    def test_data_layer_live_gate_rejects_derived_clob_without_raw_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_data_layer_audit(
+                root / "derived_only.json",
+                ok=True,
+                raw_clob_artifacts=False,
+            )
+
+            gate = load_data_layer_live_gate(path, TARGET_DATE, "live-pilot")
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("target_date_clob_token_artifact", gate["missing"])
+        self.assertIn("target_date_raw_book_artifact", gate["missing"])
+        self.assertEqual(gate["target_date_clob_feature_days"], 1)
+        self.assertEqual(gate["target_date_book_available_days"], 1)
 
     def test_platform_verification_gate_requires_current_verified_account(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -573,12 +599,15 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(payload["reason_counts"]["NO_QUOTE_BUDGET_EXHAUSTED"], 1)
             self.assertIn("information_event_gate", payload)
             self.assertGreaterEqual(payload["information_event_gate"]["widen_rows"], 1)
+            self.assertEqual(payload["tape_integrity"]["status"], "PASS")
+            self.assertEqual(payload["tape_integrity"]["actual_rows"], payload["cumulative_row_count"])
             rows = read_csv(run_folder / "quote_intents_long.csv")
             self.assertEqual({row["run_id"] for row in rows}, {"run-1"})
             self.assertTrue(all(row["event_gate_status"] for row in rows))
             self.assertTrue(all(row["live_trade_permission"] in {"False", "False"} for row in rows))
             report = (run_folder / "run_report.md").read_text(encoding="utf-8")
             self.assertIn("## Information Event Gate", report)
+            self.assertIn("Quote tape integrity", report)
             budget_events = [
                 json.loads(line)
                 for line in (run_folder / "budget_ledger.jsonl").read_text(encoding="utf-8").splitlines()
@@ -588,6 +617,74 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertLessEqual(max_reserved, 5.0)
             self.assertIn("order_lifecycle", payload)
             self.assertGreaterEqual(payload["order_lifecycle"]["posted_this_tick_count"], 1)
+
+    def test_blank_clob_tokens_are_market_discovery_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root, blank_tokens=True)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                5.0,
+                mode="shadow",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="blank-tokens",
+                now=NOW,
+            )
+            market = payload["markets"][0]
+            gates = {gate["name"]: gate for gate in market["gates"]}
+
+        self.assertEqual(payload["preflight_status"], "BLOCK")
+        self.assertEqual(payload["root_cause_class"], "blocked_by_market_discovery")
+        self.assertEqual(payload["first_failing_gate"], "clob_discovery")
+        self.assertFalse(gates["clob_discovery"]["ok"])
+        self.assertEqual(market["clob_token_discovery"]["root_cause"], "blank_clob_token_ids")
+        self.assertTrue(payload["zero_trades_expected"])
+
+    def test_quote_rows_include_settlement_normalized_current_high(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status, market_ledger={
+                "market_id": "atlanta",
+                "raw_current_high": 81.7,
+                "raw_current_high_bucket": 82,
+                "settlement_current_high": 82,
+                "high_source": "wu_history",
+                "revision_state": "current",
+                "settlement_bin_key": "eq:82",
+            })
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                50.0,
+                mode="shadow",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="normalized-high",
+                now=NOW,
+            )
+            rows = read_csv(Path(payload["quote_intents_path"]))
+            assessment = payload["markets"][0]["current_high_assessment"]
+
+        self.assertEqual(assessment["settlement_current_high"], 82)
+        self.assertEqual(assessment["probability_on_settlement_current_high"], 0.51)
+        self.assertTrue(all(row["settlement_current_high"] == "82" for row in rows))
+        self.assertTrue(all(row["probability_on_settlement_current_high"] == "0.51" for row in rows))
 
     def test_run_computes_clob_features_when_feature_file_lags_latest_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:

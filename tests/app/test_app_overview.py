@@ -16,7 +16,7 @@ def test_app_overview_rendering(mock_status, mock_edges):
     ]
     
     # Run the app
-    at = AppTest.from_file("app.py").run()
+    at = AppTest.from_file("app/streamlit_app.py").run()
     
     # Assert there are no exceptions
     assert not at.exception

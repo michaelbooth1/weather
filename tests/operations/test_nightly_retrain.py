@@ -252,6 +252,52 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertIn("clob_book_freshness", report)
         self.assertIn("weather.market.market_microstructure ensure", report)
 
+    def test_nightly_status_carries_variant_learning_gate_from_daily_learning(self):
+        def runner(command, **_kwargs):
+            if "weather.reporting.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "BLOCKED",
+                        "run_date": "2026-06-18",
+                        "summary": {"learning_count": 1, "blocker_count": 1},
+                        "retrain_plan": {
+                            "training_ready": False,
+                            "variant_learning_gate": {
+                                "status": "BLOCK",
+                                "first_blocker": {
+                                    "gate": "variant_evidence_sla",
+                                    "detail": "no independent growth",
+                                    "remediation_command": "Collect new settled labels.",
+                                },
+                            },
+                        },
+                        "learnings": [
+                            {
+                                "priority": "P0",
+                                "category": "variant_learning_operational_gate",
+                                "source": "daily_refresh_status",
+                                "signal": "Variant learning operational gate blocked.",
+                                "action": "Collect new settled labels.",
+                                "blocker": True,
+                            }
+                        ],
+                    }),
+                    encoding="utf-8",
+                )
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_nightly_retrain(_args(tmp), runner=runner)
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["daily_learning"]["variant_learning_gate"]["status"], "BLOCK")
+        self.assertEqual(
+            payload["daily_learning"]["variant_learning_gate"]["first_blocker"]["gate"],
+            "variant_evidence_sla",
+        )
+
     def test_nightly_run_sla_flags_missed_run_after_scheduled_window(self):
         with tempfile.TemporaryDirectory() as tmp:
             sla = nightly_run_sla_status(

@@ -141,6 +141,16 @@ class TestReplayRoundTrip(unittest.TestCase):
 
         self.assertEqual(band_value_hi(band), 91)
 
+    def test_non_finite_range_endpoint_falls_back_to_label(self):
+        band = {
+            "bin_kind": "eq",
+            "bin_value_c": 90,
+            "bin_value_hi_c": "nan",
+            "range_label": "90-91 F",
+        }
+
+        self.assertEqual(band_value_hi(band), 91)
+
     def test_band_probabilities_are_valid(self):
         dist = self.model.estimate_distribution(make_sources(), now=NOW)
         p_all = band_model_probability(self.model, dist, {"bin_kind": "lte", "bin_value_c": 40})

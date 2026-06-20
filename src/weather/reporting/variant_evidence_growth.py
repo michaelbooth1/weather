@@ -77,6 +77,9 @@ def _delta(current, baseline):
         "market_count",
         "band_count",
         "settled_label_count",
+        "extra_location_label_row_count",
+        "extra_location_day_count",
+        "target_local_label_row_count",
     )
     return {
         key: current.get(key, 0) - baseline.get(key, 0)
@@ -577,6 +580,9 @@ def render_report(payload):
             ["Bands", summary.get("band_count", 0)],
             ["Settled labels", summary.get("settled_label_count", 0)],
             ["Row multiplier", fmt_num(summary.get("row_multiplier"))],
+            ["Extra-location label rows", summary.get("extra_location_label_row_count", 0)],
+            ["Extra-location days", summary.get("extra_location_day_count", 0)],
+            ["Target-local label rows", summary.get("target_local_label_row_count", 0)],
             ["Variants", summary.get("variant_count", 0)],
             ["Source families", summary.get("source_family_count", 0)],
             ["Alerts", summary.get("alert_count", 0)],

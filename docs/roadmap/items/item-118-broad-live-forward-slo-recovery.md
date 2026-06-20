@@ -70,4 +70,4 @@ Verification:
 Live generated reports agree on the current blocker: `BLOCK`, first market
 `toronto`, component `snapshot_collection`, gate `snapshot_coverage_gap`, owner
 `weather snapshot/model loop`, repair command
-`python -m weather.collection.snapshot_tracker status`.
+`python -m weather.collection.snapshot_tracker --status`.

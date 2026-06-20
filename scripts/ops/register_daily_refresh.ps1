@@ -4,7 +4,7 @@
 # market_day_labels finalize -> promotion_refresh -> progress_audit ->
 # disagreement_casebook -> fleet_observability.
 #
-# Run from the repo root:  .\scripts\register_daily_refresh.ps1
+# Run from the repo root:  .\scripts\ops\register_daily_refresh.ps1
 # Re-running replaces the existing task.
 
 param(
@@ -19,7 +19,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m weather.operations.daily_refresh run"
+$arguments = "-m weather.operations.daily_refresh run --fail-on-variant-evidence-alert"
 if ($ContinueOnError) {
     $arguments = "$arguments --continue-on-error"
 }

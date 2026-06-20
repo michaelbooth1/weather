@@ -66,7 +66,7 @@ Short-term (correctness + cleanup):
   for the high-temp seasonal window: `wu_history --market denver coverage
   2019..2025` reports only 5 missing days, all off-season (2020-11-08,
   2021-01-21..23, 2021-02-20), with raw_days=5016 -- the later wide backfills
-  already closed the 2026-06-09 sparsity finding, so there is nothing
+  already resolved the 2026-06-09 sparsity finding, so there is nothing
   season-relevant to re-collect.
 
 Medium-term (integration + storage hygiene):
@@ -243,5 +243,5 @@ source evaluation are no longer open Item39 work. The closure audit
 `FAIL`, but its blockers are operational/live-tape follow-ups already routed to
 item 36 (legacy replay inputs), items 3/22/30 (forecast payload issue metadata),
 items 17/37 (source-status latency rows), and item 29 (remaining source-depth
-policy). Item39 is therefore closed as an audit-reconciliation item, not as a
+policy). Item 39 is therefore complete as an audit-reconciliation item, not as a
 claim that every downstream data-system improvement is finished.

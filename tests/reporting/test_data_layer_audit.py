@@ -410,6 +410,66 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(summary["stale_or_failed_rows"], 2)
         self.assertEqual(summary["status_counts"]["fresh"], 1)
 
+    def test_snapshot_audit_tracks_raw_clob_artifact_presence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["snapshot_id", "captured_at_local", "event_slug", "market_yes"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "market_yes": "0.5",
+                })
+            (folder / "clob_tokens.csv").write_text("snapshot_id,clob_token_id\nsnap-1,token\n", encoding="utf-8")
+            (folder / "order_books.jsonl").write_text('{"snapshot_id":"snap-1"}\n', encoding="utf-8")
+            (folder / "clob_capture_status.jsonl").write_text('{"status":"OK"}\n', encoding="utf-8")
+
+            audit = snapshot_audit(snapshots_root=tmp)
+
+        folder_row = audit["folders"][0]
+        self.assertTrue(folder_row["artifact_presence"]["clob_capture_status"])
+        self.assertTrue(folder_row["artifact_presence"]["clob_tokens"])
+        self.assertTrue(folder_row["artifact_presence"]["order_books_raw"])
+        self.assertFalse(folder_row["artifact_presence"]["order_books_summary"])
+        self.assertEqual(audit["artifact_day_counts"]["clob_capture_status"], 1)
+        self.assertEqual(audit["artifact_day_counts"]["clob_tokens"], 1)
+        self.assertEqual(audit["artifact_day_counts"]["order_books_raw"], 1)
+        self.assertEqual(audit["clob_raw_artifacts"]["capture_status_days"], 1)
+        self.assertEqual(audit["clob_raw_artifacts"]["token_artifact_days"], 1)
+        self.assertEqual(audit["clob_raw_artifacts"]["raw_book_artifact_days"], 1)
+
+    def test_snapshot_audit_counts_gzip_tiered_order_books_as_raw_clob_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["snapshot_id", "captured_at_local", "event_slug", "market_yes"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "market_yes": "0.5",
+                })
+            (folder / "clob_tokens.csv").write_text("snapshot_id,clob_token_id\nsnap-1,token\n", encoding="utf-8")
+            (folder / "order_books_long.csv.gz").write_bytes(b"compressed book bytes\n")
+
+            audit = snapshot_audit(snapshots_root=tmp)
+
+        folder_row = audit["folders"][0]
+        self.assertTrue(folder_row["artifact_presence"]["order_books_long_gzip"])
+        self.assertEqual(audit["artifact_day_counts"]["order_books_long_gzip"], 1)
+        self.assertEqual(audit["clob_raw_artifacts"]["raw_book_artifact_days"], 1)
+
     def test_snapshot_audit_excludes_evaluation_only_replay_status_from_training_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"

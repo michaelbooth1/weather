@@ -17,4 +17,4 @@ Implementation status (2026-06-13): the presentation cleanup is complete -- the
 mojibake scan of `app.py` + `src/*.py` is clean and `clean_label` scrubs
 corrupted degree glyphs defensively. The only remaining freshness work is the
 separate per-source TTL/status policy, which is owned by item 17 (the
-fast-vs-slow-source staleness distinction), so item 11's panel scope is closed.
+fast-vs-slow-source staleness distinction), so item 11's panel scope is complete.

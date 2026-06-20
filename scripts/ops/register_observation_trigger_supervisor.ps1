@@ -6,7 +6,7 @@
 # watcher polls low-cost observation sources and forces tagged recomputes when
 # settlement-relevant source state changes.
 #
-# Run from the repo root:  .\scripts\register_observation_trigger_supervisor.ps1
+# Run from the repo root:  .\scripts\ops\register_observation_trigger_supervisor.ps1
 # Re-running replaces the existing task.
 
 param(

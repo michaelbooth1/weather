@@ -75,6 +75,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     boolish_active,
     budget_exhausted_row,
     cancel_all_row,
+    classify_zero_trade_root_cause,
     latest_book_rows,
     latest_clob_feature_rows,
     latest_rows_for_snapshot,
@@ -108,6 +109,10 @@ from weather.market.market_making_run_support import (  # noqa: E402
     write_json,
 )
 from weather.market.live_forward_gate import build_live_forward_gate
+from weather.market.live_observation_normalization import (
+    current_high_probability_summary,
+    normalized_high_for_market,
+)
 from weather.market.market_making_evidence import (
     EVIDENCE_MODE_AUTO,
     EVIDENCE_MODE_CHOICES,
@@ -176,6 +181,24 @@ def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS
         "current_identity_text": format_runtime_identity(current),
         "loops": loops,
         "drift_count": sum(1 for row in loops if row.get("runtime_identity_matches_current") is False),
+    }
+
+
+def tape_integrity_summary(path, expected_rows, row_kind):
+    actual_rows = len(read_csv_rows(path))
+    expected_rows = int(expected_rows or 0)
+    status = "PASS" if actual_rows == expected_rows else "WARN"
+    return {
+        "status": status,
+        "path": str(path),
+        "row_kind": row_kind,
+        "expected_rows": expected_rows,
+        "actual_rows": actual_rows,
+        "detail": (
+            f"{row_kind} tape row count matches summary"
+            if status == "PASS"
+            else f"{row_kind} tape has {actual_rows} rows but summary expected {expected_rows}"
+        ),
     }
 
 
@@ -307,6 +330,7 @@ def build_report(
     event_gate=None,
     live_forward_gate=None,
     evidence_classification=None,
+    tape_integrity=None,
 ):
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
     quote_rows_count = sum(1 for row in quote_rows if row.get("quote_permission"))
@@ -316,6 +340,7 @@ def build_report(
     cumulative = cumulative or {}
     live_forward_gate = live_forward_gate or {}
     evidence_classification = evidence_classification or {}
+    tape_integrity = tape_integrity or {}
     evidence_counts = bool(evidence_classification.get("counts_toward_live_forward_gate"))
     live_gate_counts = bool(live_forward_gate.get("counts_toward_live_forward_gate"))
     final_counts = bool(evidence_counts and live_gate_counts)
@@ -351,6 +376,11 @@ def build_report(
         quote_outcome = "crashed_before_scoring"
     else:
         quote_outcome = "policy_no_quote"
+    zero_trade_diagnosis = classify_zero_trade_root_cause(
+        preflight.get("markets") or [],
+        permission_rows=quote_rows_count,
+        output_rows=len(quote_rows),
+    )
     lines = [
         "# Market-Making Run Report",
         "",
@@ -366,10 +396,17 @@ def build_report(
         f"- Latest-tick quote rows: `{quote_rows_count}`",
         f"- Quote outcome: `{quote_outcome}`",
         f"- Latest-tick no-quote rows: `{len(quote_rows) - quote_rows_count}`",
+        f"- Zero-trade root cause: `{zero_trade_diagnosis.get('root_cause_class')}`",
+        f"- First failing gate: `{zero_trade_diagnosis.get('first_failing_gate') or '-'}`",
+        f"- Zero trades expected: `{str(zero_trade_diagnosis.get('zero_trades_expected')).lower()}`",
         f"- Latest-tick live-trade permission rows: `{live_rows}`",
         f"- Cumulative ticks: `{cumulative.get('tick_count', 1 if quote_rows else 0)}`",
         f"- Cumulative quote rows: `{cumulative.get('quote_permission_rows', quote_rows_count)}`",
         f"- Cumulative paper-posted lifecycle legs: `{cumulative.get('paper_posted_count', 0)}`",
+        (
+            f"- Quote tape integrity: `{tape_integrity.get('status') or '-'}` "
+            f"({tape_integrity.get('actual_rows', 0)}/{tape_integrity.get('expected_rows', 0)} rows)"
+        ),
         f"- Budget reserved: `{reserved:.2f}` / `{budget:.2f}` USDC",
         f"- Remaining budget: `{max(0.0, budget - reserved):.2f}` USDC",
         f"- Open lifecycle orders: `{lifecycle.get('current_open_order_count', 0)}`",
@@ -397,6 +434,27 @@ def build_report(
             f"| {row.get('market_id')} | {row.get('status')} | {row.get('event_slug')} | "
             f"{row.get('snapshot_rows', 0)} | {encoding_text} | {'; '.join(details)} |"
         )
+    high_rows = [
+        (row.get("market_id"), row.get("current_high_assessment") or {})
+        for row in preflight.get("markets", [])
+        if row.get("current_high_assessment")
+    ]
+    if high_rows:
+        lines.extend([
+            "",
+            "## Current High Assessment",
+            "",
+            "| Market | Raw high | Settlement high | Raw prob | Settlement prob | Revision |",
+            "| :--- | ---: | ---: | ---: | ---: | :--- |",
+        ])
+        for market_id, assessment in high_rows:
+            lines.append(
+                f"| {market_id} | {assessment.get('raw_current_high') if assessment.get('raw_current_high') is not None else '-'} | "
+                f"{assessment.get('settlement_current_high') if assessment.get('settlement_current_high') is not None else '-'} | "
+                f"{assessment.get('probability_on_raw_current_high')} | "
+                f"{assessment.get('probability_on_settlement_current_high')} | "
+                f"{assessment.get('revision_state') or '-'} |"
+            )
     lines.extend([
         "",
         "## Quote Reasons",
@@ -619,6 +677,10 @@ def build_run_once(
         config = config_for_date(target, spec.id)
         folder = Path(snapshots_root) / config.event_slug
         snapshot_rows = load_latest_snapshot_rows(folder)
+        current_high_assessment = current_high_probability_summary(
+            snapshot_rows,
+            normalized_high_for_market(observation, spec.id),
+        )
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
         source_rows = source_status_for_snapshot(folder, snapshot_id)
         book_rows = latest_book_rows(folder)
@@ -648,6 +710,7 @@ def build_run_once(
             pilot=pilot,
             data_layer_live_gate=data_layer_live_gate,
             platform_verification_gate=platform_verification_gate,
+            current_high_assessment=current_high_assessment,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -685,6 +748,7 @@ def build_run_once(
                 known_edge_records=known_edge_records,
                 known_edge_map_loaded=known_edge_diag.get("exists", False),
                 clob_feature_rows=clob_feature_rows,
+                current_high_assessment=current_high_assessment,
             )
             if preflight["status"] == "PASS":
                 raw_quote_rows.extend(decide_quote(row, config=policy_config, now=now) for row in policy_inputs)
@@ -785,6 +849,11 @@ def build_run_once(
         else:
             no_quote_status = "policy_no_quote"
             no_quote_reason = "policy produced no quote permissions"
+    zero_trade_diagnosis = classify_zero_trade_root_cause(
+        preflight_rows,
+        permission_rows=quote_permission_count,
+        output_rows=len(quote_rows),
+    )
 
     quote_path = run_folder / "quote_intents_long.csv"
     if append:
@@ -797,6 +866,7 @@ def build_run_once(
     if not (run_folder / "fills_long.csv").exists():
         write_csv(run_folder / "fills_long.csv", FILL_COLUMNS, [])
     cumulative = cumulative_run_summary(run_folder, fallback_quote_rows=quote_rows, fallback_lifecycle=lifecycle)
+    tape_integrity = tape_integrity_summary(quote_path, cumulative.get("row_count", 0), "quote_intents_long")
     report = build_report(
         run_config,
         preflight_payload,
@@ -808,6 +878,7 @@ def build_run_once(
         event_gate=event_gate_summary,
         live_forward_gate=live_forward_gate_payload,
         evidence_classification=evidence_classification,
+        tape_integrity=tape_integrity,
     )
     (run_folder / "run_report.md").write_text(report, encoding="utf-8")
 
@@ -834,6 +905,22 @@ def build_run_once(
             "quote_permission_rows": quote_permission_count,
             "row_count": len(quote_rows),
             "preflight_status": preflight_status,
+            **zero_trade_diagnosis,
+        },
+        "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
+        "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
+        "first_failing_detail": zero_trade_diagnosis.get("first_failing_detail"),
+        "zero_trades_expected": zero_trade_diagnosis.get("zero_trades_expected"),
+        "operator_alert": {
+            "run_folder": str(run_folder),
+            "clob_status_command": "python -m weather.market.market_microstructure status",
+            "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
+            "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
+            "remediation_command": (
+                (remediation_payload.get("incidents") or [{}])[0].get("suggested_command")
+                if remediation_payload.get("incidents")
+                else None
+            ),
         },
         "live_forward_gate_status": live_forward_gate_payload.get("status"),
         "counts_toward_live_forward_gate": live_forward_gate_payload.get("counts_toward_live_forward_gate"),
@@ -859,6 +946,7 @@ def build_run_once(
             "information_event_gate": event_gate_summary,
         },
         "cumulative": cumulative,
+        "tape_integrity": tape_integrity,
         "cumulative_tick_count": cumulative.get("tick_count", 0),
         "cumulative_row_count": cumulative.get("row_count", 0),
         "cumulative_quote_permission_rows": cumulative.get("quote_permission_rows", 0),

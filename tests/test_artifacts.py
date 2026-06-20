@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import tempfile
@@ -6,8 +7,10 @@ from pathlib import Path
 from weather.artifacts import (
     artifact_candidates,
     artifact_path,
+    build_artifact_size_audit,
     build_artifact_registry,
     legacy_artifact_path,
+    write_artifact_size_audit,
     write_artifact_registry,
 )
 
@@ -70,6 +73,53 @@ class TestArtifactPaths(unittest.TestCase):
 
             self.assertEqual(written, out)
             self.assertIn("model_artifact_registry_v0.1", out.read_text(encoding="utf-8"))
+
+    def test_artifact_size_audit_warns_before_hosting_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            model = root / "models" / "hgb"
+            model.mkdir(parents=True)
+            (model / "small.pkl").write_bytes(b"1" * 20)
+            (model / "large.pkl").write_bytes(b"1" * 80)
+
+            audit = build_artifact_size_audit(
+                root=root,
+                generated_at="2026-06-18T00:00:00+00:00",
+                individual_warning_bytes=50,
+                individual_failure_bytes=100,
+                total_warning_bytes=90,
+                total_failure_bytes=200,
+            )
+
+        self.assertEqual(audit["schema_version"], "model_artifact_size_audit_v0.1")
+        self.assertEqual(audit["status"], "WARN")
+        self.assertEqual(audit["total_bytes"], 100)
+        checks = {(row["kind"], row["status"], row.get("artifact_id")) for row in audit["checks"]}
+        self.assertIn(("individual_artifact", "WARN", "models/hgb/large.pkl"), checks)
+        self.assertIn(("total_artifacts", "WARN", None), checks)
+        self.assertEqual(audit["largest_artifacts"][0]["artifact_id"], "models/hgb/large.pkl")
+
+    def test_artifact_size_audit_fails_at_hard_limit_and_writes_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            model = root / "models" / "hgb"
+            model.mkdir(parents=True)
+            (model / "too_large.pkl").write_bytes(b"1" * 120)
+            out = Path(tmp) / "model_artifact_size_audit.json"
+
+            written = write_artifact_size_audit(
+                out,
+                root=root,
+                individual_warning_bytes=50,
+                individual_failure_bytes=100,
+                total_warning_bytes=90,
+                total_failure_bytes=200,
+            )
+            audit = json.loads(out.read_text(encoding="utf-8"))
+
+        self.assertEqual(written, out)
+        self.assertEqual(audit["status"], "FAIL")
+        self.assertEqual(audit["checks"][0]["artifact_id"], "models/hgb/too_large.pkl")
 
 
 if __name__ == "__main__":

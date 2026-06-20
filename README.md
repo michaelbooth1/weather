@@ -25,7 +25,7 @@ versions.
 ## Run the dashboard
 
 ```powershell
-.\venv\Scripts\python.exe -m streamlit run app.py
+.\venv\Scripts\python.exe -m streamlit run app/streamlit_app.py
 ```
 
 The dashboard auto-selects today's Toronto market. Override the target date
@@ -104,7 +104,7 @@ All run from the repo root with the venv interpreter:
 .\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily_learning
-.\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error
+.\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 
 # Settlement-scored backtest: model vs market edge on captured days
@@ -127,10 +127,10 @@ All run from the repo root with the venv interpreter:
 For resilient collection, register the supervisor scheduled tasks once:
 
 ```powershell
-.\scripts\register_snapshot_supervisor.ps1
-.\scripts\register_clob_supervisor.ps1
-.\scripts\register_observation_trigger_supervisor.ps1
-.\scripts\register_daily_refresh.ps1
+.\scripts\ops\register_snapshot_supervisor.ps1
+.\scripts\ops\register_clob_supervisor.ps1
+.\scripts\ops\register_observation_trigger_supervisor.ps1
+.\scripts\ops\register_daily_refresh.ps1
 ```
 
 Task Scheduler then runs `snapshot_tracker --ensure` every 10 minutes and at
@@ -153,8 +153,9 @@ changes settlement-relevant state. It writes
 `data/snapshots/observation_trigger_status.json`,
 `data/snapshots/observation_triggers.jsonl`, and the WU-lag scoring artifacts
 under `data/backtest/observation_trigger_replay*`.
-The daily refresh task runs `weather.operations.daily_refresh run --continue-on-error` once per
-morning by default. It first retries the recent reanalysis archive-lag window
+The daily refresh task runs
+`weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert`
+once per morning by default. It first retries the recent reanalysis archive-lag window
 (`--skip-reanalysis-refresh` disables that), then executes
 `market_day_labels finalize`, `promotion_refresh`, `progress_audit`,
 `disagreement_casebook`, `fleet_observability`, `data_layer_audit`, and
@@ -167,12 +168,13 @@ and writes `data/backtest/daily_refresh_status.json`,
 and `data/backtest/daily_learning_report.md`. Use
 `--fail-on-data-layer-audit`, `--fail-on-snapshot-evaluation`, or
 `--fail-on-daily-learning-blocker` when failed audit or learning gates should
-mark the daily run critical.
+mark the daily run critical; use `--allow-variant-evidence-alert` only for
+research runs that should not fail closed on blocked variant-learning evidence.
 
 For the operator dashboard, use the clickable launcher:
 
 ```powershell
-.\scripts\start_weather_dashboard.cmd
+.\scripts\launch\start_weather_dashboard.cmd
 ```
 
 It starts Streamlit if needed and opens `http://localhost:8501/?market=ops`.
@@ -212,7 +214,9 @@ data/
 
 `data/` is local runtime/cache/output state and is git-ignored. Durable model
 artifacts are tracked under `artifacts/`; small deterministic smoke fixtures
-live under `tests/fixtures/`.
+live under `tests/fixtures/`. Artifact growth is guarded by
+`python -m weather.artifacts size-audit`; see
+[docs/operations/artifact-storage-policy.md](docs/operations/artifact-storage-policy.md).
 
 ## Source layout
 

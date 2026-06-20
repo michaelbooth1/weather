@@ -50,7 +50,7 @@ Relevant current facts from those docs:
 No live-pilot order may be attempted unless all of these are true:
 
 - Items 43 and 44 have passed their acceptance gates.
-- `python -m src.market_making_run ... --mode live-pilot` preflight is `PASS`.
+- `python -m weather.market.market_making_run ... --mode live-pilot` preflight is `PASS`.
 - `--pilot`, `--confirm-live-orders`, `--live-readiness`, and
   `--platform-verification` are supplied.
 - The live-readiness JSON proves:
@@ -74,9 +74,9 @@ No live-pilot order may be attempted unless all of these are true:
 Use one market, one central band, and one dedicated pilot wallet.
 
 1. Pre-open read-only check:
-   - Run `python -m src.data_layer_audit --fleet --json`.
-   - Run `python -m src.fleet_observability report --strict`.
-   - Run `python -m src.market_microstructure audit --strict`.
+   - Run `python -m weather.reporting.data_layer_audit --fleet --json`.
+   - Run `python -m weather.reporting.fleet_observability report --strict`.
+   - Run `python -m weather.market.market_microstructure audit --strict`.
    - Run a shadow `market_making_run` tick for the target market.
    - Confirm the live-pilot preflight would pass except for deliberate
      `--confirm-live-orders` absence.
@@ -195,7 +195,7 @@ Stale Observation Watcher:
 
 1. Require `NO_QUOTE_STALE_WATCHER`.
 2. Cancel all weather-sensitive resting orders.
-3. Restart `src.observation_trigger ensure`.
+3. Restart `weather.operations.observation_trigger ensure`.
 4. Resume only after watcher heartbeat and triggered fair value are fresh.
 
 Process Death:

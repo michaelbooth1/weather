@@ -67,12 +67,13 @@ absent. Restore drills now include CLOB class evidence, and the status report
 shows local, backed-up, missing, excluded, and warning bytes by CLOB artifact
 class.
 
-Current production evidence (2026-06-18): `data/backtest/tape_backup_status.json`
-correctly reports `MISSING_CRITICAL_FILES`, with 312 missing critical files and
-107,925,936,287 missing critical bytes. The CLOB coverage section shows
-116,043,863,560 local CLOB bytes, 8,001,397,554 backed-up bytes, and 270 missing
-required CLOB files. Restore-drill SLA remains `OK`, so the remaining action is
-to run a backup/export that includes the newly classified CLOB tapes.
+Current production evidence (2026-06-19): Item 146's local cleanup and settled
+CLOB tiering cleared the local capacity blocker. `data/backtest/tape_backup_status.json`
+is now `OK`, restore-drill SLA is `OK`, and fleet observability reports tape
+backup as `OK` with zero missing critical files. The remaining durability caveat
+belongs to Item 146: the backup root is still same-workstation storage, so
+external/NAS/cloud backup-root configuration is still required before
+workstation-loss durability is proven.
 
 Verification:
 `python -m pytest -q tests/operations/test_tape_backup.py tests/operations/test_schema_registry.py`

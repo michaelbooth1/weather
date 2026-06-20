@@ -8,6 +8,8 @@ gate used for promotion.
 
 Ownership note: keep offline scoring orchestration here. Report rendering and
 known-edge report formatting belong in ``weather.market.mm_paper_reports``.
+Run eligibility and per-market evidence policy belong in
+``weather.market.mm_paper_evidence``.
 """
 
 from __future__ import annotations
@@ -26,7 +28,16 @@ from pathlib import Path
 from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.market.info_event_calendar import score_event_gate_decisions
 from weather.market.clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
-from weather.market.mm_policy import bool_value, maybe_float, parse_time
+from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
+from weather.market.mm_paper_evidence import (
+    COMPATIBLE_RUN_SCHEMA_VERSIONS,
+    LIVE_FORWARD_EVIDENCE_CLASSES,
+    live_forward_gate_path_for_folder,
+    per_market_evidence_credit_rows,
+    run_folder_eligibility,
+    split_run_folders_by_eligibility,
+    summarize_per_market_evidence,
+)
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 from weather.market.mm_paper_constants import (  # noqa: E402
     DEFAULT_BACKTEST_ROOT,
@@ -40,6 +51,7 @@ from weather.market.mm_paper_constants import (  # noqa: E402
     DEFAULT_REPORT_OUT,
     DEFAULT_RUNS_ROOT,
     DEFAULT_SNAPSHOTS_ROOT,
+    EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION,
     FILL_COLUMNS,
     KNOWN_EDGE_SCHEMA_VERSION,
     MARKOUT_HORIZONS,
@@ -220,124 +232,6 @@ def discover_run_folders(runs_root=DEFAULT_RUNS_ROOT, run_folders=None):
     )
 
 
-COMPATIBLE_RUN_SCHEMA_VERSIONS = {"mm_run_v0.2"}
-LIVE_FORWARD_EVIDENCE_CLASSES = (
-    "model_review_evidence",
-    "paper_trading_evidence",
-    "live_trade_permission_evidence",
-)
-
-
-def live_forward_gate_path_for_folder(folder, summary=None):
-    summary = summary or {}
-    path = summary.get("live_forward_gate_path")
-    if path:
-        return Path(path)
-    return Path(folder) / "live_forward_gate.json"
-
-
-def per_market_evidence_credit_rows(folder, gate_payload=None):
-    gate = gate_payload if gate_payload is not None else read_json(Path(folder) / "live_forward_gate.json", {}) or {}
-    rows = []
-    for market in gate.get("markets") or []:
-        first_failure = market.get("first_failing_gate") or {}
-        recovery = market.get("stale_recovery") or {}
-        countability = market.get("countability") or {}
-        for evidence_class in LIVE_FORWARD_EVIDENCE_CLASSES:
-            item = countability.get(evidence_class) or {}
-            rows.append({
-                "run_folder": str(folder),
-                "run_id": gate.get("run_id"),
-                "target_date": gate.get("target_date"),
-                "mode": gate.get("mode"),
-                "market_id": market.get("market_id"),
-                "evidence_class": evidence_class,
-                "counts": bool(item.get("counts")),
-                "blocking_gates": item.get("blocking_gates") or [],
-                "first_failing_gate": first_failure.get("name"),
-                "owner": first_failure.get("owner"),
-                "root_cause": first_failure.get("root_cause"),
-                "suggested_command": first_failure.get("suggested_command"),
-                "stale_recovery": recovery,
-            })
-    return rows
-
-
-def summarize_per_market_evidence(rows):
-    summary = {}
-    for evidence_class in LIVE_FORWARD_EVIDENCE_CLASSES:
-        class_rows = [row for row in rows if row.get("evidence_class") == evidence_class]
-        markets = {row.get("market_id") for row in class_rows if row.get("market_id")}
-        countable = {row.get("market_id") for row in class_rows if row.get("market_id") and row.get("counts")}
-        blocked = sorted(markets - countable)
-        first_blocked = next(
-            (row for row in class_rows if row.get("market_id") in blocked and not row.get("counts")),
-            None,
-        )
-        summary[evidence_class] = {
-            "market_count": len(markets),
-            "countable_market_count": len(countable),
-            "blocked_market_count": len(blocked),
-            "countable_markets": sorted(countable),
-            "blocked_markets": blocked,
-            "all_selected_markets_count": bool(markets) and len(countable) == len(markets),
-            "first_blocked_market": (first_blocked or {}).get("market_id"),
-            "first_blocked_gate": (first_blocked or {}).get("first_failing_gate"),
-            "first_blocked_owner": (first_blocked or {}).get("owner"),
-            "first_blocked_command": (first_blocked or {}).get("suggested_command"),
-        }
-    return summary
-
-
-def run_folder_eligibility(folder):
-    folder = Path(folder)
-    summary = read_json(folder / "run_summary.json", {}) or {}
-    run_config = read_json(folder / "run_config.json", {}) or {}
-    schema_version = summary.get("schema_version") or run_config.get("schema_version")
-    reasons = []
-    if schema_version and schema_version not in COMPATIBLE_RUN_SCHEMA_VERSIONS:
-        reasons.append(f"incompatible_schema:{schema_version}")
-    live_gate_path = live_forward_gate_path_for_folder(folder, summary)
-    live_gate = read_json(live_gate_path, {}) or {}
-    remediation = summary.get("preflight_remediation")
-    if remediation is None:
-        remediation = read_json(folder / "preflight_remediation.json", {}) or {}
-    counts_toward_gate = None
-    if live_gate:
-        counts_toward_gate = bool_value(live_gate.get("counts_toward_live_forward_gate"), False)
-    elif remediation:
-        counts_toward_gate = bool_value(remediation.get("counts_toward_live_forward_gate"), False)
-    elif summary.get("preflight_status"):
-        counts_toward_gate = summary.get("preflight_status") == "PASS"
-    credit_rows = per_market_evidence_credit_rows(folder, live_gate) if live_gate else []
-    return {
-        "run_folder": str(folder),
-        "schema_version": schema_version or "unknown",
-        "scoreable": not reasons,
-        "live_forward_gate_counts": bool(counts_toward_gate) if counts_toward_gate is not None else True,
-        "live_forward_gate_status": live_gate.get("status") or (summary.get("live_forward_gate") or {}).get("status"),
-        "live_forward_gate_path": str(live_gate_path) if live_gate_path.exists() else None,
-        "per_market_evidence_credits": credit_rows,
-        "per_market_evidence_summary": summarize_per_market_evidence(credit_rows),
-        "non_scoreable_reasons": reasons,
-        "preflight_status": summary.get("preflight_status"),
-        "remediation_counts_toward_live_forward_gate": counts_toward_gate,
-        "policy_hash": summary.get("policy_hash") or run_config.get("policy_hash"),
-        "run_id": summary.get("run_id") or run_config.get("run_id") or folder.name,
-    }
-
-
-def split_run_folders_by_eligibility(run_folders):
-    eligibility = {str(Path(folder)): run_folder_eligibility(folder) for folder in run_folders}
-    scoreable = [Path(folder) for folder in run_folders if eligibility[str(Path(folder))]["scoreable"]]
-    excluded = [
-        item
-        for item in eligibility.values()
-        if not item.get("scoreable")
-    ]
-    return scoreable, eligibility, excluded
-
-
 def quote_id(row, index):
     digest = hashlib.sha1(
         "|".join([
@@ -385,6 +279,12 @@ def quote_legs(quote_rows, config):
         quote_time = parse_time(row.get("generated_at_utc") or row.get("captured_at_utc"))
         if quote_time is None:
             continue
+        market_mid = clamp01(row.get("market_mid") or row.get("market_yes"))
+        fair_probability = clamp01(row.get("fair_probability") or row.get("model_probability") or row.get("candidate_p"))
+        edge = finite_float(row.get("edge"))
+        if edge is None and fair_probability is not None and market_mid is not None:
+            edge = fair_probability - market_mid
+        guardrail = early_hour_guardrail_state(row, config=config, now=quote_time)
         common = {
             "quote_row": row,
             "quote_id": row["_quote_id"],
@@ -401,7 +301,45 @@ def quote_legs(quote_rows, config):
             "bin_value_hi": row.get("bin_value_hi") or "",
             "clob_token_id": row.get("clob_token_id") or row.get("asset_id") or "",
             "quote_time": quote_time,
-            "market_mid": clamp01(row.get("market_mid") or row.get("market_yes")),
+            "market_mid": market_mid,
+            "fair_probability": fair_probability,
+            "edge": edge,
+            "capture_hour_utc": guardrail.get("capture_hour_utc"),
+            "capture_hour_local": guardrail.get("capture_hour_local"),
+            "capture_timezone": guardrail.get("capture_timezone"),
+            "hourly_trust_band": guardrail.get("hourly_trust_band"),
+            "hourly_trust_multiplier": guardrail.get("hourly_trust_multiplier"),
+            "early_hour_guardrail_status": row.get("early_hour_guardrail_status") or guardrail.get("early_hour_guardrail_status"),
+            "early_hour_guardrail_reason": row.get("early_hour_guardrail_reason") or guardrail.get("early_hour_guardrail_reason"),
+            "early_hour_guardrail_min_edge": finite_float(row.get("early_hour_guardrail_min_edge"), guardrail.get("early_hour_guardrail_min_edge")),
+            "early_hour_guardrail_size_multiplier": finite_float(
+                row.get("early_hour_guardrail_size_multiplier"),
+                guardrail.get("early_hour_guardrail_size_multiplier"),
+            ),
+            "early_hour_guardrail_quote_widen_buffer": finite_float(
+                row.get("early_hour_guardrail_quote_widen_buffer"),
+                guardrail.get("early_hour_guardrail_quote_widen_buffer"),
+            ),
+            "early_hour_guardrail_override_allowed": bool_value(
+                row.get("early_hour_guardrail_override_allowed"),
+                bool(guardrail.get("early_hour_guardrail_override_allowed")),
+            ),
+            "early_hour_guardrail_market_weight": finite_float(
+                row.get("early_hour_guardrail_market_weight"),
+                guardrail.get("early_hour_guardrail_market_weight"),
+            ),
+            "market_aware_overlay_probability": finite_float(
+                row.get("market_aware_overlay_probability"),
+                guardrail.get("market_aware_overlay_probability"),
+            ),
+            "market_aware_overlay_edge": finite_float(
+                row.get("market_aware_overlay_edge"),
+                guardrail.get("market_aware_overlay_edge"),
+            ),
+            "market_aware_overlay_used_for_risk_only": bool_value(
+                row.get("market_aware_overlay_used_for_risk_only"),
+                bool(guardrail.get("market_aware_overlay_used_for_risk_only")),
+            ),
             "regime": row.get("regime") or "",
             "source_fresh": bool_value(row.get("source_fresh"), False),
             "source_freshness_state": row.get("source_freshness_state") or "",
@@ -1036,6 +974,23 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
                 "queue_depleted_ahead": compact_float(queue.get("depleted_ahead")),
                 "queue_reason": queue.get("reason"),
                 "market_mid": compact_float(leg.get("market_mid")),
+                "fair_probability": compact_float(leg.get("fair_probability")),
+                "edge": compact_float(leg.get("edge")),
+                "capture_hour_utc": leg.get("capture_hour_utc"),
+                "capture_hour_local": leg.get("capture_hour_local"),
+                "capture_timezone": leg.get("capture_timezone") or "",
+                "hourly_trust_band": leg.get("hourly_trust_band") or "",
+                "hourly_trust_multiplier": compact_float(leg.get("hourly_trust_multiplier")),
+                "early_hour_guardrail_status": leg.get("early_hour_guardrail_status") or "",
+                "early_hour_guardrail_reason": leg.get("early_hour_guardrail_reason") or "",
+                "early_hour_guardrail_min_edge": compact_float(leg.get("early_hour_guardrail_min_edge")),
+                "early_hour_guardrail_size_multiplier": compact_float(leg.get("early_hour_guardrail_size_multiplier")),
+                "early_hour_guardrail_quote_widen_buffer": compact_float(leg.get("early_hour_guardrail_quote_widen_buffer")),
+                "early_hour_guardrail_override_allowed": bool(leg.get("early_hour_guardrail_override_allowed")),
+                "early_hour_guardrail_market_weight": compact_float(leg.get("early_hour_guardrail_market_weight")),
+                "market_aware_overlay_probability": compact_float(leg.get("market_aware_overlay_probability")),
+                "market_aware_overlay_edge": compact_float(leg.get("market_aware_overlay_edge")),
+                "market_aware_overlay_used_for_risk_only": bool(leg.get("market_aware_overlay_used_for_risk_only")),
                 "spread_capture_usdc": compact_float(financials["spread_capture"]),
                 "adverse_selection_30m_usdc": compact_float(financials["adverse_30m"]),
                 "settlement_pnl_usdc": compact_float(financials["settlement_pnl"]),
@@ -1099,6 +1054,183 @@ def summarize_pnl(fill_rows):
         "liquidity_reward_estimate_usdc": compact_float(sum_field(fill_rows, "liquidity_reward_estimate_usdc")),
         "flattening_fee_estimate_usdc": compact_float(sum_field(fill_rows, "flattening_fee_estimate_usdc")),
         "net_pnl_after_fees_incentives_usdc": compact_float(sum_field(fill_rows, "net_pnl_after_fees_incentives_usdc")),
+    }
+
+
+def _quote_row_size(row):
+    if not quote_permission(row):
+        return 0.0
+    return (
+        (finite_float(row.get("bid_size"), 0.0) or 0.0)
+        + (finite_float(row.get("ask_size"), 0.0) or 0.0)
+    )
+
+
+def _guardrail_variant_multipliers(row, config):
+    state = early_hour_guardrail_state(row, config=config, now=row.get("quote_time_utc") or row.get("generated_at_utc"))
+    active = state.get("early_hour_guardrail_status") == "active"
+    capped_multiplier = float(state.get("early_hour_guardrail_size_multiplier") or 1.0) if active else 1.0
+    overlay_edge = state.get("market_aware_overlay_edge")
+    min_edge = state.get("early_hour_guardrail_min_edge")
+    market_aware_standdown = (
+        active
+        and overlay_edge is not None
+        and min_edge is not None
+        and abs(float(overlay_edge)) < float(min_edge)
+    )
+    market_aware_multiplier = 0.0 if market_aware_standdown else capped_multiplier
+    return state, capped_multiplier, market_aware_multiplier, market_aware_standdown
+
+
+def _scaled(value, multiplier):
+    number = finite_float(value)
+    if number is None:
+        return None
+    return number * float(multiplier)
+
+
+def _sum_non_null(values):
+    return sum(float(value) for value in values if value is not None and math.isfinite(float(value)))
+
+
+def _loss_usdc(values):
+    return -sum(min(0.0, float(value)) for value in values if value is not None and math.isfinite(float(value)))
+
+
+def _guardrail_quote_exposure(quote_rows, config):
+    exposure = {
+        "quote_rows": len(quote_rows),
+        "quote_permission_rows": 0,
+        "early_hour_quote_rows": 0,
+        "early_hour_active_guardrail_rows": 0,
+        "early_hour_override_rows": 0,
+        "market_aware_standdown_rows": 0,
+        "base_quote_size": 0.0,
+        "early_hour_base_quote_size": 0.0,
+        "early_hour_capped_quote_size": 0.0,
+        "market_aware_guardrail_quote_size": 0.0,
+        "live_forward_early_hour_quote_rows": 0,
+    }
+    for row in quote_rows:
+        size = _quote_row_size(row)
+        if size <= 0.0:
+            continue
+        state, capped_multiplier, market_multiplier, standdown = _guardrail_variant_multipliers(row, config)
+        exposure["quote_permission_rows"] += 1
+        exposure["base_quote_size"] += size
+        if state.get("hourly_trust_band") == "early_00_08":
+            exposure["early_hour_quote_rows"] += 1
+            exposure["early_hour_base_quote_size"] += size
+            exposure["early_hour_capped_quote_size"] += size * capped_multiplier
+            exposure["market_aware_guardrail_quote_size"] += size * market_multiplier
+            if str(row.get("run_mode") or (row.get("_run_config") or {}).get("mode") or "") == "paper-live-forward":
+                exposure["live_forward_early_hour_quote_rows"] += 1
+        if state.get("early_hour_guardrail_status") == "active":
+            exposure["early_hour_active_guardrail_rows"] += 1
+        if state.get("early_hour_guardrail_status") == "override_allowed":
+            exposure["early_hour_override_rows"] += 1
+        if standdown:
+            exposure["market_aware_standdown_rows"] += 1
+    return {
+        key: compact_float(value) if isinstance(value, float) else value
+        for key, value in exposure.items()
+    }
+
+
+def build_early_hour_guardrail_shadow(fill_rows, quote_rows=None, config=None):
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    rows = []
+    base_nets = []
+    capped_nets = []
+    market_nets = []
+    early_base_nets = []
+    early_capped_nets = []
+    early_market_nets = []
+    settlement_rows = 0
+    live_forward_rows = 0
+    for row in fill_rows:
+        state, capped_multiplier, market_multiplier, standdown = _guardrail_variant_multipliers(row, config)
+        base_net = finite_float(row.get("net_pnl_after_fees_incentives_usdc"))
+        capped_net = _scaled(base_net, capped_multiplier)
+        market_net = _scaled(base_net, market_multiplier)
+        base_settlement = finite_float(row.get("settlement_pnl_usdc"))
+        markout_30m = finite_float(row.get("markout_30m_per_share"))
+        fill_size = finite_float(row.get("fill_size"), 0.0) or 0.0
+        markout_30m_usdc = markout_30m * fill_size if markout_30m is not None else None
+        base_nets.append(base_net)
+        capped_nets.append(capped_net)
+        market_nets.append(market_net)
+        is_early = state.get("hourly_trust_band") == "early_00_08"
+        if is_early:
+            early_base_nets.append(base_net)
+            early_capped_nets.append(capped_net)
+            early_market_nets.append(market_net)
+        if base_settlement is not None:
+            settlement_rows += 1
+        if str(row.get("run_mode") or "") == "paper-live-forward":
+            live_forward_rows += 1
+        rows.append({
+            "quote_id": row.get("quote_id"),
+            "leg_id": row.get("leg_id"),
+            "run_mode": row.get("run_mode"),
+            "market_id": row.get("market_id"),
+            "target_date": row.get("target_date"),
+            "hourly_trust_band": state.get("hourly_trust_band"),
+            "early_hour_guardrail_status": state.get("early_hour_guardrail_status"),
+            "early_hour_guardrail_reason": state.get("early_hour_guardrail_reason"),
+            "early_hour_guardrail_size_multiplier": compact_float(capped_multiplier),
+            "market_aware_standdown": standdown,
+            "market_aware_overlay_probability": compact_float(state.get("market_aware_overlay_probability")),
+            "market_aware_overlay_edge": compact_float(state.get("market_aware_overlay_edge")),
+            "base_net_pnl_usdc": compact_float(base_net),
+            "early_hour_capped_net_pnl_usdc": compact_float(capped_net),
+            "market_aware_guardrail_net_pnl_usdc": compact_float(market_net),
+            "base_settlement_pnl_usdc": compact_float(base_settlement),
+            "base_markout_30m_usdc": compact_float(markout_30m_usdc),
+        })
+
+    quote_exposure = _guardrail_quote_exposure(quote_rows or [], config)
+    base_net_sum = _sum_non_null(base_nets)
+    capped_net_sum = _sum_non_null(capped_nets)
+    market_net_sum = _sum_non_null(market_nets)
+    early_base_net_sum = _sum_non_null(early_base_nets)
+    early_capped_net_sum = _sum_non_null(early_capped_nets)
+    early_market_net_sum = _sum_non_null(early_market_nets)
+    status = "NO_FILL_EVIDENCE"
+    if rows:
+        if not early_base_nets:
+            status = "NO_EARLY_HOUR_FILLS"
+        elif early_market_net_sum > early_base_net_sum:
+            status = "REDUCED_EARLY_HOUR_LOSS"
+        elif early_capped_net_sum > early_base_net_sum:
+            status = "CAPPED_POLICY_REDUCED_EARLY_HOUR_LOSS"
+        else:
+            status = "NEEDS_MORE_MARKOUT_EVIDENCE"
+    summary = {
+        "status": status,
+        "fill_rows": len(rows),
+        "early_hour_fill_rows": len(early_base_nets),
+        "settlement_fill_rows": settlement_rows,
+        "live_forward_fill_rows": live_forward_rows,
+        "base_net_pnl_usdc": compact_float(base_net_sum),
+        "capped_policy_net_pnl_usdc": compact_float(capped_net_sum),
+        "market_aware_guardrail_net_pnl_usdc": compact_float(market_net_sum),
+        "early_hour_base_net_pnl_usdc": compact_float(early_base_net_sum),
+        "early_hour_capped_net_pnl_usdc": compact_float(early_capped_net_sum),
+        "early_hour_market_aware_net_pnl_usdc": compact_float(early_market_net_sum),
+        "early_hour_capped_delta_vs_base_usdc": compact_float(early_capped_net_sum - early_base_net_sum),
+        "early_hour_market_aware_delta_vs_base_usdc": compact_float(early_market_net_sum - early_base_net_sum),
+        "early_hour_base_loss_usdc": compact_float(_loss_usdc(early_base_nets)),
+        "early_hour_capped_loss_usdc": compact_float(_loss_usdc(early_capped_nets)),
+        "early_hour_market_aware_loss_usdc": compact_float(_loss_usdc(early_market_nets)),
+        "market_overlay_is_risk_only": True,
+        "no_market_probability_preserved": True,
+        "quote_exposure": quote_exposure,
+    }
+    return {
+        "schema_version": EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION,
+        "summary": summary,
+        "rows": rows,
     }
 
 
@@ -1252,6 +1384,11 @@ def build_paper_payload(
     )
     queue_summary = Counter(row.get("status") for row in queue_rows)
     slices = build_markout_slices(fill_rows, config)
+    early_hour_guardrail_shadow = build_early_hour_guardrail_shadow(
+        fill_rows,
+        quote_rows=quote_rows,
+        config=config,
+    )
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
     clob_recon = load_recon_payload(clob_recon_path)
@@ -1280,6 +1417,7 @@ def build_paper_payload(
             ),
         },
         "pnl": summarize_pnl(fill_rows),
+        "early_hour_guardrail_shadow": early_hour_guardrail_shadow.get("summary") or {},
         "anti_overfit": anti_overfit,
         "per_market_live_forward_evidence": per_market_evidence_summary,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
@@ -1305,6 +1443,7 @@ def build_paper_payload(
         "per_market_evidence_credits": per_market_evidence_credits,
         "excluded_run_folders": excluded_run_folders,
         "markout_slices": slices,
+        "early_hour_guardrail_shadow": early_hour_guardrail_shadow,
         "queue_companion": queue_rows,
         "fills": fill_rows,
     }

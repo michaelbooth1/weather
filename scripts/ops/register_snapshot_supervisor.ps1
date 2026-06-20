@@ -2,25 +2,28 @@
 # (ROADMAP item 16: documented OS supervisor for always-on capture).
 #
 # Layering: Task Scheduler runs the short-lived `--ensure` check every
-# 10 minutes (and at logon); `--ensure` keeps exactly one healthy detached
+# 2 minutes (and at logon); `--ensure` keeps exactly one healthy detached
 # loop alive across silent deaths, hangs (stale heartbeat with a live PID),
-# and reboots. To deploy new code, run `snapshot_tracker --restart` or
-# `--stop` (the next ensure tick restarts it fresh). To stop collection on
+# stale-code restarts, and reboots. The detached loop still captures on its
+# configured 10-minute cadence; the faster ensure interval is only for recovery
+# so supervisor gaps stay below the 15-minute live-forward tolerance. To deploy
+# new code, run `snapshot_tracker --restart` or `--stop` (the next ensure tick
+# restarts it fresh). To stop collection on
 # purpose, disable this task AND run `--stop` (the pause flag keeps the
 # process alive; disabling only the task leaves the loop running).
 #
-# Run from the repo root:  .\scripts\register_snapshot_supervisor.ps1
+# Run from the repo root:  .\scripts\ops\register_snapshot_supervisor.ps1
 # The task runs as the current user, only while logged on (no credentials
 # stored). Re-running replaces the existing task.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherSnapshotLoopSupervisor",
-    [int]$EnsureEveryMinutes = 10
+    [int]$EnsureEveryMinutes = 2
 )
 
 # pythonw.exe: the windowless interpreter. With python.exe an interactive
-# scheduled task flashes a console window on every 10-minute ensure tick.
+# scheduled task flashes a console window on every ensure tick.
 $python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
@@ -49,7 +52,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
-    -Description "Keeps the weather snapshot capture loop alive (python -m weather.collection.snapshot_tracker --ensure). Registered by scripts/register_snapshot_supervisor.ps1." `
+    -Description "Keeps the weather snapshot capture loop alive (python -m weather.collection.snapshot_tracker --ensure). Registered by scripts/ops/register_snapshot_supervisor.ps1." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': --ensure every $EnsureEveryMinutes min + at logon."

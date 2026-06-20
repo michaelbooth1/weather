@@ -4,8 +4,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from weather.operations.market_making_daily_roll import (  # noqa: E402
     build_market_making_command,
+    load_status,
     start_for_date,
     target_date_for_roll,
 )
@@ -167,6 +169,70 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertEqual(first["pid"], 5001)
         self.assertEqual(second["pid"], 5002)
         self.assertTrue(second["forced"])
+
+    def test_low_disk_blocks_before_launching_child(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            payload = start_for_date(
+                "2026-06-16",
+                status_path=tmp / "daily_roll_status.json",
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "mm_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                min_free_bytes=100,
+                disk_usage_fn=lambda _path: SimpleNamespace(total=1000, used=950, free=50),
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: False,
+            )
+
+        self.assertEqual(payload["status"], "disk_full")
+        self.assertEqual(payload["root_cause_class"], "blocked_by_disk")
+        self.assertEqual(payload["disk_capacity_preflight"]["insufficient_bytes"], 50)
+        self.assertEqual(calls, [])
+
+    def test_dead_existing_pid_records_terminal_status_without_restart(self):
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 4321
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            first = start_for_date(
+                "2026-06-16",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-16T04:01:00+00:00",
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+            second = start_for_date(
+                "2026-06-16",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-16T04:02:00+00:00",
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+            status = load_status(
+                status_path,
+                now="2026-06-16T04:03:00+00:00",
+                pid_alive=lambda pid, target_date=None: False,
+            )
+
+        self.assertEqual(first["status"], "started")
+        self.assertEqual(second["status"], "pid_missing")
+        self.assertEqual(status["status"], "pid_missing")
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

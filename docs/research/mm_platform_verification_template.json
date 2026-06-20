@@ -1,6 +1,6 @@
 {
   "schema_version": "mm_platform_verification_v0.1",
-  "status": "TEMPLATE_FAIL_CLOSED",
+  "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "docs_checked_at_utc": null,
   "verified_for_target_date": null,

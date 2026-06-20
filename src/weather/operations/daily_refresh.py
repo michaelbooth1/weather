@@ -35,13 +35,17 @@ from weather.reporting import data_layer_audit
 from weather.reporting import data_auditor
 from weather.reporting import daily_learning
 from weather.reporting import fleet_observability
+from weather.reporting import hourly_model_performance
+from weather.reporting import price_free_model_learning
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.reporting import active_variant_shadow_refresh
 from weather.operations import replay_status_backfill
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
 from weather.reporting import variant_evidence_growth
 from weather.market.market_registry import all_specs
+from weather.operations import clob_order_book_tiering
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
@@ -62,9 +66,13 @@ STEP_ORDER = (
     "reanalysis_recent_refresh",
     "ingest_quality_gate",
     "market_day_labels_finalize",
+    "clob_order_book_tiering",
     "replay_status_backfill",
+    "hourly_model_performance",
+    "price_free_model_learning",
     "promotion_refresh",
     "shadow_ab_monitor",
+    "active_variant_shadow",
     "model_variant_evidence_growth",
     "progress_audit",
     "disagreement_casebook",
@@ -348,6 +356,38 @@ def run_market_day_labels_finalize(args):
     return summary
 
 
+def run_clob_order_book_tiering_step(args):
+    if getattr(args, "skip_clob_order_book_tiering", False):
+        return {"status": "SKIPPED", "reason": "skip_clob_order_book_tiering"}
+    payload = clob_order_book_tiering.run(
+        snapshots_root=args.snapshots_root,
+        settled_before=getattr(args, "clob_tiering_settled_before", "") or None,
+        min_free_bytes=getattr(
+            args,
+            "clob_tiering_min_free_bytes",
+            clob_order_book_tiering.DEFAULT_MIN_FREE_BYTES,
+        ),
+        apply=True,
+        delete_source=getattr(args, "clob_tiering_delete_source", True),
+        limit=getattr(args, "clob_tiering_limit", None),
+    )
+    json_out, report_out = clob_order_book_tiering.write_outputs(
+        payload,
+        backtest_path(args, "clob_order_book_tiering.json"),
+        backtest_path(args, "clob_order_book_tiering_report.md"),
+    )
+    apply_payload = payload.get("apply") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "settled_before": payload.get("settled_before"),
+        "summary": payload.get("summary") or {},
+        "apply_summary": apply_payload.get("summary") or {},
+        "delete_source": apply_payload.get("delete_source"),
+    }
+
+
 def run_replay_status_backfill_step(args):
     if getattr(args, "skip_replay_status_backfill", False):
         return {"status": "SKIPPED", "reason": "skip_replay_status_backfill"}
@@ -391,6 +431,7 @@ def promotion_args(args):
     refresh_args.current_replay_report = backtest_path(args, "pooled_candidate_current_replay_latest_report.md")
     refresh_args.serving_gauntlet_report = backtest_path(args, "promotion_gauntlet_latest_report.md")
     refresh_args.serving_replay_report = backtest_path(args, "promotion_replay_latest_report.md")
+    refresh_args.hourly_performance_report = backtest_path(args, "hourly_model_performance.json")
     refresh_args.out = backtest_path(args, "f_family_promotion_refresh.json")
     refresh_args.report = backtest_path(args, "f_family_promotion_refresh_report.md")
     return refresh_args
@@ -422,6 +463,83 @@ def run_promotion_refresh_step(args):
     }
 
 
+def run_hourly_model_performance_step(args):
+    if getattr(args, "skip_hourly_model_performance", False):
+        return {"status": "SKIPPED", "reason": "skip_hourly_model_performance"}
+    payload = hourly_model_performance.build_hourly_performance(
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        snapshots_root=args.snapshots_root,
+        context_root=args.backtest_root,
+        quality_grades=hourly_model_performance.parse_quality_grades(args.quality_grades),
+        min_rows=getattr(args, "hourly_min_rows", hourly_model_performance.DEFAULT_MIN_ROWS),
+        top_hours=getattr(args, "hourly_top_hours", hourly_model_performance.DEFAULT_TOP_HOURS),
+        min_regime_market_days=getattr(
+            args,
+            "hourly_min_regime_market_days",
+            hourly_model_performance.DEFAULT_MIN_REGIME_MARKET_DAYS,
+        ),
+        early_brier_regression_tolerance=getattr(
+            args,
+            "hourly_early_brier_regression_tolerance",
+            hourly_model_performance.DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
+        ),
+        early_logloss_regression_tolerance=getattr(
+            args,
+            "hourly_early_logloss_regression_tolerance",
+            hourly_model_performance.DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
+        ),
+        early_ece_max=getattr(args, "hourly_early_ece_max", hourly_model_performance.DEFAULT_EARLY_ECE_MAX),
+    )
+    json_out, report_out, csv_out = hourly_model_performance.write_outputs(
+        payload,
+        json_out=backtest_path(args, "hourly_model_performance.json"),
+        report_out=backtest_path(args, "hourly_model_performance_report.md"),
+        csv_out=backtest_path(args, "hourly_model_performance_by_hour.csv"),
+    )
+    gate = payload.get("hourly_performance_gate") or {}
+    registry = payload.get("remediation_registry") or {}
+    return {
+        "status": gate.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "csv_out": as_path(csv_out),
+        "daily_summary": payload.get("daily_summary") or {},
+        "hourly_performance_gate": gate,
+        "remediation_registry_summary": registry.get("summary") or {},
+    }
+
+
+def run_price_free_model_learning_step(args):
+    if getattr(args, "skip_price_free_model_learning", False):
+        return {"status": "SKIPPED", "reason": "skip_price_free_model_learning"}
+    payload = price_free_model_learning.build_price_free_learning(
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        snapshots_root=args.snapshots_root,
+        quality_grades=price_free_model_learning.parse_quality_grades(
+            getattr(args, "quality_grades", ",".join(price_free_model_learning.DEFAULT_QUALITY_GRADES))
+        ),
+        markets=price_free_model_learning.parse_csv_values(getattr(args, "markets", "")),
+    )
+    json_out, report_out, hourly_csv_out, current_max_csv_out = price_free_model_learning.write_outputs(
+        payload,
+        json_out=backtest_path(args, "price_free_model_learning.json"),
+        report_out=backtest_path(args, "price_free_model_learning_report.md"),
+        hourly_csv_out=backtest_path(args, "price_free_model_learning_by_hour.csv"),
+        current_max_csv_out=backtest_path(args, "price_free_model_learning_current_max_carryover.csv"),
+    )
+    current_max = payload.get("current_max_carryover") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "hourly_csv_out": as_path(hourly_csv_out),
+        "current_max_csv_out": as_path(current_max_csv_out),
+        "daily_summary": payload.get("daily_summary") or {},
+        "corpus": payload.get("corpus") or {},
+        "current_max_carryover_summary": current_max.get("summary") or {},
+    }
+
+
 def run_shadow_ab_monitor_step(args):
     if getattr(args, "skip_shadow_ab_monitor", False):
         return {"status": "SKIPPED", "reason": "skip_shadow_ab_monitor"}
@@ -448,13 +566,46 @@ def _variant_evidence_paths(args, attr, default_name):
     return [backtest_path(args, default_name)]
 
 
+def run_active_variant_shadow_step(args):
+    if getattr(args, "skip_active_variant_shadow", False):
+        return {"status": "SKIPPED", "reason": "skip_active_variant_shadow"}
+    source_paths = _variant_evidence_paths(
+        args,
+        "active_variant_shadow_sources",
+        "",
+    )
+    if source_paths == [backtest_path(args, "")]:
+        source_paths = []
+    payload = active_variant_shadow_refresh.build_payload(
+        source_paths,
+        registry_path=getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH),
+    )
+    long_out, attribution_sidecar_out, json_out, report_out = active_variant_shadow_refresh.write_outputs(
+        payload,
+        long_out=backtest_path(args, "active_variant_shadow_long.csv"),
+        attribution_sidecar_out=backtest_path(args, "active_variant_shadow_attribution.jsonl"),
+        json_out=backtest_path(args, "active_variant_shadow.json"),
+        report_out=backtest_path(args, "active_variant_shadow_report.md"),
+    )
+    return {
+        "status": payload.get("status"),
+        "long_out": as_path(long_out),
+        "attribution_sidecar_out": as_path(attribution_sidecar_out),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "summary": payload.get("summary") or {},
+        "blockers": payload.get("blockers") or [],
+        "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
+    }
+
+
 def run_model_variant_evidence_growth_step(args):
     if getattr(args, "skip_model_variant_evidence_growth", False):
         return {"status": "SKIPPED", "reason": "skip_model_variant_evidence_growth"}
     current_paths = _variant_evidence_paths(
         args,
         "variant_evidence_current",
-        "item86_no_market_bakeoff_multi_variant_shadow_long.csv",
+        "active_variant_shadow_long.csv",
     )
     baseline_paths = _variant_evidence_paths(
         args,
@@ -684,9 +835,13 @@ DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
+    ("clob_order_book_tiering", run_clob_order_book_tiering_step),
     ("replay_status_backfill", run_replay_status_backfill_step),
+    ("hourly_model_performance", run_hourly_model_performance_step),
+    ("price_free_model_learning", run_price_free_model_learning_step),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
+    ("active_variant_shadow", run_active_variant_shadow_step),
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
@@ -723,9 +878,13 @@ def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
+    clob_tiering = ((by_name.get("clob_order_book_tiering") or {}).get("result") or {})
     replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
+    hourly = ((by_name.get("hourly_model_performance") or {}).get("result") or {})
+    price_free = ((by_name.get("price_free_model_learning") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
+    active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
     variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
@@ -733,6 +892,7 @@ def pipeline_summary(steps):
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
+    variant_learning_gate = variant_learning_gate_from_steps(steps)
     return {
         "labels": {
             "total": finalize.get("label_count"),
@@ -753,6 +913,25 @@ def pipeline_summary(steps):
             "shadow_markets": promotion.get("shadow_markets") or [],
             "blocked_markets": promotion.get("blocked_markets") or [],
         },
+        "clob_order_book_tiering": {
+            "status": clob_tiering.get("status"),
+            "settled_before": clob_tiering.get("settled_before"),
+            "summary": clob_tiering.get("summary") or {},
+            "apply_summary": clob_tiering.get("apply_summary") or {},
+            "delete_source": clob_tiering.get("delete_source"),
+        },
+        "hourly_model_performance": {
+            "status": hourly.get("status"),
+            "daily_summary": hourly.get("daily_summary") or {},
+            "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
+            "remediation_registry_summary": hourly.get("remediation_registry_summary") or {},
+        },
+        "price_free_model_learning": {
+            "status": price_free.get("status"),
+            "daily_summary": price_free.get("daily_summary") or {},
+            "corpus": price_free.get("corpus") or {},
+            "current_max_carryover_summary": price_free.get("current_max_carryover_summary") or {},
+        },
         "replay_status_backfill": {
             "status": replay_backfill.get("status"),
             "summary": replay_backfill.get("summary") or {},
@@ -760,6 +939,12 @@ def pipeline_summary(steps):
         "shadow_ab_monitor": {
             "status": shadow_ab.get("status"),
             "summary": shadow_ab.get("summary") or {},
+        },
+        "active_variant_shadow": {
+            "status": active_variant_shadow.get("status"),
+            "summary": active_variant_shadow.get("summary") or {},
+            "missing_active_variant_ids": active_variant_shadow.get("missing_active_variant_ids") or [],
+            "blockers": active_variant_shadow.get("blockers") or [],
         },
         "model_variant_evidence_growth": {
             "status": variant_evidence.get("status"),
@@ -769,6 +954,7 @@ def pipeline_summary(steps):
             "no_growth_reasons": variant_evidence.get("no_growth_reasons") or [],
             "trend": variant_evidence.get("trend") or [],
         },
+        "variant_learning_gate": variant_learning_gate,
         "progress_answer": progress.get("answer"),
         "casebook": {
             "case_count": casebook.get("case_count"),
@@ -803,6 +989,97 @@ def pipeline_summary(steps):
     }
 
 
+def _step_result(steps, name):
+    for step in steps:
+        if step.get("name") == name:
+            return step.get("result") or {}
+    return {}
+
+
+def _variant_blocker(component, gate, detail, remediation_command, extra=None):
+    return {
+        "component": component,
+        "gate": gate,
+        "detail": detail,
+        "remediation_command": remediation_command,
+        "suggested_command": remediation_command,
+        **(extra or {}),
+    }
+
+
+def _first_no_growth_remediation(evidence):
+    for row in evidence.get("no_growth_reasons") or []:
+        if row.get("status") in {"BLOCK", "WARN"} and row.get("action"):
+            return row.get("action")
+    for alert in evidence.get("alerts") or []:
+        if alert.get("action"):
+            return alert.get("action")
+    return "Collect new independent settled market-day evidence before making a broad promotion claim."
+
+
+def variant_learning_gate_from_steps(steps):
+    active = _step_result(steps, "active_variant_shadow")
+    evidence = _step_result(steps, "model_variant_evidence_growth")
+    blockers = []
+    active_status = active.get("status")
+    evidence_status = evidence.get("status")
+
+    if active_status in {"BLOCK", "ERROR"}:
+        detail = "; ".join(active.get("blockers") or []) or f"active variant shadow status {active_status}"
+        missing = active.get("missing_active_variant_ids") or []
+        if missing:
+            detail = f"{detail}; missing active variants: {', '.join(missing)}"
+        blockers.append(_variant_blocker(
+            "active_variant_shadow",
+            "active_variant_shadow_coverage",
+            detail,
+            "python -m weather.operations.daily_refresh run --active-variant-shadow-sources <current-active-variant-exports>",
+            {"missing_active_variant_ids": missing},
+        ))
+
+    if evidence_status == "SKIPPED" and evidence.get("reason") == "missing_current_variant_evidence":
+        missing = evidence.get("missing_paths") or []
+        blockers.append(_variant_blocker(
+            "model_variant_evidence_growth",
+            "variant_evidence_missing",
+            "current active-variant evidence is missing: " + (", ".join(missing) or "-"),
+            "python -m weather.operations.daily_refresh run --active-variant-shadow-sources <current-active-variant-exports>",
+            {"missing_paths": missing},
+        ))
+    elif evidence_status == "ALERT":
+        sla = evidence.get("evidence_sla") or {}
+        reasons = sla.get("reasons") or []
+        detail = "; ".join(reasons) or "model_variant_evidence_growth is ALERT"
+        blockers.append(_variant_blocker(
+            "model_variant_evidence_growth",
+            "variant_evidence_sla",
+            detail,
+            _first_no_growth_remediation(evidence),
+            {
+                "evidence_sla_status": sla.get("status"),
+                "no_growth_reasons": evidence.get("no_growth_reasons") or [],
+            },
+        ))
+
+    if blockers:
+        status = "BLOCK"
+    elif active_status == "SKIPPED" or evidence_status == "SKIPPED":
+        status = "SKIPPED"
+    elif active or evidence:
+        status = "PASS"
+    else:
+        status = "SKIPPED"
+    return {
+        "schema_version": schema_version("variant_learning_operational_gate"),
+        "status": status,
+        "blocker_count": len(blockers),
+        "first_blocker": blockers[0] if blockers else {},
+        "blockers": blockers,
+        "active_variant_shadow_status": active_status,
+        "model_variant_evidence_growth_status": evidence_status,
+    }
+
+
 def render_report(payload):
     lines = [
         "# Daily Settlement-To-Promotion Refresh",
@@ -832,6 +1109,18 @@ def render_report(payload):
                     f"irreparable {summary.get('irreparable_folder_count')}; "
                     f"training_ready {summary.get('training_ready_folder_count')}"
                 )
+        elif step.get("name") == "clob_order_book_tiering":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                summary = result.get("summary") or {}
+                apply_summary = result.get("apply_summary") or {}
+                detail = (
+                    f"{result.get('status')}; candidates {summary.get('candidate_files')}; "
+                    f"compressed {apply_summary.get('compressed_files')}; "
+                    f"deleted {apply_summary.get('deleted_sources')}; "
+                    f"blocked {apply_summary.get('insufficient_headroom')}"
+                )
         elif step.get("name") == "reanalysis_recent_refresh":
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
@@ -855,8 +1144,38 @@ def render_report(payload):
                 f"{result.get('candidate_verdict')} / {result.get('cutover_decision')}; "
                 f"actions {result.get('action_counts')}"
             )
+        elif step.get("name") == "hourly_model_performance":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                gate = result.get("hourly_performance_gate") or {}
+                daily = result.get("daily_summary") or {}
+                detail = (
+                    f"{gate.get('status')}; blockers {gate.get('blocker_count', 0)}; "
+                    f"worst {', '.join(daily.get('worst_hours') or []) or '-'}"
+                )
+        elif step.get("name") == "price_free_model_learning":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                daily = result.get("daily_summary") or {}
+                carryover = result.get("current_max_carryover_summary") or {}
+                detail = (
+                    f"{result.get('status')}; days {daily.get('scored_market_days')}; "
+                    f"rows {daily.get('hourly_checkpoint_rows')}; "
+                    f"current_max_guarded {carryover.get('risky_or_guarded_count', 0)}"
+                )
         elif step.get("name") == "shadow_ab_monitor":
             detail = f"{result.get('status')} {result.get('summary')}"
+        elif step.get("name") == "active_variant_shadow":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')} "
+                    f"{(result.get('summary') or {}).get('canonical_rows')} rows; "
+                    f"missing {len(result.get('missing_active_variant_ids') or [])}"
+                )
         elif step.get("name") == "model_variant_evidence_growth":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -900,6 +1219,49 @@ def render_report(payload):
             f"| {step.get('name')} | {step.get('status')} | "
             f"{step.get('duration_seconds', '-')} | {detail} |"
         )
+    hourly_summary = (payload.get("summary") or {}).get("hourly_model_performance") or {}
+    hourly_gate = hourly_summary.get("hourly_performance_gate") or {}
+    if hourly_gate:
+        first = hourly_gate.get("first_blocker") or {}
+        daily = hourly_summary.get("daily_summary") or {}
+        lines += [
+            "",
+            "## Hourly Performance Gate",
+            "",
+            f"Status: `{hourly_gate.get('status')}`",
+            f"Best hours: {', '.join(daily.get('best_hours') or []) or '-'}",
+            f"Worst hours: {', '.join(daily.get('worst_hours') or []) or '-'}",
+            f"First blocker: {first.get('detail') or '-'}",
+            f"Remediation: `{first.get('remediation_command') or '-'}`",
+            "",
+        ]
+    price_free_summary = (payload.get("summary") or {}).get("price_free_model_learning") or {}
+    price_free_daily = price_free_summary.get("daily_summary") or {}
+    price_free_carryover = price_free_summary.get("current_max_carryover_summary") or {}
+    if price_free_summary.get("status"):
+        lines += [
+            "",
+            "## Price-Free Model Learning",
+            "",
+            f"Status: `{price_free_summary.get('status')}`",
+            f"Scored market-days: `{price_free_daily.get('scored_market_days', 0)}`",
+            f"Hourly checkpoint rows: `{price_free_daily.get('hourly_checkpoint_rows', 0)}`",
+            f"Final top-hit rate: `{price_free_daily.get('final_top_hit_rate')}`",
+            f"Current-max guarded rows: `{price_free_carryover.get('risky_or_guarded_count', 0)}`",
+            "",
+        ]
+    variant_gate = (payload.get("summary") or {}).get("variant_learning_gate") or {}
+    if variant_gate:
+        first = variant_gate.get("first_blocker") or {}
+        lines += [
+            "",
+            "## Variant Learning Gate",
+            "",
+            f"Status: `{variant_gate.get('status')}`",
+            f"First blocker: {first.get('detail') or '-'}",
+            f"Remediation: `{first.get('remediation_command') or '-'}`",
+            "",
+        ]
     lines += [
         "",
         "## Summary",
@@ -954,6 +1316,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "backtest_root": args.backtest_root,
             "roadmap": args.roadmap,
             "continue_on_error": args.continue_on_error,
+            "fail_on_variant_evidence_alert": getattr(args, "fail_on_variant_evidence_alert", True),
+            "fail_on_hourly_performance_gate": getattr(args, "fail_on_hourly_performance_gate", True),
             "long_job_guard": long_job_guard_info or {},
         },
     }
@@ -998,6 +1362,11 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             gate_status = ((audit_step.get("result") or {}).get("gate_status"))
             if gate_status == "FAIL" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        if getattr(args, "fail_on_hourly_performance_gate", True):
+            hourly_step = next((step for step in payload["steps"] if step.get("name") == "hourly_model_performance"), {})
+            hourly_status = ((hourly_step.get("result") or {}).get("status"))
+            if hourly_status == "BLOCK" and payload["status"] == "ok":
+                payload["status"] = "critical"
         if getattr(args, "fail_on_snapshot_evaluation", False):
             evaluation_step = next((step for step in payload["steps"] if step.get("name") == "snapshot_evaluation"), {})
             evaluation_status = ((evaluation_step.get("result") or {}).get("status"))
@@ -1007,6 +1376,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             shadow_step = next((step for step in payload["steps"] if step.get("name") == "shadow_ab_monitor"), {})
             shadow_status = ((shadow_step.get("result") or {}).get("status"))
             if shadow_status == "ALERT" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        if getattr(args, "fail_on_variant_evidence_alert", True):
+            variant_gate = variant_learning_gate_from_steps(payload["steps"])
+            if variant_gate.get("status") == "BLOCK" and payload["status"] == "ok":
                 payload["status"] = "critical"
         if getattr(args, "fail_on_daily_learning_blocker", False):
             learning_step = next((step for step in payload["steps"] if step.get("name") == "daily_learning"), {})
@@ -1054,17 +1427,30 @@ def build_run_parser(parser):
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
+    parser.set_defaults(fail_on_hourly_performance_gate=True)
+    parser.add_argument("--fail-on-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_true")
+    parser.add_argument("--allow-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_false")
     parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
     parser.add_argument("--fail-on-shadow-ab-alert", action="store_true")
+    parser.set_defaults(fail_on_variant_evidence_alert=True)
+    parser.add_argument("--fail-on-variant-evidence-alert", dest="fail_on_variant_evidence_alert", action="store_true")
+    parser.add_argument("--allow-variant-evidence-alert", dest="fail_on_variant_evidence_alert", action="store_false")
     parser.add_argument("--fail-on-daily-learning-blocker", action="store_true")
     parser.add_argument("--skip-shadow-ab-monitor", action="store_true")
     parser.add_argument("--ab-current-tol", type=float, default=0.003)
     parser.add_argument("--ab-market-tol", type=float, default=0.003)
     parser.add_argument("--skip-model-variant-evidence-growth", action="store_true")
+    parser.add_argument("--skip-active-variant-shadow", action="store_true")
+    parser.add_argument(
+        "--active-variant-shadow-sources",
+        default="",
+        help="Comma-separated current active variant row paths used to build active_variant_shadow_long.csv.",
+    )
+    parser.add_argument("--variant-registry", default=str(active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
     parser.add_argument(
         "--variant-evidence-current",
         default="",
-        help="Comma-separated current variant long-table paths; defaults to item 86 bakeoff long CSV.",
+        help="Comma-separated current variant long-table paths; defaults to active_variant_shadow_long.csv.",
     )
     parser.add_argument(
         "--variant-evidence-baseline",
@@ -1077,6 +1463,23 @@ def build_run_parser(parser):
     parser.add_argument("--variant-evidence-per-shadow-market-min-days", type=int, default=4)
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
+    parser.add_argument("--skip-hourly-model-performance", action="store_true")
+    parser.add_argument("--skip-price-free-model-learning", action="store_true")
+    parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
+    parser.add_argument("--hourly-min-rows", type=int, default=hourly_model_performance.DEFAULT_MIN_ROWS)
+    parser.add_argument("--hourly-top-hours", type=int, default=hourly_model_performance.DEFAULT_TOP_HOURS)
+    parser.add_argument("--hourly-min-regime-market-days", type=int, default=hourly_model_performance.DEFAULT_MIN_REGIME_MARKET_DAYS)
+    parser.add_argument(
+        "--hourly-early-brier-regression-tolerance",
+        type=float,
+        default=hourly_model_performance.DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--hourly-early-logloss-regression-tolerance",
+        type=float,
+        default=hourly_model_performance.DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument("--hourly-early-ece-max", type=float, default=hourly_model_performance.DEFAULT_EARLY_ECE_MAX)
     parser.add_argument("--include-reconstructed", action="store_true")
     parser.add_argument("--allow-unsettled", action="store_true")
     parser.add_argument("--skip-serving-gauntlet", action="store_true")
@@ -1090,6 +1493,17 @@ def build_run_parser(parser):
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--skip-polymarket-reconciliation", action="store_true")
     parser.add_argument("--skip-replay-status-backfill", action="store_true")
+    parser.add_argument("--skip-clob-order-book-tiering", action="store_true")
+    parser.add_argument("--clob-tiering-settled-before", default="")
+    parser.add_argument(
+        "--clob-tiering-min-free-bytes",
+        type=int,
+        default=clob_order_book_tiering.DEFAULT_MIN_FREE_BYTES,
+    )
+    parser.add_argument("--clob-tiering-limit", type=int, default=None)
+    parser.set_defaults(clob_tiering_delete_source=True)
+    parser.add_argument("--clob-tiering-delete-source", dest="clob_tiering_delete_source", action="store_true")
+    parser.add_argument("--keep-clob-order-book-source", dest="clob_tiering_delete_source", action="store_false")
     parser.add_argument("--overwrite-replay-status", action="store_true")
     parser.add_argument("--reconstruct-missing-replay-inputs", action="store_true")
     parser.add_argument("--include-active-replay-status", action="store_true")

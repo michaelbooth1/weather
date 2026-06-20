@@ -80,6 +80,23 @@ def _component_prob(distribution, bucket):
     return 0.0
 
 
+def _diagnostic_only_input_families(component_payload):
+    preflight = (component_payload or {}).get("weak_input_family_preflight") or {}
+    families = set(preflight.get("diagnostic_only_families") or [])
+    disposition = (component_payload or {}).get("weak_input_family_disposition") or {}
+    for row in disposition.get("families") or []:
+        if row.get("disposition") in {"diagnostic_only", "regime_backfill", "remove"}:
+            family = row.get("family")
+            if family:
+                families.add(family)
+    return sorted(families)
+
+
+def _family_is_diagnostic_only(component_payload, *family_names):
+    families = set(_diagnostic_only_input_families(component_payload))
+    return any(name in families for name in family_names)
+
+
 def driver_waterfall(components, buckets):
     """Telescoping per-bucket probability waterfall over the running pipeline
     stages present in ``components`` (a distribution_components ``components``
@@ -505,8 +522,27 @@ class PresentationMixin:
                 component_payload=component_payload,
             ),
         }
-        if marine_state:
+        diagnostic_families = _diagnostic_only_input_families(component_payload)
+        if diagnostic_families:
+            explanation["diagnostic_only_input_families"] = diagnostic_families
+        if marine_state and not _family_is_diagnostic_only(
+            component_payload,
+            "marine_microclimate",
+            "marine_context",
+        ):
             explanation["marine_context"] = marine_state
+        forecast_profile = (
+            component_payload.get("forecast_profile_calibration")
+            or component_payload.get("forecast_profile_lane")
+        )
+        if forecast_profile:
+            explanation["forecast_profile_calibration"] = forecast_profile
+        source_state_reliability = (
+            component_payload.get("source_state_reliability")
+            or component_payload.get("forecast_source_state_reliability")
+        )
+        if source_state_reliability:
+            explanation["source_state_reliability"] = source_state_reliability
         return explanation
 
     def driver_breakdown(self, buckets, component_payload=None):

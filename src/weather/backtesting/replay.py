@@ -12,6 +12,7 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 """
 import json
 import csv
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -133,6 +134,8 @@ def _numeric_band_value(value):
     try:
         numeric = float(value)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
         return None
     if abs(numeric - round(numeric)) < 1e-9:
         return int(round(numeric))

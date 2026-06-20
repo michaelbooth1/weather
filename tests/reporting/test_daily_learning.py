@@ -204,6 +204,61 @@ class TestDailyLearning(unittest.TestCase):
         self.assertFalse(payload["retrain_plan"]["training_ready"])
         self.assertGreaterEqual(payload["summary"]["blocker_count"], 1)
 
+    def test_build_learning_payload_includes_price_free_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "price_free_model_learning.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "price_free_model_learning_v0.1",
+                        "status": "OK",
+                        "evidence_classification": {
+                            "lane": "diagnostic_price_free_not_promotion_evidence",
+                            "uses_market_prices": False,
+                            "counts_toward_retrain_input": True,
+                        },
+                        "corpus": {
+                            "scored_market_days": 1,
+                            "hourly_checkpoint_rows": 24,
+                        },
+                        "daily_summary": {
+                            "scored_market_days": 1,
+                            "hourly_checkpoint_rows": 24,
+                        },
+                        "overall": {
+                            "hourly_checkpoint": {
+                                "partition_model_top_is_winner_rate": 1.0,
+                            }
+                        },
+                        "current_max_carryover": {
+                            "summary": {
+                                "risky_or_guarded_count": 2,
+                            },
+                            "by_market_hour": [
+                                {"market_id": "austin", "cutoff_hour": 8, "early_large_gap_count": 1}
+                            ],
+                            "examples": [
+                                {"market_id": "austin", "current_max_state": "early_current_max_history_gap"}
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            categories = {row["category"] for row in payload["learnings"]}
+
+        self.assertIn("price_free_model_learning", categories)
+        self.assertIn("current_max_carryover", categories)
+        self.assertEqual(payload["scorecard"]["price_free_model_learning"]["status"], "OK")
+        self.assertTrue(
+            next(row for row in payload["learnings"] if row["category"] == "price_free_model_learning")[
+                "retrain_input"
+            ]
+        )
+
     def test_build_learning_payload_blocks_on_settled_day_freshness_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -441,6 +496,103 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("Broad promotion claim is blocked", learning["signal"])
         self.assertIn("settled labels", learning["action"])
 
+    def test_build_learning_payload_blocks_on_variant_learning_operational_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            daily = json.loads((backtest_root / "daily_refresh_status.json").read_text(encoding="utf-8"))
+            daily["summary"]["variant_learning_gate"] = {
+                "schema_version": "variant_learning_operational_gate_v0.1",
+                "status": "BLOCK",
+                "first_blocker": {
+                    "component": "model_variant_evidence_growth",
+                    "gate": "variant_evidence_sla",
+                    "detail": "scored rows grew without independent observations",
+                    "remediation_command": "Collect new settled labels.",
+                },
+                "blockers": [],
+            }
+            (backtest_root / "daily_refresh_status.json").write_text(json.dumps(daily), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "variant_learning_operational_gate"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+        self.assertTrue(learning["blocker"])
+        self.assertIn("scored rows grew", learning["signal"])
+        self.assertEqual(learning["action"], "Collect new settled labels.")
+        self.assertEqual(
+            payload["retrain_plan"]["variant_learning_gate"]["status"],
+            "BLOCK",
+        )
+
+    def test_build_learning_payload_blocks_on_hourly_performance_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "hourly_model_performance.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "hourly_model_performance_v0.3",
+                        "hourly_performance_gate": {
+                            "schema_version": "hourly_performance_gate_v0.1",
+                            "status": "BLOCK",
+                            "first_blocker": {
+                                "gate": "early_hour_model_market_regression",
+                                "detail": "early-hour model Brier trails market by +0.0120",
+                                "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                            },
+                            "blockers": [],
+                        },
+                        "daily_summary": {
+                            "status": "BLOCK",
+                            "best_hours": ["09 daytime"],
+                            "worst_hours": ["00 early_morning"],
+                            "active_remediation_owners": ["forecast-profile calibration"],
+                        },
+                        "remediation_registry": {
+                            "schema_version": "hourly_remediation_registry_v0.1",
+                            "summary": {"row_count": 1},
+                            "rows": [
+                                {
+                                    "probe_name": "early_hour_profile_bias",
+                                    "hour_regime": "early_morning",
+                                    "metric_delta": -0.012,
+                                    "market_count": 4,
+                                    "row_count": 72,
+                                    "uses_market_prices": False,
+                                    "interpretation": "weather-only early-hour remediation improved Brier",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate_learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "hourly_performance_gate"
+            )
+            registry_learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "hourly_remediation_registry"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(payload["scorecard"]["hourly_model_performance"]["status"], "BLOCK")
+        self.assertTrue(gate_learning["blocker"])
+        self.assertIn("early-hour model Brier trails market", gate_learning["signal"])
+        self.assertIn("hourly_model_performance", gate_learning["source"])
+        self.assertTrue(registry_learning["retrain_input"])
+        self.assertIn("early_hour_profile_bias", registry_learning["signal"])
+        self.assertIn("weather-only early-hour remediation", registry_learning["signal"])
+
     def test_build_learning_payload_counts_per_market_live_forward_credit_without_broad_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -509,7 +661,7 @@ class TestDailyLearning(unittest.TestCase):
                     "component": "snapshot_collection",
                     "gate": "latest_model_row_freshness",
                     "owner": "weather snapshot/model loop",
-                    "repair_command": "python -m weather.collection.snapshot_tracker status",
+                    "repair_command": "python -m weather.collection.snapshot_tracker --status",
                     "verification_command": "python -m weather.reporting.fleet_observability report",
                 },
                 "recovery_checklist": [
@@ -519,7 +671,7 @@ class TestDailyLearning(unittest.TestCase):
                         "gate": "latest_model_row_freshness",
                         "owner": "weather snapshot/model loop",
                         "before": "latest_age_minutes=40.0",
-                        "repair_command": "python -m weather.collection.snapshot_tracker status",
+                        "repair_command": "python -m weather.collection.snapshot_tracker --status",
                         "verification_command": "python -m weather.reporting.fleet_observability report",
                     }
                 ],
@@ -541,14 +693,14 @@ class TestDailyLearning(unittest.TestCase):
         self.assertEqual(payload["status"], "BLOCKED")
         self.assertFalse(payload["retrain_plan"]["training_ready"])
         self.assertFalse(payload["retrain_plan"]["promotion_ready"])
-        self.assertIn("snapshot_tracker status", blocker["action"])
+        self.assertIn("snapshot_tracker --status", blocker["action"])
         self.assertEqual(
             payload["retrain_plan"]["broad_live_forward_slo"]["first_blocker"]["gate"],
             "latest_model_row_freshness",
         )
         self.assertIn("## Broad Live-Forward SLO Recovery", report)
         self.assertIn("latest_model_row_freshness", report)
-        self.assertIn("weather.collection.snapshot_tracker status", report)
+        self.assertIn("weather.collection.snapshot_tracker --status", report)
 
     def test_build_learning_payload_surfaces_core_model_trend_claim(self):
         with tempfile.TemporaryDirectory() as tmp:

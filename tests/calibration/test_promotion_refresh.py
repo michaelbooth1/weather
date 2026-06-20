@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -11,8 +12,13 @@ from weather.reporting.promotion_refresh import (  # noqa: E402
     _candidate_summary,
     _family_specs,
     _serving_blocking_source_freshness_rows,
+    _write_complete_manifest,
+    _write_incomplete_manifest,
+    _write_json,
+    _write_started_manifest,
     build_gap_owner_table,
     build_family_decisions,
+    load_precomputed_candidate_report,
     market_skill_diagnostics,
     model_skill_claims,
     promotion_readiness,
@@ -118,6 +124,7 @@ class TestPromotionRefresh(unittest.TestCase):
             candidate_variant_family="pooled_continuous_density",
             candidate_variant_uses_market_features=False,
             candidate_variant_control=False,
+            min_artifact_free_bytes=123456789,
             microstructure_artifact="",
             microstructure_min_train_rows=500,
             skip_microstructure_overlay=True,
@@ -130,6 +137,7 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(replay_args.candidate_variant_out, "density_variants.csv")
         self.assertEqual(replay_args.candidate_variant_id, "pooled_continuous_density_hgb_v0_1")
         self.assertEqual(replay_args.candidate_variant_family, "pooled_continuous_density")
+        self.assertEqual(replay_args.min_artifact_free_bytes, 123456789)
         self.assertIsNone(replay_args.microstructure_artifact)
 
     def test_candidate_summary_exposes_independent_evidence_accounting(self):
@@ -265,6 +273,137 @@ class TestPromotionRefresh(unittest.TestCase):
             readiness["shadow_market_details"][0]["reason"],
             "not proven better than market on pinned rows",
         )
+
+    def test_promotion_readiness_blocks_on_hourly_performance_gate(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            hourly_performance={
+                "hourly_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {
+                        "gate": "early_hour_brier_regression",
+                        "detail": "early-hour model Brier trails market",
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(readiness["status"], "OPEN")
+        blocker = next(row for row in readiness["blockers"] if row["category"] == "hourly_performance_gate")
+        self.assertEqual(blocker["severity"], "block")
+        self.assertIn("early-hour model Brier trails market", blocker["detail"])
+        self.assertFalse(readiness["hourly_performance_mitigation"]["applied"])
+
+    def test_promotion_readiness_accepts_candidate_hourly_gate_mitigation(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+            },
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            hourly_performance={
+                "hourly_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {
+                        "gate": "early_hour_brier_regression",
+                        "detail": "early-hour current model Brier trails market",
+                    },
+                }
+            },
+            candidate_hourly_performance={
+                "variant_ids": ["candidate_v1"],
+                "candidate_hourly_gate": {
+                    "status": "PASS",
+                    "blocker_count": 0,
+                    "early_morning": {
+                        "delta_vs_market": -0.0008,
+                        "delta_vs_current": -0.0044,
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(readiness["status"], "READY")
+        self.assertNotIn("hourly_performance_gate", {row["category"] for row in readiness["blockers"]})
+        self.assertTrue(readiness["hourly_performance_mitigation"]["applied"])
+        self.assertEqual(readiness["hourly_performance_mitigation"]["candidate_hourly_status"], "PASS")
+        self.assertTrue(readiness["hourly_performance_mitigation"]["candidate_hourly_matches"])
+
+    def test_promotion_readiness_blocks_market_informed_candidate_as_core_readiness(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+                "candidate_shadow_variants": {
+                    "variant_id": "clob_overlay",
+                    "uses_market_features": True,
+                    "variant_family": "market_informed_clob_overlay",
+                },
+            },
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("market_informed_candidate", blockers)
+        self.assertEqual(blockers["market_informed_candidate"]["severity"], "block")
+        self.assertIn("cannot satisfy weather-only core promotion readiness", blockers["market_informed_candidate"]["detail"])
+
+    def test_promotion_readiness_blocks_on_data_layer_p0_gates(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            source_family_inventory={
+                "promotion_preflight": {
+                    "status": "BLOCK",
+                    "blocked_families": ["nws_grid"],
+                }
+            },
+            fleet_observability={
+                "path": "fleet.json",
+                "status": "CRITICAL",
+                "summary": {
+                    "live_forward_slo_status": "BLOCK",
+                    "tape_backup_status": "INSUFFICIENT_BACKUP_CAPACITY",
+                },
+                "tape_backup": {
+                    "status": "INSUFFICIENT_BACKUP_CAPACITY",
+                    "capacity_preflight": {"insufficient_bytes": 100},
+                },
+            },
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("source_family_preflight", blockers)
+        self.assertIn("nws_grid", blockers["source_family_preflight"]["detail"])
+        self.assertIn("live_forward_slo", blockers)
+        self.assertIn("tape_backup_sla", blockers)
+        self.assertIn("100 bytes short", blockers["tape_backup_sla"]["detail"])
+
+    def test_promotion_readiness_surfaces_extra_location_gate(self):
+        readiness = promotion_readiness(
+            {"aggregate": {}},
+            None,
+            {"markets": []},
+            extra_location_transfer={
+                "promotion_gate": {
+                    "status": "BLOCK",
+                    "serving_promotion_allowed": False,
+                    "reasons": ["brier CI is clearly positive versus target-only"],
+                }
+            },
+        )
+
+        categories = {row["category"] for row in readiness["blockers"]}
+        self.assertIn("no_market_extra_location_shadow_lane", categories)
+        self.assertEqual(readiness["status"], "OPEN")
 
     def test_promotion_readiness_uses_all_market_wording(self):
         readiness = promotion_readiness(
@@ -405,12 +544,13 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertFalse(claims["market_informed_clob_overlay"]["counts_toward_core_skill_claim"])
         self.assertTrue(claims["market_informed_clob_overlay"]["may_support_quote_gating"])
 
-    def test_market_skill_diagnostics_targets_nyc_and_seattle(self):
+    def test_market_skill_diagnostics_targets_non_promoted_markets(self):
         rows = market_skill_diagnostics(
             {
                 "slices": {
                     "by_market": [
                         {"group": "nyc", "candidate_brier": 0.08, "market_brier": 0.06, "delta_vs_market": 0.02},
+                        {"group": "dallas", "candidate_brier": 0.06, "market_brier": 0.07, "delta_vs_market": -0.01},
                     ]
                 }
             },
@@ -418,18 +558,40 @@ class TestPromotionRefresh(unittest.TestCase):
                 "markets": [
                     {
                         "market_id": "nyc",
-                        "action": "KEEP_SHADOW",
+                        "action": "BLOCK_CANDIDATE",
                         "reason": "not proven better than market",
                         "metrics": {"candidate_brier": 0.08, "market_brier": 0.06, "delta_vs_market": 0.02},
-                    }
+                    },
+                    {
+                        "market_id": "dallas",
+                        "action": "KEEP_SHADOW",
+                        "reason": "not proven better than current replay",
+                        "metrics": {
+                            "candidate_brier": 0.06,
+                            "current_brier": 0.06,
+                            "market_brier": 0.07,
+                            "delta_vs_current": 0.0,
+                            "delta_vs_market": -0.01,
+                        },
+                    },
+                    {
+                        "market_id": "atlanta",
+                        "action": "PROMOTE_CANDIDATE",
+                        "reason": "beats current replay and clears market/trust gates",
+                        "metrics": {"candidate_brier": 0.04, "market_brier": 0.05, "delta_vs_market": -0.01},
+                    },
                 ]
             },
         )
 
         by_market = {row["market_id"]: row for row in rows}
-        self.assertEqual(by_market["nyc"]["action"], "KEEP_SHADOW")
+        self.assertEqual([row["market_id"] for row in rows], ["nyc", "dallas"])
+        self.assertEqual(by_market["nyc"]["action"], "BLOCK_CANDIDATE")
         self.assertIn("nyc_residual", by_market["nyc"]["experiment_artifact"])
-        self.assertEqual(by_market["seattle"]["next_experiment"], "seattle_residual_calibration_daily_first")
+        self.assertEqual(by_market["nyc"]["affected_markets"], ["nyc"])
+        self.assertEqual(by_market["nyc"]["owner"], "nyc residual calibration")
+        self.assertEqual(by_market["dallas"]["delta_vs_current"], 0.0)
+        self.assertEqual(by_market["dallas"]["next_experiment"], "dallas_residual_calibration_daily_first")
 
     def test_write_gap_experiment_artifacts_creates_open_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -453,6 +615,129 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertTrue(rows[0]["experiment_artifact_exists"])
         self.assertIn("market_skill_gap_experiment_v0.1", payload)
         self.assertIn("paired_daily_first", payload)
+
+    def test_gap_experiment_artifact_blocks_before_create_when_headroom_is_low(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "exact_band.json"
+            rows = [{
+                "owner": "exact-band calibration",
+                "roadmap_owner": "Item 48",
+                "slice": "band_type",
+                "group": "eq",
+                "excess_brier_rows": 2.5,
+                "affected_markets": ["nyc"],
+                "claim_lane": "weather_only_core_model",
+                "counts_toward_core_skill_claim": True,
+                "next_experiment": "exact_band_calibration_daily_first",
+                "experiment_artifact": str(artifact),
+                "clearance_rule": "aggregate delta_vs_market must be <= 0",
+            }]
+
+            with self.assertRaises(OSError):
+                write_gap_experiment_artifacts(rows, min_free_bytes=10**18)
+
+            self.assertFalse(artifact.exists())
+            self.assertNotIn("experiment_artifact_exists", rows[0])
+
+    def test_summary_outputs_block_before_create_when_headroom_is_low(self):
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "family_unit": "F",
+            "corpus": {},
+            "candidate": {"aggregate": {}, "slices": {}},
+            "readiness": {"status": "OPEN", "blockers": []},
+            "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "serving_gauntlet": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = Path(tmp) / "summary.json"
+            report_path = Path(tmp) / "report.md"
+
+            with self.assertRaises(OSError):
+                _write_json(json_path, payload, min_free_bytes=10**18)
+            with self.assertRaises(OSError):
+                write_report(report_path, payload, min_free_bytes=10**18)
+
+            self.assertFalse(json_path.exists())
+            self.assertFalse(report_path.exists())
+
+    def test_incomplete_manifest_is_written_without_reserve_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "incomplete.json"
+            args = SimpleNamespace(
+                incomplete_manifest=path,
+                family_unit="F",
+                out=Path(tmp) / "summary.json",
+                report=Path(tmp) / "summary.md",
+                corpus_out=Path(tmp) / "corpus.json",
+                trust_out=Path(tmp) / "trust.json",
+                candidate_json=Path(tmp) / "candidate.json",
+                candidate_report=Path(tmp) / "candidate.md",
+                min_artifact_free_bytes=10**18,
+            )
+
+            written = _write_incomplete_manifest(args, OSError("disk reserve failed"))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(written, path)
+        self.assertEqual(payload["status"], "INCOMPLETE")
+        self.assertEqual(payload["error_type"], "OSError")
+        self.assertEqual(payload["min_artifact_free_bytes"], 10**18)
+
+    def test_started_and_complete_manifests_track_run_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "incomplete.json"
+            args = SimpleNamespace(
+                incomplete_manifest=path,
+                family_unit="F",
+                out=Path(tmp) / "summary.json",
+                report=Path(tmp) / "summary.md",
+                corpus_out=Path(tmp) / "corpus.json",
+                trust_out=Path(tmp) / "trust.json",
+                candidate_json=Path(tmp) / "candidate.json",
+                candidate_report=Path(tmp) / "candidate.md",
+                min_artifact_free_bytes=10**18,
+            )
+            payload = {
+                "readiness": {"status": "OPEN"},
+                "decisions": {
+                    "promote_markets": ["atlanta"],
+                    "shadow_markets": ["dallas"],
+                    "blocked_markets": ["nyc"],
+                },
+            }
+
+            _write_started_manifest(args, long_job_guard_info={"job": "promotion_refresh"})
+            started = json.loads(path.read_text(encoding="utf-8"))
+            _write_complete_manifest(
+                args,
+                payload,
+                Path(tmp) / "summary.json",
+                Path(tmp) / "summary.md",
+                long_job_guard_info={"job": "promotion_refresh"},
+            )
+            complete = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(started["status"], "STARTED")
+        self.assertEqual(complete["status"], "COMPLETE")
+        self.assertEqual(complete["summary"]["readiness_status"], "OPEN")
+        self.assertEqual(complete["summary"]["promote_count"], 1)
+        self.assertEqual(complete["summary"]["shadow_count"], 1)
+        self.assertEqual(complete["summary"]["blocked_count"], 1)
+
+    def test_load_precomputed_candidate_report_requires_matching_corpus_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidate.json"
+            path.write_text(
+                json.dumps({"corpus": {"corpus_hash": "abc"}, "market_rows": []}),
+                encoding="utf-8",
+            )
+
+            loaded = load_precomputed_candidate_report(path, {"corpus_hash": "abc"})
+            with self.assertRaisesRegex(ValueError, "corpus hash mismatch"):
+                load_precomputed_candidate_report(path, {"corpus_hash": "def"})
+
+        self.assertEqual(loaded["corpus"]["corpus_hash"], "abc")
 
     def test_candidate_source_freshness_rows_include_failed_and_stale_groups(self):
         rows = _candidate_source_freshness_rows({
@@ -540,6 +825,41 @@ class TestPromotionRefresh(unittest.TestCase):
 
         self.assertIn("# All-Market Promotion Refresh", text)
         self.assertNotIn("# F-Family Promotion Refresh", text)
+
+    def test_write_report_emits_operational_promotion_gates(self):
+        payload = {
+            "generated_at_utc": "2026-06-15T00:00:00+00:00",
+            "family_unit": "F",
+            "corpus": {},
+            "candidate": {"aggregate": {}, "slices": {}},
+            "readiness": {"status": "OPEN", "blockers": []},
+            "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "serving_gauntlet": None,
+            "source_family_inventory": {
+                "path": "source_family_inventory.json",
+                "promotion_preflight": {"status": "PASS", "blocked_families": []},
+            },
+            "fleet_observability": {
+                "path": "fleet_observability.json",
+                "status": "CRITICAL",
+                "summary": {
+                    "live_forward_slo_status": "BLOCK",
+                    "tape_backup_status": "INSUFFICIENT_BACKUP_CAPACITY",
+                },
+                "tape_backup": {
+                    "status": "INSUFFICIENT_BACKUP_CAPACITY",
+                    "backup_root": "data/tape_backups",
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_report(Path(tmp) / "report.md", payload)
+            text = path.read_text(encoding="utf-8")
+
+        self.assertIn("## Operational Promotion Gates", text)
+        self.assertIn("Source family preflight", text)
+        self.assertIn("Tape backup SLA", text)
+        self.assertIn("fleet_observability.json", text)
 
     def test_write_report_emits_serving_blocking_source_freshness(self):
         serving = {

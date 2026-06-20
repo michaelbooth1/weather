@@ -14,6 +14,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 from weather.io import write_json_atomic
+from weather.operations.supervisor import acquire_writer_lock, release_writer_lock
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
@@ -52,7 +53,6 @@ OPEN_METEO_SOURCE_FAMILY = {
     "global_ensemble",
     "eccc_gem",
 }
-OPEN_METEO_FRESH_CACHE_REUSE_MINUTES = 10
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 MAX_RETRY_DELAY_SECONDS = 10.0
 TORONTO_OFFICIAL_CANADIAN_SOURCES = {
@@ -172,14 +172,32 @@ class SourceFetchMixin:
         # reach the model through the live-signal weights and observed floors
         # instead of being spliced into history (v0.5.1 briefly injected a
         # backdated mock row here; reverted in v0.5.2).
-        return self.blend_with_last_good(self.fetch_source_group(fetchers))
+        return self.blend_with_last_good(self.fetch_live_source_groups(fetchers))
 
-    def fetch_source_group(self, fetchers):
+    def fetch_source_group(self, fetchers, *, max_workers=None):
         fetchers = {
             name: fetcher
             for name, fetcher in fetchers.items()
         }
-        return run_source_adapter_group(fetchers, timezone=self.spec.tz)
+        return run_source_adapter_group(fetchers, timezone=self.spec.tz, max_workers=max_workers)
+
+    def fetch_live_source_groups(self, fetchers):
+        regular_fetchers = {
+            name: fetcher
+            for name, fetcher in fetchers.items()
+            if self.source_family(name) != "open_meteo"
+        }
+        open_meteo_fetchers = {
+            name: fetcher
+            for name, fetcher in fetchers.items()
+            if self.source_family(name) == "open_meteo"
+        }
+        fetched = {}
+        if regular_fetchers:
+            fetched.update(self.fetch_source_group(regular_fetchers))
+        if open_meteo_fetchers:
+            fetched.update(self.fetch_source_group(open_meteo_fetchers, max_workers=1))
+        return fetched
 
     def source_family(self, name):
         if name in OPEN_METEO_SOURCE_FAMILY:
@@ -191,7 +209,10 @@ class SourceFetchMixin:
             return fetcher
 
         def _fetch():
-            cached = self.cached_source_for_reuse(name, OPEN_METEO_FRESH_CACHE_REUSE_MINUTES)
+            cached = self.cached_source_for_reuse(
+                name,
+                self.open_meteo_fresh_cache_reuse_minutes(name),
+            )
             if cached:
                 return self.with_source_fetch_meta(
                     cached["data"],
@@ -236,6 +257,10 @@ class SourceFetchMixin:
 
         return _fetch
 
+    def open_meteo_fresh_cache_reuse_minutes(self, name):
+        """Avoid re-querying Open-Meteo while the last-good forecast is TTL-valid."""
+        return self.source_cache_ttl_minutes(name)
+
     def cached_source_for_reuse(self, name, max_age_minutes):
         cached_item = self.load_last_good_sources().get(name)
         if not cached_item or cached_item.get("target_date") != self.target_date.isoformat():
@@ -255,18 +280,60 @@ class SourceFetchMixin:
             return {}
         try:
             with cache_path.open("r", encoding="utf-8") as f:
-                return json.load(f)
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+            raise ValueError("last good sources cache root must be a JSON object")
+        except (json.JSONDecodeError, ValueError) as e:
+            quarantine_path = self.quarantine_last_good_sources_cache(cache_path)
+            logger.warning("Error loading last good sources cache: %s", e)
+            if quarantine_path:
+                logger.warning("Quarantined invalid last good sources cache at %s", quarantine_path)
+            return {}
         except Exception as e:
             logger.warning("Error loading last good sources cache: %s", e)
             return {}
 
+    def quarantine_last_good_sources_cache(self, cache_path):
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        quarantine_path = cache_path.with_name(
+            f"{cache_path.stem}.corrupt.{timestamp}{cache_path.suffix}"
+        )
+        counter = 1
+        while quarantine_path.exists():
+            quarantine_path = cache_path.with_name(
+                f"{cache_path.stem}.corrupt.{timestamp}.{counter}{cache_path.suffix}"
+            )
+            counter += 1
+        try:
+            cache_path.replace(quarantine_path)
+            return quarantine_path
+        except Exception as e:
+            logger.warning("Error quarantining invalid last good sources cache: %s", e)
+            return None
+
     def save_last_good_sources(self, cache):
         cache_path = self.last_good_sources_path()
+        lock = None
         try:
             self.spec.data_root.mkdir(parents=True, exist_ok=True)
-            write_json_atomic(cache_path, cache)
+            lock = acquire_writer_lock(
+                cache_path,
+                owner={"component": "model_sources_last_good_cache"},
+                attempts=20,
+                stale_after_seconds=120,
+                sleep_seconds=0.05,
+            )
+            if lock is None:
+                logger.warning("Skipping last good sources cache save because writer lock is busy: %s", cache_path)
+                return
+            merged = self.load_last_good_sources()
+            merged.update(cache)
+            write_json_atomic(cache_path, merged)
         except Exception as e:
             logger.warning("Error saving last good sources cache: %s", e)
+        finally:
+            release_writer_lock(lock)
 
     def last_good_sources_path(self):
         return self.spec.data_root / "last_good_sources.json"
@@ -714,6 +781,7 @@ class SourceFetchMixin:
 
         files = sorted(set(re.findall(r'href="([^"]*CYYZ-MAN-swob\.xml)"', index_html)))
         rows = []
+        missing_files = []
         if files:
             # Fetch the per-observation XML files concurrently — there can be ~50
             # of them and sequential GETs dominated this source's latency. map()
@@ -723,11 +791,19 @@ class SourceFetchMixin:
                     resp = requests.get(f"{base_url}{filename}", timeout=self.timeout)
                     resp.raise_for_status()
                     return resp.text
-                return self.parse_swob_xml(request_with_retries(_once))
+                try:
+                    return self.parse_swob_xml(request_with_retries(_once)), None
+                except requests.HTTPError as exc:
+                    if self.http_status(exc) == 404:
+                        return None, filename
+                    raise
 
             with ThreadPoolExecutor(max_workers=min(8, len(files))) as executor:
                 parsed = executor.map(_fetch_one, files)
-                for row in parsed:
+                for row, missing_file in parsed:
+                    if missing_file:
+                        missing_files.append(missing_file)
+                        continue
                     if row.get("local_date") == self.target_date.isoformat():
                         rows.append(row)
 
@@ -740,6 +816,8 @@ class SourceFetchMixin:
             "url": base_url,
             "latest": latest,
             "rows": rows,
+            "skipped_missing_file_count": len(missing_files),
+            "skipped_missing_files": missing_files[-5:],
             "same_day_max_native": same_day_max,
             "same_day_max_c": same_day_max,
         }

@@ -115,6 +115,91 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(calls[0][0].name, "last_good_sources.json")
         self.assertEqual(calls[0][1], payload)
 
+    def test_last_good_source_cache_write_merges_with_existing_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({
+                "global_ensemble": {
+                    "target_date": "2026-05-28",
+                    "data": {"marker": "global"},
+                }
+            }), encoding="utf-8")
+
+            model.save_last_good_sources({
+                "wu_current": {
+                    "target_date": "2026-05-28",
+                    "data": {"marker": "observation"},
+                }
+            })
+
+            saved = json.loads(cache_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["global_ensemble"]["data"], {"marker": "global"})
+        self.assertEqual(saved["wu_current"]["data"], {"marker": "observation"})
+
+    def test_last_good_source_cache_write_skips_when_writer_lock_is_busy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            original = {
+                "global_ensemble": {
+                    "target_date": "2026-05-28",
+                    "data": {"marker": "global"},
+                }
+            }
+            cache_path.write_text(json.dumps(original), encoding="utf-8")
+
+            with patch("weather.model.model_sources.acquire_writer_lock", return_value=None), \
+                    patch("weather.model.model_sources.write_json_atomic") as atomic_write, \
+                    self.assertLogs("weather.model.model_sources", level="WARNING") as logs:
+                model.save_last_good_sources({
+                    "wu_current": {
+                        "target_date": "2026-05-28",
+                        "data": {"marker": "observation"},
+                    }
+                })
+
+            saved = json.loads(cache_path.read_text(encoding="utf-8"))
+        atomic_write.assert_not_called()
+        self.assertEqual(saved, original)
+        self.assertIn("writer lock is busy", "\n".join(logs.output))
+
+    def test_corrupt_last_good_source_cache_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text("{broken", encoding="utf-8")
+
+            with self.assertLogs("weather.model.model_sources", level="WARNING") as logs:
+                payload = model.load_last_good_sources()
+
+            quarantined = list(model.spec.data_root.glob("last_good_sources.corrupt.*.json"))
+            self.assertEqual(payload, {})
+            self.assertFalse(cache_path.exists())
+            self.assertEqual(len(quarantined), 1)
+            self.assertEqual(quarantined[0].read_text(encoding="utf-8"), "{broken")
+            self.assertIn("Quarantined invalid last good sources cache", "\n".join(logs.output))
+
+    def test_non_object_last_good_source_cache_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text("[]", encoding="utf-8")
+
+            payload = model.load_last_good_sources()
+
+            self.assertEqual(payload, {})
+            self.assertFalse(cache_path.exists())
+            self.assertEqual(len(list(model.spec.data_root.glob("last_good_sources.corrupt.*.json"))), 1)
+
     def test_request_with_retries_uses_retry_after_for_429(self):
         class Response:
             status_code = 429
@@ -166,6 +251,192 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(blended["open_meteo"]["source_family"], "open_meteo")
         self.assertEqual(blended["open_meteo"]["cache_status"], "fresh_cache")
         self.assertEqual(blended["open_meteo"]["data"]["marker"], 1)
+
+    def test_open_meteo_cache_reuse_extends_to_source_ttl(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            model.target_date = date(2026, 5, 28)
+            now = datetime.now(model.spec.tz)
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({
+                "open_meteo": {
+                    "target_date": "2026-05-28",
+                    "fetched_at": (now - timedelta(minutes=80)).isoformat(),
+                    "data": {"marker": 3, "rows": []},
+                }
+            }), encoding="utf-8")
+
+            def provider_call():
+                raise AssertionError("TTL-valid Open-Meteo cache should prevent provider call")
+
+            fetched = model.fetch_source_group({
+                "open_meteo": model.source_fetcher_with_budget("open_meteo", provider_call),
+            })
+            blended = model.blend_with_last_good(fetched)
+
+        self.assertEqual(blended["open_meteo"]["status"], "fresh_cache")
+        self.assertFalse(blended["open_meteo"]["stale"])
+        self.assertLessEqual(blended["open_meteo"]["cache_age_minutes"], 90)
+        self.assertEqual(blended["open_meteo"]["data"]["marker"], 3)
+
+    def test_open_meteo_cache_reuse_expires_at_source_ttl(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            model.target_date = date(2026, 5, 28)
+            now = datetime.now(model.spec.tz)
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({
+                "open_meteo": {
+                    "target_date": "2026-05-28",
+                    "fetched_at": (now - timedelta(minutes=95)).isoformat(),
+                    "data": {"marker": "expired", "rows": []},
+                }
+            }), encoding="utf-8")
+            calls = {"count": 0}
+
+            def provider_call():
+                calls["count"] += 1
+                return {"marker": "live", "rows": []}
+
+            fetched = model.fetch_source_group({
+                "open_meteo": model.source_fetcher_with_budget("open_meteo", provider_call),
+            })
+            blended = model.blend_with_last_good(fetched)
+
+        self.assertEqual(calls["count"], 1)
+        self.assertEqual(blended["open_meteo"]["status"], "fresh")
+        self.assertEqual(blended["open_meteo"]["cache_status"], "live")
+        self.assertEqual(blended["open_meteo"]["data"]["marker"], "live")
+
+    def test_open_meteo_family_fetches_sequentially_share_same_cycle_cooldown(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            model.target_date = date(2026, 5, 28)
+            model._source_family_rate_limited_until = {}
+            calls = {"open_meteo": 0, "eccc_gem": 0}
+
+            class Response:
+                status_code = 429
+                headers = {"Retry-After": "60"}
+
+            def open_meteo_call():
+                calls["open_meteo"] += 1
+                exc = requests.HTTPError("too many requests")
+                exc.response = Response()
+                raise exc
+
+            def eccc_gem_call():
+                calls["eccc_gem"] += 1
+                return {"marker": "should not be called"}
+
+            fetched = model.fetch_live_source_groups({
+                "open_meteo": model.source_fetcher_with_budget("open_meteo", open_meteo_call),
+                "eccc_gem": model.source_fetcher_with_budget("eccc_gem", eccc_gem_call),
+            })
+
+        self.assertEqual(calls, {"open_meteo": 1, "eccc_gem": 0})
+        self.assertFalse(fetched["open_meteo"]["ok"])
+        self.assertFalse(fetched["eccc_gem"]["ok"])
+        self.assertEqual(fetched["open_meteo"]["status"], "rate_limited")
+        self.assertEqual(fetched["eccc_gem"]["status"], "rate_limited")
+        self.assertEqual(fetched["eccc_gem"]["cache_status"], "provider_cooldown")
+
+    def test_open_meteo_same_cycle_cooldown_still_serves_ttl_valid_family_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model = TorontoHighTempModel(target_date="2026-05-28")
+            model.spec = SimpleNamespace(data_root=Path(tmpdir), tz=ZoneInfo("UTC"))
+            model.target_date = date(2026, 5, 28)
+            model._source_family_rate_limited_until = {}
+            now = datetime.now(model.spec.tz)
+            cache_path = model.spec.data_root / "last_good_sources.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({
+                "eccc_gem": {
+                    "target_date": "2026-05-28",
+                    "fetched_at": (now - timedelta(minutes=80)).isoformat(),
+                    "data": {"marker": "cached-gem"},
+                }
+            }), encoding="utf-8")
+            calls = {"open_meteo": 0, "eccc_gem": 0}
+
+            class Response:
+                status_code = 429
+                headers = {"Retry-After": "60"}
+
+            def open_meteo_call():
+                calls["open_meteo"] += 1
+                exc = requests.HTTPError("too many requests")
+                exc.response = Response()
+                raise exc
+
+            def eccc_gem_call():
+                calls["eccc_gem"] += 1
+                raise AssertionError("TTL-valid ECCC GEM cache should skip provider call")
+
+            fetched = model.fetch_live_source_groups({
+                "open_meteo": model.source_fetcher_with_budget("open_meteo", open_meteo_call),
+                "eccc_gem": model.source_fetcher_with_budget("eccc_gem", eccc_gem_call),
+            })
+
+        self.assertEqual(calls, {"open_meteo": 1, "eccc_gem": 0})
+        self.assertFalse(fetched["open_meteo"]["ok"])
+        self.assertTrue(fetched["eccc_gem"]["ok"])
+        self.assertEqual(fetched["eccc_gem"]["status"], "fresh_cache")
+        self.assertEqual(fetched["eccc_gem"]["data"]["marker"], "cached-gem")
+
+    def test_eccc_swob_skips_missing_latest_file_from_directory_index(self):
+        model = TorontoHighTempModel(target_date="2026-06-19")
+        model.target_date = date(2026, 6, 19)
+        model.target_date_str = "20260619"
+
+        class Response:
+            def __init__(self, text="", status_code=200):
+                self.text = text
+                self.status_code = status_code
+                self.headers = {}
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    exc = requests.HTTPError(f"{self.status_code} error")
+                    exc.response = self
+                    raise exc
+
+        index_html = """
+        <html>
+          <a href="2026-06-19-2200-CYYZ-MAN-swob.xml">2200</a>
+          <a href="2026-06-19-2300-CYYZ-MAN-swob.xml">2300</a>
+        </html>
+        """
+        xml_2200 = """
+        <root>
+          <value name="date_tm" value="2026-06-19T22:00:00Z" />
+          <value name="air_temp" value="21.5" />
+          <value name="max_air_temp_pst1hr" value="22.0" />
+        </root>
+        """
+
+        def fake_get(url, timeout=None, **_kwargs):
+            if url.endswith("/CYYZ/"):
+                return Response(index_html)
+            if url.endswith("2026-06-19-2200-CYYZ-MAN-swob.xml"):
+                return Response(xml_2200)
+            if url.endswith("2026-06-19-2300-CYYZ-MAN-swob.xml"):
+                return Response(status_code=404)
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with patch("weather.model.model_sources.requests.get", side_effect=fake_get):
+            payload = model.fetch_eccc_swob()
+
+        self.assertEqual(len(payload["rows"]), 1)
+        self.assertEqual(payload["latest"]["time"], "2026-06-19T22:00:00Z")
+        self.assertEqual(payload["same_day_max_c"], 21.5)
+        self.assertEqual(payload["skipped_missing_file_count"], 1)
+        self.assertEqual(payload["skipped_missing_files"], ["2026-06-19-2300-CYYZ-MAN-swob.xml"])
 
     def test_rate_limited_open_meteo_uses_explicit_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:

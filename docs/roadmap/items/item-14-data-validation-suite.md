@@ -18,7 +18,7 @@ including forecast features, live observed floors, collection health, retries,
 and backtest settlement behavior. This item remains partial until data audits
 and snapshot append/schema checks are part of routine verification.
 
-Codex update (2026-06-11): closed by item 31. `tests/test_data_auditor.py`
+Codex update (2026-06-11): completed by item 31. `tests/test_data_auditor.py`
 covers the auditor as a regression guard, `tests/test_fleet_observability.py`
 covers fleet collection/provenance/status helpers, and the command
 `src\data_auditor.py --fleet --json --strict` gives automation a unit-aware data audit.

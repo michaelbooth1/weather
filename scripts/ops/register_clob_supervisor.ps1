@@ -7,7 +7,7 @@
 # itself captures books every 30-60 seconds, switching to the configured fast
 # cadence near close or after large top-of-book midpoint moves.
 #
-# Run from the repo root:  .\scripts\register_clob_supervisor.ps1
+# Run from the repo root:  .\scripts\ops\register_clob_supervisor.ps1
 # Re-running replaces the existing task.
 
 param(
@@ -49,7 +49,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
-    -Description "Keeps the Polymarket CLOB book capture loop alive (python -m weather.market.market_microstructure ensure). Registered by scripts/register_clob_supervisor.ps1." `
+    -Description "Keeps the Polymarket CLOB book capture loop alive (python -m weather.market.market_microstructure ensure). Registered by scripts/ops/register_clob_supervisor.ps1." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': CLOB --ensure every $EnsureEveryMinutes min + at logon."

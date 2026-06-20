@@ -2,6 +2,7 @@
 # scikit-learn is pinned exactly on purpose: artifacts/models/hgb/*.pkl are
 # pickled sklearn models and can fail to unpickle across sklearn versions.
 matplotlib==3.10.9
+netCDF4==1.7.4
 numpy==2.4.6
 pandas==3.0.3
 requests==2.34.2

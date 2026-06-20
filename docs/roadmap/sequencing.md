@@ -10,7 +10,7 @@
 2. Then **31 (observability)** and **34 (F calibration + gating)** as F days
    settle.
    Item 48 now owns the proof that the pooled F pipeline is promotion-ready,
-   rather than merely implemented and refreshed; item 53 closed the missing
+   rather than merely implemented and refreshed; item 53 completed the missing
    source-freshness attribution slice, and item 54 owns downstream
    permission-map consumption of those cells.
 3. Then **29-30 (deeper, redundant data)** feeding **35 (unified model)**.

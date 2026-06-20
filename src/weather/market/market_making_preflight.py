@@ -14,6 +14,20 @@ from weather.market.market_making_run_constants import (
 )
 from weather.market.mm_policy import bool_value, maybe_float, parse_time, utc_now
 
+CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
+CLOB_RAW_BOOK_ARTIFACT_KEYS = (
+    "order_books_summary",
+    "order_books_raw",
+    "order_books_long",
+    "order_books_long_gzip",
+)
+
+
+def _has_any_artifact(row, keys):
+    presence = row.get("artifact_presence") or {}
+    return any(bool(presence.get(key)) for key in keys)
+
+
 def load_data_layer_live_gate(path, target_date, mode):
     required = mode == "live-pilot"
     if not required:
@@ -42,6 +56,14 @@ def load_data_layer_live_gate(path, target_date, mode):
         1 for row in target_folders
         if ((row.get("artifact_presence") or {}).get("clob_features"))
     )
+    target_clob_token_artifact_days = sum(
+        1 for row in target_folders
+        if _has_any_artifact(row, CLOB_TOKEN_ARTIFACT_KEYS)
+    )
+    target_raw_book_artifact_days = sum(
+        1 for row in target_folders
+        if _has_any_artifact(row, CLOB_RAW_BOOK_ARTIFACT_KEYS)
+    )
     target_book_available_days = sum(
         1 for row in target_folders
         if int(((row.get("clob_features") or {}).get("book_available_rows")) or 0) > 0
@@ -53,6 +75,8 @@ def load_data_layer_live_gate(path, target_date, mode):
         "target_date_folder_present": bool(target_folders),
         "target_date_token_ids": target_token_days > 0,
         "target_date_clob_features": target_clob_feature_days > 0,
+        "target_date_clob_token_artifact": target_clob_token_artifact_days > 0,
+        "target_date_raw_book_artifact": target_raw_book_artifact_days > 0,
         "target_date_book_available": target_book_available_days > 0,
     }
     missing = [name for name, ok in checks.items() if not ok]
@@ -70,6 +94,8 @@ def load_data_layer_live_gate(path, target_date, mode):
         "target_date_folder_count": len(target_folders),
         "target_date_token_days": target_token_days,
         "target_date_clob_feature_days": target_clob_feature_days,
+        "target_date_clob_token_artifact_days": target_clob_token_artifact_days,
+        "target_date_raw_book_artifact_days": target_raw_book_artifact_days,
         "target_date_book_available_days": target_book_available_days,
     }
 
@@ -229,14 +255,14 @@ REMEDIATION_RULES = {
     "snapshot_model_rows": {
         "root_cause": "missing_snapshot_model_rows",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "model_freshness": {
         "root_cause": "stale_model_row",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -250,7 +276,7 @@ REMEDIATION_RULES = {
     "source_status_fresh": {
         "root_cause": "stale_source_status_row",
         "owner": "snapshot source-status writer",
-        "suggested_command": "python -m weather.collection.snapshot_tracker status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -258,6 +284,13 @@ REMEDIATION_RULES = {
         "root_cause": "missing_clob_tokens",
         "owner": "CLOB token discovery",
         "suggested_command": "python -m weather.market.market_microstructure refresh-tokens",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
+    "clob_discovery": {
+        "root_cause": "blank_or_inactive_clob_discovery",
+        "owner": "CLOB token discovery / Gamma event discovery",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },

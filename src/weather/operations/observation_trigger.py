@@ -26,6 +26,7 @@ from pathlib import Path
 from weather.collection.snapshot_tracker import capture_snapshot
 from weather.io import read_jsonl as io_read_jsonl
 from weather.market.market_config import config_for_date, date_from_event_slug
+from weather.market.live_observation_normalization import update_monotonic_high_ledger
 from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
 from weather.model.feature_store import (
     row_air_temp_native,
@@ -237,7 +238,7 @@ def observation_state_from_sources(model_client, sources, captured_at=None, even
         ],
         default=None,
     )
-    return {
+    state = {
         "schema_version": SCHEMA_VERSION,
         "market_id": model_client.market_id,
         "event_slug": event_slug,
@@ -252,6 +253,17 @@ def observation_state_from_sources(model_client, sources, captured_at=None, even
             if name in OBSERVATION_SOURCES
         },
     }
+    ledger = update_monotonic_high_ledger(current_observation=state)
+    state["settlement_normalization"] = ledger
+    values.update({
+        "raw_current_high": ledger.get("raw_current_high"),
+        "raw_current_high_bucket": ledger.get("raw_current_high_bucket"),
+        "settlement_current_high": ledger.get("settlement_current_high"),
+        "high_source": ledger.get("high_source"),
+        "revision_state": ledger.get("revision_state"),
+        "settlement_bin_key": ledger.get("settlement_bin_key"),
+    })
+    return state
 
 
 def fetch_market_observation_state(market_id, now=None):
@@ -336,6 +348,21 @@ def detect_observation_triggers(previous, current, support_margin=DEFAULT_SUPPOR
         prev_bucket = round_half_up(prev_value)
         cur_bucket = round_half_up(cur_value)
         if prev_bucket is not None and cur_bucket is not None and prev_bucket != cur_bucket:
+            if key == "wu_current_max_since_7am" and cur_bucket < prev_bucket:
+                triggers.append(trigger_record(
+                    f"{key}_source_revision_down",
+                    source,
+                    prev_value,
+                    cur_value,
+                    current,
+                    previous,
+                    observed_at=observed_at,
+                    detail=(
+                        f"{key} decreased from bucket {prev_bucket} to {cur_bucket}; "
+                        "classified as a source revision, not a lower day high."
+                    ),
+                ))
+                continue
             triggers.append(trigger_record(
                 f"{key}_bucket_crossed",
                 source,
@@ -519,13 +546,27 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
             current = fetch_state_func(market_id, now=now)
             market_state = status["markets"].get(market_id) or {}
             previous = market_state.get("last_observation")
+            current["settlement_normalization"] = update_monotonic_high_ledger(
+                previous_ledger=market_state.get("monotonic_high_ledger"),
+                previous_observation=previous,
+                current_observation=current,
+            )
+            current_values = current.setdefault("values", {})
+            current_values.update({
+                "raw_current_high": current["settlement_normalization"].get("raw_current_high"),
+                "raw_current_high_bucket": current["settlement_normalization"].get("raw_current_high_bucket"),
+                "settlement_current_high": current["settlement_normalization"].get("settlement_current_high"),
+                "high_source": current["settlement_normalization"].get("high_source"),
+                "revision_state": current["settlement_normalization"].get("revision_state"),
+                "settlement_bin_key": current["settlement_normalization"].get("settlement_bin_key"),
+            })
             triggers = detect_observation_triggers(previous, current, support_margin=args.support_margin)
             if args.trigger_on_first and not previous:
                 triggers = [trigger_record(
                     "initial_state_forced",
                     "observation_trigger",
                     None,
-                    current.get("values", {}).get("max_live_observation"),
+                    current.get("values", {}).get("settlement_current_high"),
                     current,
                     previous,
                     observed_at=current.get("captured_at_utc"),
@@ -574,6 +615,7 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
             market_state.update({
                 "last_poll_at_utc": now.astimezone(timezone.utc).isoformat(),
                 "last_observation": current,
+                "monotonic_high_ledger": current.get("settlement_normalization") or {},
                 "last_result": result,
             })
             status["markets"][market_id] = market_state

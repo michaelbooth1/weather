@@ -19,6 +19,8 @@ IDENTITY_SCHEMA_VERSION = "runtime_identity_v0.1"
 SOURCE_PATTERNS = (
     "app.py",
     "app/**/*.py",
+    "sitecustomize.py",
+    "weather/**/*.py",
     "requirements.txt",
     "src/**/*.py",
     "scripts/**/*.ps1",

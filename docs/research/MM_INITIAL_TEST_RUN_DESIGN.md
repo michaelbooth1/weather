@@ -14,17 +14,17 @@ heartbeat, and account gates in roadmap items 43-45 pass.
 The operator should start from one command:
 
 ```powershell
-python -m src.market_making_run --date 2026-06-15 --budget-usdc 500 --mode shadow
+python -m weather.market.market_making_run --date 2026-06-15 --budget-usdc 500 --mode shadow
 ```
 
 Later live testing should require explicit extra flags:
 
 ```powershell
-python -m src.market_making_run --date 2026-06-15 --budget-usdc 500 --mode live --pilot --confirm-live-orders
+python -m weather.market.market_making_run --date 2026-06-15 --budget-usdc 500 --mode live --pilot --confirm-live-orders
 ```
 
-`src.market_making_run` should be a thin orchestration wrapper around the pure
-policy module (`src.mm_policy` / `weather.market.mm_policy`), adding date
+`weather.market.market_making_run` should be a thin orchestration wrapper
+around the pure policy module (`weather.market.mm_policy`), adding date
 selection, run folders, budget ledgers, preflight gates, and the eventual
 execution adapter.
 
@@ -69,7 +69,7 @@ inputs are current:
 1. The target date has active Polymarket events for every selected market.
 2. Snapshot folders exist for the target day and include model probabilities,
    source-status rows, CLOB token IDs, condition IDs, and CLOB book summaries.
-3. `src.market_microstructure audit --strict` passes for selected markets.
+3. `weather.market.market_microstructure audit --strict` passes for selected markets.
 4. Observation-trigger/watchdog health is fresh.
 5. Promotion state is available from `f_family_promotion_refresh.json` and
    related Toronto gates.

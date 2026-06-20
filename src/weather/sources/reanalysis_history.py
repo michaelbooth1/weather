@@ -50,6 +50,17 @@ HOURLY_VARIABLES = (
     "soil_moisture_0_to_7cm",
 )
 
+RICH_REANALYSIS_HOURLY_VARIABLES = (
+    "soil_temperature_0_to_7cm",
+    "soil_moisture_0_to_7cm",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+    "shortwave_radiation",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+)
+
 
 def iter_dates(start_date, end_date):
     current = start_date
@@ -178,6 +189,29 @@ class ReanalysisStore:
                     dates.add(local_dt.date())
         return dates
 
+    def raw_variable_covered_dates(self, required_variables):
+        required = tuple(variable for variable in required_variables or () if variable)
+        if not required:
+            return self.raw_covered_dates()
+        present_by_date = {}
+        for payload in self.iter_raw_payloads():
+            hourly = payload.get("hourly") or {}
+            times = hourly.get("time") or []
+            for index, value in enumerate(times):
+                local_dt = parse_local_datetime(value, self.spec.tz)
+                if not local_dt:
+                    continue
+                local_date = local_dt.date()
+                present = present_by_date.setdefault(local_date, set())
+                for variable in required:
+                    if value_at(hourly, variable, index) is not None:
+                        present.add(variable)
+        return {
+            local_date
+            for local_date, present in present_by_date.items()
+            if all(variable in present for variable in required)
+        }
+
     def normalized_daily_dates(self):
         path = self.daily_root / "daily_summary.csv"
         dates = set()
@@ -198,8 +232,18 @@ class ReanalysisStore:
         source_lag = raw_covered - raw_normalizable
         return normalized | source_lag
 
-    def missing_ranges(self, start_date, end_date, chunk_days=31):
-        covered = self.covered_dates_for_queue()
+    def missing_ranges(
+        self,
+        start_date,
+        end_date,
+        chunk_days=31,
+        required_hourly_variables=None,
+    ):
+        covered = (
+            self.raw_variable_covered_dates(required_hourly_variables)
+            if required_hourly_variables else
+            self.covered_dates_for_queue()
+        )
         missing = [day for day in iter_dates(start_date, end_date) if day not in covered]
         if not missing:
             return []
@@ -291,8 +335,20 @@ def cmd_backfill(args):
     client = ReanalysisClient(timeout=args.timeout, sleep_seconds=args.sleep)
     start = parse_date(args.start)
     end = parse_date(args.end)
+    required_variables = []
+    if args.refresh_missing_hourly_variables:
+        required_variables = [
+            variable.strip()
+            for variable in str(args.required_hourly_variables or "").split(",")
+            if variable.strip()
+        ] or list(RICH_REANALYSIS_HOURLY_VARIABLES)
     ranges = (
-        store.missing_ranges(start, end, args.chunk_days)
+        store.missing_ranges(
+            start,
+            end,
+            args.chunk_days,
+            required_hourly_variables=required_variables,
+        )
         if args.skip_existing
         else list(chunk_date_range(start, end, args.chunk_days))
     )
@@ -333,6 +389,19 @@ def build_parser():
     backfill.add_argument("--chunk-days", type=int, default=31)
     backfill.add_argument("--sleep", type=float, default=0.2)
     backfill.add_argument("--skip-existing", action="store_true")
+    backfill.add_argument(
+        "--refresh-missing-hourly-variables",
+        action="store_true",
+        help=(
+            "With --skip-existing, treat cached dates as missing unless raw "
+            "payloads contain non-null values for the required hourly variables."
+        ),
+    )
+    backfill.add_argument(
+        "--required-hourly-variables",
+        default=",".join(RICH_REANALYSIS_HOURLY_VARIABLES),
+        help="Comma-separated raw hourly variables required by refresh mode.",
+    )
     backfill.set_defaults(func=cmd_backfill)
 
     rebuild = sub.add_parser("rebuild")

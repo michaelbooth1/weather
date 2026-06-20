@@ -22,6 +22,14 @@ from weather.market.market_making_evidence import (
     classify_market_making_evidence,
 )
 from weather.market.market_making_run_constants import DEFAULT_RUNS_ROOT, RUN_MODES
+from weather.operations.bot_run_liveness import (
+    DEFAULT_MIN_FREE_BYTES,
+    disk_capacity_preflight,
+    disk_full_status,
+    failed_status,
+    is_disk_full_error,
+    terminal_status_for_dead_pid,
+)
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
@@ -228,6 +236,7 @@ def _base_payload(
     runs_root,
     command,
     evidence_classification,
+    disk_preflight=None,
     now=None,
 ):
     generated_at = utc_iso(now)
@@ -249,6 +258,7 @@ def _base_payload(
         "evidence_classification": evidence_classification,
         "counts_toward_live_forward_gate": evidence_classification.get("counts_toward_live_forward_gate"),
         "runtime_identity": get_runtime_identity(),
+        "disk_capacity_preflight": disk_preflight or {},
     }
 
 
@@ -269,6 +279,8 @@ def start_for_date(
     once=False,
     config_overrides=None,
     evidence_mode=EVIDENCE_MODE_AUTO,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
     now=None,
     pid_alive=pid_matches_market_making_run,
     launcher=launch_market_making_process,
@@ -297,6 +309,28 @@ def start_for_date(
     )
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
+    if existing.get("target_date") == target_date and existing.get("status") in {"started", "already_running"}:
+        refreshed = terminal_status_for_dead_pid(existing, now=now, pid_alive=pid_alive)
+        if refreshed.get("status") == "pid_missing" and not force:
+            payload = _base_payload(
+                target_date=target_date,
+                budget_usdc=budget_usdc,
+                mode=mode,
+                markets=markets,
+                interval_seconds=interval_seconds,
+                timezone_name=timezone_name,
+                status_path=status_path,
+                console_log_path=console_log_path,
+                runs_root=runs_root,
+                command=existing.get("command") or command,
+                evidence_classification=evidence_classification,
+                disk_preflight=existing.get("disk_capacity_preflight") or {},
+                now=now,
+            )
+            payload.update(refreshed)
+            payload["previous_status_generated_at_utc"] = existing.get("generated_at_utc")
+            write_json(status_path, payload)
+            return payload
     if (
         not force
         and existing.get("target_date") == target_date
@@ -314,6 +348,7 @@ def start_for_date(
             runs_root=runs_root,
             command=existing.get("command") or command,
             evidence_classification=evidence_classification,
+            disk_preflight=existing.get("disk_capacity_preflight") or {},
             now=now,
         )
         payload.update({
@@ -326,7 +361,11 @@ def start_for_date(
         write_json(status_path, payload)
         return payload
 
-    pid = launcher(command, repo_root=repo_root, console_log_path=console_log_path)
+    disk_preflight = disk_capacity_preflight(
+        runs_root,
+        min_free_bytes=min_free_bytes,
+        usage_fn=disk_usage_fn,
+    )
     payload = _base_payload(
         target_date=target_date,
         budget_usdc=budget_usdc,
@@ -339,8 +378,22 @@ def start_for_date(
         runs_root=runs_root,
         command=command,
         evidence_classification=evidence_classification,
+        disk_preflight=disk_preflight,
         now=now,
     )
+    if not disk_preflight.get("ok"):
+        payload = disk_full_status(payload, preflight=disk_preflight, now=now)
+        write_json(status_path, payload)
+        return payload
+    try:
+        pid = launcher(command, repo_root=repo_root, console_log_path=console_log_path)
+    except OSError as exc:
+        if is_disk_full_error(exc):
+            payload = disk_full_status(payload, preflight=disk_preflight, now=now, error=exc)
+        else:
+            payload = failed_status(payload, now=now, error=exc)
+        write_json(status_path, payload)
+        return payload
     payload.update({
         "status": "started",
         "action": "start",
@@ -367,12 +420,15 @@ def start_for_current_day(
     )
 
 
-def load_status(path=DEFAULT_STATUS_PATH):
+def load_status(path=DEFAULT_STATUS_PATH, *, now=None, pid_alive=pid_matches_market_making_run, write_back=False):
     status = read_json(path)
     if not status:
         return {"exists": False, "path": str(path)}
+    status = terminal_status_for_dead_pid(status, now=now, pid_alive=pid_alive)
     status["exists"] = True
     status["path"] = str(path)
+    if write_back and status.get("status") == "pid_missing":
+        write_json(path, status)
     return status
 
 
@@ -391,6 +447,7 @@ def build_start_parser(parser):
     parser.add_argument("--once", action="store_true", help="Debug mode: start a one-tick run.")
     parser.add_argument("--config", action="append", default=[], help="Policy config override passed to market_making_run.")
     parser.add_argument("--evidence-mode", default=EVIDENCE_MODE_AUTO, choices=sorted(EVIDENCE_MODE_CHOICES))
+    parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
     return parser
 
 
@@ -410,6 +467,7 @@ def cmd_start(args):
         once=args.once,
         config_overrides=args.config,
         evidence_mode=args.evidence_mode,
+        min_free_bytes=args.min_free_bytes,
         now=parse_datetime(args.now),
     )
     print(
@@ -423,7 +481,7 @@ def cmd_start(args):
 
 
 def cmd_status(args):
-    status = load_status(args.status_out)
+    status = load_status(args.status_out, write_back=True)
     print(json.dumps(status, indent=2, sort_keys=True, default=str))
     return 0 if status.get("exists") else 1
 

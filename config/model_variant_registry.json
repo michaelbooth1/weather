@@ -1,6 +1,6 @@
 {
   "schema_version": "model_variant_registry_v0.1",
-  "updated_at_utc": "2026-06-16T00:00:00+00:00",
+  "updated_at_utc": "2026-06-18T00:00:00+00:00",
   "description": "Lifecycle registry for model variants used by shadow and promotion reports.",
   "variants": [
     {
@@ -20,6 +20,14 @@
       "track": "no_market",
       "roles": ["candidate", "no-market", "active-bakeoff"],
       "active_for_headline": true,
+      "artifact_path": "data/backtest/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+      "prediction_mode": "band_binary",
+      "export_family": "pooled_f_candidate",
+      "default_export_path": "data/backtest/item50_pooled_candidate_shadow_variants.csv",
+      "postprocess_config_hash": "pooled_feature_band_hgb_v0.3",
+      "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [50, 86]
     },
     {
@@ -29,6 +37,14 @@
       "track": "no_market",
       "roles": ["candidate", "no-market", "active-bakeoff"],
       "active_for_headline": true,
+      "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+      "prediction_mode": "band_binary",
+      "export_family": "exact_winner_catchup",
+      "default_export_path": "data/backtest/item70_exact_winner_shadow_variants_full.csv",
+      "postprocess_config_hash": "pooled_feature_band_hgb_v0.4",
+      "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [70, 86]
     },
     {
@@ -38,6 +54,14 @@
       "track": "no_market",
       "roles": ["candidate", "no-market", "source-state", "active-bakeoff"],
       "active_for_headline": true,
+      "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+      "prediction_mode": "band_binary",
+      "export_family": "dynamic_source_state",
+      "default_export_path": "data/backtest/item71_dynamic_source_shadow_variants_full.csv",
+      "postprocess_config_hash": "pooled_feature_band_hgb_v0.5",
+      "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [71, 86]
     },
     {
@@ -47,6 +71,13 @@
       "track": "no_market",
       "roles": ["policy-only", "no-market", "active-bakeoff"],
       "active_for_headline": true,
+      "artifact_required": false,
+      "prediction_function": "weather.calibration.pooled_candidate_scoring:conservative_bridge_report",
+      "prediction_mode": "policy_overlay",
+      "export_family": "conservative_bridge",
+      "default_export_path": "data/backtest/conservative_bridge_shadow_variants.csv",
+      "postprocess_config_hash": "conservative_bridge_policy_v0.1",
+      "live_runtime": "conservative_bridge_policy",
       "roadmap_items": [73, 86]
     },
     {
@@ -56,6 +87,14 @@
       "track": "no_market",
       "roles": ["candidate", "no-market", "fallback", "active-bakeoff"],
       "active_for_headline": true,
+      "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+      "prediction_mode": "band_binary",
+      "export_family": "pooled_f_candidate",
+      "default_export_path": "data/backtest/item82_miami_fallback_shadow_variants.csv",
+      "postprocess_config_hash": "pooled_feature_band_hgb_v0.3",
+      "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [82, 86]
     },
     {
@@ -65,6 +104,14 @@
       "track": "market_informed",
       "roles": ["market-informed", "quote-diagnostic"],
       "active_for_headline": true,
+      "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:microstructure_shadow_report",
+      "prediction_mode": "market_microstructure_overlay",
+      "export_family": "clob_overlay",
+      "default_export_path": "data/backtest/clob_overlay_shadow_variants.csv",
+      "postprocess_config_hash": "taxonomy_gate",
+      "live_runtime": "microstructure_shadow_report",
       "roadmap_items": [72]
     },
     {
@@ -74,6 +121,14 @@
       "track": "market_informed",
       "roles": ["market-informed", "oof-diagnostic", "partial-coverage"],
       "active_for_headline": true,
+      "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:microstructure_shadow_report",
+      "prediction_mode": "market_microstructure_overlay",
+      "export_family": "clob_overlay",
+      "default_export_path": "data/backtest/clob_overlay_shadow_variants.csv",
+      "postprocess_config_hash": "raw_oof",
+      "live_runtime": "microstructure_shadow_report",
       "roadmap_items": [72]
     },
     {
@@ -83,7 +138,35 @@
       "track": "no_market",
       "roles": ["candidate", "density", "expanded-evidence"],
       "active_for_headline": true,
+      "artifact_path": "data/backtest/item35_density_full_candidate.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+      "prediction_mode": "continuous_density_f",
+      "export_family": "pooled_continuous_density",
+      "default_export_path": "data/backtest/item35_density_full_shadow_variants.csv",
+      "postprocess_config_hash": "pooled_continuous_density_hgb_v0.1",
+      "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [35, 85]
+    },
+    {
+      "variant_id": "no_market_extra_locations_flat_pool_v0_1",
+      "variant_family": "no_market_extra_locations",
+      "lifecycle": "shadow",
+      "track": "no_market_extra_locations",
+      "roles": ["candidate", "no-market", "extra-location", "flat-pooling", "shadow-only"],
+      "active_for_headline": false,
+      "roadmap_items": [148, 149, 150],
+      "notes": "Flat target-plus-extra pooling is a quarantined shadow lane; serving promotion requires the item-149 target-vs-extra gate to pass."
+    },
+    {
+      "variant_id": "no_market_extra_locations_similarity_weighted_v0_1",
+      "variant_family": "no_market_extra_locations",
+      "lifecycle": "shadow",
+      "track": "no_market_extra_locations",
+      "roles": ["candidate", "no-market", "extra-location", "similarity-weighted", "partial-pooling", "shadow-only"],
+      "active_for_headline": false,
+      "roadmap_items": [148, 149, 150, 151],
+      "notes": "Similarity-weighted partial pooling remains excluded from ordinary no-market headline selection until target-only self-comparison clears."
     },
     {
       "variant_id": "pooled_f_exact_winner_catchup_alpha005",

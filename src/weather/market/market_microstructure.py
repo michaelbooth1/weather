@@ -163,6 +163,33 @@ def _age_seconds(now, iso_value):
     return supervisor_age_seconds(now, iso_value, default_tz=timezone.utc)
 
 
+def clob_discovery_sanity_from_status(status):
+    results = (status or {}).get("last_market_results") or {}
+    if not results:
+        return {"status": "UNKNOWN", "ok": True, "reason": "no loop market results recorded yet"}
+    rows = [row for row in results.values() if isinstance(row, dict)]
+    if not rows:
+        return {"status": "UNKNOWN", "ok": True, "reason": "loop market results are not structured"}
+    all_zero_tokens = all((to_number(row.get("captured_tokens")) or 0) == 0 for row in rows)
+    all_zero_books = all((to_number(row.get("books")) or 0) == 0 for row in rows)
+    all_no_error = all(not row.get("error") for row in rows)
+    if all_zero_tokens and all_zero_books and all_no_error:
+        return {
+            "status": "BLOCK",
+            "ok": False,
+            "root_cause": "blank_or_inactive_clob_discovery",
+            "reason": "last CLOB loop iteration captured zero tokens and zero books for every market",
+            "market_count": len(rows),
+            "remediation_command": "python -m weather.market.market_microstructure capture --market all",
+        }
+    return {
+        "status": "PASS",
+        "ok": True,
+        "reason": "latest CLOB loop results captured tokens or books, or produced explicit market errors",
+        "market_count": len(rows),
+    }
+
+
 def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS):
     """Heartbeat-based liveness for the fast market-book loop."""
     now = now or utc_now()
@@ -173,6 +200,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
     capture_age = _age_seconds(now, status.get("last_books_captured_at"))
     errors = int(status.get("consecutive_errors") or 0)
     error_markets = status.get("error_markets") or []
+    discovery_sanity = clob_discovery_sanity_from_status(status)
     dead_after = max(2 * interval + 30.0, 90.0)
     if status.get("paused"):
         state = "PAUSED"
@@ -180,7 +208,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         state = "DEAD"
     elif errors >= 3:
         state = "ERRORING"
-    elif error_markets:
+    elif error_markets or not discovery_sanity.get("ok", True):
         state = "DEGRADED"
     else:
         state = "RUNNING"
@@ -192,6 +220,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "consecutive_errors": errors,
         "error_markets": error_markets,
         "last_error": status.get("last_error"),
+        "discovery_sanity": discovery_sanity,
         "started_at": status.get("started_at"),
         "market_id": status.get("market_id"),
         "interval_seconds": interval,

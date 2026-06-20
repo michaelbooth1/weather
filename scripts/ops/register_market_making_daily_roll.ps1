@@ -6,7 +6,7 @@
 # budget/settings, records the child PID, and exits. The launcher classifies
 # evidence mode at start time, so delayed post-window runs are non-countable.
 #
-# Run from the repo root:  .\scripts\register_market_making_daily_roll.ps1
+# Run from the repo root:  .\scripts\ops\register_market_making_daily_roll.ps1
 # Re-running replaces the existing task.
 
 param(

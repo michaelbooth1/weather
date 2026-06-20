@@ -1,0 +1,64 @@
+{
+  "schema_version": "no_market_extra_location_registry_v0.1",
+  "updated_at_utc": "2026-06-18T00:00:00+00:00",
+  "description": "Admission registry for non-Polymarket locations considered for no-market extra-location shadow training.",
+  "minimums": {
+    "independent_labeled_days": 60,
+    "forecast_history_days": 45,
+    "observation_days": 60
+  },
+  "locations": [
+    {
+      "location_id": "phoenix-sky-harbor",
+      "name": "Phoenix Sky Harbor",
+      "station_id": "KPHX",
+      "source_ids": ["wunderground_history", "open_meteo_forecast", "metar"],
+      "timezone": "America/Phoenix",
+      "unit": "F",
+      "coordinates": {"lat": 33.4278, "lon": -112.0038, "elevation_m": 346},
+      "coastal": false,
+      "target_definition": "daily_high_temperature",
+      "cutoff_policy": "local calendar day maximum aligned to settlement station",
+      "station_stability": "stable",
+      "climate_similarity_class": "hot_inland_us",
+      "climate_normal": 89.0,
+      "climate_std": 9.0,
+      "source_reliability_prior": 0.70,
+      "forecast_error_mae": 3.5,
+      "independent_labeled_days": 0,
+      "forecast_history_days": 0,
+      "observation_days": 0,
+      "target_season_coverage": [],
+      "diagnostic_only": true,
+      "provenance_notes": [
+        "Candidate registry entry only; not training eligible until forecast and observation history are backfilled."
+      ]
+    },
+    {
+      "location_id": "st-louis-lambert",
+      "name": "St. Louis Lambert",
+      "station_id": "KSTL",
+      "source_ids": ["wunderground_history", "open_meteo_forecast", "metar"],
+      "timezone": "America/Chicago",
+      "unit": "F",
+      "coordinates": {"lat": 38.752, "lon": -90.374, "elevation_m": 184},
+      "coastal": false,
+      "target_definition": "daily_high_temperature",
+      "cutoff_policy": "local calendar day maximum aligned to settlement station",
+      "station_stability": "stable",
+      "climate_similarity_class": "humid_continental_us",
+      "climate_normal": 84.0,
+      "climate_std": 8.0,
+      "source_reliability_prior": 0.72,
+      "forecast_error_mae": 3.1,
+      "independent_labeled_days": 0,
+      "forecast_history_days": 0,
+      "observation_days": 0,
+      "target_season_coverage": [],
+      "diagnostic_only": true,
+      "provenance_notes": [
+        "Candidate registry entry only; not training eligible until forecast and observation history are backfilled."
+      ]
+    }
+  ]
+}

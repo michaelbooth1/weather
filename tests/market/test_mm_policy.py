@@ -9,6 +9,7 @@ from weather.market.mm_policy import (
     apply_known_edge_permission,
     config_with_clob_recon,
     decide_quote,
+    hourly_trust_state,
     resolve_known_edge_record,
     run_policy_snapshot,
 )
@@ -166,6 +167,96 @@ class TestMmPolicy(unittest.TestCase):
 
         self.assertFalse(quote["quote_permission"])
         self.assertEqual(quote["reason_code"], "NO_QUOTE_DISAGREEMENT_SHADOW")
+
+    def test_hourly_trust_bands_are_market_local(self):
+        self.assertEqual(
+            hourly_trust_state(fresh_row(captured_at_utc="2026-06-14T12:30:00+00:00"))["hourly_trust_band"],
+            "early_00_08",
+        )
+        self.assertEqual(
+            hourly_trust_state(fresh_row(captured_at_utc="2026-06-14T13:00:00+00:00"))["hourly_trust_band"],
+            "midday_09_14",
+        )
+        self.assertEqual(
+            hourly_trust_state(fresh_row(captured_at_utc="2026-06-14T19:00:00+00:00"))["hourly_trust_band"],
+            "late_15_19",
+        )
+        self.assertEqual(
+            hourly_trust_state(fresh_row(captured_at_utc="2026-06-15T01:00:00+00:00"))["hourly_trust_band"],
+            "closing_20_23",
+        )
+
+    def test_early_hour_guardrail_caps_size_widens_quotes_and_preserves_fair(self):
+        quote = decide_quote(
+            fresh_row(
+                generated_at_utc="2026-06-14T09:01:00+00:00",
+                captured_at_utc="2026-06-14T09:00:30+00:00",
+            ),
+            config={"information_event_calendar_enabled": False},
+            now="2026-06-14T09:01:00+00:00",
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["hourly_trust_band"], "early_00_08")
+        self.assertEqual(quote["early_hour_guardrail_status"], "active")
+        self.assertAlmostEqual(float(quote["bid_size"]), 1.75)
+        self.assertAlmostEqual(float(quote["ask_size"]), 1.75)
+        self.assertAlmostEqual(float(quote["bid_price"]), 0.48)
+        self.assertAlmostEqual(float(quote["ask_price"]), 0.52)
+        self.assertAlmostEqual(float(quote["fair_probability"]), 0.51)
+        self.assertAlmostEqual(float(quote["market_aware_overlay_probability"]), 0.5065)
+        self.assertTrue(quote["market_aware_overlay_used_for_risk_only"])
+        self.assertEqual(quote["final_size_limiter"], "early_hour_market_guardrail")
+
+    def test_early_hour_guardrail_requires_stronger_no_market_edge_for_edge_quotes(self):
+        quote = decide_quote(
+            fresh_row(
+                generated_at_utc="2026-06-14T09:01:00+00:00",
+                captured_at_utc="2026-06-14T09:00:30+00:00",
+                promotion_state="PASS",
+                known_edge_allowed=True,
+                known_edge_permission="edge_allowed",
+                known_edge_reason="live_forward_paper_gate_clear",
+                fair_probability=0.55,
+                market_mid=0.50,
+                clob_best_bid=0.49,
+                clob_best_ask=0.60,
+            ),
+            config={"information_event_calendar_enabled": False},
+            now="2026-06-14T09:01:00+00:00",
+        )
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_EARLY_HOUR_GUARDRAIL_MIN_EDGE")
+        self.assertEqual(quote["early_hour_guardrail_status"], "active")
+        self.assertGreater(float(quote["early_hour_guardrail_min_edge"]), abs(float(quote["edge"])))
+
+    def test_early_hour_guardrail_override_requires_edge_freshness_and_source_agreement(self):
+        quote = decide_quote(
+            fresh_row(
+                generated_at_utc="2026-06-14T09:01:00+00:00",
+                captured_at_utc="2026-06-14T09:00:30+00:00",
+                promotion_state="PASS",
+                known_edge_allowed=True,
+                known_edge_permission="edge_allowed",
+                known_edge_reason="live_forward_paper_gate_clear",
+                source_freshness_state="all_fresh",
+                forecast_source_count_bucket="normal_count",
+                forecast_disagreement_bucket="low_disagreement",
+                forecast_disagreement=0.5,
+                fair_probability=0.62,
+                market_mid=0.50,
+                clob_best_bid=0.49,
+                clob_best_ask=0.70,
+            ),
+            now="2026-06-14T09:01:00+00:00",
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["regime"], "edge")
+        self.assertEqual(quote["early_hour_guardrail_status"], "override_allowed")
+        self.assertTrue(quote["early_hour_guardrail_override_allowed"])
+        self.assertAlmostEqual(float(quote["bid_size"]), 5.0)
 
     def test_pass_known_edge_can_emit_model_skewed_quote(self):
         quote = decide_quote(

@@ -13,10 +13,10 @@ Toronto context, reanalysis/synoptic features, and market microstructure
 features. Official public sources also support useful future lanes, including
 Open-Meteo forecast and historical APIs, NWS gridpoint data, NOAA NBM, HRRR,
 MRMS, CO-OPS, IEM ASOS one-minute data, and ECCC HRDPS/GeoMet. The remaining
-gap is disciplined promotion: only 60 of 165 forecast folders had raw forecast
-payload manifests, only 159 of 165 snapshot folders had source-status
-artifacts, and many input families are live-only or mostly-null in historical
-rows until backfill and replay gates catch up.
+gap is disciplined promotion: the 2026-06-18 backfills repaired the broad
+forecast-payload and source-status artifact gaps, while many input families are
+still live-only or mostly-null in historical rows until family-specific backfill
+and replay gates catch up.
 
 Why this matters: adding more adapters can make the model look richer while
 silently widening train/serve mismatch. The useful work now is to measure which
@@ -92,13 +92,22 @@ ablated family was helping.
 
 Current production evidence (2026-06-18):
 `data/backtest/source_family_inventory.json` covers 11 families across 165
-snapshot folders and 12 active markets. It correctly reports `BLOCK`: 10
-model-influencing families are blocked by lineage or train/serve parity, while
-targeted Atlanta knockout replay supplied evidence for forecast, Open-Meteo,
-NWS, multi-model, and MRMS variants, and candidate replay supplied source-state
-and CLOB overlay evidence. The generated preflight command preserves the longer
-all-market ablation as an explicit evidence job instead of silently promoting
-live-only inputs.
+snapshot folders and 12 active markets. The artifact-aware refresh generated
+`2026-06-18T17:24:54Z` correctly reports source-family promotion preflight
+`PASS`: 0 active model-input families are blocked. The active candidate
+artifact exposes 99 trained features; `settlement_observation`,
+`forecast_baseline`, `open_meteo_expanded`, and the `clob_microstructure`
+overlay are active and have lineage/parity/ablation evidence. The
+forecast-payload backfill rebuilt manifests for 105 legacy folders, and the
+refreshed data-layer audit shows `forecast_payload_artifact_rate` PASS at
+165/165 forecast folders and `snapshot_artifact_source_status` PASS at 153/153
+training-ready folders.
+
+The remaining non-active input-family work is lineage/parity cleanup before any
+future retrain can use `nws_grid`, `multi_model_guidance`, `mrms_precip`,
+`marine_context`, or `eccc_gridded`. Those families now stay out of the active
+promotion preflight until they are backfilled, waived, or explicitly added to a
+new trained artifact with matching train/serve evidence.
 
 Verification:
 `python -m pytest -q tests/backtesting/test_replay_ablation.py tests/reporting/test_source_family_inventory.py tests/reporting/test_daily_learning.py`

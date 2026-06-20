@@ -9,6 +9,8 @@ import pandas as pd
 from weather.market.market_registry import NYC, SEATTLE, TORONTO
 from weather.calibration.feature_model import feature_model_frame
 from weather.calibration.pooled_feature_model import (
+    BAND_MERGE_PAYLOAD_KEY,
+    FEATURE_SUBSET_FORECAST_PROFILE,
     add_city_features,
     add_dynamic_source_state_features,
     adjacent_calibration_contexts,
@@ -16,8 +18,15 @@ from weather.calibration.pooled_feature_model import (
     apply_band_postprocessing,
     apply_adjacent_calibration,
     apply_exact_winner_catchup,
+    apply_forecast_centering,
+    apply_market_bias_calibration,
+    apply_forecast_relative_density_calibration,
+    apply_reanalysis_lane_metadata,
+    apply_reanalysis_promotion_lane_to_record,
     band_feature_frame,
     band_prediction_record,
+    band_training_support,
+    build_band_rows,
     canonical_density_record,
     density_residuals_from_means,
     default_band_postprocess,
@@ -26,16 +35,26 @@ from weather.calibration.pooled_feature_model import (
     exact_winner_catchup_contexts,
     exact_winner_catchup_factor,
     feature_frame,
+    fit_density_market_band_postprocess,
     fit_adjacent_calibration,
     fit_exact_winner_catchup,
+    fit_market_bias_calibration,
+    forecast_anchor_probability,
     hard_floor_probability,
     historical_only_source_feature_manifest,
     late_lockin_strength_from_features,
     market_source_reliability,
+    market_bias_calibration_contexts,
+    merge_pooled_band_artifacts,
     normalize_band_probabilities_for_rows,
+    density_market_band_score,
+    preflight_training_artifacts,
     predict_density_rows_for_bundle,
     support_floor_cap,
+    train_pooled_band_models,
     train_pooled_density_models,
+    tune_density_shape_policy,
+    tune_density_sigma_f,
     write_density_report,
 )
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
@@ -101,6 +120,89 @@ class TestPooledFeatureModel(unittest.TestCase):
             }
             records.append(add_city_features(record, spec, climate))
         return records
+
+    def _band_shard_artifact(self, hour, objective="binary_market_band_brier_source_reliability"):
+        postprocess = default_band_postprocess()
+        rows = []
+        probabilities = []
+        for idx in range(12):
+            rows.append({
+                "market_id": "austin",
+                "cutoff_hour": int(hour),
+                "band_kind": "eq",
+                "band_value": 90 + (idx % 3),
+                "band_value_hi": None,
+                "observed_floor_bucket": 89,
+                "observed_support_bucket": 89,
+                "band_mid_minus_high_so_far": float(idx % 4),
+                "outcome": 1 if idx % 5 == 0 else 0,
+            })
+            probabilities.append(0.18 + (idx % 4) * 0.02)
+        return {
+            "schema_version": "pooled_feature_band_hgb_v0.3",
+            "feature_schema_version": "toronto_feature_store_v1.6",
+            "family_unit": "F",
+            "prediction_mode": "band_binary",
+            "objective": objective,
+            "feature_subset": "all",
+            "feature_subset_contract": {"subset": "all"},
+            "dynamic_source_state_enabled": False,
+            "dynamic_source_state_columns": [],
+            "source_family_lanes": {
+                "reanalysis_synoptic": {"allowed_markets": ["austin"]},
+            },
+            "reanalysis_promotion_lane": {"allowed_markets": ["austin"]},
+            "support": {"F": {"low": 70, "high": 110}},
+            "postprocess": postprocess,
+            "models": {
+                str(hour): {
+                    "feature_names": ["forecast_high"],
+                    "postprocess": dict(postprocess),
+                    "train_rows": 12,
+                    "source_rows": 3,
+                },
+            },
+            BAND_MERGE_PAYLOAD_KEY: {
+                "holdout_year": 2025,
+                "hours": [int(hour)],
+                "rows": rows,
+                "probabilities": probabilities,
+            },
+        }
+
+    def test_merge_pooled_band_artifacts_refits_postprocess_and_combines_hours(self):
+        merged = merge_pooled_band_artifacts(
+            [
+                self._band_shard_artifact(7),
+                self._band_shard_artifact(8),
+            ],
+            required_hours=(7, 8),
+            shard_paths=("hour07.pkl", "hour08.pkl"),
+        )
+
+        self.assertEqual(sorted(merged["models"]), ["7", "8"])
+        self.assertEqual(merged["training_shards"]["shard_count"], 2)
+        self.assertEqual(merged["training_shards"]["postprocess_fit_rows"], 24)
+        self.assertIn("adjacent_calibration", merged["postprocess"])
+        self.assertIn("market_bias_calibration", merged["postprocess"])
+        self.assertEqual(
+            merged["models"]["7"]["postprocess"],
+            merged["postprocess"],
+        )
+
+    def test_merge_pooled_band_artifacts_rejects_missing_required_hour(self):
+        with self.assertRaisesRegex(ValueError, "missing required hour"):
+            merge_pooled_band_artifacts(
+                [self._band_shard_artifact(7)],
+                required_hours=(7, 8),
+            )
+
+    def test_merge_pooled_band_artifacts_rejects_incompatible_shard(self):
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            merge_pooled_band_artifacts([
+                self._band_shard_artifact(7),
+                self._band_shard_artifact(8, objective="different_objective"),
+            ])
 
     def test_city_features_and_market_one_hot_enter_frame(self):
         left = add_city_features(self._base_record(), NYC, {
@@ -206,23 +308,163 @@ class TestPooledFeatureModel(unittest.TestCase):
         payloads = predict_density_rows_for_bundle(artifact, records[:6])
         score = evaluate_density_predictions(records[:6], payloads)
 
-        self.assertEqual(artifact["schema_version"], "pooled_continuous_density_hgb_v0.2")
+        self.assertEqual(artifact["schema_version"], "pooled_continuous_density_hgb_v0.7")
         self.assertEqual(artifact["prediction_mode"], "continuous_density_f")
-        self.assertEqual(artifact["sigma_policy"]["preferred"], "holdout_residual_rmse")
+        self.assertEqual(artifact["sigma_policy"]["preferred"], "holdout_market_band_brier_grid_search")
+        self.assertEqual(
+            artifact["density_shape_policy"]["preferred"],
+            "holdout_market_band_brier_shape_grid_search",
+        )
+        self.assertEqual(artifact["density_postprocess"]["schema_version"], "density_market_band_postprocess_v0.2")
+        self.assertGreater(artifact["density_postprocess"]["calibration_rows"], 0)
+        self.assertIn("forecast_relative_calibration", artifact["density_postprocess"])
         self.assertIn("12", artifact["models"])
-        self.assertEqual(artifact["models"]["12"]["sigma_source"], "holdout_residual_rmse")
+        self.assertEqual(artifact["models"]["12"]["sigma_source"], "holdout_market_band_brier_shape_grid_search")
         self.assertEqual(artifact["models"]["12"]["sigma_residual_count"], 20)
+        self.assertIn("sigma_tuning", artifact["models"]["12"])
+        self.assertIn("density_shape", artifact["models"]["12"])
+        self.assertIn("density_shape_tuning", artifact["models"]["12"])
         self.assertTrue(validation_rows)
-        self.assertEqual(validation_rows[0]["final_sigma_source"], "holdout_residual_rmse")
+        self.assertEqual(validation_rows[0]["final_sigma_source"], "holdout_market_band_brier_shape_grid_search")
+        self.assertIn("final_density_shape_id", validation_rows[0])
         self.assertEqual(validation_rows[0]["holdout_sigma_residual_count"], 20)
+        self.assertIn("baseline_eval_score", validation_rows[0])
+        self.assertIn("market_band_brier", validation_rows[0]["eval_score"])
+        self.assertIn("sigma_tuning", validation_rows[0])
+        self.assertIn("density_shape_tuning", validation_rows[0])
         self.assertIn("training_metrics", validation_rows[0])
         self.assertIn("matrix_build_seconds", validation_rows[0]["training_metrics"])
         self.assertIn("Training Throughput", report)
         self.assertIn("Matrix Columns", report)
-        self.assertIn("holdout_residual_rmse", report)
+        self.assertIn("holdout_market_band_brier_shape_grid_search", report)
+        self.assertIn("Tuned Band Brier", report)
+        self.assertIn("Shape", report)
+        self.assertIn("Density Market-Band Postprocess", report)
         self.assertTrue(all(payload and payload["kind"] == "continuous_density_f" for payload in payloads))
+        self.assertTrue(all(payload.get("density_shape_id") for payload in payloads))
         self.assertEqual(score["n"], 6)
         self.assertGreater(score["winning_bucket_brier"], 0.0)
+
+    def test_mixed_unit_band_training_support_stays_native(self):
+        nyc_record = add_city_features({
+            **self._base_record(),
+            "market_id": "nyc",
+            "final_bucket": 83,
+            "high_so_far": 80.0,
+            "forecast_high": 84.0,
+        }, NYC, {"climate_normal": 82.0, "climate_std": 5.0})
+        toronto_record = add_city_features({
+            **self._base_record(),
+            "market_id": "toronto",
+            "final_bucket": 26,
+            "high_so_far": 25.0,
+            "current_temp": 24.0,
+            "live_reading_temp": 24.5,
+            "forecast_high": 27.0,
+        }, TORONTO, {"climate_normal": 24.0, "climate_std": 3.0})
+        support = band_training_support([nyc_record, toronto_record], family_unit="all")
+
+        rows = build_band_rows([nyc_record, toronto_record], support)
+        nyc_values = [row["band_value"] for row in rows if row["market_id"] == "nyc"]
+        toronto_values = [row["band_value"] for row in rows if row["market_id"] == "toronto"]
+
+        self.assertEqual(set(support), {"C", "F"})
+        self.assertTrue(nyc_values)
+        self.assertTrue(toronto_values)
+        self.assertGreater(min(nyc_values), 60)
+        self.assertLess(max(toronto_values), 40)
+
+    def test_pooled_band_model_can_train_mixed_unit_all_family_artifact(self):
+        records = []
+        for idx in range(120):
+            final_bucket = 80 + (idx % 5)
+            records.append(add_city_features({
+                **self._base_record(),
+                "market_id": "nyc",
+                "high_so_far": 77.0 + (idx % 3),
+                "forecast_high": final_bucket + 0.25,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 12,
+                "year": 2024 if idx < 80 else 2025,
+            }, NYC, {"climate_normal": 82.0, "climate_std": 5.0}))
+            c_bucket = 24 + (idx % 5)
+            records.append(add_city_features({
+                **self._base_record(),
+                "market_id": "toronto",
+                "high_so_far": 22.0 + (idx % 3),
+                "current_temp": 22.0 + (idx % 2),
+                "live_reading_temp": 22.5 + (idx % 2),
+                "forecast_high": c_bucket + 0.25,
+                "final_bucket": c_bucket,
+                "cutoff_hour": 12,
+                "year": 2024 if idx < 80 else 2025,
+            }, TORONTO, {"climate_normal": 24.0, "climate_std": 3.0}))
+
+        artifact, validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            family_unit="all",
+        )
+        feature_names = set(artifact["models"]["12"]["feature_names"])
+
+        self.assertEqual(artifact["family_unit"], "all")
+        self.assertEqual(artifact["schema_version"], "pooled_all_market_band_hgb_v0.1")
+        self.assertEqual(set(artifact["support"]), {"C", "F"})
+        self.assertIn("market_id_nyc", feature_names)
+        self.assertIn("market_id_toronto", feature_names)
+        self.assertIn("market_bias_calibration", artifact["postprocess"])
+        self.assertIn("market_bias_calibration_enabled", artifact["models"]["12"]["postprocess"])
+        self.assertTrue(validation_rows)
+
+    def test_all_market_exact_winner_keeps_item35_blend_and_source_guardrail(self):
+        records = []
+        for idx in range(120):
+            final_bucket = 80 + (idx % 5)
+            records.append(add_city_features({
+                **self._base_record(),
+                "market_id": "nyc",
+                "high_so_far": 77.0 + (idx % 3),
+                "forecast_high": final_bucket + 0.25,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 12,
+                "year": 2024 if idx < 80 else 2025,
+            }, NYC, {"climate_normal": 82.0, "climate_std": 5.0}))
+            c_bucket = 24 + (idx % 5)
+            records.append(add_city_features({
+                **self._base_record(),
+                "market_id": "toronto",
+                "high_so_far": 22.0 + (idx % 3),
+                "current_temp": 22.0 + (idx % 2),
+                "live_reading_temp": 22.5 + (idx % 2),
+                "forecast_high": c_bucket + 0.25,
+                "final_bucket": c_bucket,
+                "cutoff_hour": 12,
+                "year": 2024 if idx < 80 else 2025,
+            }, TORONTO, {"climate_normal": 24.0, "climate_std": 3.0}))
+
+        artifact, _validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            exact_winner_catchup=True,
+            family_unit="all",
+            source_freshness_guardrail=True,
+        )
+        postprocess = artifact["postprocess"]
+
+        self.assertEqual(artifact["schema_version"], "pooled_all_market_band_hgb_exact_winner_v0.1")
+        self.assertEqual(
+            artifact["objective"],
+            "binary_native_market_band_brier_all_market_exact_winner_catchup",
+        )
+        self.assertTrue(postprocess["exact_winner_catchup_enabled"])
+        self.assertEqual(postprocess["current_blend_default_alpha"], 1.0)
+        self.assertEqual(postprocess["current_blend_market_alpha"]["nyc"], 0.20)
+        self.assertEqual(postprocess["current_blend_source_freshness_default_alpha"], 0.0)
+        self.assertEqual(postprocess["current_blend_source_freshness_alpha"], {"all_fresh": 1.0})
+        self.assertEqual(
+            artifact["models"]["12"]["postprocess"]["source_freshness_guardrail_policy"],
+            "item35_all_fresh_only_candidate_v0_1",
+        )
 
     def test_density_sigma_falls_back_to_in_sample_when_holdout_is_too_small(self):
         records = self._density_records()[:65]
@@ -234,8 +476,10 @@ class TestPooledFeatureModel(unittest.TestCase):
         )
 
         self.assertEqual(artifact["models"]["12"]["sigma_source"], "in_sample_residual_rmse")
+        self.assertEqual(artifact["models"]["12"]["density_shape_id"], "gaussian")
         self.assertLess(validation_rows[0]["holdout_sigma_residual_count"], 20)
         self.assertEqual(validation_rows[0]["final_sigma_source"], "in_sample_residual_rmse")
+        self.assertEqual(validation_rows[0]["final_density_shape_source"], "gaussian_fallback")
 
     def test_density_residuals_from_means_uses_canonical_f_targets(self):
         rows = [
@@ -245,6 +489,134 @@ class TestPooledFeatureModel(unittest.TestCase):
         ]
 
         self.assertEqual(density_residuals_from_means(rows, [79.5, 82.25, 70.0]), [0.5, -0.25])
+
+    def test_density_sigma_tuning_prefers_market_band_brier(self):
+        rows = [
+            {"market_id": "nyc", "final_bucket": 80, "unit": "F", "cutoff_hour": 12}
+            for _ in range(20)
+        ]
+        means = [81.2 for _ in rows]
+        grid = [round(72.0 + idx * 0.1, 6) for idx in range(181)]
+
+        tuned = tune_density_sigma_f(rows, means, grid, base_sigma_f=3.0)
+        direct_score = density_market_band_score(rows, means, grid, tuned["selected_sigma_f"])
+
+        self.assertIsNotNone(tuned)
+        self.assertIsNotNone(direct_score)
+        self.assertIn("market_band_brier", tuned["selected_score"])
+        baseline = next(
+            row for row in tuned["candidates"]
+            if abs(row["sigma_f"] - tuned["base_sigma_f"]) < 1e-9
+        )
+        self.assertLess(
+            tuned["selected_score"]["market_band_brier"],
+            baseline["market_band_brier"],
+        )
+        self.assertAlmostEqual(
+            tuned["selected_score"]["market_band_brier"],
+            direct_score["market_band_brier"],
+        )
+
+    def test_density_market_band_postprocess_fits_exact_and_adjacent_contexts(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        }, source_reliability={"source_best_bucket_match": 0.80})
+        rows = []
+        probabilities = []
+        for _ in range(90):
+            exact = band_prediction_record(record, "eq", 82)
+            exact["outcome"] = 1
+            exact["source_freshness_state"] = "all_fresh"
+            exact["settlement_distance"] = 0
+            rows.append(exact)
+            probabilities.append(0.20)
+
+            adjacent = band_prediction_record(record, "eq", 83)
+            adjacent["outcome"] = 0
+            adjacent["source_freshness_state"] = "all_fresh"
+            adjacent["settlement_distance"] = 1
+            rows.append(adjacent)
+            probabilities.append(0.40)
+
+        postprocess = fit_density_market_band_postprocess(rows, probabilities)
+
+        self.assertTrue(postprocess["enabled"])
+        self.assertEqual(postprocess["schema_version"], "density_market_band_postprocess_v0.2")
+        self.assertGreater(postprocess["adjacent_calibration"]["context_count"], 0)
+        self.assertGreater(postprocess["exact_winner_catchup"]["context_count"], 0)
+        self.assertIn("strength", postprocess["exact_winner_catchup"])
+
+    def test_density_market_band_postprocess_fits_forecast_relative_contexts(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        })
+        record["forecast_high"] = 82.0
+        record["forecast_source_count"] = 2
+        record["forecast_disagreement"] = 0.4
+        rows = []
+        probabilities = []
+        for _ in range(130):
+            row = band_prediction_record(record, "gte", 82)
+            row["outcome"] = 0
+            row["settlement_distance"] = 2
+            rows.append(row)
+            probabilities.append(0.50)
+
+        postprocess = fit_density_market_band_postprocess(rows, probabilities)
+        calibrated = apply_forecast_relative_density_calibration(
+            0.50,
+            rows[0],
+            config={
+                "forecast_relative_calibration": postprocess["forecast_relative_calibration"],
+            },
+        )
+
+        self.assertTrue(postprocess["enabled"])
+        self.assertGreater(postprocess["forecast_relative_calibration"]["context_count"], 0)
+        self.assertGreater(postprocess["forecast_relative_calibration"]["strength"], 0.0)
+        self.assertLess(calibrated, 0.50)
+
+    def test_density_shape_tuning_can_select_forecast_anchor_mixture(self):
+        rows = [
+            {
+                "market_id": "nyc",
+                "final_bucket": 80,
+                "unit": "F",
+                "cutoff_hour": 12,
+                "forecast_high": 80.0,
+                "climate_normal": 70.0,
+            }
+            for _ in range(20)
+        ]
+        means = [86.0 for _ in rows]
+        grid = [round(72.0 + idx * 0.1, 6) for idx in range(201)]
+
+        tuned = tune_density_shape_policy(rows, means, grid, base_sigma_f=1.0)
+        direct_score = density_market_band_score(
+            rows,
+            means,
+            grid,
+            tuned["selected_sigma_f"],
+            shape_config=tuned["selected_density_shape"],
+        )
+        baseline = next(
+            row for row in tuned["candidates"]
+            if row["density_shape_id"] == "gaussian"
+            and abs(row["sigma_f"] - tuned["base_sigma_f"]) < 1e-9
+        )
+
+        self.assertIsNotNone(tuned)
+        self.assertTrue(tuned["selected_density_shape_id"].startswith("forecast_w"))
+        self.assertLess(
+            tuned["selected_score"]["market_band_brier"],
+            baseline["market_band_brier"],
+        )
+        self.assertAlmostEqual(
+            tuned["selected_score"]["market_band_brier"],
+            direct_score["market_band_brier"],
+        )
 
     def test_market_source_reliability_populates_ghcnh_and_reanalysis_priors(self):
         indexes = {
@@ -397,6 +769,106 @@ class TestPooledFeatureModel(unittest.TestCase):
 
         self.assertGreater(adjusted, 0.80)
 
+    def test_forecast_centering_postprocess_blends_toward_forecast_anchor(self):
+        record = self._base_record()
+        record["cutoff_hour"] = 3
+        record["high_so_far"] = 78.0
+        record["forecast_high"] = 84.0
+        near_forecast = band_prediction_record(record, "eq", 84)
+        away_from_forecast = band_prediction_record(record, "eq", 79)
+        config = {
+            "forecast_centering_enabled": True,
+            "forecast_centering_early_alpha": 0.5,
+            "forecast_centering_sigma": 1.25,
+        }
+
+        boosted = apply_forecast_centering(0.10, near_forecast, config)
+        reduced = apply_forecast_centering(0.30, away_from_forecast, config)
+
+        self.assertGreater(forecast_anchor_probability(near_forecast), forecast_anchor_probability(away_from_forecast))
+        self.assertGreater(boosted, 0.10)
+        self.assertLess(reduced, 0.30)
+
+    def test_reanalysis_promotion_lane_masks_quarantined_market_and_tags_artifact(self):
+        lane = {
+            "status": "PARTIAL_POSITIVE_MARKET_SHADOW_LANE",
+            "allowed_markets": ["austin"],
+            "quarantined_markets": ["nyc"],
+        }
+        allowed = {
+            "market_id": "austin",
+            "reanalysis_synoptic_available": 1.0,
+            "reanalysis_prev_day_max_temp": 91.0,
+        }
+        quarantined = {
+            "market_id": "nyc",
+            "reanalysis_synoptic_available": 1.0,
+            "reanalysis_prev_day_max_temp": 82.0,
+        }
+
+        self.assertEqual(
+            apply_reanalysis_promotion_lane_to_record(allowed, lane)["reanalysis_prev_day_max_temp"],
+            91.0,
+        )
+        masked = apply_reanalysis_promotion_lane_to_record(quarantined, lane)
+        artifact = apply_reanalysis_lane_metadata(
+            {"objective": "candidate", "postprocess": {"current_blend_market_alpha": {}}, "models": {"7": {}}},
+            lane,
+        )
+
+        self.assertEqual(masked["reanalysis_synoptic_available"], 0.0)
+        self.assertIsNone(masked["reanalysis_prev_day_max_temp"])
+        self.assertEqual(
+            artifact["source_family_lanes"]["reanalysis_synoptic"]["status"],
+            "PARTIAL_POSITIVE_MARKET_SHADOW_LANE",
+        )
+        self.assertEqual(artifact["postprocess"]["current_blend_market_alpha"]["nyc"], 0.0)
+        self.assertEqual(artifact["models"]["7"]["postprocess"]["current_blend_market_alpha"]["nyc"], 0.0)
+
+    def test_reanalysis_promotion_lane_can_block_pressure_subfamily_only(self):
+        lane = {
+            "status": "PARTIAL_POSITIVE_MARKET_SHADOW_LANE",
+            "allowed_markets": ["austin"],
+            "blocked_feature_prefixes": ["reanalysis_prev_day_temperature_850hpa"],
+            "blocked_feature_columns": [
+                "reanalysis_pressure_level_available",
+                "reanalysis_prev_day_geopotential_height_500hpa_m",
+                "reanalysis_prev_day_thickness_1000_500hpa_m",
+            ],
+        }
+        record = {
+            "market_id": "austin",
+            "reanalysis_synoptic_available": 1.0,
+            "reanalysis_pressure_level_available": 1.0,
+            "reanalysis_prev_day_max_temp": 91.0,
+            "reanalysis_prev_day_temperature_850hpa_c": 12.5,
+            "reanalysis_prev_day_geopotential_height_500hpa_m": 5900.0,
+            "reanalysis_prev_day_thickness_1000_500hpa_m": 5600.0,
+        }
+
+        masked = apply_reanalysis_promotion_lane_to_record(record, lane)
+
+        self.assertEqual(masked["reanalysis_synoptic_available"], 1.0)
+        self.assertEqual(masked["reanalysis_prev_day_max_temp"], 91.0)
+        self.assertIsNone(masked["reanalysis_pressure_level_available"])
+        self.assertIsNone(masked["reanalysis_prev_day_temperature_850hpa_c"])
+        self.assertIsNone(masked["reanalysis_prev_day_geopotential_height_500hpa_m"])
+        self.assertIsNone(masked["reanalysis_prev_day_thickness_1000_500hpa_m"])
+
+    def test_training_output_preflight_blocks_before_low_disk_artifact_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "candidate.pkl"
+            report = Path(tmp) / "candidate_report.md"
+
+            with self.assertRaises(OSError) as caught:
+                preflight_training_artifacts(
+                    artifact,
+                    report,
+                    min_free_bytes=10**18,
+                )
+
+        self.assertIn("pooled feature model training outputs", str(caught.exception))
+
     def test_support_floor_caps_bands_below_live_support(self):
         self.assertAlmostEqual(support_floor_cap("eq", 90, 92, value_hi=91), 0.08)
         self.assertAlmostEqual(support_floor_cap("eq", 90, 93, value_hi=91), 0.02)
@@ -468,6 +940,66 @@ class TestPooledFeatureModel(unittest.TestCase):
         context = adjacent_calibration_contexts(rows[0])[0]
         self.assertIn(context, calibration["contexts"])
         self.assertAlmostEqual(calibration["contexts"][context]["factor"], 0.15)
+
+    def test_market_bias_calibration_uses_inference_contexts_and_gated_factor(self):
+        record = add_city_features(self._base_record(), NYC, {
+            "climate_normal": 82.0,
+            "climate_std": 5.0,
+        })
+        rows = []
+        for _ in range(4):
+            row = band_prediction_record(record, "eq", 82)
+            row["outcome"] = 1
+            rows.append(row)
+
+        calibration = fit_market_bias_calibration(
+            rows,
+            [0.20, 0.20, 0.20, 0.20],
+            min_rows=1,
+            prior_rows=0.0,
+            factor_max=2.25,
+            min_improvement=0.0,
+        )
+        context = market_bias_calibration_contexts(rows[0])[0]
+
+        self.assertTrue(calibration["enabled"])
+        self.assertIn(context, calibration["contexts"])
+        self.assertGreater(
+            apply_market_bias_calibration(0.20, rows[0], {"market_bias_calibration": calibration}),
+            0.20,
+        )
+
+    def test_market_bias_calibration_honors_market_and_source_state_guardrails(self):
+        record = add_city_features(self._base_record(), TORONTO, {
+            "climate_normal": 24.0,
+            "climate_std": 3.0,
+        })
+        toronto = band_prediction_record(record, "eq", 25)
+        toronto["source_freshness_state"] = "all_fresh"
+        degraded = {**toronto, "market_id": "nyc", "source_freshness_state": "failed:wu_history"}
+        healthy = {**toronto, "market_id": "nyc", "source_freshness_state": "all_fresh"}
+        calibration = {
+            "enabled": True,
+            "excluded_markets": ["toronto"],
+            "allowed_source_freshness_states": ["all_fresh"],
+            "contexts": {
+                market_bias_calibration_contexts(healthy)[0]: {"factor": 2.0},
+                market_bias_calibration_contexts(toronto)[0]: {"factor": 2.0},
+            },
+        }
+
+        self.assertAlmostEqual(
+            apply_market_bias_calibration(0.20, toronto, {"market_bias_calibration": calibration}),
+            0.20,
+        )
+        self.assertAlmostEqual(
+            apply_market_bias_calibration(0.20, degraded, {"market_bias_calibration": calibration}),
+            0.20,
+        )
+        self.assertGreater(
+            apply_market_bias_calibration(0.20, healthy, {"market_bias_calibration": calibration}),
+            0.20,
+        )
 
     def test_exact_winner_catchup_contexts_use_inference_available_fields(self):
         record = add_city_features(self._base_record(), NYC, {
@@ -682,6 +1214,98 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertIn("source_status_group_all_fresh", dynamic_frame.columns)
         self.assertAlmostEqual(dynamic_frame.loc[0, "source_wu_history_age_minutes"], 30.0)
         self.assertAlmostEqual(reindexed.loc[0, "source_wu_history_age_minutes"], 30.0)
+
+    def test_forecast_profile_band_subset_excludes_observed_path_columns(self):
+        records = []
+        for idx in range(80):
+            final_bucket = 80 + (idx % 5)
+            record = {
+                **self._base_record(),
+                "market_id": "nyc",
+                "high_so_far": 74.0 + (idx % 3),
+                "current_temp": 75.0 + (idx % 3),
+                "forecast_high": final_bucket + 0.25,
+                "forecast_gap": 4.0 + (idx % 2),
+                "forecast_source_count": 3,
+                "forecast_disagreement": 0.5 + (idx % 4) * 0.25,
+                "forecast_temp_14": final_bucket - 0.5,
+                "forecast_remaining_degree_hours": 10.0 + idx,
+                "forecast_total_cloud_mean": 20.0,
+                "forecast_global_ensemble_spread": 1.5,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 8,
+                "year": 2024 if idx < 60 else 2025,
+            }
+            records.append(add_city_features(record, NYC, {
+                "climate_normal": 82.0,
+                "climate_std": 5.0,
+            }))
+
+        artifact, validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            feature_subset=FEATURE_SUBSET_FORECAST_PROFILE,
+        )
+        feature_names = set(artifact["models"]["8"]["feature_names"])
+
+        self.assertEqual(artifact["schema_version"], "pooled_feature_band_hgb_forecast_profile_v0.1")
+        self.assertEqual(artifact["feature_subset"], FEATURE_SUBSET_FORECAST_PROFILE)
+        self.assertEqual(
+            artifact["forecast_profile_calibration"]["anchor_feature"],
+            "forecast_high",
+        )
+        self.assertTrue(validation_rows)
+        self.assertIn("forecast_high", feature_names)
+        self.assertIn("forecast_gap", feature_names)
+        self.assertIn("forecast_temp_14", feature_names)
+        self.assertIn("band_mid_minus_forecast", feature_names)
+        self.assertIn("market_id_nyc", feature_names)
+        self.assertNotIn("high_so_far", feature_names)
+        self.assertNotIn("current_temp", feature_names)
+        self.assertNotIn("live_reading_temp", feature_names)
+        self.assertNotIn("band_mid_minus_high_so_far", feature_names)
+
+    def test_pooled_band_model_records_weak_input_family_preflight(self):
+        records = []
+        for idx in range(80):
+            final_bucket = 80 + (idx % 5)
+            record = {
+                **self._base_record(),
+                "market_id": "nyc",
+                "forecast_high": final_bucket + 0.25,
+                "forecast_gap": 4.0 + (idx % 2),
+                "final_bucket": final_bucket,
+                "cutoff_hour": 8,
+                "year": 2024 if idx < 60 else 2025,
+            }
+            records.append(add_city_features(record, NYC, {
+                "climate_normal": 82.0,
+                "climate_std": 5.0,
+            }))
+        weak_policy = {
+            "families": [
+                {
+                    "family": "surface_weather",
+                    "disposition": "diagnostic_only",
+                    "coverage": {
+                        "low_coverage_feature_count": 0,
+                        "near_constant_feature_count": 0,
+                    },
+                    "blockers": ["no positive broad family permutation gate"],
+                }
+            ]
+        }
+
+        artifact, _validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            weak_family_disposition=weak_policy,
+        )
+        preflight = artifact["weak_input_family_preflight"]
+
+        self.assertEqual(preflight["status"], "WARN")
+        self.assertEqual(preflight["diagnostic_only_families"], ["surface_weather"])
+        self.assertTrue(any(row["family"] == "surface_weather" for row in preflight["warnings"]))
 
 
 if __name__ == "__main__":

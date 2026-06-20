@@ -1,4 +1,4 @@
-# 35. Unified Continuous-Density Model [PARTIAL 2026-06-18 - HOLDOUT SIGMA ADDED, EMPIRICAL LIFT BLOCKED]
+# 35. Unified Continuous-Density Model [PARTIAL 2026-06-19 - FULL V0.7 REPLAY BLOCKED]
 
 Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 
@@ -17,6 +17,9 @@ Goal: one model for all cities; C/F becomes serving-only (audit Option B).
   candidate lane.
 - [x] Port exact-distribution calibration and floor logic from integer buckets
   to the continuous representation before any promotion gate can rely on it.
+- [x] Add a unit-aware all-market direct market-band baseline lane so density
+  projection failures can be compared against a model trained on native replay
+  band outcomes.
 - [ ] Prove it rescues the data-poor C/Canada family (Toronto borrows US-city
   structure).
 
@@ -155,7 +158,7 @@ promotion-lane wiring, and regression tests. The remaining unchecked item is an
 empirical acceptance condition: the trained density variant must beat current
 family models per market and lift Toronto. The latest full replay failed that
 condition, so this item stays open until a new candidate design earns promotion
-evidence rather than being closed by code-only work.
+evidence rather than being marked complete by code-only work.
 
 ## 2026-06-18 holdout-sigma update
 
@@ -196,3 +199,1009 @@ blocked with 14,014 rows over 10 days: candidate Brier `0.0441`, current
 market `+0.0135`. The conservative bridge shadow policy improved the base
 candidate to Brier `0.0443`, but still regressed current by `+0.0023` and
 market by `+0.0077`, so it is not promotion evidence.
+
+## 2026-06-18 density replay floor-context fix
+
+The replay adapter was corrected so continuous-density candidates derive
+`observed_floor_bucket` and `late_lockin_strength` through the same
+`band_prediction_record` path used by the band candidate before applying
+continuous density calibration. The old v0.2 replay passed raw snapshot
+features directly, so the claimed floor semantics were under-applied in the
+density lane. Added a regression test where half of the canonical-F density is
+below the observed native floor and the projected market probability only
+passes when that floor context is derived.
+
+Corrected pinned replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_density_full_candidate_v0_2.pkl --out data\backtest\item35_density_full_replay_v0_2_floorfix_report.md --json-out data\backtest\item35_density_full_replay_v0_2_floorfix.json --replay-report= --candidate-variant-out data\backtest\item35_density_full_shadow_variants_v0_2_floorfix.csv --candidate-variant-id pooled_continuous_density_hgb_v0_2_floorfix --candidate-variant-family pooled_continuous_density --skip-microstructure-overlay --source-state-ablation-variant-out data\backtest\item35_density_source_state_ablation_v0_2_floorfix.csv --bridge-variant-out data\backtest\item35_density_bridge_shadow_variants_v0_2_floorfix.csv --disable-long-job-guard`.
+
+The fix improved but did not unblock the item. The corrected replay scored
+76,879 rows across 51 market-days with no missing candidate rows, but the
+verdict stayed `BLOCK` / `DO_NOT_CUT_OVER`: aggregate candidate Brier `0.0516`
+versus current `0.0427` and market `0.0373`; daily-first candidate Brier
+`0.0507` versus current `0.0420`, delta `+0.0087` above the `0.0030`
+tolerance. Toronto improved from the stale-floor replay but still blocked:
+9,449 rows over 7 days, candidate Brier `0.0418`, current `0.0369`, market
+`0.0334`, delta versus current `+0.0049`. The remaining failure is still
+winner-bucket underpricing: settlement-distance `0` Brier is `0.4259` versus
+current `0.3444` and market `0.2784`.
+
+## 2026-06-18 holdout winner-brier sigma tuning
+
+The density trainer now emits schema `pooled_continuous_density_hgb_v0.3`.
+Instead of using holdout residual RMSE directly as the serving/replay Gaussian
+width, each hourly density model grid-searches a small set of sigma scales and
+selects the width with the best holdout winner-bucket Brier. This keeps the
+same `continuous_density_f` serving contract while aligning the width selection
+with the market-band replay gate that blocked v0.2.
+
+Implementation details:
+
+- `train_pooled_density_models` records `sigma_policy.preferred` as
+  `holdout_winner_brier_grid_search`, stores per-hour `sigma_tuning` metadata,
+  and falls back to in-sample residual RMSE only when holdout rows are too
+  sparse.
+- Density candidate shadow-lane defaults now derive from the artifact schema
+  when present, so a v0.3 artifact defaults to
+  `pooled_continuous_density_hgb_v0_3`.
+- `schema_registry` marks `pooled_continuous_density_hgb_v0.3` active and
+  preserves v0.2/v0.1 as legacy schemas.
+
+Smoke evidence:
+`python -m weather.calibration.pooled_feature_model --objective density --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_density_sigma_tuned_smoke.pkl --out data\backtest\item35_density_sigma_tuned_smoke_report.md`
+trained over 360 rows. The 12:00 model selected
+`sigma_source=holdout_winner_brier_grid_search`, reducing the smoke holdout
+winner-bucket Brier from `0.7150` at RMSE sigma to `0.7133` at the selected
+sigma `0.9104` F. This is directionally correct but small; it is not promotion
+evidence.
+
+Full-hour v0.3 training/replay in this continuation:
+`python -m weather.calibration.pooled_feature_model --objective density --holdout-year 2025 --artifact data\backtest\item35_density_full_candidate_v0_3.pkl --out data\backtest\item35_density_full_candidate_v0_3_report.md`
+now completes after `blocked_validation_audit` was changed to summarize split
+groups directly instead of materializing every train/validation index list for
+the high-cardinality leave-one-market-day audit. The full artifact trained over
+76,957 source rows with hourly models from 07:00 through 20:00. Every hourly
+blocked-validation audit passed with zero leaks, and the v0.3 holdout grid
+search improved holdout winner-bucket Brier versus RMSE sigma for every hour.
+
+The paired full pinned replay still blocks the item:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_density_full_candidate_v0_3.pkl --out data\backtest\item35_density_full_replay_v0_3_report.md --json-out data\backtest\item35_density_full_replay_v0_3.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --skip-microstructure-overlay --source-state-ablation-variant-out= --bridge-variant-out= --disable-long-job-guard`.
+
+The v0.3 replay scored all 76,879 market rows across 51 market-days with no
+missing candidate rows, but the verdict stayed `BLOCK`, market-only verdict
+`BLOCK`, and cutover decision `DO_NOT_CUT_OVER`. Aggregate candidate Brier was
+`0.0585` versus current `0.0427` and market `0.0373`; daily-first candidate
+Brier was `0.0575` versus current `0.0420`, a `+0.0155` regression above the
+`0.0030` tolerance. Every market blocked. Toronto, the explicit data-poor
+Canada proof target, regressed to candidate Brier `0.0597` versus current
+`0.0369` and market `0.0334`. The largest slice failures are early rows
+(`0.0888` candidate versus `0.0645` current), midday rows (`0.0809` versus
+`0.0596`), and exact-winner settlement-distance `0` rows (`0.3909` versus
+`0.3444` current and `0.2784` market).
+
+Interpretation: v0.3 fixed training throughput and proved that holdout
+winner-brier sigma tuning alone is the wrong direction. It narrows the density
+enough to improve the small holdout winner-bucket objective but over-concentrates
+the replay distribution. The next internal model step should be a replay-aware
+probability calibration/spread policy that keeps exact-winner mass useful
+without worsening early and midday non-winner bands.
+
+Verification:
+`python -m pytest tests/calibration/test_blocked_validation.py tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/operations/test_schema_registry.py -q`
+passes with `69 passed`.
+
+## 2026-06-18 holdout market-band sigma update
+
+The v0.3 replay showed that optimizing sigma only for the true winner bucket
+over-concentrated the density and damaged early/midday replay rows. The active
+density trainer now emits schema `pooled_continuous_density_hgb_v0.4` with
+objective `canonical_f_density_gaussian_holdout_market_band_brier_sigma`.
+Instead of selecting width by winner-bucket Brier alone, v0.4 builds synthetic
+native market bands (`eq`, range, `lte`, `gte`) around each holdout row and
+selects sigma by holdout market-band Brier. The replay path was also tightened:
+density predictions are batched by cutoff hour, and replay caches each
+snapshot's calibrated density CDF so band projection uses binary-search
+integration instead of repeatedly normalizing and scanning the same grid.
+
+Smoke evidence:
+`python -m weather.calibration.pooled_feature_model --objective density --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_density_market_band_smoke_v0_4.pkl --out data\backtest\item35_density_market_band_smoke_v0_4_report.md`
+trained over 360 rows and wrote schema `pooled_continuous_density_hgb_v0.4`.
+At 12:00 the market-band selector chose a wider sigma (`1.4224` F) than RMSE
+sigma (`1.1380` F), improving holdout market-band Brier from `0.1134` to
+`0.1120`.
+
+Full training evidence:
+`python -m weather.calibration.pooled_feature_model --objective density --holdout-year 2025 --artifact data\backtest\item35_density_full_candidate_v0_4.pkl --out data\backtest\item35_density_full_candidate_v0_4_report.md`
+completed over 76,957 source rows. The full v0.4 artifact has hourly models
+from 07:00 through 20:00, every hourly blocked-validation audit passed with
+zero leaks, and every hour used
+`holdout_market_band_brier_grid_search`. Relative to v0.3, v0.4 selects wider
+pre-noon/midday sigmas (for example 07:00 `1.3980` F versus v0.3 `0.9786`,
+12:00 `0.9723` F versus v0.3 `0.7480`) while retaining tight late-day sigmas
+where holdout market-band Brier still prefers them.
+
+Full replay evidence:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_density_full_candidate_v0_4.pkl --out data\backtest\item35_density_full_replay_v0_4_report.md --json-out data\backtest\item35_density_full_replay_v0_4.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --skip-microstructure-overlay --source-state-ablation-variant-out= --bridge-variant-out= --disable-long-job-guard`
+completed when run with monitored background polling rather than the 10-minute
+foreground timeout. Current-serving replay reconstruction was the long pole:
+subset timing showed about `0.15s` per pinned snapshot, so the 6,989-snapshot
+corpus needs roughly 18 minutes before candidate scoring. The optimized density
+prediction/projection path is no longer the blocker: feature/freshness building
+took about 19.5 seconds and batched density prediction took about 6.6 seconds.
+
+The v0.4 replay scored all 76,879 market rows across 51 market-days with no
+missing candidate rows, but the verdict stayed `BLOCK`, market-only verdict
+`BLOCK`, and cutover decision `DO_NOT_CUT_OVER`. Aggregate candidate Brier was
+`0.0531` versus current `0.0427` and market `0.0373`; daily-first candidate
+Brier was `0.0522` versus current `0.0420`, a `+0.0102` regression above the
+`0.0030` tolerance. Toronto remains blocked: candidate Brier `0.0520` versus
+current `0.0369` and market `0.0334`. v0.4 improved the v0.3 over-concentration
+failure (`0.0585` aggregate candidate Brier down to `0.0531`) but still does
+not beat the v0.2 floor-context replay or the current model. Exact-winner
+settlement-distance `0` remains the core slice failure: `0.3864` candidate
+Brier versus `0.3444` current and `0.2784` market.
+
+The next internal model step should move beyond scalar Gaussian sigma policy.
+The replay evidence says the density mean/postprocess is still wrong in early,
+midday, and Toronto rows; a candidate needs replay-aware probability
+calibration or a direct density-shape/mixture policy, then another full pinned
+replay, before the proof checkbox can close.
+
+Verification:
+`python -m pytest tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/operations/test_schema_registry.py -q`
+passes as part of the broader focused suite:
+`python -m pytest tests/calibration/test_blocked_validation.py tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/calibration/test_promotion_refresh.py tests/operations/test_schema_registry.py -q`
+with `91 passed`.
+
+## 2026-06-18 density-shape v0.5 full replay update
+
+The scalar-Gaussian follow-up is now implemented as a v0.5 artifact contract,
+and has full pinned-replay evidence. The active density trainer emits
+`pooled_continuous_density_hgb_v0.5` with objective
+`canonical_f_density_shape_holdout_market_band_brier`. Each hourly bundle can
+carry a `density_shape` selected by holdout market-band Brier across Gaussian,
+tail-mixture, forecast-anchor mixture, and climatology-anchor mixture
+candidates. Replay prediction reads that shape from the artifact before the
+existing continuous floor calibration projects probabilities into market bands.
+
+Smoke training:
+`python -m weather.calibration.pooled_feature_model --objective density --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_density_shape_smoke_v0_5.pkl --out data\backtest\item35_density_shape_smoke_v0_5_report.md`
+completed over 360 rows. The 12:00 selector chose `forecast_w30`, a 30%
+forecast-high anchor mixture, with final sigma `1.4224` F. On the smoke
+holdout, market-band Brier improved from the RMSE-sigma Gaussian baseline
+`0.1134` to `0.1054`.
+
+Smoke replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\item35_density_replay_smoke_corpus.json --artifact data\backtest\item35_density_shape_smoke_v0_5.pkl --out data\backtest\item35_density_shape_replay_smoke_v0_5_report.md --json-out data\backtest\item35_density_shape_replay_smoke_v0_5.json --replay-report data\backtest\item35_density_shape_replay_smoke_v0_5_current_report.md --disable-candidate-variant-export --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --skip-microstructure-overlay --disable-long-job-guard`
+ran against the existing two-day Item 35 smoke corpus. It still returned
+`BLOCK` / `DO_NOT_CUT_OVER`: 55 scored rows, candidate Brier `0.1143` versus
+current `0.1063` and market `0.0768`, with daily-first regression
+`+0.0080` versus current. Coverage was intentionally narrow because the smoke
+artifact only has a 12:00 model.
+
+Full training:
+`python -m weather.calibration.pooled_feature_model --objective density --holdout-year 2025 --artifact data\backtest\item35_density_full_candidate_v0_5.pkl --out data\backtest\item35_density_full_candidate_v0_5_report.md`
+completed over 76,957 rows. The artifact has 14 hourly models from 07:00
+through 20:00, every hourly blocked-validation audit passed with zero leaks,
+and every hour used `holdout_market_band_brier_shape_grid_search`. The selector
+chose `forecast_w30` for 07:00-13:00, `forecast_w15` at 14:00, and Gaussian for
+15:00-20:00.
+
+Full replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_density_full_candidate_v0_5.pkl --out data\backtest\item35_density_full_replay_v0_5_report.md --json-out data\backtest\item35_density_full_replay_v0_5.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --disable-candidate-variant-export --skip-microstructure-overlay --disable-long-job-guard`
+scored all 76,879 market rows across 51 market-days with no missing candidate
+rows. Verdict stayed `BLOCK`, market-only verdict was `PARTIAL_PASS`, and
+cutover remained `DO_NOT_CUT_OVER`. Aggregate candidate Brier improved to
+`0.0469` from v0.4's `0.0531`, but still trails current `0.0427` and market
+`0.0373`. Daily-first candidate Brier was `0.0461` versus current `0.0420`, a
+`+0.0041` regression above the `0.0030` tolerance. Toronto improved from v0.4
+candidate Brier `0.0520` to `0.0448`, but still trails current `0.0369` and
+market `0.0334`. Exact-winner settlement-distance `0` improved from v0.4
+`0.3864` to `0.3552`, but remains worse than current `0.3444` and market
+`0.2784`.
+
+Current blocker: v0.5 proves the density-shape path and materially improves the
+full replay, but it still regresses current and market overall. Next work
+should move from shape tuning to replay-aware probability calibration or direct
+market-band training, with special attention to exact-winner rows, early/midday
+regimes, degraded-source rows, and Toronto.
+
+Verification:
+`python -m pytest tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/operations/test_schema_registry.py -q`
+passed with `69 passed`, and the broader focused suite
+`python -m pytest tests/calibration/test_blocked_validation.py tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/calibration/test_promotion_refresh.py tests/operations/test_schema_registry.py -q`
+passed with `94 passed`.
+
+## 2026-06-18 density postprocess v0.6 update
+
+The replay-aware calibration follow-up is now implemented as
+`pooled_continuous_density_hgb_v0.6`, but the data rejected it. The v0.6 trainer
+fits candidate density market-band postprocess policies on holdout projections:
+adjacent-band shrinkage, exact-winner catch-up, and optional replay-style
+partition normalization. It then selects a policy only if holdout market-band
+Brier beats the raw density projection by the configured margin.
+
+Smoke evidence:
+`python -m weather.calibration.pooled_feature_model --objective density --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_density_postprocess_smoke_v0_6.pkl --out data\backtest\item35_density_postprocess_smoke_v0_6_report.md`
+trained over 360 rows. A naive normalized postprocess initially worsened smoke
+replay, so the selector was tightened to reject partition normalization and
+make exact-winner catch-up boost-only. After that guard, the smoke artifact
+selected `disabled`: baseline holdout band Brier `0.1012`, selected `0.1012`.
+Smoke replay matched v0.5 exactly and still blocked: candidate `0.1143` versus
+current `0.1063` and market `0.0768`.
+
+Full training evidence:
+`python -m weather.calibration.pooled_feature_model --objective density --holdout-year 2025 --artifact data\backtest\item35_density_full_candidate_v0_6.pkl --out data\backtest\item35_density_full_candidate_v0_6_report.md`
+completed over 76,957 rows. The postprocess selector saw 237,208 calibration
+rows, 285 adjacent contexts, and 792 exact-winner contexts, but still selected
+`disabled`: baseline holdout band Brier `0.0421`, selected `0.0421`. Exact
+catch-up strength was `0.0`; adjacent-only and normalized policies were worse.
+
+Full replay evidence:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_density_full_candidate_v0_6.pkl --out data\backtest\item35_density_full_replay_v0_6_report.md --json-out data\backtest\item35_density_full_replay_v0_6.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --disable-candidate-variant-export --skip-microstructure-overlay --disable-long-job-guard`
+scored all 76,879 rows with no missing candidate rows. Because postprocess was
+disabled, aggregate metrics match v0.5: candidate `0.0469` versus current
+`0.0427` and market `0.0373`; daily-first delta `+0.0041`; Toronto `0.0448`
+versus current `0.0369` and market `0.0334`.
+
+The useful new evidence is diagnostic. Density replay now attaches
+forecast-profile slice context. The worst forecast-relative failures are
+near-forecast bands (`0.1665` candidate versus `0.1571` current and `0.1393`
+market, `+0.0094` vs current), low-disagreement rows (`+0.0078` vs current),
+and moderate-disagreement rows (`+0.0051` vs current). That points away from a
+post-hoc density calibration layer and toward direct market-band training or a
+forecast-relative probability model that learns band outcomes instead of trying
+to repair a projected continuous density.
+
+Verification:
+`python -m pytest tests/calibration/test_blocked_validation.py tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/calibration/test_promotion_refresh.py tests/operations/test_schema_registry.py -q`
+passed with `96 passed`.
+
+## 2026-06-18 forecast-relative postprocess v0.7 update
+
+The direct follow-up to the v0.6 diagnostic is implemented as
+`pooled_continuous_density_hgb_v0.7`. It adds a density-band postprocess
+candidate keyed on serve-time forecast-relative contexts: band-vs-forecast
+pressure, forecast disagreement, source count, hour, market, band kind/width,
+and floor gap. Replay applies the layer only when the artifact selector enables
+it, and reports now expose whether the forecast-relative layer was actually
+selected separately from the fitted context count.
+
+Smoke training:
+`python -m weather.calibration.pooled_feature_model --objective density --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_density_forecast_relative_smoke_v0_7.pkl --out data\backtest\item35_density_forecast_relative_smoke_v0_7_report.md`
+trained over 360 rows and fit 122 forecast-relative contexts. With the initial
+loose selector, synthetic holdout band Brier improved from `0.1012` to
+`0.0992`, selecting `forecast_relative`.
+
+Pinned smoke replay rejected that loose selection:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\item35_density_replay_smoke_corpus.json --artifact data\backtest\item35_density_forecast_relative_smoke_v0_7.pkl --out data\backtest\item35_density_forecast_relative_replay_smoke_v0_7_report.md --json-out data\backtest\item35_density_forecast_relative_replay_smoke_v0_7.json --replay-report data\backtest\item35_density_forecast_relative_replay_smoke_v0_7_current_report.md --disable-candidate-variant-export --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --skip-microstructure-overlay --disable-long-job-guard`
+worsened the smoke replay to candidate Brier `0.1156` versus current `0.1063`
+and market `0.0768`.
+
+The selector now requires at least `0.003` holdout market-band Brier
+improvement before enabling any density postprocess policy. Regenerating the
+same v0.7 smoke artifact records the forecast-relative contexts but selects
+`disabled`: baseline `0.1012`, selected `0.1012`. The guarded smoke replay
+matches v0.5/v0.6 again: candidate `0.1143` versus current `0.1063` and market
+`0.0768`, so the item remains blocked.
+
+Interpretation: forecast-relative factors are useful diagnostics, but synthetic
+holdout rows are not strong enough evidence to enable them. The next density
+candidate should train market-band probabilities directly on replay-shaped
+rows, or add a replay-selected calibration set, rather than trying to repair
+continuous-density projections with post-hoc factors.
+
+Verification:
+`python -m pytest tests/calibration/test_pooled_feature_model.py tests/calibration/test_pooled_candidate_replay.py tests/operations/test_schema_registry.py -q`
+passed with `73 passed`.
+
+## 2026-06-18 all-market direct-band baseline smoke
+
+The v0.6/v0.7 density evidence pointed away from post-hoc density repair and
+toward direct market-band training. The trainer now supports an explicit
+all-market native-unit band baseline without mixing Celsius and Fahrenheit
+synthetic supports. `synthetic_band_rows_for_record` selects support by the
+row's native unit, `train_pooled_band_models(..., family_unit="all")` records
+`family_unit: all`, and the new artifact schema
+`pooled_all_market_band_hgb_v0.1` is registered in `weather.schema_registry`.
+The CLI allows `--objective band --family-unit all` only for this Item 35
+baseline and rejects F-family shadow-lane combinations.
+
+Smoke training:
+`python -m weather.calibration.pooled_feature_model --objective band --family-unit all --hours 12 --max-days-per-market 30 --holdout-year 2025 --artifact data\backtest\item35_direct_band_all_market_smoke.pkl --out data\backtest\item35_direct_band_all_market_smoke_report.md`
+wrote an all-market direct-band artifact over 360 source rows. It has one
+12:00 model, prediction mode `band_binary`, schema
+`pooled_all_market_band_hgb_v0.1`, feature schema
+`toronto_feature_store_v1.6`, support units `C` and `F`, and both Toronto and
+US-market feature columns. The 12:00 blocked-validation audit passed with zero
+leaks.
+
+Smoke replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\item35_density_replay_smoke_corpus.json --artifact data\backtest\item35_direct_band_all_market_smoke.pkl --out data\backtest\item35_direct_band_all_market_smoke_replay_report.md --json-out data\backtest\item35_direct_band_all_market_smoke_replay.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --disable-candidate-variant-export --skip-microstructure-overlay --disable-long-job-guard`
+scored the existing Toronto/NYC two-day smoke corpus. Coverage is intentionally
+limited because the smoke artifact only has a 12:00 model: 55 scored rows out
+of 1,771 all-market rows. The replay stayed `BLOCK / DO_NOT_CUT_OVER` with
+candidate Brier `0.106422`, current `0.106310`, and market `0.076773`.
+
+This does not complete Item 35, but it creates the direct training lane that
+the density diagnostics called for. The next unblock step is a full-hour
+all-market direct-band artifact and pinned replay, then compare it against the
+best density full replay (`0.0469` aggregate candidate Brier, daily-first
+`+0.0041` versus current) and against Toronto's current-serving baseline.
+
+Verification:
+`python -m pytest tests\calibration\test_pooled_feature_model.py tests\operations\test_schema_registry.py -q`
+passed with `39 passed`, and
+`python -m weather.schema_registry audit --paths src\weather\calibration\pooled_feature_model.py src\weather\schema_registry.py --strict`
+reported `unregistered_versions=0`.
+
+## 2026-06-18 all-market direct-band full replay
+
+The full-hour direct market-band baseline is now trained and replayed on the
+pinned promotion corpus. This is the strongest full-corpus Item 35 evidence so
+far: it beats current serving overall and materially improves on the best
+continuous-density replay, but it still fails the acceptance target because it
+trails market and does not lift Toronto safely.
+
+Full training:
+`python -m weather.calibration.pooled_feature_model --objective band --family-unit all --max-days-per-market 0 --holdout-year 2025 --artifact data\backtest\item35_direct_band_all_market_full_candidate.pkl --out data\backtest\item35_direct_band_all_market_full_training_report.md`
+completed over 76,957 source rows. The artifact uses schema
+`pooled_all_market_band_hgb_v0.1`, feature schema
+`toronto_feature_store_v1.6`, objective
+`binary_native_market_band_brier_all_market_source_reliability`, family unit
+`all`, prediction mode `band_binary`, native support for both `C` and `F`, and
+hourly models from 07:00 through 20:00. Every hourly blocked-validation audit
+passed with zero leaks. The weak input-family preflight stayed `WARN` because
+several rich weather families remain low-coverage or diagnostic-only.
+
+Full replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_direct_band_all_market_full_candidate.pkl --out data\backtest\item35_direct_band_all_market_full_replay_report.md --json-out data\backtest\item35_direct_band_all_market_full_replay.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --disable-candidate-variant-export --skip-microstructure-overlay --disable-long-job-guard`
+scored all 76,879 all-market rows across 51 market-days with zero missing
+candidate rows and zero excluded non-family rows. The replay verdict stayed
+`BLOCK`, market-only verdict was `PARTIAL_PASS`, and cutover remained
+`DO_NOT_CUT_OVER`.
+
+Aggregate replay improved versus current but not market: candidate Brier
+`0.041865`, current `0.042739`, market `0.037323`, delta versus current
+`-0.000874`, and delta versus market `+0.004542`. Daily-first equal-day
+average was similar: candidate `0.041124`, current `0.041986`, market
+`0.036667`, delta versus current `-0.000863`, and delta versus market
+`+0.004457`. The conservative bridge was not promotion evidence either:
+bridge Brier `0.0417` versus market `0.0373`.
+
+Per-market action is mixed. `atlanta`, `denver`, `houston`, and `los-angeles`
+are candidate cutover-ready in this replay; `dallas` and `miami` should
+continue shadow; `austin`, `chicago`, `nyc`, `san-francisco`, `seattle`, and
+`toronto` remain blocked. Toronto is the critical acceptance failure: candidate
+Brier `0.0401` versus current `0.0369` and market `0.0334`, so it regresses
+current by `+0.0032`, just above the `0.0030` tolerance, and trails market by
+`+0.0067`.
+
+Interpretation: Item 35 should not continue as a density-only effort. The
+direct native-band lane is substantially better than the v0.6/v0.7 density
+path and finally beats current in aggregate, but the acceptance condition
+still requires per-market/current safety and data-poor Toronto lift. The next
+unblock is a hybrid or guardrailed direct-band repair focused on Toronto,
+Austin, Chicago, NYC, San Francisco, Seattle, and the early/midday market gaps,
+then another full pinned replay before promotion.
+
+## 2026-06-19 replay-blend diagnostic
+
+The direct-band full replay was exported to row-level shadow evidence:
+`data\backtest\item35_direct_band_all_market_full_variant_rows.csv`. A
+diagnostic alpha sweep over those pinned replay rows selected a market-specific
+current-blend schedule and wrote
+`data\backtest\item35_direct_band_all_market_replay_blend_sweep_report.md` plus
+`data\backtest\item35_direct_band_all_market_replay_blend_sweep.json`.
+
+This is deliberately not promotion evidence because the alphas were selected on
+the same pinned replay rows being scored. It is still useful model-repair
+evidence: it shows the all-market direct-band lane can cross the aggregate
+daily-first gate and can lift Toronto if the current-blend policy is selected
+well.
+
+Diagnostic artifact:
+`data\backtest\item35_direct_band_all_market_replay_blend_candidate.pkl` keeps
+the same trained direct-band models but changes the current-blend schedule to:
+Atlanta `0.70`, Austin `0.80`, Chicago `0.85`, Dallas `0.00`, Denver `0.20`,
+Houston `0.95`, Los Angeles `0.45`, Miami `0.00`, NYC `1.00`, San Francisco
+`0.00`, Seattle `0.25`, and Toronto `0.30`.
+
+Pinned replay:
+`python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\item35_direct_band_all_market_replay_blend_candidate.pkl --out data\backtest\item35_direct_band_all_market_replay_blend_report.md --json-out data\backtest\item35_direct_band_all_market_replay_blend.json --replay-report= --candidate-variant-out= --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --disable-candidate-variant-export --skip-microstructure-overlay --disable-long-job-guard`.
+
+Result: validation verdict `PARTIAL_PASS`, market-only verdict `PARTIAL_PASS`,
+and cutover decision `PER_MARKET_ONLY`. The blocked-validation gate itself
+passes: aggregate candidate Brier `0.040297` versus current `0.042739` and
+market `0.037323`, while daily-first candidate Brier `0.039593` is within
+market tolerance at `+0.002926` versus market and beats current by `-0.002394`.
+The source-state ablation gate also moves to `READY`.
+
+Most importantly for the Item 35 acceptance target, Toronto moves from blocked
+to PASS in this diagnostic replay: candidate Brier `0.036239` versus current
+`0.036925` and market `0.033427`, delta versus current `-0.000686`, and delta
+versus market `+0.002812`. Austin also moves to PASS. Candidate cutover-ready
+markets are now Atlanta, Austin, Denver, Houston, Los Angeles, and Toronto;
+Dallas and Miami remain shadow; Chicago, NYC, San Francisco, and Seattle remain
+blocked by daily-first market tolerance.
+
+Next unblock: replace the replay-selected alpha schedule with a predeclared or
+out-of-sample selection policy. The strongest direction is a guarded
+direct-band hybrid that learns or validates market alphas without looking at
+the scored replay rows, then specifically repairs Chicago, NYC, San Francisco,
+and Seattle market gaps.
+
+Promotion-refresh boundary check:
+`data\backtest\item35_replay_blend_promotion_refresh_report.md` wraps the same
+diagnostic artifact in the all-market promotion-refresh machinery. It reports
+readiness `OPEN`, candidate verdict `PARTIAL_PASS`, market-only verdict
+`PARTIAL_PASS`, and cutover decision `PER_MARKET_ONLY`: Atlanta, Austin,
+Denver, Houston, Los Angeles, and Toronto would promote; Dallas and Miami
+remain shadow; Chicago, NYC, San Francisco, and Seattle remain blocked. This
+does not change acceptance because the alpha schedule is replay-selected and
+the promotion refresh still has model-market, live-forward SLO, backup-capacity,
+and hourly-performance blockers.
+
+## 2026-06-19 time-split current-blend validation
+
+The replay-selected alpha sweep was converted into a repeatable anti-overfit
+check in `weather.reporting.current_blend_validation`. The report reads
+`data\backtest\item35_direct_band_all_market_full_variant_rows.csv`, reconstructs
+the raw direct-band probability where the baseline artifact did not fully fall
+back to current, selects market alphas only on earlier target dates, and scores
+them on later target dates. This is still development evidence, not promotion
+evidence, because both sides come from the pinned replay corpus.
+
+Generated report:
+`data\backtest\item35_current_blend_time_split_validation_report.md`.
+It blocks. The earlier-date-selected alpha schedule is Atlanta `0.70`, Austin
+`0.05`, Chicago `1.00`, Dallas `0.00`, Denver `0.00`, Houston `0.95`, Los
+Angeles `0.05`, Miami `0.00`, NYC `1.00`, San Francisco `0.00`, Seattle
+`0.10`, and Toronto `0.00`. On later-date holdout rows, candidate Brier is
+`0.045052` versus current `0.046663` and market `0.039270`: the policy beats
+current by `-0.001611` but trails market by `+0.005782`. The daily-first
+holdout gap is also `+0.005788` versus market. Austin, Chicago, Los Angeles,
+NYC, San Francisco, Seattle, and Toronto block the holdout gate.
+
+The selected schedule was then written to
+`data\backtest\item35_direct_band_all_market_time_split_blend_candidate.pkl`
+and replayed through the normal pinned gate:
+`data\backtest\item35_direct_band_all_market_time_split_blend_report.md`.
+That full replay also blocks: aggregate candidate Brier `0.040707` versus
+current `0.042739` and market `0.037323`, daily-first candidate Brier
+`0.039998` versus market `0.036667` (`+0.003331`). Atlanta and Houston pass;
+Dallas, Denver, Los Angeles, and Miami remain shadow; Austin, Chicago, NYC,
+San Francisco, Seattle, and Toronto block. Toronto is especially important:
+the time-split policy falls back to current, so it no longer regresses current
+but also no longer proves the required Toronto lift.
+
+Conclusion: alpha selection alone is not a stable Item 35 unblock. The next
+candidate should repair the direct-band model itself for Austin, Chicago, NYC,
+San Francisco, Seattle, and Toronto, then rerun the time-split validation and
+full pinned replay before any promotion refresh is treated as evidence.
+
+## 2026-06-19 holdout market-bias repair
+
+The direct-band training path now fits a conservative
+`market_bias_calibration` from held-out historical market-band rows rather than
+from replay rows. The calibration uses only inference-available context
+fallbacks (`market`, cutoff-hour bucket, and band kind), is smoothed, and is
+enabled only if the historical holdout improves without material market-level
+regression. Tests cover the fit/apply path and the replay report now exposes
+the calibration summary.
+
+Full all-market training wrote
+`data\backtest\item35_direct_band_all_market_market_bias_candidate.pkl` and
+`data\backtest\item35_direct_band_all_market_market_bias_training_report.md`.
+The holdout gate enabled the repair with 240 contexts: historical holdout
+Brier improved from `0.033564` to `0.032008` (`-0.001556`) with no market
+regression in that gate.
+
+Pinned replay did not transfer enough:
+`data\backtest\item35_direct_band_all_market_market_bias_replay_report.md`
+reports `BLOCK / PARTIAL_PASS / DO_NOT_CUT_OVER`. Aggregate candidate Brier is
+`0.041721` versus current `0.042739` and market `0.037323`; daily-first
+candidate Brier is `0.040986` versus current `0.041986` and market `0.036667`,
+so the daily-first market gap is still `+0.004319`. The repair does move
+Austin and Los Angeles to PASS alongside Atlanta and Houston, but Dallas,
+Denver, and Miami remain shadow, while Chicago, NYC, San Francisco, Seattle,
+and Toronto remain blocked.
+
+The Toronto acceptance target still fails: candidate Brier `0.038703` versus
+current `0.036925` and market `0.033427`, a current regression of `+0.001778`
+and market gap `+0.005277`. The source-state ablation gate also falls to
+`SHADOW` because degraded-source rows regress current serving. Conclusion:
+holdout market-bias calibration is useful model-repair evidence, but not the
+Item 35 unblock. The next candidate needs source-state/Toronto guardrails or a
+deeper direct-band model change that preserves the Austin/Los Angeles lift
+without degrading Toronto and degraded-source rows.
+
+## 2026-06-19 source-freshness guardrail replay
+
+The next guardrail variant keeps the same holdout-trained market-bias artifact
+but blends every non-`all_fresh` source-state row fully back to current serving:
+`data\backtest\item35_direct_band_all_market_market_bias_source_guard_candidate.pkl`.
+This is not a promotion claim; it tests whether source-state safety can be
+restored without discarding the Austin/Los Angeles lift.
+
+Pinned replay:
+`data\backtest\item35_direct_band_all_market_market_bias_source_guard_replay_report.md`
+still reports `BLOCK / PARTIAL_PASS / DO_NOT_CUT_OVER`, but the source-state
+ablation gate returns to `READY`. Degraded-source rows are now candidate
+`0.058294` versus current `0.058294` and market `0.055415`, so current safety
+is restored. Aggregate candidate Brier is `0.041675` versus current
+`0.042739` and market `0.037323`; daily-first candidate Brier is `0.040942`
+versus market `0.036667` (`+0.004275`).
+
+Market movement is narrower and cleaner: Atlanta, Austin, Houston, and Los
+Angeles pass; Dallas, Denver, and Miami remain shadow; Chicago, NYC, San
+Francisco, Seattle, and Toronto remain blocked. Toronto improves relative to
+the unguarded market-bias replay but still fails the acceptance target:
+candidate `0.038274` versus current `0.036925` and market `0.033427`.
+
+Conclusion: the source-state blocker is now separable from the core model
+quality blocker. The next Item 35 candidate should keep the source-freshness
+guardrail, preserve Austin/Los Angeles, and target Toronto plus
+Chicago/NYC/San Francisco/Seattle directly.
+
+## 2026-06-19 source-guard Toronto-alpha probe
+
+The next diagnostic probe keeps the source-freshness guardrail and adds a
+Toronto-specific current-blend alpha of `0.30`:
+`data\backtest\item35_direct_band_all_market_source_guard_toronto_alpha_candidate.pkl`.
+This alpha is borrowed from the prior replay-selected sweep, so it is not
+promotion evidence. The purpose is narrower: prove whether the source-guarded
+direct-band candidate still has enough Toronto/current error offset to rescue
+Toronto without reopening the degraded-source blocker.
+
+Pinned replay:
+`data\backtest\item35_direct_band_all_market_source_guard_toronto_alpha_replay_report.md`
+reports `BLOCK / PARTIAL_PASS / DO_NOT_CUT_OVER`. It is the cleanest Item 35
+boundary so far for Toronto and source-state safety: source-state ablation
+stays `READY`, and Toronto moves to PASS with candidate Brier `0.035937`
+versus current `0.036925` and market `0.033427`, a current lift of
+`-0.000988` and market gap `+0.002511`.
+
+Aggregate replay still blocks: candidate Brier `0.041388` versus current
+`0.042739` and market `0.037323`; daily-first candidate Brier `0.040664`
+versus market `0.036667`, leaving a `+0.003997` daily-first market gap.
+Cutover-ready markets are now Atlanta, Austin, Houston, Los Angeles, and
+Toronto. Dallas, Denver, and Miami remain shadow. The remaining hard model
+blockers are Chicago, NYC, San Francisco, and Seattle.
+
+Conclusion: Toronto can be rescued while preserving source-state safety, but
+the current alpha is replay-diagnostic. The next non-diagnostic unblock needs a
+predeclared or holdout-selected Toronto blend policy plus direct repair for
+Chicago, NYC, San Francisco, and Seattle.
+
+## 2026-06-19 source-guard time-split rejection
+
+The source-guard row-level replay export was materialized for validation as
+`data\backtest\item35_market_bias_source_guard_variant_rows.csv`; it was later
+removed by `data\backtest\backtest_artifact_cleanup_manifest_4.json` as a
+rebuildable row artifact after retaining paired evidence. The retained replay
+metadata is
+`data\backtest\item35_direct_band_all_market_market_bias_source_guard_variant_export.json`
+and its Markdown report. The follow-up time-split validation
+`data\backtest\item35_source_guard_time_split_validation_report.md` selected
+current-blend alphas on earlier market-days and evaluated them on later
+market-days.
+
+That anti-overfit check rejects the Toronto-alpha diagnostic as a promotion
+path. Readiness is `BLOCK`; selected eval-row candidate Brier is `0.045334`
+versus current `0.046663` and market `0.039270`, leaving a market gap of
+`+0.006064`. Daily-first is similar: candidate `0.045320` versus market
+`0.039248`, gap `+0.006072`.
+
+The selected source-guard alphas are Atlanta `0.55`, Austin `0.00`, Chicago
+`1.00`, Dallas `0.00`, Denver `0.00`, Houston `0.90`, Los Angeles `0.00`,
+Miami `0.00`, NYC `1.00`, San Francisco `0.00`, Seattle `0.10`, and Toronto
+`0.00`. Toronto is the key failure: the earlier-date split does not select the
+diagnostic `0.30` alpha, falls back fully to current, and still blocks versus
+market on later rows (`0.051904` candidate/current versus `0.043225` market,
+gap `+0.008679`).
+
+Conclusion: keep the source-freshness guardrail, but do not promote or
+predeclare the replay-selected Toronto alpha. The next Item 35 unblock needs a
+new Toronto policy that is selected by earlier-date evidence, plus direct
+market-gap repairs for Austin, Chicago, Houston, Los Angeles, NYC, San
+Francisco, Seattle, and Toronto.
+
+## 2026-06-19 source-guard blocker-market diagnostics
+
+The remaining source-guard blockers were replayed one market at a time against
+`data\backtest\item35_direct_band_all_market_market_bias_source_guard_candidate.pkl`
+using single-market pinned corpora. The market-scoped replays generated compact
+row exports and all stayed `BLOCK / DO_NOT_CUT_OVER`:
+
+| Market | Days | Rows | Candidate | Current | Market | Delta current | Delta market | Daily market gap |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chicago | 4 | 6,182 | 0.039629 | 0.045551 | 0.036314 | -0.005922 | +0.003315 | +0.003334 |
+| NYC | 4 | 6,138 | 0.055162 | 0.058342 | 0.036058 | -0.003180 | +0.019104 | +0.019111 |
+| San Francisco | 4 | 6,094 | 0.046408 | 0.046408 | 0.041240 | +0.000000 | +0.005168 | +0.005107 |
+| Seattle | 4 | 6,116 | 0.038628 | 0.038914 | 0.024133 | -0.000286 | +0.014495 | +0.014542 |
+| Toronto | 7 | 9,449 | 0.038274 | 0.036925 | 0.033427 | +0.001349 | +0.004847 | +0.004286 |
+
+`data\backtest\item35_source_guard_blocker_repair_diagnostics_report.md`
+then classified 33,979 blocker rows:
+
+| Market | Classification | Current fallback share | Daily gap vs market | Winner gap vs market |
+| :--- | :--- | ---: | ---: | ---: |
+| Chicago | market_gap_without_clear_winner_signal | 0.3293 | +0.0033 | -0.0382 |
+| NYC | winner_underpricing_vs_market | 0.1763 | +0.0191 | -0.1748 |
+| San Francisco | current_fallback_trails_market | 1.0000 | +0.0051 | -0.0475 |
+| Seattle | winner_underpricing_vs_market | 0.3373 | +0.0145 | -0.1151 |
+| Toronto | market_gap_without_clear_winner_signal | 0.3734 | +0.0043 | -0.0477 |
+
+This narrows the next Item 35 work. NYC and Seattle need direct
+winner-probability repair, especially exact/settlement-distance-0 early rows.
+San Francisco needs non-current signal because source-guard replay falls back
+fully to current and still trails market. Chicago and Toronto need broader
+market-gap repair, with Toronto also regressing current in this candidate. The
+source-freshness guard remains useful as a safety constraint, but it is not the
+quality unlock by itself.
+
+## 2026-06-19 all-market exact-winner source-guard diagnostic
+
+The direct-band training CLI now supports an explicit Item 35 source-freshness
+guardrail (`--source-freshness-guardrail`) and allows all-market
+exact-winner catch-up without inheriting the older Item 70/F-family shadow
+blend policy. The new all-market exact-winner path keeps the Item 35
+current-blend market alphas, applies the all-fresh-only source-state guardrail,
+and still fits holdout market-bias calibration.
+
+A full no-cap training attempt for
+`data\backtest\item35_all_market_exact_winner_source_guard_candidate.pkl` was
+stopped after roughly 14 minutes without an artifact. A full pinned replay of
+the capped artifact was also stopped after roughly 17 minutes without output.
+That makes this a development diagnostic, not promotion evidence. The bounded
+candidate
+`data\backtest\item35_all_market_exact_winner_source_guard_recent40_candidate.pkl`
+trained successfully over 6,720 recent source rows with 713 exact-winner
+contexts, selected strength `1.00`, and market-bias holdout Brier
+`0.0340 -> 0.0332`.
+
+Market-scoped replays against the prior blocker corpora improved the targeted
+markets but still blocked:
+
+| Market | Source-guard candidate | Exact+source-guard candidate | Current | Market | Delta vs source guard | Exact gap vs market | Daily exact gap |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| NYC | 0.055162 | 0.052357 | 0.058342 | 0.036058 | -0.002805 | +0.016299 | +0.016298 |
+| Seattle | 0.038628 | 0.037886 | 0.038914 | 0.024133 | -0.000742 | +0.013753 | +0.013807 |
+| Toronto | 0.038274 | 0.037871 | 0.036925 | 0.033427 | -0.000403 | +0.004445 | +0.003904 |
+
+`data\backtest\item35_exact_source_guard_recent40_repair_diagnostics_report.md`
+shows the same blocker classes after the improvement: NYC and Seattle remain
+`winner_underpricing_vs_market`, and Toronto remains
+`market_gap_without_clear_winner_signal`. Winner gaps shrink but remain large:
+NYC `-0.1592`, Seattle `-0.1036`, and Toronto `-0.0453` versus market.
+
+Conclusion: all-market exact-winner catch-up is directionally useful and should
+be kept as a candidate family, but the capped artifact is not enough. The next
+real attempt needs a longer full-window training/replay run plus a stronger
+winner repair for NYC/Seattle and a separate Toronto current-regression guard.
+San Francisco is unchanged by this path because the source-guard policy still
+falls fully back to current there.
+
+## 2026-06-19 split-safe winner-boost policy search
+
+`weather.reporting.winner_boost_validation` now evaluates simple
+inference-available EQ-row boost policies on chronological market splits. It
+selects a policy/factor on earlier target dates, evaluates later target dates,
+and re-normalizes candidate probabilities within each snapshot. This is still
+development evidence because it uses replay row exports, but it avoids direct
+later-date tuning.
+
+Running it on the recent-40 exact-winner source-guard NYC, Seattle, and Toronto
+row exports:
+`data\backtest\item35_exact_source_guard_recent40_winner_boost_validation_report.md`
+tested `none`, `all_eq`, `early_eq`, and `off_forecast_eq` across factors
+`1.0` through `8.0`. The result remains `BLOCK`.
+
+| Market | Selected policy | Factor | Baseline eval | Candidate eval | Market | Delta market | Status |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
+| NYC | all_eq | 1.00 | 0.051495 | 0.051495 | 0.023601 | +0.027894 | BLOCK |
+| Seattle | all_eq | 8.00 | 0.042253 | 0.041105 | 0.026360 | +0.014745 | BLOCK |
+| Toronto | all_eq | 1.00 | 0.047088 | 0.047088 | 0.043225 | +0.003864 | BLOCK |
+
+Daily-first holdout moves only from `+0.012904` to `+0.012619` versus market.
+This rules out a shallow global/slice EQ multiplier as the next unblock. Seattle
+can absorb stronger winner mass but remains far outside market tolerance. NYC
+and Toronto do not even select a boost on earlier dates, so their fix needs a
+richer market/synoptic/source signal or a model architecture change, not a
+generic exact-row multiplier.
+
+## 2026-06-19 contextual winner calibration rejection
+
+`weather.reporting.contextual_winner_validation` now tests a richer version of
+the exact-winner repair idea without using later-date leakage. It fits
+context-specific exact-row factors on earlier market-days, normalizes
+probabilities within each snapshot, and evaluates later market-days. Context
+keys are restricted to inference-available row columns: market id, cutoff
+regime, forecast bucket pressure, forecast disagreement bucket, forecast source
+count bucket, and source-freshness state.
+
+Running it on the recent-40 exact-winner source-guard NYC, Seattle, and Toronto
+row exports:
+`data\backtest\item35_exact_source_guard_recent40_contextual_winner_validation_report.md`
+still reports `BLOCK`.
+
+| Market | Selected template | Factors | Baseline eval | Candidate eval | Market | Delta market | Status |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
+| NYC | `cutoff_regime+forecast_bucket_pressure` | 8 | 0.0515 | 0.0505 | 0.0236 | +0.0269 | BLOCK |
+| Seattle | `cutoff_regime+forecast_bucket_pressure+forecast_disagreement_bucket` | 22 | 0.0423 | 0.0481 | 0.0264 | +0.0218 | BLOCK |
+| Toronto | `market` | 1 | 0.0471 | 0.0478 | 0.0432 | +0.0046 | BLOCK |
+
+Daily-first holdout worsens from the baseline `+0.0129` market gap to
+`+0.0145`. This rules out another tempting postprocess path: existing
+forecast-pressure/disagreement/source-state row contexts can overfit early
+dates and do not provide a stable winner repair. The next unblock remains a
+new model/source signal or architecture change for NYC/Seattle winner
+underpricing, plus a Toronto current-regression guard, rather than a more
+granular exact-row multiplier.
+
+## 2026-06-19 market-anchor boundary check
+
+`weather.reporting.market_anchor_validation` now tests market-informed anchor
+repairs on the same chronological split. It separates sparse CLOB midpoint
+anchoring from full `market_yes` anchoring. This is development evidence, not
+promotion evidence: CLOB midpoint and `market_yes` are live market inputs, and
+`market_yes` anchoring measures serving-safety rather than model edge.
+
+For the recent-40 exact-winner source-guard NYC, Seattle, and Toronto row
+exports, CLOB-only selection still blocks:
+`data\backtest\item35_exact_source_guard_recent40_clob_anchor_validation_report.md`.
+Earlier-date selection chooses `candidate:0.00` for every market, so the
+later-date score is unchanged at a `+0.0129` daily-first market gap. The
+expanded CLOB stability table explains why: train-side CLOB midpoint coverage
+is `0.0000`, while eval-side coverage is `0.1761`. On eval rows with CLOB
+midpoint, CLOB Brier is `0.0492` versus candidate `0.0909`, so the signal is
+useful when present but absent from the selection split. The eval-only oracle
+shows latent CLOB value but not enough stability: daily-first gap would shrink
+to `+0.0056`, and Toronto's oracle CLOB anchor would beat market by `-0.0004`,
+but NYC and Seattle would still block at `+0.0095` and `+0.0134`.
+
+Allowing full `market_yes` anchoring improves the boundary but remains
+diagnostic:
+`data\backtest\item35_exact_source_guard_recent40_market_anchor_validation_report.md`.
+The split-selected policy moves daily-first holdout to candidate `0.0352`
+versus market `0.0341`, gap `+0.0011`, with Seattle and Toronto passing. NYC
+still blocks: selected `market_yes:0.75` gives candidate `0.0281` versus market
+`0.0236`, gap `+0.0045`. Because this path uses market price itself, it cannot
+prove model edge; it only says market-informed serving/risk anchoring could
+stabilize Seattle/Toronto while NYC still needs direct model repair.
+
+Follow-up root-cause audit:
+`data\backtest\item35_exact_source_guard_recent40_clob_coverage_audit_report.md`
+inspected the underlying snapshot folders rather than only the row exports. It
+confirms the CLOB stability blocker is a collection/logging continuity problem:
+9 of 15 folders are classified `missing_raw_clob_tape_and_token_map`, including
+NYC/Seattle June 7-8 and Toronto June 3-8. June 12/13 folders do have raw books
+and token maps, but coverage is still partial: NYC June 12 is
+`one_sided_books_no_midpoint`, while June 13 has midpoint coverage around
+`0.4675`; Seattle June 12 has only `0.0344` midpoint coverage and June 13
+`0.4277`; Toronto June 12 has `0.0117` and June 13 `0.4637`.
+
+This means CLOB cannot be used to unblock Item 35 until collection continuity
+creates train-side midpoint evidence. Existing generated empty
+`clob_features_long.csv` files are not enough; the raw `order_books` and
+`clob_tokens` tapes must be present before the split-safe selector can learn a
+market-informed policy.
+
+## 2026-06-19 bounded exact/source-guard training refresh
+
+The all-market exact-winner/source-guard lane was pushed beyond the earlier
+recent-40 diagnostic without treating full-history training as a hidden
+requirement. A no-cap all-market run of
+`weather.calibration.pooled_feature_model --objective band --family-unit all
+--exact-winner-catchup --source-freshness-guardrail` was tried twice with a
+30-minute execution window and produced no artifact. The full unbounded history
+is therefore a training-throughput problem for this candidate shape, not a
+usable proof path.
+
+`pooled_feature_model` now precomputes exact-winner strength-selection
+partitions and row factors instead of recomputing contexts and normalization
+for every strength candidate. Regression coverage:
+`python -m pytest tests\calibration\test_pooled_feature_model.py -q` passed
+with `39 passed`.
+
+Two larger bounded artifacts were then trained and replayed against the pinned
+promotion corpus without row-level variant exports:
+
+- `data/backtest/item35_all_market_exact_winner_source_guard_recent120_candidate.pkl`
+  trained on 20,160 source rows. Replay stayed `BLOCK / DO_NOT_CUT_OVER`:
+  aggregate candidate Brier `0.041011` versus current `0.042739` and market
+  `0.037323`; daily-first candidate `0.040278` versus market `0.036667`, gap
+  `+0.003611`.
+- `data/backtest/item35_all_market_exact_winner_source_guard_recent365_candidate.pkl`
+  trained on 61,311 source rows. Replay also stayed `BLOCK / DO_NOT_CUT_OVER`
+  and was worse than recent-120: aggregate candidate `0.041347`, market gap
+  `+0.004024`; daily-first candidate `0.040613`, market gap `+0.003946`.
+
+The recent-365 run confirms that simply widening the training window is not the
+Item 35 unblock. It still underprices exact winners: settlement-distance-0
+winner probability is `0.5362` versus current `0.5230` and market `0.5806`.
+The largest market gaps remain NYC `+0.0166`, Seattle `+0.0137`, San Francisco
+`+0.0052`, Austin `+0.0051`, and Toronto `+0.0046`. Toronto also regresses
+current by `+0.0011`.
+
+Conclusion: keep the optimized calibration path and the recent-120 artifact as
+the better bounded exact/source-guard evidence, but do not spend the next pass
+on wider all-market history. The next useful Item 35 work remains direct
+NYC/Seattle winner repair, a Toronto current-regression guard, non-current San
+Francisco skill, and CLOB train-side collection continuity.
+
+## 2026-06-19 CLOB raw-artifact gate
+
+The CLOB continuity blocker now has a durable data-layer guard instead of only
+an ad hoc folder audit. `data_layer_audit` records `clob_tokens.csv`,
+`clob_tokens.jsonl`, `order_books_summary.csv`, `order_books.jsonl`, and
+`order_books_long.csv` presence for every snapshot folder, reports composite
+token/raw-book day counts, and the live-pilot market-making preflight rejects a
+target date that has derived `clob_features_long.csv`/book rows but lacks raw
+token and raw book artifacts.
+
+Fresh evidence:
+`data\backtest\data_layer_audit_after_clob_raw_artifact_gate_report.md`
+reports `96/177` folders with token artifacts and `84/177` with raw-book
+artifacts; among `165` training-ready folders, only `84` have token artifacts
+and `72` have raw-book artifacts. The audit gate status remains `WARN` because
+the raw CLOB counts are now surfaced for continuity and live-pilot gating, not
+retroactively required for every historical folder.
+
+Verification:
+`python -m pytest tests\market\test_market_making_run.py tests\reporting\test_data_layer_audit.py -q`
+passed with `42 passed`, including the regression case where derived CLOB
+features exist but the raw token/book artifacts are absent. This still does
+not unblock Item 35: it prevents future false positives, while the historical
+June train-side CLOB gaps still need real collection/backfill evidence before
+a market-informed selector can be split-stable. That continuity work is now
+tracked explicitly in Item 156 so the next Item 35 attempt does not treat
+eval-only CLOB value as promotion evidence.
+
+Follow-up capture-status tape update: `weather.market.market_microstructure`
+now writes `clob_capture_status.jsonl` for every CLOB token/book capture
+attempt, including failure-stage rows before exceptions re-raise. The refreshed
+fleet audit
+`data\backtest\data_layer_audit_after_clob_capture_status_report.md` reports
+`12/177` folders with capture-status rows, but `0/165` training-ready folders
+with capture-status rows; token/raw-book coverage remains `96/177` and
+`84/177` overall, `84/165` and `72/165` training-ready. This improves future
+root-cause logging but does not change the Item 35 model gate: CLOB-informed
+repairs still need threshold-clearing train-side midpoint evidence before they
+can support a split-stable selector.
+
+## 2026-06-19 full density v0.7 replay rejection
+
+The full continuous-density lane was trained and replayed, so Item 35 is no
+longer blocked by missing full-corpus density evidence. The artifact
+`data\backtest\item35_density_full_candidate_v0_7.pkl` was trained with
+`weather.calibration.pooled_feature_model --objective density --holdout-year
+2025` over `76,865` rows and reports schema
+`pooled_continuous_density_hgb_v0.7`, feature schema
+`toronto_feature_store_v1.6`, prediction mode `continuous_density_f`, and
+hour models `07` through `20`.
+
+The pinned replay
+`data\backtest\item35_density_full_replay_v0_7_report.md` scored all `6,989`
+snapshots / `76,879` market rows with zero missing candidate rows and returned
+`BLOCK / DO_NOT_CUT_OVER`. Corpus pinning passed, replay fidelity passed with
+the existing no-exact-identity warning, and daily-first leakage audit passed
+over `53` audited splits.
+
+Replay scores reject this artifact as a cutover candidate:
+
+- Aggregate: candidate Brier `0.045390`, current `0.042669`, market `0.037323`
+  (`+0.002721` versus current, `+0.008067` versus market).
+- Daily-first: candidate `0.044628`, current `0.041916`, market `0.036667`
+  (`+0.002713` versus current, `+0.007961` versus market).
+- Toronto still regresses: candidate `0.039948`, current `0.036774`, market
+  `0.033427`.
+- Forecast-profile guardrails block Austin, Denver, NYC, San Francisco,
+  Seattle, and Toronto.
+
+The conservative bridge shadow policy improves the full-density artifact but
+does not clear the model gate: bridge aggregate Brier is `0.042463`, only
+`-0.000206` better than current and still `+0.005140` worse than market. It is
+serving-safety evidence, not proof that the unified density model beats current
+per market or lifts Toronto. The next Item 35 unblock remains a direct model or
+source-signal repair for the remaining market gaps plus a Toronto regression
+guard; rerunning the same full density lane is now a measured dead end.
+
+## 2026-06-19 blocked-market repair-action diagnostic
+
+The blocked-market diagnostic now emits structured `repair_actions`,
+`candidate_regresses_current`, and `primary_repair_action` fields instead of
+only Brier tables. It is registered as
+`blocked_market_repair_diagnostics_v0.1` and remains development evidence, not
+promotion evidence.
+
+I regenerated the retained later-date blocked-market export:
+`python -m weather.reporting.blocked_market_repair_diagnostics data\backtest\item147_blocked_markets_time_split_alpha_variant_rows.csv --out data\backtest\item147_blocked_market_repair_actions.json --report data\backtest\item147_blocked_market_repair_actions_report.md --min-slice-rows 200 --top-slices 6`.
+
+The report scores `30,569` rows across Austin, Los Angeles, NYC, San Francisco,
+and Seattle. It confirms that the next useful model work is not another broad
+density replay:
+
+- Austin, Los Angeles, and San Francisco are `current_fallback_trails_market`
+  with `1.0000` current-fallback share, so they need non-current forecast,
+  source-state, or microstructure signal.
+- Seattle is `winner_underpricing_vs_market`; the top repair is
+  `repair_winner_probability_mass`, especially EQ / settlement-distance-0 rows.
+- NYC is no longer a pure winner-underpricing case in this later-date export;
+  its primary repair is `repair_largest_market_gap_slice`, led by
+  settlement-distance-0 and near-forecast/cool-side slices.
+- No market in this retained export regresses current, so the current-regression
+  guard is wired and tested but does not fire on the Item 147 row set.
+
+Verification:
+`python -m pytest tests\reporting\test_blocked_market_repair_diagnostics.py tests\operations\test_schema_registry.py -q`
+passed with `10 passed`, and
+`python -m weather.schema_registry audit --paths src\weather\reporting\blocked_market_repair_diagnostics.py src\weather\schema_registry.py --strict`
+reported `unregistered_versions=0`.
+
+## 2026-06-19 forecast-side winner-boost rejection
+
+The next split-safe winner repair was tested by extending
+`weather.reporting.winner_boost_validation` beyond broad `all_eq`/`early_eq`
+boosts. The validator now supports inference-available EQ policies split by
+forecast-pressure side and cutoff regime (`near_forecast_eq`, `warm_side_eq`,
+`cool_side_eq`, and early/midday variants). It still avoids
+settlement-derived fields such as settlement-distance buckets.
+
+Running the expanded policy grid on the retained blocked-market export:
+`data\backtest\item147_winner_boost_forecast_side_validation_report.md`
+returns `BLOCK`. The selector uses 2026-06-07/2026-06-08 rows for policy
+selection and evaluates on 2026-06-12/2026-06-13. Later-date daily-first
+performance worsens from the baseline candidate `0.0465` to `0.0519`, versus
+current `0.0504` and market `0.0359`; the selected market gap is `+0.0160`.
+Austin improves slightly but still blocks, while Los Angeles, NYC, San
+Francisco, and Seattle all remain blocked and several regress the baseline
+candidate.
+
+This rejects another tempting postprocess path. The blocked markets need direct
+model/source signal or better live microstructure continuity, not a simple
+forecast-side EQ multiplier selected on earlier market-days.
+
+## 2026-06-19 Item 32 branch basket check
+
+The latest existing-variant basket check now includes the Item 32
+reanalysis-rich no-pressure branch alongside Item 147 time-split alpha, Item
+134 all-hour forecast profile, Item 135 cutoff-regime weighting, and current
+serving:
+`data\backtest\item147_blocked_markets_variant_basket_with_item32_validation_report.md`.
+It is still development evidence, not promotion evidence, because selection is
+performed among existing row exports on June 7/8 and evaluated on June 12/13.
+
+The result remains `blocked`. Selected later-date daily-first Brier is `0.0465`
+versus current `0.0505` and market `0.0359`, so the selected basket still
+trails market by `+0.0106` and all five blocked markets remain blocked. Adding
+Item 32 improves the diagnostic eval oracle from `+0.0092` to `+0.0085`, but
+even the oracle remains outside market tolerance.
+
+The one useful signal is Austin: the eval oracle would pick the Item 32 branch
+with a `+0.0005` market gap, but the earlier-date selector picks current. That
+means reanalysis may help Austin, but it is not yet split-stable enough to
+support Item 35 or Item 48 promotion. NYC/Seattle still need direct winner or
+slice repair, and San Francisco still needs a current-safe non-current signal.
+
+The regenerated report now includes leave-one-market-day stability. Austin is
+closer than the original split implied, but still not acceptable: Item 32 is
+selected in 3 of 4 Austin held-out-day cuts, yet selected aggregate Brier is
+`0.0416` versus current `0.0415` and market `0.0362`, a `+0.0054` market gap.
+The eval oracle would pass at `-0.0002`, so the remaining Austin work is not
+another broad branch selection pass; it is a guard or model feature that makes
+the reanalysis lift stable across the weak June 7/13 cuts. Los Angeles also
+gets Item 32 selected in 3 of 4 cuts but still misses market by `+0.0037`;
+NYC, San Francisco, and Seattle remain outside tolerance even under the
+leave-one-day oracle.
+
+The added guarded-branch table gives the next Austin candidate shape. A fixed
+Item 32 `all_fresh_midday_late` guard passes Austin locally at `+0.0024`
+versus market while improving current by `-0.0024`. The train-selected guard
+still blocks at `+0.0034`, just outside the `+0.0030` tolerance, because the
+selector chooses `all_fresh` for the June 7 holdout and `all_fresh_midday_late`
+for the other three cuts. This is development evidence only, but it is more
+actionable than another all-branch basket: the next Item 35/48 model attempt
+should test a predeclared Austin all-fresh midday/late reanalysis guard inside
+the full replay/promotion harness, while keeping NYC/Seattle and
+San Francisco/Los Angeles as separate repair tracks.

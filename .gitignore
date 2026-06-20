@@ -11,7 +11,7 @@ env/
 
 # --- Raw source payloads (large, regenerable auditability backups) ---
 # ~600 MB+ of provider JSON/XML/CSV. Rebuildable from the network via the
-# collector CLIs (e.g. `python -m src.wu_history backfill`), and normalized
+# collector CLIs (e.g. `python -m weather.sources.wu_history backfill`), and normalized
 # hourly/daily artifacts are derived from these.
 data/
 
@@ -23,7 +23,7 @@ data/snapshots/loop_pause.flag
 **/.snapshot.lock
 
 # --- Reconstructed replay corpus (approximate, regenerable) ---
-# Bootstrapped from snapshots.jsonl via `python -m src.replay`; large and
+# Bootstrapped from snapshots.jsonl via `python -m weather.backtesting.replay`; large and
 # approximate. The committed replay_inputs.jsonl holds only real captured inputs.
 data/snapshots/**/replay_inputs_reconstructed.jsonl
 

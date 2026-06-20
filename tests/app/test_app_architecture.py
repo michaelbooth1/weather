@@ -25,6 +25,8 @@ SYS_PATH_MUTATION_PATTERNS = (
     "sys.path" + ".insert",
     "sys.path" + ".append",
 )
+ROUTER_PATH = Path("app/streamlit_app.py")
+SINGLE_MARKET_VIEW_PATH = Path("app/views/single_market.py")
 
 
 def test_app_files_do_not_mutate_sys_path_or_import_legacy_wrappers():
@@ -50,3 +52,29 @@ def test_app_files_decode_as_utf8_without_mojibake_fragments():
             offenders[str(path)] = matches
 
     assert offenders == {}
+
+
+def test_streamlit_router_stays_thin_and_single_market_view_owns_page_body():
+    router_text = ROUTER_PATH.read_text(encoding="utf-8")
+    single_market_text = SINGLE_MARKET_VIEW_PATH.read_text(encoding="utf-8")
+    router_forbidden = [
+        "SnapshotStore",
+        "PolymarketClient",
+        "TorontoHighTempModel",
+        "data_path(",
+        "@st.fragment",
+        "st.title(f\"{spec.city_label} Weather Market\")",
+    ]
+
+    assert SINGLE_MARKET_VIEW_PATH.exists()
+    assert len(router_text.splitlines()) <= 100
+    assert "render_single_market_page" in router_text
+    assert "def render_single_market_page" in single_market_text
+    assert "SnapshotStore" in single_market_text
+    assert "PolymarketClient" in single_market_text
+    assert "TorontoHighTempModel" in single_market_text
+    assert {
+        pattern: pattern in router_text
+        for pattern in router_forbidden
+        if pattern in router_text
+    } == {}

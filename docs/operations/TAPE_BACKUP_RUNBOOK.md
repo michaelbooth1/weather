@@ -57,6 +57,12 @@ one fail-closed step.
 Markdown reports, lock files, PID files, temp files, and clearly rebuildable
 scratch outputs are excluded.
 
+Zero-byte files are also excluded from backup manifests. They cannot prove
+recoverable evidence and should be repaired or regenerated at the producer
+instead of copied as valid tape. Promotion-refresh lifecycle manifests using
+`promotion_refresh_incomplete_v0.1` are retained and schema-checked; the
+`status` field distinguishes `STARTED`, `COMPLETE`, and `INCOMPLETE` runs.
+
 ### CLOB Artifact Classes
 
 The backup status command audits CLOB artifacts by emitted filename, not only by
@@ -66,8 +72,9 @@ The backup status command audits CLOB artifacts by emitted filename, not only by
   outcomes, books, features, and replay.
 - `order_book_summary`: `order_books_summary.csv`; per-token bid/ask, spread,
   depth, and executable-size summaries.
-- `order_book_long`: `order_books_long.csv`; full depth long-table book
-  evidence and the highest local storage-growth risk.
+- `order_book_long`: `order_books_long.csv` or `order_books_long.csv.gz`;
+  full depth long-table book evidence and the highest local storage-growth
+  risk.
 - `order_book_raw`: `order_books.jsonl`; raw order-book payload and response
   metadata.
 - `price_history`: `price_history.csv` and `price_history.jsonl`; CLOB price
@@ -100,6 +107,39 @@ Preferred compaction path:
    manifest proves raw JSONL and summary rows are backed up and restorable.
 4. Rebuild derived `clob_features*` from raw tapes during restore drills when
    practical; do not treat derived features as the only recoverable evidence.
+
+Plan gzip tiering before applying it:
+
+```powershell
+python -m weather.operations.clob_order_book_tiering plan --settled-before 2026-06-19
+```
+
+Apply in small batches only when the preflight has enough scratch space:
+
+```powershell
+python -m weather.operations.clob_order_book_tiering apply --settled-before 2026-06-19 --delete-source --limit 1
+```
+
+The apply path requires free space for the source file plus a 1 GiB reserve,
+writes `order_books_long.csv.gz` through a temp file, verifies decompressed
+SHA-256 and line count against the source, and deletes the uncompressed CSV
+only after verification and only when `--delete-source` is passed.
+
+If a failed same-disk export leaves files in `latest/` that are not listed in
+`latest/tape_backup_manifest.json`, plan cleanup before rerunning backup:
+
+```powershell
+python -m weather.operations.tape_backup prune-unmanifested
+```
+
+Apply only after the report shows the candidates have source counterparts:
+
+```powershell
+python -m weather.operations.tape_backup prune-unmanifested --apply
+```
+
+This removes only unmanifested files under the backup `latest/` directory; it
+does not delete source tapes or manifest-listed backup files.
 
 ## Restore Drill
 

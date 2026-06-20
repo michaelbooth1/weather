@@ -41,37 +41,37 @@ candidate markets are blocked.
 
 Can be done now, in implementation order:
 
-1. [done] Item 47: wire `mm_known_edge_map.json` into `mm_policy` and
+1. [COMPLETE] Item 47: wire `mm_known_edge_map.json` into `mm_policy` and
    `market_making_run` so every quote-intent row carries generated permission
    fields and model-skewed edge quoting only unlocks on `edge_allowed`.
-2. [done] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
+2. [COMPLETE] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
    change to Miami only, and clear the current-serving Miami `BLOCK`.
-3. [done] Item 49: add `forecast_high` and `forecast_gap` to late-day
+3. [COMPLETE] Item 49: add `forecast_high` and `forecast_gap` to late-day
    continuation training, regenerate all tracked late-day artifacts, and prove
    the refresh on settlement-scored replay.
-4. [done] Item 37: define/enforce the live-forward SLO and gap-free active-day
+4. [COMPLETE] Item 37: define/enforce the live-forward SLO and gap-free active-day
    tape gates in software; final clearance still requires a clean future active
    day, and the current strict report blocks on snapshot and CLOB tape gaps.
-5. [partial] Item 39 cleanup: source/truth/storage/gate hygiene is reconciled;
+5. [PARTIAL] Item 39 cleanup: source/truth/storage/gate hygiene is reconciled;
    remaining work is infrastructure-heavy, especially schema migration tooling
    and the Parquet/freshness dashboard.
-6. [done] Item 55: reconcile quote lifecycle and budget reservation state before
+6. [COMPLETE] Item 55: reconcile quote lifecycle and budget reservation state before
    treating the running market-making test's budget numbers as live-gate
    evidence.
-7. [done] Item 57: turn the current `paper-live-forward` preflight blockers
+7. [COMPLETE] Item 57: turn the current `paper-live-forward` preflight blockers
    into source-status/model/CLOB remediation incidents so a future active day
    can count.
-8. [done] Item 56: upgrade the MM dashboard into an operator cockpit that
+8. [COMPLETE] Item 56: upgrade the MM dashboard into an operator cockpit that
    separates latest tick, cumulative run, paper corpus, and live-forward gate
    state.
-9. [done] Items 58-60: turn the 2026-06-15 Miami 92-93 F audit into
+9. [COMPLETE] Items 58-60: turn the 2026-06-15 Miami 92-93 F audit into
    concrete follow-up work. Item 58 is complete: the intra-hour WU print-lag
    feature parity bug is fixed and gauntlet-proven. Item 59 is complete: the
    afternoon high-has-stood lock-in component is live, explained, and
    gauntlet-proven with per-market activation caveats documented. Item 60 is
    complete: range-band endpoints, replay compatibility, latest-row
    diagnostics, and stale-code collector guards are live.
-10. [done] Items 61-64: turn the 2026-06-15 historical/nearby-station audit
+10. [COMPLETE] Items 61-64: turn the 2026-06-15 historical/nearby-station audit
     into provenance-safe follow-up work. Item 61 is complete: registered
     supplemental station roots now carry source id, station provenance,
     distance, adopted windows, and canonical-plus-supplemental audit coverage.
@@ -81,7 +81,7 @@ Can be done now, in implementation order:
     features without changing settlement labels or live-serving columns. Item
     64 is complete: canonical history provenance guardrails and explicit
     composite GHCNh views are live.
-11. [done] Items 69-73: turn the multi-variant shadow-testing research note into
+11. [COMPLETE] Items 69-73: turn the multi-variant shadow-testing research note into
     concrete model work. Item 69 is complete: the paired shadow harness and
     experiment governance are live. Item 70 is complete: the exact-winner
     candidate now uses a no-market per-market alpha whitelist, clears the broad
@@ -122,7 +122,7 @@ Blocked or gated:
   replay-safe validation.
 - Any feature or quote mode that relies on live-only data remains blocked from
   promotion until matching historical or live-forward evidence exists.
-- The Miami 2026-06-15 92-93 F audit package is closed by items 58-60:
+- The Miami 2026-06-15 92-93 F audit package is complete via items 58-60:
   print-lag parity, afternoon high-has-stood lock-in, and range-band/version
   artifact guards are now implemented.
 - Multi-variant testing is gated by item 69. Variants from items 70-73 should

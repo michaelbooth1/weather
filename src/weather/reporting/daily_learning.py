@@ -29,6 +29,8 @@ ARTIFACT_FILES = {
     "daily_refresh_status": "daily_refresh_status.json",
     "ingest_quality_gate": "ingest_quality_gate.json",
     "promotion_refresh": "f_family_promotion_refresh.json",
+    "hourly_model_performance": "hourly_model_performance.json",
+    "price_free_model_learning": "price_free_model_learning.json",
     "candidate_replay": "pooled_candidate_replay_latest.json",
     "shadow_ab_monitor": "shadow_ab_monitor.json",
     "model_variant_evidence_growth": "model_variant_evidence_growth.json",
@@ -138,6 +140,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
         payloads.get("ingest_quality_gate"),
     ) or {}
     promotion = payloads.get("promotion_refresh") or {}
+    hourly = payloads.get("hourly_model_performance") or {}
+    price_free = payloads.get("price_free_model_learning") or {}
+    price_free_current_max = price_free.get("current_max_carryover") or {}
     candidate = _candidate_from_payloads(payloads)
     aggregate = candidate.get("aggregate") or {}
     corpus = promotion.get("corpus") or {}
@@ -174,6 +179,26 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "blocked_markets": decisions.get("blocked_markets") or [],
             "action_counts": decisions.get("action_counts") or {},
         },
+        "hourly_model_performance": {
+            "status": (hourly.get("hourly_performance_gate") or {}).get("status"),
+            "daily_summary": hourly.get("daily_summary") or {},
+            "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
+            "remediation_registry_summary": (hourly.get("remediation_registry") or {}).get("summary") or {},
+        },
+        "price_free_model_learning": {
+            "status": price_free.get("status"),
+            "daily_summary": price_free.get("daily_summary") or {},
+            "corpus": price_free.get("corpus") or {},
+            "overall": price_free.get("overall") or {},
+            "current_max_carryover": {
+                "summary": price_free_current_max.get("summary") or {},
+                "by_market_hour": price_free_current_max.get("by_market_hour") or [],
+                "examples": (price_free_current_max.get("examples") or [])[:30],
+                "focused_row_count": price_free_current_max.get("focused_row_count"),
+                "focus_definition": price_free_current_max.get("focus_definition"),
+            },
+            "evidence_classification": price_free.get("evidence_classification") or {},
+        },
         "corpus": {
             "market_day_count": safe_int(corpus.get("market_day_count")),
             "snapshot_count": safe_int(corpus.get("snapshot_count")),
@@ -203,6 +228,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "no_growth_reasons": variant.get("no_growth_reasons") or [],
             "trend": variant.get("trend") or [],
         },
+        "variant_learning_gate": daily_summary.get("variant_learning_gate") or {},
         "core_model_trend_claim": progress.get("core_model_trend_claim") or {},
         "casebook": {
             "case_count": safe_int(casebook.get("case_count")),
@@ -416,6 +442,27 @@ def _add_independent_evidence_sla_learning(learnings, variant):
     ))
 
 
+def _add_variant_learning_gate_blocker(learnings, gate):
+    if (gate or {}).get("status") != "BLOCK":
+        return
+    first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+    detail = first.get("detail") or "active variant learning evidence is blocked"
+    action = (
+        first.get("remediation_command")
+        or first.get("suggested_command")
+        or "Run daily refresh after repairing active variant evidence."
+    )
+    learnings.append(_learning(
+        "P0",
+        "variant_learning_operational_gate",
+        "daily_refresh_status",
+        f"Variant learning operational gate blocked: {detail}",
+        action,
+        evidence=gate,
+        blocker=True,
+    ))
+
+
 def _add_core_trend_claim_learning(learnings, claim):
     if not claim:
         return
@@ -461,8 +508,12 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     fleet = scorecard["fleet"]
     shadow = scorecard["shadow_ab_monitor"]
     variant = payloads.get("model_variant_evidence_growth") or {}
+    variant_learning_gate = scorecard.get("variant_learning_gate") or {}
     data_payload = payloads.get("data_layer_audit") or {}
     promotion_payload = payloads.get("promotion_refresh") or {}
+    hourly_payload = payloads.get("hourly_model_performance") or {}
+    hourly = scorecard.get("hourly_model_performance") or {}
+    price_free = scorecard.get("price_free_model_learning") or {}
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     promotion = scorecard["promotion"]
     casebook = scorecard["casebook"]
@@ -611,6 +662,95 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     _add_backlog_learnings(learnings, (snapshot_eval.get("improvement_backlog") or {}).get("top_slices") or [])
     _add_gap_owner_learnings(learnings, promotion_payload.get("gap_owner_table") or [])
 
+    hourly_gate = hourly.get("hourly_performance_gate") or {}
+    if hourly_gate.get("status") == "BLOCK":
+        first = hourly_gate.get("first_blocker") or {}
+        learnings.append(_learning(
+            "P0",
+            "hourly_performance_gate",
+            "hourly_model_performance",
+            f"Hourly performance gate blocked: {first.get('detail') or 'inspect hourly gate blockers'}.",
+            first.get("remediation_command") or "Run weather.reporting.hourly_model_performance and remediate early-hour blockers.",
+            evidence=hourly_gate,
+            blocker=True,
+        ))
+    elif hourly_gate.get("status") == "PASS":
+        daily = hourly.get("daily_summary") or {}
+        learnings.append(_learning(
+            "P1",
+            "hourly_performance_gate",
+            "hourly_model_performance",
+            (
+                "Hourly performance gate passed; worst hours: "
+                + (", ".join(daily.get("worst_hours") or []) or "-")
+            ),
+            "Keep hour-regime evidence attached to promotion decisions.",
+            evidence=hourly_gate,
+            retrain_input=True,
+        ))
+
+    registry = hourly_payload.get("remediation_registry") or {}
+    for row in (registry.get("rows") or [])[:12]:
+        if row.get("hour_regime") != "early_morning":
+            continue
+        priority = "P1" if row.get("uses_market_prices") else "P2"
+        learnings.append(_learning(
+            priority,
+            "hourly_remediation_registry",
+            "hourly_model_performance",
+            (
+                f"{row.get('probe_name')} early-hour probe: "
+                f"{row.get('interpretation')}."
+            ),
+            "Track remediation probe deltas across daily runs before using them in promotion readiness.",
+            evidence=row,
+            retrain_input=not bool(row.get("uses_market_prices")),
+        ))
+
+    price_free_corpus = price_free.get("corpus") or {}
+    price_free_daily = price_free.get("daily_summary") or {}
+    price_free_overall = (price_free.get("overall") or {}).get("hourly_checkpoint") or {}
+    price_free_rows = safe_int(price_free_corpus.get("hourly_checkpoint_rows"))
+    if price_free.get("status") == "OK" and price_free_rows:
+        learnings.append(_learning(
+            "P1",
+            "price_free_model_learning",
+            "price_free_model_learning",
+            (
+                f"Price-free settled diagnostics scored {price_free_corpus.get('scored_market_days')} "
+                f"market-day(s) and {price_free_rows} hourly checkpoint row(s) without Polymarket prices; "
+                f"top-hit rate {fmt_num(price_free_overall.get('partition_model_top_is_winner_rate'), 3)}."
+            ),
+            "Use this as diagnostic retrain evidence only; keep market-benchmark promotion claims on hourly_model_performance.",
+            evidence={
+                "daily_summary": price_free_daily,
+                "corpus": price_free_corpus,
+                "evidence_classification": price_free.get("evidence_classification") or {},
+            },
+            retrain_input=True,
+        ))
+
+    carryover = price_free.get("current_max_carryover") or {}
+    carryover_summary = carryover.get("summary") or {}
+    guarded_count = safe_int(carryover_summary.get("risky_or_guarded_count"))
+    if guarded_count:
+        learnings.append(_learning(
+            "P1",
+            "current_max_carryover",
+            "price_free_model_learning",
+            (
+                f"Current-max carryover guard marked {guarded_count} snapshot row(s) as "
+                "null-before-reset or support-only source-state evidence."
+            ),
+            "Keep pre-7 AM wu_max_since_7am null and treat large early current-max minus WU-history gaps as support-only until same-day history validates them.",
+            evidence={
+                "summary": carryover_summary,
+                "by_market_hour": carryover.get("by_market_hour") or [],
+                "examples": carryover.get("examples") or [],
+            },
+            retrain_input=True,
+        ))
+
     if candidate.get("rows"):
         blocked_validation = candidate.get("blocked_validation") or {}
         if blocked_validation and not blocked_validation.get("passed"):
@@ -679,6 +819,7 @@ def _build_learnings(payloads, scorecard, artifacts=None):
 
     _add_variant_alerts(learnings, variant)
     _add_independent_evidence_sla_learning(learnings, variant)
+    _add_variant_learning_gate_blocker(learnings, variant_learning_gate)
     _add_core_trend_claim_learning(learnings, scorecard.get("core_model_trend_claim") or {})
 
     live_slo = fleet.get("live_forward_slo") or {}
@@ -829,6 +970,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
             "rerun_command": live_slo.get("rerun_command"),
             "summary": live_slo.get("summary") or {},
         },
+        "variant_learning_gate": scorecard.get("variant_learning_gate") or {},
         "training_inputs": {
             "promotion_corpus": {
                 "path": corpus.get("path") or artifacts["promotion_refresh"]["path"],
@@ -913,6 +1055,12 @@ def _scorecard_rows(scorecard):
     corpus = scorecard.get("corpus") or {}
     candidate = scorecard.get("candidate") or {}
     promotion = scorecard.get("promotion") or {}
+    hourly = scorecard.get("hourly_model_performance") or {}
+    hourly_gate = hourly.get("hourly_performance_gate") or {}
+    hourly_daily = hourly.get("daily_summary") or {}
+    price_free = scorecard.get("price_free_model_learning") or {}
+    price_free_daily = price_free.get("daily_summary") or {}
+    price_free_carryover = (price_free.get("current_max_carryover") or {}).get("summary") or {}
     casebook = scorecard.get("casebook") or {}
     snapshot_eval = scorecard.get("snapshot_evaluation") or {}
     core_trend = scorecard.get("core_model_trend_claim") or {}
@@ -930,6 +1078,22 @@ def _scorecard_rows(scorecard):
         ["Promote markets", ", ".join(promotion.get("promote_markets") or []) or "-"],
         ["Shadow markets", ", ".join(promotion.get("shadow_markets") or []) or "-"],
         ["Blocked markets", ", ".join(promotion.get("blocked_markets") or []) or "-"],
+        [
+            "Hourly performance gate",
+            (
+                f"{hourly_gate.get('status') or '-'}; "
+                f"worst={', '.join(hourly_daily.get('worst_hours') or []) or '-'}"
+            ),
+        ],
+        [
+            "Price-free diagnostics",
+            (
+                f"{price_free.get('status') or '-'}; "
+                f"days={price_free_daily.get('scored_market_days', 0)}; "
+                f"rows={price_free_daily.get('hourly_checkpoint_rows', 0)}; "
+                f"guarded={price_free_carryover.get('risky_or_guarded_count', 0)}"
+            ),
+        ],
         ["Casebook cases", casebook.get("case_count")],
         ["Model-losing cases", casebook.get("model_loss_count")],
         ["Snapshot evaluation", snapshot_eval.get("status")],

@@ -118,6 +118,7 @@ class DistributionMixin(DistributionSignalMixin):
         self._last_distribution_pipeline_state = None
         self._last_probability_calibration_context = {}
         self._last_family_secondary_gate = {}
+        self._last_weak_input_family_preflight = {}
         self._last_distribution_result = DistributionResult()
         self.active_model_kind = "empirical"
         history = self.source_data(sources, "wu_history")
@@ -403,6 +404,7 @@ class DistributionMixin(DistributionSignalMixin):
             lockin_strength=lockin_strength,
             high_has_stood_lockin=high_has_stood_context,
             family_secondary_gate=pipeline.metadata.get("family_secondary_gate") or {},
+            weak_input_family_preflight=deepcopy(getattr(self, "_last_weak_input_family_preflight", {}) or {}),
             bucket_transition=bucket_transition,
             late_day_continuation=late_day_continuation,
             observed_floor_bucket=hard_floor_bucket,
@@ -893,13 +895,14 @@ class DistributionMixin(DistributionSignalMixin):
         observed_bucket,
     ):
         """Return the live-signal stage inputs for the current model path."""
+        current_max_live_signal = None if hour is not None and int(hour) < 7 else current_max
         if using_feature_model:
             current_max_signal = None
-            current_max_bucket = self.round_half_up(current_max)
+            current_max_bucket = self.round_half_up(current_max_live_signal)
             if current_max_bucket is not None and (
                 observed_bucket is None or current_max_bucket > observed_bucket
             ):
-                current_max_signal = current_max
+                current_max_signal = current_max_live_signal
             peak_cluster_values = [
                 current_max_signal,
                 weather_forecast_max,
@@ -938,7 +941,7 @@ class DistributionMixin(DistributionSignalMixin):
             (current_temp, 1.8, 0.65),
             # Weather.com's 24h max can include the previous afternoon. For this
             # market we only use the same-day max-since-7am field.
-            (current_max, 2.3, 0.75),
+            (current_max_live_signal, 2.3, 0.75),
             (
                 self.round_half_up(eccc_max) if eccc_max is not None else None,
                 0.6,

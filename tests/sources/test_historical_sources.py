@@ -23,7 +23,11 @@ from weather.sources.forecast_history import (
     write_csv,
 )
 from weather.sources.noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
-from weather.sources.reanalysis_history import ReanalysisStore, normalize_payload
+from weather.sources.reanalysis_history import (
+    RICH_REANALYSIS_HOURLY_VARIABLES,
+    ReanalysisStore,
+    normalize_payload,
+)
 from weather.sources.supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
 from weather.sources.wu_history import normalize_observation, redact_api_key, summarize_daily
 
@@ -744,6 +748,57 @@ class TestHistoricalSources(unittest.TestCase):
                 store.missing_ranges(date(2026, 6, 1), date(2026, 6, 2)),
                 [(date(2026, 6, 1), date(2026, 6, 2))],
             )
+
+    def test_reanalysis_rich_variable_refresh_flags_stale_core_only_payloads(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
+                "temperature_2m": [75.0, 76.0],
+                "soil_temperature_0_to_7cm": [None, None],
+                "soil_moisture_0_to_7cm": [None, None],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ReanalysisStore(NYC, tmp)
+            store.write_payload(date(2026, 6, 1), date(2026, 6, 2), payload)
+            store.rebuild()
+
+            ranges = store.missing_ranges(
+                date(2026, 6, 1),
+                date(2026, 6, 2),
+                required_hourly_variables=[
+                    "soil_temperature_0_to_7cm",
+                    "soil_moisture_0_to_7cm",
+                ],
+            )
+
+            self.assertEqual(ranges, [(date(2026, 6, 1), date(2026, 6, 2))])
+
+    def test_reanalysis_rich_variable_refresh_skips_complete_rich_payloads(self):
+        payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
+                "temperature_2m": [75.0, 76.0],
+                "soil_temperature_0_to_7cm": [73.0, 74.0],
+                "soil_moisture_0_to_7cm": [0.25, 0.26],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ReanalysisStore(NYC, tmp)
+            store.write_payload(date(2026, 6, 1), date(2026, 6, 2), payload)
+            store.rebuild()
+
+            ranges = store.missing_ranges(
+                date(2026, 6, 1),
+                date(2026, 6, 2),
+                required_hourly_variables=[
+                    "soil_temperature_0_to_7cm",
+                    "soil_moisture_0_to_7cm",
+                ],
+            )
+
+            self.assertEqual(ranges, [])
+            self.assertIn("shortwave_radiation", RICH_REANALYSIS_HOURLY_VARIABLES)
 
 
 if __name__ == "__main__":

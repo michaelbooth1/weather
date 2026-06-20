@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
+import pickle
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,8 +29,8 @@ from weather.model.feature_store import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     US_GUIDANCE_FEATURE_COLUMNS,
 )
-from weather.paths import data_path
-from weather.reporting.formatting import fmt_num, markdown_table
+from weather.paths import config_path, data_path
+from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
 
 try:
@@ -52,7 +54,7 @@ DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory_report.md"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation.json"
 DEFAULT_CANDIDATE_REPLAY_JSON = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
-DEFAULT_LOCATIONS_CONFIG = Path("config") / "locations.json"
+DEFAULT_LOCATIONS_CONFIG = config_path("locations.json")
 
 BLANK_VALUES = {"", "na", "nan", "none", "null", "n/a"}
 FORECAST_PAYLOAD_SOURCES = {
@@ -65,6 +67,7 @@ FORECAST_PAYLOAD_SOURCES = {
     "open_meteo_multimodel",
     "global_ensemble",
 }
+REANALYSIS_THIN_MARGIN_DELTA = 0.003
 
 
 @dataclass(frozen=True)
@@ -466,6 +469,7 @@ def clob_raw_tape_present(folder):
     names = {
         "order_books_summary.csv",
         "order_books_long.csv",
+        "order_books_long.csv.gz",
         "order_books.jsonl",
         "price_history.csv",
         "price_history.jsonl",
@@ -573,7 +577,8 @@ def item27_feature_gate_paths():
 
 
 def item27_reanalysis_ablation_evidence(paths_by_market=None, required_markets=None):
-    paths_by_market = paths_by_market or item27_feature_gate_paths()
+    if paths_by_market is None:
+        paths_by_market = item27_feature_gate_paths()
     required = sorted(required_markets or paths_by_market)
     rows = []
     for market_id in required:
@@ -592,7 +597,24 @@ def item27_reanalysis_ablation_evidence(paths_by_market=None, required_markets=N
             return None
         rows.append((market_id, path, decision))
 
-    total_n = sum(int(decision.get("n") or 0) for _, _, decision in rows)
+    market_details = []
+    for market_id, path, decision in rows:
+        delta_brier = decision.get("delta_brier")
+        gate = str(decision.get("decision") or "").strip().lower()
+        if not gate:
+            gate = "promote" if delta_brier is not None and float(delta_brier) > 0 else "block"
+        market_details.append({
+            "market_id": market_id,
+            "path": str(path),
+            "rows": int(decision.get("n") or 0),
+            "full_brier": decision.get("full_brier"),
+            "ablated_brier": decision.get("ablated_brier"),
+            "delta_brier": delta_brier,
+            "delta_logloss": decision.get("delta_logloss"),
+            "decision": gate,
+        })
+
+    total_n = sum(row["rows"] for row in market_details)
     if total_n <= 0:
         return None
 
@@ -633,6 +655,17 @@ def item27_reanalysis_ablation_evidence(paths_by_market=None, required_markets=N
         ),
         "markets_scored": [market_id for market_id, _, _ in rows],
         "market_gate_paths": [str(path) for _, path, _ in rows],
+        "market_details": market_details,
+        "positive_markets": [
+            row["market_id"]
+            for row in market_details
+            if row.get("delta_brier") is not None and float(row["delta_brier"]) > 0
+        ],
+        "blocked_markets": [
+            row["market_id"]
+            for row in market_details
+            if row.get("delta_brier") is None or float(row["delta_brier"]) <= 0
+        ],
     }
 
 
@@ -651,6 +684,12 @@ def ablation_for_spec(spec, ablations):
                 "variant_brier": row.get("variant_brier"),
                 "days_source_helped": row.get("days_source_helped"),
                 "days_source_hurt": row.get("days_source_hurt"),
+                "evidence_source": row.get("evidence_source"),
+                "markets_scored": row.get("markets_scored"),
+                "market_gate_paths": row.get("market_gate_paths"),
+                "market_details": row.get("market_details"),
+                "positive_markets": row.get("positive_markets"),
+                "blocked_markets": row.get("blocked_markets"),
             }
     return {
         "status": "MISSING",
@@ -659,6 +698,112 @@ def ablation_for_spec(spec, ablations):
         "rows": 0,
         "days": 0,
         "delta": None,
+    }
+
+
+def artifact_path_from_candidate_replay(payload):
+    artifact = (payload or {}).get("artifact") or {}
+    path = artifact.get("path") or artifact.get("artifact_path")
+    if not path:
+        return None
+    return Path(path)
+
+
+def _is_missing_imputer_stat(value):
+    try:
+        return bool(math.isnan(float(value)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _retained_feature_names(bundle, names):
+    imputer = bundle.get("imputer") if isinstance(bundle, dict) else None
+    statistics = getattr(imputer, "statistics_", None)
+    if statistics is None:
+        return set(names)
+    stats = list(statistics)
+    if len(stats) != len(names):
+        return set(names)
+    return {
+        name
+        for name, stat in zip(names, stats)
+        if not _is_missing_imputer_stat(stat)
+    }
+
+
+def collect_artifact_feature_names(artifact):
+    names = set()
+    if not isinstance(artifact, dict):
+        return names
+    for key in ("feature_names", "feature_columns", "features", "numeric_features", "categorical_features"):
+        values = artifact.get(key)
+        if isinstance(values, (list, tuple, set)):
+            raw_names = [str(value) for value in values if value]
+            names.update(_retained_feature_names(artifact, raw_names))
+    models = artifact.get("models") or {}
+    if isinstance(models, dict):
+        for bundle in models.values():
+            if isinstance(bundle, dict):
+                names.update(collect_artifact_feature_names(bundle))
+    return names
+
+
+def active_model_usage(candidate_replay_payload):
+    path = artifact_path_from_candidate_replay(candidate_replay_payload)
+    result = {
+        "status": "MISSING",
+        "artifact_path": str(path) if path else None,
+        "feature_count": 0,
+        "feature_names": [],
+        "active_overlay_families": [],
+        "error": None,
+    }
+    if path and path.exists():
+        try:
+            with path.open("rb") as handle:
+                artifact = pickle.load(handle)
+            names = collect_artifact_feature_names(artifact)
+            result.update({
+                "status": "PRESENT",
+                "feature_count": len(names),
+                "feature_names": sorted(names),
+            })
+        except Exception as exc:  # noqa: BLE001 - inventory should degrade conservatively
+            result.update({"status": "ERROR", "error": str(exc)})
+
+    active_overlay_families = set()
+    micro = (candidate_replay_payload or {}).get("microstructure") or {}
+    aggregate = micro.get("aggregate") or {}
+    if aggregate.get("n"):
+        active_overlay_families.add("clob_microstructure")
+    result["active_overlay_families"] = sorted(active_overlay_families)
+    return result
+
+
+def active_family_usage(spec, usage):
+    status = (usage or {}).get("status")
+    overlay_families = set((usage or {}).get("active_overlay_families") or [])
+    feature_names = set((usage or {}).get("feature_names") or [])
+    active_features = sorted(set(spec.feature_columns) & feature_names)
+    if spec.family_id in overlay_families:
+        return {
+            "model_influence": True,
+            "active_model_feature_columns": active_features,
+            "active_model_feature_count": len(active_features),
+            "active_model_usage_status": "ACTIVE_OVERLAY",
+        }
+    if status != "PRESENT":
+        return {
+            "model_influence": spec.model_influence,
+            "active_model_feature_columns": active_features,
+            "active_model_feature_count": len(active_features),
+            "active_model_usage_status": f"USAGE_{status or 'MISSING'}",
+        }
+    return {
+        "model_influence": spec.model_influence and bool(active_features),
+        "active_model_feature_columns": active_features,
+        "active_model_feature_count": len(active_features),
+        "active_model_usage_status": "ACTIVE_FEATURES" if active_features else "NOT_USED_BY_ACTIVE_ARTIFACT",
     }
 
 
@@ -691,6 +836,12 @@ def parity_status(spec, stats, lineage):
         return "NO_FEATURE_COLUMNS_OBSERVED"
     if feature_column_count and present_count < feature_column_count:
         return "MISSING_FEATURE_COLUMNS"
+    if spec.family_id == "clob_microstructure":
+        if lineage != "PASS":
+            return "LINEAGE_BLOCKED"
+        if "clob_feature_available" not in stats["feature_columns_present"]:
+            return "MISSING_FEATURE_COLUMNS"
+        return "PASS"
     rate = missing_rate({
         "missing_cells": stats["feature_missing_cells"],
         "total_cells": stats["feature_total_cells"],
@@ -745,15 +896,75 @@ def promotion_decision(spec, lineage, parity, ablation):
     }
 
 
-def inventory_rows(stats_by_family, ablation_payload):
+def reanalysis_promotion_lane(ablation):
+    if not ablation or ablation.get("status") != "PRESENT":
+        return {
+            "status": "BLOCKED_MISSING_ABLATION",
+            "allowed_markets": [],
+            "quarantined_markets": [],
+            "thin_margin_markets": [],
+            "policy": "no_reanalysis_features",
+            "reason": "Missing settlement-scored per-market reanalysis gates.",
+            "action": "Run Item 27 reanalysis gates before enabling any lane.",
+        }
+    details = ablation.get("market_details") or []
+    allowed = []
+    quarantined = []
+    thin_margin = []
+    for row in details:
+        market_id = row.get("market_id")
+        if not market_id:
+            continue
+        delta = row.get("delta_brier")
+        if delta is not None and float(delta) > 0:
+            allowed.append(market_id)
+            if float(delta) < REANALYSIS_THIN_MARGIN_DELTA:
+                thin_margin.append(market_id)
+        else:
+            quarantined.append(market_id)
+    if allowed and quarantined:
+        status = "PARTIAL_POSITIVE_MARKET_SHADOW_LANE"
+        policy = "positive_markets_only"
+        reason = "Mixed per-market gates; only positive markets may enter candidate shadow."
+    elif allowed:
+        status = "BROAD_POSITIVE_MARKET_SHADOW_LANE"
+        policy = "all_scored_markets"
+        reason = "All scored markets have positive reanalysis gate deltas."
+    else:
+        status = "BLOCKED_NO_POSITIVE_MARKETS"
+        policy = "no_reanalysis_features"
+        reason = "No market has positive reanalysis gate evidence."
+    return {
+        "status": status,
+        "policy": policy,
+        "allowed_markets": sorted(allowed),
+        "quarantined_markets": sorted(quarantined),
+        "thin_margin_markets": sorted(thin_margin),
+        "thin_margin_delta": REANALYSIS_THIN_MARGIN_DELTA,
+        "market_count": len(details),
+        "allowed_market_count": len(set(allowed)),
+        "quarantined_market_count": len(set(quarantined)),
+        "reason": reason,
+        "action": (
+            "Train or shadow only the allowed markets; keep quarantined markets "
+            "on the no-reanalysis path until their Item 27 gates turn positive."
+        ),
+    }
+
+
+def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
     ablations = ablation_by_variant(ablation_payload)
     rows = []
     for spec in FAMILY_SPECS:
         stats = stats_by_family[spec.family_id]
+        usage = active_family_usage(spec, model_usage or {})
         lineage = lineage_status(spec, stats)
         parity = parity_status(spec, stats, lineage)
         ablation = ablation_for_spec(spec, ablations)
         decision = promotion_decision(spec, lineage, parity, ablation)
+        promotion_lane = None
+        if spec.family_id == "reanalysis_synoptic":
+            promotion_lane = reanalysis_promotion_lane(ablation)
         rows.append({
             "family_id": spec.family_id,
             "label": spec.label,
@@ -767,7 +978,11 @@ def inventory_rows(stats_by_family, ablation_payload):
             "historical_archive_status": spec.historical_archive_status,
             "live_only": spec.live_only_policy != "training_and_serving",
             "live_only_policy": spec.live_only_policy,
-            "model_influence": spec.model_influence,
+            "model_influence": usage["model_influence"],
+            "configured_model_influence": spec.model_influence,
+            "active_model_usage_status": usage["active_model_usage_status"],
+            "active_model_feature_count": usage["active_model_feature_count"],
+            "active_model_feature_columns": usage["active_model_feature_columns"],
             "source_status": {
                 "rows": stats["source_status_rows"],
                 "ok_rows": stats["source_status_ok_rows"],
@@ -802,6 +1017,7 @@ def inventory_rows(stats_by_family, ablation_payload):
             "train_serve_parity_status": parity,
             "ablation": ablation,
             "promotion_decision": decision,
+            "promotion_lane": promotion_lane,
             "sample_folders": sorted(stats["sample_folders"])[:5],
         })
     return rows
@@ -896,6 +1112,8 @@ def build_source_family_inventory(
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
     locations_config=DEFAULT_LOCATIONS_CONFIG,
+    item27_reanalysis_paths=None,
+    item27_required_markets=None,
     generated_at_utc=None,
 ):
     stats_by_family = {spec.family_id: stats_template() for spec in FAMILY_SPECS}
@@ -912,13 +1130,22 @@ def build_source_family_inventory(
     scan_reanalysis_sidecars(reanalysis_root, stats_by_family)
     ablation_payload = read_json(ablation_json, default={}) or {}
     candidate_replay_payload = read_json(candidate_replay_json, default={}) or {}
-    item27_reanalysis = item27_reanalysis_ablation_evidence()
+    model_usage = active_model_usage(candidate_replay_payload)
+    item27_reanalysis = (
+        item27_reanalysis_ablation_evidence(
+            item27_reanalysis_paths,
+            required_markets=item27_required_markets,
+        )
+        if item27_reanalysis_paths is not None
+        else item27_reanalysis_ablation_evidence()
+    )
     merged_ablation_payload = {
         "variants": list(ablation_by_variant(ablation_payload, candidate_replay_payload).values())
     }
     if item27_reanalysis:
         merged_ablation_payload["variants"].append(item27_reanalysis)
-    rows = inventory_rows(stats_by_family, merged_ablation_payload)
+    merged_ablation_count = len(ablation_by_variant(merged_ablation_payload))
+    rows = inventory_rows(stats_by_family, merged_ablation_payload, model_usage=model_usage)
     preflight = promotion_preflight(rows)
     expansion = market_expansion_scorecard(locations_config)
     blocked = preflight["blocked_family_count"]
@@ -937,11 +1164,15 @@ def build_source_family_inventory(
             "blocking_family_count": blocked,
             "snapshot_folder_count": len(folders),
             "market_folder_counts": dict(sorted(market_folder_counts.items())),
-            "ablation_variant_count": len(ablation_by_variant(ablation_payload, candidate_replay_payload)),
+            "ablation_variant_count": merged_ablation_count,
             "market_expansion_status": expansion["status"],
             "market_expansion_candidate_count": expansion["candidate_count"],
+            "active_model_usage_status": model_usage["status"],
+            "active_model_feature_count": model_usage["feature_count"],
+            "active_overlay_families": model_usage["active_overlay_families"],
         },
         "inventory": rows,
+        "active_model_usage": model_usage,
         "promotion_preflight": preflight,
         "market_expansion_scorecard": expansion,
     }
@@ -968,6 +1199,9 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ["Blocking families", summary.get("blocking_family_count")],
             ["Snapshot folders", summary.get("snapshot_folder_count")],
             ["Ablation variants", summary.get("ablation_variant_count")],
+            ["Active model usage", summary.get("active_model_usage_status")],
+            ["Active model features", summary.get("active_model_feature_count")],
+            ["Active overlay families", ", ".join(summary.get("active_overlay_families") or []) or "-"],
             ["Market expansion status", summary.get("market_expansion_status")],
         ],
     )
@@ -979,6 +1213,8 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             "Parity",
             "Ablation",
             "Decision",
+            "Active input",
+            "Active features",
             "Missing rate",
             "Live-only policy",
         ],
@@ -989,12 +1225,54 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
                 row.get("train_serve_parity_status"),
                 (row.get("ablation") or {}).get("status"),
                 (row.get("promotion_decision") or {}).get("status"),
+                "yes" if row.get("model_influence") else "no",
+                row.get("active_model_feature_count"),
                 fmt_num((row.get("feature_missingness") or {}).get("missing_rate"), 3),
                 row.get("live_only_policy"),
             ]
             for row in rows
         ],
     )
+    reanalysis = next((row for row in rows if row.get("family_id") == "reanalysis_synoptic"), None)
+    reanalysis_lane = (reanalysis or {}).get("promotion_lane") or {}
+    if reanalysis_lane:
+        lines += ["", "## Reanalysis Promotion Lane", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", reanalysis_lane.get("status")],
+                ["Policy", reanalysis_lane.get("policy")],
+                ["Allowed markets", ", ".join(reanalysis_lane.get("allowed_markets") or []) or "-"],
+                ["Quarantined markets", ", ".join(reanalysis_lane.get("quarantined_markets") or []) or "-"],
+                ["Thin-margin markets", ", ".join(reanalysis_lane.get("thin_margin_markets") or []) or "-"],
+                ["Reason", reanalysis_lane.get("reason")],
+                ["Action", reanalysis_lane.get("action")],
+            ],
+        )
+    reanalysis_details = ((reanalysis or {}).get("ablation") or {}).get("market_details") or []
+    if reanalysis_details:
+        lines += ["", "## Reanalysis Market Gates", ""]
+        lines += markdown_table(
+            ["Market", "Rows", "Full Brier", "Ablated Brier", "Delta Brier", "Gate"],
+            [
+                [
+                    row.get("market_id"),
+                    row.get("rows"),
+                    fmt_num(row.get("full_brier"), 4),
+                    fmt_num(row.get("ablated_brier"), 4),
+                    fmt_signed(row.get("delta_brier"), 4),
+                    row.get("decision"),
+                ]
+                for row in sorted(
+                    reanalysis_details,
+                    key=lambda item: (
+                        float(item.get("delta_brier") or 0.0),
+                        str(item.get("market_id") or ""),
+                    ),
+                    reverse=True,
+                )
+            ],
+        )
     preflight = payload.get("promotion_preflight") or {}
     lines += ["", "## Promotion Preflight", ""]
     lines += markdown_table(

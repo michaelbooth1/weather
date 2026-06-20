@@ -30,14 +30,27 @@ from weather.reporting.formatting import (
     fmt_num,
     markdown_table,
 )
+from weather.reporting.artifact_disk_budget import (
+    DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
+    ensure_artifact_disk_headroom,
+)
+from weather.reporting.weak_input_family_disposition import weak_input_training_preflight
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.model.continuous_density import (
     band_probability_from_density,
+    bucket_interval_native,
     canonical_grid_f,
     continuous_density_payload,
+    f_to_native,
+    native_interval_to_f,
 )
-from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, build_historical_feature_record
+from weather.model.feature_store import (
+    FEATURE_COLUMNS,
+    FEATURE_SCHEMA_VERSION,
+    FORECAST_FEATURE_COLUMNS,
+    build_historical_feature_record,
+)
 from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.reporting.source_redundancy import (
@@ -49,9 +62,13 @@ from weather.reporting.source_redundancy import (
     source_daily_indexes,
 )
 from weather.sources.forecast_history import daily_path_for, load_forecast_daily, load_forecast_profiles, long_path_for
-from weather.sources.reanalysis_synoptic import load_reanalysis_synoptic_features
+from weather.sources.reanalysis_synoptic import (
+    REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
+    load_reanalysis_synoptic_features,
+)
 from weather.artifacts import writable_artifact_path
 from weather.calibration.blocked_validation import blocked_validation_audit
+from weather.calibration.probability_calibration import apply_continuous_density_calibration
 from weather.units import round_half_up
 
 DEFAULT_REPORT = data_path() / "backtest" / "f_family_pooled_model_report.md"
@@ -63,10 +80,64 @@ DEFAULT_EXACT_WINNER_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pool
 DEFAULT_DYNAMIC_SOURCE_REPORT = data_path() / "backtest" / "f_family_pooled_dynamic_source_model_report.md"
 DEFAULT_DYNAMIC_SOURCE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl")
 DEFAULT_DENSITY_REPORT = data_path() / "backtest" / "pooled_continuous_density_model_report.md"
-DEFAULT_DENSITY_ARTIFACT = writable_artifact_path("pooled_continuous_density_hgb_v0_1.pkl")
+DEFAULT_DENSITY_ARTIFACT = writable_artifact_path("pooled_continuous_density_hgb_v0_7.pkl")
+DEFAULT_FORECAST_PROFILE_BAND_REPORT = data_path() / "backtest" / "item134_forecast_profile_band_model_report.md"
+DEFAULT_FORECAST_PROFILE_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_forecast_profile_v0_1.pkl")
+DEFAULT_TRAINING_OUTPUT_ESTIMATED_BYTES = 10_000_000
+BAND_MERGE_PAYLOAD_KEY = "band_postprocess_merge_payload"
 
 WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variable"]
 CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
+FEATURE_SUBSET_ALL = "all"
+FEATURE_SUBSET_FORECAST_PROFILE = "forecast_profile"
+FEATURE_SUBSET_CHOICES = (FEATURE_SUBSET_ALL, FEATURE_SUBSET_FORECAST_PROFILE)
+DENSITY_SIGMA_TUNING_SCALES = (0.35, 0.5, 0.65, 0.8, 1.0, 1.25, 1.5, 2.0)
+DENSITY_DEFAULT_SHAPE = {"shape": "gaussian", "id": "gaussian"}
+DENSITY_SHAPE_TUNING_CANDIDATES = (
+    DENSITY_DEFAULT_SHAPE,
+    {"shape": "tail_mixture", "id": "tail_w10_s2", "tail_weight": 0.10, "tail_scale": 2.0},
+    {"shape": "tail_mixture", "id": "tail_w15_s3", "tail_weight": 0.15, "tail_scale": 3.0},
+    {
+        "shape": "anchor_mixture",
+        "id": "forecast_w15",
+        "anchor": "forecast_high",
+        "anchor_weight": 0.15,
+        "anchor_sigma_scale": 1.0,
+    },
+    {
+        "shape": "anchor_mixture",
+        "id": "forecast_w30",
+        "anchor": "forecast_high",
+        "anchor_weight": 0.30,
+        "anchor_sigma_scale": 1.0,
+    },
+    {
+        "shape": "anchor_mixture",
+        "id": "climate_w10",
+        "anchor": "climate_normal",
+        "anchor_weight": 0.10,
+        "anchor_sigma_scale": 1.5,
+    },
+)
+FORECAST_PROFILE_ALLOWED_BASE_COLUMNS = {
+    *FORECAST_FEATURE_COLUMNS,
+    "latitude",
+    "longitude",
+    "coastal",
+    "climate_normal",
+    "climate_std",
+    "forecast_anomaly",
+    "band_value",
+    "band_value_hi",
+    "band_width",
+    "band_mid",
+    "band_mid_minus_forecast",
+    "band_mid_anomaly",
+}
+FORECAST_PROFILE_BLOCKED_COLUMN_PREFIXES = (
+    "wind_group_",
+    "cloud_group_",
+)
 BAND_KINDS = ("eq", "lte", "gte")
 BAND_NUMERIC_COLUMNS = [
     "band_value",
@@ -199,6 +270,160 @@ def boolish(value):
     if text in {"false", "0", "no", "n"}:
         return False
     return None
+
+
+def feature_subset_contract(feature_subset=FEATURE_SUBSET_ALL):
+    feature_subset = feature_subset or FEATURE_SUBSET_ALL
+    if feature_subset == FEATURE_SUBSET_ALL:
+        return {
+            "name": FEATURE_SUBSET_ALL,
+            "schema_version": "pooled_feature_subset_v0.1",
+            "description": "All default pooled band model features.",
+            "allowed_feature_families": ["all"],
+            "blocked_feature_families": [],
+            "anchor_feature": None,
+        }
+    if feature_subset == FEATURE_SUBSET_FORECAST_PROFILE:
+        return {
+            "name": FEATURE_SUBSET_FORECAST_PROFILE,
+            "schema_version": "pooled_feature_subset_v0.1",
+            "description": (
+                "Roadmap item 134 forecast-profile lane: forecast-profile "
+                "features plus market/climate context and band geometry "
+                "relative to forecast_high. Observed-temperature-path and "
+                "live-reading dominance columns are excluded from the model "
+                "matrix."
+            ),
+            "allowed_feature_families": [
+                "forecast_high_anchor",
+                "forecast_profile_temperature",
+                "forecast_cloud_solar_radiation",
+                "forecast_gap",
+                "forecast_ensemble_spread",
+                "forecast_source_state_guardrail",
+                "market_climate_context",
+                "forecast_relative_band_geometry",
+            ],
+            "blocked_feature_families": [
+                "observed_temp_path",
+                "live_reading_path",
+                "surface_weather",
+                "marine_microclimate",
+                "official_guidance",
+                "clob_microstructure",
+                "dynamic_source_state",
+            ],
+            "anchor_feature": "forecast_high",
+            "postprocess_policy": (
+                "Auxiliary forecast-profile fields may only change confidence "
+                "around forecast-relative band geometry; promotion still "
+                "requires daily-first blocked replay and high-disagreement "
+                "guardrails."
+            ),
+        }
+    raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
+
+
+def feature_names_for_subset(columns, feature_subset=FEATURE_SUBSET_ALL):
+    columns = list(columns)
+    feature_subset = feature_subset or FEATURE_SUBSET_ALL
+    if feature_subset == FEATURE_SUBSET_ALL:
+        return columns
+    if feature_subset != FEATURE_SUBSET_FORECAST_PROFILE:
+        raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
+
+    selected = []
+    for column in columns:
+        if column in FORECAST_PROFILE_ALLOWED_BASE_COLUMNS:
+            selected.append(column)
+            continue
+        if column.startswith("market_id_") or column.startswith("band_kind_"):
+            selected.append(column)
+            continue
+        if any(column.startswith(prefix) for prefix in FORECAST_PROFILE_BLOCKED_COLUMN_PREFIXES):
+            continue
+    return selected
+
+
+def reanalysis_promotion_lane_from_payload(payload):
+    if not payload:
+        return None
+    if payload.get("allowed_markets") is not None or payload.get("quarantined_markets") is not None:
+        return payload
+    for row in payload.get("inventory") or []:
+        if row.get("family_id") == "reanalysis_synoptic":
+            return row.get("promotion_lane")
+    return None
+
+
+def load_reanalysis_promotion_lane(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Reanalysis promotion lane file not found: {path}")
+    with path.open("r", encoding="utf-8") as handle:
+        return reanalysis_promotion_lane_from_payload(json.load(handle))
+
+
+def blocked_reanalysis_feature_columns(lane=None):
+    lane = lane or {}
+    explicit = {
+        column
+        for column in lane.get("blocked_feature_columns") or []
+        if column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
+    }
+    prefixes = tuple(str(prefix) for prefix in lane.get("blocked_feature_prefixes") or [])
+    if prefixes:
+        explicit.update(
+            column
+            for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
+            if column.startswith(prefixes)
+        )
+    return explicit
+
+
+def apply_reanalysis_promotion_lane_to_record(record, lane=None):
+    lane = lane or {}
+    allowed = set(lane.get("allowed_markets") or [])
+    market_id = record.get("market_id")
+    blocked_columns = blocked_reanalysis_feature_columns(lane)
+    if allowed and market_id not in allowed:
+        blocked_columns = set(REANALYSIS_SYNOPTIC_FEATURE_COLUMNS)
+    if not blocked_columns:
+        return record
+    for column in blocked_columns:
+        record[column] = None
+    if blocked_columns == set(REANALYSIS_SYNOPTIC_FEATURE_COLUMNS):
+        record["reanalysis_synoptic_available"] = 0.0
+    return record
+
+
+def apply_reanalysis_lane_to_records(records, lane=None):
+    if not lane:
+        return records
+    return [apply_reanalysis_promotion_lane_to_record(dict(record), lane) for record in records]
+
+
+def apply_reanalysis_lane_metadata(artifact, lane=None):
+    if not lane:
+        return artifact
+    lane = dict(lane)
+    artifact["source_family_lanes"] = {
+        **(artifact.get("source_family_lanes") or {}),
+        "reanalysis_synoptic": lane,
+    }
+    artifact["reanalysis_promotion_lane"] = lane
+    artifact["objective"] = f"{artifact.get('objective')}_reanalysis_positive_market_lane"
+    postprocess = artifact.setdefault("postprocess", {})
+    market_alpha = dict(postprocess.get("current_blend_market_alpha") or {})
+    for market_id in lane.get("quarantined_markets") or []:
+        market_alpha[market_id] = 0.0
+    postprocess["current_blend_market_alpha"] = market_alpha
+    for bundle in (artifact.get("models") or {}).values():
+        if isinstance(bundle, dict):
+            bundle["postprocess"] = dict(postprocess)
+    return artifact
 
 
 def finite_float(value):
@@ -824,7 +1049,12 @@ def plausible_native_bucket(bucket, unit):
     return -45 <= bucket <= 55
 
 
-def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None):
+def build_market_records(
+    spec,
+    cutoff_hours=INTRADAY_CUTOFF_HOURS,
+    max_days=None,
+    reanalysis_promotion_lane=None,
+):
     model = TorontoHighTempModel(market_id=spec.id)
     cache = model.historical_target_cache()
     daily = cache.get("daily") or {}
@@ -865,13 +1095,19 @@ def build_market_records(spec, cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days=None
                 continue
             record["cutoff_hour"] = int(hour)
             add_city_features(record, spec, climate, source_reliability=source_reliability)
+            apply_reanalysis_promotion_lane_to_record(record, reanalysis_promotion_lane)
             add_dynamic_source_state_features(record, historical_default=True)
             record["year"] = int(local_date.year)
             records.append(record)
     return records
 
 
-def build_family_dataset(unit="F", cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days_per_market=None):
+def build_family_dataset(
+    unit="F",
+    cutoff_hours=INTRADAY_CUTOFF_HOURS,
+    max_days_per_market=None,
+    reanalysis_promotion_lane=None,
+):
     specs = family_specs(unit)
     records = []
     counts = {}
@@ -880,6 +1116,7 @@ def build_family_dataset(unit="F", cutoff_hours=INTRADAY_CUTOFF_HOURS, max_days_
             spec,
             cutoff_hours=cutoff_hours,
             max_days=max_days_per_market,
+            reanalysis_promotion_lane=reanalysis_promotion_lane,
         )
         counts[spec.id] = len(market_records)
         records.extend(market_records)
@@ -1048,7 +1285,15 @@ def synthetic_band_rows_for_record(record, support, exact_radius=7, tail_stride=
     final = round_half_up(record.get("final_bucket"))
     if final is None:
         return []
+    if isinstance(support, dict):
+        unit = record_unit(record)
+        unit_support = support.get(unit) or support.get(str(unit).upper())
+        if not unit_support:
+            unit_support = support.get("F") or next(iter(support.values()), [])
+        support = unit_support
     support = sorted(int(value) for value in support)
+    if not support:
+        return []
     centers = [
         value for value in (
             final,
@@ -1107,6 +1352,23 @@ def build_band_rows(records, support):
     for record in records:
         rows.extend(synthetic_band_rows_for_record(record, support))
     return rows
+
+
+def band_training_support(records, family_unit="F"):
+    """Return native support for synthetic market-band training rows."""
+    if str(family_unit or "").lower() != "all":
+        return sorted({int(row["final_bucket"]) for row in records})
+    by_unit = defaultdict(set)
+    for row in records:
+        bucket = round_half_up(row.get("final_bucket"))
+        if bucket is None:
+            continue
+        by_unit[record_unit(row)].add(int(bucket))
+    return {
+        unit: sorted(values)
+        for unit, values in sorted(by_unit.items())
+        if values
+    }
 
 
 def train_hour_model(train_rows, feature_names=None):
@@ -1251,26 +1513,116 @@ def density_support_f(rows, margin_f=15.0):
     return max(-40.0, float(low)), min(130.0, float(high))
 
 
-def gaussian_density_f(mean_f, sigma_f, grid_f):
+def density_shape_config(shape_config=None):
+    cfg = dict(DENSITY_DEFAULT_SHAPE)
+    if isinstance(shape_config, dict):
+        cfg.update({
+            key: value
+            for key, value in shape_config.items()
+            if value is not None
+        })
+    shape = str(cfg.get("shape") or "gaussian")
+    if shape not in {"gaussian", "tail_mixture", "anchor_mixture"}:
+        shape = "gaussian"
+    cfg["shape"] = shape
+    cfg["id"] = str(cfg.get("id") or shape)
+    return cfg
+
+
+def density_shape_id(shape_config=None):
+    return density_shape_config(shape_config).get("id") or "gaussian"
+
+
+def density_shape_components(rows, means_array, sigma_f, shape_config=None):
+    cfg = density_shape_config(shape_config)
+    sigma = max(0.1, float(sigma_f or 1.0))
+    base_weight = 1.0
+    components = []
+
+    def add_component(weight, centers, sigma_scale):
+        weight = max(0.0, min(0.95, float(weight or 0.0)))
+        sigma_scale = max(0.05, float(sigma_scale or 1.0))
+        if weight <= 0:
+            return
+        components.append((weight, np.asarray(centers, dtype=float), sigma * sigma_scale))
+
+    if cfg["shape"] == "tail_mixture":
+        tail_weight = max(0.0, min(0.80, float(cfg.get("tail_weight") or 0.0)))
+        base_weight -= tail_weight
+        add_component(tail_weight, means_array, cfg.get("tail_scale") or 2.0)
+    elif cfg["shape"] == "anchor_mixture":
+        anchor_weight = max(0.0, min(0.80, float(cfg.get("anchor_weight") or 0.0)))
+        anchor = cfg.get("anchor")
+        anchor_values = []
+        for row, mean_f in zip(rows or [], means_array):
+            anchor_value = finite_float((row or {}).get(anchor))
+            anchor_values.append(float(mean_f) if anchor_value is None else anchor_value)
+        base_weight -= anchor_weight
+        add_component(anchor_weight, anchor_values, cfg.get("anchor_sigma_scale") or 1.0)
+
+    components.insert(0, (max(0.0, base_weight), np.asarray(means_array, dtype=float), sigma))
+    total_weight = sum(component[0] for component in components)
+    if total_weight <= 0:
+        return [(1.0, np.asarray(means_array, dtype=float), sigma)]
+    return [
+        (weight / total_weight, centers, component_sigma)
+        for weight, centers, component_sigma in components
+        if weight > 0
+    ]
+
+
+def density_weight_matrix(rows, means_array, grid, sigma_f, shape_config=None):
+    matrix = None
+    for weight, centers, component_sigma in density_shape_components(
+        rows,
+        means_array,
+        sigma_f,
+        shape_config=shape_config,
+    ):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            component = np.exp(-0.5 * ((grid[None, :] - centers[:, None]) / component_sigma) ** 2)
+        matrix = component * weight if matrix is None else matrix + component * weight
+    return matrix if matrix is not None else np.zeros((len(means_array), len(grid)), dtype=float)
+
+
+def gaussian_density_f(mean_f, sigma_f, grid_f, shape_config=None, row=None):
     sigma_f = max(0.1, float(sigma_f or 1.0))
-    density = {
-        float(value): math.exp(-0.5 * ((float(value) - float(mean_f)) / sigma_f) ** 2)
-        for value in grid_f
-    }
-    return continuous_density_payload(density, mean_f=float(mean_f), sigma_f=sigma_f)
+    grid = np.asarray([float(value) for value in grid_f], dtype=float)
+    weights = density_weight_matrix(
+        [row or {}],
+        np.asarray([float(mean_f)], dtype=float),
+        grid,
+        sigma_f,
+        shape_config=shape_config,
+    )[0]
+    density = {float(value): float(weight) for value, weight in zip(grid, weights)}
+    shape_cfg = density_shape_config(shape_config)
+    payload = continuous_density_payload(density, mean_f=float(mean_f), sigma_f=sigma_f)
+    payload["density_shape_id"] = shape_cfg["id"]
+    payload["density_shape"] = shape_cfg
+    return payload
 
 
 def predict_density_means(model, imputer, feature_names, rows):
     if not rows:
         return []
     frame = feature_frame(rows, feature_names=feature_names)
-    x_eval = imputer.transform(frame)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Skipping features without any observed values",
+            category=UserWarning,
+        )
+        x_eval = imputer.transform(frame)
     return [float(value) for value in model.predict(x_eval)]
 
 
-def predict_density_payloads(model, imputer, feature_names, rows, sigma_f, grid_f):
+def predict_density_payloads(model, imputer, feature_names, rows, sigma_f, grid_f, shape_config=None):
     means = predict_density_means(model, imputer, feature_names, rows)
-    return [gaussian_density_f(mean, sigma_f, grid_f) for mean in means]
+    return [
+        gaussian_density_f(mean, sigma_f, grid_f, shape_config=shape_config, row=row)
+        for mean, row in zip(means, rows or [])
+    ]
 
 
 def density_winning_probability(row, payload):
@@ -1316,7 +1668,771 @@ def evaluate_density_predictions(rows, payloads):
     }
 
 
-def train_band_hour_model(train_rows, feature_names=None, include_dynamic_source_state=False):
+def density_winner_bucket_score(rows, means, grid_f, sigma_f, shape_config=None):
+    """Score winner-bucket probabilities without materializing payload dicts.
+
+    Full replay still uses ``continuous_density_f`` payloads. During training,
+    sigma tuning only needs each holdout row's probability assigned to its
+    final rounded bucket, so a vectorized Gaussian-grid calculation avoids
+    repeatedly building and normalizing thousands of Python dictionaries.
+    """
+    if not rows or not means:
+        return None
+    usable = []
+    for row, mean_f in zip(rows or [], means or []):
+        final_bucket = row.get("final_bucket")
+        if final_bucket is None or mean_f is None:
+            continue
+        try:
+            final_bucket = float(final_bucket)
+            mean_f = float(mean_f)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(final_bucket) or not math.isfinite(mean_f):
+            continue
+        unit = record_unit(row)
+        low_f = native_value_to_f(final_bucket - 0.5, unit)
+        high_f = native_value_to_f(final_bucket + 0.5, unit)
+        target_f = native_value_to_f(final_bucket, unit)
+        usable.append((row, mean_f, low_f, high_f, target_f))
+    if not usable:
+        return None
+
+    sigma = max(0.1, float(sigma_f or 1.0))
+    grid = np.asarray([float(value) for value in grid_f], dtype=float)
+    source_rows = [row[0] for row in usable]
+    means_array = np.asarray([row[1] for row in usable], dtype=float)
+    lows = np.asarray([row[2] for row in usable], dtype=float)
+    highs = np.asarray([row[3] for row in usable], dtype=float)
+    targets = np.asarray([row[4] for row in usable], dtype=float)
+    weights = density_weight_matrix(source_rows, means_array, grid, sigma, shape_config=shape_config)
+    totals = weights.sum(axis=1)
+    mask = (grid[None, :] >= lows[:, None]) & (grid[None, :] < highs[:, None])
+    bucket_mass = (weights * mask).sum(axis=1)
+    probabilities = np.divide(
+        bucket_mass,
+        totals,
+        out=np.zeros_like(bucket_mass, dtype=float),
+        where=totals > 0,
+    )
+    probabilities = np.clip(probabilities, 1e-15, 1.0)
+    losses = -np.log(probabilities)
+    briers = (probabilities - 1.0) ** 2
+    absolute_errors = np.abs(means_array - targets)
+    return {
+        "n": int(len(probabilities)),
+        "density_logloss": float(losses.mean()),
+        "winning_bucket_brier": float(briers.mean()),
+        "mean_absolute_error_f": float(absolute_errors.mean()),
+    }
+
+
+def density_synthetic_market_band_rows(row, exact_radius=7, tail_stride=1):
+    final = round_half_up((row or {}).get("final_bucket"))
+    if final is None:
+        return []
+    unit = record_unit(row)
+    centers = [final]
+    for column in ("high_so_far", "forecast_high", "current_temp", "live_reading_temp", "climate_normal"):
+        value = (row or {}).get(column)
+        if value is None:
+            continue
+        try:
+            native_value = f_to_native(float(value), unit)
+        except (TypeError, ValueError):
+            continue
+        center = round_half_up(native_value)
+        if center is not None:
+            centers.append(center)
+    low = min(centers) - int(exact_radius)
+    high = max(centers) + int(exact_radius)
+    rows = []
+
+    def add(kind, value, value_hi=None):
+        outcome = band_outcome(kind, value, final, value_hi=value_hi)
+        if outcome is None:
+            return
+        distance = 0
+        if kind == "lte":
+            distance = max(0, final - int(value))
+        elif kind == "gte":
+            distance = max(0, int(value) - final)
+        else:
+            hi = int(value_hi) if value_hi is not None else int(value)
+            distance = 0 if int(value) <= final <= hi else min(abs(final - int(value)), abs(final - hi))
+        weight = 1.0
+        if outcome:
+            weight *= 4.0 if kind == "eq" else 2.0
+        if distance == 0:
+            weight *= 1.5
+        if int((row or {}).get("cutoff_hour") or 0) >= 16:
+            weight *= 2.0
+        rows.append({
+            "kind": kind,
+            "value": int(value),
+            "value_hi": int(value_hi) if value_hi is not None else None,
+            "outcome": int(outcome),
+            "unit": unit,
+            "settlement_distance": int(distance),
+            "_sample_weight": float(weight),
+        })
+
+    for value in range(low, high + 1):
+        add("eq", value)
+    for value in range(low, high):
+        add("eq", value, value_hi=value + 1)
+    for value in range(low, high + 1, max(1, int(tail_stride))):
+        add("lte", value)
+        add("gte", value)
+    return rows
+
+
+def canonical_row_to_native_band_record(row):
+    """Return a density row with temperature coordinates restored to native units."""
+    out = dict(row or {})
+    unit = record_unit(row)
+    for column in CANONICAL_F_ABSOLUTE_COLUMNS:
+        value = out.get(column)
+        if value in (None, ""):
+            continue
+        try:
+            out[column] = f_to_native(float(value), unit)
+        except (TypeError, ValueError):
+            continue
+    for column in CANONICAL_F_DELTA_COLUMNS:
+        value = out.get(column)
+        if value in (None, ""):
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            continue
+        out[column] = value * 5.0 / 9.0 if str(unit).upper() == "C" else value
+    out["unit"] = unit
+    out["display_unit"] = unit
+    return out
+
+
+def density_market_band_training_rows(row):
+    native_record = canonical_row_to_native_band_record(row)
+    rows = []
+    for band_row in density_synthetic_market_band_rows(row):
+        record = band_prediction_record(
+            native_record,
+            band_row["kind"],
+            band_row["value"],
+            value_hi=band_row.get("value_hi"),
+        )
+        record["outcome"] = int(band_row["outcome"])
+        record["unit"] = band_row["unit"]
+        record["settlement_distance"] = int(band_row["settlement_distance"])
+        record["_sample_weight"] = float(band_row.get("_sample_weight", 1.0))
+        rows.append(record)
+    return rows
+
+
+def density_projected_market_band_rows_and_probabilities(rows, means, grid_f, sigma_f, shape_config=None):
+    band_rows = []
+    probabilities = []
+    for row, mean_f in zip(rows or [], means or []):
+        if mean_f is None:
+            continue
+        try:
+            mean_f = float(mean_f)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(mean_f):
+            continue
+        payload = gaussian_density_f(
+            mean_f,
+            sigma_f,
+            grid_f,
+            shape_config=shape_config,
+            row=row,
+        )
+        for band_row in density_market_band_training_rows(row):
+            calibrated_payload = apply_continuous_density_calibration(
+                payload,
+                {},
+                floor_bucket=band_row.get("observed_floor_bucket"),
+                unit=band_row.get("unit") or record_unit(row),
+                resolution_weight=band_row.get("late_lockin_strength", 0.0),
+                cutoff_hour=row.get("cutoff_hour"),
+            )
+            probability = band_probability_from_density(
+                calibrated_payload.get("density_f") or {},
+                band_row.get("unit") or record_unit(row),
+                band_row.get("band_kind"),
+                band_row.get("band_value"),
+                value_hi=band_row.get("band_value_hi"),
+            )
+            band_rows.append(band_row)
+            probabilities.append(clip_probability(probability))
+    return band_rows, probabilities
+
+
+def density_postprocess_probabilities(rows, probabilities, config):
+    config = config or {}
+    adjusted = []
+    for row, probability in zip(rows or [], probabilities or []):
+        probability = clip_probability(probability)
+        if config.get("adjacent_calibration_enabled", False):
+            probability = apply_adjacent_calibration(probability, row, config=config)
+        if config.get("exact_winner_catchup_enabled", False):
+            probability = apply_exact_winner_catchup(probability, row, config=config)
+        if config.get("forecast_relative_calibration_enabled", False):
+            probability = apply_forecast_relative_density_calibration(probability, row, config=config)
+        adjusted.append(clip_probability(probability))
+    if config.get("partition_normalization_enabled", False):
+        adjusted = normalize_band_probabilities_for_rows(
+            rows,
+            adjusted,
+            gamma=float(config.get("partition_normalization_gamma", 1.25)),
+        )
+    return adjusted
+
+
+def weighted_market_band_brier(rows, probabilities):
+    total_weight = 0.0
+    total_loss = 0.0
+    for row, probability in zip(rows or [], probabilities or []):
+        if row.get("outcome") is None:
+            continue
+        try:
+            outcome = int(row.get("outcome"))
+            weight = float(row.get("_sample_weight", 1.0))
+        except (TypeError, ValueError):
+            continue
+        if weight <= 0:
+            continue
+        total_weight += weight
+        total_loss += weight * brier(clip_probability(probability), outcome)
+    if total_weight <= 0:
+        return None
+    return total_loss / total_weight
+
+
+def density_forecast_source_count_bucket(value):
+    try:
+        value = int(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= 1:
+        return "low_count"
+    if value == 2:
+        return "two_sources"
+    return "three_plus_sources"
+
+
+def density_forecast_disagreement_bucket(value):
+    try:
+        value = abs(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 1.0:
+        return "low_disagreement"
+    if value < 2.5:
+        return "moderate_disagreement"
+    return "high_disagreement"
+
+
+def density_forecast_pressure_bucket(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= -1.0:
+        return "cool_side"
+    if value >= 1.0:
+        return "warm_side"
+    return "near_forecast"
+
+
+def density_forecast_relative_contexts(row):
+    """Serve-time context fallbacks for density projection calibration."""
+    market_id = row.get("market_id") or "unknown"
+    kind = row.get("band_kind") or "unknown"
+    width = _band_width_label(row)
+    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    pressure = density_forecast_pressure_bucket(row.get("band_mid_minus_forecast"))
+    disagreement = density_forecast_disagreement_bucket(row.get("forecast_disagreement"))
+    source_count = density_forecast_source_count_bucket(row.get("forecast_source_count"))
+    floor_gap = calibration_gap_bucket(row.get("band_mid_minus_high_so_far"))
+    return [
+        (
+            f"market={market_id}|hour={hour_bucket}|kind={kind}|width={width}|"
+            f"pressure={pressure}|disagreement={disagreement}|source_count={source_count}|"
+            f"floor_gap={floor_gap}"
+        ),
+        (
+            f"market={market_id}|hour={hour_bucket}|kind={kind}|"
+            f"pressure={pressure}|disagreement={disagreement}|source_count={source_count}"
+        ),
+        (
+            f"market={market_id}|kind={kind}|pressure={pressure}|"
+            f"disagreement={disagreement}|source_count={source_count}"
+        ),
+        f"hour={hour_bucket}|kind={kind}|pressure={pressure}|disagreement={disagreement}",
+        f"kind={kind}|pressure={pressure}|disagreement={disagreement}",
+        f"pressure={pressure}|disagreement={disagreement}",
+        f"pressure={pressure}",
+    ]
+
+
+def _forecast_relative_strength_grid(values=None):
+    if values is None:
+        values = (1.0, 0.75, 0.50, 0.25, 0.0)
+    cleaned = []
+    for value in values:
+        try:
+            strength = max(0.0, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            continue
+        if strength not in cleaned:
+            cleaned.append(strength)
+    return cleaned or [0.0]
+
+
+def _with_forecast_relative_strength(calibration, strength):
+    copy = dict(calibration or {})
+    copy["strength"] = max(0.0, min(1.0, float(strength)))
+    return copy
+
+
+def forecast_relative_density_factor(row, config=None):
+    config = config or {}
+    calibration = config.get("forecast_relative_calibration") or config
+    contexts = calibration.get("contexts") or {}
+    if not contexts:
+        return 1.0
+    for context in density_forecast_relative_contexts(row):
+        entry = contexts.get(context)
+        if entry is None:
+            continue
+        if isinstance(entry, dict):
+            return float(entry.get("factor", 1.0))
+        return float(entry)
+    return 1.0
+
+
+def apply_forecast_relative_density_calibration(probability, row, config=None):
+    config = config or {}
+    calibration = config.get("forecast_relative_calibration") or config
+    factor = forecast_relative_density_factor(row, config={"forecast_relative_calibration": calibration})
+    strength = max(0.0, min(1.0, float(calibration.get("strength", 1.0))))
+    if factor == 1.0 or strength <= 0.0:
+        return clip_probability(probability)
+    return clip_probability(float(probability) * (float(factor) ** strength))
+
+
+def select_forecast_relative_density_strength(rows, probabilities, calibration, strength_grid=None):
+    rows = list(rows or [])
+    probabilities = [clip_probability(probability) for probability in (probabilities or [])]
+    grid = _forecast_relative_strength_grid(strength_grid)
+    baseline_brier = weighted_market_band_brier(rows, probabilities)
+    candidates = []
+    for strength in grid:
+        adjusted = [
+            apply_forecast_relative_density_calibration(
+                probability,
+                row,
+                config={
+                    "forecast_relative_calibration": _with_forecast_relative_strength(
+                        calibration,
+                        strength,
+                    ),
+                },
+            )
+            for row, probability in zip(rows, probabilities)
+        ]
+        candidates.append({
+            "strength": float(strength),
+            "market_band_brier": weighted_market_band_brier(rows, adjusted),
+        })
+    candidates = sorted(
+        candidates,
+        key=lambda row: (
+            float(row.get("market_band_brier", float("inf"))),
+            0 if float(row.get("strength", 0.0)) == 0.0 else 1,
+        ),
+    )
+    selected = candidates[0] if candidates else {"strength": 0.0, "market_band_brier": baseline_brier}
+    return {
+        "baseline_market_band_brier": baseline_brier,
+        "selected_strength": float(selected.get("strength", 0.0)),
+        "selected_market_band_brier": selected.get("market_band_brier"),
+        "candidates": candidates,
+    }
+
+
+def fit_forecast_relative_density_calibration(
+    rows,
+    probabilities,
+    min_rows=120,
+    prior_rows=240.0,
+    factor_min=0.50,
+    factor_max=1.60,
+):
+    stats = defaultdict(lambda: {"n": 0, "outcome_sum": 0.0, "prob_sum": 0.0})
+    for row, probability in zip(rows or [], probabilities or []):
+        try:
+            probability = clip_probability(probability)
+            outcome = float(row.get("outcome") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        for context in density_forecast_relative_contexts(row):
+            stats[context]["n"] += 1
+            stats[context]["outcome_sum"] += outcome
+            stats[context]["prob_sum"] += probability
+
+    contexts = {}
+    for context, stat in sorted(stats.items()):
+        n = int(stat["n"])
+        if n < int(min_rows):
+            continue
+        prob_sum = float(stat["prob_sum"])
+        if prob_sum <= 0:
+            continue
+        mean_probability = prob_sum / n
+        smoothed_observed = (
+            float(stat["outcome_sum"]) + mean_probability * float(prior_rows)
+        ) / (n + float(prior_rows))
+        smoothed_predicted = (
+            prob_sum + mean_probability * float(prior_rows)
+        ) / (n + float(prior_rows))
+        if smoothed_predicted <= 0:
+            continue
+        factor = smoothed_observed / smoothed_predicted
+        factor = max(float(factor_min), min(float(factor_max), factor))
+        contexts[context] = {
+            "factor": factor,
+            "n": n,
+            "observed_rate": float(stat["outcome_sum"]) / n,
+            "mean_probability": mean_probability,
+        }
+
+    calibration = {
+        "version": "density_forecast_relative_v0.1",
+        "min_rows": int(min_rows),
+        "prior_rows": float(prior_rows),
+        "factor_min": float(factor_min),
+        "factor_max": float(factor_max),
+        "strength": 1.0,
+        "context_count": len(contexts),
+        "contexts": contexts,
+    }
+    diagnostics = select_forecast_relative_density_strength(rows, probabilities, calibration)
+    calibration["strength"] = diagnostics["selected_strength"]
+    calibration["strength_diagnostics"] = diagnostics
+    return calibration
+
+
+def fit_density_market_band_postprocess(rows, probabilities, min_improvement=0.003):
+    rows = list(rows or [])
+    probabilities = [clip_probability(probability) for probability in (probabilities or [])]
+    adjacent = fit_adjacent_calibration(rows, probabilities)
+    exact = fit_exact_winner_catchup(
+        rows,
+        probabilities,
+        factor_min=1.0,
+        guardrail_rows=rows,
+        guardrail_probabilities=probabilities,
+    )
+    forecast_relative = fit_forecast_relative_density_calibration(rows, probabilities)
+    base_config = {
+        "schema_version": "density_market_band_postprocess_v0.2",
+        "adjacent_calibration": adjacent,
+        "exact_winner_catchup": exact,
+        "forecast_relative_calibration": forecast_relative,
+        "partition_normalization_gamma": 1.25,
+        "calibration_rows": len(rows),
+    }
+    candidates = []
+    policy_grid = [
+        ("disabled", False, False, False, False),
+        ("forecast_relative", False, False, True, False),
+        ("adjacent_only", True, False, False, False),
+        ("exact_only", False, True, False, False),
+        ("adjacent_exact", True, True, False, False),
+        ("forecast_adjacent", True, False, True, False),
+        ("forecast_exact", False, True, True, False),
+        ("forecast_adjacent_exact", True, True, True, False),
+        ("forecast_normalized", False, False, True, True),
+        ("adjacent_normalized", True, False, False, True),
+        ("exact_normalized", False, True, False, True),
+        ("adjacent_exact_normalized", True, True, False, True),
+        ("forecast_adjacent_exact_normalized", True, True, True, True),
+    ]
+    for policy_id, adjacent_enabled, exact_enabled, forecast_enabled, normalized in policy_grid:
+        config = {
+            **base_config,
+            "enabled": policy_id != "disabled",
+            "policy_id": policy_id,
+            "adjacent_calibration_enabled": bool(adjacent_enabled),
+            "exact_winner_catchup_enabled": bool(exact_enabled),
+            "forecast_relative_calibration_enabled": bool(forecast_enabled),
+            "partition_normalization_enabled": bool(normalized),
+        }
+        candidate_probabilities = density_postprocess_probabilities(rows, probabilities, config)
+        candidates.append({
+            "policy_id": policy_id,
+            "enabled": policy_id != "disabled",
+            "adjacent_calibration_enabled": bool(adjacent_enabled),
+            "exact_winner_catchup_enabled": bool(exact_enabled),
+            "forecast_relative_calibration_enabled": bool(forecast_enabled),
+            "partition_normalization_enabled": bool(normalized),
+            "market_band_brier": weighted_market_band_brier(rows, candidate_probabilities),
+        })
+    baseline = next(row for row in candidates if row["policy_id"] == "disabled")
+    candidates = sorted(
+        candidates,
+        key=lambda row: (
+            float(row.get("market_band_brier", float("inf"))),
+            0 if row["policy_id"] == "disabled" else 1,
+        ),
+    )
+    best = candidates[0]
+    baseline_brier = baseline.get("market_band_brier")
+    best_brier = best.get("market_band_brier")
+    if (
+        baseline_brier is None
+        or best_brier is None
+        or best["policy_id"] == "disabled"
+        or (float(baseline_brier) - float(best_brier)) < float(min_improvement)
+    ):
+        selected = baseline
+    else:
+        selected = best
+    return {
+        **base_config,
+        "enabled": bool(selected.get("enabled")),
+        "policy_id": selected.get("policy_id"),
+        "adjacent_calibration_enabled": bool(selected.get("adjacent_calibration_enabled")),
+        "exact_winner_catchup_enabled": bool(selected.get("exact_winner_catchup_enabled")),
+        "forecast_relative_calibration_enabled": bool(selected.get("forecast_relative_calibration_enabled")),
+        "partition_normalization_enabled": bool(selected.get("partition_normalization_enabled")),
+        "selection": {
+            "baseline_market_band_brier": baseline_brier,
+            "selected_market_band_brier": selected.get("market_band_brier"),
+            "selected_policy_id": selected.get("policy_id"),
+            "min_improvement": float(min_improvement),
+            "candidates": candidates,
+        },
+    }
+
+
+def density_market_band_score(rows, means, grid_f, sigma_f, shape_config=None):
+    """Score Gaussian density width on replay-shaped native market bands."""
+    if not rows or not means:
+        return None
+    usable = []
+    for row, mean_f in zip(rows or [], means or []):
+        if mean_f is None:
+            continue
+        try:
+            mean_f = float(mean_f)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(mean_f):
+            continue
+        for band_row in density_synthetic_market_band_rows(row):
+            low_native, high_native = bucket_interval_native(
+                band_row["kind"],
+                band_row["value"],
+                band_row.get("value_hi"),
+            )
+            low_f, high_f = native_interval_to_f(
+                low_native,
+                high_native,
+                band_row["unit"],
+            )
+            usable.append((
+                row,
+                mean_f,
+                float("-inf") if low_f is None else float(low_f),
+                float("inf") if high_f is None else float(high_f),
+                float(band_row["outcome"]),
+                float(band_row.get("_sample_weight", 1.0)),
+            ))
+    if not usable:
+        return None
+
+    sigma = max(0.1, float(sigma_f or 1.0))
+    grid = np.asarray([float(value) for value in grid_f], dtype=float)
+    source_rows = [row[0] for row in usable]
+    means_array = np.asarray([row[1] for row in usable], dtype=float)
+    lows = np.asarray([row[2] for row in usable], dtype=float)
+    highs = np.asarray([row[3] for row in usable], dtype=float)
+    outcomes = np.asarray([row[4] for row in usable], dtype=float)
+    sample_weights = np.asarray([row[5] for row in usable], dtype=float)
+    weights = density_weight_matrix(source_rows, means_array, grid, sigma, shape_config=shape_config)
+    totals = weights.sum(axis=1)
+    mask = (grid[None, :] >= lows[:, None]) & (grid[None, :] < highs[:, None])
+    bucket_mass = (weights * mask).sum(axis=1)
+    probabilities = np.divide(
+        bucket_mass,
+        totals,
+        out=np.zeros_like(bucket_mass, dtype=float),
+        where=totals > 0,
+    )
+    probabilities = np.clip(probabilities, 1e-15, 1.0 - 1e-15)
+    briers = (probabilities - outcomes) ** 2
+    losses = -(
+        outcomes * np.log(probabilities)
+        + (1.0 - outcomes) * np.log(1.0 - probabilities)
+    )
+    weight_sum = float(sample_weights.sum())
+    if weight_sum <= 0:
+        sample_weights = np.ones_like(sample_weights)
+        weight_sum = float(sample_weights.sum())
+    return {
+        "market_band_rows": int(len(probabilities)),
+        "market_band_brier": float(np.average(briers, weights=sample_weights)),
+        "market_band_logloss": float(np.average(losses, weights=sample_weights)),
+        "market_band_positive_rate": float(np.average(outcomes, weights=sample_weights)),
+    }
+
+
+def density_sigma_candidates(base_sigma_f, scales=DENSITY_SIGMA_TUNING_SCALES, floor=0.35, cap=10.0):
+    base = residual_sigma_f([float(base_sigma_f or 3.0)], floor=floor, cap=cap)
+    candidates = {base}
+    for scale in scales or ():
+        try:
+            value = float(base) * float(scale)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            candidates.add(max(float(floor), min(float(cap), value)))
+    return sorted(round(value, 6) for value in candidates)
+
+
+def evaluate_density_sigma(rows, means, grid_f, sigma_f, shape_config=None):
+    winner_score = density_winner_bucket_score(
+        rows,
+        means,
+        grid_f,
+        sigma_f,
+        shape_config=shape_config,
+    ) or {}
+    band_score = density_market_band_score(
+        rows,
+        means,
+        grid_f,
+        sigma_f,
+        shape_config=shape_config,
+    ) or {}
+    if not winner_score and not band_score:
+        return None
+    return {**winner_score, **band_score}
+
+
+def tune_density_sigma_f(rows, means, grid_f, base_sigma_f):
+    """Choose density width against holdout market-band Brier.
+
+    The replay gate scores projected market-band probabilities, not raw
+    temperature RMSE or winner-bucket probability alone. A Gaussian width that
+    is optimal for the true bucket can still overprice nearby losing bands, so
+    the v0.4 density artifact selects sigma from a small holdout grid using
+    synthetic native market bands that mirror replay's eq/lte/gte scoring.
+    """
+    if not rows or not means:
+        return None
+    candidates = []
+    for sigma_f in density_sigma_candidates(base_sigma_f):
+        score = evaluate_density_sigma(rows, means, grid_f, sigma_f)
+        if not score:
+            continue
+        candidates.append({
+            "sigma_f": sigma_f,
+            "density_logloss": score.get("density_logloss"),
+            "winning_bucket_brier": score.get("winning_bucket_brier"),
+            "mean_absolute_error_f": score.get("mean_absolute_error_f"),
+            "market_band_rows": score.get("market_band_rows"),
+            "market_band_brier": score.get("market_band_brier"),
+            "market_band_logloss": score.get("market_band_logloss"),
+            "market_band_positive_rate": score.get("market_band_positive_rate"),
+            "n": score.get("n"),
+        })
+    if not candidates:
+        return None
+    candidates = sorted(
+        candidates,
+        key=lambda row: (
+            float(row.get("market_band_brier", float("inf"))),
+            float(row.get("winning_bucket_brier", float("inf"))),
+            float(row.get("density_logloss", float("inf"))),
+            abs(float(row.get("sigma_f")) - float(base_sigma_f or row.get("sigma_f"))),
+        ),
+    )
+    return {
+        "selected_sigma_f": candidates[0]["sigma_f"],
+        "selected_score": candidates[0],
+        "base_sigma_f": float(base_sigma_f or candidates[0]["sigma_f"]),
+        "candidates": candidates,
+    }
+
+
+def tune_density_shape_policy(rows, means, grid_f, base_sigma_f):
+    """Choose sigma and density shape against holdout market-band Brier."""
+    if not rows or not means:
+        return None
+    candidates = []
+    for sigma_f in density_sigma_candidates(base_sigma_f):
+        for shape_config in DENSITY_SHAPE_TUNING_CANDIDATES:
+            shape_cfg = density_shape_config(shape_config)
+            score = evaluate_density_sigma(
+                rows,
+                means,
+                grid_f,
+                sigma_f,
+                shape_config=shape_cfg,
+            )
+            if not score:
+                continue
+            candidates.append({
+                "sigma_f": sigma_f,
+                "density_shape_id": shape_cfg["id"],
+                "density_shape": shape_cfg,
+                "density_logloss": score.get("density_logloss"),
+                "winning_bucket_brier": score.get("winning_bucket_brier"),
+                "mean_absolute_error_f": score.get("mean_absolute_error_f"),
+                "market_band_rows": score.get("market_band_rows"),
+                "market_band_brier": score.get("market_band_brier"),
+                "market_band_logloss": score.get("market_band_logloss"),
+                "market_band_positive_rate": score.get("market_band_positive_rate"),
+                "n": score.get("n"),
+            })
+    if not candidates:
+        return None
+    base_shape_id = density_shape_id(DENSITY_DEFAULT_SHAPE)
+    candidates = sorted(
+        candidates,
+        key=lambda row: (
+            float(row.get("market_band_brier", float("inf"))),
+            float(row.get("winning_bucket_brier", float("inf"))),
+            float(row.get("density_logloss", float("inf"))),
+            0 if row.get("density_shape_id") == base_shape_id else 1,
+            abs(float(row.get("sigma_f")) - float(base_sigma_f or row.get("sigma_f"))),
+        ),
+    )
+    return {
+        "selected_sigma_f": candidates[0]["sigma_f"],
+        "selected_density_shape_id": candidates[0]["density_shape_id"],
+        "selected_density_shape": candidates[0]["density_shape"],
+        "selected_score": candidates[0],
+        "base_sigma_f": float(base_sigma_f or candidates[0]["sigma_f"]),
+        "base_density_shape_id": base_shape_id,
+        "candidate_shape_ids": [density_shape_id(row) for row in DENSITY_SHAPE_TUNING_CANDIDATES],
+        "candidates": candidates,
+    }
+
+
+def train_band_hour_model(
+    train_rows,
+    feature_names=None,
+    include_dynamic_source_state=False,
+    feature_subset=FEATURE_SUBSET_ALL,
+):
     build_started = time.perf_counter()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", pd.errors.PerformanceWarning)
@@ -1325,6 +2441,10 @@ def train_band_hour_model(train_rows, feature_names=None, include_dynamic_source
             feature_names=feature_names,
             include_dynamic_source_state=include_dynamic_source_state,
         )
+        if feature_names is None:
+            train_frame = train_frame.reindex(
+                columns=feature_names_for_subset(train_frame.columns, feature_subset),
+            )
     build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
     imputer = SimpleImputer(strategy="median")
@@ -1346,6 +2466,7 @@ def train_band_hour_model(train_rows, feature_names=None, include_dynamic_source
         "matrix_build_seconds": round(build_seconds, 6),
         "model_fit_seconds": round(fit_seconds, 6),
         "performance_warning_count": performance_warning_count(caught),
+        "feature_subset": feature_subset or FEATURE_SUBSET_ALL,
     }
     return model, imputer, feature_names, metrics
 
@@ -1400,7 +2521,66 @@ def apply_band_postprocessing(probability, row, config=None):
         p = apply_adjacent_calibration(p, row, config=config)
     if config.get("exact_winner_catchup_enabled", False):
         p = apply_exact_winner_catchup(p, row, config=config)
+    if config.get("forecast_centering_enabled", False):
+        p = apply_forecast_centering(p, row, config=config)
+    if config.get("market_bias_calibration_enabled", False):
+        p = apply_market_bias_calibration(p, row, config=config)
     return clip_probability(p)
+
+
+def normal_cdf(value, mean_value, sigma):
+    sigma = max(0.05, float(sigma or 1.0))
+    z = (float(value) - float(mean_value)) / (sigma * math.sqrt(2.0))
+    return 0.5 * (1.0 + math.erf(z))
+
+
+def forecast_anchor_probability(row, sigma=1.25):
+    forecast_high = finite_float((row or {}).get("forecast_high"))
+    value = finite_float((row or {}).get("band_value"))
+    value_hi = finite_float((row or {}).get("band_value_hi"))
+    if forecast_high is None or value is None:
+        return None
+    value_hi = value if value_hi is None else value_hi
+    kind = (row or {}).get("band_kind") or "eq"
+    if kind == "lte":
+        probability = normal_cdf(value + 0.5, forecast_high, sigma)
+    elif kind == "gte":
+        probability = 1.0 - normal_cdf(value - 0.5, forecast_high, sigma)
+    else:
+        lo = min(value, value_hi)
+        hi = max(value, value_hi)
+        probability = normal_cdf(hi + 0.5, forecast_high, sigma) - normal_cdf(lo - 0.5, forecast_high, sigma)
+    return clip_probability(probability)
+
+
+def forecast_centering_alpha(row, config=None):
+    config = config or {}
+    try:
+        hour = int(float((row or {}).get("cutoff_hour") or (row or {}).get("candidate_cutoff_hour")))
+    except (TypeError, ValueError):
+        hour = None
+    alpha_by_hour = config.get("forecast_centering_alpha_by_hour") or {}
+    if hour is not None and str(hour) in alpha_by_hour:
+        return max(0.0, min(1.0, float(alpha_by_hour[str(hour)])))
+    if hour is not None and hour in alpha_by_hour:
+        return max(0.0, min(1.0, float(alpha_by_hour[hour])))
+    if hour is not None and 0 <= hour <= 8:
+        return max(0.0, min(1.0, float(config.get("forecast_centering_early_alpha", 0.0))))
+    return max(0.0, min(1.0, float(config.get("forecast_centering_default_alpha", 0.0))))
+
+
+def apply_forecast_centering(probability, row, config=None):
+    config = config or {}
+    alpha = forecast_centering_alpha(row, config=config)
+    if alpha <= 0.0:
+        return clip_probability(probability)
+    anchor = forecast_anchor_probability(
+        row,
+        sigma=float(config.get("forecast_centering_sigma", 1.25)),
+    )
+    if anchor is None:
+        return clip_probability(probability)
+    return clip_probability((1.0 - alpha) * float(probability) + alpha * float(anchor))
 
 
 def calibration_hour_bucket(hour):
@@ -1550,6 +2730,199 @@ def adjacent_calibration_factor(row, config=None):
 
 def apply_adjacent_calibration(probability, row, config=None):
     factor = adjacent_calibration_factor(row, config=config)
+    if factor == 1.0:
+        return clip_probability(probability)
+    return clip_probability(float(probability) * factor)
+
+
+def market_bias_calibration_contexts(row):
+    """Inference-available fallbacks for broad market/hour/kind bias repair."""
+    market_id = row.get("market_id") or "unknown"
+    kind = row.get("band_kind") or "unknown"
+    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    return [
+        f"market={market_id}|hour={hour_bucket}|kind={kind}",
+        f"market={market_id}|kind={kind}",
+        f"market={market_id}|hour={hour_bucket}",
+        f"market={market_id}",
+    ]
+
+
+def _brier_for_probabilities(rows, probabilities):
+    pairs = [
+        (row, probability)
+        for row, probability in zip(rows or [], probabilities or [])
+        if probability is not None and row.get("outcome") is not None
+    ]
+    if not pairs:
+        return None
+    return sum(
+        brier(clip_probability(probability), int(row["outcome"]))
+        for row, probability in pairs
+    ) / len(pairs)
+
+
+def _market_brier_map(rows, probabilities):
+    grouped = defaultdict(list)
+    for row, probability in zip(rows or [], probabilities or []):
+        if probability is None or row.get("outcome") is None:
+            continue
+        grouped[row.get("market_id") or "unknown"].append((row, probability))
+    return {
+        market_id: sum(
+            brier(clip_probability(probability), int(row["outcome"]))
+            for row, probability in pairs
+        ) / len(pairs)
+        for market_id, pairs in grouped.items()
+        if pairs
+    }
+
+
+def fit_market_bias_calibration(
+    rows,
+    probabilities,
+    min_rows=120,
+    prior_rows=400.0,
+    factor_min=0.40,
+    factor_max=2.25,
+    min_improvement=0.0002,
+    max_market_regression=0.0010,
+):
+    """Fit a conservative multiplicative market/hour/kind calibration.
+
+    The contexts deliberately use only fields available before settlement. The
+    calibration is enabled only if it improves holdout Brier and does not create
+    a material market-level regression on the same holdout partition.
+    """
+    stats = defaultdict(lambda: {"n": 0, "outcome_sum": 0.0, "prob_sum": 0.0})
+    clean_rows = []
+    clean_probabilities = []
+    for row, probability in zip(rows or [], probabilities or []):
+        if row.get("outcome") is None or probability is None:
+            continue
+        probability = clip_probability(probability)
+        clean_rows.append(row)
+        clean_probabilities.append(probability)
+        outcome = float(row.get("outcome") or 0.0)
+        for context in market_bias_calibration_contexts(row):
+            stats[context]["n"] += 1
+            stats[context]["outcome_sum"] += outcome
+            stats[context]["prob_sum"] += probability
+
+    contexts = {}
+    for context, stat in sorted(stats.items()):
+        n = int(stat["n"])
+        if n < int(min_rows):
+            continue
+        prob_sum = float(stat["prob_sum"])
+        if prob_sum <= 0:
+            continue
+        mean_probability = prob_sum / n
+        smoothed_observed = (
+            float(stat["outcome_sum"]) + mean_probability * float(prior_rows)
+        ) / (n + float(prior_rows))
+        smoothed_predicted = (
+            prob_sum + mean_probability * float(prior_rows)
+        ) / (n + float(prior_rows))
+        if smoothed_predicted <= 0:
+            continue
+        factor = smoothed_observed / smoothed_predicted
+        factor = max(float(factor_min), min(float(factor_max), factor))
+        contexts[context] = {
+            "factor": factor,
+            "n": n,
+            "observed_rate": float(stat["outcome_sum"]) / n,
+            "mean_probability": mean_probability,
+        }
+
+    calibration = {
+        "version": "market_hour_kind_bias_v1",
+        "enabled": False,
+        "min_rows": int(min_rows),
+        "prior_rows": float(prior_rows),
+        "factor_min": float(factor_min),
+        "factor_max": float(factor_max),
+        "min_improvement": float(min_improvement),
+        "max_market_regression": float(max_market_regression),
+        "context_count": len(contexts),
+        "contexts": contexts,
+    }
+    baseline_brier = _brier_for_probabilities(clean_rows, clean_probabilities)
+    trial_calibration = {**calibration, "enabled": True}
+    candidate_probabilities = [
+        apply_market_bias_calibration(
+            probability,
+            row,
+            config={"market_bias_calibration": trial_calibration},
+        )
+        for row, probability in zip(clean_rows, clean_probabilities)
+    ]
+    candidate_brier = _brier_for_probabilities(clean_rows, candidate_probabilities)
+    baseline_by_market = _market_brier_map(clean_rows, clean_probabilities)
+    candidate_by_market = _market_brier_map(clean_rows, candidate_probabilities)
+    market_regressions = {
+        market_id: candidate_by_market[market_id] - baseline_brier
+        for market_id, baseline_brier in baseline_by_market.items()
+        if market_id in candidate_by_market
+        and candidate_by_market[market_id] - baseline_brier > float(max_market_regression)
+    }
+    enabled = (
+        baseline_brier is not None
+        and candidate_brier is not None
+        and candidate_brier <= baseline_brier - float(min_improvement)
+        and not market_regressions
+        and bool(contexts)
+    )
+    calibration.update({
+        "enabled": bool(enabled),
+        "selection": {
+            "baseline_brier": baseline_brier,
+            "candidate_brier": candidate_brier,
+            "delta_brier": (
+                candidate_brier - baseline_brier
+                if baseline_brier is not None and candidate_brier is not None
+                else None
+            ),
+            "market_regressions": market_regressions,
+        },
+    })
+    if not enabled:
+        calibration["disabled_reason"] = (
+            "holdout_brier_or_market_regression_gate_failed"
+            if contexts else
+            "no_contexts"
+        )
+    return calibration
+
+
+def market_bias_calibration_factor(row, config=None):
+    config = config or {}
+    calibration = config.get("market_bias_calibration") or config
+    if not calibration.get("enabled", False):
+        return 1.0
+    excluded_markets = set(calibration.get("excluded_markets") or [])
+    if row.get("market_id") in excluded_markets:
+        return 1.0
+    allowed_source_states = set(calibration.get("allowed_source_freshness_states") or [])
+    if allowed_source_states:
+        source_state = row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
+        if source_state not in allowed_source_states:
+            return 1.0
+    contexts = calibration.get("contexts") or {}
+    if not contexts:
+        return 1.0
+    for context in market_bias_calibration_contexts(row):
+        entry = contexts.get(context)
+        if entry is None:
+            continue
+        if isinstance(entry, dict):
+            return float(entry.get("factor", 1.0))
+        return float(entry)
+    return 1.0
+
+
+def apply_market_bias_calibration(probability, row, config=None):
+    factor = market_bias_calibration_factor(row, config=config)
     if factor == 1.0:
         return clip_probability(probability)
     return clip_probability(float(probability) * factor)
@@ -1724,11 +3097,20 @@ def _band_validation_partition_key(row):
 
 def normalize_band_probabilities_for_rows(rows, probabilities, gamma=1.25):
     """Mirror replay partition normalization for held-out training rows."""
-    gamma = max(0.1, float(gamma or 1.0))
-    output = [clip_probability(probability) for probability in probabilities]
+    grouped = _band_validation_groups(rows)
+    return _normalize_band_probabilities_for_groups(probabilities, grouped, gamma=gamma)
+
+
+def _band_validation_groups(rows):
     grouped = defaultdict(list)
     for idx, row in enumerate(rows):
         grouped[_band_validation_partition_key(row)].append(idx)
+    return grouped
+
+
+def _normalize_band_probabilities_for_groups(probabilities, grouped, gamma=1.25):
+    gamma = max(0.1, float(gamma or 1.0))
+    output = [clip_probability(probability) for probability in probabilities]
     for indexes in grouped.values():
         weights = [max(1e-12, output[idx]) ** gamma for idx in indexes]
         total = sum(weights)
@@ -1755,6 +3137,55 @@ def _slice_brier(rows, probabilities, predicate):
     }
 
 
+def _slice_brier_indexes(outcomes, probabilities, indexes):
+    pairs = [
+        (int(outcomes[idx]), float(probabilities[idx]))
+        for idx in indexes
+        if outcomes[idx] is not None
+    ]
+    if not pairs:
+        return {"n": 0, "brier": None, "base_rate": None, "mean_probability": None}
+    return {
+        "n": len(pairs),
+        "brier": sum(brier(probability, outcome) for outcome, probability in pairs) / len(pairs),
+        "base_rate": sum(outcome for outcome, _ in pairs) / len(pairs),
+        "mean_probability": sum(probability for _, probability in pairs) / len(pairs),
+    }
+
+
+def _exact_winner_factor_delta(row, contexts):
+    if not contexts:
+        return 0.0
+    for context in exact_winner_catchup_contexts(row):
+        entry = contexts.get(context)
+        if entry is None:
+            continue
+        if isinstance(entry, dict):
+            factor = float(entry.get("factor", 1.0))
+        else:
+            factor = float(entry)
+        return factor - 1.0
+    return 0.0
+
+
+def _strength_candidate_probabilities_precomputed(
+    probabilities,
+    factor_deltas,
+    groups,
+    strength,
+    normalization_gamma=1.25,
+):
+    adjusted = [
+        clip_probability(probability * (1.0 + float(strength) * delta))
+        for probability, delta in zip(probabilities, factor_deltas)
+    ]
+    return _normalize_band_probabilities_for_groups(
+        adjusted,
+        groups,
+        gamma=normalization_gamma,
+    )
+
+
 def _strength_candidate_probabilities(rows, probabilities, calibration, strength, normalization_gamma=1.25):
     config = {"exact_winner_catchup": _with_exact_strength(calibration, strength)}
     adjusted = [
@@ -1776,24 +3207,50 @@ def select_exact_winner_catchup_strength(
     rows = list(rows or [])
     probabilities = [clip_probability(probability) for probability in (probabilities or [])]
     grid = _exact_strength_grid(strength_grid)
-    baseline = normalize_band_probabilities_for_rows(rows, probabilities, gamma=normalization_gamma)
-    baseline_distance0 = _slice_brier(rows, baseline, lambda row: _settlement_distance_value(row) == 0)
-    baseline_one_above = _slice_brier(rows, baseline, lambda row: _settlement_distance_value(row) == 1)
-    baseline_eq = _slice_brier(rows, baseline, lambda row: row.get("band_kind") == "eq")
+    groups = _band_validation_groups(rows)
+    baseline = _normalize_band_probabilities_for_groups(
+        probabilities,
+        groups,
+        gamma=normalization_gamma,
+    )
+    outcomes = []
+    distance0_indexes = []
+    one_above_indexes = []
+    eq_indexes = []
+    for idx, row in enumerate(rows):
+        try:
+            outcome = int(row["outcome"]) if row.get("outcome") is not None else None
+        except (TypeError, ValueError):
+            outcome = None
+        outcomes.append(outcome)
+        distance = _settlement_distance_value(row)
+        if distance == 0:
+            distance0_indexes.append(idx)
+        if distance == 1:
+            one_above_indexes.append(idx)
+        if row.get("band_kind") == "eq":
+            eq_indexes.append(idx)
+    factor_deltas = [
+        _exact_winner_factor_delta(row, calibration.get("contexts") or {})
+        for row in rows
+    ]
+    baseline_distance0 = _slice_brier_indexes(outcomes, baseline, distance0_indexes)
+    baseline_one_above = _slice_brier_indexes(outcomes, baseline, one_above_indexes)
+    baseline_eq = _slice_brier_indexes(outcomes, baseline, eq_indexes)
 
     candidates = []
     selected = None
     for strength in grid:
-        candidate = _strength_candidate_probabilities(
-            rows,
+        candidate = _strength_candidate_probabilities_precomputed(
             probabilities,
-            calibration,
+            factor_deltas,
+            groups,
             strength,
             normalization_gamma=normalization_gamma,
         )
-        distance0 = _slice_brier(rows, candidate, lambda row: _settlement_distance_value(row) == 0)
-        one_above = _slice_brier(rows, candidate, lambda row: _settlement_distance_value(row) == 1)
-        eq = _slice_brier(rows, candidate, lambda row: row.get("band_kind") == "eq")
+        distance0 = _slice_brier_indexes(outcomes, candidate, distance0_indexes)
+        one_above = _slice_brier_indexes(outcomes, candidate, one_above_indexes)
+        eq = _slice_brier_indexes(outcomes, candidate, eq_indexes)
         distance0_delta = (
             distance0["brier"] - baseline_distance0["brier"]
             if distance0["brier"] is not None and baseline_distance0["brier"] is not None
@@ -2016,7 +3473,10 @@ def train_pooled_models(records, holdout_year=None):
     return artifact, validation_rows
 
 
-def default_band_postprocess(exact_winner_catchup_enabled=False):
+def default_band_postprocess(
+    exact_winner_catchup_enabled=False,
+    exact_winner_shadow_blend=True,
+):
     config = {
         "hard_floor_enabled": True,
         "support_floor_enabled": True,
@@ -2028,6 +3488,13 @@ def default_band_postprocess(exact_winner_catchup_enabled=False):
         "adjacent_calibration": {},
         "exact_winner_catchup_enabled": bool(exact_winner_catchup_enabled),
         "exact_winner_catchup": {},
+        "forecast_centering_enabled": False,
+        "forecast_centering_sigma": 1.25,
+        "forecast_centering_default_alpha": 0.0,
+        "forecast_centering_early_alpha": 0.0,
+        "forecast_centering_alpha_by_hour": {},
+        "market_bias_calibration_enabled": False,
+        "market_bias_calibration": {},
         "partition_normalization_enabled": True,
         "partition_normalization_gamma": 1.25,
         "current_blend_enabled": True,
@@ -2043,7 +3510,7 @@ def default_band_postprocess(exact_winner_catchup_enabled=False):
             "seattle": 0.20,
         },
     }
-    if exact_winner_catchup_enabled:
+    if exact_winner_catchup_enabled and exact_winner_shadow_blend:
         # Item 70 is a catch-up shadow lane. Keep incumbent blending disabled
         # except for markets that cleared paired full-replay guardrails.
         config["current_blend_default_alpha"] = 0.0
@@ -2054,6 +3521,22 @@ def default_band_postprocess(exact_winner_catchup_enabled=False):
             "seattle": 0.10,
         }
     return config
+
+
+def apply_source_freshness_guardrail(
+    artifact,
+    policy_id="item35_all_fresh_only_candidate_v0_1",
+):
+    """Blend non-all-fresh replay rows fully back to incumbent serving."""
+    postprocess = artifact.setdefault("postprocess", {})
+    postprocess["current_blend_source_freshness_default_alpha"] = 0.0
+    postprocess["current_blend_source_freshness_alpha"] = {
+        "all_fresh": 1.0,
+    }
+    postprocess["source_freshness_guardrail_policy"] = policy_id
+    for bundle in (artifact.get("models") or {}).values():
+        bundle["postprocess"] = dict(postprocess)
+    return artifact
 
 
 def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min_sigma_validation_residuals=20):
@@ -2068,24 +3551,35 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
     low_f, high_f = density_support_f(canonical_records)
     grid_f = canonical_grid_f(low_f, high_f, grid_step_f)
     artifact = {
-        "schema_version": "pooled_continuous_density_hgb_v0.2",
+        "schema_version": "pooled_continuous_density_hgb_v0.7",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "family_unit": "all",
         "prediction_mode": "continuous_density_f",
-        "objective": "canonical_f_density_gaussian_residual_holdout_sigma",
+        "objective": "canonical_f_density_shape_holdout_forecast_relative_band_postprocess",
         "trained_at": datetime.now().isoformat(),
         "grid_low_f": low_f,
         "grid_high_f": high_f,
         "grid_step_f": float(grid_step_f),
         "sigma_policy": {
-            "preferred": "holdout_residual_rmse",
+            "preferred": "holdout_market_band_brier_grid_search",
             "fallback": "in_sample_residual_rmse",
             "min_validation_residuals": int(min_sigma_validation_residuals),
+            "candidate_scales": list(DENSITY_SIGMA_TUNING_SCALES),
+        },
+        "density_shape_policy": {
+            "preferred": "holdout_market_band_brier_shape_grid_search",
+            "fallback": "gaussian_in_sample_residual_rmse",
+            "candidate_shape_ids": [
+                density_shape_id(row)
+                for row in DENSITY_SHAPE_TUNING_CANDIDATES
+            ],
         },
         "blocked_validation": blocked_validation_audit(canonical_records),
         "models": {},
     }
     validation_rows = []
+    density_calibration_rows = []
+    density_calibration_probabilities = []
     for hour, hour_rows in sorted(by_hour.items()):
         if holdout_year is None:
             train_rows = hour_rows
@@ -2098,8 +3592,11 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
         model, imputer, feature_names, residuals, train_metrics = train_density_hour_model(train_rows)
         sigma_f = residual_sigma_f(residuals)
         eval_score = None
+        baseline_eval_score = None
         market_scores = []
         eval_residuals = []
+        sigma_tuning = None
+        shape_tuning = None
         if eval_rows:
             eval_means = predict_density_means(
                 model,
@@ -2108,29 +3605,70 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
                 eval_rows,
             )
             eval_residuals = density_residuals_from_means(eval_rows, eval_means)
-            predictions = [gaussian_density_f(mean, sigma_f, grid_f) for mean in eval_means]
-            eval_score = evaluate_density_predictions(eval_rows, predictions)
+            baseline_eval_score = evaluate_density_sigma(eval_rows, eval_means, grid_f, sigma_f)
+            sigma_tuning = tune_density_sigma_f(eval_rows, eval_means, grid_f, sigma_f)
+            shape_tuning = tune_density_shape_policy(eval_rows, eval_means, grid_f, sigma_f)
+            tuned_sigma_f = (
+                (shape_tuning or {}).get("selected_sigma_f")
+                if len(eval_residuals) >= int(min_sigma_validation_residuals)
+                else None
+            )
+            tuned_shape = (
+                (shape_tuning or {}).get("selected_density_shape")
+                if len(eval_residuals) >= int(min_sigma_validation_residuals)
+                else None
+            )
+            eval_sigma_f = tuned_sigma_f if tuned_sigma_f is not None else sigma_f
+            eval_shape = density_shape_config(tuned_shape)
+            eval_score = evaluate_density_sigma(
+                eval_rows,
+                eval_means,
+                grid_f,
+                eval_sigma_f,
+                shape_config=eval_shape,
+            )
+            post_rows, post_probabilities = density_projected_market_band_rows_and_probabilities(
+                eval_rows,
+                eval_means,
+                grid_f,
+                eval_sigma_f,
+                shape_config=eval_shape,
+            )
+            density_calibration_rows.extend(post_rows)
+            density_calibration_probabilities.extend(post_probabilities)
             for market_id in sorted({row["market_id"] for row in eval_rows}):
                 subset = [
-                    (row, payload)
-                    for row, payload in zip(eval_rows, predictions)
+                    (row, mean)
+                    for row, mean in zip(eval_rows, eval_means)
                     if row["market_id"] == market_id
                 ]
-                score = evaluate_density_predictions(
+                score = evaluate_density_sigma(
                     [row for row, _ in subset],
-                    [payload for _, payload in subset],
+                    [mean for _, mean in subset],
+                    grid_f,
+                    eval_sigma_f,
+                    shape_config=eval_shape,
                 )
                 if score:
-                    market_scores.append({"market_id": market_id, **score})
+                    market_scores.append({
+                        "market_id": market_id,
+                        "density_shape_id": eval_shape["id"],
+                        **score,
+                    })
 
         final_model, final_imputer, final_feature_names, final_residuals, final_metrics = train_density_hour_model(hour_rows)
-        if len(eval_residuals) >= int(min_sigma_validation_residuals):
-            final_sigma_source = "holdout_residual_rmse"
+        if len(eval_residuals) >= int(min_sigma_validation_residuals) and (shape_tuning or {}).get("selected_sigma_f"):
+            final_sigma_source = "holdout_market_band_brier_shape_grid_search"
             final_sigma_residuals = eval_residuals
+            final_sigma_f = float(shape_tuning["selected_sigma_f"])
+            final_density_shape = density_shape_config(shape_tuning.get("selected_density_shape"))
+            final_density_shape_source = "holdout_market_band_brier_shape_grid_search"
         else:
             final_sigma_source = "in_sample_residual_rmse"
             final_sigma_residuals = final_residuals
-        final_sigma_f = residual_sigma_f(final_sigma_residuals)
+            final_sigma_f = residual_sigma_f(final_sigma_residuals)
+            final_density_shape = density_shape_config(DENSITY_DEFAULT_SHAPE)
+            final_density_shape_source = "gaussian_fallback"
         artifact["models"][str(hour)] = {
             "model": final_model,
             "imputer": final_imputer,
@@ -2140,6 +3678,11 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
             "sigma_f": final_sigma_f,
             "sigma_source": final_sigma_source,
             "sigma_residual_count": len(final_sigma_residuals),
+            "density_shape_id": final_density_shape["id"],
+            "density_shape": final_density_shape,
+            "density_shape_source": final_density_shape_source,
+            "sigma_tuning": sigma_tuning,
+            "density_shape_tuning": shape_tuning,
             "training_metrics": final_metrics,
         }
         validation_rows.append({
@@ -2150,12 +3693,29 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
             "final_sigma_f": final_sigma_f,
             "final_sigma_source": final_sigma_source,
             "final_sigma_residual_count": len(final_sigma_residuals),
+            "final_density_shape_id": final_density_shape["id"],
+            "final_density_shape_source": final_density_shape_source,
             "holdout_sigma_residual_count": len(eval_residuals),
             "eval_score": eval_score,
+            "baseline_eval_score": baseline_eval_score,
+            "sigma_tuning": sigma_tuning,
+            "density_shape_tuning": shape_tuning,
             "market_scores": market_scores,
             "training_metrics": train_metrics,
             "blocked_validation": blocked_validation_audit(hour_rows),
         })
+    if density_calibration_rows:
+        artifact["density_postprocess"] = fit_density_market_band_postprocess(
+            density_calibration_rows,
+            density_calibration_probabilities,
+        )
+    else:
+        artifact["density_postprocess"] = {
+            "schema_version": "density_market_band_postprocess_v0.2",
+            "enabled": False,
+            "calibration_rows": 0,
+            "reason": "no holdout market-band calibration rows",
+        }
     return artifact, validation_rows
 
 
@@ -2168,23 +3728,29 @@ def predict_density_rows_for_bundle(bundle, rows):
         bundle.get("grid_high_f", 125.0),
         bundle.get("grid_step_f", 0.1),
     )
-    output = []
-    for row in rows:
-        hour = str(int(row.get("cutoff_hour")))
+    output = [None] * len(rows)
+    by_hour = defaultdict(list)
+    for index, row in enumerate(rows):
+        try:
+            hour = str(int(row.get("cutoff_hour")))
+        except (TypeError, ValueError):
+            continue
+        by_hour[hour].append((index, row))
+    for hour, indexed_rows in by_hour.items():
         model_bundle = (bundle.get("models") or {}).get(hour)
         if not model_bundle:
-            output.append(None)
             continue
-        output.append(
-            predict_density_payloads(
-                model_bundle["model"],
-                model_bundle["imputer"],
-                model_bundle["feature_names"],
-                [row],
-                model_bundle.get("sigma_f", 3.0),
-                grid_f,
-            )[0]
+        payloads = predict_density_payloads(
+            model_bundle["model"],
+            model_bundle["imputer"],
+            model_bundle["feature_names"],
+            [row for _, row in indexed_rows],
+            model_bundle.get("sigma_f", 3.0),
+            grid_f,
+            shape_config=model_bundle.get("density_shape"),
         )
+        for (index, _row), payload in zip(indexed_rows, payloads):
+            output[index] = payload
     return output
 
 
@@ -2193,28 +3759,61 @@ def train_pooled_band_models(
     holdout_year=None,
     exact_winner_catchup=False,
     dynamic_source_state=False,
+    feature_subset=FEATURE_SUBSET_ALL,
+    weak_family_disposition=None,
+    reanalysis_promotion_lane=None,
+    family_unit="F",
+    source_freshness_guardrail=False,
+    write_merge_payload=False,
 ):
     if exact_winner_catchup and dynamic_source_state:
         raise ValueError("exact_winner_catchup and dynamic_source_state are separate shadow variants")
+    feature_subset = feature_subset or FEATURE_SUBSET_ALL
+    if feature_subset not in FEATURE_SUBSET_CHOICES:
+        raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
+    if feature_subset != FEATURE_SUBSET_ALL and (exact_winner_catchup or dynamic_source_state):
+        raise ValueError("feature subsets are separate candidate lanes from exact/dynamic source variants")
     by_hour = defaultdict(list)
     for row in records:
         by_hour[int(row["cutoff_hour"])].append(row)
 
-    support = sorted({int(row["final_bucket"]) for row in records})
-    schema_version = "pooled_feature_band_hgb_v0.3"
-    objective = "binary_market_band_brier_source_reliability"
+    support = band_training_support(records, family_unit=family_unit)
+    all_market_band = str(family_unit or "").lower() == "all"
+    schema_version = (
+        "pooled_all_market_band_hgb_v0.1"
+        if all_market_band else
+        "pooled_feature_band_hgb_v0.3"
+    )
+    objective = (
+        "binary_native_market_band_brier_all_market_source_reliability"
+        if all_market_band else
+        "binary_market_band_brier_source_reliability"
+    )
     if exact_winner_catchup:
-        schema_version = "pooled_feature_band_hgb_v0.4"
-        objective = "binary_market_band_brier_source_reliability_exact_winner_catchup"
+        schema_version = (
+            "pooled_all_market_band_hgb_exact_winner_v0.1"
+            if all_market_band else
+            "pooled_feature_band_hgb_v0.4"
+        )
+        objective = (
+            "binary_native_market_band_brier_all_market_exact_winner_catchup"
+            if all_market_band else
+            "binary_market_band_brier_source_reliability_exact_winner_catchup"
+        )
     if dynamic_source_state:
         schema_version = "pooled_feature_band_hgb_v0.5"
         objective = "binary_market_band_brier_dynamic_source_state"
+    if feature_subset == FEATURE_SUBSET_FORECAST_PROFILE:
+        schema_version = "pooled_feature_band_hgb_forecast_profile_v0.1"
+        objective = "binary_market_band_brier_forecast_profile_calibrated"
     artifact = {
         "schema_version": schema_version,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
-        "family_unit": "F",
+        "family_unit": family_unit,
         "prediction_mode": "band_binary",
         "objective": objective,
+        "feature_subset": feature_subset,
+        "feature_subset_contract": feature_subset_contract(feature_subset),
         "dynamic_source_state_enabled": bool(dynamic_source_state),
         "dynamic_source_state_columns": (
             DYNAMIC_SOURCE_NUMERIC_COLUMNS + DYNAMIC_SOURCE_CATEGORICAL_COLUMNS
@@ -2226,8 +3825,22 @@ def train_pooled_band_models(
         "models": {},
         "postprocess": default_band_postprocess(
             exact_winner_catchup_enabled=exact_winner_catchup,
+            exact_winner_shadow_blend=not all_market_band,
         ),
     }
+    if feature_subset == FEATURE_SUBSET_FORECAST_PROFILE:
+        artifact["forecast_profile_calibration"] = {
+            "schema_version": "forecast_profile_calibration_v0.1",
+            "status": "shadow_candidate",
+            "anchor_feature": "forecast_high",
+            "feature_subset": feature_subset,
+            "daily_first_replay_required": True,
+            "promotion_blocker": (
+                "Forecast-profile weighting cannot promote unless replay "
+                "proves early-day lift, midday/late guardrails, and "
+                "per-market high-disagreement safety."
+            ),
+        }
     if dynamic_source_state:
         artifact["postprocess"]["current_blend_source_freshness_default_alpha"] = 0.0
         artifact["postprocess"]["current_blend_source_freshness_alpha"] = {
@@ -2243,9 +3856,14 @@ def train_pooled_band_models(
             **(artifact["postprocess"].get("current_blend_market_alpha") or {}),
             "miami": 0.0,
         }
+    if source_freshness_guardrail:
+        apply_source_freshness_guardrail(artifact)
+    apply_reanalysis_lane_metadata(artifact, reanalysis_promotion_lane)
     validation_rows = []
     calibration_rows = []
     calibration_probabilities = []
+    merge_payload_rows = []
+    merge_payload_probabilities = []
     for hour, hour_rows in sorted(by_hour.items()):
         if holdout_year is None:
             train_source_rows = hour_rows
@@ -2260,6 +3878,7 @@ def train_pooled_band_models(
         model, imputer, feature_names, train_metrics = train_band_hour_model(
             train_band_rows,
             include_dynamic_source_state=dynamic_source_state,
+            feature_subset=feature_subset,
         )
         eval_score = None
         raw_eval_score = None
@@ -2292,6 +3911,9 @@ def train_pooled_band_models(
                     )
                     for row, probability in zip(eval_band_rows, tuned_probs)
                 ]
+                if write_merge_payload:
+                    merge_payload_rows.extend(eval_band_rows)
+                    merge_payload_probabilities.extend(post_probs)
                 calibration_rows.extend(eval_band_rows)
                 calibration_probabilities.extend(post_probs)
                 eval_score = evaluate_band_predictions(eval_band_rows, post_probs)
@@ -2312,6 +3934,7 @@ def train_pooled_band_models(
         final_model, final_imputer, final_feature_names, final_metrics = train_band_hour_model(
             final_band_rows,
             include_dynamic_source_state=dynamic_source_state,
+            feature_subset=feature_subset,
         )
         artifact["models"][str(hour)] = {
             "model": final_model,
@@ -2373,6 +3996,8 @@ def train_pooled_band_models(
         )
         artifact["postprocess"]["exact_winner_catchup"] = exact_calibration
 
+    market_bias_rows = []
+    market_bias_probabilities = []
     for validation in validation_rows:
         eval_band_rows = validation.pop("_eval_band_rows_for_exact", [])
         adjacent_probs = validation.pop("_adjacent_probs_for_exact", [])
@@ -2388,12 +4013,39 @@ def train_pooled_band_models(
                 )
                 for row, probability in zip(eval_band_rows, adjacent_probs)
             ]
-        validation["eval_score"] = evaluate_band_predictions(eval_band_rows, calibrated_probs)
+        validation["_eval_band_rows_for_market_bias"] = eval_band_rows
+        validation["_probabilities_for_market_bias"] = calibrated_probs
+        market_bias_rows.extend(eval_band_rows)
+        market_bias_probabilities.extend(calibrated_probs)
+
+    market_bias_calibration = fit_market_bias_calibration(
+        market_bias_rows,
+        market_bias_probabilities,
+    )
+    artifact["postprocess"]["market_bias_calibration"] = market_bias_calibration
+    artifact["postprocess"]["market_bias_calibration_enabled"] = bool(
+        market_bias_calibration.get("enabled")
+    )
+
+    for validation in validation_rows:
+        eval_band_rows = validation.pop("_eval_band_rows_for_market_bias", [])
+        calibrated_probs = validation.pop("_probabilities_for_market_bias", [])
+        if not eval_band_rows or not calibrated_probs:
+            continue
+        final_probs = [
+            apply_market_bias_calibration(
+                probability,
+                row,
+                config=artifact["postprocess"],
+            )
+            for row, probability in zip(eval_band_rows, calibrated_probs)
+        ]
+        validation["eval_score"] = evaluate_band_predictions(eval_band_rows, final_probs)
         market_scores = []
         for market_id in sorted({row["market_id"] for row in eval_band_rows}):
             subset = [
                 (row, probability)
-                for row, probability in zip(eval_band_rows, calibrated_probs)
+                for row, probability in zip(eval_band_rows, final_probs)
                 if row["market_id"] == market_id
             ]
             score = evaluate_band_predictions(
@@ -2405,6 +4057,22 @@ def train_pooled_band_models(
         validation["market_scores"] = market_scores
     for bundle in artifact["models"].values():
         bundle["postprocess"] = dict(artifact["postprocess"])
+    model_feature_names = sorted({
+        feature
+        for bundle in artifact["models"].values()
+        for feature in (bundle.get("feature_names") or [])
+    })
+    artifact["weak_input_family_preflight"] = weak_input_training_preflight(
+        model_feature_names,
+        weak_family_disposition,
+    )
+    if write_merge_payload:
+        artifact[BAND_MERGE_PAYLOAD_KEY] = {
+            "holdout_year": holdout_year,
+            "hours": sorted(int(hour) for hour in artifact["models"]),
+            "rows": merge_payload_rows,
+            "probabilities": merge_payload_probabilities,
+        }
     return artifact, validation_rows
 
 
@@ -2413,6 +4081,211 @@ def write_artifact(artifact, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
         pickle.dump(artifact, handle)
+    return path
+
+
+def load_artifact(path):
+    with Path(path).open("rb") as handle:
+        return pickle.load(handle)
+
+
+MERGE_COMPATIBILITY_KEYS = (
+    "schema_version",
+    "feature_schema_version",
+    "family_unit",
+    "prediction_mode",
+    "objective",
+    "feature_subset",
+    "feature_subset_contract",
+    "dynamic_source_state_enabled",
+    "dynamic_source_state_columns",
+    "source_family_lanes",
+    "reanalysis_promotion_lane",
+    "support",
+)
+
+
+def _merge_signature(artifact):
+    return {
+        key: artifact.get(key)
+        for key in MERGE_COMPATIBILITY_KEYS
+    }
+
+
+def _artifact_model_hours(artifact):
+    return sorted(int(hour) for hour in (artifact.get("models") or {}))
+
+
+def _validate_band_merge_payload(artifact, label):
+    payload = artifact.get(BAND_MERGE_PAYLOAD_KEY) or {}
+    rows = payload.get("rows") or []
+    probabilities = payload.get("probabilities") or []
+    if not rows or not probabilities:
+        raise ValueError(f"{label} is missing {BAND_MERGE_PAYLOAD_KEY}; retrain shard with --write-merge-payload")
+    if len(rows) != len(probabilities):
+        raise ValueError(
+            f"{label} merge payload has mismatched rows/probabilities "
+            f"({len(rows)} != {len(probabilities)})"
+        )
+    return payload
+
+
+def merge_band_postprocess(rows, probabilities, base_postprocess):
+    postprocess = dict(base_postprocess or {})
+    adjacent = fit_adjacent_calibration(rows, probabilities)
+    postprocess["adjacent_calibration"] = adjacent
+    adjacent_probabilities = [
+        apply_adjacent_calibration(probability, row, config=postprocess)
+        for row, probability in zip(rows, probabilities)
+    ]
+    calibrated_probabilities = adjacent_probabilities
+    if postprocess.get("exact_winner_catchup_enabled", False):
+        exact = fit_exact_winner_catchup(
+            rows,
+            adjacent_probabilities,
+            guardrail_rows=rows,
+            guardrail_probabilities=adjacent_probabilities,
+            normalization_gamma=postprocess.get("partition_normalization_gamma", 1.25),
+        )
+        postprocess["exact_winner_catchup"] = exact
+        calibrated_probabilities = [
+            apply_exact_winner_catchup(probability, row, config=postprocess)
+            for row, probability in zip(rows, adjacent_probabilities)
+        ]
+    market_bias = fit_market_bias_calibration(rows, calibrated_probabilities)
+    postprocess["market_bias_calibration"] = market_bias
+    postprocess["market_bias_calibration_enabled"] = bool(market_bias.get("enabled"))
+    return postprocess
+
+
+def merge_pooled_band_artifacts(artifacts, required_hours=None, shard_paths=None):
+    artifacts = list(artifacts or [])
+    shard_paths = [str(path) for path in (shard_paths or [])]
+    if not artifacts:
+        raise ValueError("At least one band artifact shard is required.")
+    base_signature = _merge_signature(artifacts[0])
+    if base_signature.get("prediction_mode") != "band_binary":
+        raise ValueError("Only band_binary artifacts can be merged.")
+
+    merged = {
+        key: value
+        for key, value in artifacts[0].items()
+        if key not in {"models", BAND_MERGE_PAYLOAD_KEY}
+    }
+    merged["models"] = {}
+    merged_hours = set()
+    merge_rows = []
+    merge_probabilities = []
+    shard_summaries = []
+    for index, artifact in enumerate(artifacts):
+        label = shard_paths[index] if index < len(shard_paths) else f"shard {index + 1}"
+        signature = _merge_signature(artifact)
+        if signature != base_signature:
+            raise ValueError(f"{label} is incompatible with the first shard.")
+        payload = _validate_band_merge_payload(artifact, label)
+        hours = _artifact_model_hours(artifact)
+        duplicates = sorted(set(hours) & merged_hours)
+        if duplicates:
+            raise ValueError(f"{label} duplicates already-merged hour(s): {duplicates}")
+        merged_hours.update(hours)
+        merged["models"].update(artifact.get("models") or {})
+        merge_rows.extend(payload.get("rows") or [])
+        merge_probabilities.extend(payload.get("probabilities") or [])
+        shard_summaries.append({
+            "path": label,
+            "hours": hours,
+            "merge_rows": len(payload.get("rows") or []),
+        })
+
+    required = set(int(hour) for hour in (required_hours or []))
+    missing = sorted(required - merged_hours)
+    if missing:
+        raise ValueError(f"Merged artifact is missing required hour(s): {missing}")
+
+    merged["postprocess"] = merge_band_postprocess(
+        merge_rows,
+        merge_probabilities,
+        artifacts[0].get("postprocess") or {},
+    )
+    for bundle in merged["models"].values():
+        if isinstance(bundle, dict):
+            bundle["postprocess"] = dict(merged["postprocess"])
+    model_feature_names = sorted({
+        feature
+        for bundle in merged["models"].values()
+        for feature in (bundle.get("feature_names") or [])
+    })
+    merged["weak_input_family_preflight"] = weak_input_training_preflight(
+        model_feature_names,
+        None,
+    )
+    merged["trained_at"] = datetime.now().isoformat()
+    merged["training_shards"] = {
+        "shard_count": len(artifacts),
+        "hours": sorted(merged_hours),
+        "required_hours": sorted(required),
+        "postprocess_fit_rows": len(merge_rows),
+        "shards": shard_summaries,
+    }
+    return merged
+
+
+def merge_pooled_band_artifact_shards(paths, required_hours=None):
+    paths = [Path(path) for path in (paths or [])]
+    artifacts = [load_artifact(path) for path in paths]
+    return merge_pooled_band_artifacts(
+        artifacts,
+        required_hours=required_hours,
+        shard_paths=paths,
+    )
+
+
+def write_band_shard_merge_report(path, artifact, artifact_path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shards = artifact.get("training_shards") or {}
+    postprocess = artifact.get("postprocess") or {}
+    market_bias = postprocess.get("market_bias_calibration") or {}
+    lines = [
+        "# F-Family Pooled Band Shard Merge",
+        "",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Artifact: `{artifact_path}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Schema", artifact.get("schema_version")],
+            ["Feature schema", artifact.get("feature_schema_version")],
+            ["Objective", artifact.get("objective")],
+            ["Family unit", artifact.get("family_unit")],
+            ["Merged hours", ", ".join(str(hour) for hour in shards.get("hours") or [])],
+            ["Required hours", ", ".join(str(hour) for hour in shards.get("required_hours") or [])],
+            ["Shard count", shards.get("shard_count")],
+            ["Postprocess fit rows", shards.get("postprocess_fit_rows")],
+            ["Adjacent contexts", (postprocess.get("adjacent_calibration") or {}).get("context_count", 0)],
+            ["Market bias enabled", bool(market_bias.get("enabled"))],
+            ["Market bias contexts", market_bias.get("context_count", 0)],
+        ],
+    )
+    rows = []
+    for shard in shards.get("shards") or []:
+        rows.append([
+            shard.get("path"),
+            ", ".join(str(hour) for hour in shard.get("hours") or []),
+            shard.get("merge_rows"),
+        ])
+    if rows:
+        lines += [
+            "",
+            "## Shards",
+            "",
+        ]
+        lines += markdown_table(["Path", "Hours", "Merge Rows"], rows)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
@@ -2527,11 +4400,12 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     artifact = artifact or {}
+    density_postprocess = artifact.get("density_postprocess") or {}
     lines = [
         "# Pooled Continuous-Density Model",
         "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        f"Schema: `{artifact.get('schema_version') or 'pooled_continuous_density_hgb_v0.2'}`",
+        f"Schema: `{artifact.get('schema_version') or 'pooled_continuous_density_hgb_v0.7'}`",
         f"Feature schema: `{FEATURE_SCHEMA_VERSION}`",
         f"Artifact: `{artifact_path}`",
         f"Holdout year: {holdout_year or '-'}",
@@ -2542,12 +4416,22 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
         "",
         "This candidate trains one pooled regressor over all configured markets,",
         "converts temperature-like features and targets to canonical Fahrenheit,",
-        "and emits a Gaussian residual density on the canonical-F grid. Market C/F",
+        "and emits a continuous density on the canonical-F grid. Market C/F",
         "bands are projected only at serving/replay time through",
         "`continuous_density_f` payloads.",
-        "v0.2 estimates the final Gaussian width from holdout residuals when",
-        "enough holdout rows exist, falling back to in-sample residuals only when",
+        "v0.4 estimates the final Gaussian width by grid-searching holdout",
+        "market-band Brier on synthetic native eq/lte/gte bands when enough",
+        "holdout rows exist, falling back to in-sample residuals only when",
         "validation evidence is too sparse.",
+        "v0.5 extends that search to density-shape policies, including modest",
+        "tail mixtures and forecast/climatology anchor mixtures, while retaining",
+        "Gaussian fallback when holdout evidence is too sparse.",
+        "v0.6 fits a holdout market-band postprocess for density projections,",
+        "using exact-winner catch-up and adjacent-band shrinkage before replay",
+        "partition normalization.",
+        "v0.7 adds a holdout-selected forecast-relative calibration layer for",
+        "band-vs-forecast pressure, forecast disagreement, source count, hour,",
+        "market, and floor-gap contexts.",
         "",
         "## Dataset",
         "",
@@ -2559,6 +4443,34 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
     lines += [
         "",
         f"Total source rows: {len(records)}",
+        "",
+        "## Density Market-Band Postprocess",
+        "",
+    ]
+    exact = density_postprocess.get("exact_winner_catchup") or {}
+    adjacent = density_postprocess.get("adjacent_calibration") or {}
+    forecast_relative = density_postprocess.get("forecast_relative_calibration") or {}
+    selection = density_postprocess.get("selection") or {}
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Schema", density_postprocess.get("schema_version") or "-"],
+            ["Enabled", bool(density_postprocess.get("enabled"))],
+            ["Selected policy", density_postprocess.get("policy_id") or "-"],
+            ["Baseline band Brier", fmt_num(selection.get("baseline_market_band_brier"))],
+            ["Selected band Brier", fmt_num(selection.get("selected_market_band_brier"))],
+            ["Calibration rows", density_postprocess.get("calibration_rows", 0)],
+            ["Adjacent contexts", adjacent.get("context_count", 0)],
+            ["Exact-winner contexts", exact.get("context_count", 0)],
+            ["Exact selected strength", fmt_num(exact.get("strength"))],
+            ["Forecast-relative enabled", bool(density_postprocess.get("forecast_relative_calibration_enabled"))],
+            ["Forecast-relative contexts", forecast_relative.get("context_count", 0)],
+            ["Forecast-relative strength", fmt_num(forecast_relative.get("strength"))],
+            ["Partition normalization", bool(density_postprocess.get("partition_normalization_enabled"))],
+            ["Partition gamma", fmt_num(density_postprocess.get("partition_normalization_gamma"))],
+        ],
+    )
+    lines += [
         "",
         "## Training Throughput",
         "",
@@ -2582,7 +4494,8 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
         "",
     ]
     lines += markdown_table(
-        ["Hour", "Train Rows", "Eval Rows", "Eval Sigma F", "Final Sigma F", "Sigma Source", "Density LogLoss", "Winner Brier", "MAE F"],
+        ["Hour", "Train Rows", "Eval Rows", "RMSE Sigma F", "Final Sigma F", "Shape", "Sigma Source",
+         "RMSE Band Brier", "Tuned Band Brier", "Winner Brier", "Density LogLoss", "MAE F"],
         [
             [
                 f"{row['hour']:02d}:00",
@@ -2590,9 +4503,12 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
                 row["eval_rows"],
                 fmt_num(row.get("sigma_f")),
                 fmt_num(row.get("final_sigma_f")),
+                row.get("final_density_shape_id") or "gaussian",
                 row.get("final_sigma_source") or "-",
-                fmt_num((row.get("eval_score") or {}).get("density_logloss")),
+                fmt_num((row.get("baseline_eval_score") or {}).get("market_band_brier")),
+                fmt_num((row.get("eval_score") or {}).get("market_band_brier")),
                 fmt_num((row.get("eval_score") or {}).get("winning_bucket_brier")),
+                fmt_num((row.get("eval_score") or {}).get("density_logloss")),
                 fmt_num((row.get("eval_score") or {}).get("mean_absolute_error_f")),
             ]
             for row in validation_rows
@@ -2606,12 +4522,14 @@ def write_density_report(path, records, counts, validation_rows, holdout_year, a
                 score["market_id"],
                 f"{row['hour']:02d}:00",
                 score["n"],
+                score.get("density_shape_id") or row.get("final_density_shape_id") or "gaussian",
+                fmt_num(score.get("market_band_brier")),
                 fmt_num(score.get("density_logloss")),
                 fmt_num(score.get("winning_bucket_brier")),
                 fmt_num(score.get("mean_absolute_error_f")),
             ])
     lines += markdown_table(
-        ["Market", "Hour", "Rows", "Density LogLoss", "Winner Brier", "MAE F"],
+        ["Market", "Hour", "Rows", "Shape", "Band Brier", "Density LogLoss", "Winner Brier", "MAE F"],
         market_rows,
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -2624,13 +4542,20 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
     artifact = artifact or {}
     postprocess = artifact.get("postprocess") or {}
     schema = artifact.get("schema_version") or "pooled_feature_band_hgb_v0.3"
+    family_unit = artifact.get("family_unit") or "F"
+    family_label = "All-Market" if str(family_unit).lower() == "all" else f"{family_unit}-Family"
+    subset_contract = artifact.get("feature_subset_contract") or feature_subset_contract(
+        artifact.get("feature_subset") or FEATURE_SUBSET_ALL
+    )
     lines = [
-        f"# F-Family Pooled Band Model {schema}",
+        f"# {family_label} Pooled Band Model {schema}",
         "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"Feature schema: `{FEATURE_SCHEMA_VERSION}`",
         f"Artifact: `{artifact_path}`",
+        f"Family unit: `{family_unit}`",
         f"Objective: `{artifact.get('objective') or 'binary_market_band_brier_source_reliability'}`",
+        f"Feature subset: `{subset_contract.get('name')}`",
         f"Holdout year: {holdout_year or '-'}",
         "",
         "## Objective",
@@ -2657,6 +4582,47 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
         f"{'enabled' if artifact.get('dynamic_source_state_enabled') else 'disabled'}"
         " for this artifact.",
         "",
+        "## Feature Subset Contract",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Subset", subset_contract.get("name")],
+            ["Schema", subset_contract.get("schema_version")],
+            ["Anchor", subset_contract.get("anchor_feature") or "-"],
+            ["Description", subset_contract.get("description") or "-"],
+            ["Allowed families", ", ".join(subset_contract.get("allowed_feature_families") or []) or "-"],
+            ["Blocked families", ", ".join(subset_contract.get("blocked_feature_families") or []) or "-"],
+            ["Postprocess policy", subset_contract.get("postprocess_policy") or "-"],
+        ],
+    )
+    market_bias = postprocess.get("market_bias_calibration") or {}
+    market_bias_selection = market_bias.get("selection") or {}
+    lines += [
+        "",
+        "## Postprocess Calibration",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Adjacent calibration contexts", (postprocess.get("adjacent_calibration") or {}).get("context_count", 0)],
+            ["Market bias calibration enabled", bool(postprocess.get("market_bias_calibration_enabled"))],
+            ["Market bias calibration contexts", market_bias.get("context_count", 0)],
+            [
+                "Market bias holdout Brier",
+                (
+                    f"{fmt_num(market_bias_selection.get('baseline_brier'))} -> "
+                    f"{fmt_num(market_bias_selection.get('candidate_brier'))}"
+                ),
+            ],
+            ["Market bias holdout delta", fmt_num(market_bias_selection.get("delta_brier"))],
+            ["Market bias disabled reason", market_bias.get("disabled_reason") or "-"],
+        ],
+    )
+    lines += [
+        "",
         "## Training Throughput",
         "",
     ]
@@ -2664,6 +4630,35 @@ def write_band_report(path, records, counts, validation_rows, holdout_year, arti
         ["Hour", "Matrix Rows", "Matrix Columns", "Build Seconds", "Fit Seconds", "Warnings"],
         training_metric_rows(validation_rows),
     )
+    lines.append("")
+    weak_preflight = artifact.get("weak_input_family_preflight") or {}
+    lines += [
+        "## Weak Input-Family Preflight",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Status", weak_preflight.get("status") or "-"],
+            ["Features checked", weak_preflight.get("feature_count", 0)],
+            ["Diagnostic families", ", ".join(weak_preflight.get("diagnostic_only_families") or []) or "-"],
+            ["Warning count", len(weak_preflight.get("warnings") or [])],
+        ],
+    )
+    if weak_preflight.get("warnings"):
+        lines += ["", "### Weak-Family Warnings", ""]
+        lines += markdown_table(
+            ["Family", "Disposition", "Features", "Reasons"],
+            [
+                [
+                    row.get("family"),
+                    row.get("disposition"),
+                    row.get("feature_count"),
+                    "; ".join(row.get("reasons") or []),
+                ]
+                for row in weak_preflight.get("warnings") or []
+            ],
+        )
     lines.append("")
     lines += [
         "## Blocked Validation Audit",
@@ -2786,6 +4781,65 @@ def parse_hours(value):
     return tuple(int(item.strip()) for item in str(value).split(",") if item.strip())
 
 
+def training_output_paths(args):
+    if args.objective == "density":
+        return (
+            args.artifact or str(DEFAULT_DENSITY_ARTIFACT),
+            args.out or str(DEFAULT_DENSITY_REPORT),
+        )
+    if args.objective == "band":
+        artifact = args.artifact or str(
+            DEFAULT_FORECAST_PROFILE_BAND_ARTIFACT
+            if args.feature_subset == FEATURE_SUBSET_FORECAST_PROFILE else
+            DEFAULT_EXACT_WINNER_ARTIFACT
+            if args.exact_winner_catchup else
+            DEFAULT_DYNAMIC_SOURCE_ARTIFACT
+            if args.dynamic_source_state else
+            DEFAULT_BAND_ARTIFACT
+        )
+        report = args.out or str(
+            DEFAULT_FORECAST_PROFILE_BAND_REPORT
+            if args.feature_subset == FEATURE_SUBSET_FORECAST_PROFILE else
+            DEFAULT_EXACT_WINNER_REPORT
+            if args.exact_winner_catchup else
+            DEFAULT_DYNAMIC_SOURCE_REPORT
+            if args.dynamic_source_state else
+            DEFAULT_BAND_REPORT
+        )
+        return artifact, report
+    return (
+        args.artifact or str(DEFAULT_ARTIFACT),
+        args.out or str(DEFAULT_REPORT),
+    )
+
+
+def preflight_training_artifacts(
+    artifact_path,
+    report_path,
+    min_free_bytes=DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
+):
+    min_free_bytes = int(min_free_bytes or 0)
+    if not min_free_bytes:
+        return []
+    checks = []
+    checks.append(ensure_artifact_disk_headroom(
+        artifact_path,
+        estimated_bytes=DEFAULT_TRAINING_OUTPUT_ESTIMATED_BYTES,
+        min_free_bytes=min_free_bytes,
+        context="pooled feature model training outputs",
+    ))
+    artifact_parent = Path(artifact_path).parent.resolve()
+    report_parent = Path(report_path).parent.resolve()
+    if report_parent != artifact_parent:
+        checks.append(ensure_artifact_disk_headroom(
+            report_path,
+            estimated_bytes=1_000_000,
+            min_free_bytes=min_free_bytes,
+            context="pooled feature model training report",
+        ))
+    return [check for check in checks if check is not None]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train the F-family pooled feature model starter.")
     parser.add_argument("--family-unit", default=None, choices=["F", "all"])
@@ -2800,25 +4854,89 @@ def main():
                         help="Train the opt-in exact/range winner catch-up postprocess variant.")
     parser.add_argument("--dynamic-source-state", action="store_true",
                         help="Train the opt-in dynamic source-state feature variant.")
+    parser.add_argument("--source-freshness-guardrail", action="store_true",
+                        help="Blend non-all-fresh replay rows fully back to current serving.")
+    parser.add_argument("--feature-subset", default=FEATURE_SUBSET_ALL, choices=FEATURE_SUBSET_CHOICES,
+                        help="Optional band-model feature subset. Use forecast_profile for roadmap item 134.")
+    parser.add_argument("--reanalysis-lane-json", default=None,
+                        help="Source-family inventory JSON or promotion-lane JSON for Item 32 allowed-market masking.")
+    parser.add_argument("--min-artifact-free-bytes", type=int, default=DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
+                        help="Require this much free disk headroom before fitting and writing model artifacts. Use 0 to disable.")
+    parser.add_argument("--write-merge-payload", action="store_true",
+                        help="Embed holdout band rows/probabilities needed to merge hour-sharded band artifacts.")
+    parser.add_argument("--merge-band-shards", nargs="+", default=None,
+                        help="Merge hour-sharded band artifacts trained with --write-merge-payload.")
     parser.add_argument("--artifact", default=None)
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
+    if args.merge_band_shards:
+        required_hours = parse_hours(args.hours)
+        artifact_path_arg = args.artifact or str(DEFAULT_BAND_ARTIFACT)
+        report_path_arg = args.out or str(DEFAULT_BAND_REPORT)
+        preflight_training_artifacts(
+            artifact_path_arg,
+            report_path_arg,
+            min_free_bytes=args.min_artifact_free_bytes,
+        )
+        artifact = merge_pooled_band_artifact_shards(
+            args.merge_band_shards,
+            required_hours=required_hours,
+        )
+        artifact_path = write_artifact(artifact, artifact_path_arg)
+        report_path = write_band_shard_merge_report(
+            report_path_arg,
+            artifact,
+            artifact_path,
+        )
+        print(
+            f"Merged {len(args.merge_band_shards)} pooled band shard(s) into {artifact_path} "
+            f"and report {report_path}."
+        )
+        return
     if args.exact_winner_catchup and args.dynamic_source_state:
         raise SystemExit("--exact-winner-catchup and --dynamic-source-state are separate shadow variants")
+    if args.source_freshness_guardrail and args.objective != "band":
+        raise SystemExit("--source-freshness-guardrail is currently supported only with --objective band")
+    if args.source_freshness_guardrail and args.dynamic_source_state:
+        raise SystemExit("--source-freshness-guardrail and --dynamic-source-state are separate guardrails")
+    if args.feature_subset != FEATURE_SUBSET_ALL and args.objective != "band":
+        raise SystemExit("--feature-subset is currently supported only with --objective band")
+    if args.feature_subset != FEATURE_SUBSET_ALL and (args.exact_winner_catchup or args.dynamic_source_state):
+        raise SystemExit("--feature-subset lanes cannot be combined with exact/dynamic source variants")
+    reanalysis_promotion_lane = load_reanalysis_promotion_lane(args.reanalysis_lane_json)
     family_unit = args.family_unit or ("all" if args.objective == "density" else "F")
-    if args.objective in {"bucket", "band"} and family_unit != "F":
-        raise SystemExit("--family-unit all is currently only supported with --objective density")
+    if args.objective == "bucket" and family_unit != "F":
+        raise SystemExit("--family-unit all is currently only supported with --objective band or density")
+    if (
+        args.objective == "band"
+        and str(family_unit).lower() == "all"
+        and (
+            args.dynamic_source_state
+            or args.feature_subset != FEATURE_SUBSET_ALL
+            or args.reanalysis_lane_json
+        )
+    ):
+        raise SystemExit(
+            "--family-unit all --objective band is an Item 35 direct-band baseline "
+            "and cannot be combined with F-family shadow lanes"
+        )
+
+    artifact_path_arg, report_path_arg = training_output_paths(args)
+    preflight_training_artifacts(
+        artifact_path_arg,
+        report_path_arg,
+        min_free_bytes=args.min_artifact_free_bytes,
+    )
 
     records, counts = build_family_dataset(
         unit=family_unit,
         cutoff_hours=parse_hours(args.hours),
         max_days_per_market=args.max_days_per_market or None,
+        reanalysis_promotion_lane=reanalysis_promotion_lane,
     )
     if not records:
         raise SystemExit("No pooled family records available.")
     if args.objective == "density":
-        artifact_path_arg = args.artifact or str(DEFAULT_DENSITY_ARTIFACT)
-        report_path_arg = args.out or str(DEFAULT_DENSITY_REPORT)
         artifact, validation_rows = train_pooled_density_models(
             records,
             holdout_year=args.holdout_year,
@@ -2834,25 +4952,16 @@ def main():
             artifact=artifact,
         )
     elif args.objective == "band":
-        artifact_path_arg = args.artifact or str(
-            DEFAULT_EXACT_WINNER_ARTIFACT
-            if args.exact_winner_catchup else
-            DEFAULT_DYNAMIC_SOURCE_ARTIFACT
-            if args.dynamic_source_state else
-            DEFAULT_BAND_ARTIFACT
-        )
-        report_path_arg = args.out or str(
-            DEFAULT_EXACT_WINNER_REPORT
-            if args.exact_winner_catchup else
-            DEFAULT_DYNAMIC_SOURCE_REPORT
-            if args.dynamic_source_state else
-            DEFAULT_BAND_REPORT
-        )
         artifact, validation_rows = train_pooled_band_models(
             records,
             holdout_year=args.holdout_year,
             exact_winner_catchup=args.exact_winner_catchup,
             dynamic_source_state=args.dynamic_source_state,
+            feature_subset=args.feature_subset,
+            reanalysis_promotion_lane=reanalysis_promotion_lane,
+            family_unit=family_unit,
+            source_freshness_guardrail=args.source_freshness_guardrail,
+            write_merge_payload=args.write_merge_payload,
         )
         artifact_path = write_artifact(artifact, artifact_path_arg)
         report_path = write_band_report(
@@ -2865,8 +4974,6 @@ def main():
             artifact=artifact,
         )
     else:
-        artifact_path_arg = args.artifact or str(DEFAULT_ARTIFACT)
-        report_path_arg = args.out or str(DEFAULT_REPORT)
         artifact, validation_rows = train_pooled_models(records, holdout_year=args.holdout_year)
         artifact_path = write_artifact(artifact, artifact_path_arg)
         report_path = write_report(

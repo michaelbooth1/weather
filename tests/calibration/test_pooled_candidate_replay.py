@@ -15,9 +15,11 @@ from weather.calibration.pooled_candidate_replay import (
     candidate_shadow_variant_rows,
     candidate_comparison,
     candidate_variant_defaults,
+    cutoff_regime,
     conservative_bridge_report,
     conservative_bridge_shadow_variant_rows,
     exact_winner_candidate_diagnostics,
+    forecast_profile_guardrails,
     apply_microstructure_gate,
     apply_conservative_bridge,
     bridge_alpha_for_market,
@@ -32,6 +34,7 @@ from weather.calibration.pooled_candidate_replay import (
     source_freshness_group,
     write_candidate_shadow_variants,
     write_report,
+    _record_feature_row,
 )
 from weather.calibration.pooled_candidate_scoring import (
     blocked_candidate_validation_gate,
@@ -39,9 +42,78 @@ from weather.calibration.pooled_candidate_scoring import (
     source_state_ablation_shadow_variant_rows,
 )
 from weather.model.continuous_density import continuous_density_payload
+from weather.market.market_registry import NYC
 
 
 class TestPooledCandidateReplay(unittest.TestCase):
+    def test_record_feature_row_applies_reanalysis_sidecar_and_lane_mask(self):
+        class FakeModel:
+            def set_target_date(self, _target_date):
+                return None
+
+            def source_data(self, _sources, source):
+                if source == "wu_history":
+                    return {"rows": [{"temperature": 80.0}]}
+                return {}
+
+            def effective_intraday_cutoff_hour(self, _now, _rows):
+                return 7
+
+            def extract_live_features(self, _sources, _cutoff_hour, now=None):
+                return {
+                    "high_so_far": 80.0,
+                    "current_temp": 80.0,
+                    "forecast_high": 84.0,
+                    "forecast_gap": 4.0,
+                    "wind_group": "Other/variable",
+                    "cloud_group": "Fair/clear",
+                }
+
+            def max_value(self, *values):
+                values = [value for value in values if value is not None]
+                return max(values) if values else None
+
+            def round_half_up(self, value):
+                return int(value) if value is not None else None
+
+        record = {
+            "built_at": "2026-06-18T07:00:00-04:00",
+            "target_date": "2026-06-18",
+            "sources": {},
+        }
+        lane = {
+            "allowed_markets": ["austin"],
+            "quarantined_markets": ["nyc"],
+        }
+
+        masked = _record_feature_row(
+            FakeModel(),
+            NYC,
+            {"climate_normal": 82.0, "climate_std": 4.0},
+            record,
+            reanalysis_synoptic_features={
+                "reanalysis_synoptic_available": 1.0,
+                "reanalysis_prev_day_max_temp": 81.0,
+            },
+            reanalysis_promotion_lane=lane,
+        )
+        allowed = _record_feature_row(
+            FakeModel(),
+            NYC,
+            {"climate_normal": 82.0, "climate_std": 4.0},
+            record,
+            reanalysis_synoptic_features={
+                "reanalysis_synoptic_available": 1.0,
+                "reanalysis_prev_day_max_temp": 81.0,
+            },
+            reanalysis_promotion_lane={"allowed_markets": ["nyc"]},
+        )
+
+        self.assertEqual(masked["reanalysis_synoptic_available"], 0.0)
+        self.assertIsNone(masked["reanalysis_prev_day_max_temp"])
+        self.assertEqual(allowed["reanalysis_synoptic_available"], 1.0)
+        self.assertEqual(allowed["reanalysis_prev_day_max_temp"], 81.0)
+
     def test_band_probability_handles_thresholds_and_ranges(self):
         distribution = {70: 0.10, 71: 0.20, 72: 0.30, 73: 0.40}
 
@@ -295,6 +367,49 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.20)
         self.assertAlmostEqual(rows[1]["candidate_p"], 0.50)
 
+    def test_current_blend_guardrail_supports_context_alpha_rules(self):
+        rows = [
+            {
+                "market_id": "austin",
+                "source_freshness_state": "all_fresh",
+                "cutoff_regime": "midday",
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+            },
+            {
+                "market_id": "austin",
+                "source_freshness_state": "all_fresh",
+                "cutoff_regime": "early",
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+            },
+            {
+                "market_id": "nyc",
+                "source_freshness_state": "all_fresh",
+                "cutoff_regime": "midday",
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+            },
+        ]
+
+        apply_current_blend_guardrail(rows, {
+            "current_blend_default_alpha": 1.0,
+            "current_blend_market_alpha": {"austin": 0.0},
+            "current_blend_context_alpha": [
+                {
+                    "policy_id": "austin_all_fresh_midday_late",
+                    "market_id": "austin",
+                    "source_freshness_state": "all_fresh",
+                    "cutoff_regime": ["midday", "late"],
+                    "alpha": 1.0,
+                }
+            ],
+        })
+
+        self.assertAlmostEqual(rows[0]["candidate_p"], 0.80)
+        self.assertAlmostEqual(rows[1]["candidate_p"], 0.20)
+        self.assertAlmostEqual(rows[2]["candidate_p"], 0.80)
+
     def test_conservative_bridge_alpha_schedule_is_predeclared(self):
         self.assertAlmostEqual(bridge_alpha_for_market("atlanta"), 0.90)
         self.assertAlmostEqual(bridge_alpha_for_market("houston"), 0.90)
@@ -352,6 +467,15 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 variant_id="unused",
                 variant_family="unused",
             )
+            blocked_out = Path(tmp) / "blocked_candidate_variants.csv"
+            with self.assertRaisesRegex(OSError, "insufficient disk headroom"):
+                write_candidate_shadow_variants(
+                    blocked_out,
+                    rows,
+                    variant_id="pooled_f_exact_winner_catchup_v0_1",
+                    variant_family="exact_winner_catchup",
+                    min_free_bytes=10**18,
+                )
             variant_rows = candidate_shadow_variant_rows(
                 rows,
                 variant_id="pooled_f_exact_winner_catchup_v0_1",
@@ -365,6 +489,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
             self.assertTrue(out.exists())
             self.assertIsNone(disabled_path)
             self.assertEqual(disabled_count, 0)
+            self.assertFalse(blocked_out.exists())
 
         self.assertEqual(len(variant_rows), 1)
         row = variant_rows[0]
@@ -547,6 +672,9 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 "high_so_far": 80.0,
                 "current_temp": 79.0,
                 "forecast_high": 84.0,
+                "forecast_gap": 4.0,
+                "forecast_source_count": 1,
+                "forecast_disagreement": 3.2,
                 "live_reading_temp": 80.0,
                 "climate_normal": 82.0,
                 "wind_group": "S-SW",
@@ -580,12 +708,68 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(coverage["candidate_rows"], 1)
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.72)
         self.assertEqual(rows[0]["source_freshness_state"], "stale:wu_current")
+        self.assertEqual(rows[0]["forecast_source_count_bucket"], "low_count")
+        self.assertEqual(rows[0]["forecast_disagreement_bucket"], "high_disagreement")
+        self.assertEqual(rows[0]["forecast_bucket_pressure"], "cool_side")
         self.assertEqual(rows[0]["clob_feature_available"], 1.0)
         self.assertAlmostEqual(rows[0]["clob_midpoint"], 0.39)
         band_rows = predict.call_args.args[1]
         self.assertEqual(band_rows[0]["band_value_hi"], 83.0)
         self.assertEqual(band_rows[0]["clob_feature_available"], 1.0)
         self.assertAlmostEqual(band_rows[0]["clob_liquidity_score"], 2.5)
+
+    def test_band_candidate_replay_applies_forecast_centering_postprocess(self):
+        replay_results = {
+            "all_rows": [
+                {
+                    "market_id": "nyc",
+                    "snapshot_id": "s1",
+                    "range_label": "84 F",
+                    "bin_type": "eq",
+                    "bin_value_c": "84",
+                    "market_yes": 0.40,
+                    "outcome": 1,
+                }
+            ]
+        }
+        feature_rows = {
+            ("nyc", "s1"): {
+                "cutoff_hour": 3,
+                "high_so_far": 78.0,
+                "current_temp": 77.0,
+                "forecast_high": 84.0,
+                "forecast_gap": 6.0,
+                "live_reading_temp": 78.0,
+                "climate_normal": 82.0,
+                "wind_group": "S-SW",
+                "cloud_group": "Fair/clear",
+                "market_id": "nyc",
+            }
+        }
+        artifact = {
+            "models": {"3": {"feature_names": ["placeholder"]}},
+            "postprocess": {
+                "partition_normalization_enabled": False,
+                "support_floor_enabled": False,
+                "late_lockin_enabled": False,
+                "adjacent_calibration_enabled": False,
+                "forecast_centering_enabled": True,
+                "forecast_centering_early_alpha": 0.5,
+                "forecast_centering_sigma": 1.25,
+            },
+        }
+
+        with patch("weather.calibration.pooled_candidate_replay.predict_band_rows_for_bundle", return_value=[0.10]) as predict:
+            rows, coverage = attach_band_candidate_probabilities(
+                replay_results,
+                feature_rows,
+                artifact,
+                "F",
+            )
+
+        self.assertEqual(coverage["candidate_rows"], 1)
+        self.assertGreater(rows[0]["candidate_p"], 0.10)
+        self.assertEqual(predict.call_args.kwargs["postprocess"], False)
 
     def test_density_candidate_replay_projects_payloads_to_mixed_unit_bands(self):
         replay_results = {
@@ -611,14 +795,30 @@ class TestPooledCandidateReplay(unittest.TestCase):
             ]
         }
         feature_rows = {
-            ("toronto", "s1"): {"market_id": "toronto", "cutoff_hour": 12},
-            ("nyc", "s2"): {"market_id": "nyc", "cutoff_hour": 12},
+            ("toronto", "s1"): {
+                "market_id": "toronto",
+                "cutoff_hour": 12,
+                "high_so_far": 26.0,
+            },
+            ("nyc", "s2"): {
+                "market_id": "nyc",
+                "cutoff_hour": 12,
+                "high_so_far": 82.0,
+            },
         }
         payloads = [
-            continuous_density_payload({78.8: 1.0}, mean_f=78.8, sigma_f=1.0),
-            continuous_density_payload({83.0: 1.0}, mean_f=83.0, sigma_f=1.5),
+            continuous_density_payload({76.8: 0.5, 78.8: 0.5}, mean_f=77.8, sigma_f=1.0),
+            continuous_density_payload({81.0: 0.5, 83.0: 0.5}, mean_f=82.0, sigma_f=1.5),
         ]
-        artifact = {"prediction_mode": "continuous_density_f", "family_unit": "all"}
+        artifact = {
+            "prediction_mode": "continuous_density_f",
+            "family_unit": "all",
+            "exact_distribution": {
+                "enabled": True,
+                "temperature": 1.0,
+                "prior_weight": 0.0,
+            },
+        }
 
         with patch("weather.calibration.pooled_candidate_replay.predict_density_rows_for_bundle", return_value=payloads) as predict:
             rows, coverage = attach_density_candidate_probabilities(
@@ -636,8 +836,123 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(rows[0]["source_freshness_state"], "all_fresh")
         self.assertEqual(rows[1]["source_freshness_state"], "missing_source_status")
         self.assertAlmostEqual(rows[0]["candidate_density_mean_f"], 78.8)
+        self.assertEqual(rows[0]["candidate_density_floor_bucket"], 26)
+        self.assertEqual(rows[1]["candidate_density_floor_bucket"], 82)
         self.assertEqual(predict.call_args.args[0], artifact)
         self.assertEqual(len(predict.call_args.args[1]), 2)
+
+    def test_density_candidate_replay_applies_market_band_postprocess(self):
+        replay_results = {
+            "all_rows": [
+                {
+                    "market_id": "nyc",
+                    "snapshot_id": "s1",
+                    "range_label": "82 F",
+                    "bin_type": "eq",
+                    "bin_value_c": "82",
+                    "market_yes": 0.35,
+                    "outcome": 0,
+                },
+            ]
+        }
+        feature_rows = {
+            ("nyc", "s1"): {
+                "market_id": "nyc",
+                "cutoff_hour": 12,
+                "high_so_far": 80.0,
+                "forecast_high": 82.0,
+                "current_temp": 80.0,
+                "climate_normal": 82.0,
+            },
+        }
+        payloads = [
+            continuous_density_payload({80.0: 0.2, 82.0: 0.8}, mean_f=81.6, sigma_f=1.0),
+        ]
+        artifact = {
+            "prediction_mode": "continuous_density_f",
+            "family_unit": "all",
+            "density_postprocess": {
+                "enabled": True,
+                "adjacent_calibration_enabled": True,
+                "partition_normalization_enabled": False,
+                "adjacent_calibration": {
+                    "contexts": {
+                        "floor_gap=+2": {"factor": 0.5},
+                    },
+                },
+            },
+        }
+
+        with patch("weather.calibration.pooled_candidate_replay.predict_density_rows_for_bundle", return_value=payloads):
+            rows, coverage = attach_density_candidate_probabilities(
+                replay_results,
+                feature_rows,
+                artifact,
+                "all",
+                source_freshness={("nyc", "s1"): "all_fresh"},
+            )
+
+        self.assertEqual(coverage["candidate_rows"], 1)
+        self.assertAlmostEqual(rows[0]["candidate_p"], 0.4)
+        self.assertEqual(rows[0]["forecast_bucket_pressure"], "near_forecast")
+
+    def test_density_candidate_replay_applies_forecast_relative_postprocess(self):
+        replay_results = {
+            "all_rows": [
+                {
+                    "market_id": "nyc",
+                    "snapshot_id": "s1",
+                    "range_label": "82 F",
+                    "bin_type": "eq",
+                    "bin_value_c": "82",
+                    "market_yes": 0.35,
+                    "outcome": 0,
+                },
+            ]
+        }
+        feature_rows = {
+            ("nyc", "s1"): {
+                "market_id": "nyc",
+                "cutoff_hour": 12,
+                "high_so_far": 80.0,
+                "forecast_high": 82.0,
+                "forecast_source_count": 2,
+                "forecast_disagreement": 0.4,
+                "current_temp": 80.0,
+                "climate_normal": 82.0,
+            },
+        }
+        payloads = [
+            continuous_density_payload({80.0: 0.2, 82.0: 0.8}, mean_f=81.6, sigma_f=1.0),
+        ]
+        artifact = {
+            "prediction_mode": "continuous_density_f",
+            "family_unit": "all",
+            "density_postprocess": {
+                "enabled": True,
+                "forecast_relative_calibration_enabled": True,
+                "partition_normalization_enabled": False,
+                "forecast_relative_calibration": {
+                    "strength": 1.0,
+                    "contexts": {
+                        "pressure=near_forecast": {"factor": 0.5},
+                    },
+                },
+            },
+        }
+
+        with patch("weather.calibration.pooled_candidate_replay.predict_density_rows_for_bundle", return_value=payloads):
+            rows, coverage = attach_density_candidate_probabilities(
+                replay_results,
+                feature_rows,
+                artifact,
+                "all",
+                source_freshness={("nyc", "s1"): "all_fresh"},
+            )
+
+        self.assertEqual(coverage["candidate_rows"], 1)
+        self.assertAlmostEqual(rows[0]["candidate_p"], 0.4)
+        self.assertEqual(rows[0]["forecast_disagreement_bucket"], "low_disagreement")
 
     def test_density_candidate_variant_defaults_use_named_lane(self):
         variant_id, variant_family = candidate_variant_defaults({
@@ -646,6 +961,135 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertEqual(variant_id, "pooled_continuous_density_hgb_v0_1")
         self.assertEqual(variant_family, "pooled_continuous_density")
+
+    def test_density_candidate_variant_defaults_follow_schema_when_present(self):
+        variant_id, variant_family = candidate_variant_defaults({
+            "prediction_mode": "continuous_density_f",
+            "schema_version": "pooled_continuous_density_hgb_v0.3",
+        })
+
+        self.assertEqual(variant_id, "pooled_continuous_density_hgb_v0_3")
+        self.assertEqual(variant_family, "pooled_continuous_density")
+
+    def test_candidate_variant_defaults_prefer_active_registry_contract_for_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "registered.pkl"
+            artifact.write_bytes(b"demo")
+            registry = {
+                "schema_version": "model_variant_registry_v0.1",
+                "exists": True,
+                "path": "inline",
+                "variants": [
+                    {
+                        "variant_id": "registered_active_v",
+                        "variant_family": "registered_family",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "active_for_headline": True,
+                        "artifact_path": str(artifact),
+                        "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+                        "prediction_mode": "band_binary",
+                        "export_family": "registered_family",
+                        "default_export_path": str(Path(tmp) / "registered.csv"),
+                        "live_runtime": "pooled_candidate_replay",
+                    }
+                ],
+            }
+
+            variant_id, variant_family = candidate_variant_defaults(
+                {"prediction_mode": "bucket_distribution"},
+                variant_registry=registry,
+                artifact_path=str(artifact),
+            )
+
+        self.assertEqual(variant_id, "registered_active_v")
+        self.assertEqual(variant_family, "registered_family")
+
+    def test_forecast_profile_variant_defaults_and_guardrails(self):
+        variant_id, variant_family = candidate_variant_defaults({
+            "prediction_mode": "band_binary",
+            "feature_subset": "forecast_profile",
+        })
+        rows = [
+            {
+                "market_id": "nyc",
+                "forecast_disagreement_bucket": "high_disagreement",
+                "candidate_p": 0.90,
+                "replayed_p": 0.10,
+                "recorded_p": 0.10,
+                "market_yes": 0.10,
+                "outcome": 0,
+            },
+            {
+                "market_id": "nyc",
+                "forecast_disagreement_bucket": "high_disagreement",
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+                "recorded_p": 0.20,
+                "market_yes": 0.20,
+                "outcome": 0,
+            },
+        ]
+
+        guardrails = forecast_profile_guardrails(rows, min_rows=1, tolerance=0.003)
+
+        self.assertEqual(variant_id, "item134_forecast_profile_v0_1")
+        self.assertEqual(variant_family, "forecast_profile_calibration")
+        self.assertEqual(cutoff_regime(8), "early")
+        self.assertEqual(cutoff_regime(14), "midday")
+        self.assertEqual(cutoff_regime(15), "late")
+        self.assertEqual(guardrails["blocked_markets"], ["nyc"])
+
+    def test_candidate_shadow_variant_rows_preserve_source_state_context(self):
+        rows = [
+            {
+                "market_id": "nyc",
+                "target_date": "2026-06-18",
+                "snapshot_id": "s1",
+                "bin_type": "eq",
+                "bin_value": 90,
+                "candidate_p": 0.42,
+                "replayed_p": 0.40,
+                "recorded_p": 0.39,
+                "market_yes": 0.41,
+                "outcome": 1,
+                "candidate_cutoff_hour": 8,
+                "candidate_cutoff_regime": "early",
+                "source_freshness_state": "stale:open_meteo",
+                "settlement_distance_bucket": "0",
+                "forecast_source_count_bucket": "low_count",
+                "forecast_disagreement_bucket": "high_disagreement",
+                "forecast_bucket_pressure": "warm_side",
+                "casebook_taxonomy": "market_lead",
+                "casebook_case_id": "case-1",
+                "casebook_result": "candidate_win",
+                "casebook_slice_type": "clob_taxonomy",
+                "feature_schema_version": "toronto_feature_store_v1.6",
+                "clob_feature_available": 1.0,
+                "clob_midpoint": 0.72,
+            }
+        ]
+
+        variant_rows = candidate_shadow_variant_rows(
+            rows,
+            "candidate",
+            "family",
+            artifact_hash="hash",
+            postprocess_config_hash="schema",
+            experiment_start_date="2026-06-18",
+        )
+
+        self.assertEqual(variant_rows[0]["cutoff_regime"], "early")
+        self.assertEqual(variant_rows[0]["source_freshness_state"], "stale:open_meteo")
+        self.assertEqual(variant_rows[0]["settlement_distance_bucket"], "0")
+        self.assertEqual(variant_rows[0]["forecast_source_count_bucket"], "low_count")
+        self.assertEqual(variant_rows[0]["forecast_disagreement_bucket"], "high_disagreement")
+        self.assertEqual(variant_rows[0]["forecast_bucket_pressure"], "warm_side")
+        self.assertEqual(variant_rows[0]["casebook_taxonomy"], "market_lead")
+        self.assertEqual(variant_rows[0]["feature_schema_version"], "toronto_feature_store_v1.6")
+        self.assertTrue(variant_rows[0]["feature_family_hash"])
+        self.assertTrue(variant_rows[0]["feature_missingness_hash"])
+        self.assertEqual(variant_rows[0]["clob_feature_available"], 1.0)
 
     def test_candidate_report_writes_source_freshness_slice(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -667,6 +1111,19 @@ class TestPooledCandidateReplay(unittest.TestCase):
                     "market_rows": [],
                     "by_market": [],
                     "by_hour": [],
+                    "by_cutoff_regime": [
+                        {
+                            "group": "early",
+                            "n": 3,
+                            "candidate_brier": 0.11,
+                            "current_brier": 0.12,
+                            "market_brier": 0.10,
+                            "delta_vs_current": -0.01,
+                            "delta_vs_market": 0.01,
+                            "candidate_skill": 0.1,
+                            "base_rate": 0.5,
+                        }
+                    ],
                     "by_bin_type": [],
                     "by_settlement_distance": [],
                     "by_source_freshness": [
@@ -682,6 +1139,36 @@ class TestPooledCandidateReplay(unittest.TestCase):
                             "base_rate": 0.5,
                         }
                     ],
+                    "by_forecast_disagreement": [
+                        {
+                            "group": "high_disagreement",
+                            "n": 2,
+                            "candidate_brier": 0.20,
+                            "current_brier": 0.15,
+                            "market_brier": 0.10,
+                            "delta_vs_current": 0.05,
+                            "delta_vs_market": 0.10,
+                            "candidate_skill": -1.0,
+                            "base_rate": 0.5,
+                        }
+                    ],
+                    "forecast_profile_guardrails": {
+                        "rows": [
+                            {
+                                "market_id": "nyc",
+                                "status": "blocked",
+                                "comparison": {
+                                    "n": 2,
+                                    "candidate_brier": 0.20,
+                                    "current_brier": 0.15,
+                                    "market_brier": 0.10,
+                                    "delta_vs_current": 0.05,
+                                    "delta_vs_market": 0.10,
+                                },
+                                "reasons": ["candidate not proven safe"],
+                            }
+                        ]
+                    },
                     "replay_summary": {},
                 },
                 out,
@@ -691,6 +1178,43 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertIn("### By Source Freshness", text)
         self.assertIn("failed:wu_history", text)
+        self.assertIn("### By Cutoff Regime", text)
+        self.assertIn("### By Forecast Disagreement", text)
+        self.assertIn("Forecast-Profile High-Disagreement Guardrails", text)
+
+    def test_candidate_report_blocks_before_create_when_headroom_is_low(self):
+        payload = {
+            "generated_at": "2026-06-15T00:00:00",
+            "verdict": "PASS_WITH_SHADOWS",
+            "candidate_market_verdict": "PASS_WITH_SHADOWS",
+            "cutover_decision": "PER_MARKET_ONLY",
+            "artifact": {},
+            "corpus": {},
+            "coverage": {},
+            "diagnostics": {},
+            "replay_gate": {"corpus_ok": True, "fidelity_ok": True},
+            "aggregate": None,
+            "daily_first": None,
+            "microstructure": None,
+            "source_state_ablation": None,
+            "conservative_bridge": None,
+            "market_rows": [],
+            "by_market": [],
+            "by_hour": [],
+            "by_cutoff_regime": [],
+            "by_bin_type": [],
+            "by_settlement_distance": [],
+            "by_source_freshness": [],
+            "forecast_profile_guardrails": {},
+            "replay_summary": {},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "report.md"
+
+            with self.assertRaises(OSError):
+                write_report(payload, out, min_free_bytes=10**18)
+
+            self.assertFalse(out.exists())
 
     def test_candidate_report_writes_source_state_ablation_section(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -770,6 +1294,15 @@ class TestPooledCandidateReplay(unittest.TestCase):
                     "artifact": {
                         "family_unit": "all",
                         "prediction_mode": "continuous_density_f",
+                        "market_bias_calibration_enabled": True,
+                        "market_bias_calibration_contexts": 12,
+                        "market_bias_baseline_brier": 0.05,
+                        "market_bias_candidate_brier": 0.04,
+                        "market_bias_delta_brier": -0.01,
+                        "current_blend_source_freshness_default_alpha": 0.0,
+                        "current_blend_source_freshness_alpha": {"all_fresh": 1.0},
+                        "market_bias_excluded_markets": ["toronto"],
+                        "market_bias_allowed_source_freshness_states": ["all_fresh"],
                     },
                     "corpus": {},
                     "coverage": {
@@ -810,6 +1343,10 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertIn("# Pooled All-Market Candidate Replay", text)
         self.assertIn("All market rows", text)
         self.assertIn("Excluded non-market rows", text)
+        self.assertIn("Market bias calibration enabled", text)
+        self.assertIn("0.0500 -> 0.0400", text)
+        self.assertIn("Current blend source-freshness alpha", text)
+        self.assertIn("Market bias excluded markets", text)
         self.assertNotIn("F-family rows", text)
 
     def test_candidate_report_writes_exact_winner_diagnostics(self):

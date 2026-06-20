@@ -85,6 +85,11 @@ class FakeClobClient:
         return {"history": [{"t": 1781308800, "p": 0.45}]}
 
 
+class FailingBookClient:
+    def get_order_books(self, token_ids, batch_size=100):
+        raise RuntimeError("book fetch failed")
+
+
 class FakeWebSocket:
     def __init__(self):
         self.sent = []
@@ -212,6 +217,10 @@ class TestMarketMicrostructure(unittest.TestCase):
             history_rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
             ws_rows = list(csv.DictReader((root / "market_ws_events.csv").open(encoding="utf-8", newline="")))
             clob_feature_rows = list(csv.DictReader((root / "clob_features_long.csv").open(encoding="utf-8", newline="")))
+            status_rows = [
+                json.loads(line)
+                for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
 
         self.assertEqual(result["captured_tokens"], 1)
         self.assertEqual(result["books"], 1)
@@ -226,8 +235,40 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(ws_rows[0]["price"], "0.46")
         self.assertEqual(clob_feature_rows[0]["clob_feature_available"], "1.0")
         self.assertEqual(clob_feature_rows[0]["clob_best_bid"], "0.44")
+        self.assertEqual(status_rows[0]["schema_version"], "clob_capture_status_v0.1")
+        self.assertEqual(status_rows[0]["status"], "OK")
+        self.assertEqual(status_rows[0]["captured_tokens"], 1)
+        self.assertEqual(status_rows[0]["books"], 1)
+        self.assertEqual(status_rows[0]["clob_feature_rows"], 1)
+        self.assertTrue(status_rows[0]["capture_status_path"].endswith("clob_capture_status.jsonl"))
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
+
+    def test_capture_event_books_writes_failure_status_before_reraising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(RuntimeError, "book fetch failed"):
+                capture_event_books(
+                    sample_event(),
+                    market_id="toronto",
+                    clob_client=FailingBookClient(),
+                    root=tmp,
+                    outcomes="yes",
+                    include_price_history=False,
+                    include_ws_events=False,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+            status_rows = [
+                json.loads(line)
+                for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(status_rows[0]["status"], "ERROR")
+        self.assertEqual(status_rows[0]["error_stage"], "order_books")
+        self.assertIn("book fetch failed", status_rows[0]["error"])
+        self.assertEqual(status_rows[0]["token_rows"], 2)
+        self.assertEqual(status_rows[0]["captured_tokens"], 1)
+        self.assertEqual(status_rows[0]["books"], 0)
 
     def test_snapshot_band_key_reads_new_upper_endpoint_column(self):
         self.assertEqual(
@@ -316,6 +357,15 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         self.assertEqual(clob_loop_health(base, now=now)["state"], "RUNNING")
         self.assertEqual(clob_loop_health({**base, "error_markets": ["nyc"]}, now=now)["state"], "DEGRADED")
+        zero_capture = {
+            **base,
+            "last_market_results": {
+                "toronto": {"books": 0, "captured_tokens": 0},
+                "nyc": {"books": 0, "captured_tokens": 0},
+            },
+        }
+        self.assertEqual(clob_loop_health(zero_capture, now=now)["state"], "DEGRADED")
+        self.assertEqual(clob_loop_health(zero_capture, now=now)["discovery_sanity"]["status"], "BLOCK")
         self.assertEqual(clob_loop_health({**base, "consecutive_errors": 3}, now=now)["state"], "ERRORING")
         stale = {**base, "last_heartbeat": (now - timedelta(seconds=181)).isoformat()}
         self.assertEqual(clob_loop_health(stale, now=now)["state"], "DEAD")

@@ -608,7 +608,14 @@ class FeatureModelMixin:
         # Check if HGBC is available (preferred)
         if hgb_bundle and str(cutoff_hour) in hgb_bundle:
             try:
+                self._last_weak_input_family_preflight = deepcopy(
+                    (hgb_bundle or {}).get("weak_input_family_preflight") or {}
+                )
                 bundle = hgb_bundle[str(cutoff_hour)]
+                if not self._last_weak_input_family_preflight:
+                    self._last_weak_input_family_preflight = deepcopy(
+                        (bundle or {}).get("weak_input_family_preflight") or {}
+                    )
                 model_obj = bundle["model"]
                 imputer_obj = bundle["imputer"]
                 all_wind = bundle["all_wind_groups"]

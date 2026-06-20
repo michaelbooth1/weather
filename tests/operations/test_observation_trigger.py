@@ -19,7 +19,15 @@ from weather.operations.observation_trigger import (  # noqa: E402
     run_once,
     watcher_health,
 )
-from weather.collection.snapshot_tracker import SnapshotStore, backfill_source_status  # noqa: E402
+from weather.market.live_observation_normalization import (
+    current_high_probability_summary,
+    update_monotonic_high_ledger,
+)
+from weather.collection.snapshot_tracker import (  # noqa: E402
+    SnapshotStore,
+    backfill_forecast_payloads,
+    backfill_source_status,
+)
 from weather.model.toronto_model import TorontoHighTempModel  # noqa: E402
 
 
@@ -269,6 +277,61 @@ class ObservationTriggerTests(unittest.TestCase):
 
         self.assertIn("wu_current_became_fresh", reasons)
 
+    def test_downward_wu_max_since_7am_is_source_revision_not_lower_high(self):
+        previous = obs_state(high=87.0, current=87.0)
+        current = obs_state(high=87.0, current=86.0, captured="2026-06-13T16:01:00+00:00")
+
+        reasons = {trigger["reason"] for trigger in detect_observation_triggers(previous, current)}
+
+        self.assertIn("wu_current_max_since_7am_source_revision_down", reasons)
+        self.assertNotIn("wu_current_max_since_7am_bucket_crossed", reasons)
+
+    def test_settlement_normalization_handles_raw_decimal_boundary(self):
+        observation = obs_state(high=88.0, current=87.08, metar=87.08)
+        ledger = update_monotonic_high_ledger(current_observation=observation)
+        snapshot_rows = [
+            {"range_label": "86-87 F", "bin_kind": "eq", "bin_value": "86", "bin_value_hi": "87", "model_probability": "0.1"},
+            {"range_label": "88-89 F", "bin_kind": "eq", "bin_value": "88", "bin_value_hi": "89", "model_probability": "0.8"},
+        ]
+
+        summary = current_high_probability_summary(snapshot_rows, ledger)
+
+        self.assertEqual(ledger["raw_current_high"], 87.08)
+        self.assertEqual(ledger["settlement_current_high"], 88)
+        self.assertEqual(ledger["high_source"], "wu_history")
+        self.assertEqual(summary["probability_on_raw_current_high"], 0.0)
+        self.assertEqual(summary["probability_on_settlement_current_high"], 0.8)
+
+    def test_current_max_guard_nulls_pre_reset_unvalidated_high_and_resets_prior_day(self):
+        previous = {
+            "market_id": "toronto",
+            "target_date": "2026-06-13",
+            "event_slug": "highest-temperature-in-toronto-on-june-13-2026",
+            "settlement_current_high": 99,
+            "raw_current_high": 99,
+            "monotonic_raw_high": 99,
+            "high_source": "wu_current",
+        }
+        current = obs_state(
+            high=70.0,
+            current=90.0,
+            captured="2026-06-14T06:15:00+00:00",
+        )
+        current["target_date"] = "2026-06-14"
+        current["event_slug"] = "highest-temperature-in-toronto-on-june-14-2026"
+        current["values"]["wu_current_temp"] = 68.0
+        current["values"]["wu_current_max_since_7am"] = 90.0
+
+        ledger = update_monotonic_high_ledger(previous_ledger=previous, current_observation=current)
+
+        self.assertEqual(ledger["current_max_state"], "pre_reset_current_max_null")
+        self.assertEqual(ledger["current_max_disposition"], "null_before_reset")
+        self.assertFalse(ledger["current_high_trusted"])
+        self.assertEqual(ledger["raw_current_high"], 68.0)
+        self.assertEqual(ledger["settlement_current_high"], 70)
+        self.assertEqual(ledger["high_source"], "wu_history")
+        self.assertNotEqual(ledger["settlement_current_high"], 99)
+
     def test_run_once_forces_triggered_snapshot_and_writes_event(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -395,6 +458,72 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(rows[0]["row_count"], "1")
         self.assertEqual(rows[0]["age_minutes"], "1.0")
         self.assertEqual(rows[0]["ttl_minutes"], "90")
+
+    def test_backfill_source_status_from_reconstructed_replay_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "snapshots"
+            folder = root / "highest-temperature-in-toronto-on-june-13-2026"
+            folder.mkdir(parents=True)
+            with (folder / "replay_inputs_reconstructed.jsonl").open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "snapshot_id": "snap1",
+                    "captured_at_local": "2026-06-13T16:00:00+00:00",
+                    "model_version": "model-v",
+                    "sources": {
+                        "open_meteo": {
+                            "ok": True,
+                            "status": "fresh",
+                            "fetched_at": "2026-06-13T15:59:00+00:00",
+                            "data": {"rows": [{"temp_c": 21.0}], "url": "https://example.test/open"},
+                        }
+                    },
+                }) + "\n")
+
+            result = backfill_source_status(root, overwrite=True)
+            rows = list(csv.DictReader((folder / "source_status_long.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(result["written_folders"], 1)
+        self.assertEqual(result["rows"], 1)
+        self.assertEqual(rows[0]["snapshot_id"], "snap1")
+        self.assertEqual(rows[0]["source"], "open_meteo")
+
+    def test_backfill_forecast_payloads_from_replay_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "snapshots"
+            folder = root / "highest-temperature-in-toronto-on-june-13-2026"
+            folder.mkdir(parents=True)
+            with (folder / "replay_inputs.jsonl").open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "snapshot_id": "snap1",
+                    "captured_at_local": "2026-06-13T16:00:00+00:00",
+                    "model_version": "model-v",
+                    "sources": {
+                        "open_meteo": {
+                            "ok": True,
+                            "status": "fresh",
+                            "fetched_at": "2026-06-13T15:52:00+00:00",
+                            "data": {
+                                "rows": [{"temp_c": 21.0}],
+                                "url": "https://example.test/open",
+                            },
+                        }
+                    },
+                }) + "\n")
+
+            result = backfill_forecast_payloads(root, overwrite=True)
+            rows = list(csv.DictReader((folder / "forecast_payloads_long.csv").open(encoding="utf-8", newline="")))
+            payload_path = Path(rows[0]["raw_payload_path"])
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["written_folders"], 1)
+        self.assertEqual(result["rows"], 1)
+        self.assertEqual(rows[0]["snapshot_id"], "snap1")
+        self.assertEqual(rows[0]["source"], "open_meteo")
+        self.assertEqual(rows[0]["status"], "fresh")
+        self.assertEqual(rows[0]["age_minutes"], "8.0")
+        self.assertEqual(rows[0]["ttl_minutes"], "90")
+        self.assertIn("reconstructed", payload_path.name)
+        self.assertEqual(payload["rows"][0]["temp_c"], 21.0)
 
     def test_snapshot_store_persists_raw_forecast_payload_and_strips_replay_blob(self):
         with tempfile.TemporaryDirectory() as tmp:

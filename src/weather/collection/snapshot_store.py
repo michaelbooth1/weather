@@ -18,6 +18,10 @@ from weather.collection.forecast_archive import (
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
+from weather.collection.live_variant_predictions import (
+    LIVE_VARIANT_PREDICTION_COLUMNS,
+    build_live_variant_prediction_rows,
+)
 from weather.market.market_config import config_for_date, config_from_event
 from weather.model.feature_store import (
     FEATURE_AUDIT_COLUMNS,
@@ -211,6 +215,8 @@ class SnapshotStore:
         self.forecast_payload_dir = self.root / "forecast_payloads"
         self.forecast_payloads_long_path = self.root / "forecast_payloads_long.csv"
         self.forecast_payloads_jsonl_path = self.root / "forecast_payloads.jsonl"
+        self.variant_predictions_long_path = self.root / "variant_predictions_long.csv"
+        self.variant_predictions_jsonl_path = self.root / "variant_predictions.jsonl"
         self.replay_inputs_path = self.root / "replay_inputs.jsonl"
 
     def maybe_write(self, event, model, model_client, force=False, cadence="scheduled", trigger_context=None):
@@ -340,6 +346,26 @@ class SnapshotStore:
             model_client,
             calibration_context=calibration_context,
         )
+        variant_prediction_rows = []
+        variant_prediction_error = None
+        try:
+            variant_prediction_rows = build_live_variant_prediction_rows(
+                snapshot_id=snapshot_id,
+                captured_at=captured_at,
+                event=event,
+                model=model,
+                model_client=model_client,
+                band_rows=long_rows,
+                event_slug=self.event_slug,
+                market_id=event_config.market_id,
+                target_date=event_config.target_date,
+                serving_model_version=model_version,
+                runtime_fields=runtime_fields,
+                snapshot_cadence=cadence,
+                trigger_summary=trigger_summary,
+            )
+        except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
+            variant_prediction_error = f"{type(exc).__name__}: {exc}"
         self.append_csv(self.long_path, LONG_COLUMNS, long_rows)
         self.append_csv(
             self.wide_path,
@@ -369,6 +395,8 @@ class SnapshotStore:
             "forecast_payloads": forecast_payload_rows,
             "feature_schema_version": feature_schema_version,
             "feature_vector": model.get("feature_vector"),
+            "variant_prediction_rows": len(variant_prediction_rows),
+            "variant_prediction_error": variant_prediction_error,
             "bands": long_rows,
         })
 
@@ -424,6 +452,15 @@ class SnapshotStore:
             for row in source_status_rows:
                 self.append_jsonl(self.source_status_jsonl_path, row)
 
+        if variant_prediction_rows:
+            self.append_csv(
+                self.variant_predictions_long_path,
+                LIVE_VARIANT_PREDICTION_COLUMNS,
+                variant_prediction_rows,
+            )
+            for row in variant_prediction_rows:
+                self.append_jsonl(self.variant_predictions_jsonl_path, row)
+
         self.write_replay_input(
             snapshot_id,
             captured_at,
@@ -452,6 +489,10 @@ class SnapshotStore:
             "source_status_path": str(self.source_status_long_path),
             "forecast_payload_rows": len(forecast_payload_rows),
             "forecast_payloads_path": str(self.forecast_payloads_long_path),
+            "variant_prediction_rows": len(variant_prediction_rows),
+            "variant_predictions_path": str(self.variant_predictions_long_path),
+            "variant_predictions_jsonl_path": str(self.variant_predictions_jsonl_path),
+            "variant_prediction_error": variant_prediction_error,
             "next_due_at": self.next_due_at(
                 captured_at if cadence == "scheduled" else None,
                 cadence="scheduled",

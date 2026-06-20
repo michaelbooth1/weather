@@ -32,6 +32,7 @@ from weather.market.market_microstructure import (
     read_clob_loop_status,
 )
 from weather.market.market_microstructure_features import clob_feature_rows_for_folder, snapshot_band_key
+from weather.market.live_observation_normalization import normalized_high_fields
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.mm_policy import (
     DEFAULT_POLICY_CONFIG,
@@ -236,6 +237,7 @@ def assemble_policy_inputs_for_market(
     known_edge_records=None,
     known_edge_map_loaded=False,
     clob_feature_rows=None,
+    current_high_assessment=None,
 ):
     if clob_feature_rows is None:
         clob_by_token, clob_by_band = load_clob_feature_index(folder)
@@ -269,6 +271,7 @@ def assemble_policy_inputs_for_market(
         merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
         merged["source_fresh"] = observation_status.get("fresh", False)
         merged["source_freshness_state"] = source_freshness_state
+        merged.update(normalized_high_fields(current_high_assessment))
         record = resolve_known_edge_record(merged, known_edge_records or [])
         merged = apply_known_edge_permission(
             merged,
@@ -290,6 +293,116 @@ def boolish_active(value):
     if text in {"closed", "inactive", "0", "false", "no"}:
         return False
     return True
+
+
+def clob_token_discovery_health(token_rows):
+    rows = list(token_rows or [])
+    yes_rows = [
+        row for row in rows
+        if str(row.get("outcome") or "").strip().lower() in {"", "yes"}
+    ]
+    active_rows = [
+        row for row in yes_rows
+        if boolish_active(row.get("active")) and not bool_value(row.get("closed"), False)
+    ]
+    rows_with_token = [row for row in active_rows if row.get("clob_token_id")]
+    rows_with_condition = [row for row in active_rows if row.get("condition_id")]
+    active_blank_rows = [
+        row for row in active_rows
+        if not row.get("clob_token_id") and not row.get("condition_id")
+    ]
+    if rows_with_token and rows_with_condition:
+        status = "PASS"
+        root_cause = None
+        reason = "active CLOB token discovery has token and condition ids"
+    elif not rows:
+        status = "BLOCK"
+        root_cause = "missing_clob_token_file_rows"
+        reason = "clob_tokens.csv has no rows"
+    elif yes_rows and not active_rows:
+        status = "BLOCK"
+        root_cause = "inactive_gamma_market_rows"
+        reason = "all YES CLOB token rows are inactive or closed"
+    elif active_rows and len(active_blank_rows) == len(active_rows):
+        status = "BLOCK"
+        root_cause = "blank_clob_token_ids"
+        reason = "active CLOB token rows have blank clob_token_id and condition_id"
+    else:
+        status = "BLOCK"
+        root_cause = "partial_clob_token_discovery"
+        reason = "active CLOB token rows are missing token ids or condition ids"
+    return {
+        "status": status,
+        "ok": status == "PASS",
+        "root_cause": root_cause,
+        "reason": reason,
+        "token_file_rows": len(rows),
+        "yes_token_rows": len(yes_rows),
+        "active_token_file_rows": len(active_rows),
+        "rows_with_token_id": len(rows_with_token),
+        "rows_with_condition_id": len(rows_with_condition),
+        "active_blank_token_rows": len(active_blank_rows),
+    }
+
+
+def first_failed_gate(preflight_row):
+    for gate in preflight_row.get("gates") or []:
+        if not gate.get("ok"):
+            return gate
+    return {}
+
+
+def has_failed_gate(preflight_row, gate_name):
+    return any(
+        gate.get("name") == gate_name and not gate.get("ok")
+        for gate in preflight_row.get("gates") or []
+    )
+
+
+def classify_zero_trade_root_cause(preflight_rows, *, permission_rows=0, output_rows=0):
+    rows = list(preflight_rows or [])
+    blocked = [row for row in rows if row.get("status") != "PASS"]
+    first_gate = first_failed_gate(blocked[0]) if blocked else {}
+    if blocked:
+        if len(blocked) == len(rows) and rows and all(
+            has_failed_gate(row, "clob_discovery") or has_failed_gate(row, "active_event")
+            for row in blocked
+        ):
+            root_class = "blocked_by_market_discovery"
+        elif len(blocked) == len(rows) and rows and all(has_failed_gate(row, "clob_books") for row in blocked):
+            root_class = "blocked_by_clob_books"
+        else:
+            root_class = "blocked_by_preflight"
+        return {
+            "root_cause_class": root_class,
+            "first_failing_gate": first_gate.get("name"),
+            "first_failing_detail": first_gate.get("detail"),
+            "blocked_market_count": len(blocked),
+            "zero_trades_expected": True,
+        }
+    if output_rows and not permission_rows:
+        return {
+            "root_cause_class": "policy_no_edge",
+            "first_failing_gate": "policy",
+            "first_failing_detail": "policy produced rows but no executable permissions",
+            "blocked_market_count": 0,
+            "zero_trades_expected": True,
+        }
+    if not output_rows:
+        return {
+            "root_cause_class": "crashed_before_scoring",
+            "first_failing_gate": "scoring",
+            "first_failing_detail": "no output rows were produced",
+            "blocked_market_count": 0,
+            "zero_trades_expected": False,
+        }
+    return {
+        "root_cause_class": "trading_permissions_emitted",
+        "first_failing_gate": None,
+        "first_failing_detail": None,
+        "blocked_market_count": 0,
+        "zero_trades_expected": False,
+    }
 
 
 def source_status_is_current(rows):
@@ -359,6 +472,7 @@ def preflight_market(
     pilot=False,
     data_layer_live_gate=None,
     platform_verification_gate=None,
+    current_high_assessment=None,
 ):
     gates = []
     blockers = []
@@ -380,6 +494,7 @@ def preflight_market(
     )
     csv_encoding = preflight_csv_encoding_diagnostics(folder)
     token_rows = read_csv_rows(folder / "clob_tokens.csv")
+    token_discovery = clob_token_discovery_health(token_rows)
     token_count = sum(1 for row in token_rows if row.get("clob_token_id") and str(row.get("outcome") or "").lower() in {"yes", ""})
     condition_count = len({row.get("condition_id") for row in token_rows if row.get("condition_id")})
     reward_metadata = metadata_from_books(book_rows)
@@ -404,6 +519,7 @@ def preflight_market(
     )
     add_gate("source_status_rows", bool(source_rows), "missing", "missing current source-status rows")
     add_gate("source_status_fresh", source_status_fresh, "stale", "no fresh source-status row for latest snapshot")
+    add_gate("clob_discovery", token_discovery.get("ok"), "missing", token_discovery.get("reason"))
     add_gate("clob_tokens", token_count > 0 and condition_count > 0, "missing", "missing CLOB token ids or condition ids")
     add_gate("clob_books", bool(book_rows), "missing", "missing current CLOB book rows")
     add_gate("clob_features", bool(clob_feature_rows), "missing", "missing band-level CLOB feature rows")
@@ -471,6 +587,7 @@ def preflight_market(
         "blocking_reasons": blockers,
         "stale_reasons": stale,
         "gates": gates,
+        "first_failing_gate": first_failed_gate({"gates": gates}),
         "snapshot_rows": len(snapshot_rows),
         "latest_snapshot_id": snapshot_rows[0].get("snapshot_id") if snapshot_rows else None,
         "latest_capture_utc": latest_capture.isoformat() if latest_capture else None,
@@ -479,6 +596,7 @@ def preflight_market(
         "source_status_latest_utc": source_status_latest.isoformat() if source_status_latest else None,
         "source_status_fresh": source_status_fresh,
         "clob_token_rows": token_count,
+        "clob_token_discovery": token_discovery,
         "condition_ids": condition_count,
         "book_rows": len(book_rows),
         "clob_feature_rows": len(clob_feature_rows),
@@ -490,6 +608,7 @@ def preflight_market(
         "live_gate": live_gate,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
+        "current_high_assessment": current_high_assessment or {},
     }
 
 

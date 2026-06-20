@@ -14,7 +14,15 @@ from weather.schema_registry import schema_version
 
 
 ARTIFACT_REGISTRY_SCHEMA_VERSION = schema_version("model_artifact_registry")
+ARTIFACT_SIZE_AUDIT_SCHEMA_VERSION = schema_version("model_artifact_size_audit")
 DEFAULT_ARTIFACT_REGISTRY_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_registry.json"
+DEFAULT_ARTIFACT_SIZE_AUDIT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_size_audit.json"
+
+MIB = 1024 * 1024
+DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES = 90 * MIB
+DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES = 100 * MIB
+DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES = 350 * MIB
+DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES = 500 * MIB
 
 
 def _artifact_dir(filename: str) -> Path:
@@ -139,6 +147,7 @@ def discover_artifact_files(root: str | Path = ARTIFACTS_ROOT):
         path for path in root.rglob("*")
         if path.is_file()
         and path.name != DEFAULT_ARTIFACT_REGISTRY_PATH.name
+        and path.name != DEFAULT_ARTIFACT_SIZE_AUDIT_PATH.name
         and path.suffix.lower() in {".json", ".pkl", ".parquet"}
     )
 
@@ -188,11 +197,130 @@ def write_artifact_registry(path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH, r
     return path
 
 
+def _size_status(rows):
+    if any(row["status"] == "FAIL" for row in rows):
+        return "FAIL"
+    if any(row["status"] == "WARN" for row in rows):
+        return "WARN"
+    return "PASS"
+
+
+def _threshold_row(kind, status, bytes_value, threshold_bytes, artifact=None):
+    row = {
+        "kind": kind,
+        "status": status,
+        "bytes": int(bytes_value),
+        "threshold_bytes": int(threshold_bytes),
+    }
+    if artifact is not None:
+        row["artifact_id"] = artifact.get("artifact_id")
+        row["path"] = artifact.get("path")
+        row["suffix"] = artifact.get("suffix")
+        row["artifact_kind"] = artifact.get("kind")
+    return row
+
+
+def build_artifact_size_audit(
+    root: str | Path = ARTIFACTS_ROOT,
+    *,
+    generated_at=None,
+    individual_warning_bytes=DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES,
+    individual_failure_bytes=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES,
+    total_warning_bytes=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES,
+    total_failure_bytes=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES,
+    largest_limit=10,
+) -> dict:
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat()
+    registry = build_artifact_registry(root=root, generated_at=generated_at)
+    artifacts = registry["artifacts"]
+    total_bytes = sum(row["bytes"] for row in artifacts)
+    checks = []
+    for row in artifacts:
+        if row["bytes"] >= individual_failure_bytes:
+            checks.append(_threshold_row("individual_artifact", "FAIL", row["bytes"], individual_failure_bytes, row))
+        elif row["bytes"] >= individual_warning_bytes:
+            checks.append(_threshold_row("individual_artifact", "WARN", row["bytes"], individual_warning_bytes, row))
+    if total_bytes >= total_failure_bytes:
+        checks.append(_threshold_row("total_artifacts", "FAIL", total_bytes, total_failure_bytes))
+    elif total_bytes >= total_warning_bytes:
+        checks.append(_threshold_row("total_artifacts", "WARN", total_bytes, total_warning_bytes))
+
+    largest = sorted(artifacts, key=lambda row: row["bytes"], reverse=True)[:largest_limit]
+    thresholds = {
+        "individual_warning_bytes": int(individual_warning_bytes),
+        "individual_failure_bytes": int(individual_failure_bytes),
+        "total_warning_bytes": int(total_warning_bytes),
+        "total_failure_bytes": int(total_failure_bytes),
+        "policy": (
+            "Track small JSON calibration artifacts and manifests in Git. "
+            "Move binary model artifacts that reach the warning threshold to Git LFS "
+            "or an external artifact store before promotion, and block artifacts at "
+            "the failure threshold."
+        ),
+    }
+    return {
+        "schema_version": ARTIFACT_SIZE_AUDIT_SCHEMA_VERSION,
+        "generated_at_utc": generated_at,
+        "artifact_root": registry["artifact_root"],
+        "status": _size_status(checks),
+        "artifact_count": registry["artifact_count"],
+        "total_bytes": total_bytes,
+        "kind_counts": registry["kind_counts"],
+        "thresholds": thresholds,
+        "largest_artifacts": largest,
+        "checks": checks,
+    }
+
+
+def write_artifact_size_audit(
+    path: str | Path = DEFAULT_ARTIFACT_SIZE_AUDIT_PATH,
+    root: str | Path = ARTIFACTS_ROOT,
+    **kwargs,
+) -> Path:
+    payload = build_artifact_size_audit(root=root, **kwargs)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 def cmd_registry(args):
     out = write_artifact_registry(args.out, root=args.root)
     payload = json.loads(Path(out).read_text(encoding="utf-8"))
     print(f"Wrote artifact registry to {out}")
     print(f"artifacts={payload.get('artifact_count')} kinds={payload.get('kind_counts')}")
+
+
+def cmd_size_audit(args):
+    out = write_artifact_size_audit(
+        args.out,
+        root=args.root,
+        individual_warning_bytes=args.individual_warning_bytes,
+        individual_failure_bytes=args.individual_failure_bytes,
+        total_warning_bytes=args.total_warning_bytes,
+        total_failure_bytes=args.total_failure_bytes,
+    )
+    payload = json.loads(Path(out).read_text(encoding="utf-8"))
+    print(f"Wrote artifact size audit to {out}")
+    print(
+        "status={status} artifacts={count} total_mib={total:.2f}".format(
+            status=payload.get("status"),
+            count=payload.get("artifact_count"),
+            total=(payload.get("total_bytes") or 0) / MIB,
+        )
+    )
+    for row in payload.get("checks") or []:
+        artifact = row.get("artifact_id") or row.get("kind")
+        print(
+            "{status}: {artifact} {size:.2f} MiB threshold={threshold:.2f} MiB".format(
+                status=row.get("status"),
+                artifact=artifact,
+                size=(row.get("bytes") or 0) / MIB,
+                threshold=(row.get("threshold_bytes") or 0) / MIB,
+            )
+        )
+    if payload.get("status") == "FAIL" or (args.fail_on_warn and payload.get("status") == "WARN"):
+        raise SystemExit(1)
 
 
 def build_parser():
@@ -202,6 +330,15 @@ def build_parser():
     registry.add_argument("--root", default=str(ARTIFACTS_ROOT))
     registry.add_argument("--out", default=str(DEFAULT_ARTIFACT_REGISTRY_PATH))
     registry.set_defaults(func=cmd_registry)
+    size_audit = sub.add_parser("size-audit")
+    size_audit.add_argument("--root", default=str(ARTIFACTS_ROOT))
+    size_audit.add_argument("--out", default=str(DEFAULT_ARTIFACT_SIZE_AUDIT_PATH))
+    size_audit.add_argument("--individual-warning-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES)
+    size_audit.add_argument("--individual-failure-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES)
+    size_audit.add_argument("--total-warning-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES)
+    size_audit.add_argument("--total-failure-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES)
+    size_audit.add_argument("--fail-on-warn", action="store_true")
+    size_audit.set_defaults(func=cmd_size_audit)
     return parser
 
 
