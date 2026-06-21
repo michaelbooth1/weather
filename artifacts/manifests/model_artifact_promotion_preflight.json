@@ -1,13 +1,13 @@
 {
   "artifact_root": "artifacts",
   "checks": [],
-  "generated_at_utc": "2026-06-20T19:27:30.715673+00:00",
+  "generated_at_utc": "2026-06-20T20:08:28.614935+00:00",
   "schema_version": "model_artifact_promotion_preflight_v0.1",
   "size_audit": {
     "artifact_count": 102,
     "artifact_root": "artifacts",
     "checks": [],
-    "generated_at_utc": "2026-06-20T19:27:30.715673+00:00",
+    "generated_at_utc": "2026-06-20T20:08:28.614935+00:00",
     "kind_counts": {
       "calibration": 51,
       "coefs_model": 24,

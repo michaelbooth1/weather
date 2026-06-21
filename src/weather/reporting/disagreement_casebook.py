@@ -63,13 +63,15 @@ FORECAST_SOURCE_NAMES = {
     "weather_forecast",
     "open_meteo",
     "open_meteo_multimodel",
+    "open_meteo_global_models",
     "nws_hourly",
     "nws_grid",
+    "nbm_probabilistic_tmax",
     "global_ensemble",
     "eccc_citypage",
     "eccc_gem",
 }
-OPEN_METEO_SOURCE_NAMES = {"open_meteo", "open_meteo_multimodel"}
+OPEN_METEO_SOURCE_NAMES = {"open_meteo", "open_meteo_multimodel", "open_meteo_global_models"}
 
 SNAPSHOT_FILENAME = "snapshots_long.csv"
 COMPONENT_FILENAME = "components_long.csv"

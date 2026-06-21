@@ -55,6 +55,7 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory_report.md"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation.json"
 DEFAULT_CANDIDATE_REPLAY_JSON = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
 DEFAULT_LOCATIONS_CONFIG = config_path("locations.json")
+DEFAULT_LOCATION_MARKET_EVENTS_CONFIG = config_path("location_market_events.json")
 
 BLANK_VALUES = {"", "na", "nan", "none", "null", "n/a"}
 FORECAST_PAYLOAD_SOURCES = {
@@ -64,7 +65,9 @@ FORECAST_PAYLOAD_SOURCES = {
     "eccc_gem",
     "nws_hourly",
     "nws_grid",
+    "nbm_probabilistic_tmax",
     "open_meteo_multimodel",
+    "open_meteo_global_models",
     "global_ensemble",
 }
 REANALYSIS_THIN_MARGIN_DELTA = 0.003
@@ -113,7 +116,11 @@ def _core_observation_columns():
 
 
 def _nws_grid_columns():
-    return tuple(column for column in US_GUIDANCE_FEATURE_COLUMNS if column.startswith("nws_grid"))
+    return tuple(
+        column
+        for column in US_GUIDANCE_FEATURE_COLUMNS
+        if column.startswith("nws_grid") or column.startswith("nbm_prob_tmax")
+    )
 
 
 def _multi_model_columns():
@@ -158,10 +165,10 @@ FAMILY_SPECS = (
     SourceFamilySpec(
         "nws_grid",
         "NWS hourly and gridpoint guidance",
-        ("nws_hourly", "nws_grid"),
+        ("nws_hourly", "nws_grid", "nbm_probabilistic_tmax"),
         _nws_grid_columns(),
         ("source_status_long.csv", "forecast_payloads_long.csv", "features_long.csv"),
-        ("official_us_guidance", "nws_grid", "nws_hourly"),
+        ("official_us_guidance", "nws_grid", "nws_hourly", "nbm_probabilistic_tmax"),
         "live_only_until_grid_archive_backfill",
         "live_only_diagnostic_until_backfilled",
         "US official guidance",
@@ -169,10 +176,10 @@ FAMILY_SPECS = (
     SourceFamilySpec(
         "multi_model_guidance",
         "Open-Meteo multi-model and ensemble guidance",
-        ("open_meteo_multimodel", "global_ensemble"),
+        ("open_meteo_multimodel", "open_meteo_global_models", "global_ensemble"),
         _multi_model_columns(),
         ("source_status_long.csv", "forecast_payloads_long.csv", "features_long.csv"),
-        ("multi_model_guidance", "open_meteo_multimodel", "global_ensemble"),
+        ("multi_model_guidance", "open_meteo_multimodel", "open_meteo_global_models", "global_ensemble"),
         "live_only_until_model_run_archive_backfill",
         "live_only_diagnostic_until_backfilled",
         "forecast archive",
@@ -1098,6 +1105,31 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
     return rows
 
 
+def location_market_events_by_id(location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG):
+    path = Path(location_events_config)
+    if not path.exists():
+        return {}
+    payload = read_json(path, default={}) or {}
+    return {
+        row.get("location_id"): row
+        for row in payload.get("locations") or []
+        if row.get("location_id")
+    }
+
+
+def location_with_market_events(location, events_by_id):
+    row = dict(location or {})
+    event_row = events_by_id.get(row.get("id"))
+    if not event_row:
+        return row
+    polymarket = dict(row.get("polymarket") or {})
+    for key in ("latest_event_slug", "latest_event_url", "source_event_count", "source_event_dates", "active_events"):
+        if key in event_row:
+            polymarket[key] = event_row.get(key)
+    row["polymarket"] = polymarket
+    return row
+
+
 def score_location(location):
     settlement = location.get("settlement") or {}
     coords = location.get("coordinates") or {}
@@ -1124,17 +1156,22 @@ def score_location(location):
     }
 
 
-def market_expansion_scorecard(locations_config=DEFAULT_LOCATIONS_CONFIG):
+def market_expansion_scorecard(
+    locations_config=DEFAULT_LOCATIONS_CONFIG,
+    location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG,
+):
     payload = read_json(locations_config, default={}) or {}
+    events_by_id = location_market_events_by_id(location_events_config)
     active = set(REGISTRY)
     rows = [
-        score_location(location)
+        score_location(location_with_market_events(location, events_by_id))
         for location in payload.get("locations") or []
         if location.get("id") not in active
     ]
     blocked = [row for row in rows if row["status"] != "PASS"]
     return {
         "locations_config": str(Path(locations_config)),
+        "location_events_config": str(Path(location_events_config)),
         "active_market_ids": sorted(active),
         "candidate_count": len(rows),
         "blocked_count": len(blocked),
@@ -1204,6 +1241,7 @@ def build_source_family_inventory(
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
     locations_config=DEFAULT_LOCATIONS_CONFIG,
+    location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG,
     item27_reanalysis_paths=None,
     item27_required_markets=None,
     generated_at_utc=None,
@@ -1245,7 +1283,10 @@ def build_source_family_inventory(
         ablation_json=ablation_json,
         candidate_replay_json=candidate_replay_json,
     )
-    expansion = market_expansion_scorecard(locations_config)
+    expansion = market_expansion_scorecard(
+        locations_config,
+        location_events_config=location_events_config,
+    )
     blocked = preflight["blocked_family_count"]
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1256,6 +1297,7 @@ def build_source_family_inventory(
         "ablation_json": str(Path(ablation_json)),
         "candidate_replay_json": str(Path(candidate_replay_json)),
         "locations_config": str(Path(locations_config)),
+        "location_events_config": str(Path(location_events_config)),
         "status": "BLOCK" if blocked else "PASS",
         "summary": {
             "family_count": len(rows),
@@ -1431,6 +1473,7 @@ def main(argv=None):
     parser.add_argument("--ablation-json", default=str(DEFAULT_ABLATION_JSON))
     parser.add_argument("--candidate-replay-json", default=str(DEFAULT_CANDIDATE_REPLAY_JSON))
     parser.add_argument("--locations-config", default=str(DEFAULT_LOCATIONS_CONFIG))
+    parser.add_argument("--location-events-config", default=str(DEFAULT_LOCATION_MARKET_EVENTS_CONFIG))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     args = parser.parse_args(argv)
@@ -1441,6 +1484,7 @@ def main(argv=None):
         ablation_json=args.ablation_json,
         candidate_replay_json=args.candidate_replay_json,
         locations_config=args.locations_config,
+        location_events_config=args.location_events_config,
     )
     json_path, report_path = write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
     print(

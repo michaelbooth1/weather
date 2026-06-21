@@ -14,6 +14,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_clob_order_book_tiering_step,
     run_data_retention_inventory_step,
     run_daily_refresh,
+    run_distribution_stage_attribution_step,
     run_ingest_quality_gate_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
@@ -71,6 +72,7 @@ def _args(tmp, **overrides):
         "reanalysis_end_date": "",
         "skip_data_layer_audit": False,
         "skip_data_retention_inventory": False,
+        "distribution_stage_min_rows": 20,
         "data_retention_min_free_bytes": 0,
         "data_retention_lookback_hours": 24.0,
         "data_retention_top_n": 25,
@@ -243,7 +245,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
-        self.assertLess(names.index("data_layer_audit"), names.index("data_retention_inventory"))
+        self.assertLess(names.index("data_layer_audit"), names.index("snapshot_evaluation"))
+        self.assertLess(names.index("snapshot_evaluation"), names.index("distribution_stage_attribution"))
+        self.assertLess(names.index("distribution_stage_attribution"), names.index("data_retention_inventory"))
         self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
@@ -630,6 +634,39 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertTrue(report_exists)
             self.assertEqual(result["summary"]["file_count"], 1)
 
+    def test_distribution_stage_attribution_step_writes_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "snapshots" / "highest-temperature-in-test-on-june-1-2026"
+            folder.mkdir(parents=True)
+            (folder / "settlement.json").write_text(
+                json.dumps({
+                    "event_slug": folder.name,
+                    "market_id": "test",
+                    "target_date": "2026-06-01",
+                    "settlement_bucket": 22,
+                }),
+                encoding="utf-8",
+            )
+            (folder / "components_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,captured_at_local,event_slug,cutoff_hour,active_model_kind,component_name,range_label,bin_kind,bin_value_c,component_probability",
+                    f"s1,2026-06-01T12:00:00-04:00,{folder.name},12,hgb,climatology_prior,22-23 F,eq,22,0.40",
+                    f"s1,2026-06-01T12:00:00-04:00,{folder.name},12,hgb,feature_blend,22-23 F,eq,22,0.70",
+                    f"s1,2026-06-01T12:00:00-04:00,{folder.name},12,hgb,post_live_signals,22-23 F,eq,22,0.60",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            args = _args(tmp, distribution_stage_min_rows=1)
+
+            result = run_distribution_stage_attribution_step(args)
+
+            self.assertEqual(result["status"], "ACTIONABLE")
+            self.assertTrue(Path(result["json_out"]).exists())
+            self.assertTrue(Path(result["report_out"]).exists())
+            self.assertEqual(result["settled_folder_count"], 1)
+            self.assertEqual(result["top_net_negative_stage"]["group"], "post_live_signals")
+
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (
             "variant_id,variant_family,uses_market_features,is_control,market_id,"
@@ -710,6 +747,172 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["registry"]["contract_status"], "OK")
         self.assertEqual(payload["summary"]["source_path_count"], 1)
         self.assertEqual(payload["registry"]["reported_active_variant_ids"], ["active_v"])
+
+    def test_active_variant_shadow_step_executes_registry_predictions_when_sources_empty(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+
+        def fake_execute_pooled_contract(variant, contract, **_kwargs):
+            out = Path(contract["default_export_path"])
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                header
+                + "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n",
+                encoding="utf-8",
+            )
+            return {
+                "variant_id": variant["variant_id"],
+                "live_runtime": contract["live_runtime"],
+                "prediction_function": contract["prediction_function"],
+                "status": "OK",
+                "output_path": str(out),
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            corpus = root / "backtest" / "promotion_corpus.json"
+            corpus.parent.mkdir()
+            corpus.write_text("{}", encoding="utf-8")
+            export = root / "backtest" / "fresh_active.csv"
+            registry = root / "config" / "model_variant_registry.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(json.dumps({
+                "schema_version": "model_variant_registry_v0.1",
+                "variants": [
+                    {
+                        "variant_id": "active_v",
+                        "variant_family": "f_family",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "roles": ["candidate", "no-market"],
+                        "active_for_headline": True,
+                        "artifact_required": False,
+                        "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+                        "prediction_mode": "band_binary",
+                        "export_family": "f_family",
+                        "default_export_path": str(export),
+                        "live_runtime": "pooled_candidate_replay",
+                    },
+                ],
+            }), encoding="utf-8")
+            args = _args(tmp, variant_registry=str(registry), promotion_min_artifact_free_bytes=0)
+
+            with patch(
+                "weather.reporting.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
+                side_effect=fake_execute_pooled_contract,
+            ) as execute:
+                result = run_active_variant_shadow_step(args)
+
+            payload = json.loads((root / "backtest" / "active_variant_shadow.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["execution"]["status"], "OK")
+        self.assertEqual(result["summary"]["execution_count"], 1)
+        self.assertEqual(payload["execution"]["source_paths"], [str(export)])
+        self.assertEqual(payload["registry"]["reported_active_variant_ids"], ["active_v"])
+        execute.assert_called_once()
+
+    def test_active_variant_shadow_explicit_sources_bypass_registry_execution(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.csv"
+            source.write_text(header + row, encoding="utf-8")
+            registry = root / "config" / "model_variant_registry.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(json.dumps({
+                "schema_version": "model_variant_registry_v0.1",
+                "variants": [
+                    {
+                        "variant_id": "active_v",
+                        "variant_family": "f_family",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "roles": ["candidate", "no-market"],
+                        "active_for_headline": True,
+                        "artifact_required": False,
+                        "prediction_function": "weather.tests:predict",
+                        "prediction_mode": "demo",
+                        "export_family": "f_family",
+                        "default_export_path": str(root / "unused.csv"),
+                        "live_runtime": "pooled_candidate_replay",
+                    },
+                ],
+            }), encoding="utf-8")
+            args = _args(
+                tmp,
+                active_variant_shadow_sources=str(source),
+                variant_registry=str(registry),
+            )
+
+            with patch("weather.reporting.active_variant_shadow_refresh.execute_registry_prediction_exports") as execute:
+                result = run_active_variant_shadow_step(args)
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["summary"]["source_path_count"], 1)
+        execute.assert_not_called()
+
+    def test_active_variant_shadow_failed_execution_does_not_fall_back_to_stale_exports(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stale = root / "stale.csv"
+            stale.write_text(header + row, encoding="utf-8")
+            registry = root / "config" / "model_variant_registry.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(json.dumps({
+                "schema_version": "model_variant_registry_v0.1",
+                "variants": [
+                    {
+                        "variant_id": "active_v",
+                        "variant_family": "f_family",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "roles": ["candidate", "no-market"],
+                        "active_for_headline": True,
+                        "artifact_required": False,
+                        "prediction_function": "weather.tests:predict",
+                        "prediction_mode": "demo",
+                        "export_family": "f_family",
+                        "default_export_path": str(stale),
+                        "live_runtime": "pooled_candidate_replay",
+                    },
+                ],
+            }), encoding="utf-8")
+            args = _args(tmp, variant_registry=str(registry))
+            failed_execution = {
+                "status": "BLOCK",
+                "source_paths": [],
+                "executions": [],
+                "blockers": ["synthetic execution failure"],
+            }
+
+            with patch(
+                "weather.reporting.active_variant_shadow_refresh.execute_registry_prediction_exports",
+                return_value=failed_execution,
+            ):
+                result = run_active_variant_shadow_step(args)
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["summary"]["source_path_count"], 0)
+        self.assertEqual(result["summary"]["selected_rows"], 0)
+        self.assertEqual(result["missing_active_variant_ids"], ["active_v"])
 
     def test_model_variant_evidence_growth_defaults_to_active_variant_shadow_long(self):
         header = (

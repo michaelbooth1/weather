@@ -239,6 +239,59 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(by_id["bad-city"]["status"], "BLOCK")
         self.assertIn("settlement_station", by_id["bad-city"]["missing"])
 
+    def test_market_expansion_scorecard_merges_generated_location_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            locations_config = root / "locations.json"
+            events_config = root / "location_market_events.json"
+            locations_config.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "location_registry_v0.1",
+                        "locations": [
+                            {
+                                "id": "new-city",
+                                "city": "New City",
+                                "country_code": "US",
+                                "timezone": "America/New_York",
+                                "market_unit": "F",
+                                "coordinates": {"lat": 40.0, "lon": -73.0},
+                                "settlement": {
+                                    "station_id": "KNEW",
+                                    "resolution_source_url": "https://example.test/history/KNEW",
+                                    "source_type": "wunderground_history",
+                                },
+                                "live_source_plan": ["settlement_history", "open_meteo", "metar"],
+                                "polymarket": {"event_slug_prefix": "highest-temperature-in-new-city-on"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            events_config.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "location_market_events_v0.1",
+                        "locations": [
+                            {
+                                "location_id": "new-city",
+                                "latest_event_slug": "highest-temperature-in-new-city-on-june-20-2026",
+                                "active_events": [
+                                    {"event_slug": "highest-temperature-in-new-city-on-june-20-2026"}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            scorecard = market_expansion_scorecard(locations_config, events_config)
+
+        self.assertEqual(scorecard["status"], "PASS")
+        self.assertEqual(scorecard["rows"][0]["checks"]["active_or_recent_event"], True)
+
     def test_reanalysis_sidecar_counts_as_historical_feature_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

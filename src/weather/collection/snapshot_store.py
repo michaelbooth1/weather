@@ -52,6 +52,8 @@ SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
 PROCESS_RUNTIME_IDENTITY = get_runtime_identity()
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
+    "open_meteo_air_quality",
+    "open_meteo_global_models",
     "open_meteo_multimodel",
     "global_ensemble",
     "eccc_gem",

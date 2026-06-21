@@ -20,28 +20,28 @@ DEFAULT_WARNING_LINES = 2_000
 OWNERSHIP_NOTES = {
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
-        "boundary": "Pooled training/CLI facade; source-state helpers now live in pooled_feature_source_state.",
-        "next_split": "feature assembly, artifact IO, report rendering, and CLI orchestration.",
+        "boundary": "Compatibility facade for pooled feature model implementation slices.",
+        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
     "src/weather/market/taker_bot.py": {
         "owner": "market",
-        "boundary": "Taker strategy orchestration facade.",
-        "next_split": "strategy registry, sizing/risk, tape IO, bakeoff/reporting, and CLI.",
+        "boundary": "Compatibility facade for taker strategy, risk, tape, scoring, bakeoff, and CLI modules.",
+        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
     "src/weather/reporting/promotion_refresh.py": {
         "owner": "reporting",
-        "boundary": "Promotion refresh orchestration facade.",
-        "next_split": "gate readers, mitigation evaluation, report rendering, and artifact publication.",
+        "boundary": "Compatibility facade for promotion readers, decisions, gap analysis, reports, orchestration, and CLI modules.",
+        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
     "src/weather/reporting/fleet_observability.py": {
         "owner": "reporting",
-        "boundary": "Fleet status report orchestration and rendering.",
-        "next_split": "slot scoring, gate rendering, loop integrity, and report utilities.",
+        "boundary": "Compatibility facade for fleet inventory, loop health, SLO gates, payload, rendering, and CLI modules.",
+        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
     "src/weather/reporting/hourly_model_performance.py": {
         "owner": "reporting",
-        "boundary": "Hourly model performance report facade.",
-        "next_split": "slot scoring, gate policy, rendering, and CLI.",
+        "boundary": "Compatibility facade for hourly scoring, slots, gates, context, rendering, and CLI modules.",
+        "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
     "src/weather/operations/daily_refresh.py": {
         "owner": "operations",

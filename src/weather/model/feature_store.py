@@ -6,9 +6,29 @@ from weather.schema_registry import schema_version
 from weather.sources.eccc_gridded import ECCC_GRIDDED_FEATURE_COLUMNS
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
 from weather.sources.mrms_precip import MRMS_PRECIP_FEATURE_COLUMNS
+from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
+# v1.11 (ROADMAP item 191): live lake/sea water-temperature contrast features
+# against the forecast high, including an onshore-gated cooling-potential signal.
+#
+# v1.10 (ROADMAP item 190): live NBM probabilistic maximum-temperature
+# percentile features from NBP station guidance. Native QMD GRIB exceedance-grid
+# features remain pending.
+#
+# v1.9 (ROADMAP item 189): live ECMWF/ML-NWP global model guidance features
+# from Open-Meteo model-specific columns. The global model family contributes
+# one clustered forecast-high vote plus per-member deltas/spreads.
+#
+# v1.8 (ROADMAP item 188): live Open-Meteo Air Quality aerosol/smoke features
+# for PM2.5, AOD, dust, and a high-smoke suppression flag. Historical records
+# default these live-only diagnostics to None until AQ backfills and smoke-slice
+# settlement gates promote a retrained artifact.
+#
+# v1.7 (ROADMAP item 187): forecast radiation direct-share features from paired
+# direct/diffuse radiation rows as a clearness proxy.
+#
 # v1.6 (ROADMAP item 32): gated pressure-level reanalysis features for cached
 # NOAA PSL NCEP/NCAR 850 hPa temperature, 500 hPa height, and 1000-500 hPa
 # thickness.
@@ -86,6 +106,8 @@ FORECAST_PROFILE_COLUMNS = [
     "forecast_remaining_diffuse_radiation_sum",
     "forecast_next_3h_direct_radiation_mean",
     "forecast_next_3h_diffuse_radiation_mean",
+    "forecast_remaining_direct_radiation_share",
+    "forecast_next_3h_direct_radiation_share",
     "forecast_remaining_precipitation_sum",
     "forecast_next_3h_precipitation_sum",
     "forecast_next_3h_precipitation_probability_max",
@@ -103,6 +125,13 @@ FORECAST_PROFILE_COLUMNS = [
     "forecast_soil_moisture_0_to_1cm_mean",
     "forecast_vapour_pressure_deficit_mean",
     "forecast_et0_fao_evapotranspiration_sum",
+    "forecast_remaining_aerosol_optical_depth_mean",
+    "forecast_next_3h_aerosol_optical_depth_mean",
+    "forecast_remaining_pm2_5_mean",
+    "forecast_next_3h_pm2_5_mean",
+    "forecast_remaining_pm10_mean",
+    "forecast_remaining_dust_mean",
+    "forecast_smoke_suppression_flag",
     "forecast_global_ensemble_spread",
     "forecast_next_3h_ensemble_spread",
     "forecast_global_ensemble_high_p10",
@@ -127,6 +156,19 @@ EXPANDED_OPEN_METEO_SOURCE_FIELDS = [
     "et0_fao_evapotranspiration",
 ]
 
+OPEN_METEO_AIR_QUALITY_FIELDS = [
+    "pm2_5",
+    "pm10",
+    "aerosol_optical_depth",
+    "dust",
+    "us_aqi",
+    "european_aqi",
+]
+
+SMOKE_PM2_5_THRESHOLD_UG_M3 = 35.5
+SMOKE_AEROSOL_OPTICAL_DEPTH_THRESHOLD = 0.4
+SMOKE_DUST_THRESHOLD_UG_M3 = 50.0
+
 FORECAST_FEATURE_COLUMNS = [
     "forecast_high",
     "forecast_gap",
@@ -150,9 +192,18 @@ US_GUIDANCE_FEATURE_COLUMNS = [
     "open_meteo_nbm_hrrr_disagreement",
     "open_meteo_multimodel_next_3h_spread",
     "nws_grid_run_age_hours",
+    *NBM_PROB_TMAX_FEATURE_COLUMNS,
     "open_meteo_multimodel_run_age_hours",
     "open_meteo_multimodel_run_to_run_high_change",
     "open_meteo_nbm_hrrr_disagreement_after_cutoff",
+    "open_meteo_global_models_high_spread",
+    "open_meteo_ecmwf_ifs_high_delta",
+    "open_meteo_ecmwf_aifs_high_delta",
+    "open_meteo_ncep_aigfs_high_delta",
+    "open_meteo_gfs_graphcast_high_delta",
+    "open_meteo_ecmwf_ifs_aifs_disagreement",
+    "open_meteo_global_models_next_3h_spread",
+    "open_meteo_global_models_run_to_run_high_change",
 ]
 
 NATIVE_NAN_FEATURE_COLUMNS = [
@@ -496,6 +547,80 @@ def nearest_hour_value(profile, hour, key):
     return min(candidates, key=lambda item: abs(item["minute"] - target)).get(key)
 
 
+def radiation_direct_share(profile_rows):
+    direct_total = 0.0
+    radiation_total = 0.0
+    for item in profile_rows:
+        direct = item.get("direct_radiation")
+        diffuse = item.get("diffuse_radiation")
+        if direct is None or diffuse is None:
+            continue
+        row_total = direct + diffuse
+        if row_total <= 0:
+            continue
+        direct_total += direct
+        radiation_total += row_total
+    if radiation_total <= 0:
+        return None
+    return direct_total / radiation_total
+
+
+def merge_forecast_air_quality_rows(forecast_rows=None, air_quality_rows=None):
+    forecast_rows = list(forecast_rows or [])
+    air_quality_rows = list(air_quality_rows or [])
+    if not air_quality_rows:
+        return forecast_rows
+    aq_by_minute = {
+        row_minute_of_day(row): row
+        for row in air_quality_rows
+        if row_minute_of_day(row) is not None
+    }
+    merged = []
+    seen_minutes = set()
+    for row in forecast_rows:
+        copy = dict(row)
+        minute = row_minute_of_day(copy)
+        aq_row = aq_by_minute.get(minute)
+        if aq_row:
+            for field in OPEN_METEO_AIR_QUALITY_FIELDS:
+                value = aq_row.get(field)
+                if value is not None:
+                    copy[field] = value
+        if minute is not None:
+            seen_minutes.add(minute)
+        merged.append(copy)
+    for row in air_quality_rows:
+        minute = row_minute_of_day(row)
+        if minute is None or minute in seen_minutes:
+            continue
+        merged.append(dict(row))
+    return sorted(
+        merged,
+        key=lambda row: row_minute_of_day(row) if row_minute_of_day(row) is not None else 99999,
+    )
+
+
+def smoke_suppression_flag(profile_rows):
+    saw_air_quality = False
+    for item in profile_rows:
+        pm2_5 = item.get("pm2_5")
+        aerosol_optical_depth = item.get("aerosol_optical_depth")
+        dust = item.get("dust")
+        if pm2_5 is not None:
+            saw_air_quality = True
+            if pm2_5 >= SMOKE_PM2_5_THRESHOLD_UG_M3:
+                return 1.0
+        if aerosol_optical_depth is not None:
+            saw_air_quality = True
+            if aerosol_optical_depth >= SMOKE_AEROSOL_OPTICAL_DEPTH_THRESHOLD:
+                return 1.0
+        if dust is not None:
+            saw_air_quality = True
+            if dust >= SMOKE_DUST_THRESHOLD_UG_M3:
+                return 1.0
+    return 0.0 if saw_air_quality else None
+
+
 def forecast_profile_features(
     forecast_rows=None,
     cutoff_hour=None,
@@ -549,6 +674,12 @@ def forecast_profile_features(
             "soil_moisture_0_to_1cm": row_value(row, "soil_moisture_0_to_1cm"),
             "vapour_pressure_deficit": row_value(row, "vapour_pressure_deficit"),
             "et0_fao_evapotranspiration": row_value(row, "et0_fao_evapotranspiration"),
+            "pm2_5": row_value(row, "pm2_5", "pm25"),
+            "pm10": row_value(row, "pm10"),
+            "aerosol_optical_depth": row_value(row, "aerosol_optical_depth", "aod"),
+            "dust": row_value(row, "dust"),
+            "us_aqi": row_value(row, "us_aqi"),
+            "european_aqi": row_value(row, "european_aqi"),
         })
     profile.sort(key=lambda item: item["minute"])
 
@@ -628,6 +759,8 @@ def forecast_profile_features(
     features["forecast_next_3h_diffuse_radiation_mean"] = mean(
         item["diffuse_radiation"] for item in next_3h
     )
+    features["forecast_remaining_direct_radiation_share"] = radiation_direct_share(remaining)
+    features["forecast_next_3h_direct_radiation_share"] = radiation_direct_share(next_3h)
 
     precipitation_remaining = [
         item["precipitation"] for item in remaining
@@ -706,6 +839,26 @@ def forecast_profile_features(
     ]
     if et0_remaining:
         features["forecast_et0_fao_evapotranspiration_sum"] = sum(et0_remaining)
+
+    features["forecast_remaining_aerosol_optical_depth_mean"] = mean(
+        item["aerosol_optical_depth"] for item in remaining
+    )
+    features["forecast_next_3h_aerosol_optical_depth_mean"] = mean(
+        item["aerosol_optical_depth"] for item in next_3h
+    )
+    features["forecast_remaining_pm2_5_mean"] = mean(
+        item["pm2_5"] for item in remaining
+    )
+    features["forecast_next_3h_pm2_5_mean"] = mean(
+        item["pm2_5"] for item in next_3h
+    )
+    features["forecast_remaining_pm10_mean"] = mean(
+        item["pm10"] for item in remaining
+    )
+    features["forecast_remaining_dust_mean"] = mean(
+        item["dust"] for item in remaining
+    )
+    features["forecast_smoke_suppression_flag"] = smoke_suppression_flag(remaining)
 
     features["forecast_global_ensemble_spread"] = to_float(ensemble_day_mean_spread)
     ensemble_spreads = []

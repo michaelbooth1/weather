@@ -408,6 +408,21 @@ def normal_bucket_distribution(support, mean, sigma, floor_bucket=None):
     return normalize_distribution(scores)
 
 
+def _forecast_error_stats_for_source(artifact, source, capture_hour):
+    source_stats = artifact.get("source_stats") or {}
+    global_stats = artifact.get("global_stats") or {}
+    if capture_hour is not None:
+        try:
+            hour = int(float(capture_hour))
+        except (TypeError, ValueError):
+            hour = None
+        if hour is not None:
+            stats = (artifact.get("hour_stats") or {}).get(f"{source}|hour={hour}")
+            if stats:
+                return stats
+    return source_stats.get(source) or global_stats
+
+
 def forecast_error_distribution(
     support,
     forecast_values,
@@ -420,8 +435,6 @@ def forecast_error_distribution(
     cfg = artifact.get("component") or {}
     if not cfg.get("enabled", True):
         return None
-    source_stats = artifact.get("source_stats") or {}
-    global_stats = artifact.get("global_stats") or {}
     min_sigma = float(cfg.get("min_sigma", 0.75))
     max_sigma = float(cfg.get("max_sigma", 3.0))
     shrink_k = float(cfg.get("source_weight_shrink_k", 20.0))
@@ -433,7 +446,7 @@ def forecast_error_distribution(
         source = item.get("source")
         if value is None or not source:
             continue
-        stats = source_stats.get(source) or global_stats
+        stats = _forecast_error_stats_for_source(artifact, source, capture_hour)
         if not stats:
             continue
         cleaned.append((source, value, stats))

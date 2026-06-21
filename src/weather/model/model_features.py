@@ -19,6 +19,7 @@ from weather.model.feature_store import (
     empty_reanalysis_synoptic_features,
     empty_us_guidance_features,
     forecast_profile_features,
+    merge_forecast_air_quality_rows,
     row_value,
     row_wind_direction,
     wind_direction_delta_degrees,
@@ -27,6 +28,7 @@ from weather.sources.forecast_history import load_forecast_daily, daily_path_for
 from weather.sources.eccc_gridded import derive_eccc_gridded_features
 from weather.sources.marine_context import derive_marine_context_features
 from weather.sources.mrms_precip import derive_mrms_precip_features
+from weather.sources.nbm_probabilistic_tmax import exceedance_probability_from_percentiles
 from weather.model.calibration_runtime import temperature_scale_distribution
 from weather.model.model_constants import _UNLOADED
 
@@ -84,6 +86,38 @@ class FeatureModelMixin:
         except (TypeError, ValueError):
             return default
 
+    def feature_ordinal_smoothing_config(self, cutoff_hour):
+        """Artifact-driven ordinal smoothing config for feature-model serving.
+
+        Older artifacts were tuned on the raw temperature-scaled HGB/LR
+        distribution, so absence of this config must mean "disabled" rather than
+        the old serving-only 50% smoothing layer.
+        """
+        key = str(cutoff_hour)
+        kind = getattr(self, "active_model_kind", "empirical")
+        if kind == "hgb":
+            cfg = (self.load_feature_model_hgb() or {}).get(key) or {}
+        elif kind == "lr":
+            cfg = (self.load_feature_model_coefs() or {}).get(key) or {}
+        else:
+            cfg = {}
+        smoothing = cfg.get("ordinal_smoothing") if isinstance(cfg, dict) else {}
+        smoothing = smoothing if isinstance(smoothing, dict) else {}
+        enabled = bool(smoothing.get("enabled", False))
+        try:
+            sigma = float(smoothing.get("sigma", 0.0))
+            blend_weight = float(smoothing.get("blend_weight", 0.0))
+        except (TypeError, ValueError):
+            sigma = 0.0
+            blend_weight = 0.0
+        enabled = enabled and sigma > 0.0 and blend_weight > 0.0
+        return {
+            "enabled": enabled,
+            "sigma": sigma if enabled else 0.0,
+            "blend_weight": blend_weight if enabled else 0.0,
+            "source": "artifact" if smoothing else "artifact_absent",
+        }
+
     def resolve_forecast_high(self, open_meteo, weather_forecast, eccc_city):
         """Forecasted daily max for the feature model: the MEDIAN of the
         available forecast sources' daily-max values.
@@ -125,6 +159,7 @@ class FeatureModelMixin:
         eccc_city,
         nws_hourly=None,
         global_ensemble=None,
+        open_meteo_global_models=None,
     ):
         values = []
         day_max = self.forecast_day_max(open_meteo)
@@ -142,6 +177,9 @@ class FeatureModelMixin:
         global_high = self.forecast_day_max(global_ensemble or {})
         if global_high is not None:
             values.append(("global_ensemble", global_high))
+        global_model_high = self.forecast_day_max(open_meteo_global_models or {})
+        if global_model_high is not None:
+            values.append(("open_meteo_global_models", global_model_high))
         if not values:
             return {
                 "forecast_high": None,
@@ -163,7 +201,9 @@ class FeatureModelMixin:
     def us_guidance_features(
         self,
         nws_grid=None,
+        nbm_probabilistic_tmax=None,
         open_meteo_multimodel=None,
+        open_meteo_global_models=None,
         forecast_high=None,
         cutoff_hour=None,
         wall_minute=None,
@@ -213,6 +253,42 @@ class FeatureModelMixin:
         run_age = row_value(nws_grid, "run_age_hours", "model_run_age_hours")
         if run_age is not None:
             features["nws_grid_run_age_hours"] = run_age
+
+        nbm_prob = nbm_probabilistic_tmax or {}
+        percentiles = nbm_prob.get("percentiles") or {}
+        for percentile in (10, 25, 50, 75, 90):
+            value = row_value(percentiles, str(percentile), percentile)
+            if value is not None:
+                features[f"nbm_prob_tmax_p{percentile}"] = value
+        mean_native = row_value(nbm_prob, "mean_native", "day_max_native", "day_max_c")
+        stddev_native = row_value(nbm_prob, "stddev_native")
+        if mean_native is not None:
+            features["nbm_prob_tmax_mean"] = mean_native
+        if stddev_native is not None:
+            features["nbm_prob_tmax_stddev"] = stddev_native
+        p10 = features.get("nbm_prob_tmax_p10")
+        p25 = features.get("nbm_prob_tmax_p25")
+        p50 = features.get("nbm_prob_tmax_p50")
+        p75 = features.get("nbm_prob_tmax_p75")
+        p90 = features.get("nbm_prob_tmax_p90")
+        iqr = row_value(nbm_prob, "iqr")
+        spread = row_value(nbm_prob, "p10_p90_spread")
+        if iqr is None and p25 is not None and p75 is not None:
+            iqr = p75 - p25
+        if spread is None and p10 is not None and p90 is not None:
+            spread = p90 - p10
+        if iqr is not None:
+            features["nbm_prob_tmax_iqr"] = iqr
+        if spread is not None:
+            features["nbm_prob_tmax_p10_p90_spread"] = spread
+        if forecast_high is not None:
+            if p50 is not None:
+                features["nbm_prob_tmax_p50_vs_forecast_high"] = p50 - forecast_high
+            if p90 is not None:
+                features["nbm_prob_tmax_p90_vs_forecast_high"] = p90 - forecast_high
+            exceedance = exceedance_probability_from_percentiles(percentiles, forecast_high)
+            if exceedance is not None:
+                features["nbm_prob_tmax_exceed_forecast_high"] = exceedance
 
         multimodel = open_meteo_multimodel or {}
         highs = multimodel.get("day_model_highs") or {}
@@ -271,12 +347,58 @@ class FeatureModelMixin:
             features["open_meteo_multimodel_next_3h_spread"] = sum(next_spreads) / len(next_spreads)
         if nbm_hrrr_diffs_after_cutoff:
             features["open_meteo_nbm_hrrr_disagreement_after_cutoff"] = max(nbm_hrrr_diffs_after_cutoff)
+
+        global_models = open_meteo_global_models or {}
+        global_highs = global_models.get("day_model_highs") or {}
+        global_high_values = [value for value in global_highs.values() if value is not None]
+        if len(global_high_values) >= 2:
+            features["open_meteo_global_models_high_spread"] = max(global_high_values) - min(global_high_values)
+        global_reference_high = forecast_high if forecast_high is not None else (
+            statistics.median(global_high_values) if global_high_values else None
+        )
+        global_aliases = {
+            "ecmwf_ifs": "ecmwf_ifs025",
+            "ecmwf_aifs": "ecmwf_aifs025",
+            "ncep_aigfs": "ncep_aigfs025",
+            "gfs_graphcast": "gfs_graphcast025",
+        }
+        for alias, model_name in global_aliases.items():
+            high = global_highs.get(model_name)
+            if high is not None and global_reference_high is not None:
+                features[f"open_meteo_{alias}_high_delta"] = high - global_reference_high
+        ifs_high = global_highs.get("ecmwf_ifs025")
+        aifs_high = global_highs.get("ecmwf_aifs025")
+        if ifs_high is not None and aifs_high is not None:
+            features["open_meteo_ecmwf_ifs_aifs_disagreement"] = abs(ifs_high - aifs_high)
+        global_previous_highs = global_models.get("previous_day_model_highs") or {}
+        global_previous_values = [value for value in global_previous_highs.values() if value is not None]
+        global_run_change = row_value(global_models, "run_to_run_high_change")
+        if global_run_change is None and global_high_values and global_previous_values:
+            global_run_change = statistics.median(global_high_values) - statistics.median(global_previous_values)
+        if global_run_change is not None:
+            features["open_meteo_global_models_run_to_run_high_change"] = global_run_change
+
+        global_next_spreads = []
+        for row in global_models.get("day_rows") or global_models.get("rows") or []:
+            minute = self.minute_of_day(row.get("time") or row.get("valid_time"))
+            if minute is None or minute < remaining_start or minute >= remaining_start + 180:
+                continue
+            model_values = [
+                (payload or {}).get("temp_native")
+                for payload in (row.get("models") or {}).values()
+            ]
+            model_values = [value for value in model_values if value is not None]
+            if len(model_values) >= 2:
+                global_next_spreads.append(max(model_values) - min(model_values))
+        if global_next_spreads:
+            features["open_meteo_global_models_next_3h_spread"] = sum(global_next_spreads) / len(global_next_spreads)
         return features
 
     def marine_context_features(
         self,
         marine_context=None,
         current_temp_native=None,
+        forecast_high_native=None,
         cutoff_hour=None,
         wall_minute=None,
     ):
@@ -285,6 +407,7 @@ class FeatureModelMixin:
         return derive_marine_context_features(
             marine_context,
             current_temp_native=current_temp_native,
+            forecast_high_native=forecast_high_native,
             cutoff_hour=cutoff_hour,
             wall_minute=wall_minute,
         )
@@ -347,9 +470,10 @@ class FeatureModelMixin:
         reading, modeled explicitly instead of fabricated into history rows.
         Without ``now`` they degrade to the at-print state (0 elapsed).
 
-        ``strict`` is used by analog search: it returns ``None`` instead of
-        substituting seasonal defaults for cutoff-aligned fields that drive
-        analog distance.
+        ``strict`` is used by analog search: it returns ``None`` when required
+        cutoff-aligned fields are unavailable. Non-strict serving keeps missing
+        numeric values as ``None`` so trained imputers/native-NaN handling see
+        the same missingness they saw during training.
         """
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
@@ -375,12 +499,10 @@ class FeatureModelMixin:
         if current_temp is None and strict:
             return None
         if current_temp is None:
-            current_temp = self.row_temp_native(rows[-1]) if rows else 17.0
+            current_temp = self.row_temp_native(rows[-1]) if rows else None
         high_so_far = self.max_value(high_so_far, current_temp)
         if high_so_far is None and strict:
             return None
-        if high_so_far is None:
-            high_so_far = 17.0 # fallback
 
         # rise_from_7am
         obs_7am_candidates = [r for r in rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and self.row_temp_native(r) is not None]
@@ -390,9 +512,11 @@ class FeatureModelMixin:
             temp_7am = self.row_temp_native(closest_7am)
         if temp_7am is None and strict:
             return None
-        if temp_7am is None:
-            temp_7am = 17.0 # default seasonal fallback
-        rise_from_7am = current_temp - temp_7am
+        rise_from_7am = (
+            current_temp - temp_7am
+            if current_temp is not None and temp_7am is not None
+            else None
+        )
 
         # warming_rate_2h
         cutoff_minutes = cutoff_hour * 60
@@ -403,7 +527,11 @@ class FeatureModelMixin:
             temp_2h_ago = self.row_temp_native(closest_2h)
         if temp_2h_ago is None:
             temp_2h_ago = current_temp # fallback if no recent data
-        warming_rate_2h = current_temp - temp_2h_ago
+        warming_rate_2h = (
+            current_temp - temp_2h_ago
+            if current_temp is not None and temp_2h_ago is not None
+            else None
+        )
 
         # hours_at_peak
         first_reached_min = None
@@ -411,19 +539,21 @@ class FeatureModelMixin:
             if self.row_temp_native(r) == high_so_far and r.get("time"):
                 first_reached_min = self.minute_of_day(r["time"])
                 break
-        hours_at_peak = ((cutoff_minutes - first_reached_min) / 60.0) if first_reached_min is not None else 0.0
+        hours_at_peak = (
+            ((cutoff_minutes - first_reached_min) / 60.0)
+            if first_reached_min is not None
+            else (None if high_so_far is None else 0.0)
+        )
 
         # dewpoint_c, humidity, pressure
         dewpoint = self.row_dewpoint_native(feature_latest) if feature_latest else self.row_dewpoint_native(current)
         if dewpoint is None and strict:
             return None
         if dewpoint is None:
-            dewpoint = self.row_dewpoint_native(rows[-1]) if rows else 10.0 # fallback
+            dewpoint = self.row_dewpoint_native(rows[-1]) if rows else None
         humidity = feature_latest.get("humidity") if feature_latest else current.get("humidity")
         if humidity is None:
-            humidity = rows[-1].get("humidity") if rows else 60.0
-        if humidity is None:
-            humidity = 60.0
+            humidity = rows[-1].get("humidity") if rows else None
         pressure = feature_latest.get("pressure") if feature_latest else current.get("pressure")
         if pressure is None:
             pressures = [r["pressure"] for r in rows if r.get("pressure") is not None]
@@ -440,7 +570,7 @@ class FeatureModelMixin:
         # wind_speed_kmh
         wind_speed = feature_latest.get("wind_kmh") if feature_latest else current.get("wind_kmh")
         if wind_speed is None:
-            wind_speed = rows[-1].get("wind_kmh") if rows else 15.0
+            wind_speed = rows[-1].get("wind_kmh") if rows else None
         wind_gust = (
             feature_latest.get("gust_kmh")
             if feature_latest else row_value(current, "gust_kmh", "wind_gust_kmh", "wind_gust")
@@ -470,8 +600,11 @@ class FeatureModelMixin:
         # live forecasts instead of going forecast-blind (which leaves the model
         # anchored to a modest morning high-so-far). See resolve_forecast_high.
         open_meteo = self.source_data(sources, "open_meteo")
+        open_meteo_air_quality = self.source_data(sources, "open_meteo_air_quality")
+        open_meteo_global_models = self.source_data(sources, "open_meteo_global_models")
         nws_hourly = self.source_data(sources, "nws_hourly")
         nws_grid = self.source_data(sources, "nws_grid")
+        nbm_probabilistic_tmax = self.source_data(sources, "nbm_probabilistic_tmax")
         open_meteo_multimodel = self.source_data(sources, "open_meteo_multimodel")
         global_ensemble = self.source_data(sources, "global_ensemble")
         marine_context_source = self.source_data(sources, "marine_context")
@@ -483,9 +616,14 @@ class FeatureModelMixin:
             eccc_city,
             nws_hourly=nws_hourly,
             global_ensemble=global_ensemble,
+            open_meteo_global_models=open_meteo_global_models,
         )
         forecast_high = forecast_ensemble["forecast_high"]
-        forecast_gap = (forecast_high - high_so_far) if forecast_high is not None else None
+        forecast_gap = (
+            forecast_high - high_so_far
+            if forecast_high is not None and high_so_far is not None
+            else None
+        )
         open_meteo_high = self.forecast_day_max(open_meteo)
         weather_high = self.max_row_temp(weather_forecast.get("rows"))
         eccc_city_high = self.row_forecast_high_native(eccc_city)
@@ -509,8 +647,12 @@ class FeatureModelMixin:
             if live_reading is not None and high_so_far is not None
             else None
         )
-        forecast_profile = forecast_profile_features(
+        open_meteo_profile_rows = merge_forecast_air_quality_rows(
             open_meteo.get("day_rows") or open_meteo.get("rows"),
+            open_meteo_air_quality.get("day_rows") or open_meteo_air_quality.get("rows"),
+        )
+        forecast_profile = forecast_profile_features(
+            open_meteo_profile_rows,
             cutoff_hour,
             high_so_far=high_so_far,
             wall_minute=wall_minute,
@@ -521,7 +663,9 @@ class FeatureModelMixin:
         )
         us_guidance = self.us_guidance_features(
             nws_grid=nws_grid,
+            nbm_probabilistic_tmax=nbm_probabilistic_tmax,
             open_meteo_multimodel=open_meteo_multimodel,
+            open_meteo_global_models=open_meteo_global_models,
             forecast_high=forecast_high,
             cutoff_hour=cutoff_hour,
             wall_minute=wall_minute,
@@ -529,6 +673,7 @@ class FeatureModelMixin:
         marine_context = self.marine_context_features(
             marine_context=marine_context_source,
             current_temp_native=current_temp,
+            forecast_high_native=forecast_high,
             cutoff_hour=cutoff_hour,
             wall_minute=wall_minute,
         )
@@ -1277,6 +1422,9 @@ def _guidance_highs(row):
     nws_high = row_value(row, "nws_grid_high")
     if nws_high is not None:
         highs["nws_grid"] = nws_high
+    nbm_p50 = row_value(row, "nbm_prob_tmax_p50")
+    if nbm_p50 is not None:
+        highs["nbm_prob_tmax_p50"] = nbm_p50
     if forecast_high is None:
         return highs
     for source, delta_key in (

@@ -147,6 +147,40 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(row["reanalysis_marine_context_station_count"], 1.0)
         self.assertNotEqual(row["reanalysis_prev_day_max_temp"], 35.0)
 
+    def test_soil_dryness_features_are_local_anomaly_transforms(self):
+        daily = [
+            {"local_date": "2025-06-01", "max_temp": "28.0", "min_temp": "16.0"},
+            {"local_date": "2025-06-02", "max_temp": "31.0", "min_temp": "18.0"},
+        ]
+        raw = {
+            date(2023, 6, 1): {"soil_moisture_0_to_7cm": 0.30},
+            date(2024, 6, 1): {"soil_moisture_0_to_7cm": 0.25},
+            date(2025, 6, 1): {
+                "soil_moisture_0_to_7cm": 0.21,
+                "vapour_pressure_deficit": 2.0,
+            },
+        }
+
+        rows = build_reanalysis_synoptic_rows(
+            TORONTO,
+            daily,
+            raw_daily_metrics=raw,
+        )
+        by_date = {row["local_date"]: row for row in rows}
+        row = by_date["2025-06-02"]
+
+        self.assertEqual(row["reanalysis_soil_dryness_available"], 1.0)
+        self.assertEqual(
+            row["reanalysis_prev_day_soil_moisture_0_to_7cm_percentile"],
+            0.0,
+        )
+        self.assertAlmostEqual(
+            row["reanalysis_prev_day_soil_moisture_0_to_7cm_anomaly"],
+            -0.065,
+        )
+        self.assertEqual(row["reanalysis_prev_day_soil_dryness_percentile"], 1.0)
+        self.assertEqual(row["reanalysis_prev_day_dry_vpd_stress_proxy"], 2.0)
+
     def test_writes_and_loads_feature_index(self):
         rows = build_reanalysis_synoptic_rows(
             NYC,

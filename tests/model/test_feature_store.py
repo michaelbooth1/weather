@@ -16,6 +16,7 @@ from weather.model.feature_store import (
     expanded_open_meteo_promotion_gate,
     forecast_profile_missing_zero_report,
     forecast_profile_features,
+    merge_forecast_air_quality_rows,
     render_forecast_profile_missing_zero_markdown,
     row_air_temp_native,
     row_dewpoint_native,
@@ -446,6 +447,14 @@ class TestFeatureStore(unittest.TestCase):
             {"time": "13:00", "ensemble_member_spread": 3.0},
             {"time": "14:00", "ensemble_member_spread": 4.0},
         ]
+        air_quality_rows = [
+            {"time": "12:00", "pm2_5": 18.0, "pm10": 24.0, "aerosol_optical_depth": 0.16, "dust": 3.0},
+            {"time": "13:00", "pm2_5": 36.0, "pm10": 55.0, "aerosol_optical_depth": 0.42, "dust": 6.0},
+            {"time": "14:00", "pm2_5": 32.0, "pm10": 44.0, "aerosol_optical_depth": 0.35, "dust": 4.0},
+            {"time": "15:00", "pm2_5": 30.0, "pm10": 38.0, "aerosol_optical_depth": 0.30, "dust": 5.0},
+            {"time": "16:00", "pm2_5": 22.0, "pm10": 30.0, "aerosol_optical_depth": 0.20, "dust": 2.0},
+        ]
+        historical_profile_rows = merge_forecast_air_quality_rows(forecast_rows, air_quality_rows)
 
         live = model.extract_live_features({
             "wu_history": {"ok": True, "data": {"rows": obs_rows}},
@@ -453,6 +462,10 @@ class TestFeatureStore(unittest.TestCase):
             "open_meteo": {
                 "ok": True,
                 "data": {"rows": forecast_rows[1:], "day_rows": forecast_rows, "day_max_c": 26.0},
+            },
+            "open_meteo_air_quality": {
+                "ok": True,
+                "data": {"rows": air_quality_rows, "day_rows": air_quality_rows},
             },
             "global_ensemble": {
                 "ok": True,
@@ -471,7 +484,7 @@ class TestFeatureStore(unittest.TestCase):
             {"bucket": 26},
             12,
             forecast_high=26.0,
-            forecast_profile_rows=forecast_rows,
+            forecast_profile_rows=historical_profile_rows,
             global_ensemble_profile_rows=ensemble_rows,
             global_ensemble_day_mean_spread=3.0,
             global_ensemble_day_high_p10=24.0,
@@ -493,6 +506,8 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(live["forecast_remaining_diffuse_radiation_sum"], 850.0)
         self.assertEqual(live["forecast_next_3h_direct_radiation_mean"], 600.0)
         self.assertEqual(live["forecast_next_3h_diffuse_radiation_mean"], 160.0)
+        self.assertEqual(live["forecast_remaining_direct_radiation_share"], 0.75)
+        self.assertAlmostEqual(live["forecast_next_3h_direct_radiation_share"], 1800.0 / 2280.0)
         self.assertAlmostEqual(live["forecast_remaining_precipitation_sum"], 0.3)
         self.assertAlmostEqual(live["forecast_next_3h_precipitation_sum"], 0.2)
         self.assertEqual(live["forecast_next_3h_precipitation_probability_max"], 40.0)
@@ -510,6 +525,13 @@ class TestFeatureStore(unittest.TestCase):
         self.assertAlmostEqual(live["forecast_soil_moisture_0_to_1cm_mean"], 0.23)
         self.assertAlmostEqual(live["forecast_vapour_pressure_deficit_mean"], 0.8)
         self.assertAlmostEqual(live["forecast_et0_fao_evapotranspiration_sum"], 1.6)
+        self.assertAlmostEqual(live["forecast_remaining_aerosol_optical_depth_mean"], 0.286)
+        self.assertAlmostEqual(live["forecast_next_3h_aerosol_optical_depth_mean"], 0.31)
+        self.assertAlmostEqual(live["forecast_remaining_pm2_5_mean"], 27.6)
+        self.assertAlmostEqual(live["forecast_next_3h_pm2_5_mean"], 86.0 / 3.0)
+        self.assertAlmostEqual(live["forecast_remaining_pm10_mean"], 38.2)
+        self.assertAlmostEqual(live["forecast_remaining_dust_mean"], 4.0)
+        self.assertEqual(live["forecast_smoke_suppression_flag"], 1.0)
         self.assertEqual(live["forecast_global_ensemble_high_spread_80"], 3.0)
 
     def test_live_features_measure_forecast_source_disagreement(self):

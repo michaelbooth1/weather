@@ -47,6 +47,7 @@ from weather.reporting import active_variant_shadow_refresh
 from weather.operations import replay_status_backfill
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
+from weather.reporting import distribution_stage_attribution
 from weather.reporting import variant_evidence_growth
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
@@ -85,6 +86,7 @@ STEP_ORDER = (
     "fleet_observability",
     "data_layer_audit",
     "snapshot_evaluation",
+    "distribution_stage_attribution",
     "data_retention_inventory",
     "daily_learning",
 )
@@ -760,9 +762,26 @@ def run_active_variant_shadow_step(args):
     )
     if source_paths == [backtest_path(args, "")]:
         source_paths = []
+    execution = {}
+    if not source_paths:
+        execution = active_variant_shadow_refresh.execute_registry_prediction_exports(
+            registry_path=getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH),
+            corpus_path=backtest_path(args, "promotion_corpus.json"),
+            snapshots_root=getattr(args, "snapshots_root", None),
+            out_dir=backtest_path(args, "active_variant_shadow_runs"),
+            min_artifact_free_bytes=getattr(args, "promotion_min_artifact_free_bytes", 0),
+            current_tol=getattr(args, "current_tol", 0.003),
+            market_tol=getattr(args, "market_tol", 0.003),
+            min_days=getattr(args, "min_days", 2),
+            min_trust=getattr(args, "min_trust", 25),
+            require_exact_identity=getattr(args, "require_exact_identity", False),
+            require_all_markets=getattr(args, "require_all_markets", False),
+        )
+        source_paths = execution.get("source_paths") or []
     payload = active_variant_shadow_refresh.build_payload(
         source_paths,
         registry_path=getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH),
+        execution=execution,
     )
     long_out, attribution_sidecar_out, json_out, report_out = active_variant_shadow_refresh.write_outputs(
         payload,
@@ -780,6 +799,7 @@ def run_active_variant_shadow_step(args):
         "summary": payload.get("summary") or {},
         "blockers": payload.get("blockers") or [],
         "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
+        "execution": execution,
     }
 
 
@@ -984,6 +1004,28 @@ def run_snapshot_evaluation_step(args):
     }
 
 
+def run_distribution_stage_attribution_step(args):
+    payload = distribution_stage_attribution.build_payload(
+        snapshots_root=args.snapshots_root,
+        min_stage_rows=getattr(args, "distribution_stage_min_rows", 20),
+    )
+    json_out, report_out = distribution_stage_attribution.write_outputs(
+        payload,
+        json_out=backtest_path(args, "distribution_stage_attribution.json"),
+        report_out=backtest_path(args, "distribution_stage_attribution_report.md"),
+    )
+    return {
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "status": payload.get("status"),
+        "folder_count": payload.get("folder_count"),
+        "settled_folder_count": payload.get("settled_folder_count"),
+        "attribution_row_count": payload.get("attribution_row_count"),
+        "net_negative_stage_count": (payload.get("summary") or {}).get("net_negative_stage_count"),
+        "top_net_negative_stage": (payload.get("summary") or {}).get("top_net_negative_stage"),
+    }
+
+
 def run_data_retention_inventory_step(args):
     if getattr(args, "skip_data_retention_inventory", False):
         return {"status": "SKIPPED", "reason": "skip_data_retention_inventory"}
@@ -1086,6 +1128,7 @@ DEFAULT_RUNNERS = (
     ("fleet_observability", run_fleet_observability_step),
     ("data_layer_audit", run_data_layer_audit_step),
     ("snapshot_evaluation", run_snapshot_evaluation_step),
+    ("distribution_stage_attribution", run_distribution_stage_attribution_step),
     ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
 )
@@ -1136,6 +1179,7 @@ def pipeline_summary(steps):
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
+    stage_attribution = ((by_name.get("distribution_stage_attribution") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
     variant_learning_gate = variant_learning_gate_from_steps(steps)
     disk_preflights = {
@@ -1234,6 +1278,13 @@ def pipeline_summary(steps):
             "snapshot_folders": evaluation.get("snapshot_folders"),
             "snapshots": evaluation.get("snapshots"),
             "top_gap_count": evaluation.get("top_gap_count"),
+        },
+        "distribution_stage_attribution": {
+            "status": stage_attribution.get("status"),
+            "settled_folder_count": stage_attribution.get("settled_folder_count"),
+            "attribution_row_count": stage_attribution.get("attribution_row_count"),
+            "net_negative_stage_count": stage_attribution.get("net_negative_stage_count"),
+            "top_net_negative_stage": stage_attribution.get("top_net_negative_stage") or {},
         },
         "daily_learning": {
             "status": learning.get("status"),
@@ -1490,6 +1541,12 @@ def render_report(payload):
             detail = (
                 f"{result.get('status')} {result.get('gate_counts')}; "
                 f"snapshots {result.get('snapshots')}; gaps {result.get('top_gap_count')}"
+            )
+        elif step.get("name") == "distribution_stage_attribution":
+            top_stage = (result.get("top_net_negative_stage") or {}).get("group") or "-"
+            detail = (
+                f"{result.get('status')}; rows {result.get('attribution_row_count')}; "
+                f"net_negative {result.get('net_negative_stage_count')}; top {top_stage}"
             )
         elif step.get("name") == "data_retention_inventory":
             if result.get("status") == "SKIPPED":
@@ -1964,6 +2021,7 @@ def build_run_parser(parser):
     parser.add_argument("--reanalysis-end-date", default="")
     parser.add_argument("--skip-data-layer-audit", action="store_true")
     parser.add_argument("--skip-data-retention-inventory", action="store_true")
+    parser.add_argument("--distribution-stage-min-rows", type=int, default=20)
     parser.add_argument(
         "--data-retention-min-free-bytes",
         type=int,

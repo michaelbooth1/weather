@@ -12,8 +12,6 @@ from weather.model.model_constants import (
     CYYZ_ICAO,
     PEARSON_LAT,
     PEARSON_LON,
-    HISTORY_MIN_ROW_COUNT,
-    HISTORY_WINDOW_DAYS,
     INTRADAY_CUTOFF_HOURS,
     LIVE_CACHE_MAX_AGE_MINUTES,
     ML_MODEL_VERSION,
@@ -33,6 +31,8 @@ from weather.model.model_distribution_constants import (
     FALSIFICATION_MARGIN,
     FALSIFICATION_STAND_MINUTES,
     FORECAST_AGREEMENT_SPREAD,
+    FORECAST_CLUSTER_MAX_WEIGHT,
+    FORECAST_CLUSTER_SOURCE_WEIGHT_STEP,
     FORECAST_FLOOR_BASE,
     FORECAST_FLOOR_MARGIN,
     FORECAST_FLOOR_MIN_SOURCES,
@@ -159,9 +159,7 @@ class DistributionMixin(DistributionSignalMixin):
                 for bucket, probability in probabilities.items()
             }
         else:
-            prior_lo = round(self.spec.c_to_native(8))
-            prior_hi = round(self.spec.c_to_native(33))
-            scores = {temp: 1.0 / (prior_hi - prior_lo) for temp in range(prior_lo, prior_hi)}
+            scores = self.climatology_fallback_prior()
 
         live_values = [
             history_max,
@@ -330,6 +328,7 @@ class DistributionMixin(DistributionSignalMixin):
             now=now,
             observed_bucket=observed_bucket,
             current_observed_bucket=current_observed_bucket,
+            using_feature_model=using_feature_model,
             using_calibrated_empirical=using_calibrated_empirical,
             pipeline=pipeline,
         )
@@ -469,11 +468,14 @@ class DistributionMixin(DistributionSignalMixin):
         if feature_probs:
             using_feature_model = True
             self.active_model_kind = active_kind
-            feature_probs = self.ordinal_smooth_distribution(
-                feature_probs,
-                sigma=0.75,
-                blend_weight=0.50,
-            )
+            smoothing_config = self.feature_ordinal_smoothing_config(cutoff_hour)
+            pipeline.update_metadata(feature_ordinal_smoothing=deepcopy(smoothing_config))
+            if smoothing_config.get("enabled"):
+                feature_probs = self.ordinal_smooth_distribution(
+                    feature_probs,
+                    sigma=smoothing_config.get("sigma", 0.0),
+                    blend_weight=smoothing_config.get("blend_weight", 0.0),
+                )
             pipeline.snapshot_normalized(
                 f"{active_kind}_feature_model",
                 feature_probs,
@@ -704,11 +706,12 @@ class DistributionMixin(DistributionSignalMixin):
         now,
         observed_bucket,
         current_observed_bucket,
+        using_feature_model,
         using_calibrated_empirical,
         pipeline,
     ):
         """Apply the forecast floor and upper-tail forecast pull."""
-        if using_calibrated_empirical:
+        if using_feature_model or using_calibrated_empirical:
             return scores
         floor_votes = self.unfalsified_forecasts(
             forecast_values,
@@ -936,6 +939,14 @@ class DistributionMixin(DistributionSignalMixin):
                 ),
                 metar_live_signal or (None, 0.0, METAR_LIVE_SIGNAL_SIGMA),
             ]
+        forecast_cluster_signal = self.forecast_source_cluster_signal(
+            hour,
+            weather_forecast_max=weather_forecast_max,
+            open_meteo_max=open_meteo_max,
+            nws_forecast_max=nws_forecast_max,
+            global_ensemble_max=global_ensemble_max,
+            eccc_forecast_high=eccc_forecast_high,
+        )
         return [
             (history_max, self.history_signal_weight(hour), 0.65),
             (current_temp, 1.8, 0.65),
@@ -948,26 +959,7 @@ class DistributionMixin(DistributionSignalMixin):
                 0.9,
             ),
             metar_live_signal or (None, 0.0, METAR_LIVE_SIGNAL_SIGMA),
-            (weather_forecast_max, self.forecast_signal_weight(hour), 0.9),
-            (
-                self.round_half_up(open_meteo_max)
-                if open_meteo_max is not None else None,
-                0.8,
-                1.1,
-            ),
-            (
-                self.round_half_up(nws_forecast_max)
-                if nws_forecast_max is not None else None,
-                0.7,
-                1.1,
-            ),
-            (
-                self.round_half_up(global_ensemble_max)
-                if global_ensemble_max is not None else None,
-                0.7,
-                1.1,
-            ),
-            (eccc_forecast_high, 0.5, 1.2),
+            forecast_cluster_signal,
         ]
 
     def weighted_component_distribution(self, components, weights):
@@ -1167,3 +1159,44 @@ class DistributionMixin(DistributionSignalMixin):
         if hour >= 13:
             return 1.4
         return 1.8
+
+    def forecast_source_cluster_signal(
+        self,
+        hour,
+        *,
+        weather_forecast_max,
+        open_meteo_max,
+        nws_forecast_max,
+        global_ensemble_max,
+        eccc_forecast_high,
+    ):
+        values = [
+            weather_forecast_max,
+            self.round_half_up(open_meteo_max) if open_meteo_max is not None else None,
+            self.round_half_up(nws_forecast_max) if nws_forecast_max is not None else None,
+            self.round_half_up(global_ensemble_max) if global_ensemble_max is not None else None,
+            eccc_forecast_high,
+        ]
+        values = [value for value in values if value is not None]
+        if not values:
+            return (None, 0.0, 1.1)
+        ordered = sorted(values)
+        midpoint = len(ordered) // 2
+        if len(ordered) % 2:
+            cluster_value = ordered[midpoint]
+        else:
+            cluster_value = (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+        spread = max(values) - min(values)
+        agreement = max(0.1, self.spec.scale_delta(FORECAST_AGREEMENT_SPREAD))
+        agreement_factor = max(0.5, 1.0 - spread / (2.0 * agreement))
+        base_weight = self.forecast_signal_weight(hour)
+        count_weight = (
+            base_weight
+            if len(values) <= 1
+            else min(
+                FORECAST_CLUSTER_MAX_WEIGHT,
+                base_weight + FORECAST_CLUSTER_SOURCE_WEIGHT_STEP * (len(values) - 1),
+            )
+        )
+        weight = count_weight * agreement_factor
+        return (cluster_value, weight, 1.1)

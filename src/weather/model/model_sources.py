@@ -18,6 +18,12 @@ from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
+from weather.sources.nbm_probabilistic_tmax import (
+    NBM_PROB_TMAX_SCHEMA_VERSION,
+    nbp_cycle_candidates,
+    nbp_text_url,
+    parse_nbp_station_tmax,
+)
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceProviderRateLimited,
@@ -48,10 +54,26 @@ from weather.model.model_constants import (
 
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
+    "open_meteo_air_quality",
+    "open_meteo_global_models",
     "open_meteo_multimodel",
     "global_ensemble",
     "eccc_gem",
 }
+OPEN_METEO_AIR_QUALITY_HOURLY_FIELDS = (
+    "pm2_5",
+    "pm10",
+    "aerosol_optical_depth",
+    "dust",
+    "us_aqi",
+    "european_aqi",
+)
+OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
+    "ecmwf_ifs025",
+    "ecmwf_aifs025",
+    "ncep_aigfs025",
+    "gfs_graphcast025",
+)
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 MAX_RETRY_DELAY_SECONDS = 10.0
 TORONTO_OFFICIAL_CANADIAN_SOURCES = {
@@ -151,15 +173,32 @@ class SourceFetchMixin:
             "metar": self.fetch_metar,
             "weather_forecast": self.fetch_weather_com_forecast,
             "open_meteo": self.fetch_open_meteo,
+            "open_meteo_air_quality": self.fetch_open_meteo_air_quality,
+            "open_meteo_global_models": self.fetch_open_meteo_global_models,
             "nws_hourly": self.fetch_nws_hourly_forecast,
             "nws_grid": self.fetch_nws_grid_forecast,
+            "nbm_probabilistic_tmax": self.fetch_nbm_probabilistic_tmax,
             "open_meteo_multimodel": self.fetch_open_meteo_multimodel,
             "global_ensemble": self.fetch_global_ensemble,
             "marine_context": self.fetch_marine_context,
             "mrms_precip": self.fetch_mrms_precip,
         }
         # Only fetch the sources this market declares (e.g. NYC has no ECCC/SWOB).
-        fetchers = {name: all_fetchers[name] for name in self.spec.sources if name in all_fetchers}
+        # Open-Meteo Air Quality is a same-provider adjunct to the canonical
+        # Open-Meteo forecast, so markets with Open-Meteo opt into it without
+        # duplicating every market spec.
+        source_names = list(self.spec.sources)
+        if "open_meteo" in source_names and "open_meteo_air_quality" not in source_names:
+            source_names.append("open_meteo_air_quality")
+        if "open_meteo" in source_names and "open_meteo_global_models" not in source_names:
+            source_names.append("open_meteo_global_models")
+        if (
+            ":US" in str(self.spec.wu_history_id)
+            and ("nws_grid" in source_names or "open_meteo_multimodel" in source_names)
+            and "nbm_probabilistic_tmax" not in source_names
+        ):
+            source_names.append("nbm_probabilistic_tmax")
+        fetchers = {name: all_fetchers[name] for name in source_names if name in all_fetchers}
         fetchers = {
             name: self.source_fetcher_with_budget(name, fetcher)
             for name, fetcher in fetchers.items()
@@ -1021,6 +1060,122 @@ class SourceFetchMixin:
             "raw_payload": payload,
         }
 
+    def fetch_open_meteo_air_quality(self):
+        url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+        payload = self.get_json(url, {
+            "latitude": self.spec.lat,
+            "longitude": self.spec.lon,
+            "hourly": ",".join(OPEN_METEO_AIR_QUALITY_HOURLY_FIELDS),
+            "timezone": self.spec.timezone,
+            "forecast_days": 2,
+        })
+        hourly = payload.get("hourly", {}) or {}
+        rows = []
+        day_rows = []
+        now = datetime.now(self.spec.tz).replace(tzinfo=None)
+        for index, raw_time in enumerate(hourly.get("time", []) or []):
+            dt = datetime.fromisoformat(raw_time)
+            if dt.date() != self.target_date:
+                continue
+            local_dt = dt.replace(tzinfo=self.spec.tz)
+            row = {
+                "time": dt.strftime("%H:%M"),
+                "valid_time": local_dt.isoformat(),
+            }
+            for field in OPEN_METEO_AIR_QUALITY_HOURLY_FIELDS:
+                row[field] = self.to_number(self.array_get(hourly, field, index))
+            day_rows.append(row)
+            if dt < now:
+                continue
+            rows.append(row)
+        return {
+            "url": url,
+            "rows": rows[:12],
+            "day_rows": day_rows,
+            "hourly_fields": list(OPEN_METEO_AIR_QUALITY_HOURLY_FIELDS),
+            "provenance": {
+                "provider": "open_meteo_air_quality",
+                "upstream": "CAMS auto domain via Open-Meteo Air Quality API",
+            },
+            "raw_payload": payload,
+        }
+
+    def fetch_open_meteo_global_models(self):
+        url = "https://api.open-meteo.com/v1/forecast"
+        payload = self.get_json(url, {
+            "latitude": self.spec.lat,
+            "longitude": self.spec.lon,
+            "hourly": "temperature_2m",
+            "temperature_unit": self.spec.om_temperature_unit,
+            "timezone": self.spec.timezone,
+            "forecast_days": 2,
+            "models": ",".join(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+        })
+        hourly = payload.get("hourly", {}) or {}
+        rows = []
+        day_rows = []
+        model_day_temps = {model: [] for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS}
+        now = datetime.now(self.spec.tz).replace(tzinfo=None)
+        for index, raw_time in enumerate(hourly.get("time", []) or []):
+            dt = datetime.fromisoformat(raw_time)
+            if dt.date() != self.target_date:
+                continue
+            model_payloads = {}
+            model_temps = []
+            for model in OPEN_METEO_GLOBAL_MODEL_MEMBERS:
+                value = self.to_number(self.array_get(hourly, f"temperature_2m_{model}", index))
+                values = {"temp_native": value, "temp_c": value}
+                if value is not None:
+                    model_temps.append(value)
+                    model_day_temps[model].append(value)
+                model_payloads[model] = values
+            row = {
+                "time": dt.strftime("%H:%M"),
+                "valid_time": dt.replace(tzinfo=self.spec.tz).isoformat(),
+                "models": model_payloads,
+                "model_temp_spread": max(model_temps) - min(model_temps) if len(model_temps) >= 2 else None,
+            }
+            day_rows.append(row)
+            if dt < now:
+                continue
+            rows.append(row)
+        day_model_highs = {
+            model: max(values) if values else None
+            for model, values in model_day_temps.items()
+        }
+        high_values = [value for value in day_model_highs.values() if value is not None]
+        day_max_native = statistics.median(high_values) if high_values else None
+        return {
+            "available": True,
+            "url": url,
+            "rows": rows[:12],
+            "day_rows": day_rows,
+            "day_model_highs": day_model_highs,
+            "day_max_native": day_max_native,
+            "day_max_c": day_max_native,
+            "day_high_spread": max(high_values) - min(high_values) if len(high_values) >= 2 else None,
+            "row_count": len(day_rows),
+            "payload_hash": self.payload_hash(payload),
+            "model_members": list(OPEN_METEO_GLOBAL_MODEL_MEMBERS),
+            "model_run_age_hours": None,
+            "model_run_age_status": "not_exposed_by_open_meteo_forecast",
+            "run_to_run_high_change": None,
+            "run_to_run_change_status": "requires_previous_run_archive",
+            "historical_archive_available": False,
+            "live_only_fields": [
+                "open_meteo_global_models_high_spread",
+                "open_meteo_ecmwf_ifs_high_delta",
+                "open_meteo_ecmwf_aifs_high_delta",
+                "open_meteo_ncep_aigfs_high_delta",
+                "open_meteo_gfs_graphcast_high_delta",
+                "open_meteo_ecmwf_ifs_aifs_disagreement",
+                "open_meteo_global_models_next_3h_spread",
+                "open_meteo_global_models_run_to_run_high_change",
+            ],
+            "generation_time_ms": payload.get("generationtime_ms"),
+            "raw_payload": payload,
+        }
+
     def fetch_nws_hourly_forecast(self):
         """US National Weather Service hourly grid forecast.
 
@@ -1070,6 +1225,54 @@ class SourceFetchMixin:
             "provider_issue_time": props.get("generatedAt"),
             "provider_update_time": props.get("updated"),
             "raw_payload": payload,
+        }
+
+    def fetch_nbm_probabilistic_tmax(self):
+        """National Blend of Models NBP station Tmax percentile guidance."""
+        if ":US" not in str(self.spec.wu_history_id):
+            return {
+                "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
+                "available": False,
+                "reason": "NBM probabilistic Tmax guidance is US-only.",
+                "station_id": self.spec.icao,
+                "target_date": self.target_date.isoformat(),
+                "percentiles": {},
+            }
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        tried_urls = []
+        last_payload = None
+        for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
+            url = nbp_text_url(run_time)
+            tried_urls.append(url)
+            try:
+                text = self.get_text(url)
+            except requests.HTTPError as exc:
+                if self.http_status(exc) in {403, 404}:
+                    continue
+                raise
+            payload = parse_nbp_station_tmax(
+                text,
+                self.spec.icao,
+                self.target_date,
+                source_url=url,
+                fetched_at=fetched_at,
+            )
+            payload["tried_urls"] = list(tried_urls)
+            if payload.get("available"):
+                return payload
+            last_payload = payload
+        if last_payload is not None:
+            last_payload["tried_urls"] = list(tried_urls)
+            return last_payload
+        return {
+            "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
+            "available": False,
+            "reason": "nbp_text_unavailable",
+            "station_id": self.spec.icao,
+            "target_date": self.target_date.isoformat(),
+            "percentiles": {},
+            "fetched_at": fetched_at,
+            "tried_urls": tried_urls,
         }
 
     def fetch_nws_grid_forecast(self):
@@ -1573,6 +1776,13 @@ class SourceFetchMixin:
             response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             return response.json()
+        return request_with_retries(_once)
+
+    def get_text(self, url, headers=None):
+        def _once():
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            return response.text
         return request_with_retries(_once)
 
     def parse_weather_com_time(self, value):

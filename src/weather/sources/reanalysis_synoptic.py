@@ -86,6 +86,11 @@ REANALYSIS_SYNOPTIC_FEATURE_COLUMNS = [
     "reanalysis_prev_7d_heat_anomaly",
     "reanalysis_prev_day_soil_temperature_0_to_7cm_mean",
     "reanalysis_prev_day_soil_moisture_0_to_7cm_mean",
+    "reanalysis_soil_dryness_available",
+    "reanalysis_prev_day_soil_moisture_0_to_7cm_percentile",
+    "reanalysis_prev_day_soil_moisture_0_to_7cm_anomaly",
+    "reanalysis_prev_day_soil_dryness_percentile",
+    "reanalysis_prev_day_dry_vpd_stress_proxy",
     "reanalysis_prev_day_vapour_pressure_deficit_mean",
     "reanalysis_prev_day_et0_fao_evapotranspiration_sum",
     "reanalysis_prev_day_shortwave_radiation_sum",
@@ -276,6 +281,65 @@ def _heat_anomaly(days, daily_by_date, grouped_by_doy):
     if not actuals or not normals:
         return None
     return mean(actuals) - mean(normals)
+
+
+def _raw_metric_by_doy(raw_daily_metrics, raw_key):
+    grouped = defaultdict(list)
+    for local_date, row in (raw_daily_metrics or {}).items():
+        value = to_float((row or {}).get(raw_key))
+        if value is None:
+            continue
+        grouped[local_date.timetuple().tm_yday].append((local_date.year, value))
+    return grouped
+
+
+def _seasonal_raw_values(day, grouped_by_doy, raw_key, radius=15):
+    values = []
+    for doy in _doy_window(day, radius=radius):
+        values.extend(
+            value
+            for year, value in grouped_by_doy.get(raw_key, {}).get(doy, ())
+            if year != day.year
+        )
+    return values
+
+
+def _percentile_rank(values, value):
+    value = to_float(value)
+    values = [to_float(item) for item in values]
+    values = [item for item in values if item is not None]
+    if value is None or not values:
+        return None
+    less = sum(1 for item in values if item < value)
+    equal = sum(1 for item in values if item == value)
+    return (less + 0.5 * equal) / len(values)
+
+
+def soil_dryness_features(antecedent_date, raw_metrics, raw_metric_normals):
+    soil_moisture = to_float((raw_metrics or {}).get("soil_moisture_0_to_7cm"))
+    if soil_moisture is None:
+        return {}
+    reference_values = _seasonal_raw_values(
+        antecedent_date,
+        raw_metric_normals,
+        "soil_moisture_0_to_7cm",
+    )
+    percentile = _percentile_rank(reference_values, soil_moisture)
+    if percentile is None:
+        return {}
+    dryness_percentile = 1.0 - percentile
+    vpd = to_float((raw_metrics or {}).get("vapour_pressure_deficit"))
+    return {
+        "reanalysis_soil_dryness_available": 1.0,
+        "reanalysis_prev_day_soil_moisture_0_to_7cm_percentile": percentile,
+        "reanalysis_prev_day_soil_moisture_0_to_7cm_anomaly": (
+            soil_moisture - mean(reference_values)
+        ),
+        "reanalysis_prev_day_soil_dryness_percentile": dryness_percentile,
+        "reanalysis_prev_day_dry_vpd_stress_proxy": (
+            dryness_percentile * vpd if vpd is not None else None
+        ),
+    }
 
 
 def load_normalized_hourly_daily_metrics(hourly_root):
@@ -968,6 +1032,12 @@ def build_reanalysis_synoptic_rows(
     grouped_by_doy = _normal_by_doy(daily_by_date)
     hourly_daily_metrics = hourly_daily_metrics or {}
     raw_daily_metrics = raw_daily_metrics or {}
+    raw_metric_normals = {
+        "soil_moisture_0_to_7cm": _raw_metric_by_doy(
+            raw_daily_metrics,
+            "soil_moisture_0_to_7cm",
+        ),
+    }
     pressure_level_daily_metrics = pressure_level_daily_metrics or {}
     static_features = reanalysis_static_features(spec)
     rows = []
@@ -1023,6 +1093,13 @@ def build_reanalysis_synoptic_rows(
                 value = raw_metrics.get(raw_key)
                 if value is not None:
                     features[feature_key] = value
+            features.update(
+                soil_dryness_features(
+                    antecedent_date,
+                    raw_metrics,
+                    raw_metric_normals,
+                )
+            )
             pressure_level_metrics = pressure_level_daily_metrics.get(antecedent_date) or {}
             pressure_level_present = False
             for feature_key in (

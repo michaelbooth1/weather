@@ -1,4 +1,4 @@
-# 181. Forecast Signal Double-Counting And Dead Capture-Hour [OPEN]
+# 181. Forecast Signal Double-Counting And Dead Capture-Hour [PARTIAL 2026-06-21 - ML FORECAST SHAPE REMOVED, CAPTURE_HOUR LIVE]
 
 Goal: stop double-counting forecast signal on the feature-model path and resolve
 the unused `capture_hour` parameter in the forecast-error component.
@@ -30,11 +30,21 @@ correctness/clarity trap.
    delete the parameter and its call-site threading.
 
 - [ ] Quantify HGB forecast-feature attribution and serving pull/floor delta.
-- [ ] Decide and implement the pull/floor application scope with replay evidence.
-- [ ] Use or remove `capture_hour` end to end.
+- [x] Decide and implement the pull/floor application scope.
+- [ ] Attach replay evidence for the selected pull/floor scope.
+- [x] Use or remove `capture_hour` end to end.
 
 Acceptance: forecast pull/floor on the ML path is justified by a measured replay
 delta or removed, `forecast_error_distribution` either uses `capture_hour` or no
 longer accepts it, and there is no aggregate or per-market regression.
+
+Progress note 2026-06-21: the serving distribution stage now skips
+`apply_forecast_floor` and `apply_forecast_pull` whenever the HGB/LR feature
+model is active, leaving the post-hoc forecast-shape adjustment on the empirical
+fallback path only. `forecast_error_distribution(..., capture_hour=...)` now
+selects hour-specific `hour_stats` when present, with source/global fallback, and
+offline forecast-error scoring passes each row's `capture_hour` through the same
+selector. The remaining work is the item-182 replay/stage-attribution run that
+quantifies aggregate and per-market deltas.
 
 Related: items 182, 134, 135; `[[model-audit-2026-06-09]]`, `[[replay-ablation-findings]]`.

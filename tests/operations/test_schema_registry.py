@@ -14,8 +14,8 @@ from weather.schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.6")
-        self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.3")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.11")
+        self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.4")
         self.assertEqual(schema_version("pressure_level_cache_status"), "pressure_level_cache_status_v0.1")
         self.assertEqual(schema_version("reanalysis_sidecar_coverage_audit"), "reanalysis_sidecar_coverage_audit_v0.1")
         self.assertEqual(schema_version("historical_coverage"), "historical_coverage_v1")
@@ -26,6 +26,8 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.1")
         self.assertEqual(schema_version("multi_variant_shadow_attribution"), "multi_variant_shadow_attribution_v0.1")
         self.assertEqual(schema_version("model_variant_registry_audit"), "model_variant_registry_audit_v0.1")
+        self.assertEqual(schema_version("roadmap_backlog"), "roadmap_backlog_v0.1")
+        self.assertEqual(schema_version("local_generated_state_cleanup"), "local_generated_state_cleanup_v0.1")
         self.assertEqual(schema_version("hourly_model_performance"), "hourly_model_performance_v0.3")
         self.assertEqual(schema_version("hourly_performance_gate"), "hourly_performance_gate_v0.1")
         self.assertEqual(schema_version("hourly_remediation_registry"), "hourly_remediation_registry_v0.1")
@@ -40,6 +42,9 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(schema_version("predawn_weak_slot_repair"), "predawn_weak_slot_repair_v0.1")
         self.assertEqual(schema_version("config_inventory"), "config_inventory_v0.1")
+        self.assertEqual(schema_version("location_registry"), "location_registry_v0.1")
+        self.assertEqual(schema_version("location_market_events"), "location_market_events_v0.1")
+        self.assertEqual(schema_version("nbm_probabilistic_tmax"), "nbm_probabilistic_tmax_v0.1")
         self.assertEqual(schema_version("late_day_lock_in_repair"), "late_day_lock_in_repair_v0.1")
         self.assertEqual(schema_version("winner_underpricing_casebook"), "winner_underpricing_casebook_v0.1")
         self.assertEqual(schema_version("forecast_pressure_tilt_validation"), "forecast_pressure_tilt_validation_v0.1")

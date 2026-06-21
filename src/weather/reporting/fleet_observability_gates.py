@@ -1,0 +1,528 @@
+"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+
+from weather.reporting.fleet_observability_loops import *  # noqa: F403
+
+# The extracted functions below intentionally resolve globals from the
+# previous slice to preserve the original module namespace.
+
+def _gate_from_alerts(name, alerts):
+    if any(row.get("severity") == "critical" for row in alerts):
+        severity = "critical"
+    elif alerts:
+        severity = "warning"
+    else:
+        severity = "ok"
+    return {
+        "name": name,
+        "ok": not alerts,
+        "severity": severity,
+        "messages": [row.get("message") for row in alerts],
+    }
+
+
+def _broad_slo_rule(gate_name):
+    rule = BROAD_SLO_RULES.get(gate_name) or REMEDIATION_RULES.get(gate_name) or {}
+    return {
+        "root_cause": rule.get("root_cause") or gate_name or "unknown_broad_slo_failure",
+        "owner": rule.get("owner") or "unknown",
+        "suggested_command": rule.get("suggested_command") or BROAD_SLO_VERIFY_COMMAND,
+        "recoverable_same_day": bool(rule.get("recoverable_same_day", False)),
+    }
+
+
+def _recovery_row(component, gate, market, detail, before, rule_override=None):
+    rule = _broad_slo_rule(gate)
+    if rule_override:
+        rule.update({key: value for key, value in rule_override.items() if value is not None})
+    return {
+        "component": component,
+        "gate": gate,
+        "status": "BLOCK",
+        "market_id": market.get("market_id") or "fleet",
+        "event_slug": market.get("event_slug"),
+        "target_date": market.get("target_date"),
+        "owner": rule["owner"],
+        "root_cause": rule["root_cause"],
+        "repair_command": rule["suggested_command"],
+        "suggested_command": rule["suggested_command"],
+        "recoverable_same_day": rule["recoverable_same_day"],
+        "before": before,
+        "after": "rerun broad live-forward SLO and require PASS before broad countability",
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+        "detail": detail,
+    }
+
+
+def _unique_gates(gates):
+    seen = set()
+    ordered = []
+    for gate in gates:
+        if gate in seen:
+            continue
+        seen.add(gate)
+        ordered.append(gate)
+    return ordered
+
+
+def _collection_recovery_gates(row):
+    reason = str(row.get("reason") or "").lower()
+    gates = []
+    if not row.get("snapshots") or "no snapshot" in reason or "no captures" in reason:
+        gates.append("snapshot_collection")
+    if "gap" in reason:
+        gates.append("snapshot_coverage_gap")
+    if "afternoon window" in reason or "window close" in reason or "window start" in reason:
+        gates.append("afternoon_window_coverage")
+    if "latest capture" in reason:
+        gates.append("latest_model_row_freshness")
+    if not gates:
+        gates.append("snapshot_collection")
+    return _unique_gates(gates)
+
+
+def _source_status_recovery(source_status):
+    if not source_status:
+        return None
+    repair_command = source_status.get("repair_command") or SOURCE_PROVIDER_STATUS_COMMAND
+    if source_status.get("available") is False:
+        return {
+            "detail": source_status.get("reason") or "source_status_long.csv unavailable",
+            "rule_override": {
+                "root_cause": "missing_source_status_tape",
+                "owner": "snapshot source-status writer",
+                "suggested_command": repair_command,
+                "recoverable_same_day": True,
+            },
+        }
+    if source_status.get("trading_evidence_allowed") is False:
+        families = source_status.get("families") or {}
+        affected = [(name, row) for name, row in sorted(families.items()) if row.get("status") != "healthy"]
+        if affected:
+            names = [name for name, _ in affected]
+            counts = [
+                (
+                    f"{name} "
+                    f"failed={row.get('failed_source_count', 0)} "
+                    f"fallback={row.get('fallback_source_count', 0)} "
+                    f"rate_limited={row.get('rate_limited_source_count', 0)}"
+                )
+                for name, row in affected
+            ]
+            fallback_sources = {
+                name: [source for source in row.get("fallback_sources") or [] if source]
+                for name, row in affected
+                if row.get("fallback_source_count")
+            }
+            rate_limited_sources = {
+                name: [source for source in row.get("rate_limited_sources") or [] if source]
+                for name, row in affected
+                if row.get("rate_limited_source_count")
+            }
+            detail = (
+                "source-status degraded families: "
+                + ", ".join(names)
+                + " ("
+                + "; ".join(counts)
+                + ")"
+            )
+            if fallback_sources:
+                source_bits = [
+                    f"{name} fallback_sources={','.join(sources)}"
+                    for name, sources in sorted(fallback_sources.items())
+                ]
+                detail += "; " + "; ".join(source_bits)
+            if rate_limited_sources:
+                source_bits = [
+                    f"{name} rate_limited_sources={','.join(sources)}"
+                    for name, sources in sorted(rate_limited_sources.items())
+                ]
+                detail += "; " + "; ".join(source_bits)
+            if any(name == "open_meteo" and row.get("fallback_source_count") for name, row in affected):
+                return {
+                    "detail": detail,
+                    "rule_override": {
+                        "root_cause": "open_meteo_provider_fallback",
+                        "owner": "Open-Meteo quota / forecast source collector",
+                        "suggested_command": repair_command,
+                        "recoverable_same_day": False,
+                    },
+                }
+            if any(name == "open_meteo" and row.get("rate_limited_source_count") for name, row in affected):
+                return {
+                    "detail": detail,
+                    "rule_override": {
+                        "root_cause": "open_meteo_provider_rate_limited",
+                        "owner": "Open-Meteo quota / forecast source collector",
+                        "suggested_command": repair_command,
+                        "recoverable_same_day": False,
+                    },
+                }
+            return {
+                "detail": detail,
+                "rule_override": {
+                    "root_cause": "degraded_source_status",
+                    "owner": "snapshot source-status writer",
+                    "suggested_command": repair_command,
+                    "recoverable_same_day": False,
+                },
+            }
+        return {
+            "detail": "source-status degradation blocks trading-grade broad evidence",
+            "rule_override": {
+                "root_cause": "degraded_source_status",
+                "owner": "snapshot source-status writer",
+                "suggested_command": repair_command,
+                "recoverable_same_day": False,
+            },
+        }
+    return None
+
+
+def _variant_prediction_recovery_detail(variant_tape):
+    if not variant_tape:
+        return None
+    if variant_tape.get("action_required"):
+        return variant_tape.get("reason") or "variant_predictions_long.csv is missing or stale"
+    return None
+
+
+def _collection_recovery_rows(collection):
+    rows = []
+    for row in (collection or {}).get("markets") or []:
+        if row.get("snapshot_action_required", row.get("action_required")):
+            cadence_proof = row.get("snapshot_cadence_proof") or {}
+            cadence_override = {
+                "root_cause": cadence_proof.get("root_cause"),
+                "suggested_command": cadence_proof.get("repair_command") or SNAPSHOT_RESTART_COMMAND,
+                "recoverable_same_day": cadence_proof.get("recoverable_same_day"),
+            } if cadence_proof else None
+            before = (
+                f"state={row.get('state')}; snapshots={row.get('snapshots')}; "
+                f"latest_age_minutes={row.get('latest_age_minutes')}; reason={row.get('reason')}"
+            )
+            for gate in _collection_recovery_gates(row):
+                rows.append(_recovery_row(
+                    "snapshot_collection",
+                    gate,
+                    row,
+                    row.get("reason") or "snapshot collection needs attention",
+                    before,
+                    cadence_override,
+                ))
+        source_recovery = _source_status_recovery(row.get("source_family_degradation") or {})
+        if source_recovery:
+            before = (
+                f"snapshot_id={(row.get('source_family_degradation') or {}).get('snapshot_id')}; "
+                f"affected_family_count={(row.get('source_family_degradation') or {}).get('affected_family_count')}; "
+                f"failed_source_count={(row.get('source_family_degradation') or {}).get('failed_source_count')}; "
+                f"fallback_source_count={(row.get('source_family_degradation') or {}).get('fallback_source_count')}"
+            )
+            rows.append(_recovery_row(
+                "source_status",
+                "source_status_freshness",
+                row,
+                source_recovery["detail"],
+                before,
+                source_recovery.get("rule_override"),
+            ))
+        variant_detail = _variant_prediction_recovery_detail(row.get("variant_prediction_tape") or {})
+        if variant_detail:
+            variant_tape = row.get("variant_prediction_tape") or {}
+            before = (
+                f"snapshot_id={variant_tape.get('snapshot_id')}; "
+                f"active_variant_count={variant_tape.get('active_variant_count')}; "
+                f"latest_rows={variant_tape.get('latest_rows')}; "
+                f"expected_latest_rows={variant_tape.get('expected_latest_rows')}"
+            )
+            rows.append(_recovery_row(
+                "variant_prediction_tape",
+                "variant_prediction_freshness",
+                row,
+                variant_detail,
+                before,
+            ))
+    return rows
+
+
+def _clob_recovery_rows(clob):
+    rows = []
+    clob = clob or {}
+    loop = clob.get("loop") or {}
+    state = loop.get("state")
+    if state in ("DEAD", "UNKNOWN", "ERRORING", "PAUSED", "DEGRADED"):
+        rows.append(_recovery_row(
+            "clob_book_capture",
+            "clob_book_freshness",
+            {"market_id": "fleet"},
+            f"CLOB book loop is {state}",
+            (
+                f"state={state}; heartbeat_age_seconds={loop.get('heartbeat_age_seconds')}; "
+                f"last_books_age_seconds={loop.get('last_books_age_seconds')}; last_error={loop.get('last_error')}"
+            ),
+        ))
+    discovery = loop.get("discovery_sanity") or {}
+    if discovery and not discovery.get("ok", True):
+        rows.append(_recovery_row(
+            "clob_book_capture",
+            "clob_discovery",
+            {"market_id": "fleet"},
+            discovery.get("reason") or "CLOB discovery sanity gate failed",
+            (
+                f"status={discovery.get('status')}; root_cause={discovery.get('root_cause')}; "
+                f"market_count={discovery.get('market_count')}"
+            ),
+        ))
+    for row in (clob.get("books") or {}).get("markets") or []:
+        if row.get("ok"):
+            continue
+        rows.append(_recovery_row(
+            "clob_book_capture",
+            "clob_book_freshness",
+            row,
+            row.get("reason") or "CLOB book tape needs attention",
+            (
+                f"captures={row.get('captures')}; trailing_age_seconds={row.get('trailing_age_seconds')}; "
+                f"gaps_over_threshold={row.get('gaps_over_threshold')}; max_gap_seconds={row.get('max_gap_seconds')}"
+            ),
+        ))
+    return rows
+
+
+def _observation_recovery_rows(observation):
+    alerts = observation_alerts(observation)
+    if not alerts:
+        return []
+    observation = observation or {}
+    return [
+        _recovery_row(
+            "observation_trigger",
+            "observation_trigger_health",
+            {"market_id": "fleet"},
+            alerts[0].get("message") or "observation trigger watcher needs attention",
+            (
+                f"state={observation.get('state')}; heartbeat_age_seconds={observation.get('heartbeat_age_seconds')}; "
+                f"consecutive_errors={observation.get('consecutive_errors')}; last_error={observation.get('last_error')}"
+            ),
+        )
+    ]
+
+
+def broad_live_forward_recovery_rows(collection, clob, observation):
+    return (
+        _collection_recovery_rows(collection)
+        + _clob_recovery_rows(clob)
+        + _observation_recovery_rows(observation)
+    )
+
+
+def _concrete_broad_slo_gates(recovery_rows):
+    counts = Counter(row.get("gate") for row in recovery_rows if row.get("gate"))
+    gate_names = list(BROAD_SLO_REQUIRED_GATES)
+    gate_names.extend(sorted(name for name in counts if name not in BROAD_SLO_REQUIRED_GATES))
+    rows_by_gate = {}
+    for row in recovery_rows:
+        rows_by_gate.setdefault(row.get("gate"), []).append(row)
+    gates = []
+    for gate_name in gate_names:
+        rows = rows_by_gate.get(gate_name) or []
+        gates.append({
+            "name": gate_name,
+            "ok": not rows,
+            "severity": "critical" if rows else "ok",
+            "messages": [row.get("detail") for row in rows],
+            "blocked_market_count": len({row.get("market_id") for row in rows}),
+            "owner": (rows[0].get("owner") if rows else _broad_slo_rule(gate_name)["owner"]),
+            "repair_command": (rows[0].get("repair_command") if rows else None),
+        })
+    return gates
+
+
+def _broad_slo_summary(recovery_rows):
+    first = recovery_rows[0] if recovery_rows else {}
+    return {
+        "recovery_row_count": len(recovery_rows),
+        "first_blocking_market": first.get("market_id"),
+        "first_blocking_component": first.get("component"),
+        "first_blocking_gate": first.get("gate"),
+        "first_blocking_owner": first.get("owner"),
+        "first_repair_command": first.get("repair_command"),
+        "blocking_gate_counts": dict(sorted(Counter(row.get("gate") for row in recovery_rows).items())),
+        "blocking_component_counts": dict(sorted(Counter(row.get("component") for row in recovery_rows).items())),
+    }
+
+
+def _fallback_snapshot_root_cause(row):
+    reason = str(row.get("reason") or "").lower()
+    if "stale code" in reason or "source tree" in reason:
+        return "stale_code_restart"
+    if "duplicate writer" in reason or "writer lock" in reason:
+        return "duplicate_writer_prevention"
+    if "disk" in reason or "headroom" in reason or "backpressure" in reason:
+        return "disk_backpressure"
+    if "provider" in reason or "source delay" in reason or "rate limit" in reason:
+        return "provider_source_delay"
+    if not row.get("snapshots") or "no snapshot" in reason or "no captures" in reason:
+        return "process_down"
+    if "latest capture" in reason:
+        return "long_iteration_or_stalled_loop"
+    if "gap" in reason:
+        return "unknown_snapshot_gap"
+    if not row.get("snapshot_action_required", row.get("action_required")):
+        return "within_cadence"
+    return "unknown"
+
+
+def _snapshot_gap_windows_from_row(row):
+    windows = []
+    for item in (row.get("snapshot_cadence_proof") or {}).get("gap_windows") or []:
+        windows.append({
+            "after": item.get("after"),
+            "before": item.get("before"),
+            "gap_minutes": item.get("gap_minutes"),
+        })
+    return windows
+
+
+def _snapshot_cadence_market_proof(row):
+    proof = dict(row.get("snapshot_cadence_proof") or {})
+    action_required = bool(row.get("snapshot_action_required", row.get("action_required")))
+    proof.setdefault("status", "BLOCK" if action_required else "PASS")
+    proof.setdefault("counts_so_far", not action_required)
+    proof.setdefault("root_cause", _fallback_snapshot_root_cause(row))
+    proof.setdefault("root_cause_class", proof.get("root_cause"))
+    proof.setdefault("state", row.get("state"))
+    proof.setdefault("reason", row.get("reason"))
+    proof.setdefault("snapshot_count", row.get("snapshots", 0))
+    proof.setdefault("latest_snapshot_id", row.get("latest_snapshot_id"))
+    proof.setdefault("latest_age_minutes", row.get("latest_age_minutes"))
+    proof.setdefault("freshness_sla_minutes", row.get("freshness_sla_minutes"))
+    proof.setdefault("gap_count", len(_snapshot_gap_windows_from_row(row)))
+    proof.setdefault("max_gap_minutes", row.get("max_gap_minutes"))
+    proof.setdefault("gap_windows", _snapshot_gap_windows_from_row(row))
+    proof.setdefault("status_command", SNAPSHOT_STATUS_COMMAND)
+    proof.setdefault("repair_command", SNAPSHOT_RESTART_COMMAND)
+    proof.setdefault("verification_command", BROAD_SLO_VERIFY_COMMAND)
+    proof.setdefault("recoverable_same_day", bool(action_required and not proof.get("gap_windows")))
+    proof.setdefault("active_day_countable", proof.get("status") == "PASS")
+    proof["market_id"] = row.get("market_id")
+    proof["event_slug"] = row.get("event_slug")
+    proof["target_date"] = row.get("target_date")
+    return proof
+
+
+def _snapshot_cadence_proof(collection, recovery_rows):
+    provided = (collection or {}).get("snapshot_cadence_proof") or {}
+    markets = [_snapshot_cadence_market_proof(row) for row in (collection or {}).get("markets") or []]
+    recovery_gates_by_market = {}
+    for row in recovery_rows:
+        if row.get("component") != "snapshot_collection":
+            continue
+        market_id = row.get("market_id")
+        recovery_gates_by_market.setdefault(market_id, []).append(row.get("gate"))
+    for row in markets:
+        gates = recovery_gates_by_market.get(row.get("market_id"))
+        if gates:
+            row["blocking_gates"] = _unique_gates(gates)
+            row["status"] = "BLOCK"
+        else:
+            row.setdefault("blocking_gates", [])
+    blocked = [row for row in markets if row.get("status") != "PASS"]
+    gap_markets = {
+        row.get("market_id")
+        for row in markets
+        if int(row.get("gap_count") or 0) > 0
+    }
+    gap_markets.update(
+        row.get("market_id")
+        for row in recovery_rows
+        if row.get("component") == "snapshot_collection" and row.get("gate") == "snapshot_coverage_gap"
+    )
+    max_gaps = [
+        float(row.get("max_gap_minutes"))
+        for row in markets
+        if row.get("max_gap_minutes") is not None
+    ]
+    summary = {
+        "status": "PASS" if not blocked else "BLOCK",
+        "market_count": len(markets),
+        "blocked_market_count": len(blocked),
+        "snapshot_coverage_gap_market_count": len(gap_markets),
+        "snapshot_coverage_gap_blocked_market_count": len(gap_markets),
+        "total_gap_count": sum(int(row.get("gap_count") or 0) for row in markets),
+        "max_gap_minutes": max(max_gaps) if max_gaps else None,
+        "root_cause_counts": dict(sorted(Counter(row.get("root_cause") or "unknown" for row in markets).items())),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+    }
+    summary.update({key: value for key, value in (provided.get("summary") or {}).items() if value is not None})
+    summary["snapshot_coverage_gap_blocked_market_count"] = len(gap_markets)
+    summary["blocked_market_count"] = len(blocked)
+    summary["status"] = "PASS" if not blocked else "BLOCK"
+    return {
+        "schema_version": "snapshot_cadence_proof_v0.1",
+        "summary": summary,
+        "markets": sorted(markets, key=lambda row: row.get("market_id") or ""),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": BROAD_SLO_VERIFY_COMMAND,
+    }
+
+
+def live_forward_slo_gate(collection, clob, observation):
+    """Single fail-closed gate for live-forward MM evidence.
+
+    A paper/live day can count only when the slow weather snapshot tape, fast
+    CLOB book tape, and observation-trigger watcher are all fresh and gap-free.
+    """
+    gates = [
+        _gate_from_alerts("snapshot_collection", collection_alerts(collection)),
+        _gate_from_alerts("clob_book_capture", clob_alerts(clob)),
+        _gate_from_alerts("observation_trigger", observation_alerts(observation)),
+    ]
+    recovery_rows = broad_live_forward_recovery_rows(collection, clob, observation)
+    snapshot_cadence = _snapshot_cadence_proof(collection, recovery_rows)
+    concrete_gates = _concrete_broad_slo_gates(recovery_rows)
+    blockers = [
+        message
+        for gate in gates
+        if not gate["ok"]
+        for message in gate.get("messages") or []
+    ]
+    source_status_blockers = [
+        row.get("detail")
+        for row in recovery_rows
+        if row.get("component") == "source_status"
+    ]
+    blockers.extend([detail for detail in source_status_blockers if detail not in blockers])
+    ok = not blockers and not recovery_rows
+    first_blocker = recovery_rows[0] if recovery_rows else {}
+    reason = (
+        "all broad live-forward gates are countable"
+        if ok
+        else (
+            f"{first_blocker.get('gate')} blocks broad live-forward SLO for "
+            f"{first_blocker.get('market_id')}: {first_blocker.get('detail')}"
+            if first_blocker
+            else "; ".join(blockers[:3])
+        )
+    )
+    return {
+        "schema_version": "live_forward_slo_v0.1",
+        "status": "PASS" if ok else "BLOCK",
+        "ok": ok,
+        "counts_toward_live_forward_gate": ok,
+        "reason": reason,
+        "gates": gates,
+        "concrete_gates": concrete_gates,
+        "blockers": blockers,
+        "first_blocker": first_blocker,
+        "recovery_checklist": recovery_rows,
+        "snapshot_cadence_proof": snapshot_cadence,
+        "rerun_command": BROAD_SLO_VERIFY_COMMAND,
+        "summary": _broad_slo_summary(recovery_rows),
+    }
+
+# Re-export imported dependency names as well because later slices intentionally
+# share the original module global namespace while the public facade remains stable.
+__all__ = [name for name in globals() if not name.startswith("__")]

@@ -1,6 +1,7 @@
 import csv
 import json
-from collections import defaultdict
+import math
+from collections import OrderedDict, defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -28,27 +29,64 @@ from weather.model.model_constants import (
 )
 
 
+HISTORICAL_TARGET_CACHE_MAX_ENTRIES = 128
+CLIMATOLOGY_FALLBACK_MIN_ROWS = 30
+CLIMATOLOGY_FALLBACK_WINDOWS = (HISTORY_WINDOW_DAYS, 21, 45, 90, 183)
+CLIMATOLOGY_FALLBACK_ALPHA = 0.05
+CLIMATOLOGY_FALLBACK_LOWER_QUANTILE = 0.02
+CLIMATOLOGY_FALLBACK_UPPER_QUANTILE = 0.98
+CLIMATOLOGY_FALLBACK_SUPPORT_MARGIN = 2
+
+
 class ClimatologyMixin:
     """Historical target-season climatology cache and conditional lookups."""
+
+    def _historical_cache(self):
+        cache = getattr(type(self), "_historical_target_cache", None)
+        if isinstance(cache, OrderedDict):
+            return cache
+        cache = OrderedDict(cache or {})
+        type(self)._historical_target_cache = cache
+        return cache
+
+    def _historical_cache_get(self, cache_key):
+        cache = self._historical_cache()
+        if cache_key not in cache:
+            return None
+        cache.move_to_end(cache_key)
+        return cache[cache_key]
+
+    def _historical_cache_put(self, cache_key, payload):
+        cache = self._historical_cache()
+        cache[cache_key] = payload
+        cache.move_to_end(cache_key)
+        max_entries = int(
+            getattr(type(self), "_historical_target_cache_max_entries", HISTORICAL_TARGET_CACHE_MAX_ENTRIES)
+            or HISTORICAL_TARGET_CACHE_MAX_ENTRIES
+        )
+        max_entries = max(1, max_entries)
+        while len(cache) > max_entries:
+            cache.popitem(last=False)
+        return payload
 
     def historical_target_cache(self):
         # Keyed by market so Toronto and NYC caches never collide, and read from
         # the market's own data root (NYC analogs/transitions use NYC history).
         cache_key = f"{self.spec.id}:{self.target_date.isoformat()}"
-        if cache_key in type(self)._historical_target_cache:
-            return type(self)._historical_target_cache[cache_key]
+        cached = self._historical_cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         summary_path = self.spec.data_root / "daily" / "daily_summary.csv"
         if not summary_path.exists():
             lo, hi = round(self.spec.c_to_native(8)), round(self.spec.c_to_native(35))
-            type(self)._historical_target_cache[cache_key] = {
+            return self._historical_cache_put(cache_key, {
                 "daily": {},
                 "by_date": {},
                 "bucket_space": list(range(lo, hi)),
                 "conditional": {},
                 "regime": {},
-            }
-            return type(self)._historical_target_cache[cache_key]
+            })
 
         reference_year = 2000
         target_reference = date(reference_year, self.target_date.month, self.target_date.day)
@@ -125,14 +163,107 @@ class ClimatologyMixin:
             if local_date in by_date
         }
         bucket_space = sorted({row["bucket"] for row in daily.values()})
-        type(self)._historical_target_cache[cache_key] = {
+        return self._historical_cache_put(cache_key, {
             "daily": daily,
             "by_date": dict(by_date),
             "bucket_space": bucket_space or list(range(8, 35)),
             "conditional": {},
             "regime": {},
+        })
+
+    def wide_uniform_climatology_prior(self):
+        prior_lo = round(self.spec.c_to_native(8))
+        prior_hi = round(self.spec.c_to_native(33))
+        return {
+            temp: 1.0 / (prior_hi - prior_lo)
+            for temp in range(prior_lo, prior_hi)
         }
-        return type(self)._historical_target_cache[cache_key]
+
+    def climatology_fallback_prior(self):
+        """Return the thin-history prior in the market's native bucket unit."""
+        if getattr(self.spec, "id", None) == "toronto":
+            return self.wide_uniform_climatology_prior()
+
+        summary_path = self.spec.data_root / "daily" / "daily_summary.csv"
+        if not summary_path.exists():
+            return self.wide_uniform_climatology_prior()
+
+        buckets = self._fallback_prior_buckets(summary_path)
+        if not buckets:
+            return self.wide_uniform_climatology_prior()
+
+        support = self._fallback_prior_support(buckets)
+        return self.smoothed_distribution(
+            buckets,
+            support,
+            alpha=CLIMATOLOGY_FALLBACK_ALPHA,
+        )
+
+    def _fallback_prior_buckets(self, summary_path):
+        rows = []
+        with Path(summary_path).open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                try:
+                    local_date = date.fromisoformat(row["local_date"])
+                except (KeyError, ValueError):
+                    continue
+                if local_date.year >= self.target_date.year:
+                    continue
+                if int(row.get("row_count") or 0) < HISTORY_MIN_ROW_COUNT:
+                    continue
+                bucket = native_bucket(row)
+                if bucket is None:
+                    continue
+                reference_date = self._fallback_reference_date(local_date)
+                rows.append((reference_date, int(bucket)))
+
+        if not rows:
+            return []
+
+        target_reference = self._fallback_reference_date(self.target_date)
+        selected = []
+        for window_days in CLIMATOLOGY_FALLBACK_WINDOWS:
+            selected = [
+                bucket
+                for reference_date, bucket in rows
+                if abs((reference_date - target_reference).days) <= window_days
+            ]
+            if len(selected) >= CLIMATOLOGY_FALLBACK_MIN_ROWS:
+                return selected
+        return selected
+
+    def _fallback_reference_date(self, value):
+        try:
+            return value.replace(year=2000)
+        except ValueError:
+            return date(2000, 2, 28)
+
+    def _fallback_prior_support(self, buckets):
+        ordered = sorted(int(bucket) for bucket in buckets)
+        lower = self._percentile(ordered, CLIMATOLOGY_FALLBACK_LOWER_QUANTILE)
+        upper = self._percentile(ordered, CLIMATOLOGY_FALLBACK_UPPER_QUANTILE)
+        lo = math.floor(lower) - CLIMATOLOGY_FALLBACK_SUPPORT_MARGIN
+        hi = math.ceil(upper) + CLIMATOLOGY_FALLBACK_SUPPORT_MARGIN
+        if hi < lo:
+            lo = min(ordered)
+            hi = max(ordered)
+        return list(range(int(lo), int(hi) + 1))
+
+    def _percentile(self, ordered_values, quantile):
+        if not ordered_values:
+            return None
+        if len(ordered_values) == 1:
+            return float(ordered_values[0])
+        position = (len(ordered_values) - 1) * quantile
+        lower_index = int(math.floor(position))
+        upper_index = int(math.ceil(position))
+        if lower_index == upper_index:
+            return float(ordered_values[lower_index])
+        weight = position - lower_index
+        return (
+            ordered_values[lower_index] * (1.0 - weight)
+            + ordered_values[upper_index] * weight
+        )
 
     def historical_intraday_distribution(self, observed_bucket, cutoff_hour):
         if observed_bucket is None:

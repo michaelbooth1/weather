@@ -45,6 +45,9 @@ SOURCE_CACHE_TTL_MINUTES = {
     # Forecasts -- slow-moving, a longer stale window is acceptable.
     "weather_forecast": 90,
     "open_meteo": 90,
+    "open_meteo_air_quality": 120,
+    "open_meteo_global_models": 120,
+    "nbm_probabilistic_tmax": 120,
     "nws_hourly": 90,
     "nws_grid": 90,
     "eccc_citypage": 120,   # public city-page forecast updates a few times/day

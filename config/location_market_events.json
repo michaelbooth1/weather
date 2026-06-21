@@ -1,0 +1,1901 @@
+{
+  "schema_version": "location_market_events_v0.1",
+  "status": "generated_snapshot",
+  "owner": "weather.operations.location_config_refresh",
+  "generated_at_utc": "2026-06-20T19:56:37.386755+00:00",
+  "source": {
+    "category_url": "https://polymarket.com/weather/high-temperature",
+    "gamma_events_query": "https://gamma-api.polymarket.com/events?tag_slug=highest-temperature&active=true&closed=false&limit=100&offset={offset}",
+    "tag_slug": "highest-temperature",
+    "active": true,
+    "closed": false,
+    "event_count": 115,
+    "location_count": 51,
+    "api_page_size": 100,
+    "api_offsets_fetched": [
+      0,
+      100
+    ],
+    "locations_in_api_not_file": [],
+    "locations_in_file_not_api": []
+  },
+  "locations": [
+    {
+      "location_id": "amsterdam",
+      "event_slug_prefix": "highest-temperature-in-amsterdam-on",
+      "series_slug": "amsterdam-daily-weather",
+      "latest_event_slug": "highest-temperature-in-amsterdam-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-amsterdam-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607155",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-amsterdam-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-amsterdam-on-june-20-2026",
+          "title": "Highest temperature in Amsterdam on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/nl/schiphol/EHAM",
+          "market_count": 11
+        },
+        {
+          "event_id": "610680",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-amsterdam-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-amsterdam-on-june-21-2026",
+          "title": "Highest temperature in Amsterdam on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/nl/schiphol/EHAM",
+          "market_count": 11
+        },
+        {
+          "event_id": "614115",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-amsterdam-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-amsterdam-on-june-22-2026",
+          "title": "Highest temperature in Amsterdam on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/nl/schiphol/EHAM",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "ankara",
+      "event_slug_prefix": "highest-temperature-in-ankara-on",
+      "series_slug": "ankara-daily-weather",
+      "latest_event_slug": "highest-temperature-in-ankara-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-ankara-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607135",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-ankara-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-ankara-on-june-20-2026",
+          "title": "Highest temperature in Ankara on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/tr/%C3%A7ubuk/LTAC",
+          "market_count": 11
+        },
+        {
+          "event_id": "610660",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-ankara-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-ankara-on-june-21-2026",
+          "title": "Highest temperature in Ankara on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/tr/%C3%A7ubuk/LTAC",
+          "market_count": 11
+        },
+        {
+          "event_id": "614095",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-ankara-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-ankara-on-june-22-2026",
+          "title": "Highest temperature in Ankara on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/tr/%C3%A7ubuk/LTAC",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "atlanta",
+      "event_slug_prefix": "highest-temperature-in-atlanta-on",
+      "series_slug": "atlanta-daily-weather",
+      "latest_event_slug": "highest-temperature-in-atlanta-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-atlanta-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610232",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-atlanta-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-atlanta-on-june-20-2026",
+          "title": "Highest temperature in Atlanta on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ga/atlanta/KATL",
+          "market_count": 11
+        },
+        {
+          "event_id": "613654",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-atlanta-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-atlanta-on-june-21-2026",
+          "title": "Highest temperature in Atlanta on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ga/atlanta/KATL",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "austin",
+      "event_slug_prefix": "highest-temperature-in-austin-on",
+      "series_slug": "austin-daily-weather",
+      "latest_event_slug": "highest-temperature-in-austin-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-austin-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610235",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-austin-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-austin-on-june-20-2026",
+          "title": "Highest temperature in Austin on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/austin/KAUS",
+          "market_count": 11
+        },
+        {
+          "event_id": "613657",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-austin-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-austin-on-june-21-2026",
+          "title": "Highest temperature in Austin on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/austin/KAUS",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "beijing",
+      "event_slug_prefix": "highest-temperature-in-beijing-on",
+      "series_slug": "beijing-daily-weather",
+      "latest_event_slug": "highest-temperature-in-beijing-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-beijing-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610673",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-beijing-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-beijing-on-june-21-2026",
+          "title": "Highest temperature in Beijing on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/beijing/ZBAA",
+          "market_count": 11
+        },
+        {
+          "event_id": "614108",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-beijing-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-beijing-on-june-22-2026",
+          "title": "Highest temperature in Beijing on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/beijing/ZBAA",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "buenos-aires",
+      "event_slug_prefix": "highest-temperature-in-buenos-aires-on",
+      "series_slug": "buenos-aires-daily-weather",
+      "latest_event_slug": "highest-temperature-in-buenos-aires-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-buenos-aires-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610219",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-buenos-aires-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-buenos-aires-on-june-20-2026",
+          "title": "Highest temperature in Buenos Aires on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ar/ezeiza/SAEZ",
+          "market_count": 11
+        },
+        {
+          "event_id": "613649",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-buenos-aires-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-buenos-aires-on-june-21-2026",
+          "title": "Highest temperature in Buenos Aires on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ar/ezeiza/SAEZ",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "busan",
+      "event_slug_prefix": "highest-temperature-in-busan-on",
+      "series_slug": "busan-daily-weather",
+      "latest_event_slug": "highest-temperature-in-busan-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-busan-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610679",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-busan-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-busan-on-june-21-2026",
+          "title": "Highest temperature in Busan on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/kr/busan/RKPK",
+          "market_count": 11
+        },
+        {
+          "event_id": "614114",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-busan-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-busan-on-june-22-2026",
+          "title": "Highest temperature in Busan on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/kr/busan/RKPK",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "cape-town",
+      "event_slug_prefix": "highest-temperature-in-cape-town-on",
+      "series_slug": "cape-town-daily-weather",
+      "latest_event_slug": "highest-temperature-in-cape-town-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-cape-town-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607301",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-cape-town-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-cape-town-on-june-20-2026",
+          "title": "Highest temperature in Cape Town on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/za/matroosfontein/FACT",
+          "market_count": 11
+        },
+        {
+          "event_id": "610828",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-cape-town-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-cape-town-on-june-21-2026",
+          "title": "Highest temperature in Cape Town on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/za/matroosfontein/FACT",
+          "market_count": 11
+        },
+        {
+          "event_id": "614252",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-cape-town-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-cape-town-on-june-22-2026",
+          "title": "Highest temperature in Cape Town on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/za/matroosfontein/FACT",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "chengdu",
+      "event_slug_prefix": "highest-temperature-in-chengdu-on",
+      "series_slug": "chengdu-daily-weather",
+      "latest_event_slug": "highest-temperature-in-chengdu-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chengdu-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610675",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-chengdu-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chengdu-on-june-21-2026",
+          "title": "Highest temperature in Chengdu on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chengdu/ZUUU",
+          "market_count": 11
+        },
+        {
+          "event_id": "614110",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-chengdu-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chengdu-on-june-22-2026",
+          "title": "Highest temperature in Chengdu on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chengdu/ZUUU",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "chicago",
+      "event_slug_prefix": "highest-temperature-in-chicago-on",
+      "series_slug": "chicago-daily-weather",
+      "latest_event_slug": "highest-temperature-in-chicago-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chicago-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610234",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-chicago-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chicago-on-june-20-2026",
+          "title": "Highest temperature in Chicago on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/il/chicago/KORD",
+          "market_count": 11
+        },
+        {
+          "event_id": "613656",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-chicago-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chicago-on-june-21-2026",
+          "title": "Highest temperature in Chicago on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/il/chicago/KORD",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "chongqing",
+      "event_slug_prefix": "highest-temperature-in-chongqing-on",
+      "series_slug": "chongqing-daily-weather",
+      "latest_event_slug": "highest-temperature-in-chongqing-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-chongqing-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610672",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-chongqing-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chongqing-on-june-21-2026",
+          "title": "Highest temperature in Chongqing on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chongqing/ZUCK",
+          "market_count": 11
+        },
+        {
+          "event_id": "614107",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-chongqing-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-chongqing-on-june-22-2026",
+          "title": "Highest temperature in Chongqing on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/chongqing/ZUCK",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "dallas",
+      "event_slug_prefix": "highest-temperature-in-dallas-on",
+      "series_slug": "dallas-daily-weather",
+      "latest_event_slug": "highest-temperature-in-dallas-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-dallas-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610231",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-dallas-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-dallas-on-june-20-2026",
+          "title": "Highest temperature in Dallas on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/dallas/KDAL",
+          "market_count": 11
+        },
+        {
+          "event_id": "613653",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-dallas-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-dallas-on-june-21-2026",
+          "title": "Highest temperature in Dallas on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/dallas/KDAL",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "denver",
+      "event_slug_prefix": "highest-temperature-in-denver-on",
+      "series_slug": "denver-daily-weather",
+      "latest_event_slug": "highest-temperature-in-denver-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-denver-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610236",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-denver-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-denver-on-june-20-2026",
+          "title": "Highest temperature in Denver on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/co/aurora/KBKF",
+          "market_count": 11
+        },
+        {
+          "event_id": "613658",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-denver-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-denver-on-june-21-2026",
+          "title": "Highest temperature in Denver on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/co/aurora/KBKF",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "guangzhou",
+      "event_slug_prefix": "highest-temperature-in-guangzhou-on",
+      "series_slug": "guangzhou-daily-weather",
+      "latest_event_slug": "highest-temperature-in-guangzhou-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-guangzhou-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610684",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-guangzhou-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-guangzhou-on-june-21-2026",
+          "title": "Highest temperature in Guangzhou on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/guangzhou/ZGGG",
+          "market_count": 11
+        },
+        {
+          "event_id": "614119",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-guangzhou-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-guangzhou-on-june-22-2026",
+          "title": "Highest temperature in Guangzhou on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/guangzhou/ZGGG",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "helsinki",
+      "event_slug_prefix": "highest-temperature-in-helsinki-on",
+      "series_slug": "helsinki-daily-weather",
+      "latest_event_slug": "highest-temperature-in-helsinki-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-helsinki-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607156",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-helsinki-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-helsinki-on-june-20-2026",
+          "title": "Highest temperature in Helsinki on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fi/vantaa/EFHK",
+          "market_count": 11
+        },
+        {
+          "event_id": "610681",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-helsinki-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-helsinki-on-june-21-2026",
+          "title": "Highest temperature in Helsinki on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fi/vantaa/EFHK",
+          "market_count": 11
+        },
+        {
+          "event_id": "614116",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-helsinki-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-helsinki-on-june-22-2026",
+          "title": "Highest temperature in Helsinki on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fi/vantaa/EFHK",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "hong-kong",
+      "event_slug_prefix": "highest-temperature-in-hong-kong-on",
+      "series_slug": "hong-kong-daily-weather",
+      "latest_event_slug": "highest-temperature-in-hong-kong-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-22-2026",
+      "source_event_count": 5,
+      "source_event_dates": [
+        "2026-06-18",
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "599815",
+          "event_date": "2026-06-18",
+          "event_slug": "highest-temperature-in-hong-kong-on-june-18-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-18-2026",
+          "title": "Highest temperature in Hong Kong on June 18?",
+          "end_date": "2026-06-18T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "603546",
+          "event_date": "2026-06-19",
+          "event_slug": "highest-temperature-in-hong-kong-on-june-19-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-19-2026",
+          "title": "Highest temperature in Hong Kong on June 19?",
+          "end_date": "2026-06-19T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "607140",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-hong-kong-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-20-2026",
+          "title": "Highest temperature in Hong Kong on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "610665",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-hong-kong-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-21-2026",
+          "title": "Highest temperature in Hong Kong on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "614100",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-hong-kong-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-hong-kong-on-june-22-2026",
+          "title": "Highest temperature in Hong Kong on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "houston",
+      "event_slug_prefix": "highest-temperature-in-houston-on",
+      "series_slug": "houston-daily-weather",
+      "latest_event_slug": "highest-temperature-in-houston-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-houston-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610237",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-houston-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-houston-on-june-20-2026",
+          "title": "Highest temperature in Houston on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/houston/KHOU",
+          "market_count": 11
+        },
+        {
+          "event_id": "613659",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-houston-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-houston-on-june-21-2026",
+          "title": "Highest temperature in Houston on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/tx/houston/KHOU",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "istanbul",
+      "event_slug_prefix": "highest-temperature-in-istanbul-on",
+      "series_slug": "istanbul-daily-weather",
+      "latest_event_slug": "highest-temperature-in-istanbul-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-istanbul-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607153",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-istanbul-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-istanbul-on-june-20-2026",
+          "title": "Highest temperature in Istanbul on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "610678",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-istanbul-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-istanbul-on-june-21-2026",
+          "title": "Highest temperature in Istanbul on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "614113",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-istanbul-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-istanbul-on-june-22-2026",
+          "title": "Highest temperature in Istanbul on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "jeddah",
+      "event_slug_prefix": "highest-temperature-in-jeddah-on",
+      "series_slug": "jeddah-daily-weather",
+      "latest_event_slug": "highest-temperature-in-jeddah-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-jeddah-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607158",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-jeddah-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-jeddah-on-june-20-2026",
+          "title": "Highest temperature in Jeddah on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/sa/jeddah/OEJN",
+          "market_count": 11
+        },
+        {
+          "event_id": "610683",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-jeddah-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-jeddah-on-june-21-2026",
+          "title": "Highest temperature in Jeddah on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/sa/jeddah/OEJN",
+          "market_count": 11
+        },
+        {
+          "event_id": "614118",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-jeddah-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-jeddah-on-june-22-2026",
+          "title": "Highest temperature in Jeddah on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/sa/jeddah/OEJN",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "jinan",
+      "event_slug_prefix": "highest-temperature-in-jinan-on",
+      "series_slug": null,
+      "latest_event_slug": "highest-temperature-in-jinan-on-may-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-jinan-on-may-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-05-20",
+        "2026-05-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "497034",
+          "event_date": "2026-05-20",
+          "event_slug": "highest-temperature-in-jinan-on-may-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-jinan-on-may-20-2026",
+          "title": "Highest temperature in Jinan on May 20?",
+          "end_date": "2026-05-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/jinan/ZSJN",
+          "market_count": 11
+        },
+        {
+          "event_id": "500713",
+          "event_date": "2026-05-21",
+          "event_slug": "highest-temperature-in-jinan-on-may-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-jinan-on-may-21-2026",
+          "title": "Highest temperature in Jinan on May 21?",
+          "end_date": "2026-05-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/jinan/ZSJN",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "karachi",
+      "event_slug_prefix": "highest-temperature-in-karachi-on",
+      "series_slug": "karachi-daily-weather",
+      "latest_event_slug": "highest-temperature-in-karachi-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-karachi-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610829",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-karachi-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-karachi-on-june-21-2026",
+          "title": "Highest temperature in Karachi on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pk/karachi/OPKC",
+          "market_count": 11
+        },
+        {
+          "event_id": "614253",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-karachi-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-karachi-on-june-22-2026",
+          "title": "Highest temperature in Karachi on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pk/karachi/OPKC",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "kuala-lumpur",
+      "event_slug_prefix": "highest-temperature-in-kuala-lumpur-on",
+      "series_slug": "kuala-lumpur-daily-weather",
+      "latest_event_slug": "highest-temperature-in-kuala-lumpur-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-kuala-lumpur-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610682",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-kuala-lumpur-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-kuala-lumpur-on-june-21-2026",
+          "title": "Highest temperature in Kuala Lumpur on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/my/sepang-district/WMKK",
+          "market_count": 11
+        },
+        {
+          "event_id": "614117",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-kuala-lumpur-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-kuala-lumpur-on-june-22-2026",
+          "title": "Highest temperature in Kuala Lumpur on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/my/sepang-district/WMKK",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "london",
+      "event_slug_prefix": "highest-temperature-in-london-on",
+      "series_slug": "london-daily-weather",
+      "latest_event_slug": "highest-temperature-in-london-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-london-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607132",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-london-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-london-on-june-20-2026",
+          "title": "Highest temperature in London on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+          "market_count": 11
+        },
+        {
+          "event_id": "610657",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-london-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-london-on-june-21-2026",
+          "title": "Highest temperature in London on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+          "market_count": 11
+        },
+        {
+          "event_id": "614085",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-london-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-london-on-june-22-2026",
+          "title": "Highest temperature in London on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/gb/london/EGLC",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "los-angeles",
+      "event_slug_prefix": "highest-temperature-in-los-angeles-on",
+      "series_slug": "los-angeles-daily-weather",
+      "latest_event_slug": "highest-temperature-in-los-angeles-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-los-angeles-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610238",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-los-angeles-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-los-angeles-on-june-20-2026",
+          "title": "Highest temperature in Los Angeles on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/los-angeles/KLAX",
+          "market_count": 11
+        },
+        {
+          "event_id": "613660",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-los-angeles-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-los-angeles-on-june-21-2026",
+          "title": "Highest temperature in Los Angeles on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/los-angeles/KLAX",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "lucknow",
+      "event_slug_prefix": "highest-temperature-in-lucknow-on",
+      "series_slug": "lucknow-daily-weather",
+      "latest_event_slug": "highest-temperature-in-lucknow-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-lucknow-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610827",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-lucknow-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-lucknow-on-june-21-2026",
+          "title": "Highest temperature in Lucknow on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/in/lucknow/VILK",
+          "market_count": 11
+        },
+        {
+          "event_id": "614251",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-lucknow-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-lucknow-on-june-22-2026",
+          "title": "Highest temperature in Lucknow on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/in/lucknow/VILK",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "madrid",
+      "event_slug_prefix": "highest-temperature-in-madrid-on",
+      "series_slug": "madrid-daily-weather",
+      "latest_event_slug": "highest-temperature-in-madrid-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-madrid-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "607144",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-madrid-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-madrid-on-june-20-2026",
+          "title": "Highest temperature in Madrid on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/es/madrid/LEMD",
+          "market_count": 11
+        },
+        {
+          "event_id": "610669",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-madrid-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-madrid-on-june-21-2026",
+          "title": "Highest temperature in Madrid on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/es/madrid/LEMD",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "manila",
+      "event_slug_prefix": "highest-temperature-in-manila-on",
+      "series_slug": "manila-daily-weather",
+      "latest_event_slug": "highest-temperature-in-manila-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-manila-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610686",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-manila-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-manila-on-june-21-2026",
+          "title": "Highest temperature in Manila on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ph/manila/RPLL",
+          "market_count": 11
+        },
+        {
+          "event_id": "614121",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-manila-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-manila-on-june-22-2026",
+          "title": "Highest temperature in Manila on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ph/manila/RPLL",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "mexico-city",
+      "event_slug_prefix": "highest-temperature-in-mexico-city-on",
+      "series_slug": "mexico-city-daily-weather",
+      "latest_event_slug": "highest-temperature-in-mexico-city-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-mexico-city-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610240",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-mexico-city-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-mexico-city-on-june-20-2026",
+          "title": "Highest temperature in Mexico City on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/mx/mexico-city/MMMX",
+          "market_count": 11
+        },
+        {
+          "event_id": "613662",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-mexico-city-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-mexico-city-on-june-21-2026",
+          "title": "Highest temperature in Mexico City on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/mx/mexico-city/MMMX",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "miami",
+      "event_slug_prefix": "highest-temperature-in-miami-on",
+      "series_slug": "miami-daily-weather",
+      "latest_event_slug": "highest-temperature-in-miami-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-miami-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610233",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-miami-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-miami-on-june-20-2026",
+          "title": "Highest temperature in Miami on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/fl/miami/KMIA",
+          "market_count": 11
+        },
+        {
+          "event_id": "613655",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-miami-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-miami-on-june-21-2026",
+          "title": "Highest temperature in Miami on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/fl/miami/KMIA",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "milan",
+      "event_slug_prefix": "highest-temperature-in-milan-on",
+      "series_slug": "milan-daily-weather",
+      "latest_event_slug": "highest-temperature-in-milan-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-milan-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "607143",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-milan-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-milan-on-june-20-2026",
+          "title": "Highest temperature in Milan on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/it/milan/LIMC",
+          "market_count": 11
+        },
+        {
+          "event_id": "610668",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-milan-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-milan-on-june-21-2026",
+          "title": "Highest temperature in Milan on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/it/milan/LIMC",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "moscow",
+      "event_slug_prefix": "highest-temperature-in-moscow-on",
+      "series_slug": "moscow-daily-weather",
+      "latest_event_slug": "highest-temperature-in-moscow-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-moscow-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607152",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-moscow-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-moscow-on-june-20-2026",
+          "title": "Highest temperature in Moscow on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "610677",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-moscow-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-moscow-on-june-21-2026",
+          "title": "Highest temperature in Moscow on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "614112",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-moscow-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-moscow-on-june-22-2026",
+          "title": "Highest temperature in Moscow on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "munich",
+      "event_slug_prefix": "highest-temperature-in-munich-on",
+      "series_slug": "munich-daily-weather",
+      "latest_event_slug": "highest-temperature-in-munich-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-munich-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607137",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-munich-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-munich-on-june-20-2026",
+          "title": "Highest temperature in Munich on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/de/munich/EDDM",
+          "market_count": 11
+        },
+        {
+          "event_id": "610662",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-munich-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-munich-on-june-21-2026",
+          "title": "Highest temperature in Munich on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/de/munich/EDDM",
+          "market_count": 11
+        },
+        {
+          "event_id": "614097",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-munich-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-munich-on-june-22-2026",
+          "title": "Highest temperature in Munich on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/de/munich/EDDM",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "nyc",
+      "event_slug_prefix": "highest-temperature-in-nyc-on",
+      "series_slug": "nyc-daily-weather",
+      "latest_event_slug": "highest-temperature-in-nyc-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-nyc-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610230",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-nyc-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-nyc-on-june-20-2026",
+          "title": "Highest temperature in NYC on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ny/new-york-city/KLGA",
+          "market_count": 11
+        },
+        {
+          "event_id": "613652",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-nyc-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-nyc-on-june-21-2026",
+          "title": "Highest temperature in NYC on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ny/new-york-city/KLGA",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "panama-city",
+      "event_slug_prefix": "highest-temperature-in-panama-city-on",
+      "series_slug": "panama-daily-weather",
+      "latest_event_slug": "highest-temperature-in-panama-city-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-panama-city-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610241",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-panama-city-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-panama-city-on-june-20-2026",
+          "title": "Highest temperature in Panama City on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pa/panama-city/MPMG",
+          "market_count": 11
+        },
+        {
+          "event_id": "613663",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-panama-city-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-panama-city-on-june-21-2026",
+          "title": "Highest temperature in Panama City on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pa/panama-city/MPMG",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "paris",
+      "event_slug_prefix": "highest-temperature-in-paris-on",
+      "series_slug": "paris-daily-weather",
+      "latest_event_slug": "highest-temperature-in-paris-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-paris-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607133",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-paris-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-paris-on-june-20-2026",
+          "title": "Highest temperature in Paris on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+          "market_count": 11
+        },
+        {
+          "event_id": "610658",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-paris-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-paris-on-june-21-2026",
+          "title": "Highest temperature in Paris on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+          "market_count": 11
+        },
+        {
+          "event_id": "614086",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-paris-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-paris-on-june-22-2026",
+          "title": "Highest temperature in Paris on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "qingdao",
+      "event_slug_prefix": "highest-temperature-in-qingdao-on",
+      "series_slug": "qingdao-daily-weather",
+      "latest_event_slug": "highest-temperature-in-qingdao-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-qingdao-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610685",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-qingdao-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-qingdao-on-june-21-2026",
+          "title": "Highest temperature in Qingdao on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/qingdao/ZSQD",
+          "market_count": 11
+        },
+        {
+          "event_id": "614120",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-qingdao-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-qingdao-on-june-22-2026",
+          "title": "Highest temperature in Qingdao on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/qingdao/ZSQD",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "san-francisco",
+      "event_slug_prefix": "highest-temperature-in-san-francisco-on",
+      "series_slug": "san-francisco-daily-weather",
+      "latest_event_slug": "highest-temperature-in-san-francisco-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-san-francisco-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610239",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-san-francisco-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-san-francisco-on-june-20-2026",
+          "title": "Highest temperature in San Francisco on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/san-francisco/KSFO",
+          "market_count": 11
+        },
+        {
+          "event_id": "613661",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-san-francisco-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-san-francisco-on-june-21-2026",
+          "title": "Highest temperature in San Francisco on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/ca/san-francisco/KSFO",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "sao-paulo",
+      "event_slug_prefix": "highest-temperature-in-sao-paulo-on",
+      "series_slug": "sao-paulo-daily-weather",
+      "latest_event_slug": "highest-temperature-in-sao-paulo-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-sao-paulo-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610218",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-sao-paulo-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-sao-paulo-on-june-20-2026",
+          "title": "Highest temperature in Sao Paulo on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/br/guarulhos/SBGR",
+          "market_count": 11
+        },
+        {
+          "event_id": "613648",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-sao-paulo-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-sao-paulo-on-june-21-2026",
+          "title": "Highest temperature in Sao Paulo on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/br/guarulhos/SBGR",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "seattle",
+      "event_slug_prefix": "highest-temperature-in-seattle-on",
+      "series_slug": "seattle-daily-weather",
+      "latest_event_slug": "highest-temperature-in-seattle-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-seattle-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610229",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-seattle-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-seattle-on-june-20-2026",
+          "title": "Highest temperature in Seattle on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/wa/seatac/KSEA",
+          "market_count": 11
+        },
+        {
+          "event_id": "613651",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-seattle-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-seattle-on-june-21-2026",
+          "title": "Highest temperature in Seattle on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/us/wa/seatac/KSEA",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "seoul",
+      "event_slug_prefix": "highest-temperature-in-seoul-on",
+      "series_slug": "seoul-daily-weather",
+      "latest_event_slug": "highest-temperature-in-seoul-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-seoul-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610659",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-seoul-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-seoul-on-june-21-2026",
+          "title": "Highest temperature in Seoul on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/kr/incheon/RKSI",
+          "market_count": 11
+        },
+        {
+          "event_id": "614087",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-seoul-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-seoul-on-june-22-2026",
+          "title": "Highest temperature in Seoul on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/kr/incheon/RKSI",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "shanghai",
+      "event_slug_prefix": "highest-temperature-in-shanghai-on",
+      "series_slug": "shanghai-daily-weather",
+      "latest_event_slug": "highest-temperature-in-shanghai-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-shanghai-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610666",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-shanghai-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-shanghai-on-june-21-2026",
+          "title": "Highest temperature in Shanghai on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD",
+          "market_count": 11
+        },
+        {
+          "event_id": "614101",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-shanghai-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-shanghai-on-june-22-2026",
+          "title": "Highest temperature in Shanghai on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shanghai/ZSPD",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "shenzhen",
+      "event_slug_prefix": "highest-temperature-in-shenzhen-on",
+      "series_slug": "shenzhen-daily-weather",
+      "latest_event_slug": "highest-temperature-in-shenzhen-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-shenzhen-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610676",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-shenzhen-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-shenzhen-on-june-21-2026",
+          "title": "Highest temperature in Shenzhen on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shenzhen/ZGSZ",
+          "market_count": 11
+        },
+        {
+          "event_id": "614111",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-shenzhen-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-shenzhen-on-june-22-2026",
+          "title": "Highest temperature in Shenzhen on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/shenzhen/ZGSZ",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "singapore",
+      "event_slug_prefix": "highest-temperature-in-singapore-on",
+      "series_slug": "singapore-daily-weather",
+      "latest_event_slug": "highest-temperature-in-singapore-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-singapore-on-june-21-2026",
+      "source_event_count": 1,
+      "source_event_dates": [
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610667",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-singapore-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-singapore-on-june-21-2026",
+          "title": "Highest temperature in Singapore on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/sg/singapore/WSSS",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "taipei",
+      "event_slug_prefix": "highest-temperature-in-taipei-on",
+      "series_slug": "taipei-daily-weather",
+      "latest_event_slug": "highest-temperature-in-taipei-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-taipei-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610671",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-taipei-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-taipei-on-june-21-2026",
+          "title": "Highest temperature in Taipei on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/tw/taipei/RCSS",
+          "market_count": 11
+        },
+        {
+          "event_id": "614106",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-taipei-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-taipei-on-june-22-2026",
+          "title": "Highest temperature in Taipei on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/tw/taipei/RCSS",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "tel-aviv",
+      "event_slug_prefix": "highest-temperature-in-tel-aviv-on",
+      "series_slug": "tel-aviv-daily-weather",
+      "latest_event_slug": "highest-temperature-in-tel-aviv-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-tel-aviv-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607138",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-tel-aviv-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-tel-aviv-on-june-20-2026",
+          "title": "Highest temperature in Tel Aviv on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "610663",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-tel-aviv-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-tel-aviv-on-june-21-2026",
+          "title": "Highest temperature in Tel Aviv on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        },
+        {
+          "event_id": "614098",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-tel-aviv-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-tel-aviv-on-june-22-2026",
+          "title": "Highest temperature in Tel Aviv on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": null,
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "tokyo",
+      "event_slug_prefix": "highest-temperature-in-tokyo-on",
+      "series_slug": "tokyo-daily-weather",
+      "latest_event_slug": "highest-temperature-in-tokyo-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610664",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-tokyo-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-june-21-2026",
+          "title": "Highest temperature in Tokyo on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
+          "market_count": 11
+        },
+        {
+          "event_id": "614099",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-tokyo-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-june-22-2026",
+          "title": "Highest temperature in Tokyo on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "toronto",
+      "event_slug_prefix": "highest-temperature-in-toronto-on",
+      "series_slug": "toronto-daily-weather",
+      "latest_event_slug": "highest-temperature-in-toronto-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-toronto-on-june-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610228",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-toronto-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-toronto-on-june-20-2026",
+          "title": "Highest temperature in Toronto on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ca/mississauga/CYYZ",
+          "market_count": 11
+        },
+        {
+          "event_id": "613650",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-toronto-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-toronto-on-june-21-2026",
+          "title": "Highest temperature in Toronto on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/ca/mississauga/CYYZ",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "warsaw",
+      "event_slug_prefix": "highest-temperature-in-warsaw-on",
+      "series_slug": "warsaw-daily-weather",
+      "latest_event_slug": "highest-temperature-in-warsaw-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-warsaw-on-june-22-2026",
+      "source_event_count": 3,
+      "source_event_dates": [
+        "2026-06-20",
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "607145",
+          "event_date": "2026-06-20",
+          "event_slug": "highest-temperature-in-warsaw-on-june-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-warsaw-on-june-20-2026",
+          "title": "Highest temperature in Warsaw on June 20?",
+          "end_date": "2026-06-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pl/warsaw/EPWA",
+          "market_count": 11
+        },
+        {
+          "event_id": "610670",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-warsaw-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-warsaw-on-june-21-2026",
+          "title": "Highest temperature in Warsaw on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pl/warsaw/EPWA",
+          "market_count": 11
+        },
+        {
+          "event_id": "614105",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-warsaw-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-warsaw-on-june-22-2026",
+          "title": "Highest temperature in Warsaw on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/pl/warsaw/EPWA",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "wellington",
+      "event_slug_prefix": "highest-temperature-in-wellington-on",
+      "series_slug": "wellington-daily-weather",
+      "latest_event_slug": "highest-temperature-in-wellington-on-june-22-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-june-22-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-06-21",
+        "2026-06-22"
+      ],
+      "active_events": [
+        {
+          "event_id": "610661",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-wellington-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-june-21-2026",
+          "title": "Highest temperature in Wellington on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/nz/wellington/NZWN",
+          "market_count": 11
+        },
+        {
+          "event_id": "614096",
+          "event_date": "2026-06-22",
+          "event_slug": "highest-temperature-in-wellington-on-june-22-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-june-22-2026",
+          "title": "Highest temperature in Wellington on June 22?",
+          "end_date": "2026-06-22T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/nz/wellington/NZWN",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "wuhan",
+      "event_slug_prefix": "highest-temperature-in-wuhan-on",
+      "series_slug": "wuhan-daily-weather",
+      "latest_event_slug": "highest-temperature-in-wuhan-on-june-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wuhan-on-june-21-2026",
+      "source_event_count": 1,
+      "source_event_dates": [
+        "2026-06-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "610674",
+          "event_date": "2026-06-21",
+          "event_slug": "highest-temperature-in-wuhan-on-june-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-wuhan-on-june-21-2026",
+          "title": "Highest temperature in Wuhan on June 21?",
+          "end_date": "2026-06-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/wuhan/ZHHH",
+          "market_count": 11
+        }
+      ]
+    },
+    {
+      "location_id": "zhengzhou",
+      "event_slug_prefix": "highest-temperature-in-zhengzhou-on",
+      "series_slug": null,
+      "latest_event_slug": "highest-temperature-in-zhengzhou-on-may-21-2026",
+      "latest_event_url": "https://polymarket.com/event/highest-temperature-in-zhengzhou-on-may-21-2026",
+      "source_event_count": 2,
+      "source_event_dates": [
+        "2026-05-20",
+        "2026-05-21"
+      ],
+      "active_events": [
+        {
+          "event_id": "497036",
+          "event_date": "2026-05-20",
+          "event_slug": "highest-temperature-in-zhengzhou-on-may-20-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-zhengzhou-on-may-20-2026",
+          "title": "Highest temperature in Zhengzhou on May 20?",
+          "end_date": "2026-05-20T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/zhengzhou/ZHCC",
+          "market_count": 11
+        },
+        {
+          "event_id": "500715",
+          "event_date": "2026-05-21",
+          "event_slug": "highest-temperature-in-zhengzhou-on-may-21-2026",
+          "event_url": "https://polymarket.com/event/highest-temperature-in-zhengzhou-on-may-21-2026",
+          "title": "Highest temperature in Zhengzhou on May 21?",
+          "end_date": "2026-05-21T12:00:00Z",
+          "resolution_source_url": "https://www.wunderground.com/history/daily/cn/zhengzhou/ZHCC",
+          "market_count": 11
+        }
+      ]
+    }
+  ]
+}

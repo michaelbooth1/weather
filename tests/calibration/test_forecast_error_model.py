@@ -55,6 +55,31 @@ def _artifact():
     return build_artifact(rows, [])
 
 
+def _hour_conditioned_artifact():
+    stats = {
+        "n": 100,
+        "bias_observed_minus_forecast": 0.0,
+        "mae": 0.75,
+        "rmse": 0.75,
+    }
+    hour_stats = {
+        **stats,
+        "bias_observed_minus_forecast": 3.0,
+    }
+    return {
+        "component": {
+            "enabled": True,
+            "min_sigma": 0.75,
+            "max_sigma": 3.0,
+            "source_weight_shrink_k": 20.0,
+            "disagreement_sigma_per_c": 0.20,
+        },
+        "global_stats": stats,
+        "source_stats": {"open_meteo": stats},
+        "hour_stats": {"open_meteo|hour=12": hour_stats},
+    }
+
+
 class TestForecastErrorModel(unittest.TestCase):
     def test_summarize_error_rows_learns_source_bias(self):
         summary = summarize_error_rows([
@@ -125,6 +150,24 @@ class TestForecastErrorModel(unittest.TestCase):
         self.assertEqual(distribution[24], 0.0)
         self.assertEqual(max(distribution, key=distribution.get), 26)
 
+    def test_distribution_uses_capture_hour_stats_when_available(self):
+        artifact = _hour_conditioned_artifact()
+
+        source_only = forecast_error_distribution(
+            range(23, 31),
+            [{"source": "open_meteo", "forecast_high_c": 25.0}],
+            artifact,
+        )
+        hour_conditioned = forecast_error_distribution(
+            range(23, 31),
+            [{"source": "open_meteo", "forecast_high_c": 25.0}],
+            artifact,
+            capture_hour=12,
+        )
+
+        self.assertEqual(max(source_only, key=source_only.get), 25)
+        self.assertEqual(max(hour_conditioned, key=hour_conditioned.get), 28)
+
     def test_component_score_beats_point_cap_for_biased_source(self):
         rows = [
             {
@@ -160,6 +203,22 @@ class TestForecastErrorModel(unittest.TestCase):
 
         self.assertAlmostEqual(sum(distribution.values()), 1.0, places=6)
         self.assertEqual(max(distribution, key=distribution.get), 26)
+
+    def test_model_forecast_error_component_passes_capture_hour(self):
+        model = TorontoHighTempModel(target_date="2026-05-28")
+        model.forecast_error_model = _hour_conditioned_artifact()
+
+        distribution = model.forecast_error_component_distribution(
+            range(23, 31),
+            observed_bucket=23,
+            weather_forecast_max=None,
+            open_meteo_max=25.0,
+            eccc_forecast_high=None,
+            hour=12,
+        )
+
+        self.assertAlmostEqual(sum(distribution.values()), 1.0, places=6)
+        self.assertEqual(max(distribution, key=distribution.get), 28)
 
     def test_late_day_continuation_reports_forecast_tail_feature(self):
         model = TorontoHighTempModel(target_date="2026-05-28")

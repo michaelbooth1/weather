@@ -59,6 +59,16 @@ FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 # HGB/observed-floor path (printed-cutoff lag), not here -- it needs an
 # item-40-style intra-hour ramp feature + retrain, not a distribution knob.
 
+# --- Fallback forecast-source cluster ---------------------------------------
+# The unweighted empirical fallback path uses live forecast highs as one
+# correlated forecast-family vote, not one independent bump per NWP-adjacent
+# source. A median center preserves the consensus shape while avoiding a
+# single-source maximum. The step reaches the cap once a second forecast-family
+# source is present; additional sources improve agreement confidence only
+# through the spread penalty, not through unbounded weight stacking.
+FORECAST_CLUSTER_SOURCE_WEIGHT_STEP = 1.40
+FORECAST_CLUSTER_MAX_WEIGHT = 2.40
+
 # --- Bucket transition prior ------------------------------------------------
 # The dashboard's X/X+1/X+2/>=X+3 transition table is now also a small numeric
 # prior: conditional on the printed WU high bucket at the effective cutoff, how

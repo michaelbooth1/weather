@@ -174,6 +174,7 @@ class TestMarineContext(unittest.TestCase):
         features = derive_marine_context_features(
             marine_context,
             current_temp_native=85.0,
+            forecast_high_native=88.0,
             cutoff_hour=12,
             wall_minute=780,
         )
@@ -181,9 +182,12 @@ class TestMarineContext(unittest.TestCase):
         self.assertEqual(features["marine_station_count"], 1.0)
         self.assertEqual(features["marine_latest_age_minutes"], 30)
         self.assertEqual(features["marine_water_minus_air_temp"], -10.0)
+        self.assertEqual(features["marine_water_minus_forecast_high"], -28.0)
         self.assertEqual(features["marine_air_minus_current_temp"], -15.0)
         self.assertEqual(features["marine_onshore_flow"], 1.0)
         self.assertEqual(features["marine_offshore_flow"], 0.0)
+        self.assertEqual(features["marine_onshore_water_minus_forecast_high"], -28.0)
+        self.assertEqual(features["marine_onshore_cooling_potential"], 28.0)
         self.assertEqual(features["marine_post_cutoff_onshore_reversal"], 1.0)
         self.assertEqual(features["marine_breeze_risk"], 1.0)
         self.assertEqual(features["marine_layer_suppression"], 1.0)
@@ -209,12 +213,14 @@ class TestMarineContext(unittest.TestCase):
                 },
                 "rows": [],
             }],
-        }, current_temp_native=85.0)
+        }, current_temp_native=85.0, forecast_high_native=88.0)
 
         self.assertIsNone(inactive)
         self.assertTrue(active["active"])
         self.assertEqual(active["regime"], "marine_layer_suppression")
         self.assertEqual(active["station_ids"], ["8518750"])
+        self.assertEqual(active["water_minus_forecast_high"], -28.0)
+        self.assertEqual(active["onshore_cooling_potential"], 28.0)
 
     def test_backtest_summarizes_marine_regimes_against_settlement_and_forecast_misses(self):
         payload = marine_context_backtest([

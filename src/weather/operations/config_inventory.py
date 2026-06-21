@@ -20,14 +20,20 @@ DEFAULT_LOCATIONS_MAX_AGE_DAYS = 7
 CONFIG_POLICIES = {
     "locations.json": {
         "owner": "weather.market",
+        "classification": "durable_location_registry",
+        "freshness_policy": "review_when_location_station_or_source_plan_changes",
+        "max_age_days": None,
+        "volatile_fields": [],
+    },
+    "location_market_events.json": {
+        "owner": "weather.operations.location_config_refresh",
         "classification": "generated_snapshot",
         "freshness_policy": "refresh_from_gamma_api",
         "max_age_days": DEFAULT_LOCATIONS_MAX_AGE_DAYS,
         "volatile_fields": [
-            "source",
-            "locations[].polymarket.latest_event_slug",
-            "locations[].polymarket.latest_event_url",
-            "locations[].polymarket.active_events",
+            "locations[].latest_event_slug",
+            "locations[].latest_event_url",
+            "locations[].active_events",
         ],
     },
     "markets.json": {
@@ -94,6 +100,10 @@ def generated_time(payload: dict) -> datetime | None:
         parsed = parse_time(value)
         if parsed is not None:
             return parsed
+    event_metadata = payload.get("event_metadata") if isinstance(payload.get("event_metadata"), dict) else {}
+    parsed = parse_time(event_metadata.get("last_refreshed_at_utc"))
+    if parsed is not None:
+        return parsed
     return None
 
 
@@ -119,6 +129,8 @@ def variant_local_path_issues(payload: dict) -> list[dict]:
 def no_market_extra_location_issues(payload: dict) -> list[dict]:
     issues = []
     for row in payload.get("locations") or []:
+        if row.get("archived_at_utc") or row.get("archive_reason"):
+            continue
         labeled = int(row.get("independent_labeled_days") or 0)
         forecast = int(row.get("forecast_history_days") or 0)
         observed = int(row.get("observation_days") or 0)
@@ -141,12 +153,15 @@ def config_record(path: Path, *, now: datetime, policy: dict) -> dict:
         freshness = "STALE" if max_age is not None and age_days > float(max_age) else "FRESH"
     issues = []
     name = path.name
+    if not path.exists():
+        issues.append({"issue": "required config file is missing"})
     if name == "model_variant_registry.json":
         issues.extend(variant_local_path_issues(payload))
     elif name == "no_market_extra_locations.json":
         issues.extend(no_market_extra_location_issues(payload))
     elif name == "markets.json" and not payload.get("markets"):
-        issues.append({"issue": "empty deprecated compatibility shell; built-in registry remains authoritative"})
+        if payload.get("status") != "deprecated_compatibility_shell":
+            issues.append({"issue": "empty market registry without deprecated compatibility-shell status"})
     status = "WARN" if issues or freshness == "STALE" else "PASS"
     return {
         "path": relative_to_repo(path),

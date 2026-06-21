@@ -29,11 +29,14 @@ MARINE_CONTEXT_FEATURE_COLUMNS = [
     "marine_water_temp_native",
     "marine_air_temp_native",
     "marine_water_minus_air_temp",
+    "marine_water_minus_forecast_high",
     "marine_air_minus_current_temp",
     "marine_wind_speed_kmh",
     "marine_wind_direction_degrees",
     "marine_onshore_flow",
     "marine_offshore_flow",
+    "marine_onshore_water_minus_forecast_high",
+    "marine_onshore_cooling_potential",
     "marine_post_cutoff_onshore_reversal",
     "marine_breeze_risk",
     "marine_layer_suppression",
@@ -646,6 +649,7 @@ def _has_reversal(rows, start, end, cutoff_minute, wall_minute):
 def derive_marine_context_features(
     marine_context,
     current_temp_native=None,
+    forecast_high_native=None,
     cutoff_hour=None,
     wall_minute=None,
 ):
@@ -682,12 +686,19 @@ def derive_marine_context_features(
     features["marine_wind_direction_degrees"] = direction
     if water is not None and air is not None:
         features["marine_water_minus_air_temp"] = water - air
+    forecast_high = to_float(forecast_high_native)
+    if water is not None and forecast_high is not None:
+        features["marine_water_minus_forecast_high"] = water - forecast_high
     if air is not None and current_temp_native is not None:
         features["marine_air_minus_current_temp"] = air - current_temp_native
     onshore = direction_in_sector(direction, start, end)
     offshore = offshore_for_sector(direction, start, end)
     if onshore is not None:
         features["marine_onshore_flow"] = 1.0 if onshore else 0.0
+    if onshore is not None and features["marine_water_minus_forecast_high"] is not None:
+        contrast = features["marine_water_minus_forecast_high"]
+        features["marine_onshore_water_minus_forecast_high"] = contrast if onshore else 0.0
+        features["marine_onshore_cooling_potential"] = max(0.0, -contrast) if onshore else 0.0
     if offshore is not None:
         features["marine_offshore_flow"] = 1.0 if offshore else 0.0
     cutoff_minute = int(cutoff_hour) * 60 if cutoff_hour is not None else None
@@ -753,12 +764,14 @@ def marine_context_regime(features):
 def active_marine_context_state(
     marine_context,
     current_temp_native=None,
+    forecast_high_native=None,
     cutoff_hour=None,
     wall_minute=None,
 ):
     features = derive_marine_context_features(
         marine_context or {},
         current_temp_native=current_temp_native,
+        forecast_high_native=forecast_high_native,
         cutoff_hour=cutoff_hour,
         wall_minute=wall_minute,
     )
@@ -783,7 +796,10 @@ def active_marine_context_state(
         "water_temp_native": features.get("marine_water_temp_native"),
         "air_temp_native": features.get("marine_air_temp_native"),
         "water_minus_air_temp": features.get("marine_water_minus_air_temp"),
+        "water_minus_forecast_high": features.get("marine_water_minus_forecast_high"),
         "air_minus_current_temp": features.get("marine_air_minus_current_temp"),
+        "onshore_water_minus_forecast_high": features.get("marine_onshore_water_minus_forecast_high"),
+        "onshore_cooling_potential": features.get("marine_onshore_cooling_potential"),
         "wind_speed_kmh": features.get("marine_wind_speed_kmh"),
         "wind_direction_degrees": features.get("marine_wind_direction_degrees"),
         "onshore_flow": features.get("marine_onshore_flow"),

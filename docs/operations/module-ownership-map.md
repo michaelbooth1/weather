@@ -2,18 +2,17 @@
 
 Last updated: 2026-06-20
 
-Use this map before moving code out of the current large facades. Keep public
-module names and CLIs stable until focused tests and import-architecture guards
-cover the extracted owner.
+Use this map when moving code behind compatibility facades. Public module names
+and CLIs stay stable while implementation ownership moves into smaller modules.
 
-| Module | Owner | Current boundary | Next split |
+| Module | Owner | Boundary | Status |
 | :--- | :--- | :--- | :--- |
-| `weather.calibration.pooled_feature_model` | Calibration | Pooled training and CLI facade. Dynamic source-state feature helpers now live in `weather.calibration.pooled_feature_source_state`. | Feature assembly, training loops, validation/postprocess, artifact IO, report rendering, and CLI orchestration. |
-| `weather.market.taker_bot` | Market | Taker strategy orchestration facade. | Strategy registry, strategy evaluation, sizing/risk, bakeoff/reporting, tape IO, and CLI. |
-| `weather.reporting.promotion_refresh` | Reporting | Promotion refresh orchestration facade. | Gate readers, mitigation evaluation, report rendering, and artifact publication. |
-| `weather.reporting.fleet_observability` | Reporting | Fleet status report orchestration and rendering. | Slot scoring, gate rendering, loop integrity, and shared report utilities. |
-| `weather.reporting.hourly_model_performance` | Reporting | Hourly model performance report facade. | Slot scoring, gate policy, rendering, and CLI. |
-| `weather.operations.daily_refresh` | Operations | Daily refresh orchestration facade. | Step runner registry, status/report rendering, preflight gates, and CLI. |
+| `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
+| `weather.market.taker_bot` | Market | Compatibility facade for strategy registry, tape IO, strategy evaluation, sizing/risk, scoring, reporting, bakeoff, finalization, and CLI modules. | Split complete for item 173. |
+| `weather.reporting.promotion_refresh` | Reporting | Compatibility facade for gate readers, readiness decisions, gap analysis, report rendering, orchestration, and CLI modules. | Split complete for item 173. |
+| `weather.reporting.fleet_observability` | Reporting | Compatibility facade for artifact inventory/alerts, loop health, broad SLO gates, payload assembly, rendering, and CLI modules. | Split complete for item 173. |
+| `weather.reporting.hourly_model_performance` | Reporting | Compatibility facade for scoring, slot slices, remediation gates, context loading, report rendering, and CLI modules. | Split complete for item 173. |
+| `weather.operations.daily_refresh` | Operations | Daily refresh orchestration facade. | Still above the 2,000-line warning threshold and tracked as the remaining non-item-173 split target. |
 
 Run the current audit with:
 
@@ -21,6 +20,6 @@ Run the current audit with:
 python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
 ```
 
-The warning threshold is 2,000 lines. Warnings do not block existing facades,
-but any new module crossing that threshold must either be split before merge or
-added to this map with an owner and concrete next split.
+The warning threshold is 2,000 lines. The item-173 target modules are now below
+the threshold; the current generated audit has one warning for
+`weather.operations.daily_refresh`.

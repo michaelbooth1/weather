@@ -82,8 +82,11 @@ class TestVariantSelection(unittest.TestCase):
             ["official_us_guidance", "multi_model_guidance", "coastal_context", "precip_context"],
         )
 
-        self.assertEqual(nyc["official_us_guidance"], ("nws_hourly", "nws_grid"))
-        self.assertEqual(nyc["multi_model_guidance"], ("open_meteo_multimodel", "global_ensemble"))
+        self.assertEqual(nyc["official_us_guidance"], ("nws_hourly", "nws_grid", "nbm_probabilistic_tmax"))
+        self.assertEqual(
+            nyc["multi_model_guidance"],
+            ("open_meteo_multimodel", "open_meteo_global_models", "global_ensemble"),
+        )
         self.assertEqual(nyc["coastal_context"], ("marine_context",))
         self.assertEqual(nyc["precip_context"], ("mrms_precip",))
 

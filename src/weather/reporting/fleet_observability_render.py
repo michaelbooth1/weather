@@ -1,0 +1,423 @@
+"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+
+from weather.reporting.fleet_observability_payload import *  # noqa: F403
+
+# The extracted functions below intentionally resolve globals from the
+# previous slice to preserve the original module namespace.
+
+def write_json(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def write_markdown(path, payload):
+    collection_rows = []
+    trust = payload.get("trust_readiness") or {}
+    collection = payload.get("collection") or {}
+    for row in (payload.get("collection") or {}).get("markets") or []:
+        trust_row = trust.get(row["market_id"]) or {}
+        collection_rows.append([
+            row["market_id"],
+            row.get("state"),
+            row.get("snapshots"),
+            row.get("reason"),
+            trust_row.get("trust_score"),
+            trust_row.get("settled_days"),
+            trust_row.get("trust_gap"),
+            trust_row.get("settled_day_gap"),
+        ])
+    source_status_proof = collection.get("source_status_proof") or {}
+    source_status_summary = (
+        source_status_proof.get("summary")
+        or ((collection.get("summary") or {}).get("source_family_degradation") or {})
+    )
+    source_status_rows = [
+        [
+            row.get("market_id"),
+            row.get("snapshot_id") or "-",
+            row.get("model_review_allowed"),
+            row.get("paper_trading_allowed"),
+            row.get("live_trade_permission_allowed"),
+            row.get("promotion_readiness_allowed"),
+            row.get("affected_family_count"),
+            row.get("blocking_family_count"),
+            row.get("provider_cooldown_source_count"),
+            row.get("top_degraded_family") or "-",
+            _format_source_family_detail(row.get("affected_families") or []),
+            row.get("repair_command") or "-",
+        ]
+        for row in source_status_proof.get("markets") or []
+    ]
+    audit_rows = []
+    gap_coverage = (payload.get("historical_gap_coverage") or {}).get("markets") or {}
+    for market_id, audit in sorted((payload.get("historical_audits") or {}).items()):
+        coverage_row = gap_coverage.get(market_id) or {}
+        audit_rows.append([
+            market_id,
+            len(audit.get("missing_days") or []) if audit else "-",
+            len(audit.get("sparse_days") or []) if audit else "-",
+            coverage_row.get("covered_issue_days", "-"),
+            len(coverage_row.get("unresolved_issue_days") or []),
+            len(audit.get("duplicate_timestamps") or []) if audit else "-",
+            len(audit.get("impossible_values") or []) if audit else "-",
+            audit.get("hourly_days_audited") if audit else "-",
+        ])
+    artifact_rows = []
+    provenance = payload.get("artifact_provenance") or {}
+    for market_id, market in sorted((provenance.get("markets") or {}).items()):
+        artifacts = market.get("artifacts") or {}
+        artifact_rows.append([
+            market_id,
+            sum(1 for item in artifacts.values() if item.get("exists")),
+            sum(1 for item in artifacts.values() if item.get("schema_status") == "ok"),
+            sum(1 for item in artifacts.values() if item.get("schema_status") != "ok"),
+        ])
+    alert_rows = [
+        [
+            row.get("severity"),
+            row.get("market_id"),
+            row.get("category"),
+            row.get("message"),
+        ]
+        for row in payload.get("alerts") or []
+    ]
+    lines = [
+        "# Fleet Observability Report",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Status: **{payload.get('status')}**",
+        f"Critical alerts: `{(payload.get('summary') or {}).get('critical_alerts')}`",
+        f"Warning alerts: `{(payload.get('summary') or {}).get('warning_alerts')}`",
+        "",
+        "## Collection And Trust",
+        "",
+    ]
+    lines += markdown_table(
+        ["Market", "State", "Snapshots", "Reason", "Trust", "Days", "Trust Gap", "Day Gap"],
+        collection_rows,
+    )
+    lines += [
+        "",
+        "## Source Status Proof",
+        "",
+        f"Trading blocked markets: `{source_status_summary.get('source_status_blocked_market_count')}`",
+        f"Live-trade blocked markets: `{source_status_summary.get('live_trade_permission_blocked_market_count')}`",
+        f"Top degraded family: `{source_status_summary.get('top_degraded_family') or '-'}`",
+        f"Provider-cooldown sources: `{source_status_summary.get('provider_cooldown_source_count')}`",
+        f"Repair command: `{source_status_proof.get('repair_command') or SOURCE_STATUS_BACKFILL_COMMAND}`",
+        f"Verification command: `{source_status_proof.get('verification_command') or SOURCE_PROVIDER_STATUS_COMMAND}`",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Market", "Snapshot", "Model Review", "Paper", "Live Trade", "Promotion",
+            "Affected Families", "Blocking Families", "Cooldown Sources", "Top Family",
+            "Family Detail", "Repair Command",
+        ],
+        source_status_rows,
+    )
+    lines += ["", "## Historical Data Audits", ""]
+    lines += markdown_table(
+        [
+            "Market", "WU Missing", "WU Sparse", "Redundant Covered",
+            "Unresolved", "Duplicates", "Impossible", "Hourly Days",
+        ],
+        audit_rows,
+    )
+    lines += ["", "## Artifact Provenance", ""]
+    lines += markdown_table(
+        ["Market", "Artifacts", "Internal Schema OK", "Needs Schema/Manifest Attention"],
+        artifact_rows,
+    )
+    clob = payload.get("clob") or {}
+    clob_loop = clob.get("loop") or {}
+    clob_rows = [
+        [
+            row.get("market_id"),
+            "OK" if row.get("ok") else "GAP",
+            row.get("captures"),
+            row.get("median_gap_seconds"),
+            row.get("max_gap_seconds"),
+            row.get("startup_gaps_ignored") or 0,
+            row.get("trailing_age_seconds"),
+            row.get("reason") or "-",
+        ]
+        for row in (clob.get("books") or {}).get("markets") or []
+    ]
+    lines += [
+        "",
+        "## CLOB Book Capture",
+        "",
+        f"Loop state: **{clob_loop.get('state')}** "
+        f"(heartbeat age {clob_loop.get('heartbeat_age_seconds')}s, "
+        f"last books age {clob_loop.get('last_books_age_seconds')}s)",
+        "",
+    ]
+    lines += markdown_table(
+        ["Market", "Tape", "Captures", "Median Gap s", "Max Gap s", "Startup Ignored", "Trailing s", "Reason"],
+        clob_rows,
+    )
+    observation = payload.get("observation_trigger") or {}
+    live_forward_slo = payload.get("live_forward_slo") or {}
+    slo_rows = [
+        [
+            row.get("name"),
+            "PASS" if row.get("ok") else "BLOCK",
+            row.get("severity"),
+            "; ".join(row.get("messages") or []) or "ok",
+        ]
+        for row in live_forward_slo.get("gates") or []
+    ]
+    concrete_slo_rows = [
+        [
+            row.get("name"),
+            "PASS" if row.get("ok") else "BLOCK",
+            row.get("blocked_market_count"),
+            row.get("owner") or "-",
+            row.get("repair_command") or "-",
+            "; ".join(row.get("messages") or []) or "ok",
+        ]
+        for row in live_forward_slo.get("concrete_gates") or []
+    ]
+    recovery_rows = [
+        [
+            row.get("market_id"),
+            row.get("component"),
+            row.get("gate"),
+            row.get("owner"),
+            row.get("before"),
+            row.get("repair_command"),
+            row.get("verification_command"),
+            row.get("after"),
+        ]
+        for row in live_forward_slo.get("recovery_checklist") or []
+    ]
+    snapshot_cadence = (
+        live_forward_slo.get("snapshot_cadence_proof")
+        or ((payload.get("collection") or {}).get("snapshot_cadence_proof") or {})
+    )
+    snapshot_cadence_summary = snapshot_cadence.get("summary") or {}
+    snapshot_cadence_rows = [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            ", ".join(row.get("blocking_gates") or []) or "-",
+            row.get("snapshot_count"),
+            row.get("gap_count"),
+            row.get("max_gap_minutes"),
+            row.get("latest_age_minutes"),
+            row.get("root_cause"),
+            row.get("recoverable_same_day"),
+            _format_gap_windows(row.get("gap_windows") or []),
+        ]
+        for row in snapshot_cadence.get("markets") or []
+    ]
+    first_slo_blocker = live_forward_slo.get("first_blocker") or {}
+    lines += [
+        "",
+        "## Live-Forward SLO Gate",
+        "",
+        f"Status: **{live_forward_slo.get('status')}**",
+        f"Counts toward live-forward gate: `{live_forward_slo.get('counts_toward_live_forward_gate')}`",
+        f"Reason: {live_forward_slo.get('reason') or '-'}",
+        f"Observation watcher: **{observation.get('state')}** "
+        f"(heartbeat age {observation.get('heartbeat_age_seconds')}s)",
+        "",
+    ]
+    lines += markdown_table(
+        ["Gate", "Verdict", "Severity", "Detail"],
+        slo_rows,
+    )
+    lines += ["", "### Broad Recovery Gates", ""]
+    lines += markdown_table(
+        ["Concrete Gate", "Verdict", "Blocked Markets", "Owner", "Repair Command", "Detail"],
+        concrete_slo_rows,
+    )
+    lines += [
+        "",
+        "### Snapshot Cadence Proof",
+        "",
+        f"Status: **{snapshot_cadence_summary.get('status') or '-'}**",
+        (
+            "Snapshot coverage-gap blocked markets: "
+            f"`{snapshot_cadence_summary.get('snapshot_coverage_gap_blocked_market_count')}`"
+        ),
+        f"Status command: `{snapshot_cadence.get('status_command') or SNAPSHOT_STATUS_COMMAND}`",
+        f"Repair command: `{snapshot_cadence.get('repair_command') or SNAPSHOT_RESTART_COMMAND}`",
+        f"Verification command: `{snapshot_cadence.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Market", "Status", "Blocking Gates", "Snapshots", "Gaps", "Max Gap min",
+            "Latest Age min", "Root Cause", "Recoverable Same Day", "Gap Windows",
+        ],
+        snapshot_cadence_rows,
+    )
+    lines += [
+        "",
+        "### Broad Recovery Checklist",
+        "",
+        f"First blocker: `{first_slo_blocker.get('market_id') or '-'}` "
+        f"`{first_slo_blocker.get('component') or '-'}` "
+        f"`{first_slo_blocker.get('gate') or '-'}`",
+        f"First repair command: `{first_slo_blocker.get('repair_command') or '-'}`",
+        f"Rerun command: `{live_forward_slo.get('rerun_command') or BROAD_SLO_VERIFY_COMMAND}`",
+        "",
+    ]
+    lines += markdown_table(
+        ["Market", "Component", "Gate", "Owner", "Before", "Repair Command", "Verification", "After"],
+        recovery_rows,
+    )
+    mm_paper = payload.get("mm_paper_evidence") or {}
+    mm_classes = mm_paper.get("by_class") or {}
+    if mm_classes:
+        lines += [
+            "",
+            "## Per-Market MM Paper Evidence",
+            "",
+            f"Source: `{mm_paper.get('path')}`",
+            "",
+        ]
+        lines += markdown_table(
+            ["Evidence Class", "Countable", "Blocked", "All Selected Count", "First Blocked", "Owner"],
+            [
+                [
+                    evidence_class,
+                    row.get("countable_market_count"),
+                    row.get("blocked_market_count"),
+                    row.get("all_selected_markets_count"),
+                    row.get("first_blocked_market") or "-",
+                    row.get("first_blocked_owner") or "-",
+                ]
+                for evidence_class, row in sorted(mm_classes.items())
+            ],
+        )
+    loop_integrity = payload.get("loop_integrity") or {}
+    integrity_rows = [
+        [
+            row.get("name"),
+            "OK" if row.get("ok") else "CHECK",
+            row.get("malformed_lines"),
+            row.get("duplicate_writer"),
+            (row.get("writer_lock") or {}).get("pid") or "-",
+            (row.get("status_writer") or {}).get("pid") or "-",
+            row.get("repair_command") or "-",
+        ]
+        for row in loop_integrity.get("rows") or []
+    ]
+    sample_rows = []
+    for row in loop_integrity.get("rows") or []:
+        for sample in row.get("malformed_samples") or []:
+            sample_rows.append([
+                row.get("name"),
+                sample.get("source"),
+                sample.get("path"),
+                sample.get("line"),
+                sample.get("classification"),
+                sample.get("text"),
+            ])
+    lines += [
+        "",
+        "## Loop Artifact Integrity",
+        "",
+        f"Malformed lines: `{(loop_integrity.get('summary') or {}).get('malformed_lines')}`",
+        f"Duplicate writers: `{(loop_integrity.get('summary') or {}).get('duplicate_writer_count')}`",
+        "",
+    ]
+    lines += markdown_table(
+        ["Loop", "Status", "Malformed Lines", "Duplicate Writer", "Lock PID", "Status PID", "Repair Command"],
+        integrity_rows,
+    )
+    if sample_rows:
+        lines += ["", "### Malformed Line Samples", ""]
+        lines += markdown_table(
+            ["Loop", "Source", "Path", "Line", "Class", "Sample"],
+            sample_rows[:12],
+        )
+    current_soak = payload.get("current_code_soak") or {}
+    current_soak_summary = current_soak.get("summary") or {}
+    if current_soak:
+        soak_rows = [
+            [
+                row.get("name"),
+                row.get("status"),
+                row.get("state"),
+                row.get("runtime_code_state"),
+                row.get("single_writer"),
+                row.get("restart_count"),
+                row.get("restart_budget"),
+                row.get("duplicate_writer_incidents"),
+                row.get("benign_duplicate_writer_blocks"),
+                row.get("malformed_lines"),
+                row.get("consecutive_errors"),
+                "; ".join(row.get("blocking_reasons") or []) or "-",
+            ]
+            for row in current_soak.get("loops") or []
+        ]
+        taxonomy_rows = [
+            [name, count]
+            for name, count in sorted((current_soak_summary.get("diagnostic_class_counts") or {}).items())
+        ]
+        restart_taxonomy_rows = [
+            [name, count]
+            for name, count in sorted((current_soak_summary.get("restart_class_counts") or {}).items())
+        ]
+        lines += [
+            "",
+            "## Current-Code Soak Proof",
+            "",
+            f"Status: **{current_soak.get('status')}**",
+            f"Counts toward active day: `{current_soak.get('counts_toward_active_day')}`",
+            f"Window days: `{current_soak.get('window_days')}`",
+            f"Cadence SLO: `{current_soak.get('cadence_slo_status')}`",
+            f"Cadence reason: {current_soak.get('cadence_slo_reason') or '-'}",
+            f"Current code: `{format_runtime_identity(current_soak.get('current_identity') or {})}`",
+            f"Verification command: `{current_soak.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
+            "",
+        ]
+        lines += markdown_table(
+            [
+                "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
+                "Budget", "Dup Incidents", "Benign Dup Blocks", "Malformed",
+                "Errors", "Blocking Reasons",
+            ],
+            soak_rows,
+        )
+        if restart_taxonomy_rows:
+            lines += ["", "Restart taxonomy:"]
+            lines += markdown_table(["Class", "Restart Events"], restart_taxonomy_rows)
+        if taxonomy_rows:
+            lines += ["", "Diagnostic taxonomy:"]
+            lines += markdown_table(["Class", "Events"], taxonomy_rows)
+    backup = payload.get("tape_backup") or {}
+    restore = backup.get("last_restore_drill") or {}
+    backup_rows = [
+        ["Status", backup.get("status")],
+        ["Backup root", backup.get("backup_root")],
+        ["Manifest age hours", backup.get("age_hours")],
+        ["Files", backup.get("file_count")],
+        ["Missing critical classes", ", ".join(backup.get("missing_critical_classes") or []) or "-"],
+        ["Checksum failures", len(backup.get("checksum_failures") or [])],
+        ["Restore SLA", backup.get("restore_drill_sla_status") or "-"],
+        ["Restore SLA detail", backup.get("restore_drill_sla_detail") or "-"],
+        ["Last restore drill", restore.get("status") or "-"],
+        ["Restore generated", restore.get("generated_at_utc") or "-"],
+    ]
+    lines += ["", "## Tape Backup And Restore", ""]
+    lines += markdown_table(["Metric", "Value"], backup_rows)
+    lines += ["", "## Alerts", ""]
+    lines += markdown_table(
+        ["Severity", "Market", "Category", "Message"],
+        alert_rows,
+    )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+# Re-export imported dependency names as well because later slices intentionally
+# share the original module global namespace while the public facade remains stable.
+__all__ = [name for name in globals() if not name.startswith("__")]

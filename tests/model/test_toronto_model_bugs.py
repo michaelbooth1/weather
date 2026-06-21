@@ -58,7 +58,7 @@ class TestLiveSourcesPreserveWuHistory(unittest.TestCase):
                 "fetched_at": "2026-05-28T14:40:00-04:00",
             },
         }
-        model.fetch_source_group = lambda fetchers: fetched
+        model.fetch_source_group = lambda fetchers, max_workers=None: fetched
         model.blend_with_last_good = lambda sources: sources
 
         result = model.fetch_live_sources()

@@ -100,6 +100,27 @@ TARGET_MODULES = [
     Path("src/weather/sources/supplemental_station_validation.py"),
     Path("src/weather/sources/wu_history.py"),
 ]
+POOLED_FEATURE_SPLIT_MODULES = [
+    Path("src/weather/calibration/pooled_feature_assembly.py"),
+    Path("src/weather/calibration/pooled_density_training.py"),
+    Path("src/weather/calibration/pooled_band_training.py"),
+    Path("src/weather/calibration/pooled_training.py"),
+    Path("src/weather/calibration/pooled_artifact_io.py"),
+    Path("src/weather/calibration/pooled_reporting.py"),
+    Path("src/weather/calibration/pooled_feature_cli.py"),
+]
+TAKER_BOT_SPLIT_MODULES = sorted(Path("src/weather/market").glob("taker_bot_*.py"))
+PROMOTION_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("promotion_refresh_*.py"))
+FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("fleet_observability_*.py"))
+HOURLY_MODEL_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("hourly_model_*.py"))
+TARGET_MODULES.extend(
+    POOLED_FEATURE_SPLIT_MODULES
+    + TAKER_BOT_SPLIT_MODULES
+    + FLEET_OBSERVABILITY_SPLIT_MODULES
+    + HOURLY_MODEL_SPLIT_MODULES
+    + PROMOTION_REFRESH_SPLIT_MODULES
+    + [Path("src/weather/operations/location_config_refresh.py")]
+)
 
 NATIVE_RUNTIME_MODULES = [
     path
@@ -219,6 +240,46 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         re.MULTILINE,
     ),
 }
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.calibration\.pooled_feature_model|\.pooled_feature_model)\s+import\b|"
+        r"import\s+weather\.calibration\.pooled_feature_model\b)",
+        re.MULTILINE,
+    )
+    for path in POOLED_FEATURE_SPLIT_MODULES
+})
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.taker_bot|\.taker_bot)\s+import\b|"
+        r"import\s+weather\.market\.taker_bot\b)",
+        re.MULTILINE,
+    )
+    for path in TAKER_BOT_SPLIT_MODULES
+})
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.promotion_refresh|\.promotion_refresh)\s+import\b|"
+        r"import\s+weather\.reporting\.promotion_refresh\b)",
+        re.MULTILINE,
+    )
+    for path in PROMOTION_REFRESH_SPLIT_MODULES
+})
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.fleet_observability|\.fleet_observability)\s+import\b|"
+        r"import\s+weather\.reporting\.fleet_observability\b)",
+        re.MULTILINE,
+    )
+    for path in FLEET_OBSERVABILITY_SPLIT_MODULES
+})
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.hourly_model_performance|\.hourly_model_performance)\s+import\b|"
+        r"import\s+weather\.reporting\.hourly_model_performance\b)",
+        re.MULTILINE,
+    )
+    for path in HOURLY_MODEL_SPLIT_MODULES
+})
 
 ROUND_HALF_UP_DEFINITION_RE = re.compile(r"^\s*def\s+round_half_up\s*\(", re.MULTILINE)
 ROUND_HALF_UP_ALLOWED_DEFINITION_MODULES = {

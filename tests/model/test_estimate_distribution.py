@@ -401,12 +401,47 @@ class TestDistributionHelpers(unittest.TestCase):
             observed_bucket=22,
         )
 
-        self.assertEqual(len(signals), 10)
+        expected_cluster = self.model.forecast_source_cluster_signal(
+            12,
+            weather_forecast_max=25.0,
+            open_meteo_max=25.4,
+            nws_forecast_max=26.1,
+            global_ensemble_max=24.7,
+            eccc_forecast_high=25.0,
+        )
+
+        self.assertEqual(len(signals), 6)
         self.assertEqual(signals[0], (22.0, self.model.history_signal_weight(12), 0.65))
         self.assertEqual(signals[1], (23.0, 1.8, 0.65))
         self.assertEqual(signals[2], (24.0, 2.3, 0.75))
+        self.assertEqual(signals[3], (23, 0.6, 0.9))
         self.assertEqual(signals[4], (23.0, 0.2, 0.9))
-        self.assertEqual(signals[-1], (25.0, 0.5, 1.2))
+        self.assertEqual(signals[5], expected_cluster)
+        self.assertEqual(expected_cluster[0], 25.0)
+        self.assertGreater(expected_cluster[1], self.model.forecast_signal_weight(12))
+        self.assertLess(expected_cluster[1], 4.4)
+
+    def test_forecast_source_cluster_caps_and_penalizes_correlated_votes(self):
+        agreed = self.model.forecast_source_cluster_signal(
+            12,
+            weather_forecast_max=25.0,
+            open_meteo_max=25.0,
+            nws_forecast_max=25.0,
+            global_ensemble_max=25.0,
+            eccc_forecast_high=25.0,
+        )
+        split = self.model.forecast_source_cluster_signal(
+            12,
+            weather_forecast_max=23.0,
+            open_meteo_max=26.0,
+            nws_forecast_max=27.0,
+            global_ensemble_max=24.0,
+            eccc_forecast_high=25.0,
+        )
+
+        self.assertEqual(agreed, (25.0, 2.4, 1.1))
+        self.assertEqual(split[0], 25.0)
+        self.assertLess(split[1], agreed[1])
 
     def test_live_signal_application_stage_records_snapshot(self):
         pipeline = DistributionPipelineState()
@@ -463,6 +498,50 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertFalse(using_calibrated_empirical)
         self.assertEqual(self.model.active_model_kind, "unit")
         self.assertIn("unit_feature_model", pipeline.components)
+        self.assertEqual(pipeline.components["unit_feature_model"], {20: 0.2, 21: 0.8})
+        self.assertFalse(pipeline.metadata["feature_ordinal_smoothing"]["enabled"])
+        self.assertEqual(pipeline.components["feature_blend"], out)
+
+    def test_model_path_stage_applies_feature_smoothing_only_when_artifact_enables_it(self):
+        pipeline = DistributionPipelineState()
+        scores = {18: 0.2, 19: 0.2, 20: 0.2, 21: 0.2, 22: 0.2}
+        raw = {18: 0.06, 19: 0.44, 20: 0.02, 21: 0.28, 22: 0.20}
+        self.model.predict_feature_distribution = lambda sources, cutoff_hour, now: (raw, "unit")
+        self.model.feature_blend_weight = lambda cutoff_hour: 1.0
+        self.model.feature_ordinal_smoothing_config = lambda cutoff_hour: {
+            "enabled": True,
+            "sigma": 0.75,
+            "blend_weight": 0.50,
+            "source": "artifact",
+        }
+        now = datetime(2026, 5, 29, 12, 0, tzinfo=TORONTO_TZ)
+
+        out, _intraday, using_feature_model, _using_calibrated_empirical = (
+            self.model.distribution_model_path_stage(
+                scores,
+                sources={},
+                cutoff_hour=12,
+                now=now,
+                observed_bucket=20,
+                current={},
+                weather_forecast={},
+                eccc_city={},
+                current_temp=None,
+                weather_forecast_max=None,
+                open_meteo_max=None,
+                nws_forecast_max=None,
+                global_ensemble_max=None,
+                eccc_forecast_high=None,
+                weights_config={},
+                weight_map={},
+                has_component_weights=False,
+                pipeline=pipeline,
+            )
+        )
+
+        self.assertTrue(using_feature_model)
+        self.assertTrue(pipeline.metadata["feature_ordinal_smoothing"]["enabled"])
+        self.assertGreater(pipeline.components["unit_feature_model"][20], raw[20])
         self.assertEqual(pipeline.components["feature_blend"], out)
 
     def test_forecast_shape_stage_is_noop_for_calibrated_empirical_path(self):
@@ -477,12 +556,54 @@ class TestDistributionHelpers(unittest.TestCase):
             now=now,
             observed_bucket=20,
             current_observed_bucket=20,
+            using_feature_model=False,
             using_calibrated_empirical=True,
             pipeline=pipeline,
         )
 
         self.assertEqual(out, scores)
         self.assertNotIn("forecast_pull", pipeline.components)
+
+    def test_forecast_shape_stage_is_noop_for_feature_model_path(self):
+        pipeline = DistributionPipelineState()
+        scores = {20: 0.25, 21: 0.75}
+        now = datetime(2026, 5, 29, 12, 0, tzinfo=TORONTO_TZ)
+
+        out = self.model.distribution_forecast_shape_stage(
+            scores,
+            forecast_values=[25.0],
+            history={"rows": []},
+            now=now,
+            observed_bucket=20,
+            current_observed_bucket=20,
+            using_feature_model=True,
+            using_calibrated_empirical=False,
+            pipeline=pipeline,
+        )
+
+        self.assertEqual(out, scores)
+        self.assertNotIn("forecast_pull", pipeline.components)
+
+    def test_forecast_shape_stage_still_applies_to_empirical_fallback_path(self):
+        pipeline = DistributionPipelineState()
+        scores = {20: 0.70, 21: 0.20, 22: 0.10}
+        now = datetime(2026, 5, 29, 10, 0, tzinfo=TORONTO_TZ)
+
+        out = self.model.distribution_forecast_shape_stage(
+            scores,
+            forecast_values=[22.0, 22.1],
+            history={"rows": []},
+            now=now,
+            observed_bucket=20,
+            current_observed_bucket=20,
+            using_feature_model=False,
+            using_calibrated_empirical=False,
+            pipeline=pipeline,
+        )
+
+        self.assertNotEqual(out, scores)
+        self.assertIn("forecast_pull", pipeline.components)
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=6)
 
     def test_observed_floor_stage_records_each_floor_snapshot(self):
         pipeline = DistributionPipelineState()

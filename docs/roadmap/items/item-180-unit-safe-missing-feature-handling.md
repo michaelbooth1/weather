@@ -1,4 +1,4 @@
-# 180. Unit-Safe Missing-Feature Handling [OPEN]
+# 180. Unit-Safe Missing-Feature Handling [COMPLETE 2026-06-21 - MISSINGNESS ROUTES THROUGH IMPUTER]
 
 Goal: stop hard-coded Celsius fallback constants from pre-empting the per-market
 imputer and corrupting Fahrenheit-market features.
@@ -26,11 +26,19 @@ imputed for it. Both are train/serve skew that scales with the fleet.
 3. Add a test on a Fahrenheit market proving a missing field serves the trained
    imputer median, not a Celsius literal.
 
-- [ ] Replace the serving-path literals with explicit missingness.
-- [ ] Make any genuinely required fallback unit-aware.
-- [ ] Add the F-market missing-feature parity test.
+- [x] Replace the serving-path literals with explicit missingness.
+- [x] Make any genuinely required fallback unit-aware.
+- [x] Add the F-market missing-feature parity test.
 
 Acceptance: no Celsius literal reaches a feature value on any market, missing
 inputs route through the trained imputer, and the F-market parity test passes.
+
+Completion note 2026-06-21: `extract_live_features` now keeps missing
+non-strict numeric live fields as `None` instead of filling
+`17.0`/`10.0`/`60.0`/`15.0`. Derived deltas that depend on those missing fields
+also stay missing, while the strict analog path remains fail-closed. The
+Fahrenheit-market serving test proves missing live fields reach the HGB
+imputer and the model receives the trained median row rather than a Celsius
+literal.
 
 Related: items 178, 179; `[[model-audit-2026-06-09]]`, `[[multi-market-platform]]`.

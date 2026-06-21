@@ -1,7 +1,8 @@
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
+from unittest.mock import patch
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.model.model_features import (
     build_us_guidance_replay_diagnostics,
@@ -33,7 +34,7 @@ class TestForecastFeatureExtraction(unittest.TestCase):
     forecast_high = Open-Meteo forecasted daily max; gap = forecast_high - high_so_far."""
 
     def setUp(self):
-        self.m = TorontoHighTempModel()
+        self.m = TorontoHighTempModel(target_date="2026-05-30")
 
     def test_forecast_gap_is_forecast_minus_high_so_far(self):
         rows = [_wu_row("07:00", 11.0), _wu_row("09:00", 13.0)]
@@ -123,6 +124,118 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         self.assertEqual(row["precipitation"], 0.0)
         self.assertEqual(row["soil_moisture_0_to_1cm"], 0.23)
         self.assertEqual(data["day_max_c"], 25.0)
+
+    def test_open_meteo_air_quality_fetch_parses_aerosol_rows(self):
+        model = TorontoHighTempModel(target_date="2026-05-30")
+        payload = {
+            "hourly": {
+                "time": ["2026-05-30T12:00", "2026-05-30T13:00"],
+                "pm2_5": [18.0, 36.0],
+                "pm10": [24.0, 55.0],
+                "aerosol_optical_depth": [0.16, 0.42],
+                "dust": [3.0, 6.0],
+                "us_aqi": [58, 104],
+                "european_aqi": [24, 62],
+            }
+        }
+        captured = {}
+
+        def fake_get_json(url, params):
+            captured["url"] = url
+            captured["params"] = params
+            return payload
+
+        model.get_json = fake_get_json
+
+        data = model.fetch_open_meteo_air_quality()
+
+        self.assertEqual(captured["url"], "https://air-quality-api.open-meteo.com/v1/air-quality")
+        self.assertEqual(captured["params"]["timezone"], "America/Toronto")
+        hourly = captured["params"]["hourly"]
+        for field in ("pm2_5", "pm10", "aerosol_optical_depth", "dust", "us_aqi", "european_aqi"):
+            self.assertIn(field, hourly)
+        row = data["day_rows"][1]
+        self.assertEqual(row["time"], "13:00")
+        self.assertEqual(row["pm2_5"], 36.0)
+        self.assertEqual(row["pm10"], 55.0)
+        self.assertEqual(row["aerosol_optical_depth"], 0.42)
+        self.assertEqual(row["dust"], 6.0)
+        self.assertEqual(row["us_aqi"], 104.0)
+        self.assertEqual(data["provenance"]["provider"], "open_meteo_air_quality")
+        self.assertIn("CAMS", data["provenance"]["upstream"])
+
+    def test_open_meteo_air_quality_fetches_with_open_meteo_family(self):
+        model = TorontoHighTempModel(target_date="2026-05-30")
+        calls = []
+
+        def fake_fetch_source_group(fetchers, max_workers=None):
+            calls.append((tuple(fetchers), max_workers))
+            return {}
+
+        model.fetch_source_group = fake_fetch_source_group
+        model.blend_with_last_good = lambda sources: sources
+
+        model.fetch_live_sources()
+
+        open_meteo_call = next(call for call in calls if "open_meteo" in call[0])
+        self.assertIn("open_meteo_air_quality", open_meteo_call[0])
+        self.assertIn("open_meteo_global_models", open_meteo_call[0])
+        self.assertEqual(open_meteo_call[1], 1)
+
+    def test_us_markets_fetch_nbm_probabilistic_tmax_with_official_guidance(self):
+        model = TorontoHighTempModel(target_date="2026-05-30", market_id="nyc")
+        calls = []
+
+        def fake_fetch_source_group(fetchers, max_workers=None):
+            calls.append((tuple(fetchers), max_workers))
+            return {}
+
+        model.fetch_source_group = fake_fetch_source_group
+        model.blend_with_last_good = lambda sources: sources
+
+        model.fetch_live_sources()
+
+        regular_call = next(call for call in calls if "nws_grid" in call[0])
+        self.assertIn("nbm_probabilistic_tmax", regular_call[0])
+
+    def test_nbm_probabilistic_tmax_fetch_parses_station_bulletin(self):
+        model = TorontoHighTempModel(target_date="2026-05-30", market_id="nyc")
+        sample = """
+ KLGA    NBM V5.0 NBP GUIDANCE    5/30/2026  0000 UTC
+UTC    00  12| 00  12
+FHR    24  36| 48  60
+TXNMN  84  68| 79  68
+TXNSD   2   2|  4   3
+TXNP1  81  64| 73  63
+TXNP2  82  66| 76  66
+TXNP5  84  68| 80  69
+TXNP7  85  69| 82  71
+TXNP9  86  70| 84  72
+"""
+        seen_urls = []
+
+        def fake_get_text(url):
+            seen_urls.append(url)
+            return sample
+
+        model.get_text = fake_get_text
+        cycle = datetime(2026, 5, 30, 0, tzinfo=timezone.utc)
+
+        with patch("weather.model.model_sources.nbp_cycle_candidates", return_value=[cycle]):
+            payload = model.fetch_nbm_probabilistic_tmax()
+
+        self.assertEqual(seen_urls, ["https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260530/00/text/blend_nbptx.t00z"])
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["station_id"], "KLGA")
+        self.assertEqual(payload["forecast_hour"], 24)
+        self.assertEqual(payload["percentiles"]["10"], 81.0)
+        self.assertEqual(payload["percentiles"]["50"], 84.0)
+        self.assertEqual(payload["percentiles"]["90"], 86.0)
+        self.assertEqual(payload["day_max_native"], 84.0)
+        self.assertEqual(payload["iqr"], 3.0)
+        self.assertEqual(payload["p10_p90_spread"], 5.0)
+        self.assertFalse(payload["historical_archive_available"])
+        self.assertEqual(payload["tried_urls"], seen_urls)
 
     def test_nws_grid_fetch_parses_grid_rows_and_metadata(self):
         model = TorontoHighTempModel(target_date="2026-05-30", market_id="nyc")
@@ -240,6 +353,44 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         )
         self.assertEqual(data["day_rows"][1]["models"]["ncep_nbm_conus"]["cape"], 120.0)
 
+    def test_open_meteo_global_models_fetch_parses_ecmwf_and_ml_members(self):
+        model = TorontoHighTempModel(target_date="2026-05-30")
+        payload = {
+            "generationtime_ms": 1.4,
+            "hourly": {
+                "time": ["2026-05-30T12:00", "2026-05-30T13:00"],
+                "temperature_2m_ecmwf_ifs025": [24.0, 25.0],
+                "temperature_2m_ecmwf_aifs025": [25.0, 26.0],
+                "temperature_2m_ncep_aigfs025": [23.0, 24.0],
+                "temperature_2m_gfs_graphcast025": [26.0, 27.0],
+            },
+        }
+        captured = {}
+
+        def fake_get_json(url, params):
+            captured["url"] = url
+            captured["params"] = params
+            return payload
+
+        model.get_json = fake_get_json
+
+        data = model.fetch_open_meteo_global_models()
+
+        self.assertEqual(captured["url"], "https://api.open-meteo.com/v1/forecast")
+        self.assertEqual(
+            captured["params"]["models"],
+            "ecmwf_ifs025,ecmwf_aifs025,ncep_aigfs025,gfs_graphcast025",
+        )
+        self.assertEqual(data["day_model_highs"]["ecmwf_ifs025"], 25.0)
+        self.assertEqual(data["day_model_highs"]["ecmwf_aifs025"], 26.0)
+        self.assertEqual(data["day_model_highs"]["ncep_aigfs025"], 24.0)
+        self.assertEqual(data["day_model_highs"]["gfs_graphcast025"], 27.0)
+        self.assertEqual(data["day_max_c"], 25.5)
+        self.assertEqual(data["day_high_spread"], 3.0)
+        self.assertEqual(data["day_rows"][0]["model_temp_spread"], 3.0)
+        self.assertIn("open_meteo_ecmwf_aifs_high_delta", data["live_only_fields"])
+        self.assertFalse(data["historical_archive_available"])
+
     def test_live_features_include_us_grid_and_multimodel_guidance(self):
         model = TorontoHighTempModel(target_date="2026-05-30")
         rows = [_wu_row("07:00", 78.0), _wu_row("12:00", 80.0)]
@@ -266,6 +417,20 @@ class TestForecastFeatureExtraction(unittest.TestCase):
                         "hazards_count": 0,
                     },
                 ],
+            }},
+            "nbm_probabilistic_tmax": {"ok": True, "data": {
+                "available": True,
+                "percentiles": {
+                    "10": 81.0,
+                    "25": 82.0,
+                    "50": 84.0,
+                    "75": 85.0,
+                    "90": 86.0,
+                },
+                "mean_native": 84.0,
+                "stddev_native": 2.0,
+                "iqr": 3.0,
+                "p10_p90_spread": 5.0,
             }},
             "open_meteo_multimodel": {"ok": True, "data": {
                 "day_model_highs": {
@@ -305,6 +470,16 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         self.assertEqual(features["nws_grid_qpf_after_cutoff_sum"], 0.2)
         self.assertEqual(features["nws_grid_sky_cover_after_cutoff_mean"], 70.0)
         self.assertEqual(features["nws_grid_hazard_count"], 1.0)
+        self.assertEqual(features["nbm_prob_tmax_p10"], 81.0)
+        self.assertEqual(features["nbm_prob_tmax_p50"], 84.0)
+        self.assertEqual(features["nbm_prob_tmax_p90"], 86.0)
+        self.assertEqual(features["nbm_prob_tmax_mean"], 84.0)
+        self.assertEqual(features["nbm_prob_tmax_stddev"], 2.0)
+        self.assertEqual(features["nbm_prob_tmax_iqr"], 3.0)
+        self.assertEqual(features["nbm_prob_tmax_p10_p90_spread"], 5.0)
+        self.assertEqual(features["nbm_prob_tmax_p50_vs_forecast_high"], -2.0)
+        self.assertEqual(features["nbm_prob_tmax_p90_vs_forecast_high"], 0.0)
+        self.assertAlmostEqual(features["nbm_prob_tmax_exceed_forecast_high"], 0.10)
         self.assertEqual(features["open_meteo_multimodel_high_spread"], 5.0)
         self.assertEqual(features["open_meteo_gfs_high_delta"], -2.0)
         self.assertEqual(features["open_meteo_hrrr_high_delta"], 0.0)
@@ -316,6 +491,57 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         self.assertEqual(features["open_meteo_multimodel_run_age_hours"], 2.0)
         self.assertEqual(features["open_meteo_multimodel_run_to_run_high_change"], 1.0)
         self.assertEqual(features["open_meteo_nbm_hrrr_disagreement_after_cutoff"], 3.0)
+
+    def test_live_features_include_open_meteo_global_model_guidance(self):
+        model = TorontoHighTempModel(target_date="2026-05-30")
+        rows = [_wu_row("07:00", 20.0), _wu_row("12:00", 24.0)]
+        features = model.extract_live_features({
+            "wu_history": {"ok": True, "data": {"rows": rows}},
+            "wu_current": {"ok": True, "data": {"temp_c": 24.0}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 30.0}},
+            "open_meteo_global_models": {"ok": True, "data": {
+                "day_max_c": 30.0,
+                "day_max_native": 30.0,
+                "day_model_highs": {
+                    "ecmwf_ifs025": 28.0,
+                    "ecmwf_aifs025": 30.0,
+                    "ncep_aigfs025": 30.0,
+                    "gfs_graphcast025": 32.0,
+                },
+                "previous_day_model_highs": {
+                    "ecmwf_ifs025": 27.0,
+                    "ecmwf_aifs025": 29.0,
+                    "ncep_aigfs025": 29.0,
+                    "gfs_graphcast025": 31.0,
+                },
+                "day_rows": [
+                    {"time": "12:00", "models": {
+                        "ecmwf_ifs025": {"temp_native": 26.0},
+                        "ecmwf_aifs025": {"temp_native": 28.0},
+                        "ncep_aigfs025": {"temp_native": 29.0},
+                        "gfs_graphcast025": {"temp_native": 30.0},
+                    }},
+                    {"time": "13:00", "models": {
+                        "ecmwf_ifs025": {"temp_native": 27.0},
+                        "ecmwf_aifs025": {"temp_native": 29.0},
+                        "ncep_aigfs025": {"temp_native": 30.0},
+                        "gfs_graphcast025": {"temp_native": 31.0},
+                    }},
+                ],
+            }},
+        }, cutoff_hour=12)
+
+        self.assertEqual(features["forecast_high"], 30.0)
+        self.assertEqual(features["forecast_source_count"], 2)
+        self.assertEqual(features["forecast_source_values"]["open_meteo_global_models"], 30.0)
+        self.assertEqual(features["open_meteo_global_models_high_spread"], 4.0)
+        self.assertEqual(features["open_meteo_ecmwf_ifs_high_delta"], -2.0)
+        self.assertEqual(features["open_meteo_ecmwf_aifs_high_delta"], 0.0)
+        self.assertEqual(features["open_meteo_ncep_aigfs_high_delta"], 0.0)
+        self.assertEqual(features["open_meteo_gfs_graphcast_high_delta"], 2.0)
+        self.assertEqual(features["open_meteo_ecmwf_ifs_aifs_disagreement"], 2.0)
+        self.assertEqual(features["open_meteo_global_models_next_3h_spread"], 4.0)
+        self.assertEqual(features["open_meteo_global_models_run_to_run_high_change"], 1.0)
 
     def test_us_guidance_replay_diagnostics_group_by_market_cutoff_and_regime(self):
         payload = build_us_guidance_replay_diagnostics([
@@ -361,6 +587,7 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         features = model.extract_live_features({
             "wu_history": {"ok": True, "data": {"rows": rows}},
             "wu_current": {"ok": True, "data": {"temp_c": 85.0}},
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 88.0}},
             "marine_context": {"ok": True, "data": {
                 "available": True,
                 "stations": [{
@@ -388,8 +615,11 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         self.assertEqual(features["marine_station_count"], 1.0)
         self.assertEqual(features["marine_latest_age_minutes"], 25.0)
         self.assertEqual(features["marine_water_minus_air_temp"], -10.0)
+        self.assertEqual(features["marine_water_minus_forecast_high"], -28.0)
         self.assertEqual(features["marine_air_minus_current_temp"], -15.0)
         self.assertEqual(features["marine_onshore_flow"], 1.0)
+        self.assertEqual(features["marine_onshore_water_minus_forecast_high"], -28.0)
+        self.assertEqual(features["marine_onshore_cooling_potential"], 28.0)
         self.assertEqual(features["marine_post_cutoff_onshore_reversal"], 1.0)
         self.assertEqual(features["marine_breeze_risk"], 1.0)
         self.assertEqual(features["marine_layer_suppression"], 1.0)

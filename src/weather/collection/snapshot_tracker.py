@@ -129,6 +129,8 @@ FORECAST_PAYLOAD_RECONSTRUCTABLE_SOURCES = {
     "eccc_gem",
     "nws_hourly",
     "nws_grid",
+    "nbm_probabilistic_tmax",
+    "open_meteo_global_models",
     "open_meteo_multimodel",
     "global_ensemble",
 }
