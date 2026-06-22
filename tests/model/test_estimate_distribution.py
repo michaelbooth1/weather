@@ -443,6 +443,53 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertEqual(split[0], 25.0)
         self.assertLess(split[1], agreed[1])
 
+    def test_forecast_ensemble_metrics_flags_native_scaled_warm_outlier(self):
+        model = TorontoHighTempModel(target_date="2026-06-20", market_id="nyc")
+
+        metrics = model.forecast_ensemble_metrics(
+            {"rows": [{"time": "14:00", "temp_native": 98.0, "temp_c": 36.7}]},
+            {"rows": [{"time": "14:00", "temp_native": 88.0, "temp_c": 31.1}]},
+            {"forecast_high_native": 89.0, "forecast_high_c": 31.7},
+            nws_hourly={"rows": [{"time": "14:00", "temp_native": 88.0, "temp_c": 31.1}]},
+        )
+
+        self.assertEqual(metrics["forecast_warm_outlier_flag"], 1.0)
+        self.assertLess(metrics["forecast_robust_high"], 98.0)
+        self.assertGreaterEqual(
+            metrics["forecast_warm_outlier_gap"],
+            model.spec.scale_delta(3.0),
+        )
+
+    def test_robust_forecast_signal_caps_isolated_warm_source(self):
+        context = {
+            "forecast_robust_high": 25.0,
+            "forecast_disagreement": 6.0,
+            "forecast_warm_outlier_flag": 1.0,
+        }
+
+        capped = self.model.robust_forecast_signal_value(30.0, context)
+
+        self.assertEqual(capped, 26.0)
+
+    def test_ramp_warm_tail_dampening_suppresses_tail_above_robust_anchor(self):
+        scores = {23: 0.15, 24: 0.25, 25: 0.20, 26: 0.18, 27: 0.14, 28: 0.08}
+
+        out, context = self.model.apply_ramp_warm_tail_dampening(
+            scores,
+            hour=12,
+            observed_bucket=24,
+            current_observed_bucket=24,
+            robust_forecast_high=24.5,
+            forecast_disagreement=5.0,
+            warm_outlier_flag=True,
+        )
+
+        before_tail = sum(probability for bucket, probability in scores.items() if bucket > context["cap_bucket"])
+        after_tail = sum(probability for bucket, probability in out.items() if bucket > context["cap_bucket"])
+        self.assertTrue(context["active"])
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=6)
+        self.assertLess(after_tail, before_tail)
+
     def test_live_signal_application_stage_records_snapshot(self):
         pipeline = DistributionPipelineState()
         scores = {20: 0.25, 21: 0.5, 22: 0.25}

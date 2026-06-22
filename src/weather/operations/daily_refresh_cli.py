@@ -1,0 +1,350 @@
+"""CLI parser and command handlers for daily refresh."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+_DEPENDENCY_NAMES = {
+    "DEFAULT_SNAPSHOTS_ROOT",
+    "DEFAULT_BACKTEST_ROOT",
+    "DEFAULT_STATUS_OUT",
+    "DEFAULT_REPORT_OUT",
+    "DEFAULT_LOCK_PATH",
+    "DEFAULT_LONG_JOB_STATE_PATH",
+    "DEFAULT_LONG_JOB_LOCK_PATH",
+    "DEFAULT_LABELS_CSV",
+    "DEFAULT_LEDGER_ROOT",
+    "STEP_ORDER",
+    "progress_audit",
+    "active_variant_shadow_refresh",
+    "hourly_model_performance",
+    "ten_minute_model_performance",
+    "settled_day_root_cause",
+    "promotion_refresh",
+    "clob_order_book_tiering",
+    "fleet_observability",
+    "data_retention_inventory",
+    "run_daily_refresh",
+    "load_status",
+    "lock_preflight",
+    "acquire_lock",
+    "release_lock",
+    "_remove_lock_if_verified_stale",
+    "clear_stale_long_job_state",
+    "utc_iso",
+}
+
+
+def configure(dependencies):
+    missing = sorted(name for name in _DEPENDENCY_NAMES if not hasattr(dependencies, name))
+    if missing:
+        raise ValueError(f"daily refresh CLI dependencies missing: {', '.join(missing)}")
+    globals().update({name: getattr(dependencies, name) for name in _DEPENDENCY_NAMES})
+    return dependencies
+
+
+def build_run_parser(parser, dependencies=None):
+    if dependencies is not None:
+        configure(dependencies)
+    parser.add_argument("folders", nargs="*", help="Optional snapshot folders for settlement finalization.")
+    parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
+    parser.add_argument("--roadmap", default=str(progress_audit.DEFAULT_ROADMAP))
+    parser.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
+    parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--lock-path", default=str(DEFAULT_LOCK_PATH))
+    parser.add_argument("--force-lock", action="store_true")
+    parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
+    parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
+    parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
+    parser.add_argument("--disable-long-job-guard", action="store_true")
+    parser.add_argument("--force-long-job-lock", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
+    parser.add_argument("--fail-on-fleet-critical", action="store_true")
+    parser.add_argument("--fail-on-ingest-quality", action="store_true")
+    parser.add_argument("--fail-on-data-layer-audit", action="store_true")
+    parser.set_defaults(fail_on_hourly_performance_gate=True)
+    parser.add_argument("--fail-on-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_true")
+    parser.add_argument("--allow-hourly-performance-gate", dest="fail_on_hourly_performance_gate", action="store_false")
+    parser.set_defaults(fail_on_ten_minute_performance_gate=True)
+    parser.add_argument(
+        "--fail-on-ten-minute-performance-gate",
+        dest="fail_on_ten_minute_performance_gate",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--allow-ten-minute-performance-gate",
+        dest="fail_on_ten_minute_performance_gate",
+        action="store_false",
+    )
+    parser.add_argument("--fail-on-snapshot-evaluation", action="store_true")
+    parser.add_argument("--fail-on-shadow-ab-alert", action="store_true")
+    parser.set_defaults(fail_on_variant_evidence_alert=True)
+    parser.add_argument("--fail-on-variant-evidence-alert", dest="fail_on_variant_evidence_alert", action="store_true")
+    parser.add_argument("--allow-variant-evidence-alert", dest="fail_on_variant_evidence_alert", action="store_false")
+    parser.add_argument("--fail-on-daily-learning-blocker", action="store_true")
+    parser.add_argument("--fail-on-daily-flow-analysis-blocker", action="store_true")
+    parser.add_argument("--skip-shadow-ab-monitor", action="store_true")
+    parser.add_argument("--ab-current-tol", type=float, default=0.003)
+    parser.add_argument("--ab-market-tol", type=float, default=0.003)
+    parser.add_argument("--skip-model-variant-evidence-growth", action="store_true")
+    parser.add_argument("--skip-active-variant-shadow", action="store_true")
+    parser.add_argument(
+        "--active-variant-shadow-sources",
+        default="",
+        help="Comma-separated current active variant row paths used to build active_variant_shadow_long.csv.",
+    )
+    parser.add_argument("--variant-registry", default=str(active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
+    parser.add_argument(
+        "--variant-evidence-current",
+        default="",
+        help="Comma-separated current variant long-table paths; defaults to active_variant_shadow_long.csv.",
+    )
+    parser.add_argument(
+        "--variant-evidence-baseline",
+        default="",
+        help="Comma-separated baseline variant long-table paths; defaults to item 70/71 long CSV.",
+    )
+    parser.add_argument("--variant-evidence-min-unique-observations", type=int, default=1)
+    parser.add_argument("--variant-evidence-min-market-days", type=int, default=1)
+    parser.add_argument("--variant-evidence-rolling-7d-min-market-days", type=int, default=1)
+    parser.add_argument("--variant-evidence-per-shadow-market-min-days", type=int, default=4)
+    parser.add_argument("--as-of", default=None)
+    parser.add_argument("--quality-grades", default="complete,manual_override")
+    parser.add_argument("--skip-hourly-model-performance", action="store_true")
+    parser.add_argument("--skip-ten-minute-model-performance", action="store_true")
+    parser.add_argument("--skip-price-free-model-learning", action="store_true")
+    parser.add_argument("--skip-settled-day-root-cause", action="store_true")
+    parser.add_argument(
+        "--settled-root-cause-date",
+        default="",
+        help="Target date for settled-day root-cause report; defaults to --as-of or yesterday UTC.",
+    )
+    parser.add_argument("--taker-root", default=str(settled_day_root_cause.DEFAULT_TAKER_ROOT))
+    parser.add_argument("--mm-root", default=str(settled_day_root_cause.DEFAULT_MM_ROOT))
+    parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
+    parser.add_argument(
+        "--promotion-min-artifact-free-bytes",
+        type=int,
+        default=promotion_refresh.DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
+        help="Daily-refresh preflight minimum free bytes before promotion refresh artifact exports.",
+    )
+    parser.add_argument("--hourly-min-rows", type=int, default=hourly_model_performance.DEFAULT_MIN_ROWS)
+    parser.add_argument("--hourly-top-hours", type=int, default=hourly_model_performance.DEFAULT_TOP_HOURS)
+    parser.add_argument("--hourly-min-regime-market-days", type=int, default=hourly_model_performance.DEFAULT_MIN_REGIME_MARKET_DAYS)
+    parser.add_argument(
+        "--hourly-early-brier-regression-tolerance",
+        type=float,
+        default=hourly_model_performance.DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--hourly-early-logloss-regression-tolerance",
+        type=float,
+        default=hourly_model_performance.DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument("--hourly-early-ece-max", type=float, default=hourly_model_performance.DEFAULT_EARLY_ECE_MAX)
+    parser.add_argument("--ten-minute-min-rows", type=int, default=ten_minute_model_performance.DEFAULT_MIN_ROWS)
+    parser.add_argument("--ten-minute-top-slots", type=int, default=ten_minute_model_performance.DEFAULT_TOP_SLOTS)
+    parser.add_argument(
+        "--ten-minute-min-weak-market-days",
+        type=int,
+        default=ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+    )
+    parser.add_argument(
+        "--ten-minute-weak-brier-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_WEAK_BRIER_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-weak-logloss-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-rows",
+        default=str(ten_minute_model_performance.DEFAULT_ITEM147_ROWS),
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-min-weak-market-days",
+        type=int,
+        default=ten_minute_model_performance.DEFAULT_MIN_WEAK_MARKET_DAYS,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-brier-improvement-min",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_BRIER_IMPROVEMENT_MIN,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-market-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_MARKET_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument(
+        "--ten-minute-candidate-weak-logloss-regression-tolerance",
+        type=float,
+        default=ten_minute_model_performance.DEFAULT_CANDIDATE_WEAK_LOGLOSS_REGRESSION_TOLERANCE,
+    )
+    parser.add_argument("--include-reconstructed", action="store_true")
+    parser.add_argument("--allow-unsettled", action="store_true")
+    parser.add_argument("--skip-serving-gauntlet", action="store_true")
+    parser.add_argument("--require-exact-identity", action="store_true")
+    parser.add_argument("--require-all-markets", action="store_true")
+    parser.add_argument("--daily-summary", default="")
+    parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
+    parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
+    parser.add_argument("--settle", action="append", default=[])
+    parser.add_argument("--interval-minutes", type=float, default=10.0)
+    parser.add_argument("--tolerance", type=float, default=1.5)
+    parser.add_argument("--skip-polymarket-reconciliation", action="store_true")
+    parser.add_argument("--skip-replay-status-backfill", action="store_true")
+    parser.add_argument("--skip-clob-order-book-tiering", action="store_true")
+    parser.add_argument("--clob-tiering-settled-before", default="")
+    parser.add_argument(
+        "--clob-tiering-min-free-bytes",
+        type=int,
+        default=clob_order_book_tiering.DEFAULT_MIN_FREE_BYTES,
+    )
+    parser.add_argument("--clob-tiering-limit", type=int, default=None)
+    parser.set_defaults(clob_tiering_delete_source=True)
+    parser.add_argument("--clob-tiering-delete-source", dest="clob_tiering_delete_source", action="store_true")
+    parser.add_argument("--keep-clob-order-book-source", dest="clob_tiering_delete_source", action="store_false")
+    parser.add_argument("--overwrite-replay-status", action="store_true")
+    parser.add_argument("--reconstruct-missing-replay-inputs", action="store_true")
+    parser.add_argument("--include-active-replay-status", action="store_true")
+    parser.add_argument("--no-clob-casebook", action="store_true")
+    parser.add_argument("--collection-interval-minutes", type=float, default=10.0)
+    parser.add_argument("--collection-tolerance", type=float, default=1.5)
+    parser.add_argument("--audit-target-month", type=int, default=None)
+    parser.add_argument("--audit-target-day", type=int, default=None)
+    parser.add_argument("--audit-years", default="")
+    parser.add_argument("--skip-historical-audits", action="store_true")
+    parser.add_argument("--tape-backup-root", default=str(fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT))
+    parser.add_argument("--verify-tape-backup-checksums", action="store_true")
+    parser.add_argument("--skip-ingest-quality-gate", action="store_true")
+    parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")
+    parser.add_argument("--skip-reanalysis-refresh", action="store_true")
+    parser.add_argument("--reanalysis-lag-days", type=int, default=10)
+    parser.add_argument("--reanalysis-chunk-days", type=int, default=5)
+    parser.add_argument("--reanalysis-sleep", type=float, default=0.2)
+    parser.add_argument("--reanalysis-timeout", type=float, default=30)
+    parser.add_argument("--reanalysis-end-date", default="")
+    parser.add_argument("--skip-data-layer-audit", action="store_true")
+    parser.add_argument("--skip-data-retention-inventory", action="store_true")
+    parser.add_argument("--distribution-stage-min-rows", type=int, default=20)
+    parser.add_argument(
+        "--data-retention-min-free-bytes",
+        type=int,
+        default=data_retention_inventory.DEFAULT_MIN_FREE_BYTES,
+    )
+    parser.add_argument(
+        "--data-retention-lookback-hours",
+        type=float,
+        default=data_retention_inventory.DEFAULT_LOOKBACK_HOURS,
+    )
+    parser.add_argument("--data-retention-top-n", type=int, default=data_retention_inventory.DEFAULT_TOP_N)
+    parser.add_argument("--skip-daily-learning", action="store_true")
+    parser.add_argument("--skip-daily-flow-analysis", action="store_true")
+    parser.add_argument("--data-layer-historical-start", default="2000-01-01")
+    parser.add_argument("--data-layer-historical-end", default="")
+    return parser
+
+
+def cmd_run(args):
+    lock = None
+    if not args.dry_run:
+        preflight = lock_preflight(args)
+        lock = acquire_lock(args.lock_path, force=args.force_lock)
+        if lock is None:
+            blocked = lock_preflight(args)
+            print(f"Daily refresh lock blocks run: {args.lock_path}", file=sys.stderr)
+            print(json.dumps(blocked.get("daily_refresh_lock") or {}, indent=2, sort_keys=True), file=sys.stderr)
+            print(f"Repair command: {blocked.get('repair_command')}", file=sys.stderr)
+            return 3
+        preflight["daily_refresh_lock_after_acquire"] = lock_diagnostic(
+            args.lock_path,
+            kind="daily_refresh_lock",
+        )
+        setattr(args, "_daily_refresh_cli_lock_preflight", preflight)
+    try:
+        payload, status_path, report_path = run_daily_refresh(args)
+    finally:
+        release_lock(lock)
+    print(f"Daily refresh: {payload['status']}")
+    print(f"Status written to {status_path}")
+    print(f"Report written to {report_path}")
+    if payload["status"] == "error":
+        return 1
+    if payload["status"] == "critical":
+        return 2
+    return 0
+
+
+def cmd_status(args):
+    status = load_status(args.status_out)
+    if not status.get("exists"):
+        print(f"No daily refresh status at {status['path']}")
+        return 1
+    print(json.dumps(status, indent=2, sort_keys=True, default=str))
+    if status.get("status") in {"error", "unreadable"}:
+        return 1
+    return 0
+
+
+def repair_stale_locks(args):
+    daily = _remove_lock_if_verified_stale(args.lock_path, kind="daily_refresh_lock")
+    long_job = _remove_lock_if_verified_stale(
+        getattr(args, "long_job_lock", DEFAULT_LONG_JOB_LOCK_PATH),
+        kind="long_job_guard_lock",
+    )
+    long_job_state = clear_stale_long_job_state(
+        getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+    )
+    return {
+        "schema_version": "daily_refresh_stale_lock_repair_v0.1",
+        "generated_at_utc": utc_iso(),
+        "daily_refresh_lock": daily,
+        "long_job_lock": long_job,
+        "long_job_state": long_job_state,
+        "removed_lock_count": sum(1 for row in (daily, long_job) if row.get("removed")),
+        "cleared_state_count": 1 if long_job_state.get("cleared") else 0,
+        "resume_from_step": getattr(args, "resume_from_step", "") or "daily_learning",
+    }
+
+
+def cmd_repair_stale_locks(args):
+    payload = repair_stale_locks(args)
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    if getattr(args, "run_after_repair", False):
+        return cmd_run(args)
+    return 0
+
+
+def build_parser(dependencies):
+    configure(dependencies)
+    parser = argparse.ArgumentParser(description="Run or inspect the daily settlement-to-promotion refresh.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    run = build_run_parser(sub.add_parser("run"))
+    run.set_defaults(func=cmd_run)
+    status = sub.add_parser("status")
+    status.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
+    status.set_defaults(func=cmd_status)
+    repair = build_run_parser(sub.add_parser("repair-stale-locks"))
+    repair.add_argument("--run-after-repair", action="store_true")
+    repair.set_defaults(func=cmd_repair_stale_locks)
+    return parser
+
+
+def main(argv=None, dependencies=None):
+    if dependencies is None:
+        raise ValueError("daily refresh CLI dependencies are required")
+    parser = build_parser(dependencies)
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+

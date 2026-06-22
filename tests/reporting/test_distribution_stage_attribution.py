@@ -6,10 +6,23 @@ from pathlib import Path
 
 from weather.reporting.distribution_stage_attribution import (
     build_payload,
+    forecast_shape_scope_summary,
     render_report,
     write_outputs,
 )
 from weather.schema_registry import schema_version
+
+
+def _runtime_fields(source_fingerprint, *, commit="abc123"):
+    return {
+        "runtime_identity_schema_version": "runtime_identity_v0.1",
+        "runtime_git_branch": "master",
+        "runtime_git_commit": commit,
+        "runtime_git_dirty": "",
+        "runtime_dirty_fingerprint": "",
+        "runtime_source_fingerprint": source_fingerprint,
+        "runtime_code_state": "current",
+    }
 
 
 def _write_fixture(root):
@@ -90,6 +103,8 @@ class DistributionStageAttributionTests(unittest.TestCase):
         self.assertLess(by_component["feature_blend"]["mean_delta_brier"], 0.0)
         self.assertEqual(payload["by_regime"][0]["group"], "hgb")
         self.assertEqual(payload["net_negative_stages"][0]["group"], "post_live_signals")
+        self.assertEqual(payload["forecast_shape_scope"]["status"], "PASS")
+        self.assertEqual(payload["forecast_shape_scope"]["feature_model_forecast_shape_rows"], 0)
 
     def test_write_outputs_emits_json_and_markdown_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,8 +121,125 @@ class DistributionStageAttributionTests(unittest.TestCase):
 
         self.assertEqual(saved["status"], "ACTIONABLE")
         self.assertIn("Distribution Stage Attribution", report)
+        self.assertIn("Forecast Shape Scope", report)
         self.assertIn("post_live_signals", report)
         self.assertIn("Positive deltas", render_report(payload))
+
+    def test_forecast_shape_scope_reports_empirical_only_application(self):
+        rows = [
+            {
+                "component_name": "forecast_pull",
+                "stage_regime": "empirical",
+                "delta_brier": -0.02,
+                "delta_logloss": 0.03,
+                "winner_probability_delta": 0.10,
+            },
+            {
+                "component_name": "feature_blend",
+                "stage_regime": "hgb",
+                "delta_brier": -0.01,
+            },
+        ]
+
+        summary = forecast_shape_scope_summary(rows)
+
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual(summary["feature_model_forecast_shape_rows"], 0)
+        self.assertEqual(summary["empirical_forecast_shape_rows"], 1)
+        self.assertAlmostEqual(summary["empirical_delta_brier"], -0.02)
+        self.assertIn("empirical fallback", summary["reason"])
+
+    def test_forecast_shape_scope_blocks_feature_model_application(self):
+        summary = forecast_shape_scope_summary([
+            {
+                "component_name": "forecast_pull",
+                "stage_regime": "hgb",
+                "delta_brier": 0.01,
+                "delta_logloss": 0.02,
+            },
+        ])
+
+        self.assertEqual(summary["status"], "BLOCK")
+        self.assertEqual(summary["feature_model_forecast_shape_rows"], 1)
+        self.assertEqual(summary["feature_model_regimes"], ["hgb"])
+
+    def test_forecast_shape_scope_blocks_until_current_feature_tape_exists(self):
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "master",
+            "git_commit": "head",
+            "source_fingerprint": "current",
+        }
+
+        summary = forecast_shape_scope_summary(
+            [
+                {
+                    "component_name": "forecast_pull",
+                    "stage_regime": "hgb",
+                    **_runtime_fields("old", commit="old"),
+                },
+            ],
+            current_identity=current_identity,
+        )
+
+        self.assertEqual(summary["status"], "BLOCK")
+        self.assertEqual(summary["current_code_feature_model_forecast_shape_rows"], 0)
+        self.assertEqual(summary["stale_feature_model_forecast_shape_rows"], 1)
+        self.assertIn("no current-code feature-model component tape", summary["reason"])
+        self.assertIn("regenerate/replay", summary["next_unblock_action"])
+
+    def test_forecast_shape_scope_passes_when_current_feature_tape_has_no_pull(self):
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "master",
+            "git_commit": "head",
+            "source_fingerprint": "current",
+        }
+
+        summary = forecast_shape_scope_summary(
+            [
+                {
+                    "component_name": "forecast_pull",
+                    "stage_regime": "hgb",
+                    **_runtime_fields("old", commit="old"),
+                },
+                {
+                    "component_name": "hgb_feature_model",
+                    "stage_regime": "hgb",
+                    **_runtime_fields("current", commit="head"),
+                },
+            ],
+            current_identity=current_identity,
+        )
+
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual(summary["current_code_feature_model_component_rows"], 1)
+        self.assertEqual(summary["current_code_feature_model_forecast_shape_rows"], 0)
+        self.assertEqual(summary["stale_feature_model_forecast_shape_rows"], 1)
+        self.assertIn("stale relative to current source", summary["reason"])
+
+    def test_forecast_shape_scope_blocks_current_feature_pull(self):
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "master",
+            "git_commit": "head",
+            "source_fingerprint": "current",
+        }
+
+        summary = forecast_shape_scope_summary(
+            [
+                {
+                    "component_name": "forecast_pull",
+                    "stage_regime": "hgb",
+                    **_runtime_fields("current", commit="head"),
+                },
+            ],
+            current_identity=current_identity,
+        )
+
+        self.assertEqual(summary["status"], "BLOCK")
+        self.assertEqual(summary["current_code_feature_model_forecast_shape_rows"], 1)
+        self.assertIn("current-code forecast floor/pull rows", summary["reason"])
 
 
 if __name__ == "__main__":

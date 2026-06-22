@@ -15,6 +15,7 @@ from pathlib import Path
 
 from weather.io import read_json, write_json_atomic
 from weather.paths import data_path
+from weather.reporting import daily_rollup_freshness
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.trading_evidence import build_trading_evidence_summary
 from weather.schema_registry import schema_version
@@ -41,8 +42,12 @@ ARTIFACT_FILES = {
     "fleet_observability": "fleet_observability.json",
     "data_layer_audit": "data_layer_audit.json",
     "snapshot_evaluation": "snapshot_evaluation.json",
+    "settled_day_root_cause": "settled_day_root_cause.json",
     "settled_day_freshness": "settled_day_freshness.json",
     "source_family_inventory": "source_family_inventory.json",
+}
+ARTIFACT_FALLBACK_GLOBS = {
+    "settled_day_root_cause": ("settled_day_root_cause_*.json",),
 }
 
 
@@ -78,6 +83,11 @@ def first_present(*values):
     return None
 
 
+def _count_summary(counts):
+    counts = counts or {}
+    return ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "-"
+
+
 def _artifact_record(name, path, payload):
     status = None
     if isinstance(payload, dict):
@@ -96,13 +106,34 @@ def _artifact_record(name, path, payload):
     }
 
 
+def _latest_matching_artifact(root, pattern):
+    candidates = [path for path in Path(root).glob(pattern) if path.is_file()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
+
+
+def _load_artifact(root, name, filename):
+    path = Path(root) / filename
+    payload = read_json(path, default=None)
+    if payload is not None:
+        return path, payload
+    for pattern in ARTIFACT_FALLBACK_GLOBS.get(name, ()):
+        fallback_path = _latest_matching_artifact(root, pattern)
+        if fallback_path is None:
+            continue
+        payload = read_json(fallback_path, default=None)
+        if payload is not None:
+            return fallback_path, payload
+    return path, None
+
+
 def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT):
     root = Path(backtest_root)
     payloads = {}
     artifacts = {}
     for name, filename in ARTIFACT_FILES.items():
-        path = root / filename
-        payload = read_json(path, default=None)
+        path, payload = _load_artifact(root, name, filename)
         payloads[name] = payload or {}
         artifacts[name] = _artifact_record(name, path, payload)
     return payloads, artifacts
@@ -136,6 +167,12 @@ def _candidate_from_payloads(payloads):
 def _scorecard(payloads, daily_refresh_summary=None):
     daily = payloads.get("daily_refresh_status") or {}
     daily_summary = daily_refresh_summary or daily.get("summary") or {}
+    rollup_freshness = (
+        daily_summary.get("rollup_freshness")
+        or ((daily.get("summary") or {}).get("rollup_freshness"))
+        or payloads.get("rollup_freshness")
+        or {}
+    )
     labels = daily_summary.get("labels") or {}
     ingest = first_present(
         daily_summary.get("ingest_quality_gate"),
@@ -158,6 +195,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     trading = payloads.get("trading_evidence") or {}
     data_layer = payloads.get("data_layer_audit") or {}
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
+    root_cause = payloads.get("settled_day_root_cause") or {}
     settled_day = payloads.get("settled_day_freshness") or {}
     source_family_inventory = payloads.get("source_family_inventory") or {}
     snapshot_status = snapshot_eval.get("status") or {}
@@ -264,6 +302,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
         "data_layer_audit": {
             "gate_status": (data_layer.get("gate_summary") or {}).get("status"),
             "gate_summary": data_layer.get("gate_summary") or {},
+            "sidecar_eligibility": ((data_layer.get("snapshots") or {}).get("sidecar_eligibility") or {}),
             "recommendation_count": len(data_layer.get("recommendations") or []),
             "p0_remediation_count": len(
                 [
@@ -279,6 +318,11 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "snapshots": safe_int(snapshot_inventory.get("snapshot_count")),
             "top_gap_count": len(backlog.get("top_slices") or []),
         },
+        "settled_day_root_cause": {
+            "status": root_cause.get("status"),
+            "target_date": root_cause.get("target_date"),
+            "summary": root_cause.get("summary") or {},
+        },
         "settled_day_freshness": {
             "status": settled_day.get("status"),
             "target_date": settled_day.get("target_date"),
@@ -291,6 +335,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "summary": source_family_inventory.get("summary") or {},
             "promotion_preflight": source_family_inventory.get("promotion_preflight") or {},
         },
+        "rollup_freshness": rollup_freshness,
     }
 
 
@@ -519,6 +564,7 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     candidate = scorecard["candidate"]
     ingest = scorecard["ingest_quality_gate"]
     data_layer = scorecard["data_layer_audit"]
+    settled_root_cause = scorecard.get("settled_day_root_cause") or {}
     settled_day = scorecard["settled_day_freshness"]
     source_family_inventory = scorecard.get("source_family_inventory") or {}
     fleet = scorecard["fleet"]
@@ -534,6 +580,25 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     promotion = scorecard["promotion"]
     casebook = scorecard["casebook"]
+    rollup_freshness = scorecard.get("rollup_freshness") or {}
+
+    if rollup_freshness.get("status") == "BLOCK":
+        first = next(iter(rollup_freshness.get("blockers") or []), {})
+        learnings.append(_learning(
+            "P0",
+            "daily_rollup_freshness",
+            "daily_refresh_status",
+            (
+                "Daily compact rollup is stale: "
+                f"{first.get('rollup') or 'compact rollup'} is "
+                f"{first.get('status') or 'BLOCK'} after "
+                f"{first.get('latest_required_artifact') or 'a granular artifact'}."
+            ),
+            rollup_freshness.get("repair_command")
+            or "Run daily refresh from the daily_learning step after clearing only verified stale locks.",
+            evidence=rollup_freshness,
+            blocker=True,
+        ))
 
     if settled_day.get("status") == "FAIL":
         summary = settled_day.get("summary") or {}
@@ -571,6 +636,26 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             ),
             "Review source-lag provenance before treating the newest labels as official daily-summary settlements.",
             evidence=settled_day,
+        ))
+
+    root_cause_summary = settled_root_cause.get("summary") or {}
+    if safe_int(root_cause_summary.get("explanation_snapshot_count")):
+        coverage = root_cause_summary.get("explanation_coverage_rate")
+        learnings.append(_learning(
+            "P1",
+            "root_cause_explanation_tape",
+            "settled_day_root_cause",
+            (
+                f"Settled-day root-cause report has explanation tape for "
+                f"{root_cause_summary.get('explanation_snapshot_count')} snapshot(s); "
+                f"coverage {fmt_num(coverage, 3)}."
+            ),
+            "Use persisted snapshot_explanations rows for weak-slot diagnosis before rerunning the model.",
+            evidence={
+                "target_date": settled_root_cause.get("target_date"),
+                "summary": root_cause_summary,
+            },
+            retrain_input=True,
         ))
 
     if labels_total or corpus.get("market_day_count"):
@@ -616,6 +701,32 @@ def _build_learnings(payloads, scorecard, artifacts=None):
         data_payload.get("remediation_manifest") or [],
         report_path=data_layer_report,
     )
+    sidecar_eligibility = data_layer.get("sidecar_eligibility") or {}
+    sidecar_labels = sidecar_eligibility.get("primary_label_counts") or {}
+    backfill_count = int(sidecar_eligibility.get("backfill_candidate_folder_count") or 0)
+    active_regressions = int(sidecar_eligibility.get("active_day_sidecar_regression_count") or 0)
+    non_reconstructable = sidecar_eligibility.get("non_reconstructable_gap_counts") or {}
+    if sidecar_labels and (
+        backfill_count
+        or active_regressions
+        or non_reconstructable
+        or len([count for count in sidecar_labels.values() if count]) > 1
+    ):
+        learnings.append(_learning(
+            "P1" if active_regressions else "P2",
+            "sidecar_coverage_mix",
+            "data_layer_audit",
+            (
+                "Snapshot sidecar eligibility mix: "
+                + ", ".join(f"{key}={value}" for key, value in sorted(sidecar_labels.items()))
+            ),
+            (
+                "Run deterministic sidecar backfills where listed, and keep score-only or "
+                "market-event gaps out of broad improvement claims."
+            ),
+            evidence=sidecar_eligibility,
+            blocker=False,
+        ))
 
     if data_layer.get("gate_status") == "FAIL":
         first_p0 = next(
@@ -1158,6 +1269,7 @@ def build_learning_payload(
     run_date=None,
     generated_at_utc=None,
     daily_refresh_summary=None,
+    rollup_generated_at_overrides=None,
 ):
     payloads, artifacts = load_inputs(backtest_root)
     data_root = Path(backtest_root).parent
@@ -1166,6 +1278,17 @@ def build_learning_payload(
         taker_runs_root=data_root / "taker_runs",
     )
     generated = generated_at_utc or utc_iso()
+    daily_status_rollup = (
+        ((payloads.get("daily_refresh_status") or {}).get("summary") or {}).get("rollup_freshness")
+    )
+    if rollup_generated_at_overrides is not None or daily_status_rollup:
+        rollup_overrides = dict(rollup_generated_at_overrides or {})
+        rollup_overrides.setdefault("daily_learning", generated)
+        payloads["rollup_freshness"] = daily_rollup_freshness.build_rollup_freshness(
+            backtest_root,
+            snapshots_root=snapshots_root,
+            generated_at_overrides=rollup_overrides,
+        )
     daily_generated = (payloads.get("daily_refresh_status") or {}).get("generated_at_utc")
     scorecard = _scorecard(payloads, daily_refresh_summary=daily_refresh_summary)
     learnings = _build_learnings(payloads, scorecard, artifacts=artifacts)
@@ -1213,6 +1336,10 @@ def _scorecard_rows(scorecard):
     price_free_carryover = (price_free.get("current_max_carryover") or {}).get("summary") or {}
     casebook = scorecard.get("casebook") or {}
     snapshot_eval = scorecard.get("snapshot_evaluation") or {}
+    data_layer = scorecard.get("data_layer_audit") or {}
+    sidecar_eligibility = data_layer.get("sidecar_eligibility") or {}
+    root_cause = scorecard.get("settled_day_root_cause") or {}
+    root_cause_summary = root_cause.get("summary") or {}
     core_trend = scorecard.get("core_model_trend_claim") or {}
     core_summary = core_trend.get("summary") or {}
     fleet = scorecard.get("fleet") or {}
@@ -1270,6 +1397,15 @@ def _scorecard_rows(scorecard):
         ["Model-losing cases", casebook.get("model_loss_count")],
         ["Snapshot evaluation", snapshot_eval.get("status")],
         ["Top gap slices", snapshot_eval.get("top_gap_count")],
+        ["Sidecar eligibility mix", _count_summary(sidecar_eligibility.get("primary_label_counts"))],
+        [
+            "Root-cause explanation tape",
+            (
+                f"{root_cause.get('status') or '-'}; "
+                f"snapshots={root_cause_summary.get('explanation_snapshot_count', 0)}; "
+                f"coverage={fmt_num(root_cause_summary.get('explanation_coverage_rate'), 3)}"
+            ),
+        ],
         [
             "Broad live-forward SLO",
             (
@@ -1485,9 +1621,12 @@ def _current_code_soak_rows(soak):
             row.get("single_writer"),
             row.get("restart_count"),
             row.get("restart_budget"),
+            row.get("restart_budget_clears_at_utc") or "-",
             row.get("duplicate_writer_incidents"),
+            row.get("diagnostic_duplicate_writer_incidents"),
             row.get("benign_duplicate_writer_blocks"),
             row.get("malformed_lines"),
+            "; ".join(row.get("immediate_repair_commands") or []) or "-",
             "; ".join(row.get("blocking_reasons") or []) or "-",
         ]
         for row in (soak or {}).get("loops") or []
@@ -1523,6 +1662,38 @@ def render_report(payload):
     )
     lines += ["", "## Scorecard", ""]
     lines += markdown_table(["Area", "Value"], _scorecard_rows(scorecard))
+    rollup_freshness = scorecard.get("rollup_freshness") or {}
+    if rollup_freshness:
+        lines += [
+            "",
+            "## Daily Rollup Freshness",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", rollup_freshness.get("status") or "-"],
+                ["Latest granular artifact", rollup_freshness.get("latest_required_artifact") or "-"],
+                ["Latest granular timestamp", rollup_freshness.get("latest_required_timestamp_utc") or "-"],
+                ["Blockers", rollup_freshness.get("blocker_count", 0)],
+                ["Repair command", rollup_freshness.get("repair_command") or "-"],
+            ],
+        )
+        if rollup_freshness.get("blockers"):
+            lines += [
+                "",
+                "| Rollup | Status | Latest Granular Artifact | Rollup Timestamp | Granular Timestamp |",
+                "| :--- | :--- | :--- | :--- | :--- |",
+            ]
+            for blocker in rollup_freshness.get("blockers") or []:
+                lines.append(
+                    "| "
+                    f"{blocker.get('rollup')} | "
+                    f"{blocker.get('status')} | "
+                    f"{blocker.get('latest_required_artifact') or '-'} | "
+                    f"{blocker.get('rollup_timestamp_utc') or '-'} | "
+                    f"{blocker.get('latest_required_timestamp_utc') or '-'} |"
+                )
     early_hour_market_deltas = (
         (scorecard.get("hourly_model_performance") or {}).get("early_hour_market_deltas")
         or []
@@ -1619,6 +1790,13 @@ def render_report(payload):
                     ],
                     ["Total gaps", cadence_summary.get("total_gap_count")],
                     ["Max gap minutes", cadence_summary.get("max_gap_minutes")],
+                    ["Recoverable same-day markets", cadence_summary.get("recoverable_same_day_market_count")],
+                    [
+                        "Nonrecoverable active-day blocked markets",
+                        cadence_summary.get("nonrecoverable_active_day_blocked_market_count"),
+                    ],
+                    ["Clean active day required", cadence_summary.get("clean_active_day_required")],
+                    ["Next unblock action", cadence_summary.get("next_unblock_action") or "-"],
                     ["Status command", cadence_proof.get("status_command") or "-"],
                     ["Repair command", cadence_proof.get("repair_command") or "-"],
                     ["Verification command", cadence_proof.get("verification_command") or "-"],
@@ -1645,14 +1823,20 @@ def render_report(payload):
                 ["First blocking loop", soak_summary.get("first_blocking_loop") or "-"],
                 ["First blocking reason", soak_summary.get("first_blocking_reason") or "-"],
                 ["Cadence SLO", current_soak.get("cadence_slo_status") or "-"],
+                ["Immediate repair loops", soak_summary.get("immediate_repair_loop_count")],
+                ["Aging blocker loops", soak_summary.get("aging_blocker_loop_count")],
+                ["First immediate repair", soak_summary.get("first_immediate_repair_command") or "-"],
+                ["Latest aging blocker clears", soak_summary.get("latest_aging_blocker_clears_at_utc") or "-"],
                 ["Benign duplicate-writer blocks", soak_summary.get("benign_duplicate_writer_block_count")],
                 ["Duplicate-writer incidents", soak_summary.get("duplicate_writer_incident_count")],
+                ["7d duplicate-writer incidents", soak_summary.get("diagnostic_duplicate_writer_incident_count")],
             ],
         )
         lines += markdown_table(
             [
                 "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
-                "Budget", "Dup Incidents", "Benign Dup Blocks", "Malformed", "Blocking Reasons",
+                "Budget", "Restarts Clear At", "Dup Incidents", "7d Dup Incidents",
+                "Benign Dup Blocks", "Malformed", "Immediate Repair", "Blocking Reasons",
             ],
             _current_code_soak_rows(current_soak),
         )

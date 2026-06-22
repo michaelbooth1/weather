@@ -3,6 +3,10 @@
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
 
+Source: market-making roadmap items 43-46 and 55-57 built the keyless
+policy/orchestration/risk foundation, while item 45 defines the platform and
+account gates required before any live order can be submitted.
+
 Why this is missing: items 43-46, 55-57, and 44 build the keyless policy,
 orchestration, lifecycle, budget, cockpit, and paper-scoring system. Item 45
 defines live gates and platform/account verification. There is still no
@@ -11,6 +15,11 @@ heartbeats, reconciles, redeems, and proves real order lifecycle behavior.
 Item 45's software gates are now ready: live-pilot requires current
 live-readiness, data-layer audit, and platform-verification artifacts before
 any adapter may submit an order.
+
+Why this matters: authenticated exchange access is the first point where a
+software defect can spend real funds or leave live orders open. The adapter and
+pilot evidence must prove lifecycle, reconciliation, and paid-vs-predicted
+behavior before any size increase.
 
 - [x] Keep credentials, private keys, API secrets, wallet addresses, and
   allowance settings outside the repo; add read-only account diagnostics before

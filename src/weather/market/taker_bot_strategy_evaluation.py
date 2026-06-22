@@ -136,6 +136,75 @@ def current_high_band_distance(row):
     return round(min(abs(current - value), abs(current - value_hi)), 6)
 
 
+def band_key_text(row):
+    kind, value, value_hi = band_key(row)
+    if value is None:
+        return ""
+    if kind == "eq" and value_hi not in (None, value):
+        return f"{kind}:{value}-{value_hi}"
+    return f"{kind}:{value}"
+
+
+def warm_distance_from_modal(row, modal):
+    if not modal:
+        return None
+    kind, value, value_hi = band_key(row)
+    modal_hi = maybe_float(modal.get("market_modal_band_hi"))
+    if value is None or modal_hi is None:
+        return None
+    if kind == "lte":
+        return 0.0
+    if kind == "gte":
+        return round(max(0.0, float(value) - modal_hi), 6)
+    return round(max(0.0, float(value) - modal_hi), 6)
+
+
+def market_modal_contexts(input_rows):
+    contexts = {}
+    for row in input_rows or []:
+        key = (
+            row.get("market_id") or "",
+            row.get("event_slug") or "",
+            row.get("snapshot_id") or "",
+        )
+        probability = maybe_float(first_present(row, "market_mid", "market_yes", "clob_midpoint"))
+        if probability is None:
+            continue
+        kind, value, value_hi = band_key(row)
+        if value is None:
+            continue
+        current = contexts.get(key)
+        if current is None or probability > float(current.get("market_modal_probability") or -1.0):
+            contexts[key] = {
+                "market_modal_band_key": band_key_text(row),
+                "market_modal_probability": compact_float(probability),
+                "market_modal_band_kind": kind,
+                "market_modal_band_value": value,
+                "market_modal_band_hi": value if value_hi is None else value_hi,
+            }
+    return contexts
+
+
+def modal_context_for_row(row, modal_contexts, config=None):
+    key = (
+        row.get("market_id") or "",
+        row.get("event_slug") or "",
+        row.get("snapshot_id") or "",
+    )
+    modal = (modal_contexts or {}).get(key) or {}
+    distance = warm_distance_from_modal(row, modal)
+    min_distance = float((config or {}).get("market_centered_warm_tail_min_distance") or 1.0)
+    return {
+        "market_modal_band_key": modal.get("market_modal_band_key") or "",
+        "market_modal_probability": modal.get("market_modal_probability"),
+        "market_modal_band_distance": compact_float(distance),
+        "market_centered_warm_tail": bool(
+            distance is not None
+            and distance >= min_distance
+        ),
+    }
+
+
 def adjacent_bin_cluster_key(row):
     kind, value, value_hi = band_key(row)
     market_id = row.get("market_id") or "unknown"
@@ -146,6 +215,10 @@ def adjacent_bin_cluster_key(row):
         return f"{market_id}:{event_slug}:{kind}:{value}"
     cluster_floor = int(value) - (int(value) % 3)
     return f"{market_id}:{event_slug}:eq:{cluster_floor}-{cluster_floor + 2}"
+
+
+def same_snapshot_adjacent_cluster_key(row):
+    return f"{row.get('snapshot_id') or 'missing'}:{adjacent_bin_cluster_key(row)}"
 
 
 def reliability_context_key(row):
@@ -258,6 +331,98 @@ def enrich_taker_risk_fields(row, config):
     return out
 
 
+def weak_slot_gate_state(row, config):
+    state = {
+        "weak_slot_gate_status": "inactive",
+        "weak_slot_gate_reason": "",
+        "weak_slot_gate_source": "",
+    }
+    if not config.get("weak_slot_guard_enabled", True):
+        return state
+    local, _zone_name = market_local_time(row)
+    if local is None:
+        return state
+    slot = local.hour * 60 + ((local.minute // 10) * 10)
+    configured_minutes = set(config.get("_weak_slot_minutes") or [])
+    configured_hours = csv_number_set(config.get("weak_slot_guard_hours"))
+    in_slot = slot in configured_minutes
+    in_hour = local.hour in configured_hours
+    if not in_slot and not in_hour:
+        return state
+    ten_status = str(config.get("_weak_slot_gate_status") or "CONFIG").upper()
+    hourly_status = str(config.get("_hourly_gate_status") or "CONFIG").upper()
+    block_statuses = csv_tokens(config.get("weak_slot_guard_block_statuses") or "BLOCK")
+    blocked = (
+        ten_status.lower() in block_statuses
+        or hourly_status.lower() in block_statuses
+        or not configured_minutes
+    )
+    state["weak_slot_gate_status"] = "blocked" if blocked else "active"
+    source = config.get("_weak_slot_gate_source") or "config"
+    state["weak_slot_gate_source"] = source
+    reason_bits = [f"slot:{local.hour:02d}:{(local.minute // 10) * 10:02d}"]
+    if in_slot:
+        reason_bits.append(f"ten_minute_gate:{ten_status}")
+    if in_hour and not in_slot:
+        reason_bits.append("configured_weak_hour")
+    if hourly_status not in {"", "CONFIG"}:
+        reason_bits.append(f"hourly_gate:{hourly_status}")
+    blocker = config.get("_weak_slot_gate_first_blocker") or config.get("_hourly_gate_first_blocker")
+    if blocker:
+        reason_bits.append(f"blocker:{blocker}")
+    state["weak_slot_gate_reason"] = ";".join(reason_bits)
+    return state
+
+
+def warm_tail_guard_state(row, config):
+    state = {
+        "warm_tail_guard_status": "inactive",
+        "warm_tail_guard_reason": "",
+    }
+    if not config.get("market_centered_warm_tail_guard_enabled", True):
+        return state
+    if not bool_value(row.get("market_centered_warm_tail"), False):
+        return state
+    state["warm_tail_guard_status"] = "active"
+    family = str(row.get("strategy_family") or "").strip().lower()
+    status = str(row.get("strategy_status") or "").strip().lower()
+    blocked_families = csv_tokens(config.get("market_centered_warm_tail_block_strategy_families"))
+    allowed_statuses = {"candidate", "promoted", "active"}
+    reasons = [
+        f"distance:{row.get('market_modal_band_distance')}",
+        f"market_modal:{row.get('market_modal_band_key') or 'missing'}",
+    ]
+    if family in blocked_families:
+        state.update({
+            "warm_tail_guard_status": "blocked",
+            "warm_tail_guard_reason": ";".join([*reasons, f"strategy_family:{family}"]),
+        })
+        return state
+    if status not in allowed_statuses:
+        state.update({
+            "warm_tail_guard_status": "blocked",
+            "warm_tail_guard_reason": ";".join([*reasons, f"strategy_status:{status or 'missing'}"]),
+        })
+        return state
+    if config.get("market_centered_warm_tail_require_clob_continuity", True) and row.get("clob_continuity_status") != "pass":
+        state.update({
+            "warm_tail_guard_status": "blocked",
+            "warm_tail_guard_reason": ";".join([*reasons, "clob_continuity_not_pass"]),
+        })
+        return state
+    if config.get("market_centered_warm_tail_require_risk_adjusted", True):
+        risk_edge = maybe_float(row.get("risk_adjusted_edge"))
+        threshold = float(config.get("market_centered_warm_tail_min_risk_adjusted_edge") or 0.0)
+        if risk_edge is None or risk_edge < threshold:
+            state.update({
+                "warm_tail_guard_status": "blocked",
+                "warm_tail_guard_reason": ";".join([*reasons, f"risk_edge_below:{threshold}"]),
+            })
+            return state
+    state["warm_tail_guard_reason"] = ";".join(reasons)
+    return state
+
+
 def base_order_row(input_row, run_id, target_date, now, config, config_hash, strategy=None, experiment_id=None):
     strategy = strategy or {}
     experiment_id = experiment_id or DEFAULT_EXPERIMENT_ID
@@ -294,6 +459,7 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "experiment_id": experiment_id,
         "strategy_id": strategy.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID,
         "strategy_family": strategy.get("strategy_family") or "raw_edge",
+        "strategy_status": strategy.get("status") or "control",
         "assignment_rule": strategy.get("assignment_rule") or "shared_inputs_full_shadow",
         "control_strategy_id": strategy.get("control_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID,
         "strategy_config_hash": strategy.get("strategy_config_hash") or config_hash,
@@ -335,11 +501,22 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "sizing_limit_reason": "base",
         "low_price_tail": False,
         "tail_risk_bucket": "",
+        "market_modal_band_key": "",
+        "market_modal_probability": None,
+        "market_modal_band_distance": None,
+        "market_centered_warm_tail": False,
+        "warm_tail_guard_status": "inactive",
+        "warm_tail_guard_reason": "",
+        "weak_slot_gate_status": "inactive",
+        "weak_slot_gate_reason": "",
+        "weak_slot_gate_source": "",
         "current_high_band_distance": None,
         "adjacent_bin_cluster_key": "",
         "market_notional_before_usdc": 0.0,
         "adjacent_cluster_notional_before_usdc": 0.0,
         "low_price_tail_notional_before_usdc": 0.0,
+        "market_centered_warm_tail_notional_before_usdc": 0.0,
+        "same_snapshot_adjacent_cluster_fill_count_before": 0,
         "repeated_opinion_fill_count_before": 0,
         "clob_continuity_status": "",
         "clob_continuity_reason": "",
@@ -415,6 +592,18 @@ def candidate_skip_reason(row, config):
         return "NO_TRADE_STALE_BOOK", "book age exceeds latency budget"
     if model_age is None or model_age > float(config["max_model_age_seconds"]):
         return "NO_TRADE_STALE_MODEL", "model age exceeds latency budget"
+    blocked_weak_slot_families = csv_tokens(config.get("weak_slot_guard_block_strategy_families"))
+    strategy_family = str(row.get("strategy_family") or "").strip().lower()
+    if row.get("weak_slot_gate_status") == "blocked" and strategy_family in blocked_weak_slot_families:
+        return (
+            "NO_TRADE_WEAK_SLOT_KILL_SWITCH",
+            row.get("weak_slot_gate_reason") or "strategy is blocked by weak-slot performance gate",
+        )
+    if row.get("warm_tail_guard_status") == "blocked":
+        return (
+            "NO_TRADE_MARKET_CENTERED_WARM_TAIL",
+            row.get("warm_tail_guard_reason") or "market-centered warm-tail guard blocked this buy",
+        )
     min_capture_hour = maybe_float(config.get("min_capture_hour_local"))
     if min_capture_hour is not None and min_capture_hour >= 0:
         capture_hour = maybe_float(row.get("capture_hour_local"))

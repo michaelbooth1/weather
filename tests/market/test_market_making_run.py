@@ -15,6 +15,7 @@ from weather.market.market_making_run import (
     utc_now,
 )
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
+from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
 
 
 NOW = "2026-06-14T16:00:00+00:00"
@@ -1069,12 +1070,81 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertFalse(remediation["counts_toward_live_forward_gate"])
             incidents = remediation["incidents"]
             self.assertTrue(all(row["suggested_command"] for row in incidents))
+            clob_incidents = [row for row in incidents if row.get("gate") == "clob_freshness"]
+            self.assertTrue(clob_incidents)
+            self.assertIn("161", clob_incidents[0]["roadmap_owner_items"])
             risk_events = [
                 json.loads(line)
                 for line in Path(payload["risk_events_path"]).read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
             self.assertTrue(any(row.get("category") == "preflight_remediation" for row in risk_events))
+
+    def test_preflight_recovery_closeout_records_commands_and_reruns_mm_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root, stale_book=True)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="needs-repair",
+                now=NOW,
+            )
+            self.assertEqual(payload["preflight_status"], "STALE")
+
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            fresh_book_time = "2026-06-14T16:00:20+00:00"
+            clob_rows = read_csv(folder / "clob_features_long.csv")
+            for row in clob_rows:
+                row["clob_book_captured_at_utc"] = fresh_book_time
+                row["clob_book_age_seconds"] = "10.0"
+            write_csv(folder / "clob_features_long.csv", list(clob_rows[0].keys()), clob_rows)
+            book_rows = read_csv(folder / "order_books_summary.csv")
+            for row in book_rows:
+                row["captured_at_utc"] = fresh_book_time
+                row["captured_at_local"] = fresh_book_time
+                row["book_time_utc"] = fresh_book_time
+            write_csv(folder / "order_books_summary.csv", list(book_rows[0].keys()), book_rows)
+
+            closeout = close_out_preflight_recovery(
+                payload["run_folder"],
+                execute_remediation=False,
+                now="2026-06-14T16:00:30+00:00",
+            )
+
+            self.assertEqual(closeout["status"], "RECOVERED")
+            self.assertTrue(closeout["recovered"])
+            self.assertTrue(Path(payload["run_folder"], "preflight_recovery_closeout.json").exists())
+            self.assertTrue(Path(payload["run_folder"], "post_repair_preflight.json").exists())
+            self.assertTrue(closeout["command_results"])
+            self.assertEqual(closeout["command_results"][0]["action"], "skipped")
+            self.assertIn("dry-run closeout", closeout["command_results"][0]["skip_reason"])
+            self.assertIn(
+                "python -m weather.market.market_microstructure ensure",
+                [row["suggested_command"] for row in closeout["command_results"]],
+            )
+            self.assertEqual(closeout["post_repair_run"]["preflight_status"], "PASS")
+            self.assertTrue(closeout["post_repair_run"]["counts_toward_live_forward_gate"])
+
+            original_summary = json.loads(
+                Path(payload["run_folder"], "run_summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(original_summary["preflight_recovery_closeout"]["status"], "RECOVERED")
+            self.assertEqual(
+                original_summary["preflight_recovery_closeout_path"],
+                str(Path(payload["run_folder"], "preflight_recovery_closeout.json")),
+            )
 
     def test_live_forward_gate_explains_fresh_observation_but_stale_clob_block(self):
         with tempfile.TemporaryDirectory() as tmp:

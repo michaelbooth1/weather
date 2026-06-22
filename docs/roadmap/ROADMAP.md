@@ -121,13 +121,18 @@ infrastructure work remains.
 | 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-20 - CADENCE PROOF ADDED, CLEAN ACTIVE DAY PENDING]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
-| 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-21 - CHILD ITEMS SCOPED, VALIDATION PENDING]](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 186 | [Soil-Moisture And Antecedent Land-Surface Dryness Predictor [PARTIAL 2026-06-21 - SOIL ANOMALY FEATURES LIVE, GATE PENDING]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
-| 187 | [Forecast Shortwave-Radiation And Peak-Window Insolation Features [PARTIAL 2026-06-21 - RADIATION FEATURE PATH LIVE, GATE PENDING]](items/item-187-forecast-shortwave-insolation-features.md) |
-| 188 | [Aerosol And Wildfire-Smoke Suppression Features [PARTIAL 2026-06-21 - OPEN-METEO AQ FEATURE PATH LIVE, SMOKE-SLICE GATE PENDING]](items/item-188-aerosol-wildfire-smoke-features.md) |
-| 189 | [ECMWF And ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-21 - OPEN-METEO GLOBAL MODEL CLUSTER LIVE, GATE PENDING]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
+| 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - CHILD GATE TRIAGE REFRESHED, VALIDATION PENDING]](items/item-185-daily-high-predictor-data-source-expansion.md) |
+| 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [PARTIAL 2026-06-21 - SOIL ANOMALY FEATURES LIVE, GATE PENDING]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
+| 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-21 - RADIATION FEATURE PATH LIVE, GATE PENDING]](items/item-187-forecast-shortwave-insolation-features.md) |
+| 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-21 - OPEN-METEO AQ FEATURE PATH LIVE, SMOKE-SLICE GATE PENDING]](items/item-188-aerosol-wildfire-smoke-features.md) |
+| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-21 - OPEN-METEO GLOBAL MODEL CLUSTER LIVE, GATE PENDING]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-21 - NBP STATION PERCENTILES LIVE, QMD EXCEEDANCE GRID GATE PENDING]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-21 - STATION WATER-FORECAST CONTRAST LIVE, GLSEA/OISST GATE PENDING]](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
+| 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
+| 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |
+| 203 | [Historical Snapshot Sidecar Coverage Closure [COMPLETE 2026-06-21 - SIDECAR ELIGIBILITY AND PROMOTION EXCLUSIONS LIVE]](items/item-203-historical-snapshot-sidecar-coverage-closure.md) |
+| 208 | [Historical Feature-Quality Quarantine And Training Exclusion [COMPLETE 2026-06-21 - FEATURE-QUALITY QUARANTINE EXCLUDES LEGACY BAD ROWS]](items/item-208-historical-feature-quality-quarantine-and-training-exclusion.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -212,27 +217,37 @@ infrastructure work remains.
 | 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-20 - CANDIDATE GATE PASSES, CURRENT GATE STILL BLOCKED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
 | 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
-| 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE 2026-06-20 - SETTLED TAKER FINALIZATION LIVE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
+| 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
 | 165 | [Taker Strategy Experiment Harness And Arm Attribution [COMPLETE 2026-06-20 - MULTI-ARM ATTRIBUTION LIVE]](items/item-165-taker-strategy-experiment-harness-and-arm-attribution.md) |
 | 166 | [Settlement-Scored Taker Strategy Bakeoff [COMPLETE 2026-06-20 - BAKEOFF AND LABEL-QUALITY BLOCKERS LIVE]](items/item-166-settlement-scored-taker-strategy-bakeoff.md) |
 | 167 | [Calibration-Aware Taker Sizing And Tail-Risk Controls [COMPLETE 2026-06-20 - RISK-ADJUSTED SIZING LIVE]](items/item-167-calibration-aware-taker-sizing-and-tail-risk-controls.md) |
 | 168 | [Ten-Minute Performance Gate And Weak-Slot Watchlist [COMPLETE]](items/item-168-ten-minute-performance-gate-and-weak-slot-watchlist.md) |
 | 169 | [Predawn Winner-Centering And Forecast-Anchor Repair [COMPLETE 2026-06-20 - LOGISTIC WINNER-CENTERING PASS]](items/item-169-predawn-winner-centering-and-forecast-anchor-repair.md) |
 | 170 | [Late-Day Lock-In Probability Saturation [COMPLETE 2026-06-20 - GROUP-GATED LOGISTIC LOCK-IN PASS]](items/item-170-late-day-lock-in-probability-saturation.md) |
-| 178 | [Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-21 - SERVING-ONLY SMOOTHING REMOVED, RETRAIN PENDING]](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
-| 179 | [Honest Blocked Validation For Feature-Model Tuning [PARTIAL 2026-06-21 - TRAINER USES HONEST HOLDOUT-YEAR SPLITS, RE-EXPORT PENDING]](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
+| 178 | [Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - SERVING-ONLY SMOOTHING REMOVED, RETRAIN STILL PENDING]](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
+| 179 | [Honest Blocked Validation For Feature-Model Tuning [PARTIAL 2026-06-22 - HONEST SPLITS LIVE, RE-EXPORT STILL PENDING]](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
 | 180 | [Unit-Safe Missing-Feature Handling [COMPLETE 2026-06-21 - MISSINGNESS ROUTES THROUGH IMPUTER]](items/item-180-unit-safe-missing-feature-handling.md) |
-| 181 | [Forecast Signal Double-Counting And Dead Capture-Hour [PARTIAL 2026-06-21 - ML FORECAST SHAPE REMOVED, CAPTURE_HOUR LIVE]](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
+| 181 | [Forecast Signal Double-Counting And Dead Capture-Hour [PARTIAL 2026-06-22 - SCOPE PROOF BLOCKED ON CURRENT FEATURE TAPE]](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
 | 182 | [Distribution Stage-Attribution Harness [COMPLETE 2026-06-21 - SETTLED STAGE ATTRIBUTION LIVE]](items/item-182-distribution-stage-attribution-harness.md) |
 | 183 | [Correlated Forecast-Source Clustering On Fallback Path [COMPLETE 2026-06-21 - FALLBACK CONSENSUS CLUSTER LIVE]](items/item-183-correlated-forecast-source-clustering-fallback-path.md) |
 | 184 | [Per-Market Climatological Fallback Prior [COMPLETE 2026-06-21 - MARKET-SPECIFIC FALLBACK PRIOR LIVE]](items/item-184-per-market-climatological-fallback-prior.md) |
-| 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-21 - CHILD ITEMS SCOPED, VALIDATION PENDING]](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [PARTIAL 2026-06-21 - SOIL ANOMALY FEATURES LIVE, GATE PENDING]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
-| 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-21 - RADIATION FEATURE PATH LIVE, GATE PENDING]](items/item-187-forecast-shortwave-insolation-features.md) |
-| 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-21 - OPEN-METEO AQ FEATURE PATH LIVE, SMOKE-SLICE GATE PENDING]](items/item-188-aerosol-wildfire-smoke-features.md) |
-| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-21 - OPEN-METEO GLOBAL MODEL CLUSTER LIVE, GATE PENDING]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-21 - NBP STATION PERCENTILES LIVE, QMD EXCEEDANCE GRID GATE PENDING]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
-| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-21 - STATION WATER-FORECAST CONTRAST LIVE, GLSEA/OISST GATE PENDING]](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 192 | [Taker Active-Policy Warm-Tail Kill Switch And Arm Cutover [COMPLETE 2026-06-21 - ACTIVE DEFAULT CUT TO LOW-PRICE TAIL-CAPPED ARM]](items/item-192-taker-active-policy-warm-tail-kill-switch-and-arm-cutover.md) |
+| 194 | [High-Disagreement Forecast Warm-Outlier Dampening [COMPLETE 2026-06-21 - ROBUST FORECAST SIGNAL CAP LIVE]](items/item-194-high-disagreement-forecast-warm-outlier-dampening.md) |
+| 195 | [Ramp-Window Ordinal Centering And Warm-Tail Spread Repair [COMPLETE 2026-06-21 - RAMP WARM-TAIL DAMPENER LIVE]](items/item-195-ramp-window-ordinal-centering-and-warm-tail-spread-repair.md) |
+| 196 | [Late-Day Lock-In Coverage And Saturation Parity [COMPLETE 2026-06-21 - EXPANDED STOOD-HIGH LOCK-IN LIVE]](items/item-196-late-day-lock-in-coverage-and-saturation-parity.md) |
+| 198 | [Settled-Day Root-Cause Attribution Report [COMPLETE 2026-06-21 - CANONICAL REPORT AND DAILY-REFRESH STEP LIVE]](items/item-198-settled-day-root-cause-attribution-report.md) |
+| 199 | [Daily Learning Rollup Stale-Lock Recovery [COMPLETE 2026-06-21 - STALE LOCKS AND STALE ROLLUPS FAIL CLOSED]](items/item-199-daily-learning-rollup-stale-lock-recovery.md) |
+| 200 | [First-Class Model Explanation Tape [COMPLETE 2026-06-21 - EXPLANATION SIDECARS QUERYABLE BY SNAPSHOT]](items/item-200-first-class-model-explanation-tape.md) |
+| 202 | [Price-History And WebSocket Event Capture Loop [COMPLETE 2026-06-21]](items/item-202-price-history-and-websocket-event-capture-loop.md) |
+| 207 | [Root-Cause Active Owner Recurrence Routing [COMPLETE 2026-06-21 - ACTIVE OWNER RECURRENCE ROUTING LIVE]](items/item-207-root-cause-active-owner-recurrence-routing.md) |
+| 209 | [Taker Active Strategy Post-Cutover Canary [COMPLETE 2026-06-21 - CANARY LIFECYCLE GATES COMPLETE-LABEL PROMOTION]](items/item-209-taker-active-strategy-post-cutover-canary.md) |
+| 210 | [Market-Maker Stale-Input Blackout Routing And Active-Day Evidence SLA [COMPLETE 2026-06-21 - CRITICAL SLA ROUTES LOST ACTIVE DAYS TO 161/157]](items/item-210-mm-stale-input-blackout-routing-and-evidence-sla.md) |
+| 211 | [Active-Day Supervisor Repair And MM Preflight Rerun [OPEN 2026-06-22 - JUNE 21 PREFLIGHT BLOCK NEEDS OPERATOR CLOSEOUT]](items/item-211-active-day-supervisor-repair-and-mm-preflight-rerun.md) |
+| 212 | [Snapshot Cadence As Model-Quality And Trading-Permission Input [OPEN 2026-06-22 - CADENCE GAPS MUST REDUCE CONFIDENCE]](items/item-212-snapshot-cadence-as-model-quality-and-trading-permission-input.md) |
+| 213 | [Current-Date WU History Expected-Degradation Handling [OPEN 2026-06-22 - CURRENT-DAY 400S SHOULD NOT LOOK LIKE SOURCE FAILURES]](items/item-213-current-date-wu-history-expected-degradation.md) |
+| 214 | [Settlement-Scored Taker Promotion And Tail-Fill Gate [OPEN 2026-06-22 - MTM-ONLY PNL MUST NOT PROMOTE STRATEGIES]](items/item-214-settlement-scored-taker-promotion-and-tail-fill-gate.md) |
+| 215 | [Current-High Trust Gate For Aggressive Trading [OPEN 2026-06-22 - UNTRUSTED CURRENT MAX MUST CAP TAKER AND MM RISK]](items/item-215-current-high-trust-gate-for-aggressive-trading.md) |
+| 216 | [Runtime-Identity Segmented Model Evidence [OPEN 2026-06-22 - MIXED COMMITS MUST NOT BLUR MODEL REVIEW]](items/item-216-runtime-identity-segmented-model-evidence.md) |
 
 ### Architecture And Maintainability
 
@@ -271,12 +286,15 @@ infrastructure work remains.
 | 175 | [Roadmap Backlog Normalization And Historical Noise Reduction [COMPLETE 2026-06-21 - ACTIVE BACKLOG PARSER AND LINT LIVE]](items/item-175-roadmap-backlog-normalization-and-historical-noise-reduction.md) |
 | 176 | [Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-06-21 - DRY-RUN REPORT LIVE, DESTRUCTIVE SWEEP DEFERRED]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | [Core Model Validation And Serving Skew Repair [PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
+| 204 | [Roadmap Index Ownership Lint And Duplicate Membership [COMPLETE 2026-06-21 - INDEX LINT GATE LIVE]](items/item-204-roadmap-index-ownership-lint-and-duplicate-membership.md) |
+| 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
+| 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 
 ## Maintenance Conventions
 
 - Update the owning item file rather than this index when changing item scope, status, acceptance criteria, or implementation notes.
 - Keep numbered item headings in the format `# N. Title [STATUS]` so audit tooling and human readers can find them quickly.
-- Regenerate the compact active backlog with `python -m weather.reporting.roadmap_backlog --fail-on-lint`; use `active-backlog.md` as the default operator scan path for OPEN and PARTIAL work.
+- Regenerate the compact active backlog with `python -m weather.reporting.roadmap_backlog --fail-on-lint`; this also lints `ROADMAP.md` index ownership, links, title text, and status text against canonical item files.
 - Historical implementation updates and command transcripts inside completed or dated sections are historical-only evidence, not current operator instructions.
 - Add broad narrative updates to `overview.md`, track framing to `tracks/`, and historical findings to `audits/`.
 - When adding or moving numbered items, update the table above in the same change.

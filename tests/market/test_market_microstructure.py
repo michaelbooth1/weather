@@ -270,6 +270,37 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(status_rows[0]["captured_tokens"], 1)
         self.assertEqual(status_rows[0]["books"], 0)
 
+    def test_websocket_failure_does_not_drop_rest_book_capture(self):
+        def failing_websocket(_url, timeout=30):
+            raise RuntimeError("websocket unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = capture_event_books(
+                sample_event(),
+                market_id="toronto",
+                clob_client=FakeClobClient(),
+                root=tmp,
+                outcomes="yes",
+                websocket_factory=failing_websocket,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+            status_rows = [
+                json.loads(line)
+                for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            summary_rows = list(csv.DictReader((root / "order_books_summary.csv").open(encoding="utf-8", newline="")))
+            history_rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(result["books"], 1)
+        self.assertEqual(result["price_history_rows"], 1)
+        self.assertEqual(result["ws_messages"], 0)
+        self.assertIn("websocket unavailable", result["ws_error"])
+        self.assertEqual(status_rows[0]["status"], "OK")
+        self.assertIn("websocket unavailable", status_rows[0]["ws_error"])
+        self.assertEqual(len(summary_rows), 1)
+        self.assertEqual(len(history_rows), 1)
+
     def test_snapshot_band_key_reads_new_upper_endpoint_column(self):
         self.assertEqual(
             snapshot_band_key({
@@ -419,8 +450,8 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         def capture_fn(**kwargs):
             self.assertEqual(kwargs["market_id"], "toronto")
-            self.assertFalse(kwargs["include_price_history"])
-            self.assertFalse(kwargs["include_ws_events"])
+            self.assertTrue(kwargs["include_price_history"])
+            self.assertTrue(kwargs["include_ws_events"])
             return {
                 "toronto": {
                     "books": 2,
@@ -453,8 +484,8 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(written["last_market_results"]["toronto"]["books"], 2)
         self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 4)
         self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 1)
-        self.assertFalse(written["include_price_history"])
-        self.assertFalse(written["include_ws_events"])
+        self.assertTrue(written["include_price_history"])
+        self.assertTrue(written["include_ws_events"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(written["last_iteration_elapsed_seconds"], 0.0)

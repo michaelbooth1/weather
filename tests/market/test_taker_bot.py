@@ -10,6 +10,7 @@ from weather.market.taker_bot import (
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
     build_run_once,
     finalize_taker_run,
+    next_run_policy_gate,
     run_taker_strategy_bakeoff,
 )
 
@@ -415,6 +416,9 @@ class TestTakerBot(unittest.TestCase):
         self.assertLessEqual(float(row["fill_notional_usdc"]), 0.5)
         self.assertEqual(strategy["low_price_tail_fill_count"], 1)
         self.assertLessEqual(strategy["low_price_tail_spent_usdc"], 0.5)
+        self.assertEqual(payload["summary"]["active_strategy_id"], "low_price_tail_capped")
+        self.assertEqual(payload["summary"]["active_strategy_lifecycle"], "candidate_canary")
+        self.assertEqual(payload["summary"]["active_strategy_canary"]["strategy_id"], "low_price_tail_capped")
 
     def test_strategy_bakeoff_replays_shared_tape_and_writes_promotion_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -516,6 +520,195 @@ class TestTakerBot(unittest.TestCase):
             {"partial_target_date_labels"},
         )
         self.assertEqual(bakeoff["promotion_gates"][0]["status"], "PASS")
+
+    def test_low_price_tail_partial_label_stays_candidate_canary(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}],
+                "comparison": {"best_settlement_scored_strategy_id": "low_price_tail_capped"},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 1, "age_days": 0},
+                "policy_config": {
+                    "canary_min_settled_orders": 1,
+                    "canary_min_complete_label_days": 1,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 0, "partial_rows": 1},
+                "blockers": [{"code": "partial_target_date_labels"}],
+                "pnl": {
+                    "by_strategy": [
+                        {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "PASS",
+                        "settled_order_count": 1,
+                        "failed_gates": [],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(gate["active_strategy_lifecycle"], "candidate_canary")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "candidate_canary")
+        self.assertFalse(gate["promotion_eligible"])
+        self.assertEqual(gate["next_action"], "continue_canary_until_complete_labels")
+        self.assertEqual(gate["complete_label_sample_count"], 0)
+        self.assertEqual(gate["canary_settled_order_count"], 1)
+
+    def test_finalize_low_price_tail_partial_label_report_stays_candidate_canary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True, bands=[(80, "0.40", "0.01")])
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=100,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "canary_min_settled_orders": 1,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                },
+                strategies="low_price_tail_capped",
+                experiment_id="tail-canary-fixture",
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "partial",
+                }
+            ])
+            run_folder = Path(payload["run_folder"])
+            run_taker_strategy_bakeoff(
+                run_folder,
+                labels_csv=labels,
+                strategies="low_price_tail_capped",
+                budget_usdc=100,
+                out_json=run_folder / "strategy_bakeoff.json",
+                out_report=run_folder / "strategy_bakeoff.md",
+                now="2026-06-20T12:00:00+00:00",
+            )
+
+            finalized = finalize_taker_run(run_folder, labels_csv=labels, now="2026-06-20T12:10:00+00:00")
+            report = Path(finalized["settled_report_path"]).read_text(encoding="utf-8")
+
+        self.assertEqual(finalized["summary"]["active_strategy_id"], "low_price_tail_capped")
+        self.assertEqual(finalized["summary"]["active_strategy_lifecycle"], "candidate_canary")
+        self.assertEqual(finalized["summary"]["active_strategy_lifecycle_status"], "candidate_canary")
+        self.assertFalse(finalized["summary"]["active_strategy_promotion_eligible"])
+        self.assertEqual(
+            finalized["summary"]["active_strategy_next_action"],
+            "continue_canary_until_complete_labels",
+        )
+        self.assertIn("candidate_canary", report)
+        self.assertNotIn("promoted_default", report)
+
+    def test_low_price_tail_complete_label_promotes_after_sample(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}],
+                "comparison": {"best_settlement_scored_strategy_id": "low_price_tail_capped"},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 2, "age_days": 1},
+                "policy_config": {
+                    "canary_min_settled_orders": 2,
+                    "canary_min_complete_label_days": 1,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 1, "partial_rows": 0},
+                "blockers": [],
+                "pnl": {
+                    "by_strategy": [
+                        {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "PASS",
+                        "settled_order_count": 2,
+                        "failed_gates": [],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "promoted_default")
+        self.assertTrue(gate["promotion_eligible"])
+        self.assertEqual(gate["next_action"], "promote_default")
+        self.assertEqual(gate["complete_label_sample_count"], 1)
+        self.assertEqual(gate["canary_settled_order_count"], 2)
+
+    def test_low_price_tail_complete_label_blocks_failed_canary(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [
+                    {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": -2.0},
+                    {"strategy_id": "small_order_probe", "net_pnl_usdc": 1.0},
+                ],
+                "comparison": {"best_settlement_scored_strategy_id": "small_order_probe"},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 1, "age_days": 1},
+                "policy_config": {
+                    "canary_min_settled_orders": 1,
+                    "canary_min_complete_label_days": 1,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 1, "partial_rows": 0},
+                "blockers": [],
+                "pnl": {
+                    "by_strategy": [
+                        {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": -2.0},
+                        {"strategy_id": "small_order_probe", "net_pnl_usdc": 1.0},
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "BLOCK",
+                        "settled_order_count": 1,
+                        "failed_gates": ["non_negative_settled_roi"],
+                    },
+                    {
+                        "strategy_id": "small_order_probe",
+                        "status": "PASS",
+                        "settled_order_count": 1,
+                        "failed_gates": [],
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "blocked")
+        self.assertFalse(gate["promotion_eligible"])
+        self.assertEqual(gate["next_action"], "rollback_to_small_order_probe")
+        self.assertIn("non_negative_settled_roi", gate["canary_failed_gates"])
 
     def test_append_does_not_duplicate_unchanged_opportunity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -880,6 +1073,78 @@ class TestTakerBot(unittest.TestCase):
         self.assertTrue(any(row["reason_code"] == "NO_TRADE_EARLY_HOUR_CURRENT_HIGH_GUARDED" for row in orders))
         self.assertTrue(all(row["order_status"] != "FILLED" for row in orders))
 
+    def test_weak_slot_gate_blocks_raw_edge_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                captured_at="2026-06-14T13:30:00+00:00",
+                book_captured_at="2026-06-14T13:30:10+00:00",
+                bands=[(80, "0.70", "0.60")],
+            )
+            gate_path = root / "ten_minute_gate.json"
+            gate_path.write_text(json.dumps({
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {"gate": "weak_slot_brier_regression"},
+                    "weak_slots": {"slot_minutes": [570], "slot_labels": ["09:30"]},
+                }
+            }), encoding="utf-8")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now="2026-06-14T13:31:00+00:00",
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "weak_slot_guard_report_path": str(gate_path),
+                    "early_hour_block_guarded_current_high": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(payload["summary"]["weak_slot_blocked_rows"], 1)
+        self.assertTrue(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
+
+    def test_market_centered_warm_tail_guard_blocks_raw_warm_band(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.28"), (84, "0.70", "0.60")],
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        warm_rows = [row for row in orders if row["range_label"] == "84-85 F"]
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(payload["summary"]["market_centered_warm_tail_blocked_rows"], 1)
+        self.assertEqual(warm_rows[0]["market_modal_band_key"], "eq:80-81")
+        self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
+
     def test_early_hour_caps_taker_notional(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -940,6 +1205,7 @@ class TestTakerBot(unittest.TestCase):
                     "early_hour_max_daily_positions": 3,
                     "early_hour_max_order_usdc": 1,
                     "early_hour_max_position_per_token_usdc": 1,
+                    "market_centered_warm_tail_guard_enabled": False,
                 },
             )
             orders = read_csv(Path(payload["orders_path"]))

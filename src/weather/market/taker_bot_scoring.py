@@ -264,6 +264,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         "experiment_id": "",
         "strategy_id": "",
         "strategy_family": "",
+        "strategy_status": "",
         "assignment_rule": "",
         "control_strategy_id": "",
         "strategy_config_hash": "",
@@ -309,6 +310,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         strat["experiment_id"] = row.get("experiment_id") or DEFAULT_EXPERIMENT_ID
         strat["strategy_id"] = strategy_id
         strat["strategy_family"] = row.get("strategy_family") or "raw_edge"
+        strat["strategy_status"] = row.get("strategy_status") or "control"
         strat["assignment_rule"] = row.get("assignment_rule") or "shared_inputs_full_shadow"
         strat["control_strategy_id"] = row.get("control_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
         strat["strategy_config_hash"] = row.get("strategy_config_hash") or row.get("policy_hash") or ""
@@ -404,6 +406,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
             "experiment_id": value["experiment_id"],
             "strategy_id": key,
             "strategy_family": value["strategy_family"],
+            "strategy_status": value["strategy_status"],
             "assignment_rule": value["assignment_rule"],
             "control_strategy_id": value["control_strategy_id"],
             "strategy_config_hash": value["strategy_config_hash"],

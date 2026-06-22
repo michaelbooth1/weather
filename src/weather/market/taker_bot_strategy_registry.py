@@ -65,9 +65,13 @@ DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
 RECONCILIATION_WARNING_USDC = 1.0
 SETTLEMENT_PNL_SOURCES = {"settlement", "settlement_finalized"}
 DEFAULT_CONTROL_STRATEGY_ID = "raw_edge_control"
+ACTIVE_DEFAULT_STRATEGY_ID = "low_price_tail_capped"
+ACTIVE_DEFAULT_STRATEGY_CANARY_STARTED_DATE = "2026-06-21"
 DEFAULT_EXPERIMENT_ID = "default_taker_strategy_experiment"
 DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS = 1
 DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC = 100.0
+DEFAULT_CANARY_MIN_SETTLED_ORDERS = 5
+DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS = 1
 
 DEFAULT_CONFIG = {
     "policy_version": POLICY_VERSION,
@@ -104,6 +108,12 @@ DEFAULT_CONFIG = {
     "max_repeated_opinion_fills": 0,
     "require_clob_continuity": False,
     "max_mark_sanity_ratio": 3.0,
+    "active_strategy_lifecycle": "",
+    "active_strategy_canary_started_date": ACTIVE_DEFAULT_STRATEGY_CANARY_STARTED_DATE,
+    "canary_min_settled_orders": DEFAULT_CANARY_MIN_SETTLED_ORDERS,
+    "canary_min_complete_label_days": DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS,
+    "canary_max_top_market_spend_share": 1.0,
+    "canary_max_repeated_opinion_count": 0,
     "early_hour_guardrail_enabled": True,
     "early_hour_start": 0,
     "early_hour_end": 8,
@@ -114,6 +124,21 @@ DEFAULT_CONFIG = {
     "early_hour_max_daily_positions": 12,
     "early_hour_require_source_states": "all_fresh",
     "early_hour_block_guarded_current_high": True,
+    "weak_slot_guard_enabled": True,
+    "weak_slot_guard_report_path": "",
+    "hourly_gate_report_path": "",
+    "weak_slot_guard_slot_minutes": "",
+    "weak_slot_guard_hours": "7,8,9",
+    "weak_slot_guard_block_statuses": "BLOCK",
+    "weak_slot_guard_block_strategy_families": "raw_edge",
+    "market_centered_warm_tail_guard_enabled": True,
+    "market_centered_warm_tail_min_distance": 1.0,
+    "market_centered_warm_tail_block_strategy_families": "raw_edge",
+    "market_centered_warm_tail_max_notional_usdc": 0.5,
+    "market_centered_warm_tail_require_risk_adjusted": True,
+    "market_centered_warm_tail_min_risk_adjusted_edge": 0.03,
+    "market_centered_warm_tail_require_clob_continuity": True,
+    "max_same_snapshot_adjacent_cluster_fills": 0,
 }
 
 DEFAULT_STRATEGY_REGISTRY = {
@@ -266,6 +291,7 @@ ORDER_COLUMNS = [
     "experiment_id",
     "strategy_id",
     "strategy_family",
+    "strategy_status",
     "assignment_rule",
     "control_strategy_id",
     "strategy_config_hash",
@@ -307,11 +333,22 @@ ORDER_COLUMNS = [
     "sizing_limit_reason",
     "low_price_tail",
     "tail_risk_bucket",
+    "market_modal_band_key",
+    "market_modal_probability",
+    "market_modal_band_distance",
+    "market_centered_warm_tail",
+    "warm_tail_guard_status",
+    "warm_tail_guard_reason",
+    "weak_slot_gate_status",
+    "weak_slot_gate_reason",
+    "weak_slot_gate_source",
     "current_high_band_distance",
     "adjacent_bin_cluster_key",
     "market_notional_before_usdc",
     "adjacent_cluster_notional_before_usdc",
     "low_price_tail_notional_before_usdc",
+    "market_centered_warm_tail_notional_before_usdc",
+    "same_snapshot_adjacent_cluster_fill_count_before",
     "repeated_opinion_fill_count_before",
     "clob_continuity_status",
     "clob_continuity_reason",
@@ -465,6 +502,56 @@ def selected_strategy_specs(strategies=None, base_config=None, registry=None):
     return specs
 
 
+def active_strategy_lifecycle_for_spec(strategy=None, config=None):
+    config = config or {}
+    override = str(config.get("active_strategy_lifecycle") or "").strip()
+    if override in {"candidate_canary", "promoted_default", "blocked", "manual_override"}:
+        return override
+    status = str((strategy or {}).get("status") or "").strip().lower()
+    if status in {"promoted", "active", "default"}:
+        return "promoted_default"
+    if status == "blocked":
+        return "blocked"
+    if status == "candidate":
+        return "candidate_canary"
+    return "manual_override"
+
+
+def _canary_age_days(started_date, target_date):
+    if not started_date or not target_date:
+        return None
+    try:
+        started = ensure_date(started_date)
+        target = ensure_date(target_date)
+    except (TypeError, ValueError):
+        return None
+    return max(0, (target - started).days)
+
+
+def active_strategy_lifecycle_payload(strategy_specs=None, config=None, target_date=None):
+    strategy_specs = list(strategy_specs or [])
+    config = config or {}
+    active_strategy = strategy_specs[0] if len(strategy_specs) == 1 else None
+    active_id = (active_strategy or {}).get("strategy_id")
+    lifecycle = active_strategy_lifecycle_for_spec(active_strategy, config=config) if active_strategy else None
+    started_date = config.get("active_strategy_canary_started_date") or ACTIVE_DEFAULT_STRATEGY_CANARY_STARTED_DATE
+    min_settled = int(config.get("canary_min_settled_orders") or DEFAULT_CANARY_MIN_SETTLED_ORDERS)
+    min_complete = int(config.get("canary_min_complete_label_days") or DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS)
+    canary = {
+        "strategy_id": active_id,
+        "lifecycle": lifecycle,
+        "started_date": started_date if lifecycle == "candidate_canary" else None,
+        "age_days": _canary_age_days(started_date, target_date) if lifecycle == "candidate_canary" else None,
+        "min_settled_orders": min_settled,
+        "min_complete_label_days": min_complete,
+    }
+    return {
+        "active_strategy_id": active_id,
+        "active_strategy_lifecycle": lifecycle,
+        "active_strategy_canary": canary,
+    }
+
+
 def strategy_id_for_row(row):
     return str(row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID)
 
@@ -476,6 +563,7 @@ def normalize_order_strategy_fields(row, strategy=None, experiment_id=None):
     row["experiment_id"] = experiment_id or row.get("experiment_id") or DEFAULT_EXPERIMENT_ID
     row["strategy_id"] = strategy_id
     row["strategy_family"] = strategy.get("strategy_family") or row.get("strategy_family") or "raw_edge"
+    row["strategy_status"] = strategy.get("status") or row.get("strategy_status") or "control"
     row["assignment_rule"] = (
         strategy.get("assignment_rule") or row.get("assignment_rule") or "shared_inputs_full_shadow"
     )

@@ -1,4 +1,4 @@
-# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [OPEN]
+# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - SERVING-ONLY SMOOTHING REMOVED, RETRAIN STILL PENDING]
 
 Goal: eliminate the train/serve skew where serving de-sharpens the feature-model
 distribution with an ordinal-smoothing layer that the per-hour temperature/blend
@@ -35,9 +35,11 @@ every hour and regime, including the predawn slots already too diffuse.
 4. Re-tune and re-export artifacts; gate the change on weak-slot and per-market
    replay so predawn slices improve rather than only the aggregate.
 
-- [ ] Decide fold-vs-remove with a replay-measured comparison.
-- [ ] Make the serving smoothing parameters artifact-driven, not literals.
-- [ ] Add the train/serve parity test for the feature-model distribution.
+- [x] Decide fold-vs-remove: remove the serving-only smoother for current
+  artifacts and require any future smoother to be tuned/exported by the
+  validation objective before serving can apply it.
+- [x] Make the serving smoothing parameters artifact-driven, not literals.
+- [x] Add the train/serve parity test for the feature-model distribution.
 - [ ] Retrain, re-export, and validate predawn winner probability movement
   without regressing ramp/late-day tolerances (items 169/170).
 
@@ -46,3 +48,57 @@ distribution scored during tuning (parity test passes), and a retrain raises
 predawn winner probability toward market with no ramp/late-day regression.
 
 Related: items 169, 170, 182; `[[model-audit-2026-06-09]]`.
+
+## 2026-06-21 implementation update
+
+Removed the unvalidated serving-only ordinal smoothing from the active feature
+path. Serving now reads `ordinal_smoothing` from the active feature artifact and
+defaults to disabled when the field is absent, which is the correct behavior for
+all existing artifacts because their LOO temperature/blend tuning scored the raw
+temperature-scaled HGB/LR distribution.
+
+New artifact exports explicitly include:
+
+```json
+"ordinal_smoothing": {
+  "enabled": false,
+  "source": "disabled_until_tuned_in_validation_objective"
+}
+```
+
+Future artifacts can re-enable ordinal smoothing only by exporting tuned
+`sigma` and `blend_weight` values under `ordinal_smoothing`; serving no longer
+has hard-coded `sigma=0.75` / `blend_weight=0.50` literals.
+
+Tests now cover:
+
+- HGB serving output equals `temperature_scale_distribution(raw, artifact_temp)`
+  when smoothing is absent.
+- Existing artifacts default to smoothing disabled.
+- Explicit artifact smoothing config is honored.
+- Distribution-stage snapshots record the unsmoothed feature distribution by
+  default and apply smoothing only when the artifact config enables it.
+
+The full retrain/replay step remains open: the current code removes the skew,
+but item completion still requires regenerated artifacts and weak-slot,
+per-market, ramp, and late-day validation.
+
+Verification:
+
+- `python -m pytest tests\model\test_feature_model_calibration.py tests\model\test_estimate_distribution.py tests\calibration\test_feature_probability_calibration.py tests\calibration\test_intraday_calibration.py -q`
+
+## 2026-06-22 Retrain Attempt
+
+The active pooled F-band retrain command from `nightly_retrain --dry-run` was:
+
+```powershell
+python -m weather.calibration.pooled_feature_model --family-unit F --objective band --holdout-year 2025 --artifact artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl --out data/backtest/f_family_pooled_band_model_v0_3_report.md
+```
+
+It did not complete within a 15-minute interactive command budget and was
+stopped. `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl` and
+`data/backtest/f_family_pooled_band_model_v0_3_report.md` kept their prior
+timestamps, so this attempt produced no valid re-export evidence. Completion
+still requires running the full retrain under the long-job guard or another
+controlled longer window, then rerunning promotion/weak-slot validation against
+the regenerated artifact.

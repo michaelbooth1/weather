@@ -78,6 +78,7 @@ def build_run_config_payload(
     registry=None,
 ):
     strategy_specs = strategy_specs or selected_strategy_specs(None, base_config=config, registry=registry)
+    lifecycle = active_strategy_lifecycle_payload(strategy_specs, config=config, target_date=target_date)
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -93,9 +94,19 @@ def build_run_config_payload(
         "policy_version": config.get("policy_version", POLICY_VERSION),
         "policy_hash": policy_hash(config),
         "policy_config": config,
+        "active_strategy_id": lifecycle.get("active_strategy_id"),
+        "active_strategy_lifecycle": lifecycle.get("active_strategy_lifecycle"),
+        "active_strategy_canary": lifecycle.get("active_strategy_canary"),
         "experiment_id": experiment_id,
         "control_strategy_id": DEFAULT_CONTROL_STRATEGY_ID,
         "strategy_ids": [item.get("strategy_id") for item in strategy_specs],
+        "performance_gate_state": {
+            "weak_slot_gate_status": config.get("_weak_slot_gate_status"),
+            "weak_slot_gate_source": config.get("_weak_slot_gate_source"),
+            "weak_slot_minutes": config.get("_weak_slot_minutes") or [],
+            "hourly_gate_status": config.get("_hourly_gate_status"),
+            "hourly_gate_source": config.get("_hourly_gate_source"),
+        },
         "strategy_registry": strategy_registry_payload(registry=registry),
         "strategies": [
             {
@@ -131,7 +142,7 @@ def build_run_once(
 ):
     now = utc_now(now)
     target = ensure_date(target_date)
-    config = {**DEFAULT_CONFIG, **(config or {})}
+    config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
     strategy_specs = selected_strategy_specs(strategies, base_config=config, registry=strategy_registry)
     strategy_ids = [item["strategy_id"] for item in strategy_specs]
     experiment_id = experiment_id or default_experiment_id(target, strategy_ids)
@@ -212,6 +223,12 @@ def build_run_once(
 
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in new_rows)
     latest_filled = [row for row in new_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    weak_slot_rows = [row for row in new_rows if row.get("weak_slot_gate_status") == "blocked"]
+    warm_tail_rows = [row for row in new_rows if bool_value(row.get("market_centered_warm_tail"), False)]
+    warm_tail_blocked = [
+        row for row in new_rows
+        if row.get("reason_code") in {"NO_TRADE_MARKET_CENTERED_WARM_TAIL", "NO_TRADE_MARKET_CENTERED_WARM_TAIL_CAP"}
+    ]
     zero_trade_diagnosis = classify_zero_trade_root_cause(
         market_summaries,
         permission_rows=len(latest_filled),
@@ -223,6 +240,9 @@ def build_run_once(
         "target_date": target.isoformat(),
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
+        "active_strategy_id": run_config.get("active_strategy_id"),
+        "active_strategy_lifecycle": run_config.get("active_strategy_lifecycle"),
+        "active_strategy_canary": run_config.get("active_strategy_canary"),
         "strategy_count": len(strategy_specs),
         "strategy_ids": strategy_ids,
         "budget_usdc": round(total_budget_usdc, 6),
@@ -237,6 +257,12 @@ def build_run_once(
         "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
         "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],
         "reason_counts": dict(sorted(reason_counts.items())),
+        "weak_slot_gate_status": config.get("_weak_slot_gate_status"),
+        "weak_slot_gate_source": config.get("_weak_slot_gate_source"),
+        "weak_slot_blocked_rows": len(weak_slot_rows),
+        "market_centered_warm_tail_rows": len(warm_tail_rows),
+        "market_centered_warm_tail_blocked_rows": len(warm_tail_blocked),
+        "next_run_policy_status": "UNKNOWN",
         "market_status_counts": dict(sorted(Counter(row.get("status") for row in market_summaries).items())),
         "tape_integrity": tape_integrity,
         **zero_trade_diagnosis,
@@ -425,7 +451,7 @@ def main(argv=None):
     parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
     parser.add_argument(
         "--strategies",
-        default=None,
+        default=ACTIVE_DEFAULT_STRATEGY_ID,
         help="Comma-separated taker strategy IDs to run as isolated paper arms.",
     )
     parser.add_argument("--experiment-id", default=None, help="Stable experiment ID for multi-arm attribution.")

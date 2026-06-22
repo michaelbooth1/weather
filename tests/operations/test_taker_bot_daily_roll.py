@@ -46,6 +46,8 @@ class TestTakerBotDailyRoll(unittest.TestCase):
                 "--interval-seconds",
                 "60",
                 "--loop",
+                "--strategies",
+                "low_price_tail_capped",
             ],
         )
 

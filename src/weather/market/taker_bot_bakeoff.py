@@ -173,6 +173,8 @@ def strategy_gate_for_bakeoff(
     source_rows,
     min_settled_orders=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS,
     max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
+    max_top_market_spend_share=1.0,
+    max_repeated_opinion_count=0,
 ):
     strategy_id = strategy_row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
     filled = strategy_filled_rows(scored_rows, strategy_id)
@@ -187,6 +189,8 @@ def strategy_gate_for_bakeoff(
     drawdown = cumulative_drawdown_usdc(filled)
     sign_flips = source_mark_sign_flip_count(source_rows, scored_rows, strategy_id)
     concentration = strategy_concentration_summary(scored_rows, strategy_id)
+    top_market_share = maybe_float(concentration.get("top_market_spend_share")) or 0.0
+    repeated_opinions = int(concentration.get("repeated_opinion_count") or 0)
     gates = [
         {
             "name": "min_settled_sample",
@@ -229,6 +233,18 @@ def strategy_gate_for_bakeoff(
             "ok": mark_outliers == 0,
             "value": mark_outliers,
             "threshold": 0,
+        },
+        {
+            "name": "max_market_concentration",
+            "ok": top_market_share <= float(max_top_market_spend_share),
+            "value": compact_float(top_market_share),
+            "threshold": float(max_top_market_spend_share),
+        },
+        {
+            "name": "max_repeated_opinion_concentration",
+            "ok": repeated_opinions <= int(max_repeated_opinion_count),
+            "value": repeated_opinions,
+            "threshold": int(max_repeated_opinion_count),
         },
     ]
     failed = [row["name"] for row in gates if not row["ok"]]
@@ -454,6 +470,7 @@ def run_taker_strategy_bakeoff(
         **(run_config.get("policy_config") or {}),
         **(config or {}),
     }
+    base_config = enrich_config_with_performance_gates(base_config, target)
     budget = float(
         budget_usdc
         if budget_usdc is not None
@@ -500,6 +517,8 @@ def run_taker_strategy_bakeoff(
             source_rows,
             min_settled_orders=min_settled_orders,
             max_drawdown_usdc=max_drawdown_usdc,
+            max_top_market_spend_share=base_config.get("canary_max_top_market_spend_share", 1.0),
+            max_repeated_opinion_count=base_config.get("canary_max_repeated_opinion_count", 0),
         )
         for row in pnl_payload.get("by_strategy") or []
     ]

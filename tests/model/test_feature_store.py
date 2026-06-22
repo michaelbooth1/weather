@@ -13,6 +13,7 @@ from weather.model.feature_store import (
     audit_row,
     build_historical_feature_record,
     build_live_feature_record,
+    current_max_trust_features,
     expanded_open_meteo_promotion_gate,
     forecast_profile_missing_zero_report,
     forecast_profile_features,
@@ -90,6 +91,39 @@ class TestFeatureStore(unittest.TestCase):
             90.0,
         )
         self.assertEqual(row_same_day_max_native({"same_day_max_c": 32.0}), 32.0)
+
+    def test_current_max_trust_features_quarantine_large_warm_gap(self):
+        features = current_max_trust_features(
+            93.0,
+            history_max=83.0,
+            current_temp=81.0,
+            cutoff_hour=7,
+            unit="F",
+        )
+
+        self.assertIsNone(features["trusted_current_max"])
+        self.assertEqual(features["quarantined_current_max"], 93.0)
+        self.assertEqual(features["current_max_quarantined_flag"], 1.0)
+        self.assertEqual(features["current_max_disposition"], "quarantined")
+
+    def test_live_feature_extraction_quarantines_f_market_startup_sentinel(self):
+        model = TorontoHighTempModel(market_id="nyc", target_date="2026-06-20")
+        rows = [{"time": "00:05", "minute_of_day": 5, "temp_native": 17.0}]
+
+        features = model.extract_live_features(
+            {
+                "wu_history": {"ok": True, "data": {"rows": rows}},
+                "wu_current": {"ok": True, "data": {}},
+                "open_meteo": {"ok": True, "data": {"rows": [], "day_max_native": 83.0}},
+            },
+            cutoff_hour=0,
+        )
+
+        self.assertIsNone(features["high_so_far"])
+        self.assertIsNone(features["current_temp"])
+        self.assertIsNone(features["live_reading_temp"])
+        self.assertEqual(features["startup_feature_quarantined_flag"], 1.0)
+        self.assertIn("current_temp", features["startup_feature_quarantine_reason"])
 
     def test_forecast_profile_uses_native_temperature_alias(self):
         features = forecast_profile_features(
@@ -627,6 +661,214 @@ class TestFeatureStore(unittest.TestCase):
             self.assertEqual(component_rows[0]["bin_value_hi_c"], "20")
             self.assertAlmostEqual(float(component_rows[0]["component_probability"]), 0.5)
             self.assertAlmostEqual(float(component_rows[1]["component_probability"]), 0.3)
+
+    def test_snapshot_store_persists_model_explanation_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="event")
+            captured_at = datetime(2026, 5, 28, 12, 0, tzinfo=TORONTO_TZ)
+            model_client = TorontoHighTempModel(target_date="2026-05-28")
+            model = {
+                "distribution": {20: 1.0},
+                "top_temp": 20,
+                "model_version": "model-v",
+                "sources": {
+                    "wu_history": {
+                        "ok": True,
+                        "data": {"rows": [{"time": "11:00", "temp": 20.0}], "raw_payload": {"drop": "me"}},
+                    }
+                },
+                "distribution_components": {
+                    "schema_version": "components-v",
+                    "cutoff_hour": 12,
+                    "active_model_kind": "hgb",
+                    "components": {
+                        "feature_model": {20: 1.0},
+                        "final_model": {20: 1.0},
+                    },
+                },
+                "feature_vector": {
+                    "target_date": "2026-05-28",
+                    "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                    "cutoff_hour": 12,
+                    "high_so_far": 20.0,
+                },
+                "analog_search": {"neighbors": [{"date": "2026-05-20", "distance": 0.2}], "limit": 5},
+                "boundary_transitions": {"p_ge_21": 0.12},
+                "late_day_risk": {"lock_in": True, "risk_score": 0.7},
+                "source_diagnostics": [{"source": "wu_history", "status": "fresh", "latency_ms": 44}],
+                "source_health": {"status": "PASS"},
+                "family_secondary_gate": {"status": "PASS", "mode": "served"},
+                "model_explanation": {
+                    "feature_cutoff_hour": 12,
+                    "driver_breakdown": [{"Driver": "ML feature blend", "20 C": "100.0%"}],
+                    "waterfall": [{"Driver": "Final model", "20 C": "100.0%"}],
+                },
+            }
+            event = {
+                "markets": [
+                    {
+                        "groupItemTitle": "20 C",
+                        "outcomes": '["Yes","No"]',
+                        "outcomePrices": '["0.40","0.60"]',
+                    }
+                ],
+                "slug": "event",
+            }
+
+            result = store.write(event, model, model_client, captured_at)
+            explanation_rows = list(csv.DictReader((root / "snapshot_explanations_long.csv").open(encoding="utf-8", newline="")))
+            explanation_payload = json.loads((root / "snapshot_explanations.jsonl").read_text(encoding="utf-8").strip())
+            observation_rows = list(csv.DictReader((root / "observation_payloads_long.csv").open(encoding="utf-8", newline="")))
+            observation_payload = json.loads((root / "observation_payloads.jsonl").read_text(encoding="utf-8").strip())
+            feature_rows = list(csv.DictReader((root / "features_long.csv").open(encoding="utf-8", newline="")))
+            component_rows = list(csv.DictReader((root / "components_long.csv").open(encoding="utf-8", newline="")))
+            replay_payload = json.loads((root / "replay_inputs.jsonl").read_text(encoding="utf-8").strip())
+            observation_raw_exists = Path(observation_rows[0]["raw_payload_path"]).exists()
+
+        snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
+        self.assertEqual(result["snapshot_explanation_rows"], len(explanation_rows))
+        self.assertEqual(result["snapshot_explanations_path"], str(root / "snapshot_explanations_long.csv"))
+        self.assertEqual(result["snapshot_explanations_jsonl_path"], str(root / "snapshot_explanations.jsonl"))
+        self.assertEqual(result["observation_payload_rows"], 1)
+        self.assertEqual(result["observation_payloads_path"], str(root / "observation_payloads_long.csv"))
+        self.assertEqual(result["observation_payloads_jsonl_path"], str(root / "observation_payloads.jsonl"))
+        self.assertEqual(explanation_payload["schema_version"], "snapshot_explanations_v0.1")
+        self.assertEqual(explanation_payload["snapshot_id"], snapshot_id)
+        self.assertIn("model_explanation", explanation_payload["sections"])
+        self.assertIn("analog_search", explanation_payload["sections"])
+        sections = {row["section"] for row in explanation_rows}
+        self.assertIn("model_explanation", sections)
+        self.assertIn("source_diagnostics", sections)
+        self.assertIn("family_secondary_gate", sections)
+        self.assertTrue(all(row["snapshot_id"] == snapshot_id for row in explanation_rows))
+        self.assertEqual(feature_rows[0]["snapshot_id"], snapshot_id)
+        self.assertEqual(component_rows[0]["snapshot_id"], snapshot_id)
+        self.assertEqual(replay_payload["snapshot_id"], snapshot_id)
+        self.assertEqual(explanation_rows[0]["feature_schema_version"], FEATURE_SCHEMA_VERSION)
+        self.assertTrue(explanation_rows[0]["source_hash"])
+        self.assertEqual(observation_rows[0]["source"], "wu_history")
+        self.assertEqual(observation_payload["source"], "wu_history")
+        self.assertTrue(observation_raw_exists)
+        self.assertNotIn("raw_payload", json.dumps(replay_payload["sources"], sort_keys=True))
+
+    def test_snapshot_store_backfills_explanation_tape_from_existing_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="highest-temperature-in-nyc-on-june-20-2026")
+            snapshot_id = "20260620T120000-0400"
+            snapshot = {
+                "snapshot_id": snapshot_id,
+                "captured_at_local": "2026-06-20T12:00:00-04:00",
+                "event_slug": "highest-temperature-in-nyc-on-june-20-2026",
+                "model_version": "model-v",
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                "runtime_identity": {"git_commit": "abc"},
+                "runtime_guard": {"state": "current"},
+                "model_identity": {"artifact": "model.pkl"},
+                "distribution": {"82": 1.0},
+                "distribution_components": {
+                    "schema_version": "components-v",
+                    "cutoff_hour": 12,
+                    "active_model_kind": "hgb",
+                    "components": {"final_model": {"82": 1.0}},
+                },
+                "feature_vector": {"feature_schema_version": FEATURE_SCHEMA_VERSION},
+                "model_explanation": {"feature_cutoff_hour": 12},
+            }
+            replay = {
+                "snapshot_id": snapshot_id,
+                "target_date": "2026-06-20",
+                "model_version": "model-v",
+                "recorded_distribution": {"82": 1.0},
+                "sources": {"wu_history": {"ok": True, "data": {"rows": [{"temp": 82}]}}},
+            }
+            store.append_jsonl(root / "snapshots.jsonl", snapshot)
+            store.append_jsonl(root / "replay_inputs.jsonl", replay)
+
+            first = store.backfill_snapshot_explanations()
+            second = store.backfill_snapshot_explanations()
+            rows = list(csv.DictReader((root / "snapshot_explanations_long.csv").open(encoding="utf-8", newline="")))
+            payload = json.loads((root / "snapshot_explanations.jsonl").read_text(encoding="utf-8").strip())
+
+        self.assertEqual(first["written_snapshot_count"], 1)
+        self.assertEqual(second["written_snapshot_count"], 0)
+        self.assertEqual(second["skipped_existing_snapshot_count"], 1)
+        self.assertEqual(payload["snapshot_id"], snapshot_id)
+        self.assertIn("model_explanation", payload["sections"])
+        self.assertTrue(any(row["section"] == "distribution_component_metadata" for row in rows))
+        self.assertTrue(all(row["snapshot_id"] == snapshot_id for row in rows))
+
+    def test_snapshot_store_backfills_core_sidecars_from_existing_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="highest-temperature-in-nyc-on-june-20-2026")
+            snapshot = {
+                "snapshot_id": "s1",
+                "captured_at_local": "2026-06-20T12:00:00-04:00",
+                "event_slug": "highest-temperature-in-nyc-on-june-20-2026",
+                "model_version": "model-v",
+                "feature_vector": {
+                    "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                    "cutoff_hour": 12,
+                    "forecast_high_c": 82,
+                },
+                "distribution_components": {
+                    "schema_version": "components-v",
+                    "cutoff_hour": 12,
+                    "active_model_kind": "hgb",
+                    "components": {
+                        "final_model": {"82": 0.7, "83": 0.3},
+                    },
+                },
+                "bands": [
+                    {
+                        "range_label": "82-83 F",
+                        "bin_kind": "eq",
+                        "bin_value_c": "82",
+                        "bin_value_hi_c": "83",
+                        "market_yes": "0.55",
+                    }
+                ],
+            }
+            store.append_jsonl(root / "snapshots.jsonl", snapshot)
+
+            first = store.backfill_feature_component_sidecars()
+            second = store.backfill_feature_component_sidecars()
+            feature_rows = list(csv.DictReader((root / "features_long.csv").open(encoding="utf-8", newline="")))
+            component_rows = list(csv.DictReader((root / "components_long.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(first["written_feature_row_count"], 1)
+        self.assertEqual(first["written_component_row_count"], 1)
+        self.assertEqual(second["written_feature_row_count"], 0)
+        self.assertEqual(second["skipped_existing_feature_snapshot_count"], 1)
+        self.assertEqual(feature_rows[0]["snapshot_id"], "s1")
+        self.assertEqual(component_rows[0]["component_schema_version"], "components-v")
+        self.assertEqual(component_rows[0]["bin_value_hi_c"], "83")
+
+    def test_snapshot_store_backfills_observation_payloads_from_forecast_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="event")
+            (root / "forecast_payloads_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,captured_at_utc,captured_at_local,event_slug,model_version,source,status,stale,source_family,degradation_state,cache_status,fetched_at,age_minutes,ttl_minutes,provider_issue_time,provider_update_time,payload_hash,payload_bytes,row_count,source_url,raw_payload_path",
+                    "s1,2026-06-20T16:00:00+00:00,2026-06-20T12:00:00-04:00,event,model-v,wu_current,fresh,False,wu_current,healthy,live,2026-06-20T16:00:00+00:00,0,10,,2026-06-20T16:00:00+00:00,abc,12,1,https://example.test,raw.json",
+                    "s1,2026-06-20T16:00:00+00:00,2026-06-20T12:00:00-04:00,event,model-v,open_meteo,fresh,False,open_meteo,healthy,live,2026-06-20T16:00:00+00:00,0,10,,2026-06-20T16:00:00+00:00,def,12,1,https://example.test,raw2.json",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            first = store.backfill_observation_payloads_from_forecast_payloads()
+            second = store.backfill_observation_payloads_from_forecast_payloads()
+            rows = list(csv.DictReader((root / "observation_payloads_long.csv").open(encoding="utf-8", newline="")))
+            payload = json.loads((root / "observation_payloads.jsonl").read_text(encoding="utf-8").strip())
+
+        self.assertEqual(first["written_row_count"], 1)
+        self.assertEqual(second["written_row_count"], 0)
+        self.assertEqual(second["skipped_existing_row_count"], 1)
+        self.assertEqual(rows[0]["source"], "wu_current")
+        self.assertEqual(payload["source"], "wu_current")
 
     def test_snapshot_store_persists_range_band_upper_endpoint(self):
         class RangeModelClient:

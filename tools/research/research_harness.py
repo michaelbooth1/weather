@@ -76,6 +76,11 @@ SCRIPT_INVENTORY = {
         "smoke": "compile",
         "notes": "Local schema inspection of archived files.",
     },
+    "input_variable_significance.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "Historical local input-importance audit; durable outputs feed items 134-138.",
+    },
     "nyc_audit.py": {
         "status": "retired",
         "smoke": "help",
@@ -100,6 +105,11 @@ SCRIPT_INVENTORY = {
         "status": "fixture-only",
         "smoke": "compile",
         "notes": "Local historical backfill queue summary.",
+    },
+    "ten_minute_performance_audit.py": {
+        "status": "retired",
+        "smoke": "compile_main_guard",
+        "notes": "Compatibility wrapper; use weather.reporting.ten_minute_model_performance.",
     },
     "test_analogs_live.py": {
         "status": "retired",

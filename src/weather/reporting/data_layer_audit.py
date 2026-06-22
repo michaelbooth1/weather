@@ -29,6 +29,7 @@ from weather.reporting.formatting import (
     fmt_num,
     markdown_table,
 )
+from weather.reporting.feature_quality_quarantine import audit_folder_feature_quality
 from weather.collection.collection_health import summarize_folder
 from weather.collection.snapshot_tracker import LOOP_STATUS_PATH, loop_health
 from weather.market.market_config import date_from_event_slug
@@ -54,13 +55,20 @@ DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 
 SNAPSHOT_LONG = "snapshots_long.csv"
 SNAPSHOT_OPTIONAL_ARTIFACTS = {
+    "snapshots_jsonl": "snapshots.jsonl",
     "replay_inputs": "replay_inputs.jsonl",
     "replay_input_status": "replay_input_status_long.csv",
     "source_status": "source_status_long.csv",
     "features": "features_long.csv",
+    "features_raw": "features.jsonl",
     "components": "components_long.csv",
+    "components_raw": "components.jsonl",
+    "snapshot_explanations": "snapshot_explanations_long.csv",
     "forecasts": "forecasts_long.csv",
     "forecast_payloads": "forecast_payloads_long.csv",
+    "observation_payloads": "observation_payloads_long.csv",
+    "variant_predictions": "variant_predictions_long.csv",
+    "variant_predictions_raw": "variant_predictions.jsonl",
     "clob_features": "clob_features_long.csv",
     "clob_capture_status": "clob_capture_status.jsonl",
     "clob_tokens": "clob_tokens.csv",
@@ -69,6 +77,10 @@ SNAPSHOT_OPTIONAL_ARTIFACTS = {
     "order_books_raw": "order_books.jsonl",
     "order_books_long": "order_books_long.csv",
     "order_books_long_gzip": "order_books_long.csv.gz",
+    "price_history": "price_history.csv",
+    "price_history_raw": "price_history.jsonl",
+    "market_ws_events": "market_ws_events.csv",
+    "market_ws_raw": "market_ws.jsonl",
     "settlement": "settlement.json",
 }
 CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
@@ -88,8 +100,48 @@ WARN_SNAPSHOT_ARTIFACTS = (
     "source_status",
     "features",
     "components",
+    "snapshot_explanations",
 )
 FORECAST_PAYLOAD_ARTIFACT = "forecast_payloads"
+OBSERVATION_PAYLOAD_ARTIFACT = "observation_payloads"
+CORE_TRAINING_ELIGIBILITY_ARTIFACTS = (
+    "replay_inputs",
+    "replay_input_status",
+    "source_status",
+    "features",
+    "components",
+    "forecasts",
+)
+EXPLANATION_ELIGIBILITY_ARTIFACTS = CORE_TRAINING_ELIGIBILITY_ARTIFACTS + (
+    "snapshot_explanations",
+)
+MARKET_AWARE_ELIGIBILITY_ARTIFACTS = CORE_TRAINING_ELIGIBILITY_ARTIFACTS + (
+    "clob_features",
+    "clob_tokens",
+    "order_books_summary",
+    "price_history",
+    "market_ws_events",
+)
+ACTIVE_DAY_REQUIRED_SIDECARS = (
+    "replay_inputs",
+    "replay_input_status",
+    "source_status",
+    "features",
+    "components",
+    "snapshot_explanations",
+    "forecasts",
+    "forecast_payloads",
+    "observation_payloads",
+    "variant_predictions",
+)
+ACTIVE_DAY_OPTIONAL_MARKET_SIDECARS = (
+    "clob_features",
+    "clob_capture_status",
+    "clob_tokens",
+    "order_books_summary",
+    "price_history",
+    "market_ws_events",
+)
 DEFAULT_AUDIT_THRESHOLDS = {
     "min_snapshot_field_fill_rate": 0.90,
     "required_artifact_rate": 1.0,
@@ -378,6 +430,147 @@ def replay_status_summary_for_folder(folder):
     }
 
 
+def missing_artifacts(artifact_presence, names):
+    return [name for name in names if not artifact_presence.get(name)]
+
+
+def sidecar_backfill_commands(folder, artifact_presence):
+    folder_text = str(folder)
+    commands = []
+    if (
+        not artifact_presence.get("replay_input_status")
+        or not artifact_presence.get("replay_inputs")
+    ):
+        commands.append({
+            "artifact": "replay_input_status",
+            "command": (
+                "python -m weather.operations.replay_status_backfill "
+                f"\"{folder_text}\" --reconstruct-missing"
+            ),
+            "reconstructable": True,
+        })
+    if (
+        (not artifact_presence.get("features") or not artifact_presence.get("components"))
+        and artifact_presence.get("snapshots_jsonl")
+    ):
+        commands.append({
+            "artifact": "features_components",
+            "command": f"python -m weather.collection.snapshot_store backfill-core-sidecars \"{folder_text}\"",
+            "reconstructable": True,
+        })
+    if not artifact_presence.get("snapshot_explanations") and artifact_presence.get("snapshots_jsonl"):
+        commands.append({
+            "artifact": "snapshot_explanations",
+            "command": f"python -m weather.collection.snapshot_store backfill-explanations \"{folder_text}\"",
+            "reconstructable": True,
+        })
+    if not artifact_presence.get("observation_payloads") and artifact_presence.get("forecast_payloads"):
+        commands.append({
+            "artifact": "observation_payloads",
+            "command": f"python -m weather.collection.snapshot_store backfill-observation-payloads \"{folder_text}\"",
+            "reconstructable": True,
+        })
+    has_raw_books = any(artifact_presence.get(name) for name in CLOB_RAW_BOOK_ARTIFACT_KEYS)
+    if not artifact_presence.get("clob_features") and has_raw_books:
+        commands.append({
+            "artifact": "clob_features",
+            "command": f"python -m weather.market.market_microstructure_features \"{folder_text}\" --json",
+            "reconstructable": True,
+        })
+    return commands
+
+
+def sidecar_eligibility_for_folder(row, *, settled_scope_ready=False, active_day=False):
+    artifact_presence = row.get("artifact_presence") or {}
+    replay = row.get("replay_input_status") or {}
+    feature_quality = row.get("feature_quality") or {}
+    feature_quality_training_excluded_rows = int(feature_quality.get("training_excluded_row_count") or 0)
+    feature_quality_training_excluded = feature_quality_training_excluded_rows > 0
+    replay_evaluation_only = replay.get("folder_status") == "evaluation_only"
+    core_missing = missing_artifacts(artifact_presence, CORE_TRAINING_ELIGIBILITY_ARTIFACTS)
+    explanation_missing = missing_artifacts(artifact_presence, EXPLANATION_ELIGIBILITY_ARTIFACTS)
+    market_missing = missing_artifacts(artifact_presence, MARKET_AWARE_ELIGIBILITY_ARTIFACTS)
+    labels = {
+        "score_only": True,
+        "replay_only": not replay_evaluation_only and not missing_artifacts(
+            artifact_presence,
+            ("replay_inputs", "replay_input_status"),
+        ),
+        "training_ready": bool(
+            settled_scope_ready
+            and not replay_evaluation_only
+            and not core_missing
+            and not feature_quality_training_excluded
+        ),
+        "explanation_ready": False,
+        "market_aware_ready": False,
+        "variant_ready": False,
+    }
+    labels["explanation_ready"] = bool(labels["training_ready"] and not explanation_missing)
+    labels["market_aware_ready"] = bool(labels["training_ready"] and not market_missing)
+    labels["variant_ready"] = bool(labels["training_ready"] and artifact_presence.get("variant_predictions"))
+    if labels["market_aware_ready"]:
+        primary = "market_aware_ready"
+    elif labels["explanation_ready"]:
+        primary = "explanation_ready"
+    elif labels["training_ready"]:
+        primary = "training_ready"
+    elif labels["replay_only"]:
+        primary = "replay_only"
+    else:
+        primary = "score_only"
+
+    evaluation_only_reasons = []
+    if replay_evaluation_only:
+        evaluation_only_reasons.append("replay_input_status_marked_evaluation_only")
+    if not settled_scope_ready:
+        evaluation_only_reasons.append(row.get("training_ready_reason") or "not_in_settled_training_scope")
+    if not labels["replay_only"]:
+        evaluation_only_reasons.extend(
+            f"missing_{name}" for name in missing_artifacts(artifact_presence, ("replay_inputs", "replay_input_status"))
+        )
+    if labels["replay_only"] and not labels["training_ready"]:
+        evaluation_only_reasons.extend(f"missing_{name}" for name in core_missing)
+    if feature_quality_training_excluded:
+        evaluation_only_reasons.append(
+            f"feature_quality_training_excluded_rows:{feature_quality_training_excluded_rows}"
+        )
+
+    non_reconstructable = []
+    for name in missing_artifacts(
+        artifact_presence,
+        ("clob_tokens", "order_books_summary", "price_history", "market_ws_events", "variant_predictions"),
+    ):
+        non_reconstructable.append({
+            "artifact": name,
+            "reason": "live_capture_only_or_not_serialized_in_legacy_snapshot_jsonl",
+        })
+
+    active_missing = []
+    if active_day:
+        active_missing = missing_artifacts(
+            artifact_presence,
+            ACTIVE_DAY_REQUIRED_SIDECARS + ACTIVE_DAY_OPTIONAL_MARKET_SIDECARS,
+        )
+
+    return {
+        "primary_label": primary,
+        "labels": labels,
+        "missing_core_artifacts": core_missing,
+        "missing_explanation_artifacts": explanation_missing,
+        "missing_market_aware_artifacts": market_missing,
+        "promotion_exclusion_reasons": [] if labels["training_ready"] else sorted(set(evaluation_only_reasons)),
+        "market_aware_exclusion_reasons": [
+            f"missing_{name}" for name in market_missing
+        ],
+        "evaluation_only_reasons": sorted(set(evaluation_only_reasons)),
+        "non_reconstructable_gaps": non_reconstructable,
+        "backfill_commands": sidecar_backfill_commands(row.get("folder"), artifact_presence),
+        "active_day_sidecar_regression": bool(active_missing),
+        "active_day_missing_sidecars": active_missing,
+    }
+
+
 def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
     folder = Path(folder)
     path = folder / SNAPSHOT_LONG
@@ -402,6 +595,9 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
     forecast_payloads = forecast_payload_summary_for_folder(folder)
     clob_features = clob_feature_summary_for_folder(folder)
     replay_status = replay_status_summary_for_folder(folder)
+    feature_quality = audit_folder_feature_quality(folder)
+    feature_quality_summary = dict(feature_quality.get("summary") or {})
+    feature_quality_summary["sample_rows"] = (feature_quality.get("rows") or [])[:10]
     return {
         "folder": str(folder),
         "event_slug": folder.name,
@@ -422,6 +618,7 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         "forecast_payloads": forecast_payloads,
         "clob_features": clob_features,
         "replay_input_status": replay_status,
+        "feature_quality": feature_quality_summary,
         "fields": scanned["fields"],
         "field_totals": scanned["field_totals"],
         "nonempty": scanned["nonempty"],
@@ -458,6 +655,25 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     training_ready_clob_token_artifact_days = 0
     training_ready_clob_raw_book_artifact_days = 0
     replay_status_counts = Counter()
+    eligibility_label_counts = Counter()
+    primary_eligibility_counts = Counter()
+    eligibility_missing_artifact_counts = Counter()
+    eligibility_non_reconstructable_counts = Counter()
+    backfill_command_counts = Counter()
+    active_day_sidecar_regression_count = 0
+    eligibility_exclusion_samples = []
+    feature_quality_reason_counts = Counter()
+    feature_quality_disposition_counts = Counter()
+    feature_quality_source_file_counts = Counter()
+    feature_quality_quarantine_rows = 0
+    feature_quality_training_excluded_rows = 0
+    feature_quality_promotion_excluded_rows = 0
+    feature_quality_backfill_candidate_rows = 0
+    feature_quality_raw_evidence_absent_rows = 0
+    feature_quality_replay_impacted_rows = 0
+    feature_quality_affected_folders = 0
+    feature_quality_affected_markets = set()
+    feature_quality_samples = []
     for row in folder_rows:
         by_market[row.get("market_id")].append(row)
         target_date = parse_date(row.get("target_date"))
@@ -472,6 +688,55 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         else:
             row["training_ready_reason"] = "not_settled_cutoff"
         row["training_ready"] = training_ready
+        eligibility = sidecar_eligibility_for_folder(
+            row,
+            settled_scope_ready=training_ready,
+            active_day=bool(target_date and target_date >= training_ready_cutoff),
+        )
+        row["sidecar_eligibility"] = eligibility
+        primary_eligibility_counts[eligibility.get("primary_label") or "unknown"] += 1
+        for label, enabled in (eligibility.get("labels") or {}).items():
+            if enabled:
+                eligibility_label_counts[label] += 1
+        for name in (
+            (eligibility.get("missing_core_artifacts") or [])
+            + (eligibility.get("missing_explanation_artifacts") or [])
+            + (eligibility.get("missing_market_aware_artifacts") or [])
+        ):
+            eligibility_missing_artifact_counts[name] += 1
+        for item in eligibility.get("non_reconstructable_gaps") or []:
+            eligibility_non_reconstructable_counts[item.get("artifact") or "unknown"] += 1
+        for item in eligibility.get("backfill_commands") or []:
+            backfill_command_counts[item.get("artifact") or "unknown"] += 1
+        if eligibility.get("active_day_sidecar_regression"):
+            active_day_sidecar_regression_count += 1
+        if eligibility.get("promotion_exclusion_reasons") or eligibility.get("market_aware_exclusion_reasons"):
+            eligibility_exclusion_samples.append({
+                "folder": row.get("folder"),
+                "market_id": row.get("market_id"),
+                "target_date": row.get("target_date"),
+                "primary_label": eligibility.get("primary_label"),
+                "promotion_exclusion_reasons": eligibility.get("promotion_exclusion_reasons") or [],
+                "market_aware_exclusion_reasons": eligibility.get("market_aware_exclusion_reasons") or [],
+                "backfill_commands": eligibility.get("backfill_commands") or [],
+            })
+        feature_quality = row.get("feature_quality") or {}
+        quarantine_count = int(feature_quality.get("quarantine_row_count") or 0)
+        if quarantine_count:
+            feature_quality_affected_folders += 1
+            if row.get("market_id"):
+                feature_quality_affected_markets.add(row.get("market_id"))
+        feature_quality_quarantine_rows += quarantine_count
+        feature_quality_training_excluded_rows += int(feature_quality.get("training_excluded_row_count") or 0)
+        feature_quality_promotion_excluded_rows += int(feature_quality.get("promotion_excluded_row_count") or 0)
+        feature_quality_backfill_candidate_rows += int(feature_quality.get("backfill_candidate_row_count") or 0)
+        feature_quality_raw_evidence_absent_rows += int(feature_quality.get("raw_evidence_absent_row_count") or 0)
+        feature_quality_replay_impacted_rows += int(feature_quality.get("replay_input_impacted_count") or 0)
+        feature_quality_reason_counts.update(feature_quality.get("reason_counts") or {})
+        feature_quality_disposition_counts.update(feature_quality.get("disposition_counts") or {})
+        feature_quality_source_file_counts.update(feature_quality.get("source_file_counts") or {})
+        if feature_quality.get("sample_rows"):
+            feature_quality_samples.extend(feature_quality.get("sample_rows") or [])
         if training_ready:
             training_ready_folder_count += 1
         field_nonempty.update(row.get("nonempty") or {})
@@ -541,8 +806,13 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "source_status_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("source_status")),
             "feature_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("features")),
             "component_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("components")),
+            "snapshot_explanation_days": sum(
+                1 for row in rows
+                if (row.get("artifact_presence") or {}).get("snapshot_explanations")
+            ),
             "forecast_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("forecasts")),
             "forecast_payload_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("forecast_payloads")),
+            "observation_payload_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("observation_payloads")),
             "clob_feature_days": sum(1 for row in rows if (row.get("artifact_presence") or {}).get("clob_features")),
             "clob_capture_status_days": sum(
                 1 for row in rows
@@ -555,6 +825,30 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "clob_raw_book_artifact_days": sum(
                 1 for row in rows
                 if any((row.get("artifact_presence") or {}).get(name) for name in CLOB_RAW_BOOK_ARTIFACT_KEYS)
+            ),
+            "training_ready_label_days": sum(
+                1 for row in rows
+                if ((row.get("sidecar_eligibility") or {}).get("labels") or {}).get("training_ready")
+            ),
+            "explanation_ready_days": sum(
+                1 for row in rows
+                if ((row.get("sidecar_eligibility") or {}).get("labels") or {}).get("explanation_ready")
+            ),
+            "market_aware_ready_days": sum(
+                1 for row in rows
+                if ((row.get("sidecar_eligibility") or {}).get("labels") or {}).get("market_aware_ready")
+            ),
+            "variant_ready_days": sum(
+                1 for row in rows
+                if ((row.get("sidecar_eligibility") or {}).get("labels") or {}).get("variant_ready")
+            ),
+            "feature_quality_quarantined_rows": sum(
+                int((row.get("feature_quality") or {}).get("quarantine_row_count") or 0)
+                for row in rows
+            ),
+            "feature_quality_training_excluded_rows": sum(
+                int((row.get("feature_quality") or {}).get("training_excluded_row_count") or 0)
+                for row in rows
             ),
             "median_snapshots_per_day": safe_median([row.get("snapshot_count") for row in rows]),
             "median_gap_minutes": safe_median([row.get("median_gap_minutes") for row in rows]),
@@ -602,6 +896,35 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         },
         "replay_input_status": {
             "status_counts": dict(sorted(replay_status_counts.items())),
+        },
+        "feature_quality_quarantine": {
+            "schema_version": "feature_quality_quarantine_summary_v0.1",
+            "quarantine_row_count": feature_quality_quarantine_rows,
+            "training_excluded_row_count": feature_quality_training_excluded_rows,
+            "promotion_excluded_row_count": feature_quality_promotion_excluded_rows,
+            "backfill_candidate_row_count": feature_quality_backfill_candidate_rows,
+            "raw_evidence_absent_row_count": feature_quality_raw_evidence_absent_rows,
+            "replay_input_impacted_count": feature_quality_replay_impacted_rows,
+            "affected_folder_count": feature_quality_affected_folders,
+            "affected_market_count": len(feature_quality_affected_markets),
+            "reason_counts": dict(sorted(feature_quality_reason_counts.items())),
+            "disposition_counts": dict(sorted(feature_quality_disposition_counts.items())),
+            "source_file_counts": dict(sorted(feature_quality_source_file_counts.items())),
+            "sample_rows": feature_quality_samples[:20],
+        },
+        "sidecar_eligibility": {
+            "schema_version": "snapshot_sidecar_eligibility_v0.1",
+            "label_counts": dict(sorted(eligibility_label_counts.items())),
+            "primary_label_counts": dict(sorted(primary_eligibility_counts.items())),
+            "missing_artifact_counts": dict(sorted(eligibility_missing_artifact_counts.items())),
+            "non_reconstructable_gap_counts": dict(sorted(eligibility_non_reconstructable_counts.items())),
+            "backfill_command_counts": dict(sorted(backfill_command_counts.items())),
+            "backfill_candidate_folder_count": sum(
+                1 for row in folder_rows
+                if ((row.get("sidecar_eligibility") or {}).get("backfill_commands") or [])
+            ),
+            "active_day_sidecar_regression_count": active_day_sidecar_regression_count,
+            "promotion_exclusion_sample": eligibility_exclusion_samples[:20],
         },
         "low_fill_fields": low_fill[:25],
         "low_fill_field_classifications": low_fill_classifications,
@@ -1160,6 +1483,19 @@ def build_remediation_manifest(gates, snapshot, historical):
 def build_gates(snapshot, historical, thresholds=None):
     thresholds = {**DEFAULT_AUDIT_THRESHOLDS, **(thresholds or {})}
     gates = []
+    sidecar_eligibility = snapshot.get("sidecar_eligibility") or {}
+    active_regressions = int(sidecar_eligibility.get("active_day_sidecar_regression_count") or 0)
+    gates.append(gate(
+        "active_day_sidecar_regression",
+        "warn",
+        active_regressions == 0,
+        f"{active_regressions} active/future snapshot folders are missing expected sidecars.",
+        threshold="0 active-day regressions",
+        action=(
+            "Run the listed sidecar backfills for reconstructable gaps, then restart the live "
+            "snapshot/CLOB loops for live-only sidecars."
+        ),
+    ))
     low_fill = snapshot.get("low_fill_fields") or []
     below_fill = [
         row for row in low_fill
@@ -1319,6 +1655,23 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
     recs = []
     historical_gap_investigation = historical_gap_investigation or {}
     clob_summary = snapshot.get("clob_features") or {}
+    sidecar_eligibility = snapshot.get("sidecar_eligibility") or {}
+    backfill_candidates = int(sidecar_eligibility.get("backfill_candidate_folder_count") or 0)
+    non_reconstructable = sidecar_eligibility.get("non_reconstructable_gap_counts") or {}
+    if backfill_candidates or non_reconstructable:
+        recs.append(recommendation(
+            "P1",
+            "Close historical snapshot sidecar eligibility gaps",
+            (
+                f"{backfill_candidates} folder(s) have deterministic sidecar backfill commands; "
+                f"non-reconstructable gaps: {dict(non_reconstructable)}."
+            ),
+            (
+                "Run the per-folder commands in snapshots.sidecar_eligibility.promotion_exclusion_sample, "
+                "then keep live-only CLOB/event/variant gaps labeled out of market-aware or broad promotion claims."
+            ),
+            "Item 203",
+        ))
     if not snapshot.get("has_market_token_ids"):
         recs.append(recommendation(
             "P0",
@@ -1414,6 +1767,20 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
             "Item 36",
         ))
 
+    explanation_days = snapshot.get("artifact_day_counts", {}).get("snapshot_explanations", 0)
+    if explanation_days < snapshot.get("folder_count", 0):
+        recs.append(recommendation(
+            "P1",
+            "Persist model explanation sidecars for root-cause joins",
+            f"{explanation_days}/{snapshot.get('folder_count', 0)} snapshot folders have snapshot_explanations_long.csv.",
+            (
+                "Write snapshot_explanations.jsonl and snapshot_explanations_long.csv for each live snapshot, "
+                "then backfill replayable recent days so weak-slot reports can join analog, boundary, late-day, "
+                "source-diagnostic, and model-explanation evidence without rerunning the model."
+            ),
+            "Item 200",
+        ))
+
     forecast_days = snapshot.get("artifact_day_counts", {}).get("forecasts", 0)
     forecast_payload_days = snapshot.get("artifact_day_counts", {}).get("forecast_payloads", 0)
     if forecast_days and forecast_payload_days < forecast_days:
@@ -1438,6 +1805,18 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
                 "and row counts. This makes stale-source behavior trainable and alertable."
             ),
             "Item 17 / Item 37",
+        ))
+    observation_payload_days = snapshot.get("artifact_day_counts", {}).get("observation_payloads", 0)
+    if source_status_days and observation_payload_days < source_status_days:
+        recs.append(recommendation(
+            "P1",
+            "Capture raw observation payload sidecars",
+            f"{observation_payload_days}/{source_status_days} source-status folders have observation_payloads_long.csv.",
+            (
+                "Persist raw/hash/path/bytes metadata for WU history/current, METAR, ECCC SWOB, and similar observation "
+                "feeds so lag, parser, unit-normalization, and cache-fallback cases can be autopsied from the tape."
+            ),
+            "Item 201",
         ))
     useful_nearby = []
     for market in historical.get("markets") or []:

@@ -9,6 +9,7 @@ bakeoff exports.
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from weather.reporting.variant_registry import (
     active_registry_variants,
     audit_registry,
     load_registry,
+    resolve_registry_path,
+    variant_export_contract,
 )
 from weather.schema_registry import schema_version
 
@@ -38,6 +41,8 @@ DEFAULT_LONG_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_long.csv"
 DEFAULT_ATTRIBUTION_SIDECAR_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_attribution.jsonl"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_report.md"
+DEFAULT_EXECUTION_OUT_DIR = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_runs"
+DERIVED_RUNTIMES = {"conservative_bridge_policy", "microstructure_shadow_report"}
 
 
 def utc_iso() -> str:
@@ -76,14 +81,300 @@ def _filter_active_or_control_rows(
     return selected
 
 
+def _resolve_registry_output_path(value: str | Path | None) -> Path | None:
+    if value in (None, ""):
+        return None
+    return resolve_registry_path(value) or Path(value)
+
+
+def _variant_slug(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value)).strip("_") or "variant"
+
+
+def _execution_row(
+    variant: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    status: str,
+    output_path: str | Path | None = None,
+    source_variant_id: str | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    row = {
+        "variant_id": variant.get("variant_id"),
+        "live_runtime": contract.get("live_runtime"),
+        "prediction_function": contract.get("prediction_function"),
+        "status": status,
+    }
+    if output_path is not None:
+        row["output_path"] = str(output_path)
+    if source_variant_id:
+        row["source_variant_id"] = source_variant_id
+    if detail:
+        row["detail"] = detail
+    return row
+
+
+def _derived_output_paths(active_variants: list[dict[str, Any]]) -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+    for variant in active_variants:
+        contract = variant_export_contract(variant)
+        runtime = str(contract.get("live_runtime") or "")
+        if runtime not in DERIVED_RUNTIMES:
+            continue
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        if output_path is not None:
+            paths[runtime] = output_path
+    return paths
+
+
+def _execute_pooled_candidate_replay_contract(
+    variant: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    registry_path: str | Path,
+    corpus_path: str | Path,
+    snapshots_root: str | Path,
+    out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
+    derived_output_paths: dict[str, Path] | None = None,
+    min_artifact_free_bytes: int = 0,
+    current_tol: float = 0.003,
+    market_tol: float = 0.003,
+    min_days: int = 2,
+    min_trust: int = 25,
+    require_exact_identity: bool = False,
+    require_all_markets: bool = False,
+) -> dict[str, Any]:
+    """Execute one pooled replay registry contract and write its configured export.
+
+    The pooled replay function also owns bridge/CLOB derived variant exports, so
+    the first successful pooled execution can be asked to emit those paths.
+    """
+    from weather.backtesting.replay_backtest import FIDELITY_FAITHFUL_L1
+    from weather.calibration import pooled_candidate_replay
+
+    output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+    artifact_path = _resolve_registry_output_path(contract.get("artifact_path"))
+    out_dir = Path(out_dir)
+    backtest_root = Path(corpus_path).parent
+    variant_id = str(variant.get("variant_id") or contract.get("variant_id") or "variant")
+    slug = _variant_slug(variant_id)
+    args = SimpleNamespace(
+        corpus=str(corpus_path),
+        snapshots_root=str(snapshots_root),
+        artifact=str(artifact_path or contract.get("artifact_path") or ""),
+        variant_registry=str(registry_path),
+        out=str(out_dir / f"{slug}_pooled_candidate_replay_report.md"),
+        json_out=str(out_dir / f"{slug}_pooled_candidate_replay.json"),
+        replay_report=str(out_dir / f"{slug}_current_replay_report.md"),
+        current_tol=current_tol,
+        market_tol=market_tol,
+        min_days=min_days,
+        min_trust=min_trust,
+        max_fidelity_l1=FIDELITY_FAITHFUL_L1,
+        clob_max_age_seconds=180.0,
+        casebook=str(backtest_root / "disagreement_casebook.json"),
+        candidate_variant_out=str(output_path) if output_path else None,
+        candidate_variant_id=variant_id,
+        candidate_variant_family=contract.get("export_family") or contract.get("variant_family"),
+        candidate_variant_uses_market_features=str(contract.get("track") or "") == "market_informed",
+        candidate_variant_control=False,
+        disable_candidate_variant_export=False,
+        microstructure_artifact=None,
+        microstructure_variant_out=None,
+        microstructure_min_train_rows=500,
+        skip_microstructure_overlay=True,
+        source_state_ablation_variant_out=None,
+        bridge_variant_out=None,
+        min_artifact_free_bytes=min_artifact_free_bytes,
+        require_exact_identity=require_exact_identity,
+        require_all_markets=require_all_markets,
+        long_job_guard_info={},
+        fail_on_block=False,
+    )
+    derived_output_paths = derived_output_paths or {}
+    if "microstructure_shadow_report" in derived_output_paths:
+        args.skip_microstructure_overlay = False
+        args.microstructure_variant_out = str(derived_output_paths["microstructure_shadow_report"])
+        args.microstructure_artifact = None
+    if "conservative_bridge_policy" in derived_output_paths:
+        args.bridge_variant_out = str(derived_output_paths["conservative_bridge_policy"])
+
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    report = pooled_candidate_replay.run_pooled_candidate_replay(args)
+    row = _execution_row(
+        variant,
+        contract,
+        status="OK",
+        output_path=output_path,
+        detail=f"verdict={report.get('verdict')}; cutover={report.get('cutover_decision')}",
+    )
+    return row
+
+
+def execute_registry_prediction_exports(
+    *,
+    registry_path: str | Path = DEFAULT_REGISTRY_PATH,
+    corpus_path: str | Path = DEFAULT_BACKTEST_ROOT / "promotion_corpus.json",
+    snapshots_root: str | Path | None = None,
+    out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
+    min_artifact_free_bytes: int = 0,
+    current_tol: float = 0.003,
+    market_tol: float = 0.003,
+    min_days: int = 2,
+    min_trust: int = 25,
+    require_exact_identity: bool = False,
+    require_all_markets: bool = False,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Run active registry prediction contracts and return generated sources."""
+    from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
+
+    generated_at_utc = generated_at_utc or utc_iso()
+    snapshots_root = snapshots_root or DEFAULT_SNAPSHOTS_ROOT
+    corpus_path = Path(corpus_path)
+    registry = load_registry(registry_path)
+    active_variants = active_registry_variants(registry)
+    rows: list[dict[str, Any]] = []
+    blockers: list[str] = []
+    generated_paths: list[str] = []
+
+    if not corpus_path.exists():
+        blockers.append(f"promotion corpus not found: {corpus_path}")
+        return {
+            "status": "BLOCK",
+            "generated_at_utc": generated_at_utc,
+            "source_paths": [],
+            "executions": rows,
+            "blockers": blockers,
+        }
+
+    pooled_variants = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "") == "pooled_candidate_replay"
+    ]
+    derived_variants = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "") in DERIVED_RUNTIMES
+    ]
+    unsupported = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "")
+        not in {"pooled_candidate_replay", *DERIVED_RUNTIMES}
+    ]
+
+    derived_paths = _derived_output_paths(derived_variants)
+    derived_pending = dict(derived_paths)
+    for variant in unsupported:
+        contract = variant_export_contract(variant)
+        rows.append(_execution_row(
+            variant,
+            contract,
+            status="UNSUPPORTED",
+            detail=f"unsupported live_runtime {contract.get('live_runtime')!r}",
+        ))
+        blockers.append(f"unsupported live_runtime for {variant.get('variant_id')}: {contract.get('live_runtime')}")
+
+    if derived_variants and not pooled_variants:
+        blockers.append("derived active variant runtimes require at least one pooled_candidate_replay source")
+
+    for variant in pooled_variants:
+        contract = variant_export_contract(variant)
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        artifact_path = _resolve_registry_output_path(contract.get("artifact_path"))
+        if contract.get("artifact_required", True) and artifact_path is not None and not artifact_path.exists():
+            rows.append(_execution_row(
+                variant,
+                contract,
+                status="BLOCK",
+                output_path=output_path,
+                detail=f"artifact not found: {artifact_path}",
+            ))
+            blockers.append(f"artifact not found for {variant.get('variant_id')}: {artifact_path}")
+            continue
+        try:
+            row = _execute_pooled_candidate_replay_contract(
+                variant,
+                contract,
+                registry_path=registry_path,
+                corpus_path=corpus_path,
+                snapshots_root=snapshots_root,
+                out_dir=out_dir,
+                derived_output_paths=derived_pending,
+                min_artifact_free_bytes=min_artifact_free_bytes,
+                current_tol=current_tol,
+                market_tol=market_tol,
+                min_days=min_days,
+                min_trust=min_trust,
+                require_exact_identity=require_exact_identity,
+                require_all_markets=require_all_markets,
+            )
+        except Exception as exc:  # pragma: no cover - exercised through failure payloads in production.
+            rows.append(_execution_row(
+                variant,
+                contract,
+                status="ERROR",
+                output_path=output_path,
+                detail=str(exc),
+            ))
+            blockers.append(f"execution failed for {variant.get('variant_id')}: {exc}")
+            continue
+        rows.append(row)
+        if output_path is not None:
+            generated_paths.append(str(output_path))
+        for derived_variant in derived_variants:
+            derived_contract = variant_export_contract(derived_variant)
+            runtime = str(derived_contract.get("live_runtime") or "")
+            path = derived_pending.get(runtime)
+            if path is None:
+                continue
+            rows.append(_execution_row(
+                derived_variant,
+                derived_contract,
+                status="DERIVED",
+                output_path=path,
+                source_variant_id=variant.get("variant_id"),
+            ))
+            generated_paths.append(str(path))
+        derived_pending = {}
+
+    for variant in derived_variants:
+        contract = variant_export_contract(variant)
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        if output_path is not None and str(output_path) in generated_paths:
+            continue
+        rows.append(_execution_row(
+            variant,
+            contract,
+            status="BLOCK",
+            output_path=output_path,
+            detail="derived runtime was not emitted by a pooled_candidate_replay source",
+        ))
+        blockers.append(f"derived runtime not emitted for {variant.get('variant_id')}")
+
+    generated_paths = sorted(dict.fromkeys(generated_paths))
+    status = "OK" if not blockers else ("ERROR" if any(row.get("status") == "ERROR" for row in rows) else "BLOCK")
+    return {
+        "status": status,
+        "generated_at_utc": generated_at_utc,
+        "source_paths": generated_paths,
+        "executions": rows,
+        "blockers": blockers,
+    }
+
+
 def build_payload(
     prediction_paths: list[str | Path] | tuple[str | Path, ...] | None,
     *,
     registry_path: str | Path = DEFAULT_REGISTRY_PATH,
+    execution: dict[str, Any] | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     registry = load_registry(registry_path)
-    if not prediction_paths:
+    if not prediction_paths and execution is None:
         prediction_paths = active_export_paths(registry)
     contract_audit = audit_registry(registry, evidence_paths=[str(path) for path in (prediction_paths or [])])
     active_variants = active_registry_variants(registry)
@@ -137,6 +428,7 @@ def build_payload(
             "missing_active_variant_ids": missing_active_ids,
         },
         "contract_audit": contract_audit,
+        "execution": execution or {},
         "summary": {
             "source_path_count": len(source_paths),
             "raw_rows": len(raw_rows),
@@ -147,6 +439,8 @@ def build_payload(
             "unique_observation_count": (multi_variant.get("summary") or {}).get("unique_observation_count", 0),
             "market_day_count": (multi_variant.get("summary") or {}).get("market_day_count", 0),
             "deduplicated_rows": (multi_variant.get("summary") or {}).get("deduplicated_rows", 0),
+            "execution_status": (execution or {}).get("status"),
+            "execution_count": len((execution or {}).get("executions") or []),
         },
         "multi_variant_shadow": multi_variant,
     }
@@ -197,6 +491,31 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 ["Active variants", ", ".join(registry.get("active_variant_ids") or []) or "-"],
                 ["Reported active variants", ", ".join(registry.get("reported_active_variant_ids") or []) or "-"],
                 ["Missing active variants", ", ".join(registry.get("missing_active_variant_ids") or []) or "-"],
+            ],
+        ),
+        "",
+        "## Registry Execution",
+        "",
+        *markdown_table(
+            ["Field", "Value"],
+            [
+                ["Execution status", (payload.get("execution") or {}).get("status") or "-"],
+                ["Generated source paths", len((payload.get("execution") or {}).get("source_paths") or [])],
+                ["Execution rows", len((payload.get("execution") or {}).get("executions") or [])],
+            ],
+        ),
+        "",
+        *markdown_table(
+            ["Variant", "Runtime", "Status", "Output", "Source"],
+            [
+                [
+                    row.get("variant_id"),
+                    row.get("live_runtime"),
+                    row.get("status"),
+                    row.get("output_path") or "-",
+                    row.get("source_variant_id") or "-",
+                ]
+                for row in (payload.get("execution") or {}).get("executions") or []
             ],
         ),
         "",

@@ -45,8 +45,28 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/operations/daily_refresh.py": {
         "owner": "operations",
-        "boundary": "Daily refresh orchestration facade.",
-        "next_split": "step runner registry, status/report rendering, preflight gates, and CLI.",
+        "boundary": "Compatibility facade for daily refresh orchestration, lock/preflight, reporting, and CLI owner modules.",
+        "next_split": "Complete for item 205; keep scheduled command and public imports stable while owner modules settle.",
+    },
+    "src/weather/operations/daily_refresh_locks.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh lock, stale-state repair, and disk-preflight helpers.",
+        "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/daily_refresh_steps.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh step order, runner registry, step adapters, and status summary helpers.",
+        "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/daily_refresh_report.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh status Markdown rendering and report file writing.",
+        "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/daily_refresh_cli.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh CLI parser and command handlers with facade-injected dependencies.",
+        "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
     },
 }
 

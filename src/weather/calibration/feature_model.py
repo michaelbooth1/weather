@@ -10,7 +10,7 @@ from datetime import datetime
 from collections import Counter, defaultdict
 
 from weather.artifacts import writable_artifact_path
-from weather.calibration.blocked_validation import blocked_validation_audit
+from weather.calibration.blocked_validation import blocked_validation_audit, validation_splits
 from weather.calibration.feature_model_reports import (
     _as_date,
     ablation_group_table_row,
@@ -454,6 +454,31 @@ def feature_validation_folds(df, n_splits=5):
         if len(idx):
             folds.append(idx)
     return folds or [np.arange(len(df))]
+
+
+def feature_blocked_validation_plan(records, mode="holdout_year"):
+    """Return train indices keyed by validation row for honest feature validation."""
+    rows = list(records or [])
+    splits = validation_splits(
+        rows,
+        modes=(mode,),
+        default_market_id="feature_model",
+    )
+    train_indices_by_validation_index = {}
+    for split in splits:
+        train_indices = [int(index) for index in split.get("train_indices") or []]
+        for validation_index in split.get("validation_indices") or []:
+            train_indices_by_validation_index[int(validation_index)] = train_indices
+    return {
+        "mode": mode,
+        "splits": splits,
+        "train_indices_by_validation_index": train_indices_by_validation_index,
+        "audit": blocked_validation_audit(
+            rows,
+            modes=(mode,),
+            default_market_id="feature_model",
+        ),
+    }
 
 
 def hgb_matrices_for_split(x_frame, train_idx, val_idx, feature_cols):
@@ -983,6 +1008,7 @@ def main(market_id="toronto"):
     ablation_rows = []
     ablation_observation_rows = []
     training_metric_rows = []
+    honest_validation_rows = []
 
     trained_at = datetime.now().isoformat()
     trained_models_info = {
@@ -1053,6 +1079,8 @@ def main(market_id="toronto"):
         n_samples = len(df)
         if not RUN_LOO:
             n_samples = 0
+        blocked_plan = feature_blocked_validation_plan(records)
+        blocked_train_by_validation = blocked_plan["train_indices_by_validation_index"]
         
         # Baseline model weights for this hour
         weights = model.calibrated_weights.get(str(hour)) if model.calibrated_weights else None
@@ -1077,18 +1105,25 @@ def main(market_id="toronto"):
         hgb_fold_data = []  # (p_clim, raw_hgb_prob_dict, val_actual) for weight tuning
         ablation_losses = defaultdict(list)
         ablation_briers = defaultdict(list)
+        skipped_loo = 0
 
         for val_idx in range(n_samples):
             # Split train and validation
-            train_mask = np.ones(n_samples, dtype=bool)
-            train_mask[val_idx] = False
-            
+            train_indices = blocked_train_by_validation.get(val_idx) or []
+            train_mask = np.zeros(n_samples, dtype=bool)
+            if train_indices:
+                train_mask[train_indices] = True
+
             # Validation date
             val_date = df.iloc[val_idx]["date"]
             val_actual = df.iloc[val_idx]["final_bucket"]
-            
-            # Get historical training subset for priors (excluding validation year's date window)
-            train_days = [d for d in records if d["date"].year != val_date.year]
+            if not train_indices or len(set(y[train_mask])) < 2:
+                skipped_loo += 1
+                continue
+
+            # Baseline and ML arms now share the same blocked split. For the
+            # default holdout-year mode, both exclude the validation year.
+            train_days = [records[int(index)] for index in train_indices]
             
             # --- 1. Compute Baseline predictions ---
             p_clim = smoothed_dist([d["final_bucket"] for d in train_days], bucket_space, alpha=0.10)
@@ -1212,6 +1247,14 @@ def main(market_id="toronto"):
                 )
 
         if RUN_LOO:
+            honest_validation_rows.append({
+                "hour": hour,
+                "mode": blocked_plan["mode"],
+                "split_count": blocked_plan["audit"].get("split_count", 0),
+                "validation_rows": len(blocked_train_by_validation),
+                "scored_rows": len(losses_hgb),
+                "skipped_rows": skipped_loo,
+            })
             # Print metrics summary
             base_ll = np.mean(losses_baseline)
             base_acc = np.mean(accs_baseline)
@@ -1308,7 +1351,11 @@ def main(market_id="toronto"):
             "scaler_mean": final_scaler.mean_[:n_numeric].tolist(),
             "scaler_scale": final_scaler.scale_[:n_numeric].tolist(),
             "imputer_median": final_imputer.statistics_.tolist(),
-            "blend_weight": 0.80
+            "blend_weight": 0.80,
+            "ordinal_smoothing": {
+                "enabled": False,
+                "source": "disabled_until_tuned_in_validation_objective",
+            },
         }
 
         # Fit final HistGradientBoostingClassifier (trees need no scaling; forecast
@@ -1344,6 +1391,10 @@ def main(market_id="toronto"):
             "probability_calibration": {
                 "method": "temperature",
                 "temperature": tuned_probability_temperature.get(str(hour), 1.0),
+            },
+            "ordinal_smoothing": {
+                "enabled": False,
+                "source": "disabled_until_tuned_in_validation_objective",
             },
         }
         
@@ -1399,8 +1450,24 @@ def main(market_id="toronto"):
                     f"{row['performance_warning_count']} |"
                 )
 
+        if honest_validation_rows:
+            report_lines.append("\n## Honest blocked validation split\n")
+            report_lines.append(
+                "The empirical baseline and ML arms now use the same blocked "
+                "training indices for each validation row. The default mode is "
+                "`holdout_year`, so no validation year's adjacent days remain in "
+                "the ML training fold while the baseline excludes them.\n"
+            )
+            report_lines.append("| Cutoff | Mode | Splits | Validation rows | Scored rows | Skipped rows |")
+            report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+            for row in sorted(honest_validation_rows, key=lambda item: item["hour"]):
+                report_lines.append(
+                    f"| {row['hour']:02d}:00 | {row['mode']} | {row['split_count']} | "
+                    f"{row['validation_rows']} | {row['scored_rows']} | {row['skipped_rows']} |"
+                )
+
         # Per-hour blend-weight calibration table.
-        report_lines.append("\n## HGB climatology-blend calibration (tuned by LOO log loss)\n")
+        report_lines.append("\n## HGB climatology-blend calibration (tuned by honest blocked log loss)\n")
         report_lines.append(
             "Temperature is multiclass probability-temperature scaling applied "
             "to the raw HGB distribution before blending. Blend weight = fraction "

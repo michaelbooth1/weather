@@ -12,6 +12,7 @@ from weather.calibration.feature_model import (
     ablation_season_label,
     evaluate_feature_family_segments,
     evaluate_late_day_records,
+    feature_blocked_validation_plan,
     feature_family_columns,
     feature_family_promotion_decisions,
     late_day_feature_columns,
@@ -197,6 +198,26 @@ class TestFeatureModelAblation(unittest.TestCase):
             "decision",
             {key for row in decisions for key in row.keys()},
         )
+
+    def test_feature_blocked_validation_plan_excludes_validation_year(self):
+        records = []
+        for year in (2024, 2025):
+            for day in range(1, 4):
+                records.append({
+                    "date": date(year, 6, day),
+                    "final_bucket": 24 + (day % 2),
+                })
+
+        plan = feature_blocked_validation_plan(records)
+
+        assert plan["mode"] == "holdout_year"
+        assert plan["audit"]["schema_version"] == "blocked_validation_v0.1"
+        for validation_index, train_indices in plan["train_indices_by_validation_index"].items():
+            validation_year = records[validation_index]["date"].year
+            assert train_indices
+            assert {records[index]["date"].year for index in train_indices} == (
+                {2025} if validation_year == 2024 else {2024}
+            )
 
     def test_late_day_features_include_forecast_gap_before_one_hot_columns(self):
         columns = late_day_feature_columns(["W-NW"], ["Fair/clear"])

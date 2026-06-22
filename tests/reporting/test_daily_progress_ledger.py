@@ -87,11 +87,58 @@ class TestDailyProgressLedger(unittest.TestCase):
                 {
                     "run_id": "mm-1",
                     "target_date": "2026-06-19",
-                    "evidence_mode": "operator_drill",
+                    "evidence_mode": "active_day_live_forward",
                     "counts_toward_live_forward_gate": False,
                     "cumulative_quote_permission_rows": 4019,
                     "cumulative_live_trade_permission_rows": 0,
-                    "live_forward_gate": {"status": "BLOCK", "evidence": {}},
+                    "preflight_status": "STALE",
+                    "cumulative": {"blocked_by_preflight_count": 66},
+                    "preflight": {
+                        "status": "STALE",
+                        "markets": [
+                            {
+                                "market_id": "atlanta",
+                                "status": "STALE",
+                                "model_age_seconds": 9000,
+                                "book_audit": {"trailing_age_seconds": 7200},
+                                "gates": [
+                                    {
+                                        "name": "model_freshness",
+                                        "ok": False,
+                                        "severity": "stale",
+                                        "detail": "current model snapshot is stale or timestamp is missing",
+                                    },
+                                    {
+                                        "name": "clob_freshness",
+                                        "ok": False,
+                                        "severity": "stale",
+                                        "detail": "last book capture is 7200s old",
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    "live_forward_gate": {
+                        "status": "BLOCK",
+                        "summary": {"market_count": 1, "blocked_market_count": 1},
+                        "evidence": {
+                            "model_review_evidence": {
+                                "market_count": 1,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 1,
+                            },
+                            "paper_trading_evidence": {
+                                "market_count": 1,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 1,
+                            },
+                            "live_trade_permission_evidence": {
+                                "market_count": 1,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 1,
+                            },
+                        },
+                    },
                 },
             )
             taker = root / "taker_runs" / "2026-06-19" / "taker-1"
@@ -165,6 +212,19 @@ class TestDailyProgressLedger(unittest.TestCase):
                             {"code": "reported_mark_to_market_diverges_from_settlement", "detail": "diff"}
                         ],
                     },
+                    "next_run_policy_gate": {
+                        "status": "PASS",
+                        "active_strategy_id": "low_price_tail_capped",
+                        "active_strategy_lifecycle": "candidate_canary",
+                        "active_strategy_lifecycle_status": "candidate_canary",
+                        "promotion_eligible": False,
+                        "next_action": "continue_canary_until_complete_labels",
+                        "complete_label_sample_count": 0,
+                        "total_label_sample_count": 1,
+                        "canary_settled_order_count": 4,
+                        "canary_min_settled_orders": 5,
+                        "canary_age_days": 0,
+                    },
                 },
             )
             daily_refresh = {
@@ -197,7 +257,18 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["ops_disk_free_bytes"], 485441536)
         self.assertEqual(row["ops_disk_required_free_bytes"], 1069048320)
         self.assertEqual(row["ops_disk_headroom_bytes"], -583606784)
-        self.assertEqual(row["trading_mm_evidence_mode"], "operator_drill")
+        self.assertEqual(row["trading_mm_evidence_mode"], "active_day_live_forward")
+        self.assertEqual(row["trading_mm_evidence_starvation_status"], "CRITICAL")
+        self.assertEqual(row["trading_mm_starved_active_day_streak"], 1)
+        self.assertEqual(row["trading_mm_unrecovered_starved_active_day_streak"], 1)
+        self.assertEqual(row["trading_mm_recovered_starved_active_day_count"], 0)
+        self.assertEqual(row["trading_mm_unrecovered_starved_active_day_count"], 1)
+        self.assertEqual(row["trading_mm_preflight_recovery_status"], "MISSING")
+        self.assertFalse(row["trading_mm_preflight_recovery_attempted"])
+        self.assertFalse(row["trading_mm_preflight_recovery_recovered"])
+        self.assertEqual(row["trading_mm_countable_paper_market_day_count"], 0)
+        self.assertEqual(row["trading_mm_latest_preflight_blocked_market_fraction"], 1.0)
+        self.assertEqual(json.loads(row["trading_mm_evidence_starvation_owner_items"]), ["161", "157"])
         self.assertEqual(row["trading_taker_root_cause"], "policy_no_edge")
         self.assertAlmostEqual(row["trading_taker_net_pnl_usdc"], 36.687839)
         self.assertEqual(row["trading_taker_pnl_source"], "settlement_finalization")
@@ -207,6 +278,19 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["trading_taker_best_strategy_id"], "raw_edge_control")
         self.assertEqual(row["trading_taker_strategy_quality_candidate_id"], "raw_edge_control")
         self.assertEqual(row["trading_taker_strategy_quality_candidate_status"], "COUNTABLE_SETTLED")
+        self.assertEqual(row["trading_taker_active_strategy_id"], "low_price_tail_capped")
+        self.assertEqual(row["trading_taker_active_strategy_lifecycle"], "candidate_canary")
+        self.assertEqual(row["trading_taker_active_strategy_lifecycle_status"], "candidate_canary")
+        self.assertFalse(row["trading_taker_active_strategy_promotion_eligible"])
+        self.assertEqual(
+            row["trading_taker_active_strategy_next_action"],
+            "continue_canary_until_complete_labels",
+        )
+        self.assertEqual(row["trading_taker_active_strategy_complete_label_sample_count"], 0)
+        self.assertEqual(row["trading_taker_active_strategy_total_label_sample_count"], 1)
+        self.assertEqual(row["trading_taker_active_strategy_canary_settled_order_count"], 4)
+        self.assertEqual(row["trading_taker_active_strategy_canary_min_settled_orders"], 5)
+        self.assertEqual(row["trading_taker_active_strategy_canary_age_days"], 0)
 
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

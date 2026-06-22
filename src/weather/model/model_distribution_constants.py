@@ -69,6 +69,20 @@ FORECAST_PULL_END_HOUR = 16         # faded to zero by this hour
 FORECAST_CLUSTER_SOURCE_WEIGHT_STEP = 1.40
 FORECAST_CLUSTER_MAX_WEIGHT = 2.40
 
+# --- Ramp-window warm-tail repair ------------------------------------------
+# The 2026-06-20 settled audit found the ramp window buying a broad warm tail
+# when one hot forecast/current-max-like source sat above the rest of the
+# guidance and the printed high had not caught up. Keep the feature model's
+# learned shape, but add a serving-side safety valve that damps buckets beyond
+# the robust forecast/current-observed anchor when warm outlier or high
+# disagreement evidence is present.
+RAMP_WARM_TAIL_START_HOUR = 8
+RAMP_WARM_TAIL_END_HOUR = 14
+RAMP_WARM_TAIL_DISAGREEMENT = 4.0
+RAMP_WARM_TAIL_SOURCE_CAP_MARGIN = 1.0
+RAMP_WARM_TAIL_ANCHOR_MARGIN = 1.0
+RAMP_WARM_TAIL_DECAY = 0.45
+
 # --- Bucket transition prior ------------------------------------------------
 # The dashboard's X/X+1/X+2/>=X+3 transition table is now also a small numeric
 # prior: conditional on the printed WU high bucket at the effective cutoff, how
@@ -128,6 +142,12 @@ HIGH_HAS_STOOD_MIN_MINUTES = 60
 HIGH_HAS_STOOD_MIN_FORECAST_SOURCES = 2
 HIGH_HAS_STOOD_FORECAST_MARGIN = 0.25  # Celsius delta; converted per market.
 HIGH_HAS_STOOD_ROLLOVER_MARGIN = 0.25  # Celsius delta below the printed high.
+EXPANDED_LOCKIN_START_HOUR = 15
+EXPANDED_LOCKIN_END_HOUR = 19
+EXPANDED_LOCKIN_STAND_MINUTES = 60
+EXPANDED_LOCKIN_FORECAST_MARGIN = 0.50
+EXPANDED_LOCKIN_ROLLOVER_MARGIN = 0.25
+EXPANDED_LOCKIN_MAX_STRENGTH = 0.85
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
 

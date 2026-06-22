@@ -104,6 +104,32 @@ budget and the cadence SLO: total restart count `1226`, seven-day diagnostic
 restart-class events `4080`, and first blocker `snapshot_capture` with
 `restart_budget_exceeded=304>6; duplicate_writer_incidents=4`.
 
+## 2026-06-22 Active-Day Window Readiness Update
+
+Fleet observability now separates active-day countability blockers from
+seven-day diagnostic context. Duplicate-writer incidents use the same 24-hour
+countability window as restart budgets; the seven-day count remains in
+`diagnostic_duplicate_writer_incident_count` for taxonomy/history.
+
+Current regenerated evidence:
+
+- `data/backtest/fleet_observability.json` still has `current_code_soak`
+  `BLOCK` and `counts_toward_active_day=False`.
+- Active-day duplicate-writer incidents are now `0`; seven-day diagnostic
+  duplicate-writer incidents remain `86`.
+- Restart budgets still block all three loops: snapshot `228>6`, CLOB
+  `226>12`, and observation-trigger `263>12`.
+- The latest restart-budget aging blocker clears at
+  `2026-06-22T18:26:13.925019+00:00` if no new restarts occur.
+- Two malformed console-log lines still block artifact hygiene:
+  `data/snapshots/loop_console.log` and
+  `data/snapshots/observation_trigger_console.log`.
+- The normal repair command intentionally skipped both console logs because
+  live writer locks were present (`active_writer_lock`). Repair should happen
+  during a maintenance pause before the next countable active-day soak, then
+  the loops should be restarted once and left to age through the 24-hour
+  restart window.
+
 Acceptance: fleet observability can prove a full active day where all managed
 loops stayed current-code, single-writer, under restart budget, and within
 cadence thresholds; otherwise it reports the exact loop, restart class, and

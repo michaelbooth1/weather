@@ -55,6 +55,40 @@ def _append_unpinned_snapshot(folder):
         writer.writerows(extra)
 
 
+def _append_replay_snapshot(folder, snapshot_id="snap2"):
+    path = Path(folder) / "replay_inputs.jsonl"
+    first = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    first["snapshot_id"] = snapshot_id
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(first, sort_keys=True, default=str) + "\n")
+
+
+def _write_feature_quality_bad_snapshot(folder, snapshot_id="snap1"):
+    with (Path(folder) / "features_long.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "snapshot_id",
+                "captured_at_local",
+                "event_slug",
+                "target_date",
+                "high_so_far",
+                "current_temp",
+                "trusted_current_max",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow({
+            "snapshot_id": snapshot_id,
+            "captured_at_local": "2026-06-03T12:00:00-04:00",
+            "event_slug": SLUG,
+            "target_date": "2026-06-03",
+            "high_so_far": "24.0",
+            "current_temp": "24.0",
+            "trusted_current_max": "45.0",
+        })
+
+
 class TestPromotionCorpus(unittest.TestCase):
     def test_manifest_pins_settlement_snapshot_ids_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,6 +115,28 @@ class TestPromotionCorpus(unittest.TestCase):
             write_manifest(manifest, path)
             loaded = load_manifest(path)
             self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
+
+    def test_manifest_excludes_feature_quality_quarantined_snapshots_before_hashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _append_unpinned_snapshot(folder)
+            _append_replay_snapshot(folder)
+            _write_label(folder)
+            _write_feature_quality_bad_snapshot(folder, snapshot_id="snap1")
+
+            manifest = build_promotion_corpus(
+                [folder],
+                snapshots_root=tmp,
+                as_of="2026-06-04",
+            )
+
+        self.assertEqual(manifest["summary"]["market_day_count"], 1)
+        self.assertEqual(manifest["summary"]["feature_quality_excluded_snapshot_count"], 1)
+        self.assertEqual(manifest["summary"]["feature_quality_excluded_band_row_count"], 3)
+        entry = manifest["entries"][0]
+        self.assertEqual(entry["snapshot_ids"], ["snap2"])
+        self.assertEqual(entry["feature_quality_excluded_snapshot_ids"], ["snap1"])
 
     def test_replay_with_manifest_ignores_later_folder_growth(self):
         with tempfile.TemporaryDirectory() as tmp:

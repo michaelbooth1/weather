@@ -288,6 +288,82 @@ def _clob_recovery_rows(clob):
     return rows
 
 
+def optional_market_event_stream_gate(clob):
+    clob = clob or {}
+    loop = clob.get("loop") or {}
+    include_history = bool(loop.get("include_price_history"))
+    include_ws = bool(loop.get("include_ws_events"))
+    results = loop.get("last_market_results") or {}
+    issues = []
+    if include_history or include_ws:
+        for market_id, result in sorted(results.items()):
+            if not isinstance(result, dict):
+                continue
+            books = int(result.get("books") or 0)
+            if include_history and books > 0 and int(result.get("price_history_rows") or 0) <= 0:
+                issues.append({
+                    "market_id": market_id,
+                    "stream": "price_history",
+                    "severity": "warning",
+                    "detail": "price history is enabled but latest loop result wrote zero rows",
+                    "books": books,
+                    "price_history_rows": int(result.get("price_history_rows") or 0),
+                })
+            if include_ws:
+                ws_error = result.get("ws_error")
+                ws_rows = int(result.get("ws_event_rows") or 0)
+                ws_messages = int(result.get("ws_messages") or 0)
+                if ws_error:
+                    issues.append({
+                        "market_id": market_id,
+                        "stream": "websocket_events",
+                        "severity": "warning",
+                        "detail": f"WebSocket event capture failed: {ws_error}",
+                        "books": books,
+                        "ws_messages": ws_messages,
+                        "ws_event_rows": ws_rows,
+                    })
+                elif books > 0 and ws_messages <= 0 and ws_rows <= 0:
+                    issues.append({
+                        "market_id": market_id,
+                        "stream": "websocket_events",
+                        "severity": "warning",
+                        "detail": "WebSocket events are enabled but latest loop result captured no messages",
+                        "books": books,
+                        "ws_messages": ws_messages,
+                        "ws_event_rows": ws_rows,
+                    })
+        if not results:
+            issues.append({
+                "market_id": "fleet",
+                "stream": "market_event_streams",
+                "severity": "warning",
+                "detail": "optional market event streams are enabled but no loop result has been recorded yet",
+            })
+    status = "DISABLED" if not include_history and not include_ws else ("WARN" if issues else "PASS")
+    return {
+        "schema_version": "optional_market_event_streams_v0.1",
+        "status": status,
+        "ok": not issues,
+        "include_price_history": include_history,
+        "include_ws_events": include_ws,
+        "market_count": len(results),
+        "issue_count": len(issues),
+        "issues": issues,
+        "blocks_core_model_review": False,
+        "counts_toward_live_forward_gate": False,
+        "reason": (
+            "optional price-history/WebSocket streams are disabled"
+            if status == "DISABLED"
+            else (
+                "optional price-history/WebSocket streams need attention"
+                if issues else
+                "optional price-history/WebSocket streams are being captured"
+            )
+        ),
+    }
+
+
 def _observation_recovery_rows(observation):
     alerts = observation_alerts(observation)
     if not alerts:
@@ -427,6 +503,12 @@ def _snapshot_cadence_proof(collection, recovery_rows):
         else:
             row.setdefault("blocking_gates", [])
     blocked = [row for row in markets if row.get("status") != "PASS"]
+    recoverable_same_day = [
+        row for row in blocked if row.get("recoverable_same_day")
+    ]
+    nonrecoverable_active_day_blocked = [
+        row for row in blocked if not row.get("active_day_countable", row.get("status") == "PASS")
+    ]
     gap_markets = {
         row.get("market_id")
         for row in markets
@@ -451,6 +533,21 @@ def _snapshot_cadence_proof(collection, recovery_rows):
         "total_gap_count": sum(int(row.get("gap_count") or 0) for row in markets),
         "max_gap_minutes": max(max_gaps) if max_gaps else None,
         "root_cause_counts": dict(sorted(Counter(row.get("root_cause") or "unknown" for row in markets).items())),
+        "active_day_countable_market_count": sum(
+            1 for row in markets if row.get("active_day_countable", row.get("status") == "PASS")
+        ),
+        "recoverable_same_day_market_count": len(recoverable_same_day),
+        "nonrecoverable_active_day_blocked_market_count": len(nonrecoverable_active_day_blocked),
+        "clean_active_day_required": bool(nonrecoverable_active_day_blocked),
+        "next_unblock_action": (
+            "none"
+            if not blocked
+            else (
+                SNAPSHOT_RESTART_COMMAND
+                if recoverable_same_day
+                else "collect next active day with zero snapshot_coverage_gap blocked markets"
+            )
+        ),
         "status_command": SNAPSHOT_STATUS_COMMAND,
         "repair_command": SNAPSHOT_RESTART_COMMAND,
         "verification_command": BROAD_SLO_VERIFY_COMMAND,
@@ -459,6 +556,18 @@ def _snapshot_cadence_proof(collection, recovery_rows):
     summary["snapshot_coverage_gap_blocked_market_count"] = len(gap_markets)
     summary["blocked_market_count"] = len(blocked)
     summary["status"] = "PASS" if not blocked else "BLOCK"
+    summary["recoverable_same_day_market_count"] = len(recoverable_same_day)
+    summary["nonrecoverable_active_day_blocked_market_count"] = len(nonrecoverable_active_day_blocked)
+    summary["clean_active_day_required"] = bool(nonrecoverable_active_day_blocked)
+    summary["next_unblock_action"] = (
+        "none"
+        if not blocked
+        else (
+            SNAPSHOT_RESTART_COMMAND
+            if recoverable_same_day
+            else "collect next active day with zero snapshot_coverage_gap blocked markets"
+        )
+    )
     return {
         "schema_version": "snapshot_cadence_proof_v0.1",
         "summary": summary,
@@ -483,6 +592,7 @@ def live_forward_slo_gate(collection, clob, observation):
     recovery_rows = broad_live_forward_recovery_rows(collection, clob, observation)
     snapshot_cadence = _snapshot_cadence_proof(collection, recovery_rows)
     concrete_gates = _concrete_broad_slo_gates(recovery_rows)
+    optional_streams = optional_market_event_stream_gate(clob)
     blockers = [
         message
         for gate in gates
@@ -518,6 +628,7 @@ def live_forward_slo_gate(collection, clob, observation):
         "blockers": blockers,
         "first_blocker": first_blocker,
         "recovery_checklist": recovery_rows,
+        "optional_market_event_streams": optional_streams,
         "snapshot_cadence_proof": snapshot_cadence,
         "rerun_command": BROAD_SLO_VERIFY_COMMAND,
         "summary": _broad_slo_summary(recovery_rows),

@@ -1,4 +1,4 @@
-# 185. Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-21 - CHILD ITEMS SCOPED, VALIDATION PENDING]
+# 185. Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - CHILD GATE TRIAGE REFRESHED, VALIDATION PENDING]
 
 Goal: integrate the highest-value weather data sources the daily-high research
 audit found the model is physically blind to, each earning its place by
@@ -56,6 +56,22 @@ see.
   recommendation is not a new data-source family.
 - [ ] Resolve or explicitly reject each child with settlement-scored evidence.
 - [ ] Promote only non-regressing per-market feature families.
+
+## 2026-06-22 Child-Gate Triage
+
+Refreshed `data/backtest/source_family_inventory.json` and
+`data/backtest/item138_weak_input_family_disposition.json`. The parent gate is
+still validation-pending; none of the 186-191 children has enough
+settlement-scored evidence for promotion.
+
+| Child | Current Generated Evidence | Next Unblock |
+| :--- | :--- | :--- |
+| 186 soil/reanalysis dryness | `reanalysis_synoptic` remains `diagnostic_only`; weak-family coverage reports `40` low-coverage and `40` near-constant/unanalyzable features, with no positive broad family permutation gate. | Add the remaining antecedent precipitation / evaporative-fraction fields, then rerun per-market item-27 settlement gates. |
+| 187 forecast radiation | `open_meteo_forecast_profile` is served, but the weak-family report still has `44` low-coverage/sparse feature rows; the radiation subset has not cleared its own morning/midday settlement gate. | Run an isolated radiation-feature gate and require no late-day regression. |
+| 188 aerosol/smoke | Open-Meteo AQ live features exist, but the child still lacks historical AQ backfill/retrain support and a high-AOD/high-PM smoke-day slice. | Backfill AQ or prove replay-safe live history, then score the smoke slice. |
+| 189 ECMWF/ML-NWP members | `official_multimodel_guidance` is `regime_backfill` with `33` low-coverage and `19` near-constant/unanalyzable features; lineage/parity is incomplete. | Archive/backfill the global-model members and rerun predawn/morning settlement gates. |
+| 190 NBM probabilistic Tmax | NBM station percentiles are live under the official-guidance family, but QMD GRIB extraction and replay-safe historical probabilistic features remain open. | Add QMD/bucket-edge extraction or a replay-safe station archive, then score as a calibration anchor. |
+| 191 lake/sea contrast | `marine_microclimate` is `regime_backfill` with `17` low-coverage and `8` near-constant/unanalyzable features, no positive broad family gate, and incomplete lineage/parity. | Add GLSEA/OISST or enough station history, then score the onshore/breeze-day slice. |
 
 Acceptance: each child item is resolved or explicitly rejected with
 settlement-scored evidence, and any promoted family shows non-regressing

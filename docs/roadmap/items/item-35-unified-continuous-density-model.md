@@ -2,6 +2,15 @@
 
 Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 
+Source: Track B production-model roadmap and the core model architecture
+audits, which called out duplicated family-specific probability machinery and
+unit-sensitive band projection as a long-term calibration risk.
+
+Why this matters: a continuous native-temperature density can share evidence
+across sparse markets while projecting into each market's native bands at serve
+time. The item remains active until that architecture beats current serving
+per market instead of only simplifying the model shape.
+
 - [x] Predict a fine canonical-grid / continuous max-temp density pooled across
   all 12 cities plus city features.
 - [x] Add the serving-time discretization foundation that integrates a fine

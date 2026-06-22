@@ -109,6 +109,10 @@ def _snapshot_market_rows(snapshot):
             row.get("clob_capture_status_days"),
             row.get("clob_token_artifact_days"),
             row.get("clob_raw_book_artifact_days"),
+            row.get("training_ready_label_days"),
+            row.get("explanation_ready_days"),
+            row.get("market_aware_ready_days"),
+            row.get("variant_ready_days"),
             fmt_num(row.get("median_snapshots_per_day"), 1),
             fmt_num(row.get("median_gap_minutes"), 2),
             fmt_num(row.get("max_gap_minutes"), 1),
@@ -148,6 +152,18 @@ def write_report(path, payload):
     remediation = payload.get("remediation_manifest") or []
     gap_investigation = payload.get("historical_gap_investigation") or {}
     clob_raw_artifacts = snapshot.get("clob_raw_artifacts") or {}
+    sidecar_eligibility = snapshot.get("sidecar_eligibility") or {}
+    feature_quality = snapshot.get("feature_quality_quarantine") or {}
+    sidecar_sample_rows = []
+    for row in sidecar_eligibility.get("promotion_exclusion_sample") or []:
+        sidecar_sample_rows.append([
+            row.get("market_id"),
+            row.get("target_date"),
+            row.get("primary_label"),
+            ", ".join(row.get("promotion_exclusion_reasons") or []) or "-",
+            ", ".join(row.get("market_aware_exclusion_reasons") or []) or "-",
+            " ; ".join(command.get("command") for command in row.get("backfill_commands") or []) or "-",
+        ])
     lines = [
         "# Data Layer Audit",
         "",
@@ -190,6 +206,13 @@ def write_report(path, payload):
             ["Source-status rows", (snapshot.get("source_status") or {}).get("row_count")],
             ["Source stale/failed rate", _fmt_pct((snapshot.get("source_status") or {}).get("stale_or_failed_rate"))],
             ["Replay input status rows", _count_summary((snapshot.get("replay_input_status") or {}).get("status_counts"))],
+            ["Sidecar primary labels", _count_summary(sidecar_eligibility.get("primary_label_counts"))],
+            ["Sidecar readiness labels", _count_summary(sidecar_eligibility.get("label_counts"))],
+            ["Backfill candidate folders", sidecar_eligibility.get("backfill_candidate_folder_count")],
+            ["Active-day sidecar regressions", sidecar_eligibility.get("active_day_sidecar_regression_count")],
+            ["Feature-quality quarantined rows", feature_quality.get("quarantine_row_count", 0)],
+            ["Feature-quality training exclusions", feature_quality.get("training_excluded_row_count", 0)],
+            ["Feature-quality backfill candidates", feature_quality.get("backfill_candidate_row_count", 0)],
             ["CLOB feature rows", (snapshot.get("clob_features") or {}).get("row_count")],
             ["CLOB book available rate", _fmt_pct((snapshot.get("clob_features") or {}).get("book_available_rate"))],
             [
@@ -219,6 +242,48 @@ def write_report(path, payload):
             ["Forecast payload rows", (snapshot.get("forecast_payloads") or {}).get("row_count")],
         ],
     )
+    lines += [
+        "",
+        "## Snapshot Sidecar Eligibility",
+        "",
+    ]
+    lines += markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Primary labels", _count_summary(sidecar_eligibility.get("primary_label_counts"))],
+            ["Readiness labels", _count_summary(sidecar_eligibility.get("label_counts"))],
+            ["Missing artifacts", _count_summary(sidecar_eligibility.get("missing_artifact_counts"))],
+            ["Non-reconstructable gaps", _count_summary(sidecar_eligibility.get("non_reconstructable_gap_counts"))],
+            ["Backfill commands", _count_summary(sidecar_eligibility.get("backfill_command_counts"))],
+            ["Feature-quality quarantined rows", feature_quality.get("quarantine_row_count", 0)],
+            ["Feature-quality training exclusions", feature_quality.get("training_excluded_row_count", 0)],
+            ["Feature-quality reasons", _count_summary(feature_quality.get("reason_counts"))],
+            ["Feature-quality dispositions", _count_summary(feature_quality.get("disposition_counts"))],
+        ],
+    )
+    lines += ["", "### Eligibility Exclusion Sample", ""]
+    lines += markdown_table(
+        ["Market", "Date", "Label", "Promotion Exclusions", "Market-Aware Exclusions", "Backfill Commands"],
+        sidecar_sample_rows,
+    )
+    if feature_quality.get("sample_rows"):
+        lines += ["", "### Feature Quality Quarantine Sample", ""]
+        lines += markdown_table(
+            ["Market", "Date", "Snapshot", "Source", "Field", "Value", "Reason", "Disposition"],
+            [
+                [
+                    row.get("market_id"),
+                    row.get("target_date"),
+                    row.get("snapshot_id"),
+                    row.get("source_file"),
+                    row.get("feature_field"),
+                    row.get("observed_value"),
+                    row.get("reason"),
+                    row.get("disposition"),
+                ]
+                for row in feature_quality.get("sample_rows") or []
+            ],
+        )
     lines += [
         "",
         "## Audit Gates",
@@ -284,6 +349,7 @@ def write_report(path, payload):
             "Market", "Days", "Settled", "Clean", "Replay", "Replay Status",
             "Source Status", "Features", "Components", "Forecasts",
             "Payloads", "CLOB Feat", "CLOB Status", "CLOB Tokens", "CLOB Books",
+            "Training Ready", "Explain Ready", "Market Ready", "Variant Ready",
             "Median Snaps", "Median Gap", "Max Gap",
         ],
         _snapshot_market_rows(snapshot),

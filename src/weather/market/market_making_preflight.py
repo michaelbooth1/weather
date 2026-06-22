@@ -262,6 +262,7 @@ REMEDIATION_RULES = {
     "model_freshness": {
         "root_cause": "stale_model_row",
         "owner": "weather snapshot/model loop",
+        "roadmap_owner_items": ["161", "157"],
         "suggested_command": "python -m weather.collection.snapshot_tracker --status",
         "recoverable_same_day": True,
         "counts_after_failure": False,
@@ -311,6 +312,7 @@ REMEDIATION_RULES = {
     "clob_freshness": {
         "root_cause": "stale_clob_book_tape",
         "owner": "CLOB book supervisor",
+        "roadmap_owner_items": ["161"],
         "suggested_command": "python -m weather.market.market_microstructure ensure",
         "recoverable_same_day": True,
         "counts_after_failure": False,
@@ -318,6 +320,7 @@ REMEDIATION_RULES = {
     "observation_trigger": {
         "root_cause": "watcher_stale",
         "owner": "observation-trigger supervisor",
+        "roadmap_owner_items": ["161"],
         "suggested_command": "python -m weather.operations.observation_trigger ensure",
         "recoverable_same_day": True,
         "counts_after_failure": False,
@@ -429,6 +432,7 @@ def build_preflight_remediation(preflight, now, previous=None):
                 "severity": gate.get("severity"),
                 "root_cause": rule["root_cause"],
                 "owner": rule["owner"],
+                "roadmap_owner_items": list(rule.get("roadmap_owner_items") or []),
                 "detail": detail,
                 "suggested_command": rule["suggested_command"],
                 "recoverable_same_day": bool(rule["recoverable_same_day"]),

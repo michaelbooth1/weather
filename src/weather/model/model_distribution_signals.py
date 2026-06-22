@@ -12,6 +12,12 @@ from weather.model.calibration_runtime import (
 from weather.model.model_distribution_constants import (
     BUCKET_TRANSITION_BLEND_MAX,
     BUCKET_TRANSITION_MIN_SAMPLE,
+    EXPANDED_LOCKIN_END_HOUR,
+    EXPANDED_LOCKIN_FORECAST_MARGIN,
+    EXPANDED_LOCKIN_MAX_STRENGTH,
+    EXPANDED_LOCKIN_ROLLOVER_MARGIN,
+    EXPANDED_LOCKIN_STAND_MINUTES,
+    EXPANDED_LOCKIN_START_HOUR,
     FALSIFICATION_EARLIEST_HOUR,
     FALSIFICATION_MARGIN,
     FALSIFICATION_STAND_MINUTES,
@@ -347,6 +353,90 @@ class DistributionSignalMixin:
         context["active"] = True
         context["strength"] = 1.0
         context["reason"] = "high_stood_current_rolled_forecasts_below"
+        return context
+
+    def expanded_late_day_lockin_context(
+        self,
+        hour,
+        history,
+        current_reading,
+        now,
+        *forecast_sources,
+    ):
+        """Broader late-day lock-in coverage for a high that has stood.
+
+        This fills the gap between the strict 13-15h high-has-stood gate and
+        the learned evening revision-up curve. It stays soft and traceable:
+        current temperature must have rolled below the printed high, and any
+        remaining forecast ceiling must not be materially above that high.
+        """
+        context = {
+            "active": False,
+            "strength": 0.0,
+            "reason": "inactive",
+            "stood_minutes": None,
+            "current_minus_high": None,
+            "remaining_forecast_ceiling": None,
+            "remaining_degree_hours_above_high": None,
+            "forecast_source_count": 0,
+        }
+        if hour < EXPANDED_LOCKIN_START_HOUR or hour > EXPANDED_LOCKIN_END_HOUR:
+            context["reason"] = "outside_hour_window"
+            return context
+        history_max = self.row_max_native(history)
+        max_times = history.get("max_times") or []
+        if history_max is None or not max_times:
+            context["reason"] = "missing_history_high"
+            return context
+        first_at_max = self.minute_of_day(max_times[0])
+        if first_at_max is None:
+            context["reason"] = "missing_first_high_time"
+            return context
+        stood_minutes = (now.hour * 60 + now.minute) - first_at_max
+        context["stood_minutes"] = stood_minutes
+        if stood_minutes < EXPANDED_LOCKIN_STAND_MINUTES:
+            context["reason"] = "high_not_stood_long_enough"
+            return context
+        current_value = self.to_number(current_reading)
+        if current_value is None:
+            context["reason"] = "missing_current_reading"
+            return context
+        current_minus_high = current_value - history_max
+        context["current_minus_high"] = current_minus_high
+        rollover_margin = self.spec.scale_delta(EXPANDED_LOCKIN_ROLLOVER_MARGIN)
+        if current_minus_high > -rollover_margin:
+            context["reason"] = "current_not_below_high"
+            return context
+
+        forecast_context = self.remaining_forecast_context(now, history_max, *forecast_sources)
+        context.update(forecast_context)
+        ceiling = forecast_context["remaining_forecast_ceiling"]
+        forecast_margin = self.spec.scale_delta(EXPANDED_LOCKIN_FORECAST_MARGIN)
+        if ceiling is not None and ceiling > history_max + forecast_margin:
+            context["reason"] = "forecast_ceiling_above_high"
+            return context
+
+        hour_span = max(1, EXPANDED_LOCKIN_END_HOUR - EXPANDED_LOCKIN_START_HOUR)
+        time_progress = max(
+            0.0,
+            min(1.0, (hour - EXPANDED_LOCKIN_START_HOUR) / hour_span),
+        )
+        stood_progress = max(
+            0.0,
+            min(1.0, stood_minutes / max(1, EXPANDED_LOCKIN_STAND_MINUTES * 2)),
+        )
+        drop_progress = max(
+            0.0,
+            min(
+                1.0,
+                (-current_minus_high)
+                / max(self.spec.scale_delta(LATE_LOCKIN_PEAK_DROP), 0.1),
+            ),
+        )
+        strength = 0.25 + 0.35 * time_progress + 0.15 * stood_progress + 0.25 * drop_progress
+        context["active"] = True
+        context["strength"] = max(0.0, min(EXPANDED_LOCKIN_MAX_STRENGTH, strength))
+        context["reason"] = "expanded_late_day_current_below_high"
         return context
 
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):

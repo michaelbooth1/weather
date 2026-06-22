@@ -14,7 +14,8 @@ from weather.schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.11")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.13")
+        self.assertEqual(schema_version("feature_quality_quarantine"), "feature_quality_quarantine_v0.1")
         self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.4")
         self.assertEqual(schema_version("pressure_level_cache_status"), "pressure_level_cache_status_v0.1")
         self.assertEqual(schema_version("reanalysis_sidecar_coverage_audit"), "reanalysis_sidecar_coverage_audit_v0.1")
@@ -73,7 +74,9 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
         self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
         self.assertEqual(schema_version("taker_strategy_bakeoff"), "taker_strategy_bakeoff_v0.1")
+        self.assertEqual(schema_version("settled_day_root_cause"), "settled_day_root_cause_v0.1")
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")
+        self.assertTrue(validate_schema_version("feature_store_legacy_v1_11", "toronto_feature_store_v1.11"))
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))
         self.assertTrue(validate_schema_version("market_making_daily_roll_legacy", "market_making_daily_roll_v0.1"))

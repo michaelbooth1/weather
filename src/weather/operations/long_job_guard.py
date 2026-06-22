@@ -48,7 +48,7 @@ def _lock_payload(job_name):
     }
 
 
-def _process_is_running(pid):
+def process_is_running(pid):
     try:
         pid = int(pid)
     except (TypeError, ValueError):
@@ -82,6 +82,10 @@ def _process_is_running(pid):
     except PermissionError:
         return True
     return True
+
+
+def _process_is_running(pid):
+    return process_is_running(pid)
 
 
 def _read_lock_detail(path):

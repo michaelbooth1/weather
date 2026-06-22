@@ -14,6 +14,11 @@ band type, settlement distance, and source freshness; the latest canonical
 refresh intentionally skipped the serving gauntlet and CLOB overlay, while the
 Item 82 full replay preserves the CLOB-taxonomy diagnostic evidence.
 
+Why this matters: broader F-family promotion changes serving behavior across
+multiple markets. Readiness needs per-market proof, live-forward countability,
+and serving parity so a strong aggregate replay does not hide market-specific
+or operational regressions.
+
 - [x] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
   pinned rows, or keep the gap explicitly marked as a readiness blocker.
 - [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats

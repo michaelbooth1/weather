@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from datetime import datetime
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -202,6 +203,33 @@ class TestLiveObservedFloor(unittest.TestCase):
         self.assertIsNone(
             miami.validated_current_max_floor_bucket(current_max=88.0, history_max=90.0)
         )
+
+    def test_distribution_quarantines_unvalidated_warm_current_max(self):
+        houston = TorontoHighTempModel(market_id="houston", target_date="2026-06-20")
+        result = houston.estimate_distribution_result(
+            {
+                "wu_history": {
+                    "ok": True,
+                    "data": {
+                        "max_native": 83.0,
+                        "rows": [{"time": "07:00", "minute_of_day": 420, "temp_native": 83.0}],
+                    },
+                },
+                "wu_current": {
+                    "ok": True,
+                    "data": {"temp_native": 81.0, "max_since_7am_native": 93.0},
+                },
+                "local_history": {"ok": True, "data": {}},
+                "weather_forecast": {"ok": True, "data": {"rows": []}},
+                "open_meteo": {"ok": True, "data": {"rows": []}},
+            },
+            now=datetime(2026, 6, 20, 7, 30, tzinfo=houston.spec.tz),
+        )
+
+        context = result.calibration_context
+        self.assertEqual(context["current_max_disposition"], "quarantined")
+        self.assertEqual(context["quarantined_current_max"], 93.0)
+        self.assertIsNone(context["validated_current_max_floor_bucket"])
 
     def test_noop_when_swob_not_ahead_of_wu(self):
         scores = {t: 1.0 for t in range(16, 22)}

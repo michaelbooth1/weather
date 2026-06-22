@@ -1,9 +1,24 @@
 """Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
 
 from weather.reporting.fleet_observability_gates import *  # noqa: F403
+from weather.reporting.trading_evidence import DEFAULT_MM_RUNS_ROOT, mm_evidence_starvation_summary
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+
+def mm_evidence_starvation_alerts(starvation):
+    alert = (starvation or {}).get("critical_alert") or {}
+    if not alert:
+        return []
+    detail = alert.get("detail") or {}
+    return [{
+        "severity": "critical",
+        "market_id": "fleet",
+        "category": "mm_evidence_starvation",
+        "message": alert.get("message"),
+        "detail": detail,
+    }]
 
 def mm_paper_evidence_summary(path=DEFAULT_MM_PAPER_REPORT):
     path = Path(path)
@@ -161,6 +176,7 @@ def build_observability_payload(
     include_audits=True,
     tape_backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
     verify_tape_backup_checksums=False,
+    mm_runs_root=DEFAULT_MM_RUNS_ROOT,
 ):
     collection = fleet_collection_health(
         snapshots_root=snapshots_root,
@@ -190,6 +206,7 @@ def build_observability_payload(
     live_forward_slo = live_forward_slo_gate(collection, clob, observation)
     current_code_soak = current_code_soak_summary(loop_integrity, live_forward_slo)
     mm_paper_evidence = mm_paper_evidence_summary()
+    mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
     settled_freshness = settled_day_freshness_summary()
     tape_backup_status = tape_backup.backup_status(
         backup_root=tape_backup_root,
@@ -203,6 +220,7 @@ def build_observability_payload(
     alerts.extend(observation_alerts(observation))
     alerts.extend(loop_integrity_alerts(loop_integrity))
     alerts.extend(current_code_soak_alerts(current_code_soak))
+    alerts.extend(mm_evidence_starvation_alerts(mm_starvation))
     alerts.extend(settled_day_freshness_alerts(settled_freshness))
     alerts.extend(tape_backup.backup_alerts(tape_backup_status))
     payload = {
@@ -221,6 +239,7 @@ def build_observability_payload(
         "current_code_soak": current_code_soak,
         "live_forward_slo": live_forward_slo,
         "mm_paper_evidence": mm_paper_evidence,
+        "mm_evidence_starvation": mm_starvation,
         "settled_day_freshness": settled_freshness,
         "tape_backup": tape_backup_status,
         "alerts": alerts,
@@ -239,6 +258,21 @@ def build_observability_payload(
                 .get("paper_trading_evidence", {})
                 .get("countable_market_count")
             ),
+            "mm_countable_paper_market_day_count": mm_starvation.get("countable_paper_market_day_count"),
+            "mm_starved_active_day_streak": mm_starvation.get("starved_active_day_streak"),
+            "mm_unrecovered_starved_active_day_streak": mm_starvation.get(
+                "unrecovered_starved_active_day_streak"
+            ),
+            "mm_recovered_starved_active_day_count": mm_starvation.get(
+                "recovered_starved_active_day_count"
+            ),
+            "mm_unrecovered_starved_active_day_count": mm_starvation.get(
+                "unrecovered_starved_active_day_count"
+            ),
+            "mm_recovery_attempted_starved_active_day_count": mm_starvation.get(
+                "recovery_attempted_starved_active_day_count"
+            ),
+            "mm_evidence_starvation_status": mm_starvation.get("status"),
             "tape_backup_status": tape_backup_status.get("status"),
             "loop_integrity_status": "OK" if (loop_integrity.get("summary") or {}).get("ok") else "WARN",
             "current_code_soak_status": current_code_soak.get("status"),

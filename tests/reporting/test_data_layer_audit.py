@@ -15,6 +15,7 @@ from weather.reporting.data_layer_audit import (  # noqa: E402
     daily_value_rows_from_csv,
     nearby_history_audit,
     scan_snapshot_csv,
+    sidecar_eligibility_for_folder,
     snapshot_audit,
     source_status_summary_for_folder,
     season_dates,
@@ -123,6 +124,7 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertIn("Persist CLOB token IDs and full order-book snapshots", titles)
         self.assertIn("Split weather/model cadence from market-book cadence", titles)
         self.assertIn("Deep-fill redundant historical weather sources for the target season", titles)
+        self.assertIn("Persist model explanation sidecars for root-cause joins", titles)
 
     def test_recommendations_respect_managed_clob_loop(self):
         base_snapshot = {
@@ -151,6 +153,25 @@ class TestDataLayerAudit(unittest.TestCase):
         dead_titles = [item["title"] for item in dead]
         self.assertNotIn("Split weather/model cadence from market-book cadence", running_titles)
         self.assertIn("Start and supervise the CLOB book loop", dead_titles)
+
+    def test_recommendations_call_out_missing_observation_payloads(self):
+        recs = build_recommendations(
+            {
+                "has_market_token_ids": True,
+                "low_fill_fields": [],
+                "artifact_day_counts": {
+                    "replay_inputs": 1,
+                    "source_status": 2,
+                    "observation_payloads": 1,
+                },
+                "folder_count": 2,
+            },
+            {"markets": []},
+            {"configured_interval_minutes": 10},
+        )
+
+        titles = [item["title"] for item in recs]
+        self.assertIn("Capture raw observation payload sidecars", titles)
 
     def test_nearby_history_audit_measures_supplemental_coverage_and_bias(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -429,6 +450,14 @@ class TestDataLayerAudit(unittest.TestCase):
             (folder / "clob_tokens.csv").write_text("snapshot_id,clob_token_id\nsnap-1,token\n", encoding="utf-8")
             (folder / "order_books.jsonl").write_text('{"snapshot_id":"snap-1"}\n', encoding="utf-8")
             (folder / "clob_capture_status.jsonl").write_text('{"status":"OK"}\n', encoding="utf-8")
+            (folder / "snapshot_explanations_long.csv").write_text(
+                "snapshot_id,section,item_key\nsnap-1,model_explanation,driver_breakdown\n",
+                encoding="utf-8",
+            )
+            (folder / "observation_payloads_long.csv").write_text(
+                "snapshot_id,source,payload_hash\nsnap-1,wu_history,abc\n",
+                encoding="utf-8",
+            )
 
             audit = snapshot_audit(snapshots_root=tmp)
 
@@ -436,10 +465,14 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertTrue(folder_row["artifact_presence"]["clob_capture_status"])
         self.assertTrue(folder_row["artifact_presence"]["clob_tokens"])
         self.assertTrue(folder_row["artifact_presence"]["order_books_raw"])
+        self.assertTrue(folder_row["artifact_presence"]["snapshot_explanations"])
+        self.assertTrue(folder_row["artifact_presence"]["observation_payloads"])
         self.assertFalse(folder_row["artifact_presence"]["order_books_summary"])
         self.assertEqual(audit["artifact_day_counts"]["clob_capture_status"], 1)
         self.assertEqual(audit["artifact_day_counts"]["clob_tokens"], 1)
         self.assertEqual(audit["artifact_day_counts"]["order_books_raw"], 1)
+        self.assertEqual(audit["artifact_day_counts"]["snapshot_explanations"], 1)
+        self.assertEqual(audit["artifact_day_counts"]["observation_payloads"], 1)
         self.assertEqual(audit["clob_raw_artifacts"]["capture_status_days"], 1)
         self.assertEqual(audit["clob_raw_artifacts"]["token_artifact_days"], 1)
         self.assertEqual(audit["clob_raw_artifacts"]["raw_book_artifact_days"], 1)
@@ -622,6 +655,100 @@ class TestDataLayerAudit(unittest.TestCase):
 
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "PASS")
         self.assertIn("5 raw-only days are all-null source-lag", by_name["reanalysis_raw_only_days"]["evidence"])
+
+    def test_sidecar_eligibility_labels_backfillable_and_market_aware_gaps(self):
+        row = {
+            "folder": "data/snapshots/highest-temperature-in-nyc-on-june-20-2026",
+            "training_ready_reason": "target_date_before_cutoff",
+            "artifact_presence": {
+                "snapshots_jsonl": True,
+                "replay_inputs": True,
+                "replay_input_status": True,
+                "source_status": True,
+                "features": False,
+                "components": False,
+                "forecasts": True,
+                "snapshot_explanations": False,
+                "clob_features": False,
+                "clob_tokens": True,
+                "order_books_summary": True,
+                "price_history": True,
+                "market_ws_events": False,
+            },
+            "replay_input_status": {"folder_status": "captured"},
+        }
+
+        eligibility = sidecar_eligibility_for_folder(row, settled_scope_ready=True)
+
+        self.assertEqual(eligibility["primary_label"], "replay_only")
+        self.assertTrue(eligibility["labels"]["replay_only"])
+        self.assertFalse(eligibility["labels"]["training_ready"])
+        self.assertIn("missing_features", eligibility["evaluation_only_reasons"])
+        self.assertIn("missing_market_ws_events", eligibility["market_aware_exclusion_reasons"])
+        commands = {item["artifact"]: item["command"] for item in eligibility["backfill_commands"]}
+        self.assertIn("features_components", commands)
+        self.assertIn("backfill-core-sidecars", commands["features_components"])
+        self.assertIn("snapshot_explanations", commands)
+
+    def test_sidecar_eligibility_blocks_training_for_feature_quality_exclusions(self):
+        row = {
+            "folder": "data/snapshots/highest-temperature-in-austin-on-june-20-2026",
+            "training_ready_reason": "target_date_before_cutoff",
+            "artifact_presence": {
+                "snapshots_jsonl": True,
+                "replay_inputs": True,
+                "replay_input_status": True,
+                "source_status": True,
+                "features": True,
+                "components": True,
+                "forecasts": True,
+                "snapshot_explanations": True,
+                "clob_features": True,
+                "clob_tokens": True,
+                "order_books_summary": True,
+                "price_history": True,
+                "market_ws_events": True,
+                "variant_predictions": True,
+            },
+            "replay_input_status": {"folder_status": "captured"},
+            "feature_quality": {
+                "quarantine_row_count": 2,
+                "training_excluded_row_count": 2,
+                "reason_counts": {"startup_live_observation_implausible": 2},
+            },
+        }
+
+        eligibility = sidecar_eligibility_for_folder(row, settled_scope_ready=True)
+
+        self.assertFalse(eligibility["labels"]["training_ready"])
+        self.assertEqual(eligibility["primary_label"], "replay_only")
+        self.assertIn(
+            "feature_quality_training_excluded_rows:2",
+            eligibility["promotion_exclusion_reasons"],
+        )
+
+    def test_build_gates_warns_on_active_day_sidecar_regression(self):
+        snapshot = {
+            "folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+                "forecast_payloads": 1,
+            },
+            "sidecar_eligibility": {"active_day_sidecar_regression_count": 1},
+            "source_status": {
+                "row_count": 1,
+                "stale_or_failed_rows": 0,
+                "stale_or_failed_rate": 0.0,
+            },
+        }
+
+        gates = build_gates(snapshot, {"markets": []})
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["active_day_sidecar_regression"]["status"], "WARN")
+        self.assertIn("1 active/future", by_name["active_day_sidecar_regression"]["evidence"])
 
     def test_build_gates_fails_unvalidated_supplemental_sources(self):
         snapshot = {

@@ -25,6 +25,24 @@ def _item(path: Path, number: int, status: str, body: str = "") -> Path:
     return path
 
 
+def _roadmap(root: Path, rows: list[str]) -> Path:
+    text = "\n".join(
+        [
+            "# Roadmap",
+            "",
+            "### Track A",
+            "",
+            "| Item | File |",
+            "| ---: | --- |",
+            *rows,
+            "",
+        ]
+    )
+    path = root / "ROADMAP.md"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 class RoadmapBacklogTests(unittest.TestCase):
     def test_parse_item_extracts_status_date_and_disposition(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,6 +94,68 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ERROR")
         categories = {issue["category"] for issue in payload["lint_issues"]}
         self.assertIn("active_item_missing_required_section", categories)
+
+    def test_roadmap_index_lint_catches_duplicate_stale_missing_and_orphan_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            _item(items / "item-001-open.md", 1, "OPEN")
+            _item(items / "item-002-partial.md", 2, "PARTIAL 2026-06-21 - IN PROGRESS")
+            _item(items / "item-003-complete.md", 3, "COMPLETE 2026-06-21 - DONE")
+            _roadmap(
+                root,
+                [
+                    "| 1 | [Demo Item 1 [OPEN]](items/item-001-open.md) |",
+                    "| 1 | [Demo Item 1 [OPEN]](items/item-001-open.md) |",
+                    "| 2 | [Wrong Item 2 [OPEN]](items/item-002-partial.md) |",
+                    "| 999 | [Missing Item [OPEN]](items/item-999-missing.md) |",
+                ],
+            )
+
+            payload = build_payload(root)
+
+        categories = {issue["category"] for issue in payload["lint_issues"]}
+        self.assertEqual(payload["status"], "ERROR")
+        self.assertIn("roadmap_index_duplicate_primary_row", categories)
+        self.assertIn("roadmap_index_title_mismatch", categories)
+        self.assertIn("roadmap_index_status_mismatch", categories)
+        self.assertIn("roadmap_index_missing_primary_row", categories)
+        self.assertIn("roadmap_index_orphan_link", categories)
+
+    def test_roadmap_index_cross_link_rows_do_not_count_as_duplicate_primary_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            _item(items / "item-001-open.md", 1, "OPEN")
+            (root / "ROADMAP.md").write_text(
+                "\n".join(
+                    [
+                        "# Roadmap",
+                        "",
+                        "### Track A",
+                        "",
+                        "| Item | File |",
+                        "| ---: | --- |",
+                        "| 1 | [Demo Item 1 [OPEN]](items/item-001-open.md) |",
+                        "",
+                        "### Cross-Track References",
+                        "",
+                        "| Item | File |",
+                        "| ---: | --- |",
+                        "| 1 | [Demo Item 1 [OPEN]](items/item-001-open.md) |",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_payload(root)
+
+        self.assertEqual(payload["status"], "OK")
+        self.assertEqual(payload["summary"]["roadmap_index_row_count"], 2)
+        self.assertEqual(payload["summary"]["roadmap_index_primary_row_count"], 1)
 
     def test_write_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -208,6 +208,14 @@ def build_progress_row(
     current_soak = fleet.get("current_code_soak") or {}
     disk = _disk_preflight(daily_refresh, backtest_root)
     mm = trading.get("market_making") or {}
+    mm_starvation = mm.get("evidence_starvation") or {}
+    mm_starvation_latest = mm_starvation.get("latest") or {}
+    mm_starvation_owner_source = mm_starvation.get("latest_starved") or mm_starvation_latest
+    mm_starvation_recovery_source = (
+        mm_starvation.get("latest_unrecovered_starved")
+        or mm_starvation.get("latest_starved")
+        or mm_starvation_latest
+    )
     taker = trading.get("taker") or {}
     taker_quality = taker.get("quality_gate") or {}
     label_quality = _quality_counts(daily_refresh)
@@ -271,6 +279,42 @@ def build_progress_row(
         "trading_mm_model_review_countable_markets": ((mm.get("model_review_evidence") or {}).get("countable_market_count")),
         "trading_mm_paper_countable_markets": ((mm.get("paper_trading_evidence") or {}).get("countable_market_count")),
         "trading_mm_live_trade_permission_countable_markets": ((mm.get("live_trade_permission_evidence") or {}).get("countable_market_count")),
+        "trading_mm_countable_paper_market_day_count": mm_starvation.get("countable_paper_market_day_count"),
+        "trading_mm_starved_active_day_streak": mm_starvation.get("starved_active_day_streak"),
+        "trading_mm_unrecovered_starved_active_day_streak": mm_starvation.get(
+            "unrecovered_starved_active_day_streak"
+        ),
+        "trading_mm_recovered_starved_active_day_count": mm_starvation.get(
+            "recovered_starved_active_day_count"
+        ),
+        "trading_mm_unrecovered_starved_active_day_count": mm_starvation.get(
+            "unrecovered_starved_active_day_count"
+        ),
+        "trading_mm_recovery_attempted_starved_active_day_count": mm_starvation.get(
+            "recovery_attempted_starved_active_day_count"
+        ),
+        "trading_mm_evidence_starvation_status": mm_starvation.get("status"),
+        "trading_mm_preflight_recovery_status": mm_starvation_recovery_source.get(
+            "preflight_recovery_closeout_status"
+        ),
+        "trading_mm_preflight_recovery_attempted": mm_starvation_recovery_source.get(
+            "preflight_recovery_attempted"
+        ),
+        "trading_mm_preflight_recovery_recovered": mm_starvation_recovery_source.get(
+            "preflight_recovery_recovered"
+        ),
+        "trading_mm_preflight_recovery_artifact_path": mm_starvation_recovery_source.get(
+            "preflight_recovery_closeout_path"
+        ),
+        "trading_mm_post_repair_preflight_status": mm_starvation_recovery_source.get(
+            "post_repair_preflight_status"
+        ),
+        "trading_mm_latest_preflight_blocked_market_fraction": mm_starvation_latest.get(
+            "preflight_blocked_market_fraction"
+        ),
+        "trading_mm_evidence_starvation_owner_items": json_field(
+            mm_starvation_owner_source.get("recovery_owner_items") or []
+        ),
         "trading_mm_quote_rows": mm.get("quote_rows"),
         "trading_mm_live_trade_permission_rows": mm.get("live_trade_permission_rows"),
         "trading_taker_fills": taker.get("filled_orders"),
@@ -292,6 +336,24 @@ def build_progress_row(
         "trading_taker_strategy_quality_candidate_net_pnl_usdc": taker.get(
             "strategy_quality_candidate_net_pnl_usdc"
         ),
+        "trading_taker_active_strategy_id": taker.get("active_strategy_id"),
+        "trading_taker_active_strategy_lifecycle": taker.get("active_strategy_lifecycle"),
+        "trading_taker_active_strategy_lifecycle_status": taker.get("active_strategy_lifecycle_status"),
+        "trading_taker_active_strategy_promotion_eligible": taker.get("active_strategy_promotion_eligible"),
+        "trading_taker_active_strategy_next_action": taker.get("active_strategy_next_action"),
+        "trading_taker_active_strategy_complete_label_sample_count": taker.get(
+            "active_strategy_complete_label_sample_count"
+        ),
+        "trading_taker_active_strategy_total_label_sample_count": taker.get(
+            "active_strategy_total_label_sample_count"
+        ),
+        "trading_taker_active_strategy_canary_settled_order_count": taker.get(
+            "active_strategy_canary_settled_order_count"
+        ),
+        "trading_taker_active_strategy_canary_min_settled_orders": taker.get(
+            "active_strategy_canary_min_settled_orders"
+        ),
+        "trading_taker_active_strategy_canary_age_days": taker.get("active_strategy_canary_age_days"),
         "daily_learning_status": daily_learning.get("status"),
     }
     failures = broad_claim_failures(row)
@@ -401,6 +463,12 @@ def render_report(rows):
             ["Disk headroom bytes", latest.get("ops_disk_headroom_bytes")],
             ["Independent baseline", latest.get("evidence_independent_baseline_status") or "-"],
             ["MM evidence mode", latest.get("trading_mm_evidence_mode") or "-"],
+            ["MM evidence starvation", latest.get("trading_mm_evidence_starvation_status") or "-"],
+            ["MM starved active-day streak", fmt(latest.get("trading_mm_starved_active_day_streak"))],
+            ["MM unrecovered starved streak", fmt(latest.get("trading_mm_unrecovered_starved_active_day_streak"))],
+            ["MM recovery closeout", latest.get("trading_mm_preflight_recovery_status") or "-"],
+            ["MM post-repair preflight", latest.get("trading_mm_post_repair_preflight_status") or "-"],
+            ["MM countable paper market-days", fmt(latest.get("trading_mm_countable_paper_market_day_count"))],
             ["Taker quality", latest.get("trading_taker_quality_status") or "-"],
             ["Taker net P&L", fmt(latest.get("trading_taker_net_pnl_usdc"))],
             ["Taker P&L source", latest.get("trading_taker_pnl_source") or "-"],
@@ -411,6 +479,23 @@ def render_report(rows):
             [
                 "Taker strategy candidate status",
                 latest.get("trading_taker_strategy_quality_candidate_status") or "-",
+            ],
+            ["Taker active strategy", latest.get("trading_taker_active_strategy_id") or "-"],
+            ["Taker active lifecycle", latest.get("trading_taker_active_strategy_lifecycle_status") or "-"],
+            ["Taker active next action", latest.get("trading_taker_active_strategy_next_action") or "-"],
+            [
+                "Taker canary complete labels",
+                (
+                    f"{fmt(latest.get('trading_taker_active_strategy_complete_label_sample_count'))}/"
+                    f"{fmt(latest.get('trading_taker_active_strategy_total_label_sample_count'))}"
+                ),
+            ],
+            [
+                "Taker canary settled orders",
+                (
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_settled_order_count'))}/"
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_min_settled_orders'))}"
+                ),
             ],
         ],
     )

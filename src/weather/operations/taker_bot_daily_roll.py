@@ -16,7 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
-from weather.market.taker_bot import DEFAULT_RUNS_ROOT, DEFAULT_CONFIG
+from weather.market.taker_bot import ACTIVE_DEFAULT_STRATEGY_ID, DEFAULT_RUNS_ROOT, DEFAULT_CONFIG
 from weather.operations.bot_run_liveness import (
     DEFAULT_MIN_FREE_BYTES,
     disk_capacity_preflight,
@@ -38,6 +38,7 @@ DEFAULT_TIMEZONE = "America/Toronto"
 DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
+DEFAULT_STRATEGIES = ACTIVE_DEFAULT_STRATEGY_ID
 
 
 def utc_now():
@@ -120,7 +121,7 @@ def build_taker_bot_command(
     runs_root=None,
     once=False,
     config_overrides=None,
-    strategies=None,
+    strategies=DEFAULT_STRATEGIES,
     experiment_id=None,
 ):
     command = [

@@ -13,6 +13,7 @@ from weather.model.feature_store import (
     build_historical_feature_record,
     build_live_feature_record,
     closest_wind_direction,
+    current_max_trust_features,
     empty_eccc_gridded_features,
     empty_marine_context_features,
     empty_mrms_precip_features,
@@ -21,6 +22,7 @@ from weather.model.feature_store import (
     forecast_profile_features,
     merge_forecast_air_quality_rows,
     row_value,
+    startup_observation_guard_features,
     row_wind_direction,
     wind_direction_delta_degrees,
 )
@@ -186,15 +188,43 @@ class FeatureModelMixin:
                 "forecast_source": "none",
                 "forecast_source_count": 0,
                 "forecast_disagreement": None,
+                "forecast_robust_high": None,
+                "forecast_trimmed_high": None,
+                "forecast_warm_outlier_flag": 0.0,
+                "forecast_warm_outlier_gap": None,
+                "forecast_source_family_count": 0,
                 "forecast_source_values": {},
             }
         highs = [value for _, value in values]
+        sorted_highs = sorted(highs)
+        median_high = statistics.median(sorted_highs)
+        if len(sorted_highs) >= 3:
+            trimmed_values = sorted_highs[1:-1] or sorted_highs
+            trimmed_high = statistics.mean(trimmed_values)
+        else:
+            trimmed_high = median_high
+        max_high = max(sorted_highs)
+        second_high = sorted_highs[-2] if len(sorted_highs) >= 2 else max_high
+        warm_outlier_gap = max_high - median_high if sorted_highs else None
+        warm_outlier_gap_threshold = self.spec.scale_delta(3.0)
+        isolated_high_threshold = self.spec.scale_delta(1.5)
+        warm_outlier_flag = bool(
+            len(sorted_highs) >= 3
+            and warm_outlier_gap is not None
+            and warm_outlier_gap >= warm_outlier_gap_threshold
+            and max_high - second_high >= isolated_high_threshold
+        )
         source = values[0][0] if len(values) == 1 else f"median_of_{len(values)}"
         return {
-            "forecast_high": statistics.median(highs),
+            "forecast_high": median_high,
             "forecast_source": source,
             "forecast_source_count": len(values),
             "forecast_disagreement": max(highs) - min(highs) if len(highs) >= 2 else 0.0,
+            "forecast_robust_high": trimmed_high if warm_outlier_flag else median_high,
+            "forecast_trimmed_high": trimmed_high,
+            "forecast_warm_outlier_flag": 1.0 if warm_outlier_flag else 0.0,
+            "forecast_warm_outlier_gap": warm_outlier_gap,
+            "forecast_source_family_count": len(values),
             "forecast_source_values": {name: value for name, value in values},
         }
 
@@ -501,6 +531,17 @@ class FeatureModelMixin:
         if current_temp is None:
             current_temp = self.row_temp_native(rows[-1]) if rows else None
         high_so_far = self.max_value(high_so_far, current_temp)
+        startup_guard = startup_observation_guard_features(
+            high_so_far=high_so_far,
+            current_temp=current_temp,
+            live_reading_temp=self.row_temp_native(current),
+            unit=self.spec.display_unit,
+        )
+        if startup_guard.get("startup_feature_quarantined_flag"):
+            high_so_far = None
+            current_temp = None
+            if strict:
+                return None
         if high_so_far is None and strict:
             return None
 
@@ -642,6 +683,15 @@ class FeatureModelMixin:
                 minutes_since_cutoff = 0.0
         wall_minute = int(cutoff_hour * 60 + minutes_since_cutoff)
         live_reading = self.row_temp_native(current)
+        if startup_guard.get("startup_feature_quarantined_flag"):
+            live_reading = None
+        current_max_features = current_max_trust_features(
+            self.row_max_since_7am_native(current),
+            history_max=high_so_far,
+            current_temp=current_temp,
+            cutoff_hour=cutoff_hour,
+            unit=self.spec.display_unit,
+        )
         live_reading_minus_high = (
             live_reading - high_so_far
             if live_reading is not None and high_so_far is not None
@@ -723,6 +773,11 @@ class FeatureModelMixin:
             "forecast_gap": forecast_gap,
             "forecast_source_count": forecast_ensemble["forecast_source_count"],
             "forecast_disagreement": forecast_ensemble["forecast_disagreement"],
+            "forecast_robust_high": forecast_ensemble["forecast_robust_high"],
+            "forecast_trimmed_high": forecast_ensemble["forecast_trimmed_high"],
+            "forecast_warm_outlier_flag": forecast_ensemble["forecast_warm_outlier_flag"],
+            "forecast_warm_outlier_gap": forecast_ensemble["forecast_warm_outlier_gap"],
+            "forecast_source_family_count": forecast_ensemble["forecast_source_family_count"],
             "forecast_source_values": forecast_ensemble["forecast_source_values"],
             **forecast_profile,
             **us_guidance,
@@ -733,6 +788,8 @@ class FeatureModelMixin:
             "minutes_since_cutoff": minutes_since_cutoff,
             "live_reading_temp": live_reading,
             "live_reading_minus_high": live_reading_minus_high,
+            **current_max_features,
+            **startup_guard,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
         }
 

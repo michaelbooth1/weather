@@ -1,4 +1,4 @@
-# 176. Local Generated State And Tooling Cleanup Sweep [OPEN]
+# 176. Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-06-21 - DRY-RUN REPORT LIVE, DESTRUCTIVE SWEEP DEFERRED]
 
 Goal: remove or quarantine stale local generated state, retired research
 stubs, and scratch outputs after active agents finish.
@@ -25,14 +25,14 @@ from tracked source.
 5. Normalize line endings in a controlled docs/code hygiene PR after dirty
    files settle.
 
-- [ ] Add a local cleanup dry-run command that reports ignored generated files
+- [x] Add a local cleanup dry-run command that reports ignored generated files
   and sizes without deleting anything.
 - [ ] Delete safe caches after active work finishes: `__pycache__`,
   `.pytest_cache`, `.ruff_cache`, and egg-info.
-- [ ] Review `scratch/` for outputs worth promoting to tracked docs or tests.
-- [ ] Review retired `tools/research` scripts and either remove them or keep
+- [x] Review `scratch/` for outputs worth promoting to tracked docs or tests.
+- [x] Review retired `tools/research` scripts and either remove them or keep
   them as documented harness fixtures.
-- [ ] Ensure dependency pins are managed from one source or add a sync check
+- [x] Ensure dependency pins are managed from one source or add a sync check
   for `pyproject.toml` and `requirements.txt`.
 - [ ] Run a controlled CRLF-to-LF normalization pass consistent with
   `.gitattributes`.
@@ -41,3 +41,48 @@ Acceptance: local generated clutter can be cleaned reproducibly, durable
 scratch findings are promoted before deletion, and repo audits no longer have
 to manually filter stale local state.
 
+## 2026-06-21 implementation update
+
+Added `weather.operations.local_generated_state_cleanup`, schema
+`local_generated_state_cleanup_v0.1`, as a dry-run-only local audit. The command
+writes:
+
+- `data/backtest/local_generated_state_cleanup.json`
+- `data/backtest/local_generated_state_cleanup_report.md`
+
+The report separates safe cache deletion candidates from durable scratch review
+items, validates the `tools/research` harness inventory, checks exact dependency
+pin sync between `pyproject.toml` and `requirements.txt`, and scans tracked
+docs/code text files for CRLF drift under `.gitattributes`.
+
+Current checkout findings:
+
+- Safe cache candidates: 32 roots, 985 files, 15.2 MiB.
+- Scratch review: 21 files, 234.8 KiB; durable findings summarized in
+  `docs/research/local-generated-state-cleanup-review-2026-06-21.md`.
+- Research harness: validation passes; 1 supported script, 8 fixture-only
+  scripts, and 17 retired scripts/wrappers are inventoried.
+- Dependency pins: PASS; `pyproject.toml` and `requirements.txt` match.
+- Line endings: 146 tracked docs/code files still contain CRLF and need a
+  controlled normalization pass.
+
+The research harness inventory now includes `input_variable_significance.py` as
+fixture-only historical audit code and `ten_minute_performance_audit.py` as a
+retired compatibility wrapper for `weather.reporting.ten_minute_model_performance`.
+
+The destructive sweep remains deferred by design: active tests and ongoing
+agent work recreate caches, and the worktree still contains broad dirty files.
+When active work settles, rerun:
+
+```powershell
+python -m weather.operations.local_generated_state_cleanup --out data\backtest\local_generated_state_cleanup.json --report data\backtest\local_generated_state_cleanup_report.md
+```
+
+Then delete only the listed safe cache roots and run a separate LF
+normalization pass.
+
+Verification:
+
+- `python -m pytest tests\operations\test_local_generated_state_cleanup.py tests\operations\test_schema_registry.py -q`
+- `python tools\research\research_harness.py --validate --smoke --include-fixtures`
+- `python -m weather.operations.local_generated_state_cleanup --out data\backtest\local_generated_state_cleanup.json --report data\backtest\local_generated_state_cleanup_report.md`

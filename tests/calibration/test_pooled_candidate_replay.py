@@ -31,6 +31,7 @@ from weather.calibration.pooled_candidate_replay import (
     out_of_fold_microstructure_predictions,
     normalize_partition_probabilities,
     replay_gate_status,
+    sidecar_eligibility_summary_from_audit,
     source_freshness_group,
     write_candidate_shadow_variants,
     write_report,
@@ -1103,6 +1104,47 @@ class TestPooledCandidateReplay(unittest.TestCase):
                     "artifact": {},
                     "corpus": {},
                     "coverage": {},
+                    "sidecar_eligibility": {
+                        "status": "loaded",
+                        "source_path": "data/backtest/data_layer_audit.json",
+                        "candidate_variant_id": "candidate_v1",
+                        "candidate_variant_family": "pooled_f",
+                        "snapshot_folder_count": 2,
+                        "primary_label_counts": {"score_only": 1, "training_ready": 1},
+                        "readiness_label_counts": {"score_only": 2, "training_ready": 1},
+                        "missing_artifact_counts": {"features": 1},
+                        "non_reconstructable_gap_counts": {"market_ws_events": 1},
+                        "backfill_command_counts": {"features_components": 1},
+                        "backfill_candidate_folder_count": 1,
+                        "active_day_sidecar_regression_count": 0,
+                        "feature_quality_quarantine": {
+                            "quarantine_row_count": 3,
+                            "training_excluded_row_count": 3,
+                            "backfill_candidate_row_count": 1,
+                            "reason_counts": {"startup_live_observation_implausible": 2},
+                        },
+                        "by_market": [
+                            {
+                                "market_id": "nyc",
+                                "days": 2,
+                                "training_ready_days": 1,
+                                "explanation_ready_days": 1,
+                                "market_aware_ready_days": 0,
+                                "variant_ready_days": 0,
+                                "latest_target_date": "2026-06-15",
+                            }
+                        ],
+                        "promotion_exclusion_sample": [
+                            {
+                                "market_id": "nyc",
+                                "target_date": "2026-06-15",
+                                "primary_label": "score_only",
+                                "promotion_exclusion_reasons": ["missing_features"],
+                                "market_aware_exclusion_reasons": ["missing_market_ws_events"],
+                                "backfill_commands": [{"artifact": "features_components"}],
+                            }
+                        ],
+                    },
                     "diagnostics": {"source_freshness_snapshots": 1},
                     "replay_gate": {"corpus_ok": True, "fidelity_ok": True},
                     "aggregate": None,
@@ -1178,9 +1220,78 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertIn("### By Source Freshness", text)
         self.assertIn("failed:wu_history", text)
+        self.assertIn("## Snapshot Sidecar Eligibility", text)
+        self.assertIn("score_only: 1", text)
+        self.assertIn("Feature-quality quarantined rows", text)
+        self.assertIn("startup_live_observation_implausible: 2", text)
+        self.assertIn("### Sidecar Mix By Market", text)
+        self.assertIn("### Promotion And Market-Aware Exclusions", text)
         self.assertIn("### By Cutoff Regime", text)
         self.assertIn("### By Forecast Disagreement", text)
         self.assertIn("Forecast-Profile High-Disagreement Guardrails", text)
+
+    def test_sidecar_eligibility_summary_from_audit_compacts_market_mix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data_layer_audit.json"
+            path.write_text(
+                json.dumps({
+                    "snapshots": {
+                        "folder_count": 2,
+                        "sidecar_eligibility": {
+                            "primary_label_counts": {"replay_only": 1, "market_aware_ready": 1},
+                            "label_counts": {"score_only": 2, "training_ready": 1},
+                            "missing_artifact_counts": {"components": 1},
+                            "non_reconstructable_gap_counts": {"variant_predictions": 1},
+                            "backfill_command_counts": {"features_components": 1},
+                            "backfill_candidate_folder_count": 1,
+                            "active_day_sidecar_regression_count": 0,
+                            "feature_quality_quarantine": {
+                                "quarantine_row_count": 2,
+                                "training_excluded_row_count": 2,
+                                "reason_counts": {"current_max_exceeds_observed_support": 2},
+                            },
+                            "promotion_exclusion_sample": [
+                                {
+                                    "market_id": "nyc",
+                                    "target_date": "2026-06-15",
+                                    "primary_label": "replay_only",
+                                    "promotion_exclusion_reasons": ["missing_components"],
+                                    "market_aware_exclusion_reasons": [],
+                                    "backfill_commands": [{"artifact": "features_components"}],
+                                }
+                            ],
+                        },
+                        "by_market": [
+                            {
+                                "market_id": "nyc",
+                                "folders": 2,
+                                "training_ready_label_days": 1,
+                                "explanation_ready_days": 1,
+                                "market_aware_ready_days": 1,
+                                "variant_ready_days": 0,
+                                "latest_target_date": "2026-06-15",
+                            }
+                        ],
+                    }
+                }),
+                encoding="utf-8",
+            )
+
+            summary = sidecar_eligibility_summary_from_audit(
+                path,
+                candidate_variant_id="candidate_v1",
+                candidate_variant_family="pooled_f",
+            )
+
+        self.assertTrue(summary["loaded"])
+        self.assertEqual(summary["status"], "loaded")
+        self.assertEqual(summary["candidate_variant_id"], "candidate_v1")
+        self.assertEqual(summary["primary_label_counts"]["replay_only"], 1)
+        self.assertEqual(summary["backfill_candidate_folder_count"], 1)
+        self.assertEqual(summary["feature_quality_quarantine"]["quarantine_row_count"], 2)
+        self.assertEqual(summary["by_market"][0]["market_id"], "nyc")
+        self.assertEqual(summary["by_market"][0]["market_aware_ready_days"], 1)
+        self.assertEqual(summary["promotion_exclusion_sample"][0]["primary_label"], "replay_only")
 
     def test_candidate_report_blocks_before_create_when_headroom_is_low(self):
         payload = {

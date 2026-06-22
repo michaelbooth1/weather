@@ -1,4 +1,4 @@
-# 181. Forecast Signal Double-Counting And Dead Capture-Hour [PARTIAL 2026-06-21 - ML FORECAST SHAPE REMOVED, CAPTURE_HOUR LIVE]
+# 181. Forecast Signal Double-Counting And Dead Capture-Hour [PARTIAL 2026-06-22 - SCOPE PROOF BLOCKED ON CURRENT FEATURE TAPE]
 
 Goal: stop double-counting forecast signal on the feature-model path and resolve
 the unused `capture_hour` parameter in the forecast-error component.
@@ -46,5 +46,21 @@ selects hour-specific `hour_stats` when present, with source/global fallback, an
 offline forecast-error scoring passes each row's `capture_hour` through the same
 selector. The remaining work is the item-182 replay/stage-attribution run that
 quantifies aggregate and per-market deltas.
+
+Progress note 2026-06-22: `distribution_stage_attribution` now emits a
+`forecast_shape_scope` proof that splits `forecast_pull` rows by
+`active_model_kind` and by runtime source identity. The regenerated
+`data/backtest/distribution_stage_attribution.json` is still `BLOCK` for this
+scope, but the blocker is now narrowed: `feature_model_forecast_shape_rows=268917`
+and `stale_feature_model_forecast_shape_rows=268917`, while
+`current_code_feature_model_component_rows=0` and
+`current_code_feature_model_forecast_shape_rows=0` for current identity
+`master@2e3672d99680 src:00ec00b3057e5468`. The latest stale feature-model
+forecast-shape row is `2026-06-21T06:41:51.248605+00:00`. Empirical fallback
+rows remain isolated (`empirical_forecast_shape_rows=1419`) with
+`empirical_delta_brier=-0.012189291817646672` and
+`empirical_delta_logloss=0.6523487776684005`. The next unblock is to
+regenerate/replay current-code feature-model component tapes and require
+`current_code_feature_model_forecast_shape_rows=0` before this item can close.
 
 Related: items 182, 134, 135; `[[model-audit-2026-06-09]]`, `[[replay-ablation-findings]]`.

@@ -4,18 +4,20 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-21T08:21:32.194688+00:00
+Generated: 2026-06-22T01:43:24.420573+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 191 |
-| Active items | 29 |
-| OPEN | 1 |
+| Items | 216 |
+| Active items | 36 |
+| OPEN | 8 |
 | PARTIAL | 28 |
-| COMPLETE | 162 |
+| COMPLETE | 180 |
+| ROADMAP rows | 216 |
+| ROADMAP primary rows | 216 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -41,16 +43,23 @@ Status: `OK`
 | 161 | PARTIAL | 2026-06-20 | TAXONOMY AND SOAK REPORT LIVE, ACTIVE-DAY PROOF BLOCKED | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 176 | PARTIAL | 2026-06-21 | DRY-RUN REPORT LIVE, DESTRUCTIVE SWEEP DEFERRED | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
-| 178 | PARTIAL | 2026-06-21 | SERVING-ONLY SMOOTHING REMOVED, RETRAIN PENDING | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
-| 179 | PARTIAL | 2026-06-21 | TRAINER USES HONEST HOLDOUT-YEAR SPLITS, RE-EXPORT PENDING | [Honest Blocked Validation For Feature-Model Tuning](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
-| 181 | PARTIAL | 2026-06-21 | ML FORECAST SHAPE REMOVED, CAPTURE_HOUR LIVE | [Forecast Signal Double-Counting And Dead Capture-Hour](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
-| 185 | PARTIAL | 2026-06-21 | CHILD ITEMS SCOPED, VALIDATION PENDING | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
+| 178 | PARTIAL | 2026-06-22 | SERVING-ONLY SMOOTHING REMOVED, RETRAIN STILL PENDING | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
+| 179 | PARTIAL | 2026-06-22 | HONEST SPLITS LIVE, RE-EXPORT STILL PENDING | [Honest Blocked Validation For Feature-Model Tuning](items/item-179-honest-blocked-validation-for-feature-model-tuning.md) |
+| 181 | PARTIAL | 2026-06-22 | SCOPE PROOF BLOCKED ON CURRENT TAPES | [Forecast Signal Double-Counting And Dead Capture-Hour](items/item-181-forecast-double-counting-and-dead-capture-hour.md) |
+| 185 | PARTIAL | 2026-06-22 | CHILD GATE TRIAGE REFRESHED, VALIDATION PENDING | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 186 | PARTIAL | 2026-06-21 | SOIL ANOMALY FEATURES LIVE, GATE PENDING | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
 | 187 | PARTIAL | 2026-06-21 | RADIATION FEATURE PATH LIVE, GATE PENDING | [Forecast Shortwave-Radiation & Peak-Window Insolation Features](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | PARTIAL | 2026-06-21 | OPEN-METEO AQ FEATURE PATH LIVE, SMOKE-SLICE GATE PENDING | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-21 | OPEN-METEO GLOBAL MODEL CLUSTER LIVE, GATE PENDING | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | PARTIAL | 2026-06-21 | NBP STATION PERCENTILES LIVE, QMD EXCEEDANCE GRID GATE PENDING | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | PARTIAL | 2026-06-21 | STATION WATER-FORECAST CONTRAST LIVE, GLSEA/OISST GATE PENDING | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 211 | OPEN | 2026-06-22 | JUNE 21 PREFLIGHT BLOCK NEEDS OPERATOR CLOSEOUT | [Active-Day Supervisor Repair And MM Preflight Rerun](items/item-211-active-day-supervisor-repair-and-mm-preflight-rerun.md) |
+| 212 | OPEN | 2026-06-22 | CADENCE GAPS MUST REDUCE CONFIDENCE | [Snapshot Cadence As Model-Quality And Trading-Permission Input](items/item-212-snapshot-cadence-as-model-quality-and-trading-permission-input.md) |
+| 213 | OPEN | 2026-06-22 | CURRENT-DAY 400S SHOULD NOT LOOK LIKE SOURCE FAILURES | [Current-Date WU History Expected-Degradation Handling](items/item-213-current-date-wu-history-expected-degradation.md) |
+| 214 | OPEN | 2026-06-22 | MTM-ONLY PNL MUST NOT PROMOTE STRATEGIES | [Settlement-Scored Taker Promotion And Tail-Fill Gate](items/item-214-settlement-scored-taker-promotion-and-tail-fill-gate.md) |
+| 215 | OPEN | 2026-06-22 | UNTRUSTED CURRENT MAX MUST CAP TAKER AND MM RISK | [Current-High Trust Gate For Aggressive Trading](items/item-215-current-high-trust-gate-for-aggressive-trading.md) |
+| 216 | OPEN | 2026-06-22 | MIXED COMMITS MUST NOT BLUR MODEL REVIEW | [Runtime-Identity Segmented Model Evidence](items/item-216-runtime-identity-segmented-model-evidence.md) |
 
 ## Lint Issues
 

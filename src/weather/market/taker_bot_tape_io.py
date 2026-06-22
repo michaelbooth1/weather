@@ -122,6 +122,105 @@ def csv_tokens(value):
     }
 
 
+def csv_number_set(value):
+    numbers = set()
+    if value in (None, ""):
+        return numbers
+    if isinstance(value, (list, tuple, set)):
+        raw_items = value
+    else:
+        raw_items = str(value).replace(";", ",").split(",")
+    for item in raw_items:
+        number = maybe_float(item)
+        if number is not None:
+            numbers.add(int(number))
+    return numbers
+
+
+def dated_backtest_json_path(stem, target_date):
+    target = ensure_date(target_date).isoformat()
+    return data_path() / "backtest" / f"{stem}_{target}.json"
+
+
+def configured_or_dated_path(config, key, stem, target_date):
+    raw = (config or {}).get(key)
+    if raw:
+        return Path(raw)
+    return dated_backtest_json_path(stem, target_date)
+
+
+def load_taker_performance_gate_state(target_date, config):
+    """Load settled performance gates for taker runtime guards when available."""
+
+    config = dict(config or {})
+    ten_minute_path = configured_or_dated_path(
+        config,
+        "weak_slot_guard_report_path",
+        "ten_minute_model_performance",
+        target_date,
+    )
+    hourly_path = configured_or_dated_path(
+        config,
+        "hourly_gate_report_path",
+        "hourly_model_performance",
+        target_date,
+    )
+    state = {
+        "weak_slot_gate_status": "CONFIG",
+        "weak_slot_gate_source": "config",
+        "weak_slot_gate_path": str(ten_minute_path),
+        "weak_slot_minutes": sorted(csv_number_set(config.get("weak_slot_guard_slot_minutes"))),
+        "hourly_gate_status": "CONFIG",
+        "hourly_gate_source": "config",
+        "hourly_gate_path": str(hourly_path),
+        "weak_slot_gate_first_blocker": "",
+        "hourly_gate_first_blocker": "",
+    }
+    if ten_minute_path.exists():
+        payload = read_json(ten_minute_path, {}) or {}
+        gate = payload.get("ten_minute_performance_gate") or {}
+        weak_slots = gate.get("weak_slots") or payload.get("weak_slots") or {}
+        minutes = weak_slots.get("slot_minutes") or []
+        state.update({
+            "weak_slot_gate_status": gate.get("status") or "UNKNOWN",
+            "weak_slot_gate_source": str(ten_minute_path),
+            "weak_slot_minutes": sorted(csv_number_set(minutes)),
+            "weak_slot_gate_first_blocker": (
+                (gate.get("first_blocker") or {}).get("gate")
+                or (gate.get("first_blocker") or {}).get("detail")
+                or ""
+            ),
+        })
+    if hourly_path.exists():
+        payload = read_json(hourly_path, {}) or {}
+        gate = payload.get("hourly_performance_gate") or {}
+        state.update({
+            "hourly_gate_status": gate.get("status") or "UNKNOWN",
+            "hourly_gate_source": str(hourly_path),
+            "hourly_gate_first_blocker": (
+                (gate.get("first_blocker") or {}).get("gate")
+                or (gate.get("first_blocker") or {}).get("detail")
+                or ""
+            ),
+        })
+    return state
+
+
+def enrich_config_with_performance_gates(config, target_date):
+    enriched = dict(config or {})
+    state = load_taker_performance_gate_state(target_date, enriched)
+    enriched["_weak_slot_gate_status"] = state["weak_slot_gate_status"]
+    enriched["_weak_slot_gate_source"] = state["weak_slot_gate_source"]
+    enriched["_weak_slot_gate_path"] = state["weak_slot_gate_path"]
+    enriched["_weak_slot_gate_first_blocker"] = state["weak_slot_gate_first_blocker"]
+    enriched["_weak_slot_minutes"] = state["weak_slot_minutes"]
+    enriched["_hourly_gate_status"] = state["hourly_gate_status"]
+    enriched["_hourly_gate_source"] = state["hourly_gate_source"]
+    enriched["_hourly_gate_path"] = state["hourly_gate_path"]
+    enriched["_hourly_gate_first_blocker"] = state["hourly_gate_first_blocker"]
+    return enriched
+
+
 def market_local_time(row):
     timestamp = parse_time(first_present(row, "captured_at_utc", "generated_at_utc"))
     if timestamp is None:

@@ -232,5 +232,45 @@ class TestHighHasStoodLockin(unittest.TestCase):
         self.assertEqual(context["reason"], "current_not_below_high")
 
 
+class TestExpandedLateDayLockin(unittest.TestCase):
+    def setUp(self):
+        self.m = TorontoHighTempModel(target_date="2026-06-20")
+        self.history = {"max_c": 24.0, "max_times": ["12:20"]}
+        self.now = datetime(2026, 6, 20, 16, 10)
+
+    def _forecast(self, value):
+        return {"rows": [{"time": "17:00", "temp_c": value}]}
+
+    def test_covers_late_day_high_that_has_stood_and_current_has_rolled(self):
+        context = self.m.expanded_late_day_lockin_context(
+            16,
+            self.history,
+            23.0,
+            self.now,
+            self._forecast(24.0),
+            self._forecast(23.5),
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(context["reason"], "expanded_late_day_current_below_high")
+        self.assertGreater(
+            context["strength"],
+            self.m.late_day_lockin_strength(16, 23.0, 24.0),
+        )
+        self.assertEqual(context["stood_minutes"], 230)
+
+    def test_blocks_when_remaining_forecast_can_clear_high(self):
+        context = self.m.expanded_late_day_lockin_context(
+            16,
+            self.history,
+            23.0,
+            self.now,
+            self._forecast(25.5),
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["reason"], "forecast_ceiling_above_high")
+
+
 if __name__ == "__main__":
     unittest.main()

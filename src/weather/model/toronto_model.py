@@ -11,6 +11,7 @@ serving-time calibration/runtime helpers belong in
 """
 import json
 import logging
+from collections import OrderedDict
 from datetime import datetime
 
 from weather.artifacts import resolve_artifact_path
@@ -64,7 +65,8 @@ class TorontoHighTempModel(
     PresentationMixin,
     ModelUtilsMixin,
 ):
-    _historical_target_cache = {}
+    _historical_target_cache = OrderedDict()
+    _historical_target_cache_max_entries = 128
 
     def __init__(self, timeout=8, target_date=None, market_id=DEFAULT_MARKET_ID):
         self.timeout = timeout
@@ -133,7 +135,7 @@ class TorontoHighTempModel(
 
     @classmethod
     def clear_historical_cache(cls):
-        cls._historical_target_cache = {}
+        cls._historical_target_cache = OrderedDict()
 
     def build(self, event, historical_sources=None, live_sources=None, now=None):
         self.sync_target_date_from_event(event)

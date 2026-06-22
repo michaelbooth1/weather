@@ -161,6 +161,7 @@ def write_markdown(path, payload):
     )
     observation = payload.get("observation_trigger") or {}
     live_forward_slo = payload.get("live_forward_slo") or {}
+    optional_streams = live_forward_slo.get("optional_market_event_streams") or {}
     slo_rows = [
         [
             row.get("name"),
@@ -193,6 +194,15 @@ def write_markdown(path, payload):
             row.get("after"),
         ]
         for row in live_forward_slo.get("recovery_checklist") or []
+    ]
+    optional_stream_rows = [
+        [
+            row.get("market_id"),
+            row.get("stream"),
+            row.get("severity"),
+            row.get("detail"),
+        ]
+        for row in optional_streams.get("issues") or []
     ]
     snapshot_cadence = (
         live_forward_slo.get("snapshot_cadence_proof")
@@ -230,6 +240,19 @@ def write_markdown(path, payload):
         ["Gate", "Verdict", "Severity", "Detail"],
         slo_rows,
     )
+    lines += [
+        "",
+        "### Optional Market Event Streams",
+        "",
+        f"Status: **{optional_streams.get('status') or '-'}**",
+        f"Blocks core model review: `{optional_streams.get('blocks_core_model_review')}`",
+        f"Reason: {optional_streams.get('reason') or '-'}",
+        "",
+    ]
+    lines += markdown_table(
+        ["Market", "Stream", "Severity", "Detail"],
+        optional_stream_rows,
+    )
     lines += ["", "### Broad Recovery Gates", ""]
     lines += markdown_table(
         ["Concrete Gate", "Verdict", "Blocked Markets", "Owner", "Repair Command", "Detail"],
@@ -244,6 +267,13 @@ def write_markdown(path, payload):
             "Snapshot coverage-gap blocked markets: "
             f"`{snapshot_cadence_summary.get('snapshot_coverage_gap_blocked_market_count')}`"
         ),
+        f"Recoverable same-day markets: `{snapshot_cadence_summary.get('recoverable_same_day_market_count')}`",
+        (
+            "Nonrecoverable active-day blocked markets: "
+            f"`{snapshot_cadence_summary.get('nonrecoverable_active_day_blocked_market_count')}`"
+        ),
+        f"Clean active day required: `{snapshot_cadence_summary.get('clean_active_day_required')}`",
+        f"Next unblock action: `{snapshot_cadence_summary.get('next_unblock_action') or '-'}`",
         f"Status command: `{snapshot_cadence.get('status_command') or SNAPSHOT_STATUS_COMMAND}`",
         f"Repair command: `{snapshot_cadence.get('repair_command') or SNAPSHOT_RESTART_COMMAND}`",
         f"Verification command: `{snapshot_cadence.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
@@ -293,6 +323,55 @@ def write_markdown(path, payload):
                     row.get("first_blocked_owner") or "-",
                 ]
                 for evidence_class, row in sorted(mm_classes.items())
+            ],
+        )
+    mm_starvation = payload.get("mm_evidence_starvation") or {}
+    if mm_starvation:
+        latest_starvation = mm_starvation.get("latest") or {}
+        latest_starved = mm_starvation.get("latest_starved") or {}
+        lines += [
+            "",
+            "## MM Evidence Starvation",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", mm_starvation.get("status")],
+                ["Countable paper market-days", mm_starvation.get("countable_paper_market_day_count")],
+                ["Starved active-day streak", mm_starvation.get("starved_active_day_streak")],
+                ["Unrecovered starved streak", mm_starvation.get("unrecovered_starved_active_day_streak")],
+                ["Recovered starved days", mm_starvation.get("recovered_starved_active_day_count")],
+                ["Unrecovered starved days", mm_starvation.get("unrecovered_starved_active_day_count")],
+                ["Recovery-attempted starved days", mm_starvation.get("recovery_attempted_starved_active_day_count")],
+                ["Latest run", latest_starvation.get("run_id") or "-"],
+                ["Latest starved run", latest_starved.get("run_id") or "-"],
+                ["Latest starved target date", latest_starved.get("target_date") or "-"],
+                ["Preflight blocked markets", (
+                    f"{(latest_starved or latest_starvation).get('preflight_blocked_market_count')}/"
+                    f"{(latest_starved or latest_starvation).get('preflight_market_count')}"
+                )],
+                ["Blocked fraction", (latest_starved or latest_starvation).get("preflight_blocked_market_fraction")],
+                ["Stale loop", (latest_starved or latest_starvation).get("max_stale_input_gate") or "-"],
+                ["Stale age seconds", (latest_starved or latest_starvation).get("max_stale_input_age_seconds")],
+                ["Owner items", ",".join((latest_starved or latest_starvation).get("recovery_owner_items") or []) or "-"],
+                ["Recovery command", (latest_starved or latest_starvation).get("recovery_command") or "-"],
+                [
+                    "Recovery closeout",
+                    (latest_starved or latest_starvation).get("preflight_recovery_closeout_status") or "-",
+                ],
+                [
+                    "Recovery artifact",
+                    (latest_starved or latest_starvation).get("preflight_recovery_closeout_path") or "-",
+                ],
+                [
+                    "Post-repair preflight",
+                    (latest_starved or latest_starvation).get("post_repair_preflight_status") or "-",
+                ],
+                [
+                    "Post-repair counts",
+                    (latest_starved or latest_starvation).get("post_repair_counts_toward_live_forward_gate"),
+                ],
             ],
         )
     loop_integrity = payload.get("loop_integrity") or {}
@@ -349,9 +428,13 @@ def write_markdown(path, payload):
                 row.get("single_writer"),
                 row.get("restart_count"),
                 row.get("restart_budget"),
+                row.get("restart_budget_clears_at_utc") or "-",
                 row.get("duplicate_writer_incidents"),
+                row.get("diagnostic_duplicate_writer_incidents"),
                 row.get("benign_duplicate_writer_blocks"),
                 row.get("malformed_lines"),
+                row.get("blocking_owner") or "-",
+                "; ".join(row.get("immediate_repair_commands") or []) or "-",
                 row.get("consecutive_errors"),
                 "; ".join(row.get("blocking_reasons") or []) or "-",
             ]
@@ -374,6 +457,10 @@ def write_markdown(path, payload):
             f"Window days: `{current_soak.get('window_days')}`",
             f"Cadence SLO: `{current_soak.get('cadence_slo_status')}`",
             f"Cadence reason: {current_soak.get('cadence_slo_reason') or '-'}",
+            f"Immediate repair loops: `{current_soak_summary.get('immediate_repair_loop_count')}`",
+            f"Aging blocker loops: `{current_soak_summary.get('aging_blocker_loop_count')}`",
+            f"First immediate repair: `{current_soak_summary.get('first_immediate_repair_command') or '-'}`",
+            f"Latest aging blocker clears: `{current_soak_summary.get('latest_aging_blocker_clears_at_utc') or '-'}`",
             f"Current code: `{format_runtime_identity(current_soak.get('current_identity') or {})}`",
             f"Verification command: `{current_soak.get('verification_command') or BROAD_SLO_VERIFY_COMMAND}`",
             "",
@@ -381,7 +468,8 @@ def write_markdown(path, payload):
         lines += markdown_table(
             [
                 "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
-                "Budget", "Dup Incidents", "Benign Dup Blocks", "Malformed",
+                "Budget", "Restarts Clear At", "Dup Incidents", "7d Dup Incidents",
+                "Benign Dup Blocks", "Malformed", "Owner", "Immediate Repair",
                 "Errors", "Blocking Reasons",
             ],
             soak_rows,

@@ -9,10 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
+    acquire_lock,
     load_status,
+    repair_stale_locks,
+    release_lock,
     run_active_variant_shadow_step,
     run_clob_order_book_tiering_step,
     run_data_retention_inventory_step,
+    run_daily_flow_analysis_step,
     run_daily_refresh,
     run_distribution_stage_attribution_step,
     run_ingest_quality_gate_step,
@@ -20,6 +24,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
     run_reanalysis_recent_refresh_step,
+    run_settled_day_root_cause_step,
 )
 from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
@@ -32,6 +37,7 @@ def _args(tmp, **overrides):
         "roadmap": str(root / "ROADMAP.md"),
         "status_out": str(root / "backtest" / "daily_refresh_status.json"),
         "report_out": str(root / "backtest" / "daily_refresh_report.md"),
+        "lock_path": str(root / "backtest" / "daily_refresh.lock"),
         "long_job_state": str(root / "backtest" / "long_job_guard_status.json"),
         "long_job_lock": str(root / "backtest" / "long_job_guard.lock"),
         "long_job_priority": "normal",
@@ -49,6 +55,7 @@ def _args(tmp, **overrides):
         "fail_on_shadow_ab_alert": False,
         "fail_on_variant_evidence_alert": True,
         "fail_on_daily_learning_blocker": False,
+        "fail_on_daily_flow_analysis_blocker": False,
         "skip_shadow_ab_monitor": False,
         "ab_current_tol": 0.003,
         "ab_market_tol": 0.003,
@@ -77,9 +84,14 @@ def _args(tmp, **overrides):
         "data_retention_lookback_hours": 24.0,
         "data_retention_top_n": 25,
         "skip_daily_learning": False,
+        "skip_daily_flow_analysis": False,
         "skip_hourly_model_performance": False,
         "skip_ten_minute_model_performance": False,
         "skip_price_free_model_learning": False,
+        "skip_settled_day_root_cause": False,
+        "settled_root_cause_date": "",
+        "taker_root": str(root / "taker_runs"),
+        "mm_root": str(root / "mm_runs"),
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
         "markets": "",
@@ -153,6 +165,87 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
         self.assertFalse(saved["config"]["long_job_guard"]["nested"])
         self.assertTrue(report_exists)
+
+    def test_acquire_lock_removes_dead_pid_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "backtest" / "daily_refresh.lock"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"pid": -999, "created_at_utc": "2026-06-20T00:00:00+00:00"}), encoding="utf-8")
+
+            acquired = acquire_lock(path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            release_lock(acquired)
+
+        self.assertEqual(acquired, path)
+        self.assertEqual(payload["pid"], os.getpid())
+
+    def test_acquire_lock_preserves_active_pid_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "backtest" / "daily_refresh.lock"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"pid": os.getpid(), "created_at_utc": "2026-06-20T00:00:00+00:00"}), encoding="utf-8")
+
+            acquired = acquire_lock(path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertIsNone(acquired)
+        self.assertEqual(payload["pid"], os.getpid())
+
+    def test_repair_stale_locks_clears_only_verified_dead_owners(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            daily_lock = Path(args.backtest_root) / "daily_refresh.lock"
+            long_lock = Path(args.backtest_root) / "long_job_guard.lock"
+            state = Path(args.long_job_state)
+            daily_lock.parent.mkdir(parents=True)
+            daily_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
+            long_lock.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            state.write_text(
+                json.dumps({"status": "running", "active": True, "pid": -999}),
+                encoding="utf-8",
+            )
+            args.lock_path = str(daily_lock)
+            args.long_job_lock = str(long_lock)
+
+            payload = repair_stale_locks(args)
+            state_payload = json.loads(state.read_text(encoding="utf-8"))
+            daily_exists = daily_lock.exists()
+            long_exists = long_lock.exists()
+
+        self.assertEqual(payload["removed_lock_count"], 1)
+        self.assertFalse(daily_exists)
+        self.assertTrue(long_exists)
+        self.assertTrue(payload["long_job_lock"]["owner_running"])
+        self.assertFalse(state_payload["active"])
+        self.assertEqual(state_payload["status"], "stale_cleared")
+
+    def test_rollup_freshness_blocks_stale_daily_learning_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            (backtest / "daily_learning.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-20T01:00:00+00:00", "status": "ACTIONABLE"}),
+                encoding="utf-8",
+            )
+            (backtest / "progress_audit.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-21T12:00:00+00:00", "status": "OK"}),
+                encoding="utf-8",
+            )
+
+            payload, status_path, report_path = run_daily_refresh(
+                args,
+                runners=[("noop", lambda _args: {})],
+            )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        freshness = payload["summary"]["rollup_freshness"]
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(saved["summary"]["rollup_freshness"]["status"], "BLOCK")
+        self.assertEqual(freshness["blockers"][0]["rollup"], "daily_learning")
+        self.assertIn("repair-stale-locks", freshness["repair_command"])
+        self.assertIn("Daily Rollup Freshness", report)
 
     def test_run_daily_refresh_stops_on_error_by_default(self):
         calls = []
@@ -247,8 +340,10 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
         self.assertLess(names.index("data_layer_audit"), names.index("snapshot_evaluation"))
         self.assertLess(names.index("snapshot_evaluation"), names.index("distribution_stage_attribution"))
-        self.assertLess(names.index("distribution_stage_attribution"), names.index("data_retention_inventory"))
+        self.assertLess(names.index("distribution_stage_attribution"), names.index("settled_day_root_cause"))
+        self.assertLess(names.index("settled_day_root_cause"), names.index("data_retention_inventory"))
         self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
+        self.assertLess(names.index("daily_learning"), names.index("daily_flow_analysis"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
@@ -260,7 +355,7 @@ class TestDailyRefresh(unittest.TestCase):
             raise AssertionError("daily refresh should stop at disk preflight")
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh.promotion_refresh.run_promotion_refresh") as run_refresh:
+                patch("weather.operations.daily_refresh_steps.promotion_refresh.run_promotion_refresh") as run_refresh:
             root = Path(tmp)
             backtest = root / "backtest"
             backtest.mkdir(parents=True)
@@ -346,8 +441,8 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_clob_order_book_tiering_step_applies_settled_compression(self):
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh.clob_order_book_tiering.run") as run, \
-                patch("weather.operations.daily_refresh.clob_order_book_tiering.write_outputs") as write_outputs:
+                patch("weather.operations.daily_refresh_steps.clob_order_book_tiering.run") as run, \
+                patch("weather.operations.daily_refresh_steps.clob_order_book_tiering.write_outputs") as write_outputs:
             root = Path(tmp)
             payload = {
                 "status": "PASS",
@@ -587,6 +682,62 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["daily_learning"]["status"], "BLOCKED")
 
+    def test_daily_flow_analysis_step_writes_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            (backtest / "daily_learning.json").write_text(
+                json.dumps({
+                    "schema_version": "daily_learning_v0.1",
+                    "generated_at_utc": "2026-06-21T23:50:00+00:00",
+                    "run_date": "2026-06-21",
+                    "status": "BLOCKED",
+                    "summary": {"learning_count": 1, "blocker_count": 1},
+                    "retrain_plan": {"training_ready": False, "promotion_ready": False},
+                    "scorecard": {"fleet": {}, "trading_evidence": {}},
+                    "learnings": [
+                        {
+                            "priority": "P0",
+                            "category": "operational_slo",
+                            "source": "fleet_observability",
+                            "signal": "live-forward SLO blocked",
+                            "action": "python -m weather.reporting.fleet_observability",
+                            "blocker": True,
+                        }
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            args = _args(tmp)
+            setattr(args, "_daily_refresh_steps_so_far", [
+                {"name": "daily_learning", "status": "ok", "duration_seconds": 1.0},
+            ])
+
+            result = run_daily_flow_analysis_step(args)
+            json_exists = (backtest / "daily_flow_analysis.json").exists()
+            report_exists = (backtest / "daily_flow_analysis_report.md").exists()
+            actions_exists = (backtest / "daily_flow_analysis_actions.csv").exists()
+
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["blocker_count"], 1)
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+        self.assertTrue(actions_exists)
+
+    def test_fail_on_daily_flow_analysis_blocker_marks_run_critical(self):
+        def flow(_args):
+            return {"status": "BLOCKED", "blocker_count": 1}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, fail_on_daily_flow_analysis_blocker=True),
+                runners=[("daily_flow_analysis", flow)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["summary"]["daily_flow_analysis"]["status"], "BLOCKED")
+
     def test_model_variant_evidence_growth_step_runs_from_daily_refresh_inputs(self):
         header = (
             "variant_id,variant_family,uses_market_features,is_control,market_id,"
@@ -666,6 +817,45 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertTrue(Path(result["report_out"]).exists())
             self.assertEqual(result["settled_folder_count"], 1)
             self.assertEqual(result["top_net_negative_stage"]["group"], "post_live_signals")
+
+    def test_settled_day_root_cause_step_writes_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "snapshots" / "highest-temperature-in-test-on-june-20-2026"
+            folder.mkdir(parents=True)
+            (folder / "settlement.json").write_text(
+                json.dumps({
+                    "event_slug": folder.name,
+                    "market_id": "test",
+                    "target_date": "2026-06-20",
+                    "settlement_bucket": 82,
+                    "settlement_unit": "F",
+                }),
+                encoding="utf-8",
+            )
+            (folder / "snapshots_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,captured_at_local,event_slug,range_label,bin_kind,bin_value_c,bin_value_hi_c,model_probability,market_yes,forecast_disagreement,wu_history_high_c,wu_current_c,wu_max_since_7am_c",
+                    f"s1,2026-06-20T12:00:00-04:00,{folder.name},82-83 F,eq,82,83,0.10,0.55,6.0,82,81,92",
+                    f"s1,2026-06-20T12:00:00-04:00,{folder.name},86-87 F,eq,86,87,0.60,0.10,6.0,82,81,92",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "features_long.csv").write_text(
+                "snapshot_id,high_so_far,current_temp,forecast_disagreement,live_reading_minus_high\n"
+                "s1,82,81,6,-1\n",
+                encoding="utf-8",
+            )
+            args = _args(tmp, settled_root_cause_date="2026-06-20")
+
+            result = run_settled_day_root_cause_step(args)
+
+            self.assertEqual(result["status"], "ACTIONABLE")
+            self.assertEqual(result["target_date"], "2026-06-20")
+            self.assertTrue(Path(result["json_out"]).exists())
+            self.assertTrue(Path(result["report_out"]).exists())
+            self.assertTrue(Path(result["issues_out"]).exists())
+            self.assertIn("MODEL_TOP_WARM_SIDE_MISS", result["issue_counts"])
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (
@@ -976,9 +1166,9 @@ class TestDailyRefresh(unittest.TestCase):
             reanalysis_lag_days=2,
             reanalysis_chunk_days=5,
         )
-        with patch("weather.operations.daily_refresh.all_specs", return_value=[FakeSpec()]), \
-                patch("weather.operations.daily_refresh.ReanalysisClient", FakeClient), \
-                patch("weather.operations.daily_refresh.ReanalysisStore", FakeStore):
+        with patch("weather.operations.daily_refresh_steps.all_specs", return_value=[FakeSpec()]), \
+                patch("weather.operations.daily_refresh_steps.ReanalysisClient", FakeClient), \
+                patch("weather.operations.daily_refresh_steps.ReanalysisStore", FakeStore):
             result = run_reanalysis_recent_refresh_step(args)
 
         self.assertEqual(result["start"], "2026-06-01")
@@ -999,7 +1189,7 @@ class TestDailyRefresh(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh.data_auditor.audit_fleet_historical_data", return_value=fake_results):
+                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
             self.assertEqual(result["status"], "WARN")

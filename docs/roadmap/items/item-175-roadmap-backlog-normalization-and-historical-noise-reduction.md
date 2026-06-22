@@ -1,4 +1,4 @@
-# 175. Roadmap Backlog Normalization And Historical Noise Reduction [OPEN]
+# 175. Roadmap Backlog Normalization And Historical Noise Reduction [COMPLETE 2026-06-21 - ACTIVE BACKLOG PARSER AND LINT LIVE]
 
 Goal: make the roadmap easy to query for active work without losing historical
 audit context.
@@ -26,18 +26,46 @@ backlog.
 5. Add a check that new roadmap items include goal, source, why, checklist, and
    acceptance sections.
 
-- [ ] Build or update a roadmap parser that extracts OPEN, PARTIAL, COMPLETE,
+- [x] Build or update a roadmap parser that extracts OPEN, PARTIAL, COMPLETE,
   date, and disposition from item headings.
-- [ ] Generate an active backlog summary containing only OPEN and PARTIAL
+- [x] Generate an active backlog summary containing only OPEN and PARTIAL
   items.
-- [ ] Normalize item headings that currently require manual interpretation.
-- [ ] Move historical command examples out of active instructions or mark them
+- [x] Normalize item headings that currently require manual interpretation.
+- [x] Move historical command examples out of active instructions or mark them
   as historical-only.
-- [ ] Add a docs lint check for required roadmap item sections.
-- [ ] Document how agents should add new items without creating numbering or
+- [x] Add a docs lint check for required roadmap item sections.
+- [x] Document how agents should add new items without creating numbering or
   status drift.
 
 Acceptance: active roadmap work can be listed automatically, historical audit
 content remains searchable but clearly separated, and new item files follow one
 consistent actionable format.
 
+## 2026-06-21 implementation update
+
+Added `weather.reporting.roadmap_backlog`, schema `roadmap_backlog_v0.1`.
+The parser reads numbered item headings, extracts item number, title, status,
+optional date, and disposition, and writes:
+
+- `data/backtest/roadmap_backlog.json`
+- `docs/roadmap/active-backlog.md`
+
+`active-backlog.md` is now the default operator scan path for `OPEN` and
+`PARTIAL` work; completed historical items remain in `docs/roadmap/items/` but
+are omitted from that compact active report. The linter fails active items that
+do not expose `Goal:`, `Source:`, `Why this matters`, at least one checklist
+row, and `Acceptance:`. Active legacy partials 32, 35, 48, and 67 were
+normalized with missing Source/Why sections so the real roadmap now passes the
+lint.
+
+The roadmap index now links the generated active backlog and documents the
+regeneration command:
+`python -m weather.reporting.roadmap_backlog --fail-on-lint`.
+It also states that historical implementation updates and command transcripts
+inside completed or dated sections are historical-only evidence, not current
+operator instructions.
+
+Verification:
+
+- `python -m weather.reporting.roadmap_backlog --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md --fail-on-lint`
+- `python -m pytest tests\reporting\test_roadmap_backlog.py tests\operations\test_schema_registry.py -q`

@@ -106,6 +106,35 @@ BOOK_COLUMNS = [
     "last_trade_price",
 ]
 
+PRICE_HISTORY_COLUMNS = [
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "market_id",
+    "polymarket_market_id",
+    "condition_id",
+    "range_label",
+    "outcome",
+    "clob_token_id",
+    "interval",
+    "fidelity_minutes",
+    "point_timestamp",
+    "point_time_utc",
+    "price",
+]
+
+WS_EVENT_COLUMNS = [
+    "received_at_utc",
+    "event_slug",
+    "market_id",
+    "event_type",
+    "asset_id",
+    "market",
+    "price",
+    "side",
+    "raw_sha1",
+]
+
 
 class TestDisagreementCasebook(unittest.TestCase):
     def write_folder(self, root):
@@ -260,6 +289,58 @@ class TestDisagreementCasebook(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=BOOK_COLUMNS)
             writer.writeheader()
             writer.writerows(book_rows)
+
+        with (folder / "price_history.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=PRICE_HISTORY_COLUMNS)
+            writer.writeheader()
+            writer.writerows([
+                {
+                    "captured_at_utc": "2026-06-07T14:10:00+00:00",
+                    "captured_at_local": "2026-06-07T10:10:00-04:00",
+                    "event_slug": folder.name,
+                    "market_id": "toronto",
+                    "polymarket_market_id": "m1",
+                    "condition_id": "c1",
+                    "range_label": "24\u00c2\u00b0C",
+                    "outcome": "Yes",
+                    "clob_token_id": "yes-token",
+                    "interval": "1m",
+                    "fidelity_minutes": "1",
+                    "point_timestamp": "",
+                    "point_time_utc": "2026-06-07T14:08:00+00:00",
+                    "price": "0.25",
+                },
+                {
+                    "captured_at_utc": "2026-06-07T14:10:00+00:00",
+                    "captured_at_local": "2026-06-07T10:10:00-04:00",
+                    "event_slug": folder.name,
+                    "market_id": "toronto",
+                    "polymarket_market_id": "m1",
+                    "condition_id": "c1",
+                    "range_label": "24\u00c2\u00b0C",
+                    "outcome": "Yes",
+                    "clob_token_id": "yes-token",
+                    "interval": "1m",
+                    "fidelity_minutes": "1",
+                    "point_timestamp": "",
+                    "point_time_utc": "2026-06-07T14:10:00+00:00",
+                    "price": "0.05",
+                },
+            ])
+        with (folder / "market_ws_events.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=WS_EVENT_COLUMNS)
+            writer.writeheader()
+            writer.writerow({
+                "received_at_utc": "2026-06-07T14:10:05+00:00",
+                "event_slug": folder.name,
+                "market_id": "toronto",
+                "event_type": "price_change",
+                "asset_id": "yes-token",
+                "market": "c1",
+                "price": "0.05",
+                "side": "SELL",
+                "raw_sha1": "raw-ws-hash",
+            })
         return folder
 
     def write_warm_side_folder(self, root, settled=True, event_slug="highest-temperature-in-nyc-on-june-16-2026"):
@@ -400,6 +481,12 @@ class TestDisagreementCasebook(unittest.TestCase):
         self.assertTrue(case["driver_waterfall"])
         self.assertEqual(case["source_freshness"]["wu_current"]["status"], "fresh")
         self.assertAlmostEqual(case["clob_context"]["midpoint_move_abs"], 0.10)
+        self.assertEqual(case["clob_context"]["clob_token_id"], "yes-token")
+        self.assertEqual(case["market_event_context"]["price_history_points_300s"], 2)
+        self.assertEqual(case["market_event_context"]["ws_event_count_300s"], 1)
+        self.assertAlmostEqual(case["market_event_context"]["price_change_300s"], -0.20)
+        self.assertEqual(payload["summary"]["market_event_price_history_case_count"], 1)
+        self.assertEqual(payload["summary"]["market_event_ws_case_count"], 1)
         self.assertEqual(payload["feedback_slices"][0]["slice_type"], "known_edge_candidate")
         self.assertEqual(payload["feedback_slices"][0]["snapshot_refs"][0]["range_label"], "24 C")
 
@@ -427,6 +514,7 @@ class TestDisagreementCasebook(unittest.TestCase):
             self.assertIn("## Top Model-Losing Case Families", report)
             self.assertIn("## Feedback Slices", report)
             self.assertIn("## Late-Day Warm-Side Cases", report)
+            self.assertIn("Hist Pts", report)
             self.assertNotIn("\u00c2\u00b0C", report)
 
     def test_clean_label_scrubs_degree_mojibake(self):

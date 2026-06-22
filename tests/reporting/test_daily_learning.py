@@ -398,6 +398,40 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("data_layer_audit_report.md", first_gate["action"])
         self.assertTrue(remediation["blocker"])
 
+    def test_build_learning_payload_summarizes_sidecar_coverage_mix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            audit = json.loads((backtest_root / "data_layer_audit.json").read_text(encoding="utf-8"))
+            audit["snapshots"] = {
+                "sidecar_eligibility": {
+                    "primary_label_counts": {
+                        "market_aware_ready": 1,
+                        "score_only": 2,
+                    },
+                    "label_counts": {
+                        "score_only": 3,
+                        "market_aware_ready": 1,
+                    },
+                    "backfill_candidate_folder_count": 2,
+                    "active_day_sidecar_regression_count": 0,
+                    "non_reconstructable_gap_counts": {"market_ws_events": 2},
+                }
+            }
+            (backtest_root / "data_layer_audit.json").write_text(
+                json.dumps(audit),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            categories = {row["category"] for row in payload["learnings"]}
+
+        self.assertIn("sidecar_coverage_mix", categories)
+        self.assertEqual(
+            payload["scorecard"]["data_layer_audit"]["sidecar_eligibility"]["primary_label_counts"]["score_only"],
+            2,
+        )
+
     def test_build_learning_payload_adds_gap_owner_experiments(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -1086,6 +1120,112 @@ class TestDailyLearning(unittest.TestCase):
         self.assertEqual(payload["scorecard"]["core_model_trend_claim"]["status"], "DIRECTIONAL")
         self.assertIn("## Core Model Trend Claim", report)
         self.assertIn("need 3 positive-skill comparable days", report)
+
+    def test_build_learning_payload_blocks_stale_compact_rollup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "progress_audit.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-21T12:00:00+00:00", "status": "OK"}),
+                encoding="utf-8",
+            )
+            (backtest_root / "daily_progress_latest.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-20T12:00:00+00:00", "status": "OK"}),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(
+                backtest_root=backtest_root,
+                rollup_generated_at_overrides={},
+            )
+            report = render_report(payload)
+            blocker = next(
+                row for row in payload["learnings"]
+                if row["category"] == "daily_rollup_freshness"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertIn("daily_progress_latest", blocker["signal"])
+        self.assertIn("repair-stale-locks", blocker["action"])
+        self.assertIn("## Daily Rollup Freshness", report)
+        self.assertIn("progress_audit", report)
+
+    def test_build_learning_payload_checks_active_variant_shadow_freshness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "active_variant_shadow.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-21T12:00:00+00:00", "status": "OK"}),
+                encoding="utf-8",
+            )
+            (backtest_root / "daily_progress_latest.json").write_text(
+                json.dumps({"generated_at_utc": "2026-06-21T13:00:00+00:00", "status": "OK"}),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(
+                backtest_root=backtest_root,
+                generated_at_utc="2026-06-21T11:00:00+00:00",
+                rollup_generated_at_overrides={},
+            )
+            rollup = payload["scorecard"]["rollup_freshness"]
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(rollup["latest_required_artifact"], "active_variant_shadow")
+        self.assertEqual(rollup["blockers"][0]["rollup"], "daily_learning")
+
+    def test_build_learning_payload_surfaces_root_cause_explanation_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "settled_day_root_cause.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ACTIONABLE",
+                        "target_date": "2026-06-20",
+                        "summary": {
+                            "explanation_snapshot_count": 3,
+                            "explanation_coverage_rate": 0.75,
+                            "explanation_sections": ["analog_search", "model_explanation"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            report = render_report(payload)
+            row = next(
+                item for item in payload["learnings"]
+                if item["category"] == "root_cause_explanation_tape"
+            )
+
+        self.assertTrue(row["retrain_input"])
+        self.assertIn("3 snapshot", row["signal"])
+        self.assertEqual(payload["scorecard"]["settled_day_root_cause"]["summary"]["explanation_snapshot_count"], 3)
+        self.assertIn("Root-cause explanation tape", report)
+
+    def test_build_learning_payload_uses_latest_date_stamped_root_cause_when_canonical_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "settled_day_root_cause_2026-06-20.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ACTIONABLE",
+                        "target_date": "2026-06-20",
+                        "summary": {"explanation_snapshot_count": 4},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+
+        artifact = payload["input_artifacts"]["settled_day_root_cause"]
+        self.assertTrue(artifact["exists"])
+        self.assertTrue(artifact["path"].endswith("settled_day_root_cause_2026-06-20.json"))
+        self.assertEqual(payload["scorecard"]["settled_day_root_cause"]["summary"]["explanation_snapshot_count"], 4)
 
 
 if __name__ == "__main__":

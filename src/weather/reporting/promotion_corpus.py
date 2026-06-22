@@ -23,6 +23,7 @@ from weather.backtesting.replay import index_records_by_snapshot, is_reconstruct
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, discover_settled_folders
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
+from weather.reporting.feature_quality_quarantine import audit_folder_feature_quality
 
 PROMOTION_CORPUS_SCHEMA_VERSION = "promotion_corpus_v0.1"
 DEFAULT_OUT = data_path() / "backtest" / "promotion_corpus.json"
@@ -188,10 +189,26 @@ def _entry_for_folder(
             reconstructed_excluded += 1
             continue
         pinned_snapshot_ids.append(str(snapshot_id))
+    feature_quality = audit_folder_feature_quality(folder)
+    feature_quality_rows = [
+        row for row in feature_quality.get("rows") or []
+        if row.get("training_excluded") and row.get("snapshot_id")
+    ]
+    feature_quality_excluded_ids = sorted({
+        str(row.get("snapshot_id"))
+        for row in feature_quality_rows
+        if str(row.get("snapshot_id")) in set(pinned_snapshot_ids)
+    })
+    if feature_quality_excluded_ids:
+        excluded = set(feature_quality_excluded_ids)
+        pinned_snapshot_ids = [snapshot_id for snapshot_id in pinned_snapshot_ids if snapshot_id not in excluded]
     if len(pinned_snapshot_ids) < min_snapshots:
+        if feature_quality_excluded_ids:
+            return None, "feature_quality_quarantine_excluded"
         return None, "too_few_replay_inputs"
 
     pinned_frame = frame[frame["snapshot_id"].astype(str).isin(set(pinned_snapshot_ids))]
+    feature_quality_excluded_frame = frame[frame["snapshot_id"].astype(str).isin(set(feature_quality_excluded_ids))]
     record_subset = {
         str(snapshot_id): records[str(snapshot_id)]
         for snapshot_id in pinned_snapshot_ids
@@ -232,8 +249,17 @@ def _entry_for_folder(
         "snapshot_ids": pinned_snapshot_ids,
         "snapshot_count": len(pinned_snapshot_ids),
         "snapshot_count_in_tape": len(tape_snapshot_ids),
-        "missing_replay_input_count": len(tape_snapshot_ids) - len(pinned_snapshot_ids) - reconstructed_excluded,
+        "missing_replay_input_count": (
+            len(tape_snapshot_ids)
+            - len(pinned_snapshot_ids)
+            - reconstructed_excluded
+            - len(feature_quality_excluded_ids)
+        ),
         "reconstructed_excluded_count": reconstructed_excluded,
+        "feature_quality_excluded_snapshot_ids": feature_quality_excluded_ids,
+        "feature_quality_excluded_snapshot_count": len(feature_quality_excluded_ids),
+        "feature_quality_excluded_band_row_count": int(len(feature_quality_excluded_frame)),
+        "feature_quality_quarantine": feature_quality.get("summary") or {},
         "replay_record_count": len(record_subset),
         "identity_record_count": identity_record_count,
         "reconstructed_record_count": reconstructed_record_count,
@@ -290,6 +316,14 @@ def summarize_entries(entries):
         "market_day_count": len(entries),
         "snapshot_count": sum(int(entry.get("snapshot_count") or 0) for entry in entries),
         "band_row_count": sum(int(entry.get("row_count") or 0) for entry in entries),
+        "feature_quality_excluded_snapshot_count": sum(
+            int(entry.get("feature_quality_excluded_snapshot_count") or 0)
+            for entry in entries
+        ),
+        "feature_quality_excluded_band_row_count": sum(
+            int(entry.get("feature_quality_excluded_band_row_count") or 0)
+            for entry in entries
+        ),
         "identity_record_count": sum(int(entry.get("identity_record_count") or 0) for entry in entries),
         "by_market": dict(sorted(by_market.items())),
     }
@@ -456,7 +490,8 @@ def main():
     print(
         f"Promotion corpus {manifest['corpus_hash']} written to {path}: "
         f"{summary['market_day_count']} market-days, {summary['snapshot_count']} snapshots, "
-        f"{summary['band_row_count']} band-rows."
+        f"{summary['band_row_count']} band-rows, "
+        f"{summary['feature_quality_excluded_snapshot_count']} feature-quality excluded snapshots."
     )
     if manifest["skipped"]:
         counts = Counter(item["reason"] for item in manifest["skipped"])

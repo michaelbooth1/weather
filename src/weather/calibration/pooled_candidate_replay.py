@@ -167,6 +167,7 @@ from weather.calibration.pooled_candidate_scoring import (
 DEFAULT_OUT = data_path() / "backtest" / "pooled_candidate_replay_report.md"
 DEFAULT_JSON_OUT = data_path() / "backtest" / "pooled_candidate_replay.json"
 DEFAULT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_report.md"
+DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
 DEFAULT_CASEBOOK = data_path() / "backtest" / "disagreement_casebook.json"
 DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl")
 MICROSTRUCTURE_NUMERIC_FEATURES = [
@@ -1474,6 +1475,8 @@ def _manifest_summary(manifest):
         "market_day_count": summary.get("market_day_count"),
         "snapshot_count": summary.get("snapshot_count"),
         "band_row_count": summary.get("band_row_count"),
+        "feature_quality_excluded_snapshot_count": summary.get("feature_quality_excluded_snapshot_count", 0),
+        "feature_quality_excluded_band_row_count": summary.get("feature_quality_excluded_band_row_count", 0),
         "quality_grades": manifest.get("quality_grades"),
     }
 
@@ -1528,6 +1531,76 @@ def forecast_profile_guardrails(rows, min_rows=50, tolerance=0.003):
         "rows": output,
         "blocked_markets": [row["market_id"] for row in output if row["status"] != "pass"],
     }
+
+
+def sidecar_eligibility_summary_from_audit(
+    audit_path,
+    *,
+    candidate_variant_id=None,
+    candidate_variant_family=None,
+):
+    path = Path(audit_path) if audit_path else None
+    base = {
+        "schema_version": "candidate_replay_sidecar_eligibility_v0.1",
+        "source_path": str(path) if path else None,
+        "loaded": False,
+        "candidate_variant_id": candidate_variant_id,
+        "candidate_variant_family": candidate_variant_family,
+        "primary_label_counts": {},
+        "readiness_label_counts": {},
+        "missing_artifact_counts": {},
+        "non_reconstructable_gap_counts": {},
+        "backfill_command_counts": {},
+        "backfill_candidate_folder_count": 0,
+        "active_day_sidecar_regression_count": 0,
+        "feature_quality_quarantine": {},
+        "promotion_exclusion_sample": [],
+        "by_market": [],
+    }
+    if not path or not path.exists():
+        base["status"] = "missing"
+        return base
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        base["status"] = "unreadable"
+        base["error"] = f"{type(exc).__name__}: {exc}"
+        return base
+
+    snapshots = payload.get("snapshots") or {}
+    sidecar = snapshots.get("sidecar_eligibility") or {}
+    feature_quality = snapshots.get("feature_quality_quarantine") or sidecar.get("feature_quality_quarantine") or {}
+    if not sidecar:
+        base["status"] = "unavailable"
+        return base
+
+    base.update({
+        "loaded": True,
+        "status": "loaded",
+        "snapshot_folder_count": snapshots.get("folder_count", 0),
+        "primary_label_counts": sidecar.get("primary_label_counts") or {},
+        "readiness_label_counts": sidecar.get("label_counts") or {},
+        "missing_artifact_counts": sidecar.get("missing_artifact_counts") or {},
+        "non_reconstructable_gap_counts": sidecar.get("non_reconstructable_gap_counts") or {},
+        "backfill_command_counts": sidecar.get("backfill_command_counts") or {},
+        "backfill_candidate_folder_count": sidecar.get("backfill_candidate_folder_count", 0),
+        "active_day_sidecar_regression_count": sidecar.get("active_day_sidecar_regression_count", 0),
+        "feature_quality_quarantine": feature_quality,
+        "promotion_exclusion_sample": (sidecar.get("promotion_exclusion_sample") or [])[:10],
+        "by_market": [
+            {
+                "market_id": row.get("market_id") or row.get("market") or row.get("city") or "unknown",
+                "days": row.get("folders", row.get("days", 0)),
+                "training_ready_days": row.get("training_ready_label_days", 0),
+                "explanation_ready_days": row.get("explanation_ready_days", 0),
+                "market_aware_ready_days": row.get("market_aware_ready_days", 0),
+                "variant_ready_days": row.get("variant_ready_days", 0),
+                "latest_target_date": row.get("latest_target_date"),
+            }
+            for row in snapshots.get("by_market") or []
+        ],
+    })
+    return base
 
 
 def run_pooled_candidate_replay(args):
@@ -1729,6 +1802,11 @@ def run_pooled_candidate_replay(args):
     density_postprocess = artifact.get("density_postprocess") or {}
     density_postprocess_selection = density_postprocess.get("selection") or {}
     density_forecast_relative = density_postprocess.get("forecast_relative_calibration") or {}
+    sidecar_eligibility = sidecar_eligibility_summary_from_audit(
+        getattr(args, "data_layer_audit", DEFAULT_DATA_LAYER_AUDIT),
+        candidate_variant_id=candidate_variant_id,
+        candidate_variant_family=candidate_variant_family,
+    )
 
     report = {
         "generated_at": datetime.now().isoformat(),
@@ -1798,6 +1876,7 @@ def run_pooled_candidate_replay(args):
         },
         "corpus": _manifest_summary(manifest),
         "coverage": coverage,
+        "sidecar_eligibility": sidecar_eligibility,
         "diagnostics": diagnostics,
         "replay_gate": replay_gate,
         "blocked_validation": blocked_validation,
@@ -1858,6 +1937,8 @@ def main():
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--replay-report", default=str(DEFAULT_REPLAY_REPORT),
                         help="Current-serving replay report path. Empty string disables it.")
+    parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT),
+                        help="Data-layer audit JSON used to annotate sidecar eligibility coverage.")
     parser.add_argument("--current-tol", type=float, default=0.003,
                         help="Hard-block tolerance for candidate Brier regression vs current replay.")
     parser.add_argument("--market-tol", type=float, default=0.003,

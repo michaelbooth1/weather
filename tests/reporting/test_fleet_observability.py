@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +19,7 @@ from weather.reporting.fleet_observability import (  # noqa: E402
     current_code_soak_summary,
     live_forward_slo_gate,
     loop_integrity_alerts,
+    mm_evidence_starvation_summary,
     mm_paper_evidence_summary,
     observation_alerts,
     overall_status,
@@ -386,6 +387,38 @@ class TestFleetObservability(unittest.TestCase):
         self.assertTrue(gate["counts_toward_live_forward_gate"])
         self.assertEqual(gate["status"], "PASS")
 
+    def test_optional_market_event_stream_warning_does_not_block_live_forward_slo(self):
+        collection = {"markets": [{"market_id": "toronto", "action_required": False}]}
+        clob = {
+            "loop": {
+                "state": "RUNNING",
+                "heartbeat_age_seconds": 10.0,
+                "include_price_history": True,
+                "include_ws_events": True,
+                "last_market_results": {
+                    "toronto": {
+                        "books": 4,
+                        "price_history_rows": 0,
+                        "ws_messages": 0,
+                        "ws_event_rows": 0,
+                        "ws_error": "RuntimeError: websocket unavailable",
+                    }
+                },
+            },
+            "books": {"markets": [{"market_id": "toronto", "ok": True, "captures": 100}]},
+        }
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertTrue(gate["ok"])
+        self.assertEqual(gate["status"], "PASS")
+        self.assertTrue(gate["counts_toward_live_forward_gate"])
+        optional = gate["optional_market_event_streams"]
+        self.assertEqual(optional["status"], "WARN")
+        self.assertFalse(optional["blocks_core_model_review"])
+        self.assertEqual(optional["issue_count"], 2)
+
     def test_live_forward_slo_blocks_on_snapshot_gap_clob_gap_or_watcher_failure(self):
         collection = {
             "markets": [{
@@ -498,6 +531,10 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(cadence["summary"]["blocked_market_count"], 12)
         self.assertEqual(cadence["summary"]["snapshot_coverage_gap_blocked_market_count"], 12)
         self.assertEqual(cadence["summary"]["total_gap_count"], 24)
+        self.assertEqual(cadence["summary"]["recoverable_same_day_market_count"], 0)
+        self.assertEqual(cadence["summary"]["nonrecoverable_active_day_blocked_market_count"], 12)
+        self.assertTrue(cadence["summary"]["clean_active_day_required"])
+        self.assertIn("collect next active day", cadence["summary"]["next_unblock_action"])
         self.assertTrue(all(row["gap_windows"] for row in cadence["markets"]))
         self.assertIn("snapshot_tracker --restart", cadence["repair_command"])
 
@@ -898,6 +935,211 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(summary["by_class"]["live_trade_permission_evidence"]["countable_market_count"], 0)
         self.assertEqual(summary["credit_rows"][0]["market_id"], "nyc")
 
+    def test_mm_evidence_starvation_summary_flags_june20_all_stale_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_folder = Path(tmp) / "mm_runs" / "2026-06-20" / "20260620T233005288278Z"
+            run_folder.mkdir(parents=True)
+            markets = []
+            for index in range(12):
+                markets.append({
+                    "market_id": f"m{index}",
+                    "status": "STALE",
+                    "model_age_seconds": 11399.0,
+                    "book_audit": {"trailing_age_seconds": 10260.1},
+                    "gates": [
+                        {
+                            "name": "model_freshness",
+                            "ok": False,
+                            "severity": "stale",
+                            "detail": "current model snapshot is stale or timestamp is missing",
+                        },
+                        {
+                            "name": "clob_freshness",
+                            "ok": False,
+                            "severity": "stale",
+                            "detail": "last book capture is 10260s old",
+                        },
+                        {
+                            "name": "observation_trigger",
+                            "ok": False,
+                            "severity": "stale",
+                            "detail": "stale or erroring observation watcher",
+                        },
+                    ],
+                })
+            (run_folder / "run_summary.json").write_text(
+                json.dumps({
+                    "run_id": "20260620T233005288278Z",
+                    "target_date": "2026-06-20",
+                    "run_folder": str(run_folder),
+                    "evidence_mode": "active_day_live_forward",
+                    "counts_toward_live_forward_gate": False,
+                    "preflight_status": "STALE",
+                    "cumulative": {"blocked_by_preflight_count": 66},
+                    "preflight": {"status": "STALE", "markets": markets},
+                    "live_forward_gate": {
+                        "summary": {"market_count": 12, "blocked_market_count": 12},
+                        "evidence": {
+                            "paper_trading_evidence": {
+                                "market_count": 12,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 12,
+                            },
+                            "live_trade_permission_evidence": {
+                                "market_count": 12,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 12,
+                            },
+                        },
+                    },
+                    "preflight_remediation": {
+                        "owner_counts": {
+                            "weather snapshot/model loop": 12,
+                            "CLOB book supervisor": 12,
+                            "observation-trigger supervisor": 12,
+                        },
+                        "root_cause_counts": {
+                            "stale_model_row": 12,
+                            "stale_clob_book_tape": 12,
+                            "watcher_stale": 12,
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            summary = mm_evidence_starvation_summary(Path(tmp) / "mm_runs")
+
+        latest = summary["latest"]
+        self.assertEqual(summary["status"], "CRITICAL")
+        self.assertEqual(summary["starved_active_day_streak"], 1)
+        self.assertEqual(summary["countable_paper_market_day_count"], 0)
+        self.assertTrue(latest["starved_active_day"])
+        self.assertEqual(latest["preflight_blocked_market_fraction"], 1.0)
+        self.assertEqual(latest["blocked_by_preflight_count"], 66)
+        self.assertIn("161", latest["recovery_owner_items"])
+        self.assertIn("157", latest["recovery_owner_items"])
+        self.assertEqual(latest["max_stale_input_age_seconds"], 11399.0)
+        self.assertIn("owners=161,157", summary["critical_alert"]["message"])
+
+    def test_mm_evidence_starvation_summary_marks_june21_toronto_atlanta_closeout_recovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_folder = Path(tmp) / "mm_runs" / "2026-06-21" / "20260621T153607128252Z"
+            run_folder.mkdir(parents=True)
+            markets = [
+                {
+                    "market_id": "toronto",
+                    "status": "STALE",
+                    "model_age_seconds": 7200.0,
+                    "gates": [
+                        {
+                            "name": "model_freshness",
+                            "ok": False,
+                            "severity": "stale",
+                            "detail": "current model snapshot is stale or timestamp is missing",
+                        }
+                    ],
+                },
+                {
+                    "market_id": "atlanta",
+                    "status": "STALE",
+                    "book_audit": {"trailing_age_seconds": 3570.0},
+                    "gates": [
+                        {
+                            "name": "clob_freshness",
+                            "ok": False,
+                            "severity": "stale",
+                            "detail": "last book capture is 3570s old",
+                        }
+                    ],
+                },
+            ]
+            (run_folder / "run_summary.json").write_text(
+                json.dumps({
+                    "run_id": "20260621T153607128252Z",
+                    "target_date": "2026-06-21",
+                    "run_folder": str(run_folder),
+                    "evidence_mode": "active_day_live_forward",
+                    "counts_toward_live_forward_gate": False,
+                    "preflight_status": "WARN",
+                    "quote_permission_rows": 0,
+                    "live_trade_permission_rows": 0,
+                    "markets": markets,
+                    "live_forward_gate": {
+                        "summary": {"market_count": 2, "blocked_market_count": 2},
+                        "evidence": {
+                            "paper_trading_evidence": {
+                                "market_count": 2,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 2,
+                            },
+                            "live_trade_permission_evidence": {
+                                "market_count": 2,
+                                "countable_market_count": 0,
+                                "blocked_market_count": 2,
+                            },
+                        },
+                    },
+                    "preflight_remediation": {
+                        "owner_counts": {
+                            "weather snapshot/model loop": 1,
+                            "CLOB book supervisor": 1,
+                        },
+                        "root_cause_counts": {
+                            "stale_model_row": 1,
+                            "stale_clob_book_tape": 1,
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+            (run_folder / "preflight_recovery_closeout.json").write_text(
+                json.dumps({
+                    "schema_version": "mm_preflight_recovery_closeout_v0.1",
+                    "status": "RECOVERED",
+                    "recovered": True,
+                    "unrecovered": False,
+                    "incident_count": 2,
+                    "command_results": [
+                        {
+                            "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+                            "action": "skipped",
+                            "status": "SKIPPED",
+                            "skip_reason": "dry run",
+                        },
+                        {
+                            "suggested_command": "python -m weather.market.market_microstructure ensure",
+                            "action": "skipped",
+                            "status": "SKIPPED",
+                            "skip_reason": "dry run",
+                        },
+                    ],
+                    "post_repair_preflight_artifact_path": str(run_folder / "post_repair_preflight.json"),
+                    "post_repair_run": {
+                        "run_id": "20260621T153607128252Z-postrepair",
+                        "preflight_status": "PASS",
+                        "counts_toward_live_forward_gate": True,
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            summary = mm_evidence_starvation_summary(Path(tmp) / "mm_runs")
+
+        latest = summary["latest"]
+        self.assertEqual(summary["status"], "RECOVERED")
+        self.assertEqual(summary["starved_active_day_count"], 1)
+        self.assertEqual(summary["recovered_starved_active_day_count"], 1)
+        self.assertEqual(summary["unrecovered_starved_active_day_count"], 0)
+        self.assertEqual(summary["critical_alert"], {})
+        self.assertTrue(latest["starved_active_day"])
+        self.assertEqual(latest["status"], "RECOVERED")
+        self.assertEqual(latest["preflight_recovery_closeout_status"], "RECOVERED")
+        self.assertTrue(latest["preflight_recovery_recovered"])
+        self.assertEqual(latest["post_repair_preflight_status"], "PASS")
+        self.assertIn("python -m weather.collection.snapshot_tracker --status", latest["recovery_command"])
+        self.assertIn("python -m weather.market.market_microstructure ensure", latest["recovery_command"])
+
     def test_loop_integrity_alerts_warn_on_malformed_jsonl_and_critical_on_duplicate_writer(self):
         alerts = loop_integrity_alerts({
             "rows": [
@@ -1032,6 +1274,77 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(row["benign_duplicate_writer_blocks"], 1)
         self.assertEqual(row["duplicate_writer_incidents"], 0)
         self.assertIn("runtime_code_state=stale_code", row["blocking_reasons"])
+
+    def test_current_code_soak_keeps_historical_duplicate_writer_context_without_blocking_clean_window(self):
+        now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+        current_identity = {
+            "git_branch": "master",
+            "git_commit": "abc123",
+            "source_fingerprint": "current",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            diagnostics_path = root / "diagnostics.jsonl"
+            console_path = root / "console.log"
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "pid": 123,
+                        "started_at": now.isoformat(),
+                        "last_heartbeat": now.isoformat(),
+                        "last_snapshot_written_at": now.isoformat(),
+                        "interval_minutes": 10.0,
+                        "consecutive_errors": 0,
+                        "runtime_identity": current_identity,
+                        "status_writer": {"pid": 123},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now - timedelta(days=2)).isoformat(),
+                    "status": "duplicate_writer_blocked",
+                    "existing_writer": {"exists": True, "pid": 456},
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            console_path.write_text("", encoding="utf-8")
+            spec = SupervisorSpec(
+                name="snapshot_capture",
+                module="weather.collection.snapshot_tracker",
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=console_path,
+            )
+
+            with patch("weather.collection.snapshot_tracker.pid_is_python", return_value=True):
+                soak = current_code_soak_summary(
+                    {
+                        "rows": [
+                            {
+                                "name": "snapshot_capture",
+                                "writer_lock": {"exists": False},
+                                "status_writer": {"pid": 123},
+                                "duplicate_writer": False,
+                                "malformed_lines": 0,
+                            }
+                        ]
+                    },
+                    {"status": "PASS", "counts_toward_live_forward_gate": True},
+                    now=now,
+                    current_identity=current_identity,
+                    specs=(spec,),
+                )
+
+        row = soak["loops"][0]
+        self.assertEqual(soak["status"], "PASS")
+        self.assertEqual(row["duplicate_writer_incidents"], 0)
+        self.assertEqual(row["diagnostic_duplicate_writer_incidents"], 1)
+        self.assertEqual(soak["summary"]["diagnostic_duplicate_writer_incident_count"], 1)
+        self.assertEqual(soak["summary"]["duplicate_writer_incident_count"], 0)
 
     def test_settled_day_freshness_alert_names_repair_commands(self):
         alerts = settled_day_freshness_alerts({

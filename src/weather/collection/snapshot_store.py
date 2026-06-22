@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import inspect
@@ -10,6 +11,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from weather.paths import data_path
 
@@ -48,6 +50,7 @@ MODEL_VERSION = MODEL_VERSION_HGB
 # day and scored against settlement. This turns every captured snapshot into a
 # permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
 REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
+SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
 PROCESS_RUNTIME_IDENTITY = get_runtime_identity()
 OPEN_METEO_SOURCE_FAMILY = {
@@ -192,6 +195,63 @@ FORECAST_PAYLOAD_COLUMNS = [
     "raw_payload_path",
 ]
 
+OBSERVATION_PAYLOAD_SOURCES = {
+    "wu_history",
+    "wu_current",
+    "metar",
+    "eccc_swob",
+    "eccc_hourly",
+    "nws_observations",
+}
+
+OBSERVATION_PAYLOAD_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "model_version",
+    "source",
+    "status",
+    "stale",
+    "source_family",
+    "degradation_state",
+    "cache_status",
+    "fetched_at",
+    "age_minutes",
+    "ttl_minutes",
+    "provider_observed_at",
+    "provider_station_id",
+    "provider_update_time",
+    "payload_hash",
+    "payload_bytes",
+    "row_count",
+    "source_url",
+    "raw_payload_path",
+]
+
+SNAPSHOT_EXPLANATION_COLUMNS = [
+    "snapshot_id",
+    "captured_at_utc",
+    "captured_at_local",
+    "event_slug",
+    "market_id",
+    "target_date",
+    "model_version",
+    "feature_schema_version",
+    *RUNTIME_IDENTITY_COLUMNS,
+    "explanation_schema_version",
+    "model_identity_hash",
+    "source_hash",
+    "section",
+    "item_key",
+    "item_subkey",
+    "value_text",
+    "value_number",
+    "value_bool",
+    "payload_hash",
+    "payload_json",
+]
+
 
 class SnapshotStore:
     def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None):
@@ -217,9 +277,14 @@ class SnapshotStore:
         self.forecast_payload_dir = self.root / "forecast_payloads"
         self.forecast_payloads_long_path = self.root / "forecast_payloads_long.csv"
         self.forecast_payloads_jsonl_path = self.root / "forecast_payloads.jsonl"
+        self.observation_payload_dir = self.root / "observation_payloads"
+        self.observation_payloads_long_path = self.root / "observation_payloads_long.csv"
+        self.observation_payloads_jsonl_path = self.root / "observation_payloads.jsonl"
         self.variant_predictions_long_path = self.root / "variant_predictions_long.csv"
         self.variant_predictions_jsonl_path = self.root / "variant_predictions.jsonl"
         self.replay_inputs_path = self.root / "replay_inputs.jsonl"
+        self.snapshot_explanations_long_path = self.root / "snapshot_explanations_long.csv"
+        self.snapshot_explanations_jsonl_path = self.root / "snapshot_explanations.jsonl"
 
     def maybe_write(self, event, model, model_client, force=False, cadence="scheduled", trigger_context=None):
         event_config = config_from_event(event, fallback_date=getattr(model_client, "target_date", None))
@@ -283,6 +348,12 @@ class SnapshotStore:
             model_version,
         )
         forecast_payload_rows = self.write_forecast_payloads(
+            sources,
+            snapshot_id,
+            captured_at,
+            model_version,
+        )
+        observation_payload_rows = self.write_observation_payloads(
             sources,
             snapshot_id,
             captured_at,
@@ -395,6 +466,7 @@ class SnapshotStore:
             "source_status": source_status_rows,
             "source_health": source_health,
             "forecast_payloads": forecast_payload_rows,
+            "observation_payloads": observation_payload_rows,
             "feature_schema_version": feature_schema_version,
             "feature_vector": model.get("feature_vector"),
             "variant_prediction_rows": len(variant_prediction_rows),
@@ -429,6 +501,27 @@ class SnapshotStore:
             self.append_csv(self.components_long_path, COMPONENT_COLUMNS, component_rows)
             for row in component_rows:
                 self.append_jsonl(self.components_jsonl_path, row)
+
+        explanation_payload, explanation_rows = self.snapshot_explanation_payload(
+            snapshot_id=snapshot_id,
+            captured_at=captured_at,
+            model=model,
+            model_client=model_client,
+            event_config=event_config,
+            model_version=model_version,
+            model_identity=model_identity,
+            runtime_identity=runtime_identity,
+            runtime_fields=runtime_fields,
+            feature_schema_version=feature_schema_version,
+        )
+        if explanation_payload:
+            self.append_jsonl(self.snapshot_explanations_jsonl_path, explanation_payload)
+            if explanation_rows:
+                self.append_csv(
+                    self.snapshot_explanations_long_path,
+                    SNAPSHOT_EXPLANATION_COLUMNS,
+                    explanation_rows,
+                )
 
         forecast_rows = build_forecast_rows(
             sources,
@@ -487,10 +580,16 @@ class SnapshotStore:
             "jsonl_path": str(self.jsonl_path),
             "features_path": str(self.features_long_path),
             "components_path": str(self.components_long_path),
+            "snapshot_explanation_rows": len(explanation_rows),
+            "snapshot_explanations_path": str(self.snapshot_explanations_long_path),
+            "snapshot_explanations_jsonl_path": str(self.snapshot_explanations_jsonl_path),
             "source_status_rows": len(source_status_rows),
             "source_status_path": str(self.source_status_long_path),
             "forecast_payload_rows": len(forecast_payload_rows),
             "forecast_payloads_path": str(self.forecast_payloads_long_path),
+            "observation_payload_rows": len(observation_payload_rows),
+            "observation_payloads_path": str(self.observation_payloads_long_path),
+            "observation_payloads_jsonl_path": str(self.observation_payloads_jsonl_path),
             "variant_prediction_rows": len(variant_prediction_rows),
             "variant_predictions_path": str(self.variant_predictions_long_path),
             "variant_predictions_jsonl_path": str(self.variant_predictions_jsonl_path),
@@ -767,6 +866,232 @@ class SnapshotStore:
             for row in rows:
                 self.append_jsonl(self.forecast_payloads_jsonl_path, row)
         return rows
+
+    def write_observation_payloads(self, sources, snapshot_id, captured_at, model_version):
+        rows = []
+        captured_utc = captured_at.astimezone(timezone.utc).isoformat()
+        captured_local = captured_at.isoformat()
+        for source, item in sorted((sources or {}).items()):
+            if source not in OBSERVATION_PAYLOAD_SOURCES:
+                continue
+            item = item or {}
+            data = item.get("data") or {}
+            if not isinstance(data, dict) or "raw_payload" not in data:
+                continue
+            payload = data.get("raw_payload")
+            if payload is None:
+                continue
+            status = self.source_status(item)
+            age_minutes = item.get("cache_age_minutes")
+            if age_minutes is None:
+                age_minutes = self.source_age_minutes(item.get("fetched_at"), captured_at, None)
+            ttl_minutes = item.get("ttl_minutes")
+            if ttl_minutes is None:
+                ttl_minutes = self.source_ttl_minutes(source)
+            raw_text = json.dumps(payload, sort_keys=True, default=str)
+            payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+            safe_source = self.safe_filename_part(source)
+            filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
+            payload_path = self.observation_payload_dir / filename
+            self.observation_payload_dir.mkdir(parents=True, exist_ok=True)
+            payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            row = {
+                "snapshot_id": snapshot_id,
+                "captured_at_utc": captured_utc,
+                "captured_at_local": captured_local,
+                "event_slug": self.event_slug,
+                "model_version": model_version,
+                "source": source,
+                "status": status,
+                "stale": bool(item.get("stale")),
+                "source_family": self.source_family(source, item),
+                "degradation_state": self.source_degradation_state(status, item),
+                "cache_status": self.source_cache_status(status, item),
+                "fetched_at": item.get("fetched_at"),
+                "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+                "ttl_minutes": ttl_minutes,
+                "provider_observed_at": (
+                    data.get("provider_observed_at")
+                    or data.get("observation_time")
+                    or data.get("observed_at")
+                    or data.get("local_time")
+                ),
+                "provider_station_id": data.get("station_id") or data.get("station") or data.get("icao"),
+                "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
+                "payload_hash": payload_hash,
+                "payload_bytes": len(raw_text.encode("utf-8")),
+                "row_count": self.source_row_count(data),
+                "source_url": data.get("url"),
+                "raw_payload_path": str(payload_path),
+            }
+            rows.append(row)
+        if rows:
+            self.append_csv(self.observation_payloads_long_path, OBSERVATION_PAYLOAD_COLUMNS, rows)
+            for row in rows:
+                self.append_jsonl(self.observation_payloads_jsonl_path, row)
+        return rows
+
+    def snapshot_explanation_payload(
+        self,
+        *,
+        snapshot_id,
+        captured_at,
+        model,
+        model_client,
+        event_config,
+        model_version,
+        model_identity,
+        runtime_identity,
+        runtime_fields,
+        feature_schema_version,
+    ):
+        explanation = {
+            "analog_search": model.get("analog_search") or {},
+            "boundary_transitions": model.get("boundary_transitions") or {},
+            "late_day_risk": model.get("late_day_risk") or {},
+            "source_diagnostics": model.get("source_diagnostics") or [],
+            "source_health": model.get("source_health") or {},
+            "family_secondary_gate": model.get("family_secondary_gate")
+            or ((model.get("distribution_result") or {}).get("family_secondary_gate") or {}),
+            "model_explanation": model.get("model_explanation") or {},
+            "probability_calibration_context": model.get("probability_calibration_context") or {},
+            "distribution_component_metadata": self.distribution_component_metadata(
+                model.get("distribution_components") or {},
+            ),
+        }
+        explanation = {
+            key: value
+            for key, value in explanation.items()
+            if value not in (None, {}, [])
+        }
+        if not explanation:
+            return None, []
+
+        sources = self.strip_raw_payloads(model.get("sources")) or {}
+        source_hash = self.payload_hash(sources)
+        model_identity_hash = self.payload_hash(model_identity or {})
+        target_date = getattr(model_client, "target_date", None) or getattr(event_config, "target_date", None)
+        if hasattr(target_date, "isoformat"):
+            target_date = target_date.isoformat()
+        base = {
+            "snapshot_id": snapshot_id,
+            "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+            "captured_at_local": captured_at.isoformat(),
+            "event_slug": self.event_slug,
+            "market_id": getattr(event_config, "market_id", None),
+            "target_date": target_date,
+            "model_version": model_version,
+            "feature_schema_version": feature_schema_version,
+            **runtime_fields,
+            "explanation_schema_version": SNAPSHOT_EXPLANATION_SCHEMA_VERSION,
+            "model_identity_hash": model_identity_hash,
+            "source_hash": source_hash,
+        }
+        rows = self.snapshot_explanation_rows(base, explanation)
+        payload = {
+            "schema_version": SNAPSHOT_EXPLANATION_SCHEMA_VERSION,
+            **base,
+            "runtime_identity": runtime_identity,
+            "model_identity": model_identity,
+            "source_hash": source_hash,
+            "explanation_hash": self.payload_hash(explanation),
+            "sections": sorted(explanation),
+            "row_count": len(rows),
+            "explanations": explanation,
+        }
+        return payload, rows
+
+    def distribution_component_metadata(self, bundle):
+        if not bundle:
+            return {}
+        metadata = {
+            "schema_version": bundle.get("schema_version"),
+            "cutoff_hour": bundle.get("cutoff_hour"),
+            "active_model_kind": bundle.get("active_model_kind"),
+            "latest_wu_history_time": bundle.get("latest_wu_history_time"),
+            "latest_wu_history_temp": bundle.get("latest_wu_history_temp"),
+            "high_has_stood_lockin": bundle.get("high_has_stood_lockin"),
+        }
+        pipeline = bundle.get("pipeline_state") or bundle.get("stage_metadata") or {}
+        if pipeline:
+            metadata["pipeline_state"] = pipeline
+        components = bundle.get("components") or {}
+        if components:
+            metadata["component_names"] = sorted(str(name) for name in components)
+        return {
+            key: value
+            for key, value in metadata.items()
+            if value not in (None, {}, [])
+        }
+
+    def snapshot_explanation_rows(self, base, explanation):
+        rows = []
+        for section, value in sorted((explanation or {}).items()):
+            rows.extend(self.explanation_section_rows(base, section, value))
+        return rows
+
+    def explanation_section_rows(self, base, section, value):
+        if isinstance(value, dict):
+            rows = []
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0])):
+                rows.append(self.explanation_value_row(base, section, key, None, item))
+            return rows
+        if isinstance(value, list):
+            rows = []
+            for index, item in enumerate(value):
+                item_key = self.explanation_item_key(item, index)
+                if isinstance(item, dict):
+                    rows.append(self.explanation_value_row(base, section, item_key, None, item))
+                    for subkey, subvalue in sorted(item.items(), key=lambda pair: str(pair[0])):
+                        if self.is_scalar(subvalue):
+                            rows.append(self.explanation_value_row(base, section, item_key, subkey, subvalue))
+                else:
+                    rows.append(self.explanation_value_row(base, section, item_key, None, item))
+            return rows
+        return [self.explanation_value_row(base, section, "value", None, value)]
+
+    def explanation_item_key(self, item, index):
+        if isinstance(item, dict):
+            for key in ("source", "family", "name", "bucket", "Driver", "Question", "stage", "gate"):
+                value = item.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return str(index)
+
+    def explanation_value_row(self, base, section, item_key, item_subkey, value):
+        payload_json = ""
+        payload_hash = ""
+        value_text = None
+        value_number = None
+        value_bool = None
+        if isinstance(value, bool):
+            value_bool = value
+            value_text = str(value)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            value_number = value
+            value_text = str(value)
+        elif value is None:
+            value_text = None
+        elif isinstance(value, (dict, list)):
+            payload_json = json.dumps(value, sort_keys=True, default=str)
+            payload_hash = hashlib.sha1(payload_json.encode("utf-8")).hexdigest()
+            value_text = None
+        else:
+            value_text = str(value)
+        return {
+            **base,
+            "section": section,
+            "item_key": item_key,
+            "item_subkey": item_subkey,
+            "value_text": value_text,
+            "value_number": value_number,
+            "value_bool": value_bool,
+            "payload_hash": payload_hash,
+            "payload_json": payload_json,
+        }
+
+    def is_scalar(self, value):
+        return value is None or isinstance(value, (str, int, float, bool))
 
     def safe_filename_part(self, value):
         return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value))
@@ -1077,6 +1402,330 @@ class SnapshotStore:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
 
+    def existing_explanation_snapshot_ids(self):
+        ids = set()
+        for path in (self.snapshot_explanations_long_path, self.snapshot_explanations_jsonl_path):
+            if not path.exists():
+                continue
+            if path.suffix == ".csv":
+                try:
+                    with path.open("r", encoding="utf-8", newline="") as handle:
+                        for row in csv.DictReader(handle):
+                            if row.get("snapshot_id"):
+                                ids.add(row["snapshot_id"])
+                except (OSError, csv.Error):
+                    continue
+            else:
+                for payload in self.read_jsonl(path):
+                    if payload.get("snapshot_id"):
+                        ids.add(payload["snapshot_id"])
+        return ids
+
+    def existing_snapshot_ids_for_sidecar(self, path):
+        path = Path(path)
+        if not path.exists():
+            return set()
+        ids = set()
+        if path.suffix == ".csv":
+            try:
+                with path.open("r", encoding="utf-8", newline="") as handle:
+                    for row in csv.DictReader(handle):
+                        if row.get("snapshot_id"):
+                            ids.add(row["snapshot_id"])
+            except (OSError, csv.Error):
+                return set()
+        else:
+            for payload in self.read_jsonl(path):
+                if payload.get("snapshot_id"):
+                    ids.add(payload["snapshot_id"])
+        return ids
+
+    def read_jsonl(self, path):
+        path = Path(path)
+        if not path.exists():
+            return []
+        rows = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+        return rows
+
+    def replay_inputs_by_snapshot(self):
+        return {
+            row.get("snapshot_id"): row
+            for row in self.read_jsonl(self.replay_inputs_path)
+            if row.get("snapshot_id")
+        }
+
+    def snapshot_band_bins(self, snapshot):
+        bins = []
+        for row in snapshot.get("bands") or []:
+            value = self.safe_number(row.get("bin_value_c") or row.get("bin_value"))
+            value_hi = self.safe_number(row.get("bin_value_hi_c") or row.get("bin_value_hi") or value)
+            bins.append({
+                "label": row.get("range_label"),
+                "kind": row.get("bin_kind") or row.get("kind"),
+                "value": value,
+                "value_hi": value_hi,
+                "market_yes": row.get("market_yes"),
+            })
+        return bins
+
+    def safe_number(self, value):
+        if value in (None, ""):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if number.is_integer():
+            return int(number)
+        return number
+
+    def backfill_feature_component_sidecars(self, *, limit=None):
+        feature_existing = self.existing_snapshot_ids_for_sidecar(self.features_long_path)
+        component_existing = self.existing_snapshot_ids_for_sidecar(self.components_long_path)
+        feature_rows = []
+        component_rows = []
+        skipped_existing_features = 0
+        skipped_existing_components = 0
+        missing_feature_vector = 0
+        missing_components = 0
+        invalid_snapshot_rows = 0
+        processed = 0
+        for snapshot in self.read_jsonl(self.jsonl_path):
+            snapshot_id = snapshot.get("snapshot_id")
+            if not snapshot_id:
+                invalid_snapshot_rows += 1
+                continue
+            if limit is not None and processed >= int(limit):
+                break
+            processed += 1
+            captured_text = snapshot.get("captured_at_local") or snapshot.get("captured_at_utc")
+            try:
+                captured_at = datetime.fromisoformat(str(captured_text).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                invalid_snapshot_rows += 1
+                continue
+            model_version = snapshot.get("model_version") or MODEL_VERSION
+            feature_vector = snapshot.get("feature_vector")
+            if snapshot_id in feature_existing:
+                skipped_existing_features += 1
+            elif feature_vector:
+                feature_rows.append(audit_row(
+                    {
+                        "snapshot_id": snapshot_id,
+                        "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+                        "captured_at_local": captured_at.isoformat(),
+                        "event_slug": snapshot.get("event_slug") or self.event_slug,
+                        "model_version": model_version,
+                    },
+                    feature_vector,
+                ))
+                feature_existing.add(snapshot_id)
+            else:
+                missing_feature_vector += 1
+
+            if snapshot_id in component_existing:
+                skipped_existing_components += 1
+                continue
+            bins = self.snapshot_band_bins(snapshot)
+            rows = self.component_rows(
+                snapshot.get("distribution_components"),
+                bins,
+                snapshot_id,
+                captured_at,
+                model_version,
+                runtime_fields={},
+            )
+            if rows:
+                component_rows.extend(rows)
+                component_existing.add(snapshot_id)
+            else:
+                missing_components += 1
+        if feature_rows:
+            self.append_csv(self.features_long_path, FEATURE_AUDIT_COLUMNS, feature_rows)
+            for row in feature_rows:
+                self.append_jsonl(self.features_jsonl_path, row)
+        if component_rows:
+            self.append_csv(self.components_long_path, COMPONENT_COLUMNS, component_rows)
+            for row in component_rows:
+                self.append_jsonl(self.components_jsonl_path, row)
+        status = "OK" if (feature_rows or component_rows or processed) else "NO_SNAPSHOTS_JSONL"
+        return {
+            "schema_version": "snapshot_core_sidecar_backfill_v0.1",
+            "folder": str(self.root),
+            "status": status,
+            "processed_snapshot_count": processed,
+            "written_feature_row_count": len(feature_rows),
+            "written_component_row_count": len(component_rows),
+            "skipped_existing_feature_snapshot_count": skipped_existing_features,
+            "skipped_existing_component_snapshot_count": skipped_existing_components,
+            "missing_feature_vector_count": missing_feature_vector,
+            "missing_distribution_component_count": missing_components,
+            "invalid_snapshot_row_count": invalid_snapshot_rows,
+            "features_path": str(self.features_long_path),
+            "components_path": str(self.components_long_path),
+        }
+
+    def existing_observation_payload_keys(self):
+        keys = set()
+        if not self.observation_payloads_long_path.exists():
+            return keys
+        try:
+            with self.observation_payloads_long_path.open("r", encoding="utf-8", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    key = (row.get("snapshot_id"), row.get("source"), row.get("payload_hash"))
+                    if all(key):
+                        keys.add(key)
+        except (OSError, csv.Error):
+            return keys
+        return keys
+
+    def backfill_observation_payloads_from_forecast_payloads(self):
+        if not self.forecast_payloads_long_path.exists():
+            return {
+                "schema_version": "observation_payload_backfill_v0.1",
+                "folder": str(self.root),
+                "written_row_count": 0,
+                "skipped_existing_row_count": 0,
+                "source": "forecast_payloads_long.csv",
+                "status": "NO_SOURCE_MANIFEST",
+            }
+        existing = self.existing_observation_payload_keys()
+        rows = []
+        skipped_existing = 0
+        with self.forecast_payloads_long_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                source = row.get("source")
+                if source not in OBSERVATION_PAYLOAD_SOURCES:
+                    continue
+                key = (row.get("snapshot_id"), source, row.get("payload_hash"))
+                if all(key) and key in existing:
+                    skipped_existing += 1
+                    continue
+                output = {
+                    column: row.get(column)
+                    for column in OBSERVATION_PAYLOAD_COLUMNS
+                }
+                output["provider_observed_at"] = row.get("provider_observed_at") or row.get("provider_update_time")
+                output["provider_station_id"] = row.get("provider_station_id")
+                rows.append(output)
+                if all(key):
+                    existing.add(key)
+        if rows:
+            self.append_csv(self.observation_payloads_long_path, OBSERVATION_PAYLOAD_COLUMNS, rows)
+            for row in rows:
+                self.append_jsonl(self.observation_payloads_jsonl_path, row)
+        return {
+            "schema_version": "observation_payload_backfill_v0.1",
+            "folder": str(self.root),
+            "written_row_count": len(rows),
+            "skipped_existing_row_count": skipped_existing,
+            "source": "forecast_payloads_long.csv",
+            "status": "OK",
+            "observation_payloads_path": str(self.observation_payloads_long_path),
+            "observation_payloads_jsonl_path": str(self.observation_payloads_jsonl_path),
+        }
+
+    def backfill_snapshot_explanations(self, *, limit=None):
+        existing = self.existing_explanation_snapshot_ids()
+        replay_inputs = self.replay_inputs_by_snapshot()
+        written = 0
+        skipped_existing = 0
+        skipped_missing_payload = 0
+        errors = []
+        for snapshot in self.read_jsonl(self.jsonl_path):
+            snapshot_id = snapshot.get("snapshot_id")
+            if not snapshot_id:
+                skipped_missing_payload += 1
+                continue
+            if snapshot_id in existing:
+                skipped_existing += 1
+                continue
+            if limit is not None and written >= int(limit):
+                break
+            replay = replay_inputs.get(snapshot_id) or {}
+            captured_text = snapshot.get("captured_at_local") or snapshot.get("captured_at_utc")
+            try:
+                captured_at = datetime.fromisoformat(str(captured_text).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                errors.append({"snapshot_id": snapshot_id, "error": "invalid captured_at"})
+                continue
+            event_slug = snapshot.get("event_slug") or self.event_slug
+            event_config = config_from_event(
+                {"slug": event_slug},
+                fallback_date=replay.get("target_date"),
+            )
+            runtime_guard = snapshot.get("runtime_guard") or {}
+            runtime_identity = snapshot.get("runtime_identity") or replay.get("runtime_identity")
+            runtime_fields = self.runtime_identity_fields(
+                runtime_identity,
+                runtime_guard.get("state"),
+            )
+            model = {
+                "sources": replay.get("sources") or {},
+                "distribution": snapshot.get("distribution") or replay.get("recorded_distribution") or {},
+                "distribution_components": snapshot.get("distribution_components") or {},
+                "probability_calibration_context": snapshot.get("probability_calibration_context") or {},
+                "feature_vector": snapshot.get("feature_vector") or {},
+                "model_version": snapshot.get("model_version") or replay.get("model_version") or MODEL_VERSION,
+                "model_explanation": snapshot.get("model_explanation") or {},
+                "analog_search": snapshot.get("analog_search") or {},
+                "boundary_transitions": snapshot.get("boundary_transitions") or {},
+                "late_day_risk": snapshot.get("late_day_risk") or {},
+                "source_diagnostics": snapshot.get("source_diagnostics") or [],
+                "source_health": snapshot.get("source_health") or {},
+                "family_secondary_gate": snapshot.get("family_secondary_gate") or {},
+                "distribution_result": snapshot.get("distribution_result") or {},
+            }
+            model_client = SimpleNamespace(target_date=replay.get("target_date") or getattr(event_config, "target_date", None))
+            explanation_payload, explanation_rows = self.snapshot_explanation_payload(
+                snapshot_id=snapshot_id,
+                captured_at=captured_at,
+                model=model,
+                model_client=model_client,
+                event_config=event_config,
+                model_version=model["model_version"],
+                model_identity=snapshot.get("model_identity") or replay.get("model_identity"),
+                runtime_identity=runtime_identity,
+                runtime_fields=runtime_fields,
+                feature_schema_version=snapshot.get("feature_schema_version")
+                or (model["feature_vector"] or {}).get("feature_schema_version"),
+            )
+            if not explanation_payload:
+                skipped_missing_payload += 1
+                continue
+            self.append_jsonl(self.snapshot_explanations_jsonl_path, explanation_payload)
+            if explanation_rows:
+                self.append_csv(
+                    self.snapshot_explanations_long_path,
+                    SNAPSHOT_EXPLANATION_COLUMNS,
+                    explanation_rows,
+                )
+            existing.add(snapshot_id)
+            written += 1
+        return {
+            "schema_version": "snapshot_explanation_backfill_v0.1",
+            "folder": str(self.root),
+            "event_slug": self.event_slug,
+            "written_snapshot_count": written,
+            "skipped_existing_snapshot_count": skipped_existing,
+            "skipped_missing_payload_count": skipped_missing_payload,
+            "error_count": len(errors),
+            "errors": errors[:20],
+            "snapshot_explanations_path": str(self.snapshot_explanations_long_path),
+            "snapshot_explanations_jsonl_path": str(self.snapshot_explanations_jsonl_path),
+        }
+
     def model_identity(self, model_client):
         try:
             return model_replay_identity(model_client)
@@ -1189,3 +1838,69 @@ class SnapshotStore:
         except FileNotFoundError:
             return False
         return age > 300
+
+
+def backfill_explanations(root, *, event_slug=None, limit=None):
+    store = SnapshotStore(root=root, event_slug=event_slug or Path(root).name)
+    return store.backfill_snapshot_explanations(limit=limit)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Snapshot persistence utilities.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    core = sub.add_parser("backfill-core-sidecars")
+    core.add_argument("folders", nargs="+", help="Snapshot folder(s) containing snapshots.jsonl.")
+    core.add_argument("--limit", type=int, default=None)
+    backfill = sub.add_parser("backfill-explanations")
+    backfill.add_argument("folders", nargs="+", help="Snapshot folder(s) containing snapshots.jsonl.")
+    backfill.add_argument("--limit", type=int, default=None)
+    obs = sub.add_parser("backfill-observation-payloads")
+    obs.add_argument("folders", nargs="+", help="Snapshot folder(s) containing forecast_payloads_long.csv.")
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if args.command == "backfill-core-sidecars":
+        results = [
+            SnapshotStore(root=folder, event_slug=Path(folder).name).backfill_feature_component_sidecars(limit=args.limit)
+            for folder in args.folders
+        ]
+        print(json.dumps({
+            "schema_version": "snapshot_core_sidecar_backfill_batch_v0.1",
+            "folder_count": len(results),
+            "written_feature_row_count": sum(item.get("written_feature_row_count", 0) for item in results),
+            "written_component_row_count": sum(item.get("written_component_row_count", 0) for item in results),
+            "folders": results,
+        }, indent=2, sort_keys=True, default=str))
+        return 0
+    if args.command == "backfill-explanations":
+        results = [
+            backfill_explanations(folder, limit=args.limit)
+            for folder in args.folders
+        ]
+        print(json.dumps({
+            "schema_version": "snapshot_explanation_backfill_batch_v0.1",
+            "folder_count": len(results),
+            "written_snapshot_count": sum(item.get("written_snapshot_count", 0) for item in results),
+            "error_count": sum(item.get("error_count", 0) for item in results),
+            "folders": results,
+        }, indent=2, sort_keys=True, default=str))
+        return 1 if any(item.get("error_count") for item in results) else 0
+    if args.command == "backfill-observation-payloads":
+        results = [
+            SnapshotStore(root=folder, event_slug=Path(folder).name).backfill_observation_payloads_from_forecast_payloads()
+            for folder in args.folders
+        ]
+        print(json.dumps({
+            "schema_version": "observation_payload_backfill_batch_v0.1",
+            "folder_count": len(results),
+            "written_row_count": sum(item.get("written_row_count", 0) for item in results),
+            "folders": results,
+        }, indent=2, sort_keys=True, default=str))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

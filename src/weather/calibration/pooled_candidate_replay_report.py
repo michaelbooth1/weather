@@ -12,6 +12,13 @@ def _fmt_delta(value):
     return fmt_signed(value, 4)
 
 
+def _count_summary(counts):
+    counts = counts or {}
+    if not counts:
+        return "-"
+    return ", ".join(f"{key}: {counts[key]}" for key in sorted(counts)) or "-"
+
+
 def _candidate_table_rows(items):
     rows = []
     for item in items:
@@ -276,6 +283,36 @@ def _comparison_summary_rows(report):
     return rows
 
 
+def _sidecar_market_rows(items):
+    return [
+        [
+            row.get("market_id") or "-",
+            row.get("days", 0),
+            row.get("training_ready_days", 0),
+            row.get("explanation_ready_days", 0),
+            row.get("market_aware_ready_days", 0),
+            row.get("variant_ready_days", 0),
+            row.get("latest_target_date") or "-",
+        ]
+        for row in items
+    ]
+
+
+def _sidecar_exclusion_rows(items):
+    rows = []
+    for item in items:
+        commands = item.get("backfill_commands") or []
+        rows.append([
+            item.get("market_id") or "-",
+            item.get("target_date") or "-",
+            item.get("primary_label") or "-",
+            "; ".join(item.get("promotion_exclusion_reasons") or []) or "-",
+            "; ".join(item.get("market_aware_exclusion_reasons") or []) or "-",
+            ", ".join(command.get("artifact") or "unknown" for command in commands) or "-",
+        ])
+    return rows
+
+
 def _blocked_validation_rows(blocked_validation):
     blocked_validation = blocked_validation or {}
     split_audit = blocked_validation.get("split_audit") or {}
@@ -462,6 +499,8 @@ def write_report(report, out_path, min_free_bytes=0):
             ["Market days", corpus.get("market_day_count") or 0],
             ["Pinned snapshots", corpus.get("snapshot_count") or 0],
             ["Pinned band rows", corpus.get("band_row_count") or 0],
+            ["Feature-quality excluded snapshots", corpus.get("feature_quality_excluded_snapshot_count") or 0],
+            ["Feature-quality excluded band rows", corpus.get("feature_quality_excluded_band_row_count") or 0],
             ["Replay rows", coverage.get("total_replay_rows", 0)],
             [_family_scope_label(report), coverage.get("family_rows", 0)],
             ["Candidate-scored rows", coverage.get("candidate_rows", 0)],
@@ -475,6 +514,51 @@ def write_report(report, out_path, min_free_bytes=0):
             ["CLOB available rows", diagnostics.get("clob_feature_available_rows", 0)],
         ],
     )
+    sidecar = report.get("sidecar_eligibility") or {}
+    feature_quality = sidecar.get("feature_quality_quarantine") or {}
+    lines += [
+        "",
+        "## Snapshot Sidecar Eligibility",
+        "",
+        (
+            "These counts separate fully explainable candidate evidence from "
+            "score-only or evaluation-only legacy folders before replay metrics."
+        ),
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Audit status", sidecar.get("status") or "missing"],
+            ["Audit JSON", sidecar.get("source_path") or "-"],
+            ["Candidate variant", sidecar.get("candidate_variant_id") or "-"],
+            ["Candidate family", sidecar.get("candidate_variant_family") or "-"],
+            ["Snapshot folders", sidecar.get("snapshot_folder_count", 0)],
+            ["Primary labels", _count_summary(sidecar.get("primary_label_counts"))],
+            ["Readiness labels", _count_summary(sidecar.get("readiness_label_counts"))],
+            ["Missing artifacts", _count_summary(sidecar.get("missing_artifact_counts"))],
+            ["Non-reconstructable gaps", _count_summary(sidecar.get("non_reconstructable_gap_counts"))],
+            ["Backfill commands", _count_summary(sidecar.get("backfill_command_counts"))],
+            ["Backfill candidate folders", sidecar.get("backfill_candidate_folder_count", 0)],
+            ["Active-day sidecar regressions", sidecar.get("active_day_sidecar_regression_count", 0)],
+            ["Feature-quality quarantined rows", feature_quality.get("quarantine_row_count", 0)],
+            ["Feature-quality training exclusions", feature_quality.get("training_excluded_row_count", 0)],
+            ["Feature-quality backfill candidates", feature_quality.get("backfill_candidate_row_count", 0)],
+            ["Feature-quality reasons", _count_summary(feature_quality.get("reason_counts"))],
+        ],
+    )
+    if sidecar.get("by_market"):
+        lines += ["", "### Sidecar Mix By Market", ""]
+        lines += markdown_table(
+            ["Market", "Days", "Training Ready", "Explanation Ready", "Market Aware", "Variant Ready", "Latest Date"],
+            _sidecar_market_rows(sidecar.get("by_market") or []),
+        )
+    if sidecar.get("promotion_exclusion_sample"):
+        lines += ["", "### Promotion And Market-Aware Exclusions", ""]
+        lines += markdown_table(
+            ["Market", "Date", "Primary Label", "Promotion Exclusions", "Market-Aware Exclusions", "Backfills"],
+            _sidecar_exclusion_rows(sidecar.get("promotion_exclusion_sample") or []),
+        )
     gate = report.get("replay_gate") or {}
     lines += ["", "## Global Replay Gate", ""]
     lines += markdown_table(

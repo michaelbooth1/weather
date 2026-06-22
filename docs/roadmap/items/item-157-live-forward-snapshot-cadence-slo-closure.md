@@ -71,3 +71,12 @@ shape. `live_forward_slo` is still `BLOCK`; snapshot cadence still blocks all
 `unknown_snapshot_gap` as the root cause for all 12 markets. Source status is no
 longer the cadence blocker; the remaining acceptance evidence is a future
 active day with zero snapshot-coverage-gap blocked markets.
+
+2026-06-22 active-day closure refresh: fleet observability now reports whether
+snapshot cadence blockers are same-day recoverable or require a clean future
+day. The regenerated `snapshot_cadence_proof.summary` is still `BLOCK`: all 12
+markets are nonrecoverable active-day blockers, total gap count is `54`, max
+gap is `22.137341816666666` minutes, and the explicit next unblock action is
+`collect next active day with zero snapshot_coverage_gap blocked markets`.
+`recoverable_same_day_market_count` is `0`, so another restart/status rerun
+cannot make this active day countable.

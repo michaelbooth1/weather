@@ -21,6 +21,11 @@ DEFAULT_JSON_OUT = data_path("backtest", "roadmap_backlog.json")
 DEFAULT_REPORT_OUT = docs_path("roadmap", "active-backlog.md")
 
 HEADING_RE = re.compile(r"^# (?P<number>\d+)\. (?P<title>.+?) \[(?P<status_text>[^\]]+)\]\s*$")
+INDEX_HEADING_RE = re.compile(r"^(?P<level>#{2,6})\s+(?P<title>.+?)\s*$")
+INDEX_ROW_RE = re.compile(
+    r"^\|\s*(?P<number>\d+)\s*\|\s*\[(?P<label>.+)\]\((?P<link>[^)]+)\)\s*\|\s*$"
+)
+INDEX_LABEL_RE = re.compile(r"^(?P<title>.+) \[(?P<status_text>[^\]]+)\]$")
 STATUS_RE = re.compile(
     r"^(?P<status>OPEN|PARTIAL|COMPLETE)"
     r"(?: (?P<date>\d{4}-\d{2}-\d{2}))?"
@@ -47,6 +52,62 @@ def item_files(root: str | Path = DEFAULT_ROADMAP_ROOT) -> list[Path]:
 
 def _relative(path: Path) -> str:
     return relative_to_repo(path)
+
+
+def _is_non_primary_index_section(section: str) -> bool:
+    normalized = section.lower().replace("-", " ")
+    return "cross" in normalized and ("link" in normalized or "reference" in normalized)
+
+
+def parse_roadmap_index(root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
+    root = Path(root)
+    path = root / "ROADMAP.md"
+    if not path.exists():
+        return {
+            "path": _relative(path),
+            "exists": False,
+            "rows": [],
+        }
+
+    rows: list[dict[str, Any]] = []
+    section = ""
+    for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+        heading = INDEX_HEADING_RE.match(line)
+        if heading:
+            section = heading.group("title")
+            continue
+
+        parsed = INDEX_ROW_RE.match(line)
+        if not parsed:
+            continue
+
+        link = parsed.group("link").strip()
+        label = parsed.group("label").strip()
+        row: dict[str, Any] = {
+            "number": int(parsed.group("number")),
+            "label": label,
+            "title": None,
+            "status_text": None,
+            "link": link,
+            "target_path": _relative(root / link),
+            "line": line_number,
+            "section": section,
+            "primary": not _is_non_primary_index_section(section),
+            "parse_errors": [],
+        }
+        label_match = INDEX_LABEL_RE.match(label)
+        if not label_match:
+            row["parse_errors"].append("index row label does not match 'Title [STATUS...]'")
+        else:
+            row["title"] = label_match.group("title")
+            row["status_text"] = label_match.group("status_text").strip()
+        rows.append(row)
+
+    return {
+        "path": _relative(path),
+        "exists": True,
+        "rows": rows,
+    }
 
 
 def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
@@ -120,6 +181,120 @@ def lint_item(item: dict[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
+def lint_roadmap_index(items: list[dict[str, Any]], index: dict[str, Any]) -> list[dict[str, Any]]:
+    if not index.get("exists"):
+        return []
+
+    issues: list[dict[str, Any]] = []
+    rows = index.get("rows") or []
+    item_by_path = {item.get("path"): item for item in items if item.get("path")}
+    items_by_number: dict[int, list[dict[str, Any]]] = {}
+    for item in items:
+        number = item.get("number")
+        if number is not None:
+            items_by_number.setdefault(number, []).append(item)
+
+    primary_rows_by_number: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        number = row.get("number")
+        if row.get("primary") and number is not None:
+            primary_rows_by_number.setdefault(number, []).append(row)
+
+        for error in row.get("parse_errors") or []:
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_row_parse",
+                "item": number,
+                "path": index.get("path"),
+                "detail": f"line {row.get('line')}: {error}",
+            })
+
+        target = item_by_path.get(row.get("target_path"))
+        if target is None:
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_orphan_link",
+                "item": number,
+                "path": index.get("path"),
+                "detail": f"line {row.get('line')}: index link {row.get('link')} does not resolve to an item file",
+            })
+            continue
+
+        if target.get("number") != number:
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_number_link_mismatch",
+                "item": number,
+                "path": index.get("path"),
+                "detail": (
+                    f"line {row.get('line')}: row number {number} links to item "
+                    f"{target.get('number')} at {row.get('link')}"
+                ),
+            })
+
+        if row.get("title") is not None and target.get("title") is not None and row.get("title") != target.get("title"):
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_title_mismatch",
+                "item": number,
+                "path": index.get("path"),
+                "detail": (
+                    f"line {row.get('line')}: index title {row.get('title')!r} "
+                    f"does not match item heading {target.get('title')!r}"
+                ),
+            })
+
+        if (
+            row.get("status_text") is not None
+            and target.get("status_text") is not None
+            and row.get("status_text") != target.get("status_text")
+        ):
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_status_mismatch",
+                "item": number,
+                "path": index.get("path"),
+                "detail": (
+                    f"line {row.get('line')}: index status {row.get('status_text')!r} "
+                    f"does not match item heading {target.get('status_text')!r}"
+                ),
+            })
+
+    for number, matching_items in sorted(items_by_number.items()):
+        if len(matching_items) > 1:
+            issues.append({
+                "severity": "error",
+                "category": "duplicate_item_number",
+                "item": number,
+                "path": ", ".join(str(item.get("path")) for item in matching_items),
+                "detail": f"item number {number} appears in multiple item files",
+            })
+
+        rows_for_item = primary_rows_by_number.get(number, [])
+        if not rows_for_item:
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_missing_primary_row",
+                "item": number,
+                "path": index.get("path"),
+                "detail": f"item {number} has no primary row in ROADMAP.md",
+            })
+        elif len(rows_for_item) > 1:
+            locations = ", ".join(
+                f"line {row.get('line')} ({row.get('section') or 'unsectioned'})"
+                for row in rows_for_item
+            )
+            issues.append({
+                "severity": "error",
+                "category": "roadmap_index_duplicate_primary_row",
+                "item": number,
+                "path": index.get("path"),
+                "detail": f"item {number} has {len(rows_for_item)} primary ROADMAP.md rows: {locations}",
+            })
+
+    return issues
+
+
 def build_payload(
     roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
     *,
@@ -128,9 +303,12 @@ def build_payload(
     items = [parse_item(path, root=roadmap_root) for path in item_files(roadmap_root)]
     items.sort(key=lambda row: (row.get("number") is None, row.get("number") or 0, row.get("path") or ""))
     active_items = [row for row in items if row.get("active")]
+    roadmap_index = parse_roadmap_index(roadmap_root)
     issues = [issue for item in items for issue in lint_item(item)]
+    issues.extend(lint_roadmap_index(items, roadmap_index))
     status_counts = Counter(row.get("status") or "UNPARSED" for row in items)
     active_status_counts = Counter(row.get("status") for row in active_items)
+    roadmap_index_rows = roadmap_index.get("rows") or []
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
@@ -141,11 +319,14 @@ def build_payload(
             "open_item_count": active_status_counts.get("OPEN", 0),
             "partial_item_count": active_status_counts.get("PARTIAL", 0),
             "complete_item_count": status_counts.get("COMPLETE", 0),
+            "roadmap_index_row_count": len(roadmap_index_rows),
+            "roadmap_index_primary_row_count": sum(1 for row in roadmap_index_rows if row.get("primary")),
             "lint_error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
         },
         "status_counts": dict(sorted(status_counts.items())),
         "active_items": active_items,
         "items": items,
+        "roadmap_index": roadmap_index,
         "lint_issues": issues,
         "status": "OK" if not issues else "ERROR",
     }
@@ -188,6 +369,8 @@ def write_markdown(path: str | Path, payload: dict[str, Any]) -> Path:
                 ["OPEN", summary.get("open_item_count")],
                 ["PARTIAL", summary.get("partial_item_count")],
                 ["COMPLETE", summary.get("complete_item_count")],
+                ["ROADMAP rows", summary.get("roadmap_index_row_count")],
+                ["ROADMAP primary rows", summary.get("roadmap_index_primary_row_count")],
                 ["Lint errors", summary.get("lint_error_count")],
             ],
         ),

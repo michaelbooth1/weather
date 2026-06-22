@@ -1,4 +1,4 @@
-# 139. Scheduled Active Variant Shadow Refresh [PARTIAL 2026-06-18 - REGISTRY SOURCES OK, INLINE EXECUTION REMAINS]
+# 139. Scheduled Active Variant Shadow Refresh [COMPLETE 2026-06-21 - INLINE REGISTRY EXECUTION LIVE]
 
 Goal: make the daily refresh generate a fresh canonical multi-variant shadow
 artifact for the active registry instead of reading a stale prebuilt bakeoff
@@ -34,7 +34,7 @@ independent evidence was collected.
 
 - [x] Add the daily-refresh runner and CLI flags for active variant shadow
   refresh.
-- [ ] Generate active no-market and market-informed shadow rows from the
+- [x] Generate active no-market and market-informed shadow rows from the
   current corpus without relying on item-specific historical CSVs.
 - [x] Deduplicate shared controls before scoring.
 - [x] Preserve current manual `--variant-evidence-current` and
@@ -95,3 +95,28 @@ Remaining acceptance blocker: the daily step still composes configured active
 exports instead of executing every registry prediction function inline from the
 current promotion corpus. Stale item 86 is no longer the scheduled default, but
 full per-contract execution orchestration remains to close this item.
+
+## 2026-06-21 completion update
+
+`weather.reporting.active_variant_shadow_refresh` now has an inline active
+registry execution runner. During a normal `daily_refresh`, when no explicit
+`--active-variant-shadow-sources` override is supplied, the
+`active_variant_shadow` step executes active registry contracts against the
+current `promotion_corpus.json`, writes fresh registry export paths, and then
+builds the canonical `active_variant_shadow_long.csv`,
+`active_variant_shadow.json`, attribution sidecar, and Markdown report from
+those generated paths.
+
+The runner handles `pooled_candidate_replay` contracts directly. Derived
+`conservative_bridge_policy` and `microstructure_shadow_report` runtimes are
+emitted from the first successful pooled replay source in the same refresh and
+are recorded in the execution provenance table. If inline execution fails to
+produce source paths, the scheduled step now fails closed instead of falling
+back to stale registry exports. Manual source overrides still bypass execution
+for research comparisons.
+
+Verification:
+
+- `python -m pytest tests\operations\test_daily_refresh.py -q`
+- `python -m pytest tests\reporting\test_variant_registry.py tests\reporting\test_multi_variant_shadow.py tests\operations\test_schema_registry.py tests\operations\test_import_architecture.py -q`
+- `python -m py_compile src\weather\reporting\active_variant_shadow_refresh.py src\weather\operations\daily_refresh.py tests\operations\test_daily_refresh.py`

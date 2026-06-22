@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.model.model_presentation import DRIVER_WATERFALL_STAGES
+from weather.operations.runtime_identity import (
+    format_runtime_identity,
+    get_runtime_identity,
+    identities_match,
+)
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
@@ -28,6 +33,8 @@ EPSILON = 1e-9
 
 STAGE_ORDER = tuple(key for key, _label in DRIVER_WATERFALL_STAGES)
 STAGE_LABELS = dict(DRIVER_WATERFALL_STAGES)
+FORECAST_SHAPE_STAGES = {"forecast_pull"}
+EMPIRICAL_REGIMES = {"empirical", "calibrated_empirical"}
 
 
 def utc_now():
@@ -130,10 +137,18 @@ def _score_component_row(row, folder, settlement):
         "market_id": settlement.get("market_id") or "",
         "target_date": settlement.get("target_date") or "",
         "snapshot_id": snapshot_id,
+        "captured_at_utc": row.get("captured_at_utc") or "",
         "captured_at_local": row.get("captured_at_local") or "",
         "cutoff_hour": row.get("cutoff_hour") or "",
         "active_model_kind": row.get("active_model_kind") or "",
         "stage_regime": row.get("active_model_kind") or "unknown",
+        "runtime_identity_schema_version": row.get("runtime_identity_schema_version") or "",
+        "runtime_git_branch": row.get("runtime_git_branch") or "",
+        "runtime_git_commit": row.get("runtime_git_commit") or "",
+        "runtime_git_dirty": row.get("runtime_git_dirty") or "",
+        "runtime_dirty_fingerprint": row.get("runtime_dirty_fingerprint") or "",
+        "runtime_source_fingerprint": row.get("runtime_source_fingerprint") or "",
+        "runtime_code_state": row.get("runtime_code_state") or "",
         "component_name": component_name,
         "component_label": STAGE_LABELS.get(component_name, component_name),
         "band_kind": kind,
@@ -235,6 +250,182 @@ def aggregate_rows(rows, group_key=None):
     return output
 
 
+def _is_feature_model_regime(regime):
+    regime = str(regime or "").strip().lower()
+    return bool(regime and regime not in EMPIRICAL_REGIMES)
+
+
+def _ordered_text(values, *, reverse=False):
+    values = sorted((str(value) for value in values if value), reverse=reverse)
+    return values[0] if values else None
+
+
+def _row_runtime_identity(row):
+    if not row:
+        return {}
+    return {
+        "schema_version": row.get("runtime_identity_schema_version") or None,
+        "git_branch": row.get("runtime_git_branch") or None,
+        "git_commit": row.get("runtime_git_commit") or None,
+        "git_dirty": row.get("runtime_git_dirty") or None,
+        "dirty_fingerprint": row.get("runtime_dirty_fingerprint") or None,
+        "source_fingerprint": row.get("runtime_source_fingerprint") or None,
+    }
+
+
+def _matches_current_runtime(row, current_identity):
+    if not current_identity:
+        return False
+    return identities_match(_row_runtime_identity(row), current_identity)
+
+
+def _unique_count(rows, key):
+    return len({row.get(key) for row in rows if row.get(key)})
+
+
+def forecast_shape_scope_summary(rows, *, current_identity=None):
+    current_identity = current_identity or None
+    shape_rows = [
+        row for row in rows
+        if row.get("component_name") in FORECAST_SHAPE_STAGES
+    ]
+    feature_rows = [
+        row for row in shape_rows
+        if _is_feature_model_regime(row.get("stage_regime"))
+    ]
+    empirical_rows = [
+        row for row in shape_rows
+        if not _is_feature_model_regime(row.get("stage_regime"))
+    ]
+    current_rows = [
+        row for row in rows
+        if _matches_current_runtime(row, current_identity)
+    ]
+    current_feature_model_rows = [
+        row for row in current_rows
+        if _is_feature_model_regime(row.get("stage_regime"))
+    ]
+    current_feature_rows = [
+        row for row in feature_rows
+        if _matches_current_runtime(row, current_identity)
+    ]
+    stale_feature_rows = [
+        row for row in feature_rows
+        if current_identity and not _matches_current_runtime(row, current_identity)
+    ]
+    feature_regimes = sorted({row.get("stage_regime") or "unknown" for row in feature_rows})
+    empirical_regimes = sorted({row.get("stage_regime") or "unknown" for row in empirical_rows})
+    feature_example = feature_rows[0] if feature_rows else {}
+    current_feature_example = current_feature_rows[0] if current_feature_rows else {}
+    has_current_feature_model_evidence = bool(current_feature_model_rows)
+    if current_feature_rows:
+        status = "BLOCK"
+        reason = (
+            "current-code forecast floor/pull rows were recorded under feature-model regimes: "
+            + ", ".join(sorted({row.get("stage_regime") or "unknown" for row in current_feature_rows}))
+        )
+        next_unblock_action = (
+            "remove current-code feature-model forecast-shape application or replay after the fix"
+        )
+    elif feature_rows and current_identity and not has_current_feature_model_evidence:
+        status = "BLOCK"
+        reason = (
+            "feature-model forecast-shape rows are stale relative to current source, "
+            "but no current-code feature-model component tape is available yet"
+        )
+        next_unblock_action = (
+            "regenerate/replay current-code feature-model component tapes and require "
+            "current_code_feature_model_forecast_shape_rows=0"
+        )
+    elif feature_rows and current_identity:
+        status = "PASS"
+        reason = (
+            "forecast floor/pull rows under feature-model regimes are stale relative "
+            "to current source; current-code feature-model rows have none"
+        )
+        next_unblock_action = None
+    else:
+        status = "PASS" if not feature_rows else "BLOCK"
+        reason = (
+            "forecast floor/pull is scoped to empirical fallback rows"
+            if not feature_rows
+            else "forecast floor/pull rows were recorded under feature-model regimes: "
+            + ", ".join(feature_regimes)
+        )
+        next_unblock_action = None if not feature_rows else (
+            "regenerate/replay after removing feature-model forecast-shape application"
+        )
+    return {
+        "status": status,
+        "current_identity": current_identity or {},
+        "current_identity_text": format_runtime_identity(current_identity) if current_identity else None,
+        "forecast_shape_stage_rows": len(shape_rows),
+        "feature_model_forecast_shape_rows": len(feature_rows),
+        "empirical_forecast_shape_rows": len(empirical_rows),
+        "current_code_component_rows": len(current_rows),
+        "current_code_snapshot_count": _unique_count(current_rows, "snapshot_id"),
+        "current_code_feature_model_component_rows": len(current_feature_model_rows),
+        "current_code_feature_model_snapshot_count": _unique_count(
+            current_feature_model_rows,
+            "snapshot_id",
+        ),
+        "current_code_feature_model_forecast_shape_rows": len(current_feature_rows),
+        "stale_feature_model_forecast_shape_rows": len(stale_feature_rows),
+        "feature_model_regimes": feature_regimes,
+        "empirical_regimes": empirical_regimes,
+        "feature_model_delta_brier": mean(row.get("delta_brier") for row in feature_rows),
+        "current_code_feature_model_delta_brier": mean(
+            row.get("delta_brier") for row in current_feature_rows
+        ),
+        "feature_model_delta_logloss": mean(row.get("delta_logloss") for row in feature_rows),
+        "current_code_feature_model_delta_logloss": mean(
+            row.get("delta_logloss") for row in current_feature_rows
+        ),
+        "empirical_delta_brier": mean(row.get("delta_brier") for row in empirical_rows),
+        "empirical_delta_logloss": mean(row.get("delta_logloss") for row in empirical_rows),
+        "empirical_winner_probability_delta": mean(
+            row.get("winner_probability_delta") for row in empirical_rows
+        ),
+        "earliest_feature_model_forecast_shape_at_utc": _ordered_text(
+            row.get("captured_at_utc") for row in feature_rows
+        ),
+        "latest_feature_model_forecast_shape_at_utc": _ordered_text(
+            (row.get("captured_at_utc") for row in feature_rows),
+            reverse=True,
+        ),
+        "latest_stale_feature_model_forecast_shape_at_utc": _ordered_text(
+            (row.get("captured_at_utc") for row in stale_feature_rows),
+            reverse=True,
+        ),
+        "latest_current_code_feature_model_forecast_shape_at_utc": _ordered_text(
+            (row.get("captured_at_utc") for row in current_feature_rows),
+            reverse=True,
+        ),
+        "example_feature_model_forecast_shape": {
+            "market_id": feature_example.get("market_id"),
+            "target_date": feature_example.get("target_date"),
+            "snapshot_id": feature_example.get("snapshot_id"),
+            "captured_at_utc": feature_example.get("captured_at_utc"),
+            "captured_at_local": feature_example.get("captured_at_local"),
+            "active_model_kind": feature_example.get("active_model_kind"),
+            "runtime_git_commit": feature_example.get("runtime_git_commit"),
+            "runtime_source_fingerprint": feature_example.get("runtime_source_fingerprint"),
+        } if feature_example else {},
+        "example_current_code_feature_model_forecast_shape": {
+            "market_id": current_feature_example.get("market_id"),
+            "target_date": current_feature_example.get("target_date"),
+            "snapshot_id": current_feature_example.get("snapshot_id"),
+            "captured_at_utc": current_feature_example.get("captured_at_utc"),
+            "captured_at_local": current_feature_example.get("captured_at_local"),
+            "active_model_kind": current_feature_example.get("active_model_kind"),
+            "runtime_git_commit": current_feature_example.get("runtime_git_commit"),
+            "runtime_source_fingerprint": current_feature_example.get("runtime_source_fingerprint"),
+        } if current_feature_example else {},
+        "reason": reason,
+        "next_unblock_action": next_unblock_action,
+    }
+
+
 def net_negative_stages(by_component, min_rows):
     rows = [
         row for row in by_component
@@ -254,7 +445,14 @@ def net_negative_stages(by_component, min_rows):
     )
 
 
-def build_payload(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, *, min_stage_rows=20, now=None):
+def build_payload(
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    *,
+    min_stage_rows=20,
+    now=None,
+    current_identity=None,
+):
+    current_identity = current_identity or get_runtime_identity()
     rows = []
     folders = component_folders(snapshots_root)
     settled_folders = 0
@@ -267,10 +465,16 @@ def build_payload(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, *, min_stage_rows=20, n
     by_component = aggregate_rows(rows, "component_name")
     negatives = net_negative_stages(by_component, min_rows=min_stage_rows)
     status = "NO_DATA" if not rows else ("ACTIONABLE" if negatives else "OK")
+    forecast_shape_scope = forecast_shape_scope_summary(
+        rows,
+        current_identity=current_identity,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now or utc_now(),
         "snapshots_root": str(Path(snapshots_root)),
+        "current_identity": current_identity,
+        "current_identity_text": format_runtime_identity(current_identity),
         "status": status,
         "folder_count": len(folders),
         "settled_folder_count": settled_folders,
@@ -286,6 +490,7 @@ def build_payload(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, *, min_stage_rows=20, n
         "by_cutoff_hour": aggregate_rows(rows, "cutoff_hour"),
         "by_regime": aggregate_rows(rows, "stage_regime"),
         "by_market": aggregate_rows(rows, "market_id"),
+        "forecast_shape_scope": forecast_shape_scope,
         "net_negative_stages": negatives,
     }
 
@@ -342,6 +547,54 @@ def render_report(payload, *, top_n=12):
         lines += markdown_table(headers, [_metric_row(row) for row in negatives[:top_n]])
     else:
         lines.append("No net-negative stage met the minimum row threshold.")
+    lines.append("")
+    scope = payload.get("forecast_shape_scope") or {}
+    lines += [
+        "## Forecast Shape Scope",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Status", scope.get("status") or "-"],
+            ["Current code", scope.get("current_identity_text") or "-"],
+            ["Forecast-shape rows", scope.get("forecast_shape_stage_rows")],
+            ["Feature-model forecast-shape rows", scope.get("feature_model_forecast_shape_rows")],
+            [
+                "Current-code feature-model component rows",
+                scope.get("current_code_feature_model_component_rows"),
+            ],
+            [
+                "Current-code feature-model forecast-shape rows",
+                scope.get("current_code_feature_model_forecast_shape_rows"),
+            ],
+            [
+                "Stale feature-model forecast-shape rows",
+                scope.get("stale_feature_model_forecast_shape_rows"),
+            ],
+            ["Empirical forecast-shape rows", scope.get("empirical_forecast_shape_rows")],
+            ["Feature-model regimes", ", ".join(scope.get("feature_model_regimes") or []) or "-"],
+            ["Empirical regimes", ", ".join(scope.get("empirical_regimes") or []) or "-"],
+            ["Feature-model delta Brier", fmt_signed(scope.get("feature_model_delta_brier"))],
+            [
+                "Current-code feature-model delta Brier",
+                fmt_signed(scope.get("current_code_feature_model_delta_brier")),
+            ],
+            ["Empirical delta Brier", fmt_signed(scope.get("empirical_delta_brier"))],
+            ["Empirical winner P delta", fmt_signed(scope.get("empirical_winner_probability_delta"))],
+            ["Latest feature-model forecast-shape UTC", scope.get("latest_feature_model_forecast_shape_at_utc") or "-"],
+            [
+                "Latest stale feature-model forecast-shape UTC",
+                scope.get("latest_stale_feature_model_forecast_shape_at_utc") or "-",
+            ],
+            [
+                "Latest current-code feature-model forecast-shape UTC",
+                scope.get("latest_current_code_feature_model_forecast_shape_at_utc") or "-",
+            ],
+            ["Reason", scope.get("reason") or "-"],
+            ["Next unblock action", scope.get("next_unblock_action") or "-"],
+        ],
+    )
     lines.append("")
     for title, key in (
         ("By Component", "by_component"),

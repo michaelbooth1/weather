@@ -44,11 +44,28 @@ def existing_low_price_tail_notional(rows):
     ), 6)
 
 
+def existing_market_centered_warm_tail_notional(rows):
+    return round(sum(
+        maybe_float(row.get("fill_notional_usdc")) or 0.0
+        for row in rows or []
+        if str(row.get("order_status") or "").upper() == "FILLED"
+        and bool_value(row.get("market_centered_warm_tail"), False)
+    ), 6)
+
+
 def existing_opinion_fill_counts(rows):
     counts = Counter()
     for row in rows or []:
         if str(row.get("order_status") or "").upper() == "FILLED":
             counts[independent_opinion_key(row)] += 1
+    return counts
+
+
+def existing_same_snapshot_cluster_counts(rows):
+    counts = Counter()
+    for row in rows or []:
+        if str(row.get("order_status") or "").upper() == "FILLED":
+            counts[same_snapshot_adjacent_cluster_key(row)] += 1
     return counts
 
 
@@ -156,6 +173,7 @@ def apply_taker_budget(
     config_hash = policy_hash(config)
     existing_keys = {row.get("intent_key") for row in existing_rows or [] if row.get("intent_key")}
     seen_keys = set(existing_keys)
+    modal_contexts = market_modal_contexts(input_rows)
     rows = []
     candidates = []
     for input_row in input_rows:
@@ -174,6 +192,9 @@ def apply_taker_budget(
         seen_keys.add(row["intent_key"])
         row.update(early_hour_guardrail_state({**input_row, **row}, config))
         row.update(enrich_taker_risk_fields({**input_row, **row}, config))
+        row.update(modal_context_for_row({**input_row, **row}, modal_contexts, config=config))
+        row.update(weak_slot_gate_state({**input_row, **row}, config))
+        row.update(warm_tail_guard_state({**input_row, **row}, config))
         reason, detail = candidate_skip_reason({**input_row, **row}, config)
         if reason:
             row.update({"reason_code": reason, "reason_detail": detail})
@@ -196,7 +217,9 @@ def apply_taker_budget(
         lambda item: item.get("adjacent_bin_cluster_key") or adjacent_bin_cluster_key(item),
     )
     tail_notional = existing_low_price_tail_notional(existing_rows)
+    warm_tail_notional = existing_market_centered_warm_tail_notional(existing_rows)
     opinion_counts = existing_opinion_fill_counts(existing_rows)
+    same_snapshot_counts = existing_same_snapshot_cluster_counts(existing_rows)
     filled_count = sum(1 for row in existing_rows or [] if str(row.get("order_status") or "").upper() == "FILLED")
     ledger = [{
         **strategy_event_fields(run_id, now, strategy=strategy, experiment_id=experiment_id),
@@ -215,17 +238,21 @@ def apply_taker_budget(
         position_remaining = max(0.0, float(caps["max_position_per_token_usdc"]) - position_before)
         market_key = row.get("market_id") or "unknown"
         cluster_key = row.get("adjacent_bin_cluster_key") or adjacent_bin_cluster_key(row)
+        same_snapshot_key = same_snapshot_adjacent_cluster_key(row)
         opinion_key = independent_opinion_key(row)
         market_before = market_positions[market_key]
         cluster_before = cluster_positions[cluster_key]
         repeated_before = opinion_counts[opinion_key]
+        same_snapshot_before = same_snapshot_counts[same_snapshot_key]
         row["budget_usdc"] = round(budget, 6)
         row["budget_spent_before_usdc"] = round(spent, 6)
         row["position_notional_before_usdc"] = round(position_before, 6)
         row["market_notional_before_usdc"] = round(market_before, 6)
         row["adjacent_cluster_notional_before_usdc"] = round(cluster_before, 6)
         row["low_price_tail_notional_before_usdc"] = round(tail_notional, 6)
+        row["market_centered_warm_tail_notional_before_usdc"] = round(warm_tail_notional, 6)
         row["repeated_opinion_fill_count_before"] = int(repeated_before)
+        row["same_snapshot_adjacent_cluster_fill_count_before"] = int(same_snapshot_before)
 
         if filled_count >= int(caps["max_daily_positions"]):
             row.update({
@@ -245,6 +272,14 @@ def apply_taker_budget(
             row.update({
                 "reason_code": "NO_TRADE_REPEATED_OPINION_CAP",
                 "reason_detail": "strategy repeated-opinion fill cap reached",
+            })
+            rows.append(row)
+            continue
+        max_same_snapshot = int(float(config.get("max_same_snapshot_adjacent_cluster_fills") or 0))
+        if max_same_snapshot > 0 and same_snapshot_before >= max_same_snapshot:
+            row.update({
+                "reason_code": "NO_TRADE_SAME_SNAPSHOT_ADJACENT_CLUSTER_CAP",
+                "reason_detail": "strategy same-snapshot adjacent warm-tail cluster fill cap reached",
             })
             rows.append(row)
             continue
@@ -278,6 +313,23 @@ def apply_taker_budget(
                 rows.append(row)
                 continue
             position_remaining = min(position_remaining, tail_remaining)
+        warm_tail_remaining = remaining_cap(
+            config.get("market_centered_warm_tail_max_notional_usdc"),
+            warm_tail_notional,
+        )
+        if (
+            config.get("market_centered_warm_tail_guard_enabled", True)
+            and bool_value(row.get("market_centered_warm_tail"), False)
+            and warm_tail_remaining is not None
+        ):
+            if warm_tail_remaining <= 1e-9:
+                row.update({
+                    "reason_code": "NO_TRADE_MARKET_CENTERED_WARM_TAIL_CAP",
+                    "reason_detail": "strategy market-centered warm-tail exposure cap reached",
+                })
+                rows.append(row)
+                continue
+            position_remaining = min(position_remaining, warm_tail_remaining)
         if position_remaining <= 1e-9:
             row.update({
                 "reason_code": (
@@ -358,7 +410,10 @@ def apply_taker_budget(
         cluster_positions[cluster_key] += notional
         if bool_value(row.get("low_price_tail"), False):
             tail_notional += notional
+        if bool_value(row.get("market_centered_warm_tail"), False):
+            warm_tail_notional += notional
         opinion_counts[opinion_key] += 1
+        same_snapshot_counts[same_snapshot_key] += 1
         filled_count += 1
         ledger.append({
             **strategy_event_fields(run_id, now, strategy=strategy, experiment_id=experiment_id),

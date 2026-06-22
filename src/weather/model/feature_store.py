@@ -10,6 +10,15 @@ from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
+# v1.13 (ROADMAP items 194-196): robust forecast consensus/outlier features
+# and model diagnostics for ramp warm-tail dampening and late-day lock-in
+# coverage.
+#
+# v1.12 (ROADMAP items 193 and 197): live current-max trust/quarantine
+# features plus startup observation plausibility flags, so support-only
+# max-since-7 values and missing F-market live observations cannot silently
+# warm the served distribution.
+#
 # v1.11 (ROADMAP item 191): live lake/sea water-temperature contrast features
 # against the forecast high, including an onshore-gated cooling-potential signal.
 #
@@ -174,6 +183,11 @@ FORECAST_FEATURE_COLUMNS = [
     "forecast_gap",
     "forecast_source_count",
     "forecast_disagreement",
+    "forecast_robust_high",
+    "forecast_trimmed_high",
+    "forecast_warm_outlier_flag",
+    "forecast_warm_outlier_gap",
+    "forecast_source_family_count",
     *FORECAST_PROFILE_COLUMNS,
 ]
 
@@ -217,6 +231,23 @@ NATIVE_NAN_FEATURE_COLUMNS = [
     *REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     "live_reading_temp",
     "live_reading_minus_high",
+    "trusted_current_max",
+    "support_only_current_max",
+    "quarantined_current_max",
+    "current_max_gap_to_history",
+    "current_max_gap_to_current_temp",
+]
+
+CURRENT_MAX_TRUST_FEATURE_COLUMNS = [
+    "trusted_current_max",
+    "support_only_current_max",
+    "quarantined_current_max",
+    "current_max_trusted_flag",
+    "current_max_support_only_flag",
+    "current_max_quarantined_flag",
+    "current_max_gap_to_history",
+    "current_max_gap_to_current_temp",
+    "startup_feature_quarantined_flag",
 ]
 
 FEATURE_COLUMNS = [
@@ -250,6 +281,7 @@ FEATURE_COLUMNS = [
     "minutes_since_cutoff",
     "live_reading_temp",
     "live_reading_minus_high",
+    *CURRENT_MAX_TRUST_FEATURE_COLUMNS,
     "wind_group",
     "cloud_group",
 ]
@@ -258,6 +290,10 @@ FEATURE_DIAGNOSTIC_COLUMNS = [
     "latest_wu_history_time",
     "latest_wu_history_minute",
     "latest_wu_history_temp",
+    "current_max_state",
+    "current_max_disposition",
+    "current_max_quarantine_reason",
+    "startup_feature_quarantine_reason",
 ]
 
 FEATURE_AUDIT_COLUMNS = [
@@ -280,6 +316,110 @@ def scalar(value):
     if isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+def plausible_native_temperature(value, unit):
+    number = to_float(value)
+    if number is None:
+        return False
+    unit = str(unit or "").upper()
+    if unit == "F":
+        return 30.0 <= number <= 125.0
+    return -45.0 <= number <= 55.0
+
+
+def current_max_trust_features(
+    current_max,
+    *,
+    history_max=None,
+    current_temp=None,
+    cutoff_hour=None,
+    unit=None,
+    gap_threshold=10.0,
+):
+    current_max = to_float(current_max)
+    history_max = to_float(history_max)
+    current_temp = to_float(current_temp)
+    gap_to_history = None if current_max is None or history_max is None else current_max - history_max
+    gap_to_current = None if current_max is None or current_temp is None else current_max - current_temp
+    pre_reset = cutoff_hour is not None and int(cutoff_hour) < 7
+    state = "missing_current_max"
+    disposition = "missing"
+    reason = ""
+    trusted = None
+    support = None
+    quarantined = None
+    if current_max is None:
+        reason = "missing_current_max"
+    elif unit and not plausible_native_temperature(current_max, unit):
+        state = "implausible_current_max_unit"
+        disposition = "quarantined"
+        reason = f"implausible_{str(unit).upper()}_current_max"
+        quarantined = current_max
+    elif pre_reset:
+        state = "pre_reset_current_max_null"
+        disposition = "null_before_reset"
+        reason = "before_7am_reset"
+        support = current_max
+    elif gap_to_history is not None and gap_to_history >= float(gap_threshold):
+        state = (
+            "early_current_max_history_gap"
+            if cutoff_hour is not None and int(cutoff_hour) <= 12
+            else "current_max_history_gap"
+        )
+        disposition = "quarantined"
+        reason = "large_gap_to_wu_history"
+        quarantined = current_max
+    elif gap_to_current is not None and gap_to_current >= float(gap_threshold):
+        state = "current_max_current_temp_gap"
+        disposition = "quarantined"
+        reason = "large_gap_to_current_temp"
+        quarantined = current_max
+    elif history_max is None:
+        state = "missing_history_for_current_max"
+        disposition = "support_only"
+        reason = "missing_wu_history"
+        support = current_max
+    elif gap_to_history is not None and gap_to_history > 1e-9:
+        state = "current_max_above_history_minor_gap"
+        disposition = "support_only"
+        reason = "minor_gap_to_wu_history"
+        support = current_max
+    else:
+        state = "wu_history_validated_current_max"
+        disposition = "validated"
+        reason = "validated_by_wu_history"
+        trusted = current_max
+    return {
+        "trusted_current_max": trusted,
+        "support_only_current_max": support,
+        "quarantined_current_max": quarantined,
+        "current_max_trusted_flag": 1.0 if trusted is not None else 0.0,
+        "current_max_support_only_flag": 1.0 if support is not None else 0.0,
+        "current_max_quarantined_flag": 1.0 if quarantined is not None else 0.0,
+        "current_max_gap_to_history": gap_to_history,
+        "current_max_gap_to_current_temp": gap_to_current,
+        "current_max_state": state,
+        "current_max_disposition": disposition,
+        "current_max_quarantine_reason": reason if disposition == "quarantined" else "",
+    }
+
+
+def startup_observation_guard_features(*, high_so_far=None, current_temp=None, live_reading_temp=None, unit=None):
+    unit = str(unit or "").upper()
+    bad = []
+    for name, value in (
+        ("high_so_far", high_so_far),
+        ("current_temp", current_temp),
+        ("live_reading_temp", live_reading_temp),
+    ):
+        if value is not None and unit and not plausible_native_temperature(value, unit):
+            bad.append(name)
+    quarantined = bool(bad and live_reading_temp is None)
+    return {
+        "startup_feature_quarantined_flag": 1.0 if quarantined else 0.0,
+        "startup_feature_quarantine_reason": ",".join(bad) if quarantined else "",
+    }
 
 
 def build_live_feature_record(
@@ -1167,6 +1307,17 @@ def build_historical_feature_record(
         if forecast_high is not None and high_so_far is not None
         else None
     )
+    current_max_features = {
+        **current_max_trust_features(
+            None,
+            history_max=high_so_far,
+            current_temp=current_temp,
+            cutoff_hour=cutoff_hour,
+            unit=None,
+        ),
+        "startup_feature_quarantined_flag": 0.0,
+        "startup_feature_quarantine_reason": "",
+    }
     forecast_profile = forecast_profile_features(
         forecast_profile_rows,
         cutoff_hour,
@@ -1201,6 +1352,15 @@ def build_historical_feature_record(
             else (1 if forecast_high is not None else 0)
         ),
         "forecast_disagreement": forecast_disagreement if forecast_disagreement is not None else 0.0,
+        "forecast_robust_high": forecast_high,
+        "forecast_trimmed_high": forecast_high,
+        "forecast_warm_outlier_flag": 0.0,
+        "forecast_warm_outlier_gap": 0.0,
+        "forecast_source_family_count": (
+            forecast_source_count
+            if forecast_source_count is not None
+            else (1 if forecast_high is not None else 0)
+        ),
         **forecast_profile,
         **empty_us_guidance_features(),
         **empty_marine_context_features(),
@@ -1213,6 +1373,7 @@ def build_historical_feature_record(
         "minutes_since_cutoff": float(minutes_since_cutoff),
         "live_reading_temp": live_reading,
         "live_reading_minus_high": live_reading_minus_high,
+        **current_max_features,
         "wind_group": wind_group,
         "cloud_group": cloud_group,
         "final_bucket": (daily or {}).get("bucket"),

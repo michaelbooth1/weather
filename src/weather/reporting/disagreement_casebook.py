@@ -77,6 +77,8 @@ SNAPSHOT_FILENAME = "snapshots_long.csv"
 COMPONENT_FILENAME = "components_long.csv"
 REPLAY_INPUTS_FILENAME = "replay_inputs.jsonl"
 BOOK_SUMMARY_FILENAME = "order_books_summary.csv"
+PRICE_HISTORY_FILENAME = "price_history.csv"
+WS_EVENTS_FILENAME = "market_ws_events.csv"
 SETTLEMENT_FILENAME = "settlement.json"
 
 LIVE_OBS_COLUMNS = (
@@ -181,6 +183,8 @@ def band_key(row):
     value = maybe_int(row.get("bin_value_c") or row.get("bin_value") or row.get("value"))
     value_hi = maybe_int(row.get("bin_value_hi") or row.get("value_hi"))
     nums = label_numbers(row.get("range_label"))
+    if not kind and len(nums) >= 2:
+        kind = "eq"
     if value is None and nums:
         value = nums[0]
     if value_hi is None:
@@ -286,6 +290,21 @@ def read_jsonl(path):
             except json.JSONDecodeError:
                 continue
     return rows
+
+
+def read_csv_rows(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    def _read_rows(errors=None):
+        with path.open("r", encoding="utf-8", errors=errors, newline="") as handle:
+            return [dict(row) for row in csv.DictReader(handle)]
+
+    try:
+        return _read_rows(errors=None)
+    except UnicodeDecodeError:
+        return _read_rows(errors="replace")
 
 
 def load_snapshot_rows(folder):
@@ -428,6 +447,8 @@ def load_clob_context(folder, max_age_seconds=DEFAULT_MAX_CLOB_AGE_SECONDS):
             "captured_at_utc": row.get("captured_at_utc"),
             "captured_at_local": row.get("captured_at_local"),
             "range_label": clean_label(row.get("range_label")),
+            "outcome": row.get("outcome"),
+            "clob_token_id": row.get("clob_token_id"),
             "best_bid": maybe_float(row.get("best_bid")),
             "best_ask": maybe_float(row.get("best_ask")),
             "midpoint": midpoint,
@@ -472,6 +493,127 @@ def nearest_clob_row(clob_by_key, key, snapshot_time, max_age_seconds=DEFAULT_MA
     out["age_seconds"] = age
     out.pop("timestamp", None)
     return out
+
+
+def load_market_event_context(folder):
+    folder = Path(folder)
+    price_by_token = defaultdict(list)
+    price_by_key_outcome = defaultdict(list)
+    ws_by_token = defaultdict(list)
+    for row in read_csv_rows(folder / PRICE_HISTORY_FILENAME):
+        token_id = row.get("clob_token_id")
+        ts = to_utc_timestamp(row.get("point_time_utc") or row.get("captured_at_utc"))
+        item = {
+            "timestamp": ts,
+            "point_time_utc": row.get("point_time_utc"),
+            "captured_at_utc": row.get("captured_at_utc"),
+            "range_label": clean_label(row.get("range_label")),
+            "outcome": row.get("outcome"),
+            "clob_token_id": token_id,
+            "price": maybe_float(row.get("price")),
+            "interval": row.get("interval"),
+            "fidelity_minutes": maybe_float(row.get("fidelity_minutes")),
+        }
+        if ts is None or item["price"] is None:
+            continue
+        if token_id:
+            price_by_token[token_id].append(item)
+        price_by_key_outcome[(band_key(row), str(row.get("outcome") or "").lower())].append(item)
+    for row in read_csv_rows(folder / WS_EVENTS_FILENAME):
+        token_id = row.get("asset_id")
+        ts = to_utc_timestamp(row.get("received_at_utc"))
+        item = {
+            "timestamp": ts,
+            "received_at_utc": row.get("received_at_utc"),
+            "event_type": row.get("event_type"),
+            "asset_id": token_id,
+            "market": row.get("market"),
+            "price": maybe_float(row.get("price")),
+            "side": row.get("side"),
+            "raw_sha1": row.get("raw_sha1"),
+        }
+        if ts is None:
+            continue
+        if token_id:
+            ws_by_token[token_id].append(item)
+    for rows in list(price_by_token.values()) + list(price_by_key_outcome.values()) + list(ws_by_token.values()):
+        rows.sort(key=lambda item: item["timestamp"])
+    return {
+        "price_by_token": dict(price_by_token),
+        "price_by_key_outcome": dict(price_by_key_outcome),
+        "ws_by_token": dict(ws_by_token),
+        "price_history_rows": sum(len(rows) for rows in price_by_token.values()),
+        "ws_event_rows": sum(len(rows) for rows in ws_by_token.values()),
+    }
+
+
+def _outcome_for_direction(direction):
+    return "no" if direction == "model_no" else "yes"
+
+
+def _market_event_rows_for_case(market_events, token_id, key, direction):
+    price_rows = []
+    ws_rows = []
+    if not market_events:
+        return price_rows, ws_rows
+    if token_id:
+        price_rows = list((market_events.get("price_by_token") or {}).get(token_id) or [])
+        ws_rows = list((market_events.get("ws_by_token") or {}).get(token_id) or [])
+    if not price_rows and key:
+        outcome = _outcome_for_direction(direction)
+        price_rows = list((market_events.get("price_by_key_outcome") or {}).get((key, outcome)) or [])
+        if price_rows and not token_id:
+            token_id = price_rows[-1].get("clob_token_id")
+            ws_rows = list((market_events.get("ws_by_token") or {}).get(token_id) or [])
+    return price_rows, ws_rows
+
+
+def market_event_summary(market_events, *, token_id=None, key=None, direction=None, snapshot_time=None):
+    if snapshot_time is None:
+        return {"available": False, "reason": "snapshot_time_missing"}
+    snapshot_ts = snapshot_time.astimezone(timezone.utc).timestamp()
+    price_rows, ws_rows = _market_event_rows_for_case(market_events, token_id, key, direction)
+    if not token_id and price_rows:
+        token_id = price_rows[-1].get("clob_token_id")
+    price_window = [
+        row for row in price_rows
+        if row.get("timestamp") is not None and abs(snapshot_ts - row["timestamp"]) <= 300.0
+    ]
+    price_before = [
+        row for row in price_rows
+        if row.get("timestamp") is not None and row["timestamp"] <= snapshot_ts
+    ]
+    latest_price = price_before[-1] if price_before else (price_window[-1] if price_window else None)
+    first_price = price_window[0] if price_window else None
+    ws_window_60 = [
+        row for row in ws_rows
+        if row.get("timestamp") is not None and abs(snapshot_ts - row["timestamp"]) <= 60.0
+    ]
+    ws_window_300 = [
+        row for row in ws_rows
+        if row.get("timestamp") is not None and abs(snapshot_ts - row["timestamp"]) <= 300.0
+    ]
+    raw_hashes = sorted({row.get("raw_sha1") for row in ws_window_300 if row.get("raw_sha1")})
+    event_types = sorted({row.get("event_type") for row in ws_window_300 if row.get("event_type")})
+    return {
+        "available": bool(price_window or ws_window_300),
+        "token_id": token_id,
+        "price_history_points_300s": len(price_window),
+        "latest_price": latest_price.get("price") if latest_price else None,
+        "latest_price_time_utc": (
+            latest_price.get("point_time_utc") or latest_price.get("captured_at_utc")
+            if latest_price else None
+        ),
+        "price_change_300s": (
+            (latest_price.get("price") - first_price.get("price"))
+            if latest_price and first_price else None
+        ),
+        "ws_event_count_60s": len(ws_window_60),
+        "ws_event_count_300s": len(ws_window_300),
+        "ws_event_types": event_types,
+        "ws_latest_received_at_utc": ws_window_300[-1].get("received_at_utc") if ws_window_300 else None,
+        "ws_raw_sha1s": raw_hashes[:12],
+    }
 
 
 def support_changed(prev, row, threshold):
@@ -682,7 +824,7 @@ def classify_taxonomy(case):
     return "market_overreaction"
 
 
-def score_case(case, settlement_label, replay_inputs, components):
+def score_case(case, settlement_label, replay_inputs, components, market_events=None):
     row = case.get("peak_snapshot") or {}
     snapshot_id = row.get("snapshot_id")
     replay_row = replay_inputs.get(snapshot_id) if replay_inputs else None
@@ -701,6 +843,13 @@ def score_case(case, settlement_label, replay_inputs, components):
     component_map = components.get((snapshot_id, row.get("_band_key"))) if components else None
     case["driver_waterfall"] = driver_waterfall_for_components(component_map)
     case["clob_context"] = case.get("peak_clob") or {}
+    case["market_event_context"] = market_event_summary(
+        market_events,
+        token_id=(case.get("clob_context") or {}).get("clob_token_id"),
+        key=row.get("_band_key"),
+        direction=case.get("direction"),
+        snapshot_time=row.get("_captured_dt"),
+    )
 
     if settlement_label:
         settlement_bucket = maybe_int(settlement_label.get("settlement_bucket"))
@@ -1221,8 +1370,9 @@ def build_casebook(
         warm_side_cases.extend(late_day_warm_side_cases_for_folder(folder, settlement, replay_inputs, trust))
         if cases:
             components = component_index(folder)
+            market_events = load_market_event_context(folder)
             for case in cases:
-                all_cases.append(score_case(case, settlement, replay_inputs, components))
+                all_cases.append(score_case(case, settlement, replay_inputs, components, market_events))
     all_cases.sort(key=lambda case: (
         case.get("target_date") or "",
         case.get("market_id") or "",
@@ -1340,12 +1490,19 @@ def summarize_cases(cases, folder_summaries):
     results = Counter()
     markets = Counter()
     settled = 0
+    price_history_cases = 0
+    ws_event_cases = 0
     for case in cases:
         triggers.update(case.get("trigger_reasons") or [])
         results[case.get("model_result") or "unknown"] += 1
         markets[case.get("market_id") or "unknown"] += 1
         if case.get("settlement"):
             settled += 1
+        market_event = case.get("market_event_context") or {}
+        if int(market_event.get("price_history_points_300s") or 0) > 0:
+            price_history_cases += 1
+        if int(market_event.get("ws_event_count_300s") or 0) > 0:
+            ws_event_cases += 1
     threshold_snapshots = sum(item.get("threshold_snapshot_count", 0) for item in folder_summaries)
     covered = sum(case.get("threshold_snapshot_count", 0) for case in cases)
     return {
@@ -1363,6 +1520,8 @@ def summarize_cases(cases, folder_summaries):
         "threshold_snapshot_count": threshold_snapshots,
         "covered_threshold_snapshot_count": covered,
         "threshold_coverage_ok": threshold_snapshots == covered,
+        "market_event_price_history_case_count": price_history_cases,
+        "market_event_ws_case_count": ws_event_cases,
     }
 
 
@@ -1391,6 +1550,8 @@ def render_case_rows(cases, limit=30):
             fmt_signed(case.get("edge"), 3),
             fmt_pct(case.get("model_probability")),
             fmt_pct(case.get("market_yes")),
+            (case.get("market_event_context") or {}).get("price_history_points_300s") or 0,
+            (case.get("market_event_context") or {}).get("ws_event_count_300s") or 0,
             ", ".join(case.get("trigger_reasons") or []),
             case.get("model_result"),
             case.get("taxonomy"),
@@ -1503,6 +1664,8 @@ def render_report(payload):
             ["Snapshot rows scanned", summary.get("snapshot_rows_scanned")],
             ["Threshold snapshot coverage", f"{summary.get('covered_threshold_snapshot_count')} / {summary.get('threshold_snapshot_count')}"],
             ["Threshold coverage OK", summary.get("threshold_coverage_ok")],
+            ["Cases with price-history evidence", summary.get("market_event_price_history_case_count")],
+            ["Cases with WebSocket event evidence", summary.get("market_event_ws_case_count")],
         ],
     ))
     lines.extend(["", "## Trigger Counts", ""])
@@ -1517,17 +1680,17 @@ def render_report(payload):
     ))
     lines.extend(["", "## Largest Cases", ""])
     lines.extend(markdown_table(
-        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Triggers", "Result", "Taxonomy"],
+        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Hist Pts", "WS Events", "Triggers", "Result", "Taxonomy"],
         render_case_rows(cases, limit=40),
     ))
     lines.extend(["", "## Open Cases Needing Attention", ""])
     lines.extend(markdown_table(
-        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Triggers", "Result", "Taxonomy"],
+        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Hist Pts", "WS Events", "Triggers", "Result", "Taxonomy"],
         render_case_rows(open_cases, limit=25),
     ))
     lines.extend(["", "## Settled Cases", ""])
     lines.extend(markdown_table(
-        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Triggers", "Result", "Taxonomy"],
+        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Hist Pts", "WS Events", "Triggers", "Result", "Taxonomy"],
         render_case_rows(settled_cases, limit=40),
     ))
     lines.extend(["", "## Top Model-Losing Case Families", ""])
@@ -1666,7 +1829,7 @@ def render_operator_report(payload):
         "",
     ]
     lines.extend(markdown_table(
-        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Triggers", "Result", "Taxonomy"],
+        ["Case", "Market", "Band", "Time", "Edge", "Model", "Market", "Hist Pts", "WS Events", "Triggers", "Result", "Taxonomy"],
         render_case_rows(open_cases, limit=50),
     ))
     lines.append("")

@@ -330,8 +330,9 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
                 "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 18.2}]}},
             }
 
-        without_soft_max = model.estimate_distribution(sources_with_current_max(18.0))
-        with_soft_max = model.estimate_distribution(sources_with_current_max(19.0))
+        now = datetime(2026, 6, 1, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
+        without_soft_max = model.estimate_distribution(sources_with_current_max(18.0), now=now)
+        with_soft_max = model.estimate_distribution(sources_with_current_max(19.0), now=now)
 
         # Below the hedged observation floors: suppressed, never near-hard.
         self.assertLess(with_soft_max[17], 0.05)

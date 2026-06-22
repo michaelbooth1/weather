@@ -3,6 +3,25 @@
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
 
+Source: Track A data-layer expansion and the 2026-06-20 daily-high research
+audit, which both identify upper-air, reanalysis, and synoptic context as
+missing physical inputs for high-temperature prediction.
+
+Why this matters: observed surface paths and ordinary forecasts miss parts of
+the physical setup that determine the daily high. Reanalysis and synoptic
+features must earn promotion through settlement-scored gates so added data
+improves skill without creating sparse-source or train/serve skew.
+
+> Note (2026-06-20, from the daily-high research audit / item 185): the
+> pressure-level path here is antecedent-day reanalysis, so live serving is left
+> with empty synoptic features whenever the reanalysis lags (e.g. the NOAA 2026
+> pressure file only covers through March). A complementary unblock is to also
+> pull **live forecast-side** 850 hPa temperature / 1000–500 thickness from a
+> forecast pressure-level API (Open-Meteo) for the target day, so the
+> mixing-temperature predictor is populated at serve time, not only in history.
+> The 850 hPa "mixing" method is the single most classic Tmax predictor; see
+> `docs/roadmap/high-temperature-projection-research-audit-2026-06-20.md`.
+
 - [x] ERA5 antecedent-day state sidecar, with future soil/cloud/radiation/VPD/ET0
   archive fields wired into the reanalysis fetch plan.
 - [x] Pressure-level upper-air source for 850 mb temperature, 500 mb height, and

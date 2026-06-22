@@ -22,6 +22,7 @@ from weather.model.model_constants import (
 )
 from weather.model.calibration_runtime import apply_exact_distribution_calibration
 from weather.model.model_contracts import DistributionResult
+from weather.model.feature_store import current_max_trust_features
 
 from weather.model.model_distribution_constants import (
     BUCKET_TRANSITION_BLEND_MAX,
@@ -62,6 +63,12 @@ from weather.model.model_distribution_constants import (
     METAR_LIVE_SIGNAL_MAX_WEIGHT,
     METAR_LIVE_SIGNAL_REACHED_BASELINE,
     METAR_LIVE_SIGNAL_SIGMA,
+    RAMP_WARM_TAIL_ANCHOR_MARGIN,
+    RAMP_WARM_TAIL_DECAY,
+    RAMP_WARM_TAIL_DISAGREEMENT,
+    RAMP_WARM_TAIL_END_HOUR,
+    RAMP_WARM_TAIL_SOURCE_CAP_MARGIN,
+    RAMP_WARM_TAIL_START_HOUR,
     VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
     WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
 )
@@ -136,6 +143,18 @@ class DistributionMixin(DistributionSignalMixin):
         history_max = self.row_max_native(history)
         current_temp = self.row_temp_native(current)
         current_max = self.row_max_since_7am_native(current)
+        cutoff_hour = self.effective_intraday_cutoff_hour(
+            now,
+            history.get("rows") or [],
+        )
+        current_max_features = current_max_trust_features(
+            current_max,
+            history_max=history_max,
+            current_temp=current_temp,
+            cutoff_hour=cutoff_hour,
+            unit=self.spec.display_unit,
+        )
+        trusted_current_max = current_max_features.get("trusted_current_max")
         eccc_max = self.row_same_day_max_native(eccc)
         metar_temp = self.row_temp_native(metar)
         weather_forecast_max = self.forecast_day_max(weather_forecast)
@@ -143,12 +162,46 @@ class DistributionMixin(DistributionSignalMixin):
         nws_forecast_max = self.forecast_day_max(nws_hourly)
         global_ensemble_max = self.forecast_day_max(global_ensemble)
         eccc_forecast_high = self.row_forecast_high_native(eccc_city)
-        forecast_values = [
+        forecast_ensemble = self.forecast_ensemble_metrics(
+            open_meteo,
+            weather_forecast,
+            eccc_city,
+            nws_hourly=nws_hourly,
+            global_ensemble=global_ensemble,
+        )
+        weather_forecast_signal = self.robust_forecast_signal_value(
             weather_forecast_max,
+            forecast_ensemble,
+        )
+        open_meteo_signal = self.robust_forecast_signal_value(
             open_meteo_max,
+            forecast_ensemble,
+        )
+        nws_forecast_signal = self.robust_forecast_signal_value(
             nws_forecast_max,
+            forecast_ensemble,
+        )
+        global_ensemble_signal = self.robust_forecast_signal_value(
             global_ensemble_max,
+            forecast_ensemble,
+        )
+        eccc_forecast_signal = self.robust_forecast_signal_value(
             eccc_forecast_high,
+            forecast_ensemble,
+        )
+        forecast_signal_values = {
+            "weather_forecast": weather_forecast_signal,
+            "open_meteo": open_meteo_signal,
+            "nws_hourly": nws_forecast_signal,
+            "global_ensemble": global_ensemble_signal,
+            "eccc_citypage": eccc_forecast_signal,
+        }
+        forecast_values = [
+            weather_forecast_signal,
+            open_meteo_signal,
+            nws_forecast_signal,
+            global_ensemble_signal,
+            eccc_forecast_signal,
         ]
 
         local_analysis = local_history.get("analysis") or {}
@@ -164,18 +217,18 @@ class DistributionMixin(DistributionSignalMixin):
         live_values = [
             history_max,
             current_temp,
-            current_max,
+            trusted_current_max,
             self.round_half_up(eccc_max) if eccc_max is not None else None,
             metar_temp,
-            weather_forecast_max,
-            self.round_half_up(open_meteo_max) if open_meteo_max is not None else None,
-            self.round_half_up(nws_forecast_max) if nws_forecast_max is not None else None,
-            self.round_half_up(global_ensemble_max) if global_ensemble_max is not None else None,
-            eccc_forecast_high,
+            weather_forecast_signal,
+            self.round_half_up(open_meteo_signal) if open_meteo_signal is not None else None,
+            self.round_half_up(nws_forecast_signal) if nws_forecast_signal is not None else None,
+            self.round_half_up(global_ensemble_signal) if global_ensemble_signal is not None else None,
+            eccc_forecast_signal,
         ]
         observed_bucket = self.round_half_up(history_max)
         validated_current_max_floor = self.validated_current_max_floor_bucket(
-            current_max,
+            trusted_current_max,
             history_max=history_max,
         )
         hard_floor_bucket = max(
@@ -217,10 +270,6 @@ class DistributionMixin(DistributionSignalMixin):
         self._last_distribution_pipeline_state = pipeline
         pipeline.snapshot("climatology_prior", scores)
 
-        cutoff_hour = self.effective_intraday_cutoff_hour(
-            now,
-            history.get("rows") or [],
-        )
         calibration_context = {
             "cutoff_hour": cutoff_hour,
             "observed_floor_bucket": hard_floor_bucket,
@@ -228,6 +277,17 @@ class DistributionMixin(DistributionSignalMixin):
             "validated_current_max_floor_bucket": validated_current_max_floor,
             "current_observed_bucket": current_observed_bucket,
             "observed_support_bucket": observed_support_bucket,
+            "current_max_state": current_max_features.get("current_max_state"),
+            "current_max_disposition": current_max_features.get("current_max_disposition"),
+            "quarantined_current_max": current_max_features.get("quarantined_current_max"),
+            "forecast_high": forecast_ensemble.get("forecast_high"),
+            "forecast_robust_high": forecast_ensemble.get("forecast_robust_high"),
+            "forecast_trimmed_high": forecast_ensemble.get("forecast_trimmed_high"),
+            "forecast_disagreement": forecast_ensemble.get("forecast_disagreement"),
+            "forecast_warm_outlier_flag": forecast_ensemble.get("forecast_warm_outlier_flag"),
+            "forecast_warm_outlier_gap": forecast_ensemble.get("forecast_warm_outlier_gap"),
+            "forecast_source_count": forecast_ensemble.get("forecast_source_count"),
+            "forecast_signal_values": forecast_signal_values,
             "target_date": getattr(self, "target_date_str", TARGET_DATE_STR),
         }
         weights_config = self.calibrated_hour_config(cutoff_hour)
@@ -258,11 +318,11 @@ class DistributionMixin(DistributionSignalMixin):
             weather_forecast=weather_forecast,
             eccc_city=eccc_city,
             current_temp=current_temp,
-            weather_forecast_max=weather_forecast_max,
-            open_meteo_max=open_meteo_max,
-            nws_forecast_max=nws_forecast_max,
-            global_ensemble_max=global_ensemble_max,
-            eccc_forecast_high=eccc_forecast_high,
+            weather_forecast_max=weather_forecast_signal,
+            open_meteo_max=open_meteo_signal,
+            nws_forecast_max=nws_forecast_signal,
+            global_ensemble_max=global_ensemble_signal,
+            eccc_forecast_high=eccc_forecast_signal,
             weights_config=weights_config,
             weight_map=weight_map,
             has_component_weights=has_component_weights,
@@ -284,14 +344,14 @@ class DistributionMixin(DistributionSignalMixin):
             hour=now.hour,
             history_max=history_max,
             current_temp=current_temp,
-            current_max=current_max,
+            current_max=trusted_current_max,
             eccc_max=eccc_max,
             metar_live_signal=metar_live_signal,
-            weather_forecast_max=weather_forecast_max,
-            open_meteo_max=open_meteo_max,
-            nws_forecast_max=nws_forecast_max,
-            global_ensemble_max=global_ensemble_max,
-            eccc_forecast_high=eccc_forecast_high,
+            weather_forecast_max=weather_forecast_signal,
+            open_meteo_max=open_meteo_signal,
+            nws_forecast_max=nws_forecast_signal,
+            global_ensemble_max=global_ensemble_signal,
+            eccc_forecast_high=eccc_forecast_signal,
             observed_bucket=observed_bucket,
         )
         scores = self.distribution_apply_live_signals_stage(
@@ -305,20 +365,20 @@ class DistributionMixin(DistributionSignalMixin):
             intraday=intraday,
             observed_bucket=observed_bucket,
             hour=now.hour,
-            weather_forecast_max=weather_forecast_max,
-            open_meteo_max=open_meteo_max,
-            nws_forecast_max=nws_forecast_max,
-            global_ensemble_max=global_ensemble_max,
-            eccc_forecast_high=eccc_forecast_high,
+            weather_forecast_max=weather_forecast_signal,
+            open_meteo_max=open_meteo_signal,
+            nws_forecast_max=nws_forecast_signal,
+            global_ensemble_max=global_ensemble_signal,
+            eccc_forecast_high=eccc_forecast_signal,
         )
         scores = self.distribution_plausible_cap_stage(
             scores,
             observed_bucket=observed_bucket,
-            weather_forecast_max=weather_forecast_max,
-            open_meteo_max=open_meteo_max,
-            nws_forecast_max=nws_forecast_max,
-            global_ensemble_max=global_ensemble_max,
-            eccc_forecast_high=eccc_forecast_high,
+            weather_forecast_max=weather_forecast_signal,
+            open_meteo_max=open_meteo_signal,
+            nws_forecast_max=nws_forecast_signal,
+            global_ensemble_max=global_ensemble_signal,
+            eccc_forecast_high=eccc_forecast_signal,
             using_calibrated_empirical=using_calibrated_empirical,
         )
         scores = self.distribution_forecast_shape_stage(
@@ -332,6 +392,15 @@ class DistributionMixin(DistributionSignalMixin):
             using_calibrated_empirical=using_calibrated_empirical,
             pipeline=pipeline,
         )
+        scores, ramp_warm_tail_context = self.distribution_ramp_warm_tail_dampening_stage(
+            scores,
+            hour=now.hour,
+            observed_bucket=observed_bucket,
+            current_observed_bucket=current_observed_bucket,
+            forecast_context=forecast_ensemble,
+            pipeline=pipeline,
+        )
+        calibration_context["ramp_warm_tail_dampening"] = ramp_warm_tail_context
         scores = self.distribution_validated_current_max_floor_stage(
             scores,
             validated_current_max_floor,
@@ -406,6 +475,9 @@ class DistributionMixin(DistributionSignalMixin):
             weak_input_family_preflight=deepcopy(getattr(self, "_last_weak_input_family_preflight", {}) or {}),
             bucket_transition=bucket_transition,
             late_day_continuation=late_day_continuation,
+            ramp_warm_tail_dampening=ramp_warm_tail_context,
+            forecast_ensemble=forecast_ensemble,
+            forecast_signal_values=forecast_signal_values,
             observed_floor_bucket=hard_floor_bucket,
             wu_history_floor_bucket=observed_bucket,
             validated_current_max_floor_bucket=validated_current_max_floor,
@@ -421,6 +493,126 @@ class DistributionMixin(DistributionSignalMixin):
             family_secondary_gate=component_payload.get("family_secondary_gate") or {},
         )
         return self._set_distribution_result_compatibility(result, pipeline)
+
+    def robust_forecast_signal_value(self, value, forecast_context):
+        """Cap isolated warm forecast sources toward the robust ensemble high."""
+        value = self.to_number(value)
+        if value is None:
+            return None
+        forecast_context = forecast_context or {}
+        robust_high = self.to_number(forecast_context.get("forecast_robust_high"))
+        if robust_high is None:
+            return value
+        warm_outlier = bool(forecast_context.get("forecast_warm_outlier_flag"))
+        disagreement = self.to_number(forecast_context.get("forecast_disagreement"))
+        high_disagreement = (
+            disagreement is not None
+            and disagreement >= self.spec.scale_delta(RAMP_WARM_TAIL_DISAGREEMENT)
+        )
+        if not warm_outlier and not high_disagreement:
+            return value
+        cap = robust_high + self.spec.scale_delta(RAMP_WARM_TAIL_SOURCE_CAP_MARGIN)
+        return min(value, cap)
+
+    def apply_ramp_warm_tail_dampening(
+        self,
+        scores,
+        *,
+        hour,
+        observed_bucket,
+        current_observed_bucket,
+        robust_forecast_high,
+        forecast_disagreement,
+        warm_outlier_flag,
+    ):
+        """Dampen ramp-window mass materially above robust live/forecast anchors."""
+        normalized = self.normalize_scores(scores)
+        context = {
+            "active": False,
+            "reason": "inactive",
+            "hour": hour,
+            "cap_bucket": None,
+            "tail_probability_before": None,
+            "tail_probability_after": None,
+            "forecast_disagreement": forecast_disagreement,
+            "forecast_warm_outlier_flag": 1.0 if warm_outlier_flag else 0.0,
+        }
+        if not normalized:
+            context["reason"] = "empty_scores"
+            return normalized, context
+        if hour is None or hour < RAMP_WARM_TAIL_START_HOUR or hour > RAMP_WARM_TAIL_END_HOUR:
+            context["reason"] = "outside_hour_window"
+            return normalized, context
+        disagreement = self.to_number(forecast_disagreement)
+        high_disagreement = (
+            disagreement is not None
+            and disagreement >= self.spec.scale_delta(RAMP_WARM_TAIL_DISAGREEMENT)
+        )
+        if not warm_outlier_flag and not high_disagreement:
+            context["reason"] = "no_warm_outlier_or_high_disagreement"
+            return normalized, context
+
+        anchors = []
+        for value in (observed_bucket, current_observed_bucket):
+            if value is not None:
+                anchors.append(int(value))
+        robust_bucket = self.round_half_up(robust_forecast_high)
+        if robust_bucket is not None:
+            anchors.append(robust_bucket)
+        if not anchors:
+            context["reason"] = "missing_anchor"
+            return normalized, context
+
+        margin = max(1, self.round_half_up(self.spec.scale_delta(RAMP_WARM_TAIL_ANCHOR_MARGIN)))
+        cap_bucket = max(anchors) + margin
+        tail_before = sum(probability for bucket, probability in normalized.items() if bucket > cap_bucket)
+        context["cap_bucket"] = cap_bucket
+        context["tail_probability_before"] = tail_before
+        if tail_before <= 0:
+            context["reason"] = "no_tail_above_cap"
+            context["tail_probability_after"] = 0.0
+            return normalized, context
+
+        adjusted = {}
+        for bucket, probability in normalized.items():
+            if bucket <= cap_bucket:
+                adjusted[bucket] = probability
+            else:
+                adjusted[bucket] = probability * (RAMP_WARM_TAIL_DECAY ** (bucket - cap_bucket))
+        adjusted = self.normalize_scores(adjusted)
+        tail_after = sum(probability for bucket, probability in adjusted.items() if bucket > cap_bucket)
+        context["active"] = True
+        context["reason"] = "warm_tail_above_robust_anchor_dampened"
+        context["tail_probability_after"] = tail_after
+        return adjusted, context
+
+    def distribution_ramp_warm_tail_dampening_stage(
+        self,
+        scores,
+        *,
+        hour,
+        observed_bucket,
+        current_observed_bucket,
+        forecast_context,
+        pipeline,
+    ):
+        forecast_context = forecast_context or {}
+        scores, context = self.apply_ramp_warm_tail_dampening(
+            scores,
+            hour=hour,
+            observed_bucket=observed_bucket,
+            current_observed_bucket=current_observed_bucket,
+            robust_forecast_high=forecast_context.get("forecast_robust_high"),
+            forecast_disagreement=forecast_context.get("forecast_disagreement"),
+            warm_outlier_flag=bool(forecast_context.get("forecast_warm_outlier_flag")),
+        )
+        if context.get("active"):
+            pipeline.snapshot_normalized(
+                "ramp_warm_tail_dampening",
+                scores,
+                self.normalize_scores,
+            )
+        return scores, context
 
     def distribution_model_path_stage(
         self,
@@ -862,10 +1054,23 @@ class DistributionMixin(DistributionSignalMixin):
             eccc_city,
         )
         high_has_stood_strength = high_has_stood_context.get("strength") or 0.0
+        expanded_lockin_context = self.expanded_late_day_lockin_context(
+            now.hour,
+            history,
+            current_reading,
+            now,
+            weather_forecast,
+            open_meteo,
+            nws_hourly,
+            global_ensemble,
+            eccc_city,
+        )
+        expanded_lockin_strength = expanded_lockin_context.get("strength") or 0.0
         lockin_strength = max(
             heuristic_lockin_strength,
             learned_lockin_strength,
             high_has_stood_strength,
+            expanded_lockin_strength,
         )
         scores = self.apply_late_day_lockin(
             scores,
@@ -876,6 +1081,16 @@ class DistributionMixin(DistributionSignalMixin):
         )
         if high_has_stood_strength > max(heuristic_lockin_strength, learned_lockin_strength):
             pipeline.snapshot_normalized("high_has_stood_lockin", scores, self.normalize_scores)
+        if expanded_lockin_strength > max(
+            heuristic_lockin_strength,
+            learned_lockin_strength,
+            high_has_stood_strength,
+        ):
+            pipeline.snapshot_normalized("expanded_late_day_lockin", scores, self.normalize_scores)
+        high_has_stood_context = deepcopy(high_has_stood_context)
+        high_has_stood_context["expanded_late_day_lockin"] = expanded_lockin_context
+        high_has_stood_context["heuristic_lockin_strength"] = heuristic_lockin_strength
+        high_has_stood_context["learned_lockin_strength"] = learned_lockin_strength
         pipeline.snapshot_normalized("late_day_lockin", scores, self.normalize_scores)
         return scores, lockin_strength, high_has_stood_context
 
