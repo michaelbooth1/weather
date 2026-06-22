@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -53,6 +54,7 @@ from weather.operations.long_job_guard import (
 SCHEMA_VERSION = "promotion_refresh_v0.1"
 DEFAULT_OUT = data_path() / "backtest" / "f_family_promotion_refresh.json"
 DEFAULT_REPORT = data_path() / "backtest" / "f_family_promotion_refresh_report.md"
+DEFAULT_PROMOTION_ALLOWLIST = data_path() / "backtest" / "f_family_promotion_allowlist.json"
 DEFAULT_CANDIDATE_REPORT = data_path() / "backtest" / "pooled_candidate_replay_latest_report.md"
 DEFAULT_CANDIDATE_JSON = data_path() / "backtest" / "pooled_candidate_replay_latest.json"
 DEFAULT_CURRENT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_latest_report.md"
@@ -64,6 +66,13 @@ DEFAULT_TEN_MINUTE_PERFORMANCE = data_path() / "backtest" / "ten_minute_model_pe
 DEFAULT_CANDIDATE_TEN_MINUTE_PERFORMANCE = DEFAULT_TEN_MINUTE_PERFORMANCE
 DEFAULT_SOURCE_FAMILY_INVENTORY = data_path() / "backtest" / "source_family_inventory.json"
 DEFAULT_FLEET_OBSERVABILITY = data_path() / "backtest" / "fleet_observability.json"
+DEFAULT_SETTLED_DAY_FRESHNESS = data_path() / "backtest" / "settled_day_freshness.json"
+DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
+DEFAULT_INGEST_QUALITY_GATE = data_path() / "backtest" / "ingest_quality_gate.json"
+DEFAULT_DAILY_LEARNING = data_path() / "backtest" / "daily_learning.json"
+DEFAULT_PER_LOCATION_ARTIFACT_QUARANTINE = (
+    data_path() / "backtest" / "per_location_artifact_quarantine.json"
+)
 DEFAULT_INCOMPLETE_MANIFEST = data_path() / "backtest" / "f_family_promotion_refresh_incomplete.json"
 DEFAULT_FAMILY_UNIT = "F"
 
@@ -488,6 +497,9 @@ def _read_fleet_observability(path):
     payload = json.loads(path.read_text(encoding="utf-8"))
     tape = payload.get("tape_backup") or {}
     capacity = tape.get("capacity_preflight") or {}
+    live_slo = payload.get("live_forward_slo") or {}
+    clob = payload.get("clob") or {}
+    clob_books = clob.get("books") or {}
     return {
         "path": str(path),
         "exists": True,
@@ -495,6 +507,22 @@ def _read_fleet_observability(path):
         "generated_at_utc": payload.get("generated_at_utc"),
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
+        "live_forward_slo": {
+            "status": "PASS" if live_slo.get("ok") else "BLOCK",
+            "counts_toward_live_forward_gate": live_slo.get("counts_toward_live_forward_gate"),
+            "reason": live_slo.get("reason"),
+            "first_blocker": live_slo.get("first_blocker") or {},
+        },
+        "clob_books": {
+            "status": "PASS" if clob_books.get("ok") else "BLOCK",
+            "generated_at_utc": clob_books.get("generated_at_utc"),
+            "max_gap_seconds_threshold": clob_books.get("max_gap_seconds_threshold"),
+            "blocked_markets": [
+                row.get("market_id")
+                for row in clob_books.get("markets") or []
+                if not row.get("ok")
+            ],
+        },
         "tape_backup": {
             "status": tape.get("status"),
             "backup_root": tape.get("backup_root"),
@@ -507,6 +535,152 @@ def _read_fleet_observability(path):
                 "insufficient_bytes": capacity.get("insufficient_bytes"),
             },
         },
+    }
+
+
+def _read_settled_day_freshness(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "summary": {},
+            "repair_command": "python -m weather.operations.settled_day_freshness repair",
+            "replay_status_repair_command": "python -m weather.operations.replay_status_backfill",
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "target_date": payload.get("target_date"),
+        "summary": payload.get("summary") or {},
+        "repair_command": payload.get("repair_command"),
+        "replay_status_repair_command": payload.get("replay_status_repair_command"),
+    }
+
+
+def _read_data_layer_audit(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "gate_summary": {"status": "MISSING"},
+            "recommendation_count": 0,
+            "p0_remediation_count": None,
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    remediations = payload.get("remediation_manifest") or []
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": (payload.get("gate_summary") or {}).get("status") or payload.get("status"),
+        "gate_summary": payload.get("gate_summary") or {},
+        "recommendation_count": len(payload.get("recommendations") or []),
+        "p0_remediation_count": sum(1 for row in remediations if row.get("priority") == "P0"),
+        "remediation_manifest": remediations[:12],
+    }
+
+
+def _read_ingest_quality_gate(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "fail_reasons": ["ingest quality gate artifact is missing"],
+            "warn_reasons": [],
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "summary": payload.get("summary") or {},
+        "fail_reasons": payload.get("fail_reasons") or [],
+        "warn_reasons": payload.get("warn_reasons") or [],
+    }
+
+
+def _read_daily_learning(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "summary": {"blocker_count": None},
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "summary": payload.get("summary") or {},
+        "retrain_plan": payload.get("retrain_plan") or {},
+    }
+
+
+def _read_per_location_artifact_quarantine(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "summary": {
+                "per_location_artifact_count": 0,
+                "active_candidate_violation_count": 0,
+            },
+            "active_candidate_violations": [],
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "active_feature_schema_version": payload.get("active_feature_schema_version"),
+        "summary": payload.get("summary") or {},
+        "active_candidate_violations": payload.get("active_candidate_violations") or [],
+        "policy": payload.get("policy"),
+    }
+
+
+def _disk_headroom(path, min_free_bytes=0):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(path.parent)
+    min_free_bytes = int(min_free_bytes or 0)
+    return {
+        "path": str(path.parent),
+        "status": "PASS" if usage.free >= min_free_bytes else "BLOCK",
+        "free_bytes": int(usage.free),
+        "min_free_bytes": min_free_bytes,
+        "insufficient_bytes": max(0, min_free_bytes - int(usage.free)),
     }
 
 

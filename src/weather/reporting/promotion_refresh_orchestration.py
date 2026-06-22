@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/reporting/promotion_refresh.py."""
 
 from weather.reporting.promotion_refresh_report import *  # noqa: F403
+from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -94,6 +95,7 @@ def _manifest_paths(args):
     return {
         "out": _as_path(getattr(args, "out", None)),
         "report": _as_path(getattr(args, "report", None)),
+        "promotion_allowlist_out": _as_path(getattr(args, "promotion_allowlist_out", None)),
         "corpus_out": _as_path(getattr(args, "corpus_out", None)),
         "trust_out": _as_path(getattr(args, "trust_out", None)),
         "candidate_json": _as_path(getattr(args, "candidate_json", None)),
@@ -263,11 +265,74 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     fleet_observability = _read_fleet_observability(
         getattr(args, "fleet_observability_report", DEFAULT_FLEET_OBSERVABILITY)
     )
+    settled_day_freshness = _read_settled_day_freshness(
+        getattr(args, "settled_day_freshness_report", DEFAULT_SETTLED_DAY_FRESHNESS)
+    )
+    data_layer_audit = _read_data_layer_audit(
+        getattr(args, "data_layer_audit_report", DEFAULT_DATA_LAYER_AUDIT)
+    )
+    ingest_quality_gate = _read_ingest_quality_gate(
+        getattr(args, "ingest_quality_gate_report", DEFAULT_INGEST_QUALITY_GATE)
+    )
+    daily_learning = _read_daily_learning(
+        getattr(args, "daily_learning_report", DEFAULT_DAILY_LEARNING)
+    )
+    per_location_artifact_quarantine = _read_per_location_artifact_quarantine(
+        getattr(
+            args,
+            "per_location_artifact_quarantine_report",
+            DEFAULT_PER_LOCATION_ARTIFACT_QUARANTINE,
+        )
+    )
+    disk_headroom = _disk_headroom(
+        getattr(args, "out", DEFAULT_OUT),
+        getattr(args, "min_artifact_free_bytes", 0),
+    )
+    evidence_freshness = build_evidence_freshness_gate(
+        settled_day_freshness=settled_day_freshness,
+        data_layer_audit=data_layer_audit,
+        ingest_quality_gate=ingest_quality_gate,
+        fleet_observability=fleet_observability,
+        daily_learning=daily_learning,
+        disk_headroom=disk_headroom,
+    )
+    early_hour_promotion_blocker = build_early_hour_promotion_blocker(
+        candidate=candidate_summary,
+        hourly_performance=hourly_performance,
+        candidate_hourly_performance=candidate_hourly_performance,
+        ten_minute_performance=ten_minute_performance,
+        candidate_ten_minute_performance=candidate_ten_minute_performance,
+        fleet_observability=fleet_observability,
+        market_tolerance=getattr(args, "market_tol", 0.003),
+    )
+    source_missingness_location_gate = build_source_missingness_location_gate(
+        candidate_summary,
+        market_tolerance=getattr(args, "market_tol", 0.003),
+    )
     decisions = build_family_decisions(
         manifest,
         trust_rows,
         candidate_report,
         family_unit=args.family_unit,
+    )
+    generated_at = _utc_now()
+    promotion_allowlist = build_promotion_allowlist(
+        decisions,
+        candidate_summary,
+        family_unit=args.family_unit,
+        generated_at_utc=generated_at,
+        path=getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
+    )
+    allowlist_path = _write_json(
+        getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
+        promotion_allowlist,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+        context="promotion allowlist JSON export",
+    )
+    runtime_identity_evidence = build_runtime_identity_evidence(
+        snapshots_root=args.snapshots_root,
+        snapshot_manifest=manifest,
+        reconciliation_path=Path(args.out).parent / "runtime_identity_reconciliation.json",
     )
     gap_drivers = _candidate_gap_driver_rows(candidate_summary)
     gap_owner_table = build_gap_owner_table(gap_drivers, decisions)
@@ -277,9 +342,26 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         [*gap_owner_table, *market_diagnostics],
         min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
     )
+    readiness = promotion_readiness(
+        candidate_summary,
+        serving_summary,
+        decisions,
+        extra_location_transfer=extra_location_transfer,
+        hourly_performance=hourly_performance,
+        candidate_hourly_performance=candidate_hourly_performance,
+        ten_minute_performance=ten_minute_performance,
+        candidate_ten_minute_performance=candidate_ten_minute_performance,
+        source_family_inventory=source_family_inventory,
+        fleet_observability=fleet_observability,
+        runtime_identity_evidence=runtime_identity_evidence,
+        evidence_freshness=evidence_freshness,
+        per_location_artifact_quarantine=per_location_artifact_quarantine,
+        early_hour_promotion_blocker=early_hour_promotion_blocker,
+        source_missingness_location_gate=source_missingness_location_gate,
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": _utc_now(),
+        "generated_at_utc": generated_at,
         "family_unit": args.family_unit,
         "corpus": _manifest_summary(manifest, corpus_path),
         "trust": _trust_summary(trust_rows, trust_path, family_ids),
@@ -287,6 +369,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "precomputed_candidate": precomputed_candidate or {"enabled": False},
         "serving_gauntlet": serving_summary,
         "decisions": decisions,
+        "promotion_allowlist": promotion_allowlist,
         "extra_location_transfer": extra_location_transfer,
         "hourly_performance": hourly_performance,
         "candidate_hourly_performance": candidate_hourly_performance,
@@ -294,18 +377,17 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "candidate_ten_minute_performance": candidate_ten_minute_performance,
         "source_family_inventory": source_family_inventory,
         "fleet_observability": fleet_observability,
-        "readiness": promotion_readiness(
-            candidate_summary,
-            serving_summary,
-            decisions,
-            extra_location_transfer=extra_location_transfer,
-            hourly_performance=hourly_performance,
-            candidate_hourly_performance=candidate_hourly_performance,
-            ten_minute_performance=ten_minute_performance,
-            candidate_ten_minute_performance=candidate_ten_minute_performance,
-            source_family_inventory=source_family_inventory,
-            fleet_observability=fleet_observability,
-        ),
+        "settled_day_freshness": settled_day_freshness,
+        "data_layer_audit": data_layer_audit,
+        "ingest_quality_gate": ingest_quality_gate,
+        "daily_learning": daily_learning,
+        "per_location_artifact_quarantine": per_location_artifact_quarantine,
+        "disk_headroom": disk_headroom,
+        "evidence_freshness": evidence_freshness,
+        "early_hour_promotion_blocker": early_hour_promotion_blocker,
+        "source_missingness_location_gate": source_missingness_location_gate,
+        "runtime_identity_evidence": runtime_identity_evidence,
+        "readiness": readiness,
         "gap_owner_table": gap_owner_table,
         "gap_experiment_artifacts": gap_experiment_artifacts,
         "market_skill_diagnostics": market_diagnostics,
@@ -323,6 +405,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         payload,
         min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
     )
+    payload["promotion_allowlist"]["path"] = _as_path(allowlist_path)
     return payload, out_path, report_path
 
 # Re-export imported dependency names as well because later slices intentionally

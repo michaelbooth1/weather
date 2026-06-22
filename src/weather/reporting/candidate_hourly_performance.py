@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from collections import defaultdict
@@ -27,6 +28,25 @@ DEFAULT_MIN_MARKET_DAYS = 10
 DEFAULT_EARLY_BRIER_TOLERANCE = 0.003
 DEFAULT_EARLY_LOGLOSS_TOLERANCE = 0.010
 DEFAULT_EARLY_ECE_MAX = 0.120
+CANDIDATE_ROW_CORPUS_HASH_FIELDS = [
+    "variant_id",
+    "market_id",
+    "target_date",
+    "snapshot_id",
+    "band_key",
+    "captured_at_local",
+    "variant_probability",
+    "current_probability",
+    "market_yes",
+    "outcome",
+    "bin_type",
+    "bin_value",
+    "settlement_distance_bucket",
+    "forecast_bucket_pressure",
+    "forecast_disagreement_bucket",
+    "forecast_source_count_bucket",
+    "source_freshness_state",
+]
 
 
 def utc_iso() -> str:
@@ -127,6 +147,32 @@ def read_variant_rows(path: str | Path) -> list[dict[str, Any]]:
             if normalized is not None:
                 rows.append(normalized)
         return rows
+
+
+def _hash_value(row: dict[str, Any], field: str) -> Any:
+    if field == "variant_probability":
+        value = safe_float(row.get("variant_probability", row.get("probability")))
+        return round(float(value), 12) if value is not None else None
+    if field in {"current_probability", "market_yes"}:
+        value = safe_float(row.get(field))
+        return round(float(value), 12) if value is not None else None
+    if field == "outcome":
+        value = safe_int(row.get(field))
+        return int(value) if value is not None else None
+    value = row.get(field)
+    return "" if value in (None, "") else str(value)
+
+
+def candidate_rows_corpus_hash(rows: list[dict[str, Any]]) -> str | None:
+    if not rows:
+        return None
+    canonical = [
+        {field: _hash_value(row, field) for field in CANDIDATE_ROW_CORPUS_HASH_FIELDS}
+        for row in rows
+    ]
+    canonical.sort(key=lambda row: tuple(row.get(field) for field in CANDIDATE_ROW_CORPUS_HASH_FIELDS))
+    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def hourly_checkpoint_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -363,6 +409,7 @@ def build_candidate_hourly_performance(
                 if row.get("market_id") and row.get("target_date")
             }),
             "snapshots": len({row.get("snapshot_id") for row in source_rows if row.get("snapshot_id")}),
+            "corpus_hash": candidate_rows_corpus_hash(source_rows),
         },
         "by_hour": by_hour,
         "by_hour_regime": by_regime,

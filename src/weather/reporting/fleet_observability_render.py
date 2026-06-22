@@ -44,6 +44,7 @@ def write_markdown(path, payload):
             row.get("affected_family_count"),
             row.get("blocking_family_count"),
             row.get("provider_cooldown_source_count"),
+            row.get("expected_unavailable_source_count"),
             row.get("top_degraded_family") or "-",
             _format_source_family_detail(row.get("affected_families") or []),
             row.get("repair_command") or "-",
@@ -106,6 +107,7 @@ def write_markdown(path, payload):
         f"Live-trade blocked markets: `{source_status_summary.get('live_trade_permission_blocked_market_count')}`",
         f"Top degraded family: `{source_status_summary.get('top_degraded_family') or '-'}`",
         f"Provider-cooldown sources: `{source_status_summary.get('provider_cooldown_source_count')}`",
+        f"Expected current-day unavailable sources: `{source_status_summary.get('expected_unavailable_source_count')}`",
         f"Repair command: `{source_status_proof.get('repair_command') or SOURCE_STATUS_BACKFILL_COMMAND}`",
         f"Verification command: `{source_status_proof.get('verification_command') or SOURCE_PROVIDER_STATUS_COMMAND}`",
         "",
@@ -113,10 +115,53 @@ def write_markdown(path, payload):
     lines += markdown_table(
         [
             "Market", "Snapshot", "Model Review", "Paper", "Live Trade", "Promotion",
-            "Affected Families", "Blocking Families", "Cooldown Sources", "Top Family",
+            "Affected Families", "Blocking Families", "Cooldown Sources", "Expected Unavailable", "Top Family",
             "Family Detail", "Repair Command",
         ],
         source_status_rows,
+    )
+    trading = payload.get("trading_evidence") or {}
+    mm_trading = trading.get("market_making") or {}
+    taker_trading = trading.get("taker") or {}
+    lines += [
+        "",
+        "## Trading Risk Gates",
+        "",
+        f"MM current-high trust no-quotes: `{mm_trading.get('current_high_trust_no_quote_count')}`",
+        f"Taker current-high trust no-trades: `{taker_trading.get('current_high_trust_no_trade_count')}`",
+        f"Taker P&L evidence: `{taker_trading.get('pnl_evidence_status') or '-'}`",
+        f"Taker tail quality: `{taker_trading.get('tail_fill_quality_status') or '-'}`",
+        "",
+    ]
+    runtime_evidence = payload.get("runtime_identity_evidence") or {}
+    runtime_snapshots = runtime_evidence.get("snapshots") or {}
+    runtime_rows = [
+        [
+            row.get("runtime_git_commit") or row.get("runtime_key"),
+            row.get("row_count"),
+            row.get("snapshot_count"),
+            row.get("market_count"),
+            row.get("runtime_source_fingerprint") or "-",
+            row.get("runtime_code_states") or {},
+        ]
+        for row in runtime_snapshots.get("segments") or []
+    ]
+    lines += [
+        "",
+        "## Runtime Identity Evidence",
+        "",
+        f"Status: **{runtime_evidence.get('status') or '-'}**",
+        f"Target date: `{runtime_evidence.get('target_date') or '-'}`",
+        f"Mixed runtime identity: `{runtime_evidence.get('mixed_runtime_identity')}`",
+        f"Runtime identities: `{runtime_evidence.get('runtime_identity_count')}`",
+        f"Snapshot rows: `{runtime_evidence.get('snapshot_row_count')}`",
+        f"Blocking reason: `{runtime_evidence.get('blocking_reason') or '-'}`",
+        f"Reconciliation: `{runtime_evidence.get('reconciliation_status') or '-'}`",
+        "",
+    ]
+    lines += markdown_table(
+        ["Commit", "Rows", "Snapshots", "Markets", "Source Fingerprint", "Code States"],
+        runtime_rows,
     )
     lines += ["", "## Historical Data Audits", ""]
     lines += markdown_table(

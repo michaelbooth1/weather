@@ -10,6 +10,7 @@ from weather.market.mm_policy import (
     config_with_clob_recon,
     decide_quote,
     hourly_trust_state,
+    load_promotion_states,
     resolve_known_edge_record,
     run_policy_snapshot,
 )
@@ -76,6 +77,45 @@ def manual_event_calendar(action="suppress"):
 
 
 class TestMmPolicy(unittest.TestCase):
+    def test_load_promotion_states_prefers_allowlist_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(json.dumps({
+                "decisions": {
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "action": "PROMOTE_CANDIDATE",
+                            "verdict": "PASS",
+                        }
+                    ]
+                },
+                "promotion_allowlist": {
+                    "schema_version": "promotion_allowlist_v0.1",
+                    "path": "allowlist.json",
+                    "candidate_id": "candidate_v1",
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "candidate_id": "candidate_v1",
+                            "action": "BLOCK_CANDIDATE",
+                            "verdict": "BLOCK",
+                            "candidate_serving_allowed": False,
+                            "candidate_permission_allowed": False,
+                            "blocker_reason": "candidate trails market",
+                        }
+                    ],
+                },
+            }), encoding="utf-8")
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states["atlanta"]["promotion_state"], "BLOCK")
+        self.assertFalse(states["atlanta"]["candidate_permission_allowed"])
+        self.assertTrue(states["atlanta"]["promotion_allowlist_enforced"])
+        self.assertTrue(diag["promotion_allowlist_enforced"])
+        self.assertEqual(diag["promotion_allowlist_schema_version"], "promotion_allowlist_v0.1")
+
     def test_blocked_promotion_fails_closed(self):
         quote = decide_quote(fresh_row(promotion_state="BLOCK"), now=NOW)
 
@@ -167,6 +207,95 @@ class TestMmPolicy(unittest.TestCase):
 
         self.assertFalse(quote["quote_permission"])
         self.assertEqual(quote["reason_code"], "NO_QUOTE_DISAGREEMENT_SHADOW")
+
+    def test_snapshot_cadence_gap_blocks_high_confidence_edge_quote(self):
+        quote = decide_quote(
+            fresh_row(
+                promotion_state="PASS",
+                known_edge_allowed=True,
+                known_edge_permission="edge_allowed",
+                known_edge_reason="live_forward_paper_gate_clear",
+                fair_probability=0.78,
+                market_mid=0.50,
+                clob_best_bid=0.49,
+                clob_best_ask=0.51,
+                snapshot_cadence="scheduled",
+                snapshot_cadence_gap_count=1,
+                snapshot_cadence_max_gap_seconds=1328.4,
+            ),
+            now=NOW,
+        )
+
+        self.assertFalse(quote["quote_permission"])
+        self.assertEqual(quote["reason_code"], "NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED")
+        self.assertEqual(quote["snapshot_cadence_quality_state"], "gappy")
+        self.assertEqual(quote["snapshot_cadence_permission"], "deny")
+        self.assertLess(float(quote["snapshot_cadence_confidence_multiplier"]), 1.0)
+        self.assertLess(float(quote["cadence_adjusted_fair_probability"]), float(quote["fair_probability"]))
+
+    def test_late_untrusted_current_high_blocks_aggressive_mm_edge_for_june_21_markets(self):
+        cases = {
+            "toronto": (84.0, 86.0),
+            "atlanta": (84.02, 86.0),
+            "denver": (83.84, 87.0),
+            "houston": (86.0, 89.0),
+            "san-francisco": (64.94, 70.0),
+        }
+        for market_id, (raw_high, settlement_high) in cases.items():
+            with self.subTest(market_id=market_id):
+                quote = decide_quote(
+                    fresh_row(
+                        market_id=market_id,
+                        event_slug=f"highest-temperature-in-{market_id}-on-june-21-2026",
+                        captured_at_utc="2026-06-21T20:00:00+00:00",
+                        capture_hour_local="16",
+                        promotion_state="PASS",
+                        known_edge_allowed=True,
+                        known_edge_permission="edge_allowed",
+                        known_edge_reason="live_forward_paper_gate_clear",
+                        fair_probability=0.78,
+                        market_mid=0.50,
+                        clob_best_bid=0.49,
+                        clob_best_ask=0.56,
+                        raw_current_high=raw_high,
+                        raw_current_high_bucket=round(raw_high),
+                        settlement_current_high=settlement_high,
+                        current_high_trusted=False,
+                        current_high_guard_reason="settlement_adjusted_high_diverged_from_raw_current_high",
+                        current_max_state="current_max_history_gap",
+                    ),
+                    config={"information_event_calendar_enabled": False},
+                    now="2026-06-21T20:01:00+00:00",
+                )
+
+                self.assertFalse(quote["quote_permission"])
+                self.assertEqual(quote["reason_code"], "NO_QUOTE_CURRENT_HIGH_TRUST_GATE")
+                self.assertEqual(quote["current_high_trust_gate_status"], "blocked")
+                self.assertEqual(quote["current_high_trust_gate_action"], "deny_aggressive_edge")
+                self.assertTrue(quote["current_high_trust_gate_aggressive"])
+                self.assertIn("untrusted_current_high", quote["reason_detail"])
+
+    def test_late_untrusted_current_high_caps_and_widens_mm_harvest(self):
+        quote = decide_quote(
+            fresh_row(
+                captured_at_utc="2026-06-21T20:00:00+00:00",
+                capture_hour_local="16",
+                current_high_trusted=False,
+                current_high_guard_reason="missing_wu_history_validation",
+                current_max_state="missing_wu_history_high",
+            ),
+            config={"information_event_calendar_enabled": False},
+            now="2026-06-21T20:01:00+00:00",
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["regime"], "harvest")
+        self.assertEqual(quote["current_high_trust_gate_status"], "capped")
+        self.assertEqual(quote["current_high_trust_gate_action"], "cap_and_widen")
+        self.assertAlmostEqual(float(quote["bid_size"]), 2.5)
+        self.assertAlmostEqual(float(quote["ask_size"]), 2.5)
+        self.assertAlmostEqual(float(quote["bid_price"]), 0.48)
+        self.assertAlmostEqual(float(quote["ask_price"]), 0.52)
 
     def test_hourly_trust_bands_are_market_local(self):
         self.assertEqual(

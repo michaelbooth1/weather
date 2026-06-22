@@ -164,6 +164,7 @@ def build_strategy_summary_payload(pnl_payload, run_config=None, run_id=None, ta
         "strategy_registry": (run_config or {}).get("strategy_registry") or strategy_registry_payload(),
         "strategies": (pnl_payload or {}).get("by_strategy") or [],
         "comparison": (pnl_payload or {}).get("strategy_comparison") or {},
+        "tail_fill_quality": (pnl_payload or {}).get("tail_fill_quality") or {},
     }
 
 
@@ -190,6 +191,8 @@ def render_strategy_report(payload):
             ["Best strategy net P&L", fmt_num(comparison.get("best_strategy_net_pnl_usdc"), 4)],
             ["Best settlement-scored strategy", comparison.get("best_settlement_scored_strategy_id") or "-"],
             ["Settlement-scored candidate status", comparison.get("countable_strategy_quality_candidate_status")],
+            ["Promotion evidence basis", comparison.get("promotion_evidence_basis") or "-"],
+            ["MTM can promote", str(bool(comparison.get("mtm_promotion_allowed"))).lower()],
         ],
     ))
     lines.extend(["", "## Strategies", ""])
@@ -210,6 +213,8 @@ def render_strategy_report(payload):
             "Net P&L",
             "Realized - Expected",
             "Tail Fills",
+            "Tail Fraction",
+            "Tail Gate",
             "Countable",
         ],
         [
@@ -229,11 +234,50 @@ def render_strategy_report(payload):
                 fmt_num(row.get("net_pnl_usdc"), 4),
                 fmt_num(row.get("realized_minus_expected_pnl_usdc"), 4),
                 row.get("low_price_tail_fill_count"),
+                fmt_num(row.get("low_price_tail_fill_fraction"), 4),
+                (row.get("tail_fill_quality_summary") or {}).get("status") or "-",
                 str(row.get("quality_candidate_countable")).lower(),
             ]
             for row in strategies
         ],
     ))
+    tail_quality = payload.get("tail_fill_quality") or {}
+    tail_summary = tail_quality.get("summary") or {}
+    if tail_summary:
+        lines.extend(["", "## Tail Fill Quality", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", tail_summary.get("status") or "-"],
+                ["Tail fills", tail_summary.get("low_price_tail_fill_count")],
+                ["Tail fill fraction", fmt_num(tail_summary.get("low_price_tail_fill_fraction"), 4)],
+                ["Max tail fill fraction", fmt_num(tail_summary.get("max_tail_fill_fraction"), 4)],
+                ["Settled / unsettled tail fills", f"{tail_summary.get('settled_tail_fill_count')}/{tail_summary.get('unsettled_tail_fill_count')}"],
+                ["Tail settlement P&L", fmt_num(tail_summary.get("tail_settlement_pnl_usdc"), 4)],
+                ["Tail MTM P&L", fmt_num(tail_summary.get("tail_mark_to_market_pnl_usdc"), 4)],
+                ["Alerts", tail_summary.get("alert_count")],
+            ],
+        ))
+    tail_rows = tail_quality.get("by_market_range") or []
+    if tail_rows:
+        lines.extend(["", "## Tail Fills By Market And Range", ""])
+        lines.extend(markdown_table(
+            ["Strategy", "Market", "Range", "Fills", "Settled", "Wins", "Losses", "Spent", "Net P&L"],
+            [
+                [
+                    row.get("strategy_id"),
+                    row.get("market_id"),
+                    row.get("range_label"),
+                    row.get("fill_count"),
+                    row.get("settled_count"),
+                    row.get("win_count"),
+                    row.get("loss_count"),
+                    fmt_num(row.get("spent_usdc"), 2),
+                    fmt_num(row.get("net_pnl_usdc"), 4),
+                ]
+                for row in tail_rows
+            ],
+        ))
     lines.append("")
     return "\n".join(lines)
 

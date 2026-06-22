@@ -50,12 +50,21 @@ def build_parser():
     )
     parser.add_argument("--source-family-inventory", default=str(DEFAULT_SOURCE_FAMILY_INVENTORY))
     parser.add_argument("--fleet-observability-report", default=str(DEFAULT_FLEET_OBSERVABILITY))
+    parser.add_argument("--settled-day-freshness-report", default=str(DEFAULT_SETTLED_DAY_FRESHNESS))
+    parser.add_argument("--data-layer-audit-report", default=str(DEFAULT_DATA_LAYER_AUDIT))
+    parser.add_argument("--ingest-quality-gate-report", default=str(DEFAULT_INGEST_QUALITY_GATE))
+    parser.add_argument("--daily-learning-report", default=str(DEFAULT_DAILY_LEARNING))
+    parser.add_argument(
+        "--per-location-artifact-quarantine-report",
+        default=str(DEFAULT_PER_LOCATION_ARTIFACT_QUARANTINE),
+    )
     parser.add_argument("--forecast-tracker", default=str(DEFAULT_FORECAST_TRACKER))
     parser.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     parser.add_argument("--no-baseline", action="store_true")
     parser.add_argument("--skip-serving-gauntlet", action="store_true")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
+    parser.add_argument("--promotion-allowlist-out", default=str(DEFAULT_PROMOTION_ALLOWLIST))
     parser.add_argument("--incomplete-manifest", default=str(DEFAULT_INCOMPLETE_MANIFEST))
     parser.add_argument("--current-tol", type=float, default=0.003)
     parser.add_argument("--tol", type=float, default=0.003)
@@ -107,7 +116,12 @@ def main(argv=None):
     )
     print(f"JSON written to {out_path}")
     print(f"Report written to {report_path}")
-    if args.fail_on_block and decisions.get("blocked_markets"):
+    readiness = payload.get("readiness") or {}
+    readiness_blocked = any(
+        row.get("severity") == "block"
+        for row in readiness.get("blockers") or []
+    )
+    if args.fail_on_block and (decisions.get("blocked_markets") or readiness_blocked):
         sys.exit(1)
 
 

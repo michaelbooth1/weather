@@ -1,4 +1,4 @@
-# 35. Unified Continuous-Density Model [PARTIAL 2026-06-20 - TARGET-DAY SIGNAL, CURRENT REGRESSION, AND CLOB CONTINUITY BLOCKED]
+# 35. Unified Continuous-Density Model [PARTIAL 2026-06-22 - V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED]
 
 Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 
@@ -1451,3 +1451,40 @@ split-safe CLOB/microstructure continuity, then train a target-day
 band-selection repair that can lift winner mass and pass a current-regression
 guard on later dates, including Toronto, before rerunning the full pinned
 replay.
+
+## 2026-06-22 v0.7 diagnostic refresh
+
+I regenerated the lightweight diagnostics from the existing v0.7 density row
+export, without starting another long retrain/replay:
+
+- `data/backtest/item35_density_v0_7_repair_diagnostics.json`
+- `data/backtest/item35_density_v0_7_repair_diagnostics_report.md`
+- `data/backtest/item35_density_v0_7_winner_underpricing_casebook.json`
+- `data/backtest/item35_density_v0_7_winner_underpricing_casebook_report.md`
+
+The refreshed repair diagnostics still scan `76,879` v0.7 replay rows across
+all 12 markets and keep the same fail-closed conclusion. Nine markets regress
+current or miss market tolerance enough to need current-regression guarding:
+Austin, Chicago, Denver, Los Angeles, Miami, San Francisco, Seattle, Toronto,
+plus Dallas as a monitor/current-regression case. NYC is the cleanest direct
+winner-mass repair target because the v0.7 candidate does not regress current
+there but remains far outside market tolerance.
+
+The strict early winner-underpricing casebook still finds `673` cases across
+Austin, Los Angeles, NYC, San Francisco, and Seattle. Average winner-probability
+gaps versus market remain largest in NYC (`+0.2796`), Los Angeles (`+0.1765`),
+Seattle (`+0.1463`), Austin (`+0.1362`), and San Francisco (`+0.1051`). This is
+development targeting evidence only, not promotion evidence.
+
+Item 35 remains `PARTIAL`: the continuous-density serving, replay, calibration,
+and v0.7 artifact paths are implemented, but the acceptance bar is empirical.
+The latest candidate still fails the full pinned replay, regresses current in
+too many markets, and does not lift Toronto. Another broad density blend is not
+the next useful step; the next unblock is split-safe target-day band-selection
+signal, likely after restoring/collecting CLOB continuity or another validated
+source family that predicts winner-band movement without replay-row tuning.
+
+Verification:
+
+- `python -m pytest tests\model\test_continuous_density.py tests\model\test_market_units.py tests\calibration\test_probability_calibration.py tests\calibration\test_pooled_feature_model.py tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_blocked_market_repair_diagnostics.py tests\reporting\test_winner_underpricing_casebook.py tests\operations\test_schema_registry.py -q`
+  passed with `134 passed`, `16 warnings`.

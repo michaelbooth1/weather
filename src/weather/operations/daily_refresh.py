@@ -39,6 +39,7 @@ from weather.reporting import daily_learning
 from weather.reporting import daily_progress_ledger
 from weather.reporting import daily_rollup_freshness
 from weather.reporting import fleet_observability
+from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import ten_minute_model_performance
 from weather.reporting import price_free_model_learning
@@ -112,6 +113,7 @@ from weather.operations.daily_refresh_steps import (
     run_disagreement_casebook_step,
     run_distribution_stage_attribution_step,
     run_fleet_observability_step,
+    run_frozen_baseline_replay_trend_step,
     run_hourly_model_performance_step,
     run_ingest_quality_gate_step,
     run_market_day_labels_finalize,
@@ -317,6 +319,7 @@ def _cli_dependencies():
         STEP_ORDER=STEP_ORDER,
         progress_audit=progress_audit,
         active_variant_shadow_refresh=active_variant_shadow_refresh,
+        frozen_baseline_replay_trend=frozen_baseline_replay_trend,
         hourly_model_performance=hourly_model_performance,
         ten_minute_model_performance=ten_minute_model_performance,
         settled_day_root_cause=settled_day_root_cause,

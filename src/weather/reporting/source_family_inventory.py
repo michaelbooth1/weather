@@ -68,6 +68,7 @@ FORECAST_PAYLOAD_SOURCES = {
     "nbm_probabilistic_tmax",
     "open_meteo_multimodel",
     "open_meteo_global_models",
+    "open_meteo_air_quality",
     "global_ensemble",
 }
 REANALYSIS_THIN_MARGIN_DELTA = 0.003
@@ -154,10 +155,10 @@ FAMILY_SPECS = (
     SourceFamilySpec(
         "open_meteo_expanded",
         "Open-Meteo expanded hourly environment",
-        ("open_meteo",),
+        ("open_meteo", "open_meteo_air_quality"),
         tuple(FORECAST_PROFILE_COLUMNS),
         ("source_status_long.csv", "forecast_payloads_long.csv", "features_long.csv"),
-        ("open_meteo_expanded", "open_meteo"),
+        ("open_meteo_expanded", "open_meteo", "open_meteo_air_quality"),
         "partial_forecast_history_archive",
         "parity_required_before_promotion",
         "forecast archive",
@@ -349,6 +350,8 @@ def stats_template():
         "feature_rows": 0,
         "feature_total_cells": 0,
         "feature_missing_cells": 0,
+        "feature_column_total_cells": defaultdict(int),
+        "feature_column_missing_cells": defaultdict(int),
         "feature_columns_present": set(),
         "feature_folders": set(),
         "by_market": defaultdict(lambda: {"rows": 0, "total_cells": 0, "missing_cells": 0}),
@@ -372,6 +375,10 @@ def update_feature_stats(stats, spec, row, market_id, *, columns=None):
     missing = sum(1 for column in present if is_blank(row.get(column)))
     stats["feature_total_cells"] += total
     stats["feature_missing_cells"] += missing
+    for column in present:
+        stats["feature_column_total_cells"][column] += 1
+        if is_blank(row.get(column)):
+            stats["feature_column_missing_cells"][column] += 1
     market_row = stats["by_market"][market]
     market_row["rows"] += 1
     market_row["total_cells"] += total
@@ -512,6 +519,15 @@ def missing_rate(row):
     if not total:
         return None
     return row.get("missing_cells", 0) / total
+
+
+def feature_missingness_for_columns(stats, columns):
+    total = 0
+    missing = 0
+    for column in columns:
+        total += int(stats["feature_column_total_cells"].get(column, 0))
+        missing += int(stats["feature_column_missing_cells"].get(column, 0))
+    return {"missing_cells": missing, "total_cells": total}
 
 
 def grouped_missingness(grouped):
@@ -902,9 +918,11 @@ def lineage_status(spec, stats):
     return "PASS"
 
 
-def parity_status(spec, stats, lineage):
-    feature_column_count = len(spec.feature_columns)
-    present_count = len(stats["feature_columns_present"])
+def parity_status(spec, stats, lineage, usage=None):
+    active_columns = set((usage or {}).get("active_model_feature_columns") or [])
+    required_columns = active_columns or set(spec.feature_columns)
+    feature_column_count = len(required_columns)
+    present_count = len(required_columns & stats["feature_columns_present"])
     if feature_column_count and present_count == 0:
         return "NO_FEATURE_COLUMNS_OBSERVED"
     if feature_column_count and present_count < feature_column_count:
@@ -915,10 +933,7 @@ def parity_status(spec, stats, lineage):
         if "clob_feature_available" not in stats["feature_columns_present"]:
             return "MISSING_FEATURE_COLUMNS"
         return "PASS"
-    rate = missing_rate({
-        "missing_cells": stats["feature_missing_cells"],
-        "total_cells": stats["feature_total_cells"],
-    })
+    rate = missing_rate(feature_missingness_for_columns(stats, required_columns))
     if rate is not None and rate >= 0.98:
         return "MOSTLY_MISSING"
     if rate is not None and rate >= 0.50:
@@ -1032,7 +1047,7 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
         stats = stats_by_family[spec.family_id]
         usage = active_family_usage(spec, model_usage or {})
         lineage = lineage_status(spec, stats)
-        parity = parity_status(spec, stats, lineage)
+        parity = parity_status(spec, stats, lineage, usage=usage)
         ablation = ablation_for_spec(spec, ablations)
         decision = promotion_decision(spec, lineage, parity, ablation)
         promotion_lane = None
@@ -1054,6 +1069,13 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
             "feature_column_count": len(spec.feature_columns),
             "feature_columns_present": sorted(stats["feature_columns_present"]),
             "missing_feature_columns": sorted(set(spec.feature_columns) - stats["feature_columns_present"]),
+            "required_parity_feature_columns": sorted(
+                set(usage["active_model_feature_columns"]) or set(spec.feature_columns)
+            ),
+            "missing_required_parity_feature_columns": sorted(
+                (set(usage["active_model_feature_columns"]) or set(spec.feature_columns))
+                - stats["feature_columns_present"]
+            ),
             "lineage_artifacts": list(spec.lineage_artifacts),
             "historical_archive_status": spec.historical_archive_status,
             "live_only": spec.live_only_policy != "training_and_serving",

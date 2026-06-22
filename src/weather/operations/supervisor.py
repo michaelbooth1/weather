@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 import signal
 import subprocess
 import sys
@@ -20,6 +21,30 @@ from weather.time import parse_datetime
 
 
 SleepFn = Callable[[float], None]
+
+
+class JsonLineLogFormatter(logging.Formatter):
+    """Format Python logging records as one valid JSON object per line."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "time": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, sort_keys=True, default=str)
+
+
+def configure_json_console_logging(stream=None, level=logging.INFO) -> None:
+    """Route library logging to JSONL for managed loop console logs."""
+    handler = logging.StreamHandler(stream or sys.stderr)
+    handler.setFormatter(JsonLineLogFormatter())
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
 
 
 @dataclass(frozen=True)

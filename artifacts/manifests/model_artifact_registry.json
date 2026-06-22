@@ -1689,13 +1689,13 @@
       "kind": "hgb_model",
       "managed_external_bytes": 193373,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-20T13:49:59.206998+00:00",
+      "modified_at_utc": "2026-06-21T13:51:16.187974+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
       "registry_use": "active_promoted",
       "reproducibility_requirement": "promotion_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl\"",
       "schema_version": null,
-      "sha256": "e0842a154259d2f31271a9a49944a35427dec29110788e399c79e807a52a82a8",
+      "sha256": "98fee1407f3c80f4d634cac5a7fb1a6d741c82c76637bf6afa9d948fd63bd417",
       "storage_backend": "git_lfs",
       "storage_managed": true,
       "suffix": ".pkl",
@@ -1931,18 +1931,18 @@
     },
     {
       "artifact_id": "models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
-      "bytes": 5340804,
+      "bytes": 6275110,
       "feature_schema_version": null,
       "kind": "hgb_model",
-      "managed_external_bytes": 5340804,
+      "managed_external_bytes": 6275110,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-16T05:21:10.181963+00:00",
+      "modified_at_utc": "2026-06-22T02:53:22.458239+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
       "registry_use": "active_promoted",
       "reproducibility_requirement": "promotion_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl\"",
       "schema_version": null,
-      "sha256": "dfcd732f9382404713600b2a122e886b0b6f9df6ccaa7cc332686b15ecc77e53",
+      "sha256": "23017e4f2a0442dda46075fe97efc29603c1bef8724c4b99b301b81621d2c81f",
       "storage_backend": "git_lfs",
       "storage_managed": true,
       "suffix": ".pkl",
@@ -2162,14 +2162,14 @@
       ]
     }
   ],
-  "generated_at_utc": "2026-06-20T19:25:59.160325+00:00",
+  "generated_at_utc": "2026-06-22T02:53:25.680046+00:00",
   "kind_counts": {
     "calibration": 51,
     "coefs_model": 24,
     "hgb_model": 26,
     "manifest": 1
   },
-  "managed_external_bytes": 379425446,
+  "managed_external_bytes": 380359752,
   "registry_use_counts": {
     "active_promoted": 6,
     "smoke_only": 2,
@@ -2182,5 +2182,5 @@
     "git_lfs": 26
   },
   "unmanaged_git_bytes": 5879245,
-  "working_tree_bytes": 385304691
+  "working_tree_bytes": 386238997
 }

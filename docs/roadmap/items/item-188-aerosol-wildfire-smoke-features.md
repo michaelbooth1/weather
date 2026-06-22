@@ -1,4 +1,4 @@
-# 188. Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-21 - OPEN-METEO AQ FEATURE PATH LIVE, SMOKE-SLICE GATE PENDING]
+# 188. Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-22 - GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED]
 
 Goal: stop the model being blind to wildfire smoke, a regime that suppresses
 the daytime maximum by dimming surface heating and producing one-sided warm
@@ -51,9 +51,85 @@ these new columns stay inert until an AQ backfill/retrain promotes them.
 
 - [x] Add the Open-Meteo Air Quality aerosol adapter with provenance.
 - [x] Add heating-window AOD/PM2.5/PM10/dust + smoke-flag features.
+- [x] Track Open-Meteo Air Quality as an expanded Open-Meteo source-family
+      payload in source inventory.
+- [x] Machine-readable AQ/smoke settlement gate artifact.
 - [ ] Add historical AQ backfill/retrain support so the feature family is
       selectable by promoted artifacts.
 - [ ] Settlement-scored gate with an explicit high-AOD/high-PM smoke-day slice.
+
+## 2026-06-22 Gate Rerun
+
+The refreshed child-gate evidence does not promote AQ/smoke yet. The live
+Open-Meteo AQ path is present, but the available weak-family evidence is still
+under the broader Open-Meteo forecast-profile surface and lacks a historical AQ
+archive, retrain-selectable artifact columns, and a dedicated high-AOD/high-PM
+settlement slice. The next unblock remains AQ backfill or replay-safe live
+history, followed by a smoke-slice gate.
+
+## 2026-06-22 AQ/Smoke Gate Artifact
+
+Added `weather.reporting.forecast_smoke_gate`, schema
+`forecast_smoke_gate_v0.1`, with generated evidence at:
+
+- `data/backtest/item188_forecast_smoke_gate.json`
+- `data/backtest/item188_forecast_smoke_gate_report.md`
+
+Also updated `weather.reporting.source_family_inventory` so
+`open_meteo_air_quality` is classified under the `open_meteo_expanded` source
+family. The refreshed inventory remains `PASS` and now sees
+`open_meteo_air_quality` in both source status and forecast payloads.
+
+Current smoke gate status: `BLOCK`.
+
+Blockers:
+
+- the available replay is `feature_subset=forecast_profile`, not an isolated
+  AQ/smoke replay.
+- historical archive status is still `partial_forecast_history_archive`, not a
+  historical AQ/smoke archive.
+- all seven AQ/smoke columns are cataloged, but zero are selected by the active
+  artifact feature names.
+- the current HGB permutation artifact has no AQ/smoke feature rows.
+- no high-AOD/high-PM settlement slice exists yet.
+- the borrowed full forecast-profile replay still fails daily-first market
+  tolerance.
+
+Next unblock: backfill or replay-save Open-Meteo Air Quality history, train a
+smoke-scoped candidate with AQ/smoke columns selected, regenerate HGB
+permutation evidence, and add the high-smoke settlement slice.
+
+## 2026-06-22 Gate Refresh
+
+I regenerated `data/backtest/item188_forecast_smoke_gate.json` and
+`data/backtest/item188_forecast_smoke_gate_report.md`. The live gate remains
+`BLOCK`.
+
+The source/payload side has improved versus the earlier gate note:
+`open_meteo_air_quality` is now present in both source-status and
+forecast-payload inventory, and all seven AQ/smoke columns are cataloged.
+
+Current blockers:
+
+- `isolated_smoke_replay_missing`: the candidate replay is still scoped to
+  `forecast_profile`, not an aerosol/smoke feature family.
+- `historical_aq_backfill_missing`: historical archive status is
+  `partial_forecast_history_archive`.
+- `smoke_features_not_selected_by_active_artifact`: zero AQ/smoke columns are
+  selected by the active artifact.
+- `smoke_permutation_evidence_missing`: no AQ/smoke rows are in the HGB
+  permutation artifact.
+- `blocked_validation_failed`: daily-first candidate validation is not within
+  market tolerance.
+- `high_smoke_settlement_slice_missing`: high-smoke slice rows are `0`.
+
+This keeps the AQ/smoke family shadow-only until replay-safe AQ history, a
+scoped smoke candidate, permutation evidence, and high-AOD/high-PM settlement
+slices exist.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_forecast_smoke_gate.py tests\model\test_forecast_feature.py tests\model\test_feature_store.py tests\operations\test_schema_registry.py -q` -> 48 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
 Acceptance: an aerosol/smoke family is available and settlement-scored, with
 measured Tmax-bust reduction on the high-AOD slice and no aggregate regression.

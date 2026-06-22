@@ -1,4 +1,4 @@
-# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-21 - STATION WATER-FORECAST CONTRAST LIVE, GLSEA/OISST GATE PENDING]
+# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-22 - GATE REFRESHED, SST/BREEZE SLICE BLOCKED]
 
 Goal: give the lake/sea-breeze signal the water temperature contrast it depends
 on, so the model can anticipate shoreline-cooling days instead of only flagging
@@ -43,12 +43,90 @@ active under onshore flow.
 - [x] Bumped the feature schema to `toronto_feature_store_v1.11`; historical
   rows keep these live-only fields nullable until backfills/replay gates exist.
 - [x] Added focused source and live-feature tests for the contrast fields.
+- [x] Added machine-readable marine contrast gate artifact.
 - [ ] Add GLSEA Great Lakes SST and/or OISST gridded SST adapters with
   market-point extraction and provenance.
 - [ ] Backfill or replay-gate the station/gridded water-contrast features for
   lake/coast-influenced markets.
 - [ ] Settlement-score the onshore-wind/breeze-day slice and require no
   aggregate regression before promotion.
+
+## 2026-06-22 Gate Rerun
+
+The refreshed weak-input disposition keeps `marine_microclimate` in
+`regime_backfill`: `17` low-coverage/sparse features, `8` near-constant or
+unanalyzable features, no positive broad family permutation gate, and incomplete
+lineage/parity. The next unblock is still GLSEA/OISST or enough station history,
+then an onshore/breeze-day settlement slice.
+
+## 2026-06-22 Marine Contrast Gate Artifact
+
+Added `weather.reporting.marine_contrast_gate`, schema
+`marine_contrast_gate_v0.1`, with generated evidence at:
+
+- `data/backtest/item191_marine_contrast_gate.json`
+- `data/backtest/item191_marine_contrast_gate_report.md`
+
+Current gate status: `BLOCK`.
+
+Current evidence:
+
+- source inventory sees `marine_context` source-status rows.
+- all six water-contrast gate features are cataloged.
+- the existing `marine_context` source-family ablation covers `42,273` rows
+  across `24` days, but shows `+0.0000` delta and `0` days helped.
+- the active artifact selects zero marine contrast features.
+
+Blockers:
+
+- the available replay is `feature_subset=forecast_profile`, not an isolated
+  marine-contrast replay.
+- `81` snapshot folders lack marine source rows.
+- historical archive status is `station_archive_partial`.
+- source-family train/serve parity is `PARTIAL_MISSINGNESS`.
+- existing marine ablation has no positive lift.
+- the current HGB permutation artifact has zero water-contrast rows.
+- no onshore/breeze settlement slice exists.
+- the borrowed full forecast-profile replay still fails daily-first market
+  tolerance.
+
+Next unblock: backfill station history or add GLSEA/OISST gridded SST, train a
+marine-contrast-scoped candidate with water-contrast columns selected,
+regenerate HGB permutation evidence, and add an onshore/breeze settlement slice.
+
+## 2026-06-22 Gate Refresh
+
+I regenerated `data/backtest/item191_marine_contrast_gate.json` and
+`data/backtest/item191_marine_contrast_gate_report.md`. The live gate remains
+`BLOCK`.
+
+Current blockers:
+
+- `isolated_marine_replay_missing`: the replay is still a broad
+  `forecast_profile` candidate, not a marine water-contrast candidate.
+- `marine_source_lineage_partial`: `81` snapshot folders lack marine source
+  rows.
+- `historical_marine_backfill_missing`: historical archive status is
+  `station_archive_partial`.
+- `marine_contrast_features_not_selected_by_active_artifact`: the active
+  artifact still selects zero contrast columns.
+- `train_serve_parity_not_pass`: source-family parity is `PARTIAL_MISSINGNESS`.
+- `marine_ablation_no_positive_lift`: marine-context ablation delta is
+  `+0.0000`.
+- `marine_contrast_permutation_evidence_missing`: no water-contrast rows are in
+  the HGB permutation artifact.
+- `blocked_validation_failed`: daily-first candidate validation is not within
+  market tolerance.
+- `onshore_breeze_settlement_slice_missing`: onshore/breeze slice rows are `0`.
+
+This keeps item 191 shadow-only until station or gridded SST history is
+backfilled, the contrast columns are selected in a scoped replay, and an
+onshore/breeze settlement slice shows positive value without aggregate
+regression.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_marine_contrast_gate.py tests\sources\test_marine_context.py tests\model\test_feature_store.py tests\operations\test_schema_registry.py -q` -> 38 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
 Acceptance: a daily lake/sea surface-temperature contrast feature is available
 and settlement-scored, with measured improvement on onshore-wind/breeze days for

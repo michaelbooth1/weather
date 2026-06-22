@@ -1,4 +1,4 @@
-# 179. Honest Blocked Validation For Feature-Model Tuning [PARTIAL 2026-06-22 - HONEST SPLITS LIVE, RE-EXPORT STILL PENDING]
+# 179. Honest Blocked Validation For Feature-Model Tuning [COMPLETE 2026-06-22 - HONEST RE-EXPORT AND PROMOTION GATE LIVE]
 
 Goal: remove the validation leakage that inflates the HGB-vs-baseline comparison
 and biases the per-hour temperature/blend selection.
@@ -34,8 +34,8 @@ already shipped a `blocked_validation` module this can reuse.
 - [x] Make the trainer re-tune temperature/blend under the honest split when
   artifacts are regenerated.
 - [x] Add the honest-LOO section to the feature-model report.
-- [ ] Re-export current artifacts and record the before/after leakage delta.
-- [ ] Confirm promotion gates consume the honest metrics.
+- [x] Re-export current artifacts and record the before/after leakage delta.
+- [x] Confirm promotion gates consume the honest metrics.
 
 Acceptance: both arms use the same blocked/embargoed split, the report shows
 honest LOO metrics and the re-selected per-hour `(temperature, blend_weight)`,
@@ -82,3 +82,32 @@ re-export can be cited yet. The remaining unblock is a full long-job guarded
 retrain, followed by promotion refresh, so `f_family_promotion_refresh` can cite
 the regenerated daily-first blocked-validation metrics instead of the prior
 artifact.
+
+## 2026-06-22 Completion Evidence
+
+The guarded nightly retrain slice completed the current pooled F-band export and
+promotion refresh:
+
+```powershell
+python -m weather.operations.nightly_retrain run --no-fail-on-daily-learning-blocker --skip-settled-day-freshness --skip-daily-learning --skip-family-secondary --skip-shadow-ab-monitor --step-timeout-seconds 7200
+```
+
+`pooled_feature_model_band` passed in `3652.533s`, and
+`artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl` was rewritten at
+`2026-06-22T02:53:22Z`. The artifact's `blocked_validation` audit is clean:
+`ok=true`, `row_count=67962`, `market_day_count=4855`,
+`target_date_count=449`, `split_count=4982`, and `leak_count=0`. The generated
+`data/backtest/f_family_pooled_band_model_v0_3_report.md` also shows every
+hour from `07:00` through `20:00` passing the blocked-validation audit with
+zero leaks and lists the selected per-hour temperature values under hourly
+holdout validation; the band artifact has no separate blend-weight term.
+
+The downstream promotion refresh consumed the honest daily-first evidence and
+kept the candidate blocked, which is the intended behavior for an honest gate:
+`data/backtest/f_family_promotion_refresh_report.md` reports
+`Blocked validation = BLOCK`, split `daily_first_market_day`, candidate Brier
+`0.0395`, current Brier `0.0409`, market Brier `0.0308`,
+`delta_vs_current=-0.0014`, and `delta_vs_market=+0.0087`. Promotion remains
+blocked for model-skill reasons, but item 179 is complete because leakage is
+removed from the export path and promotion claims now cite the honest blocked
+validation result.

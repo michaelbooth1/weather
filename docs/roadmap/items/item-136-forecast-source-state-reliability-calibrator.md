@@ -1,4 +1,4 @@
-# 136. Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-18 - RELIABILITY SHADOW LIVE, DEGRADED SLICE BLOCKED]
+# 136. Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]
 
 Goal: convert forecast source count, source disagreement, and freshness state
 from broad diagnostics into a calibrated reliability layer that adjusts
@@ -41,7 +41,7 @@ role: it should often scale the confidence of forecast-profile evidence.
 - [x] Add a calibration curve showing forecast error versus source-state risk.
 - [x] Add per-market source reliability thresholds for forecast-family
   confidence shrinkage.
-- [ ] Surface the active source-state reliability reason in model explanations
+- [x] Surface the active source-state reliability reason in model explanations
   and quote-risk reports.
 - [ ] Clear degraded-source and per-market reliability thresholds on pinned
   replay rows.
@@ -83,3 +83,93 @@ threshold with `+0.0012` delta versus raw forecast on risk rows.
 Model explanations now surface a supplied `source_state_reliability` /
 `forecast_source_state_reliability` payload. Quote-risk report wiring is still
 open, so this item remains partial.
+
+## 2026-06-22 source-state disposition
+
+Updated `weather.reporting.forecast_source_state_reliability` so the default
+input is the current all-hour Item 134 shadow export and the report includes a
+dedicated quote-risk diagnostic section. The report now surfaces
+`source_state_reliability_reason`, `source_state_reliability_alpha`, and
+`source_state_risk_bucket` for quote-width/risk diagnostics while keeping the
+lane no-market and shadow-only.
+
+Regenerated:
+
+```powershell
+python -m weather.reporting.forecast_source_state_reliability --out data\backtest\item136_source_state_reliability.json --report data\backtest\item136_source_state_reliability_report.md --variant-out data\backtest\item136_reliability_calibrated_shadow_variants.csv
+```
+
+Added `weather.reporting.item136_source_state_disposition`, schema
+`item136_source_state_disposition_v0.1`, and generated:
+
+```powershell
+python -m weather.reporting.item136_source_state_disposition --out data\backtest\item136_source_state_disposition.json --report data\backtest\item136_source_state_disposition_report.md
+```
+
+Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**.
+
+Passing evidence:
+
+- Source-state reliability replay covered 67,430 no-market rows.
+- Reliability reason and alpha fields are surfaced for model explanations and
+  quote-risk diagnostics.
+- Daily-first reliability replay improves current (`-0.0013`).
+- Lane separation is clean: this remains weather-only, no-market evidence.
+
+Promotion blockers:
+
+- Degraded-source rows do not improve raw forecast-profile skill
+  (`+0.0003` delta versus raw forecast).
+- High-disagreement rows do not improve raw forecast-profile skill
+  (`+0.0001`).
+- Per-market reliability thresholds block Chicago (`+0.0014`) and NYC
+  (`+0.0011`) on risk rows.
+- Upstream Item 134 and Item 135 dispositions remain shadow-only.
+- The served-distribution and positive daily-first gates still block.
+
+Next action: keep Item 136 as a shadow source-state reliability diagnostic. Do
+not promote it or use it for quote-risk permission until degraded-source,
+high-disagreement, Chicago/NYC, upstream Item 134/135, and served-distribution
+gates clear.
+
+## 2026-06-22 source-state disposition refresh
+
+Regenerated the source-state reliability report and disposition after
+refreshing upstream Item 134 and Item 135:
+
+- `data/backtest/item136_source_state_reliability.json`
+- `data/backtest/item136_source_state_reliability_report.md`
+- `data/backtest/item136_reliability_calibrated_shadow_variants.csv`
+- `data/backtest/item136_source_state_disposition.json`
+- `data/backtest/item136_source_state_disposition_report.md`
+
+The refreshed disposition remains `KEEP_SHADOW_DIAGNOSTIC`; promotion remains
+disallowed with `5` blockers. Passing evidence remains:
+
+- source-state reliability replay covered `67,430` no-market rows.
+- reliability reason and alpha fields are surfaced for model explanations and
+  quote-risk diagnostics.
+- daily-first reliability replay improves current by `-0.0013`.
+- lane separation is clean: source-state reliability remains no-market
+  weather-model evidence.
+
+Current blockers:
+
+- `source_state_reliability_thresholds`: degraded-source slice worsens raw
+  forecast-profile skill by `+0.0003`, high-disagreement slice worsens raw
+  forecast-profile skill by `+0.0001`, and Chicago/NYC market reliability
+  thresholds block at `+0.0014` and `+0.0011`.
+- `upstream_forecast_profile_disposition`: Item 134 remains shadow-only because
+  daily-first blocked validation is not within market tolerance.
+- `upstream_cutoff_regime_disposition`: Item 135 remains shadow-only because
+  early, midday, and late regime thresholds are blocked.
+- `served_distribution_contract`: served-distribution evidence remains
+  `row_export_surrogate`, replay verdict is `BLOCK`, and cutover is
+  `DO_NOT_CUT_OVER`.
+- `positive_daily_first_gate`: the active repaired path still blocks on early-
+  hour Brier gap `+0.0048 > +0.0030`.
+
+This keeps Item 136 as a shadow source-state reliability diagnostic. Do not
+promote it or use it for quote-risk permission until degraded-source,
+high-disagreement, Chicago/NYC, upstream Item 134/135, and served-distribution
+gates clear.

@@ -23,6 +23,8 @@ from weather.reporting.fleet_observability import (  # noqa: E402
     mm_paper_evidence_summary,
     observation_alerts,
     overall_status,
+    runtime_identity_alerts,
+    runtime_identity_target_date,
     settled_day_freshness_alerts,
     trust_readiness,
     write_markdown,
@@ -301,6 +303,32 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(overall_status([]), "OK")
         self.assertEqual(overall_status([{"severity": "warning"}]), "WARN")
         self.assertEqual(overall_status([{"severity": "warning"}, {"severity": "critical"}]), "CRITICAL")
+
+    def test_runtime_identity_alerts_warn_on_mixed_runtime_blocker(self):
+        collection = {
+            "markets": [
+                {"market_id": "toronto", "target_date": "2026-06-21"},
+                {"market_id": "atlanta", "target_date": "2026-06-21"},
+                {"market_id": "nyc", "target_date": "2026-06-20"},
+            ]
+        }
+        evidence = {
+            "status": "BLOCK",
+            "target_date": "2026-06-21",
+            "blocking_reason": "mixed_runtime_identity_unsegmented",
+            "runtime_identity_count": 2,
+            "snapshot_row_count": 2446,
+            "reconciliation_status": "missing",
+        }
+
+        alerts = runtime_identity_alerts(evidence)
+
+        self.assertEqual(runtime_identity_target_date(collection), "2026-06-21")
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["severity"], "warning")
+        self.assertEqual(alerts[0]["category"], "runtime_identity")
+        self.assertIn("mixed runtime identities", alerts[0]["message"])
+        self.assertEqual(alerts[0]["detail"]["runtime_identity_count"], 2)
 
     def test_trust_readiness_reports_gate_gaps(self):
         rows = trust_readiness([{"market": "nyc", "trust_score": 15, "settled_days": 1}])
@@ -863,6 +891,35 @@ class TestFleetObservability(unittest.TestCase):
                 "restore_drill_sla_detail": "restore drill evidence is current",
                 "last_restore_drill": {"status": "PASS", "generated_at_utc": "2026-06-15T01:00:00+00:00"},
             },
+            "runtime_identity_evidence": {
+                "status": "BLOCK",
+                "target_date": "2026-06-21",
+                "mixed_runtime_identity": True,
+                "runtime_identity_count": 2,
+                "snapshot_row_count": 2446,
+                "blocking_reason": "mixed_runtime_identity_unsegmented",
+                "reconciliation_status": "missing",
+                "snapshots": {
+                    "segments": [
+                        {
+                            "runtime_git_commit": "5b6f5af2d396",
+                            "row_count": 1337,
+                            "snapshot_count": 48,
+                            "market_count": 6,
+                            "runtime_source_fingerprint": "source-a",
+                            "runtime_code_states": {"current": 1337},
+                        },
+                        {
+                            "runtime_git_commit": "2e3672d99680",
+                            "row_count": 1109,
+                            "snapshot_count": 41,
+                            "market_count": 6,
+                            "runtime_source_fingerprint": "source-b",
+                            "runtime_code_states": {"current": 1109},
+                        },
+                    ]
+                },
+            },
             "alerts": [],
         }
 
@@ -896,6 +953,9 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("## Source Status Proof", text)
         self.assertIn("open_meteo:rate_limited_with_fresh_family_coverage", text)
         self.assertIn("--source-status-folder data/snapshots/nyc", text)
+        self.assertIn("## Runtime Identity Evidence", text)
+        self.assertIn("mixed_runtime_identity_unsegmented", text)
+        self.assertIn("5b6f5af2d396", text)
 
     def test_mm_paper_evidence_summary_reads_per_market_credit_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:

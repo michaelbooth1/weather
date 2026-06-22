@@ -49,6 +49,7 @@ SUPPORTED_OPEN_METEO_HISTORICAL_ARCHIVE_FIELDS = (
     "cloud_cover_low",
     "cloud_cover_mid",
     "cloud_cover_high",
+    "precipitation",
     "shortwave_radiation",
     "direct_radiation",
     "diffuse_radiation",
@@ -93,6 +94,13 @@ REANALYSIS_SYNOPTIC_FEATURE_COLUMNS = [
     "reanalysis_prev_day_dry_vpd_stress_proxy",
     "reanalysis_prev_day_vapour_pressure_deficit_mean",
     "reanalysis_prev_day_et0_fao_evapotranspiration_sum",
+    "reanalysis_prev_day_precipitation_sum",
+    "reanalysis_prev_7d_precipitation_sum",
+    "reanalysis_prev_14d_precipitation_sum",
+    "reanalysis_prev_30d_precipitation_sum",
+    "reanalysis_prev_7d_precipitation_minus_et0",
+    "reanalysis_prev_14d_precipitation_minus_et0",
+    "reanalysis_prev_30d_precipitation_minus_et0",
     "reanalysis_prev_day_shortwave_radiation_sum",
     "reanalysis_prev_day_low_cloud_mean",
     "reanalysis_prev_day_mid_cloud_mean",
@@ -145,6 +153,7 @@ RAW_DAILY_FIELD_SPECS = {
     "soil_moisture_0_to_7cm": ("reanalysis_prev_day_soil_moisture_0_to_7cm_mean", "mean"),
     "vapour_pressure_deficit": ("reanalysis_prev_day_vapour_pressure_deficit_mean", "mean"),
     "et0_fao_evapotranspiration": ("reanalysis_prev_day_et0_fao_evapotranspiration_sum", "sum"),
+    "precipitation": ("reanalysis_prev_day_precipitation_sum", "sum"),
     "shortwave_radiation": ("reanalysis_prev_day_shortwave_radiation_sum", "sum"),
     "cloud_cover_low": ("reanalysis_prev_day_low_cloud_mean", "mean"),
     "cloud_cover_mid": ("reanalysis_prev_day_mid_cloud_mean", "mean"),
@@ -389,6 +398,29 @@ def load_raw_daily_metrics(store):
             out[source_key] = sum(values) if reducer == "sum" else mean(values)
         daily[local_date] = out
     return daily
+
+
+def raw_window_sum(raw_daily_metrics, raw_key, dates):
+    values = []
+    for item_date in dates:
+        value = to_float((raw_daily_metrics.get(item_date) or {}).get(raw_key))
+        if value is None:
+            return None
+        values.append(value)
+    return sum(values)
+
+
+def antecedent_water_features(local_date, raw_daily_metrics):
+    features = {}
+    for window in (7, 14, 30):
+        dates = [local_date - timedelta(days=offset) for offset in range(1, window + 1)]
+        precip = raw_window_sum(raw_daily_metrics, "precipitation", dates)
+        et0 = raw_window_sum(raw_daily_metrics, "et0_fao_evapotranspiration", dates)
+        features[f"reanalysis_prev_{window}d_precipitation_sum"] = precip
+        features[f"reanalysis_prev_{window}d_precipitation_minus_et0"] = (
+            precip - et0 if precip is not None and et0 is not None else None
+        )
+    return features
 
 
 def _decode_attr(value):
@@ -1093,6 +1125,7 @@ def build_reanalysis_synoptic_rows(
                 value = raw_metrics.get(raw_key)
                 if value is not None:
                     features[feature_key] = value
+            features.update(antecedent_water_features(local_date, raw_daily_metrics))
             features.update(
                 soil_dryness_features(
                     antecedent_date,

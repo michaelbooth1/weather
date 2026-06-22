@@ -64,6 +64,15 @@ class TestSourceFamilyInventory(unittest.TestCase):
                         "status": "fresh",
                         "source_family": "open_meteo",
                     },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_air_quality",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "open_meteo_air_quality",
+                    },
                 ],
             )
             write_csv(
@@ -95,6 +104,15 @@ class TestSourceFamilyInventory(unittest.TestCase):
                         "status": "fresh",
                         "source_family": "open_meteo",
                         "raw_payload_path": "forecast_payloads/s1_open_meteo.json",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_air_quality",
+                        "status": "fresh",
+                        "source_family": "open_meteo_air_quality",
+                        "raw_payload_path": "forecast_payloads/s1_open_meteo_air_quality.json",
                     },
                 ],
             )
@@ -186,6 +204,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertTrue(rows["nws_grid"]["live_only"])
         self.assertTrue(rows["nws_grid"]["feature_missingness"]["by_market"])
         self.assertTrue(rows["nws_grid"]["feature_missingness"]["by_cutoff_hour"])
+        self.assertIn("open_meteo_air_quality", rows["open_meteo_expanded"]["source_keys"])
+        self.assertIn("open_meteo_air_quality", rows["open_meteo_expanded"]["forecast_payloads"]["sources_seen"])
         self.assertIn("clob_microstructure", rows)
         self.assertIn("clob_feature_available", rows["clob_microstructure"]["feature_columns_present"])
         self.assertGreater(payload["promotion_preflight"]["blocked_family_count"], 0)
@@ -498,6 +518,102 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(rows["nws_grid"]["promotion_decision"]["status"], "BLOCK_LINEAGE")
         self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
 
+    def test_promotion_preflight_requires_only_active_artifact_feature_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo",
+                        "ok": "True",
+                        "status": "fresh",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "forecast_payloads_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo",
+                        "status": "fresh",
+                        "raw_payload_path": "forecast_payloads/s1_open_meteo.json",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "features_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "market_id": "nyc",
+                        "forecast_high": "91",
+                        "forecast_gap": "2",
+                        "forecast_source_count": "2",
+                        "forecast_disagreement": "1",
+                    }
+                ],
+            )
+            ablation_json = backtest_root / "source_family_ablation.json"
+            ablation_json.parent.mkdir(parents=True)
+            ablation_json.write_text(
+                json.dumps({"variants": [{"variant": "all_forecasts", "n": 4, "days": 1, "delta": 0.01}]}),
+                encoding="utf-8",
+            )
+            artifact = backtest_root / "artifact.pkl"
+            with artifact.open("wb") as handle:
+                pickle.dump(
+                    {
+                        "models": {
+                            "7": {
+                                "feature_names": [
+                                    "forecast_high",
+                                    "forecast_gap",
+                                    "forecast_source_count",
+                                    "forecast_disagreement",
+                                ]
+                            }
+                        }
+                    },
+                    handle,
+                )
+            candidate_replay = backtest_root / "candidate_replay.json"
+            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                backtest_root=backtest_root,
+                ablation_json=ablation_json,
+                candidate_replay_json=candidate_replay,
+                locations_config=locations_config,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in payload["inventory"]}
+            forecast = rows["forecast_baseline"]
+
+        self.assertTrue(forecast["model_influence"])
+        self.assertEqual(forecast["train_serve_parity_status"], "PASS")
+        self.assertEqual(forecast["missing_required_parity_feature_columns"], [])
+        self.assertIn("forecast_robust_high", forecast["missing_feature_columns"])
+        self.assertEqual(forecast["promotion_decision"]["status"], "PROMOTION_CANDIDATE")
+        self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
+
     def test_promotion_preflight_blocks_missing_lineage_for_active_artifact_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -704,6 +820,85 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(rows["nws_grid"]["active_model_feature_columns"], [])
         self.assertEqual(rows["nws_grid"]["active_model_usage_status"], "NOT_USED_BY_ACTIVE_ARTIFACT")
         self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
+
+    def test_reanalysis_parity_missingness_uses_active_retained_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            reanalysis_root = root / "reanalysis"
+            backtest_root = root / "backtest"
+            sidecar = reanalysis_root / "klga" / "features" / "reanalysis_synoptic_features.csv"
+            write_csv(
+                sidecar,
+                [
+                    {
+                        "market_id": "nyc",
+                        "local_date": "2026-06-18",
+                        "reanalysis_prev_day_max_temp": "82",
+                        "reanalysis_prev_7d_precipitation_sum": "",
+                        "reanalysis_prev_30d_precipitation_sum": "",
+                    },
+                    {
+                        "market_id": "nyc",
+                        "local_date": "2026-06-19",
+                        "reanalysis_prev_day_max_temp": "84",
+                        "reanalysis_prev_7d_precipitation_sum": "",
+                        "reanalysis_prev_30d_precipitation_sum": "",
+                    },
+                ],
+            )
+            ablation_path = root / "item27_feature_value_gate_nyc.json"
+            ablation_path.write_text(
+                json.dumps(
+                    {
+                        "promotion_decisions": [
+                            {
+                                "family": "reanalysis_synoptic",
+                                "n": 3,
+                                "full_brier": 0.20,
+                                "ablated_brier": 0.26,
+                                "delta_brier": 0.06,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact = backtest_root / "artifact.pkl"
+            artifact.parent.mkdir(parents=True)
+            with artifact.open("wb") as handle:
+                pickle.dump(
+                    {
+                        "models": {
+                            "7": {
+                                "feature_names": ["reanalysis_prev_day_max_temp"],
+                            }
+                        }
+                    },
+                    handle,
+                )
+            candidate_replay = backtest_root / "candidate_replay.json"
+            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                reanalysis_root=reanalysis_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=candidate_replay,
+                locations_config=locations_config,
+                item27_reanalysis_paths={"nyc": ablation_path},
+                item27_required_markets=["nyc"],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in payload["inventory"]}
+            reanalysis = rows["reanalysis_synoptic"]
+
+        self.assertEqual(reanalysis["active_model_feature_columns"], ["reanalysis_prev_day_max_temp"])
+        self.assertEqual(reanalysis["required_parity_feature_columns"], ["reanalysis_prev_day_max_temp"])
+        self.assertEqual(reanalysis["train_serve_parity_status"], "PASS")
+        self.assertEqual(reanalysis["promotion_decision"]["status"], "PROMOTION_CANDIDATE")
 
     def test_item27_reanalysis_evidence_requires_all_markets_and_aggregates(self):
         with tempfile.TemporaryDirectory() as tmp:

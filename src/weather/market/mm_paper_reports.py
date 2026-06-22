@@ -335,23 +335,39 @@ def promotion_state_from_action(action, verdict=None):
 def load_promotion_records(path):
     payload = read_json(path, {}) or {}
     records = {}
-    for row in ((payload.get("decisions") or {}).get("markets") or []):
+    allowlist_rows = ((payload.get("promotion_allowlist") or {}).get("markets") or [])
+    decision_rows = ((payload.get("decisions") or {}).get("markets") or [])
+    rows = allowlist_rows or decision_rows
+    for row in rows:
         market_id = row.get("market_id")
         if not market_id:
             continue
         metrics = row.get("metrics") or {}
+        if not metrics:
+            metrics = {
+                "candidate_brier": row.get("candidate_brier"),
+                "current_brier": row.get("current_brier"),
+                "market_brier": row.get("market_brier"),
+                "delta_vs_market": row.get("delta_vs_market"),
+            }
+        action = row.get("action")
+        verdict = row.get("verdict")
         records[market_id] = {
             "market_id": market_id,
-            "base_permission": promotion_state_from_action(row.get("action"), row.get("verdict")),
-            "action": row.get("action"),
-            "verdict": row.get("verdict"),
-            "reason": row.get("reason"),
+            "base_permission": promotion_state_from_action(action, verdict),
+            "action": action,
+            "verdict": verdict,
+            "reason": row.get("blocker_reason") or row.get("reason"),
             "delta_vs_market": metrics.get("delta_vs_market"),
             "candidate_brier": metrics.get("candidate_brier"),
             "market_brier": metrics.get("market_brier"),
             "candidate_days": row.get("candidate_days"),
             "settled_days_in_corpus": row.get("settled_days_in_corpus"),
             "market_evidence_ok": (finite_float(metrics.get("delta_vs_market"), 1.0) or 1.0) <= 0.0,
+            "candidate_id": row.get("candidate_id") or (payload.get("promotion_allowlist") or {}).get("candidate_id"),
+            "candidate_serving_allowed": row.get("candidate_serving_allowed"),
+            "candidate_permission_allowed": row.get("candidate_permission_allowed"),
+            "promotion_allowlist_enforced": bool(allowlist_rows),
         }
     return records, payload
 
@@ -677,6 +693,7 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "clob_overlay_market_informed_consumed": bool(clob_overlay_records),
             "clob_overlay_records_do_not_count_as_no_market_promotion": True,
             "dynamic_source_success_cells_are_research_only": True,
+            "promotion_allowlist_enforced": bool(((promotion_payload.get("promotion_allowlist") or {}).get("markets") or [])),
         },
         "summary": {
             "record_count": len(records),

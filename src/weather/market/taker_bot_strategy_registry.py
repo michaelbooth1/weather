@@ -72,6 +72,11 @@ DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS = 1
 DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC = 100.0
 DEFAULT_CANARY_MIN_SETTLED_ORDERS = 5
 DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS = 1
+DEFAULT_PROMOTION_MIN_SETTLED_ORDERS = DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS
+DEFAULT_PROMOTION_MIN_SETTLED_MARKETS = 1
+DEFAULT_PROMOTION_MIN_SETTLED_NET_PNL_USDC = 0.0
+DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC = 0.0
+DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION = 0.5
 
 DEFAULT_CONFIG = {
     "policy_version": POLICY_VERSION,
@@ -90,6 +95,13 @@ DEFAULT_CONFIG = {
     "min_capture_hour_local": -1,
     "max_current_high_band_distance": 9999.0,
     "require_current_high_trusted": False,
+    "current_high_trust_gate_enabled": True,
+    "current_high_trust_gate_start_hour_local": 15,
+    "current_high_trust_gate_action": "deny_aggressive",
+    "current_high_trust_gate_size_multiplier": 0.25,
+    "current_high_trust_gate_aggressive_min_edge": 0.08,
+    "current_high_trust_gate_aggressive_max_price": 0.20,
+    "current_high_trust_gate_lockin_distance": 1.0,
     "risk_adjusted_entry_enabled": False,
     "min_risk_adjusted_edge": 0.0,
     "calibration_confidence_floor": 0.15,
@@ -112,6 +124,11 @@ DEFAULT_CONFIG = {
     "active_strategy_canary_started_date": ACTIVE_DEFAULT_STRATEGY_CANARY_STARTED_DATE,
     "canary_min_settled_orders": DEFAULT_CANARY_MIN_SETTLED_ORDERS,
     "canary_min_complete_label_days": DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS,
+    "promotion_min_settled_orders": DEFAULT_PROMOTION_MIN_SETTLED_ORDERS,
+    "promotion_min_settled_markets": DEFAULT_PROMOTION_MIN_SETTLED_MARKETS,
+    "promotion_min_settled_net_pnl_usdc": DEFAULT_PROMOTION_MIN_SETTLED_NET_PNL_USDC,
+    "promotion_min_settled_expected_pnl_usdc": DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC,
+    "promotion_max_tail_fill_fraction": DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
     "canary_max_top_market_spend_share": 1.0,
     "canary_max_repeated_opinion_count": 0,
     "early_hour_guardrail_enabled": True,
@@ -139,6 +156,11 @@ DEFAULT_CONFIG = {
     "market_centered_warm_tail_min_risk_adjusted_edge": 0.03,
     "market_centered_warm_tail_require_clob_continuity": True,
     "max_same_snapshot_adjacent_cluster_fills": 0,
+    "snapshot_cadence_quality_enabled": True,
+    "max_snapshot_cadence_gap_seconds": 900.0,
+    "snapshot_cadence_stale_model_seconds": 900.0,
+    "snapshot_cadence_confidence_haircut": 0.75,
+    "snapshot_cadence_degraded_permission": "deny",
 }
 
 DEFAULT_STRATEGY_REGISTRY = {
@@ -385,8 +407,21 @@ ORDER_COLUMNS = [
     "current_max_gap_to_current_temp",
     "current_high_trusted",
     "current_high_guard_reason",
+    "current_high_trust_gate_status",
+    "current_high_trust_gate_action",
+    "current_high_trust_gate_reason",
+    "current_high_trust_gate_aggressive",
+    "current_high_trust_gate_size_multiplier",
     "source_fresh",
     "source_freshness_state",
+    "snapshot_cadence",
+    "snapshot_cadence_quality_state",
+    "snapshot_cadence_gap_count",
+    "snapshot_cadence_max_gap_seconds",
+    "snapshot_cadence_last_model_age_seconds",
+    "snapshot_cadence_confidence_multiplier",
+    "snapshot_cadence_permission",
+    "snapshot_cadence_reason",
     "capture_hour_local",
     "capture_timezone",
     "early_hour_guardrail_status",

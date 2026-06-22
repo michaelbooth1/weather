@@ -172,13 +172,17 @@ def strategy_gate_for_bakeoff(
     scored_rows,
     source_rows,
     min_settled_orders=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS,
+    min_settled_markets=DEFAULT_PROMOTION_MIN_SETTLED_MARKETS,
+    min_settlement_expected_pnl_usdc=DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC,
     max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
     max_top_market_spend_share=1.0,
     max_repeated_opinion_count=0,
+    max_tail_fill_fraction=DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
 ):
     strategy_id = strategy_row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
     filled = strategy_filled_rows(scored_rows, strategy_id)
     settled = int(strategy_row.get("settled_order_count") or 0)
+    settled_markets = int(strategy_row.get("settled_market_count") or 0)
     unsettled = int(strategy_row.get("unsettled_order_count") or 0)
     unscored = int(strategy_row.get("unscored_order_count") or 0)
     clob_failures = int(strategy_row.get("clob_continuity_fail_count") or 0)
@@ -191,12 +195,26 @@ def strategy_gate_for_bakeoff(
     concentration = strategy_concentration_summary(scored_rows, strategy_id)
     top_market_share = maybe_float(concentration.get("top_market_spend_share")) or 0.0
     repeated_opinions = int(concentration.get("repeated_opinion_count") or 0)
+    settlement_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
+    tail_fraction = maybe_float(strategy_row.get("low_price_tail_fill_fraction")) or 0.0
     gates = [
         {
             "name": "min_settled_sample",
             "ok": settled >= int(min_settled_orders),
             "value": settled,
             "threshold": int(min_settled_orders),
+        },
+        {
+            "name": "min_settled_markets",
+            "ok": settled_markets >= int(min_settled_markets),
+            "value": settled_markets,
+            "threshold": int(min_settled_markets),
+        },
+        {
+            "name": "min_settlement_scored_expected_pnl",
+            "ok": settlement_expected >= float(min_settlement_expected_pnl_usdc),
+            "value": compact_float(settlement_expected),
+            "threshold": compact_float(min_settlement_expected_pnl_usdc),
         },
         {
             "name": "non_negative_settled_roi",
@@ -246,6 +264,12 @@ def strategy_gate_for_bakeoff(
             "value": repeated_opinions,
             "threshold": int(max_repeated_opinion_count),
         },
+        {
+            "name": "max_tail_fill_fraction",
+            "ok": tail_fraction <= float(max_tail_fill_fraction),
+            "value": compact_float(tail_fraction),
+            "threshold": compact_float(max_tail_fill_fraction),
+        },
     ]
     failed = [row["name"] for row in gates if not row["ok"]]
     return {
@@ -255,11 +279,14 @@ def strategy_gate_for_bakeoff(
         "failed_gates": failed,
         "filled_order_count": int(strategy_row.get("filled_order_count") or 0),
         "settled_order_count": settled,
+        "settled_market_count": settled_markets,
         "unsettled_order_count": unsettled,
         "unscored_order_count": unscored,
         "spent_usdc": compact_float(spent),
         "net_pnl_usdc": compact_float(net),
+        "settlement_scored_expected_pnl_usdc": compact_float(settlement_expected),
         "roi": compact_float(roi),
+        "low_price_tail_fill_fraction": compact_float(tail_fraction),
         "max_drawdown_usdc": compact_float(drawdown),
         "stale_mark_sign_flip_count": sign_flips,
         "clob_continuity_fail_count": clob_failures,
@@ -355,6 +382,7 @@ def render_bakeoff_report(payload):
             "ROI",
             "Drawdown",
             "Tail Spent",
+            "Tail Fraction",
             "Top Market Share",
             "Gate",
         ],
@@ -371,6 +399,7 @@ def render_bakeoff_report(payload):
                 fmt_num((gate_by_strategy.get(row.get("strategy_id")) or {}).get("roi"), 4),
                 fmt_num((gate_by_strategy.get(row.get("strategy_id")) or {}).get("max_drawdown_usdc"), 4),
                 fmt_num(row.get("low_price_tail_spent_usdc"), 2),
+                fmt_num(row.get("low_price_tail_fill_fraction"), 4),
                 fmt_num(
                     ((gate_by_strategy.get(row.get("strategy_id")) or {}).get("concentration") or {}).get(
                         "top_market_spend_share"
@@ -406,8 +435,11 @@ def render_bakeoff_report(payload):
             row.get("status"),
             ", ".join(row.get("failed_gates") or []) or "-",
             row.get("settled_order_count"),
+            row.get("settled_market_count"),
             fmt_num(row.get("net_pnl_usdc"), 4),
+            fmt_num(row.get("settlement_scored_expected_pnl_usdc"), 4),
             fmt_num(row.get("roi"), 4),
+            fmt_num(row.get("low_price_tail_fill_fraction"), 4),
             fmt_num(row.get("max_drawdown_usdc"), 4),
             row.get("stale_mark_sign_flip_count"),
             row.get("clob_continuity_fail_count"),
@@ -419,8 +451,11 @@ def render_bakeoff_report(payload):
             "Status",
             "Failed Gates",
             "Settled",
+            "Markets",
             "Net P&L",
+            "Expected P&L",
             "ROI",
+            "Tail Fraction",
             "Drawdown",
             "Sign Flips",
             "CLOB Fails",
@@ -508,7 +543,14 @@ def run_taker_strategy_bakeoff(
     labels = load_settlement_labels(labels_csv)
     scored_rows, score_summary = score_orders_against_labels(generated_rows, labels)
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget) for item in strategy_specs)
-    pnl_payload = build_pnl_payload(scored_rows, total_budget_usdc, bakeoff_run_id, target, now=now)
+    pnl_payload = build_pnl_payload(
+        scored_rows,
+        total_budget_usdc,
+        bakeoff_run_id,
+        target,
+        now=now,
+        policy_config=base_config,
+    )
     label_summary = label_summary_for_target(labels_csv, target)
     promotion_gates = [
         strategy_gate_for_bakeoff(
@@ -516,9 +558,21 @@ def run_taker_strategy_bakeoff(
             scored_rows,
             source_rows,
             min_settled_orders=min_settled_orders,
+            min_settled_markets=base_config.get(
+                "promotion_min_settled_markets",
+                DEFAULT_PROMOTION_MIN_SETTLED_MARKETS,
+            ),
+            min_settlement_expected_pnl_usdc=base_config.get(
+                "promotion_min_settled_expected_pnl_usdc",
+                DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC,
+            ),
             max_drawdown_usdc=max_drawdown_usdc,
             max_top_market_spend_share=base_config.get("canary_max_top_market_spend_share", 1.0),
             max_repeated_opinion_count=base_config.get("canary_max_repeated_opinion_count", 0),
+            max_tail_fill_fraction=base_config.get(
+                "promotion_max_tail_fill_fraction",
+                DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
+            ),
         )
         for row in pnl_payload.get("by_strategy") or []
     ]

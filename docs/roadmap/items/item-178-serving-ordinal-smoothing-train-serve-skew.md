@@ -1,4 +1,4 @@
-# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - SERVING-ONLY SMOOTHING REMOVED, RETRAIN STILL PENDING]
+# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]
 
 Goal: eliminate the train/serve skew where serving de-sharpens the feature-model
 distribution with an ordinal-smoothing layer that the per-hour temperature/blend
@@ -102,3 +102,222 @@ timestamps, so this attempt produced no valid re-export evidence. Completion
 still requires running the full retrain under the long-job guard or another
 controlled longer window, then rerunning promotion/weak-slot validation against
 the regenerated artifact.
+
+## 2026-06-22 Guarded Retrain
+
+The guarded nightly retrain slice completed the pooled feature export,
+artifact registry refresh, and promotion refresh:
+
+```powershell
+python -m weather.operations.nightly_retrain run --no-fail-on-daily-learning-blocker --skip-settled-day-freshness --skip-daily-learning --skip-family-secondary --skip-shadow-ab-monitor --step-timeout-seconds 7200
+```
+
+`pooled_feature_model_band` passed in `3652.533s`, writing
+`artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl` and
+`data/backtest/f_family_pooled_band_model_v0_3_report.md` at
+`2026-06-22T02:53:22Z`. The artifact uses schema `pooled_feature_band_hgb_v0.3`,
+feature schema `toronto_feature_store_v1.13`, objective
+`binary_market_band_brier_source_reliability`, and still has no serving-only
+ordinal smoothing term; per-hour artifact temperatures include `07:00=0.55`,
+`08:00=0.55`, `09:00=0.65`, and `10:00=0.75`.
+
+The retrain does not close this item yet. The promotion refresh completed but
+returned `blocked`: candidate replay Brier is `0.0395` versus current `0.0409`
+and market `0.0308` (`delta_vs_current=-0.0014`, `delta_vs_market=+0.0087`),
+with `austin`, `denver`, and `houston` promote-ready but eight F markets still
+blocked. The current-serving hourly gate remains blocked because early-hour
+model Brier trails market by `0.0159 > 0.0030`; the 10-minute current-serving
+gate also remains blocked by `0.0130 > 0.0030`.
+
+## 2026-06-22 Active-Candidate Gate Evidence
+
+The initial promotion refresh did not pass active-candidate hourly evidence
+into readiness, and its candidate 10-minute evidence was for the stale
+`item147_time_split_alpha` variant. I regenerated both candidate-performance
+reports from the active promotion candidate export,
+`data/backtest/item82_miami_fallback_shadow_variants.csv`, whose variant id is
+`pooled_f_candidate_miami_current_fallback_v0_1`:
+
+```powershell
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item82_miami_fallback_shadow_variants.csv --json-out data\backtest\pooled_f_candidate_miami_current_fallback_hourly_candidate_performance.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_hourly_candidate_performance_report.md
+python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\item82_miami_fallback_shadow_variants.csv --json-out data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_performance.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_performance_report.md --slot-csv-out data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_by_slot.csv --candidate-csv-out data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_candidate_by_slot.csv
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_candidate_replay_latest.json --precomputed-candidate-report data\backtest\pooled_candidate_replay_latest_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_performance.json --skip-serving-gauntlet
+```
+
+The bounded promotion refresh wrote
+`data/backtest/f_family_promotion_refresh.json` at
+`2026-06-22T04:09:23Z`; it used the precomputed guarded-retrain candidate replay
+and kept the same `3 promote / 8 blocked` market disposition. After the
+source-family inventory preflight fix, I reran the bounded promotion refresh at
+`2026-06-22T04:14:28Z`; `source_family_preflight` is now `PASS` and no longer
+appears as a readiness blocker. The candidate evidence now matches the active
+candidate id, but both mitigations are still `NOT_APPLIED` because the candidate
+gates are `BLOCK`:
+
+- Candidate hourly gate: `BLOCK`; early-hour candidate Brier trails market by
+  `0.0090 > 0.0030`, with log-loss trailing by `0.0312 > 0.0100`.
+- Candidate 10-minute gate: `BLOCK`; weak-slot candidate Brier trails market by
+  `0.0181 > 0.0030`, with log-loss trailing by `0.0529 > 0.0100`.
+- The candidate does improve weak-slot Brier versus current by `-0.0023`, but
+  that is not enough for promotion because the market-relative gate still fails.
+
+Remaining unblock: build a daily-first predawn/weak-slot remediation that
+improves the active candidate's market-relative early-hour and 10-minute
+weak-slot Brier/log-loss without regressing ramp/late-day tolerances, then rerun
+the same candidate-hourly, candidate-10-minute, and promotion-readiness gates.
+
+## 2026-06-22 Predawn Weak-Slot Repair Probe
+
+I added an exportable no-market predawn repair probe that fits weak-slot
+logistic winner-centering on the train split, blends it with the active
+candidate, normalizes each snapshot partition, and leaves non-weak-slot
+probabilities at current-serving probabilities. The repaired rows are exported
+under a distinct variant id,
+`pooled_f_candidate_miami_current_fallback_predawn_repair_v0_1`, so this is
+honest candidate evidence rather than pretending the active replay artifact
+already contains the repaired policy.
+
+The tuned probe used:
+
+```powershell
+python -m weather.reporting.predawn_weak_slot_repair --candidate-rows data\backtest\item82_miami_fallback_shadow_variants.csv --ten-minute-report data\backtest\ten_minute_model_performance.json --calibrator-blend 0.30 --calibrator-extrapolation 2.0 --calibrator-power 3.0 --output-variant-id pooled_f_candidate_miami_current_fallback_predawn_repair_v0_1 --candidate-rows-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair_report.md
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance_report.md
+python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance_report.md --slot-csv-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_by_slot.csv --candidate-csv-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_candidate_by_slot.csv
+```
+
+The repair validation now passes. On all weak slots, the repaired candidate
+scores Brier `0.0511` versus current `0.0805` and market `0.0601`
+(`delta_vs_current=-0.0294`, `delta_vs_market=-0.0090`); log-loss also clears
+market (`delta_vs_market=-0.0055`). On the held-out eval split, it remains
+positive versus both current and market (`delta_vs_current=-0.0142`,
+`delta_vs_market=-0.0035`, log-loss `delta_vs_market=-0.0028`) while shrinking
+effective-band spread versus current by `-0.0660`.
+
+The formal candidate 10-minute gate now passes for the repaired rows:
+`candidate_ten_minute_gate=PASS`, with weak-slot winner probability `47.3%`
+versus current `26.1%` and market `35.1%`.
+
+The broader hourly candidate gate is still blocked, but the residual is smaller
+than the active candidate's original blocker. The repaired 00:00-08:00 slice has
+candidate Brier `0.0437` versus current `0.0479` and market `0.0389`;
+`delta_vs_market=+0.0048` still exceeds the `+0.0030` tolerance, and log-loss
+`delta_vs_market=+0.0252` still exceeds the `+0.0100` tolerance.
+
+## 2026-06-22 Repaired Variant Promotion-Refresh Wiring
+
+I added a replay-shaped candidate summary adapter for repaired variant row
+exports, registered schema `candidate_variant_replay_summary_v0.1`, and used it
+to pass the repaired predawn variant into promotion refresh without relabeling
+the old active replay artifact:
+
+```powershell
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --source-candidate-json data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --precomputed-candidate-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --skip-serving-gauntlet --disable-long-job-guard --out data\backtest\f_family_promotion_refresh_predawn_repair.json --report data\backtest\f_family_promotion_refresh_predawn_repair_report.md --incomplete-manifest data\backtest\f_family_promotion_refresh_predawn_repair_incomplete.json
+```
+
+The adapter intentionally marks this as `row_export_surrogate` validation, so it
+is promotion-refresh-compatible evidence but not active replay/export contract
+evidence. The repaired summary wrote
+`data/backtest/pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json`
+and scored aggregate Brier `0.0403` versus current `0.0412` and market `0.0310`
+(`delta_vs_current=-0.0009`, `delta_vs_market=+0.0092`). It remains `BLOCK /
+DO_NOT_CUT_OVER` because it trails market and is not active replay contract
+evidence.
+
+The follow-up repaired promotion refresh wrote
+`data/backtest/f_family_promotion_refresh_predawn_repair.json` and confirmed the
+key unblock: `10-minute gate mitigation = APPLIED` because the repaired replay
+summary, candidate hourly report, and candidate 10-minute report all use variant
+id `pooled_f_candidate_miami_current_fallback_predawn_repair_v0_1`. The
+candidate 10-minute gate is `PASS`, with weak-slot Brier `0.0511` versus current
+`0.0805` and market `0.0601`.
+
+Promotion readiness is still `OPEN` with `0 promote / 0 shadow / 11 blocked`.
+Remaining blockers are:
+
+- Aggregate market-relative skill: repaired candidate still trails market by
+  `+0.0092` Brier.
+- Blocked validation: the summary is row-export surrogate evidence, not an
+  active replay/export contract rerun.
+- Per-market blocks: all 11 F markets are blocked in the repaired refresh.
+- Candidate hourly gate: still `BLOCK`; repaired early-hour Brier trails market
+  by `+0.0048 > +0.0030`, and log-loss trails by `+0.0252 > +0.0100`.
+- Operational gates outside this item: live-forward SLO is `BLOCK` and tape
+  backup SLA is `MISSING_CRITICAL_FILES`.
+
+Remaining unblock: promote the repaired policy from probe CSV into the active
+replay/export contract, broaden the repair only if it clears the full
+00:00-08:00 hourly gate without ramp/late-day/lock-in regression, and keep items
+146/157 moving so operational readiness no longer masks model-readiness
+evidence.
+
+## 2026-06-22 Serving Ordinal Smoothing Gate
+
+Added `weather.reporting.serving_ordinal_smoothing_gate` with schema
+`serving_ordinal_smoothing_gate_v0.1`.
+
+Artifacts:
+
+- `data/backtest/serving_ordinal_smoothing_gate.json`
+- `data/backtest/serving_ordinal_smoothing_gate_report.md`
+
+Command:
+
+`python -m weather.reporting.serving_ordinal_smoothing_gate --out data\backtest\serving_ordinal_smoothing_gate.json --report data\backtest\serving_ordinal_smoothing_gate_report.md`
+
+Result: **BLOCK** with 3 remaining validation blockers, but the original
+ordinal smoothing train/serve skew is now explicitly separated and marked fixed.
+
+Passing evidence:
+
+- Active artifact has `0` enabled ordinal smoothing configs, so serving has no
+  extra smoothing layer that the validation objective did not see.
+- Predawn repair and candidate 10-minute weak-slot gate pass:
+  `delta_vs_current=-0.0293`, `delta_vs_market=-0.0089`.
+- Ramp, late-day, and lock-in guardrails pass for the scoped predawn repair.
+
+Remaining blockers:
+
+- Candidate hourly early gate is still `BLOCK`; early-hour candidate Brier
+  trails market by `+0.0048 > +0.0030`.
+- Active replay/export contract is still `BLOCK`, with cutover
+  `DO_NOT_CUT_OVER`; the repaired evidence is a row-export surrogate, not an
+  active artifact replay.
+- Broad retrain/location gate is still `BLOCK` because the active artifact uses
+  `toronto_feature_store_v1.13` while runtime is `toronto_feature_store_v1.14`.
+
+## 2026-06-22 serving ordinal gate refresh
+
+Regenerated the serving ordinal smoothing gate after the upstream pooled-F
+retrain/location gate refresh:
+
+- `data/backtest/serving_ordinal_smoothing_gate.json`
+- `data/backtest/serving_ordinal_smoothing_gate_report.md`
+
+The refreshed gate remains `BLOCK` with `3` validation blockers, while the
+original train/serve skew fix remains explicitly passing:
+
+- `artifact_smoothing_policy`: `PASS`; the active artifact has `0` enabled
+  serving-only ordinal smoothing configs, so serving is not applying an
+  unvalidated extra smoother.
+- `predawn_weak_slot_repair`: `PASS`; the repaired candidate 10-minute
+  weak-slot gate still passes with weak-slot Brier deltas
+  `delta_vs_current=-0.0293` and `delta_vs_market=-0.0089`.
+- `ramp_late_guardrails`: `PASS`; ramp, late-day, and lock-in guardrails remain
+  clear for the scoped predawn repair.
+
+Remaining blockers:
+
+- `candidate_hourly_early_gate`: early-hour candidate Brier still trails market
+  by `+0.0048 > +0.0030`.
+- `active_replay_contract`: active replay/export contract remains `BLOCK` with
+  cutover `DO_NOT_CUT_OVER`; the repaired rows are still surrogate row-export
+  evidence.
+- `broad_retrain_location_gate`: pooled-F retrain/location gate remains
+  blocked because the active artifact is stamped with
+  `toronto_feature_store_v1.13` while runtime uses
+  `toronto_feature_store_v1.14`.
+
+This keeps item 178 partial: the serving-only ordinal smoothing skew is fixed
+and guarded, but acceptance still requires a schema-current active replay/export
+contract and hourly early gate clearance.

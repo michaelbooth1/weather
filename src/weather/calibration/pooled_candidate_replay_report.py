@@ -689,6 +689,10 @@ def write_report(report, out_path, min_free_bytes=0):
     if microstructure:
         micro_diag = microstructure.get("diagnostics") or {}
         casebook = micro_diag.get("casebook") or {}
+        claim_lanes = micro_diag.get("claim_lanes") or {}
+        quote_lane = claim_lanes.get("market_informed_quote_risk") or {}
+        weather_lane = claim_lanes.get("weather_only_core_model") or {}
+        gate = microstructure.get("gate") or {}
         lines += [
             "",
             "## Microstructure Shadow Overlay",
@@ -703,6 +707,11 @@ def write_report(report, out_path, min_free_bytes=0):
             ["Field", "Value"],
             [
                 ["Schema", microstructure.get("schema_version") or "-"],
+                ["Claim lane", "market_informed_quote_risk"],
+                ["Weather-only core claim rows", weather_lane.get("rows", 0)],
+                ["Market-informed quote-risk rows", quote_lane.get("rows", 0)],
+                ["Counts toward weather-only promotion", quote_lane.get("counts_toward_weather_model_promotion", False)],
+                ["Quote-risk eligible rows", quote_lane.get("quote_risk_eligible_rows", 0)],
                 ["Eligible CLOB rows", micro_diag.get("eligible_rows", 0)],
                 ["OOF predicted rows", micro_diag.get("predicted_rows", 0)],
                 ["OOF folds", micro_diag.get("fold_count", 0)],
@@ -710,7 +719,10 @@ def write_report(report, out_path, min_free_bytes=0):
                 ["Casebook", casebook.get("path") or "-"],
                 ["Casebook refs", casebook.get("refs", 0)],
                 ["Casebook-matched rows", micro_diag.get("casebook_matched_rows", 0)],
-                ["Gate allowed taxonomies", ", ".join((microstructure.get("gate") or {}).get("allowed_taxonomies") or []) or "-"],
+                ["Gate policy", gate.get("policy") or "-"],
+                ["Gate allowed taxonomies", ", ".join(gate.get("allowed_taxonomies") or []) or "-"],
+                ["Feature coverage threshold", "clob_feature_available == 1 and overlay probability present"],
+                ["Spread/liquidity thresholds", "diagnostic features only; taxonomy gate controls quote-risk eligibility"],
                 ["Gated overlay rows", micro_diag.get("gated_overlay_rows", 0)],
                 ["Gated base-fallback rows", micro_diag.get("gated_base_rows", 0)],
                 ["Artifact", micro_diag.get("artifact_path") or "-"],

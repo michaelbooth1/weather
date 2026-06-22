@@ -1292,6 +1292,26 @@ def microstructure_shadow_report(
     diagnostics["gated_base_rows"] = gate_counts["base_rows"]
     diagnostics["shadow_variant_rows"] = len(variant_rows)
     diagnostics["shadow_variant_path"] = variant_path
+    diagnostics["claim_lanes"] = {
+        "weather_only_core_model": {
+            "rows": sum(
+                1 for row in variant_rows
+                if row.get("claim_lane") == "weather_only_core_model"
+            ),
+            "counts_toward_weather_model_promotion": True,
+        },
+        "market_informed_quote_risk": {
+            "rows": sum(
+                1 for row in variant_rows
+                if row.get("claim_lane") == "market_informed_quote_risk"
+            ),
+            "quote_risk_eligible_rows": sum(
+                1 for row in variant_rows
+                if row.get("quote_risk_eligible")
+            ),
+            "counts_toward_weather_model_promotion": False,
+        },
+    }
     return {
         "schema_version": MICROSTRUCTURE_SCHEMA_VERSION,
         "enabled": True,
@@ -1308,6 +1328,7 @@ def microstructure_shadow_report(
             "path": variant_path,
             "rows": len(variant_rows),
             "variant_ids": sorted({row["variant_id"] for row in variant_rows}),
+            "claim_lanes": sorted({row.get("claim_lane") for row in variant_rows if row.get("claim_lane")}),
         },
     }
 

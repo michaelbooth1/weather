@@ -459,6 +459,19 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path = Path(path)
     registry = payload.get("registry") or {}
     summary = payload.get("summary") or {}
+    claim_lanes = (payload.get("multi_variant_shadow") or {}).get("claim_lanes") or {}
+    claim_lane_rows = [
+        [
+            lane,
+            item.get("rows", 0),
+            item.get("variant_count", 0),
+            ", ".join(item.get("variant_ids") or []) or "-",
+            item.get("counts_toward_weather_model_promotion_rows", 0),
+            item.get("quote_risk_eligible_rows", 0),
+            item.get("uses_market_features_rows", 0),
+        ]
+        for lane, item in sorted(claim_lanes.items())
+    ] or [["-", 0, 0, "-", 0, 0, 0]]
     lines = [
         "# Active Variant Shadow Refresh",
         "",
@@ -479,6 +492,21 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 ["Deduplicated rows", summary.get("deduplicated_rows")],
                 ["Missing active variants", summary.get("missing_active_variant_count")],
             ],
+        ),
+        "",
+        "## Claim Lane Separation",
+        "",
+        *markdown_table(
+            [
+                "Claim Lane",
+                "Rows",
+                "Variants",
+                "Variant IDs",
+                "Weather Promotion Rows",
+                "Quote-Risk Eligible Rows",
+                "Market-Feature Rows",
+            ],
+            claim_lane_rows,
         ),
         "",
         "## Active Registry Coverage",

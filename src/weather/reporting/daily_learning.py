@@ -179,6 +179,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
         payloads.get("ingest_quality_gate"),
     ) or {}
     promotion = payloads.get("promotion_refresh") or {}
+    early_hour_promotion_blocker = promotion.get("early_hour_promotion_blocker") or {}
     hourly = payloads.get("hourly_model_performance") or {}
     ten_minute = payloads.get("ten_minute_model_performance") or {}
     price_free = payloads.get("price_free_model_learning") or {}
@@ -220,6 +221,11 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "shadow_markets": decisions.get("shadow_markets") or [],
             "blocked_markets": decisions.get("blocked_markets") or [],
             "action_counts": decisions.get("action_counts") or {},
+            "readiness_status": (promotion.get("readiness") or {}).get("status"),
+            "readiness_blockers": (promotion.get("readiness") or {}).get("blockers") or [],
+            "early_hour_promotion_blocker": early_hour_promotion_blocker,
+            "early_hour_promotion_allowed": early_hour_promotion_blocker.get("promotion_allowed"),
+            "early_hour_blocker_count": early_hour_promotion_blocker.get("blocker_count"),
         },
         "hourly_model_performance": {
             "status": (hourly.get("hourly_performance_gate") or {}).get("status"),
@@ -984,6 +990,30 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             evidence=promotion,
         ))
 
+    early_hour_promotion_blocker = promotion.get("early_hour_promotion_blocker") or {}
+    if early_hour_promotion_blocker.get("status") == "BLOCK":
+        blockers = early_hour_promotion_blocker.get("blockers") or []
+        categories = [row.get("category") for row in blockers if row.get("category")]
+        current_gates = early_hour_promotion_blocker.get("current_gates") or {}
+        learnings.append(_learning(
+            "P0",
+            "early_hour_promotion_blocker",
+            "promotion_refresh",
+            (
+                "Early-hour promotion remains fail-closed: "
+                f"current hourly={((current_gates.get('hourly') or {}).get('status') or '-')}, "
+                f"current 10-minute={((current_gates.get('ten_minute') or {}).get('status') or '-')}; "
+                f"blockers={', '.join(categories[:6]) or 'inspect early-hour blocker manifest'}."
+            ),
+            (
+                "Keep the candidate out of promotion until candidate-specific hourly and 10-minute "
+                "gates pass with matching variant/corpus lineage, broad replay is within market "
+                "tolerance, and production-readiness blockers are clear."
+            ),
+            evidence=early_hour_promotion_blocker,
+            blocker=True,
+        ))
+
     if shadow.get("status") == "ALERT":
         learnings.append(_learning(
             "P1",
@@ -1135,15 +1165,18 @@ def _build_learnings(payloads, scorecard, artifacts=None):
                 f"Taker run {taker.get('run_id')} fills={taker.get('filled_orders')} "
                 f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))} "
                 f"source={taker.get('pnl_source') or '-'} "
+                f"evidence={taker.get('pnl_evidence_status') or '-'} "
                 f"settled={taker.get('settled_order_count', '-')}/"
                 f"{taker.get('unsettled_order_count', '-')} "
+                f"tail={taker.get('low_price_tail_fill_count', 0)} "
+                f"tail_status={taker.get('tail_fill_quality_status') or '-'} "
                 f"reconciliation={taker.get('settlement_reconciliation_status') or '-'} "
                 f"root_cause={taker.get('root_cause_class')}; "
                 f"quality={quality.get('status')}."
             ),
             (
-                "Treat one paper day as operational evidence only; require rolling fills/P&L "
-                "thresholds before making taker strategy-quality claims."
+                "Treat MTM-only paper P&L as provisional; require settlement-scored fills, "
+                "tail-fill quality, and rolling P&L thresholds before taker strategy-quality claims."
             ),
             evidence=taker,
             retrain_input=False,
@@ -1320,6 +1353,9 @@ def _scorecard_rows(scorecard):
     corpus = scorecard.get("corpus") or {}
     candidate = scorecard.get("candidate") or {}
     promotion = scorecard.get("promotion") or {}
+    early_hour_promotion = promotion.get("early_hour_promotion_blocker") or {}
+    early_hour_current = early_hour_promotion.get("current_gates") or {}
+    early_hour_candidate = early_hour_promotion.get("candidate_gates") or {}
     hourly = scorecard.get("hourly_model_performance") or {}
     hourly_gate = hourly.get("hourly_performance_gate") or {}
     hourly_daily = hourly.get("daily_summary") or {}
@@ -1363,6 +1399,18 @@ def _scorecard_rows(scorecard):
         ["Promote markets", ", ".join(promotion.get("promote_markets") or []) or "-"],
         ["Shadow markets", ", ".join(promotion.get("shadow_markets") or []) or "-"],
         ["Blocked markets", ", ".join(promotion.get("blocked_markets") or []) or "-"],
+        [
+            "Early-hour promotion blocker",
+            (
+                f"{early_hour_promotion.get('status') or '-'}; "
+                f"allowed={early_hour_promotion.get('promotion_allowed')}; "
+                f"blockers={early_hour_promotion.get('blocker_count', len(early_hour_promotion.get('blockers') or []))}; "
+                f"current={((early_hour_current.get('hourly') or {}).get('status') or '-')}/"
+                f"{((early_hour_current.get('ten_minute') or {}).get('status') or '-')}; "
+                f"candidate={((early_hour_candidate.get('hourly') or {}).get('gate_status') or '-')}/"
+                f"{((early_hour_candidate.get('ten_minute') or {}).get('gate_status') or '-')}"
+            ),
+        ],
         [
             "Hourly performance gate",
             (
@@ -1448,8 +1496,11 @@ def _scorecard_rows(scorecard):
                 f"fills={taker.get('filled_orders', '-')}; "
                 f"net_pnl={fmt_signed(taker.get('net_pnl_usdc'))}; "
                 f"source={taker.get('pnl_source') or '-'}; "
+                f"evidence={taker.get('pnl_evidence_status') or '-'}; "
                 f"settled={taker.get('settled_order_count', '-')}/"
                 f"{taker.get('unsettled_order_count', '-')}; "
+                f"tail={taker.get('low_price_tail_fill_count', 0)} "
+                f"({taker.get('tail_fill_quality_status') or '-'}); "
                 f"root={taker.get('root_cause_class') or '-'}"
             ),
         ],
@@ -1662,6 +1713,34 @@ def render_report(payload):
     )
     lines += ["", "## Scorecard", ""]
     lines += markdown_table(["Area", "Value"], _scorecard_rows(scorecard))
+    early_hour_promotion = ((scorecard.get("promotion") or {}).get("early_hour_promotion_blocker") or {})
+    if early_hour_promotion:
+        current_gates = early_hour_promotion.get("current_gates") or {}
+        candidate_gates = early_hour_promotion.get("candidate_gates") or {}
+        broad_replay = early_hour_promotion.get("broad_replay") or {}
+        production = early_hour_promotion.get("production_readiness") or {}
+        lines += ["", "## Early-Hour Promotion Blocker", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", early_hour_promotion.get("status") or "-"],
+                ["Promotion allowed", early_hour_promotion.get("promotion_allowed")],
+                ["Blockers", early_hour_promotion.get("blocker_count", 0)],
+                ["Current hourly gate", (current_gates.get("hourly") or {}).get("status") or "-"],
+                ["Current 10-minute gate", (current_gates.get("ten_minute") or {}).get("status") or "-"],
+                ["Candidate hourly gate", (candidate_gates.get("hourly") or {}).get("gate_status") or "-"],
+                ["Candidate 10-minute gate", (candidate_gates.get("ten_minute") or {}).get("gate_status") or "-"],
+                ["Broad replay within tolerance", broad_replay.get("within_market_tolerance")],
+                ["Live-forward SLO", (production.get("live_forward_slo") or {}).get("status") or "-"],
+                ["Current-code soak", (production.get("current_code_soak") or {}).get("status") or "-"],
+            ],
+        )
+        blocker_rows = [
+            [row.get("category"), row.get("severity"), row.get("detail")]
+            for row in early_hour_promotion.get("blockers") or []
+        ]
+        if blocker_rows:
+            lines += markdown_table(["Category", "Severity", "Detail"], blocker_rows[:8])
     rollup_freshness = scorecard.get("rollup_freshness") or {}
     if rollup_freshness:
         lines += [
@@ -1861,9 +1940,15 @@ def render_report(payload):
                 ["Taker fills", taker.get("filled_orders")],
                 ["Taker net P&L", fmt_signed(taker.get("net_pnl_usdc"))],
                 ["Taker P&L source", taker.get("pnl_source") or "-"],
+                ["Taker P&L evidence", taker.get("pnl_evidence_status") or "-"],
                 ["Taker settlement P&L", fmt_signed(taker.get("settlement_pnl_usdc"))],
                 ["Taker mark-to-market P&L", fmt_signed(taker.get("mark_to_market_pnl_usdc"))],
                 ["Taker settled / unsettled", f"{taker.get('settled_order_count')}/{taker.get('unsettled_order_count')}"],
+                [
+                    "Taker low-price tail fills",
+                    f"{taker.get('low_price_tail_fill_count')} ({taker.get('tail_fill_quality_status') or '-'})",
+                ],
+                ["Taker MTM can promote", taker.get("mtm_promotion_allowed")],
                 ["Taker reconciliation", taker.get("settlement_reconciliation_status") or "-"],
                 [
                     "Taker reconciliation warnings",

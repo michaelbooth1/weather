@@ -81,6 +81,8 @@ class ForecastSourceStateReliabilityTests(unittest.TestCase):
         self.assertEqual(payload["variant"]["rows"], 6)
         self.assertTrue(out_exists)
         self.assertTrue(payload["calibration_curve"])
+        self.assertEqual(payload["quote_risk_reporting"]["reason_field"], "source_state_reliability_reason")
+        self.assertEqual(payload["quote_risk_reporting"]["claim_lane"], "weather_only_quote_risk_diagnostic")
         high_risk = next(row for row in rows if row["source_state_risk_bucket"] == "high_risk")
         self.assertLess(high_risk["reliability_probability"], high_risk["forecast_profile_probability"])
         self.assertEqual(
@@ -101,6 +103,7 @@ class ForecastSourceStateReliabilityTests(unittest.TestCase):
         self.assertIn("Reliability Slices", text)
         self.assertIn("Calibration Curve", text)
         self.assertIn("Per-Market Reliability Thresholds", text)
+        self.assertIn("Quote-Risk Reporting", text)
 
 
 if __name__ == "__main__":

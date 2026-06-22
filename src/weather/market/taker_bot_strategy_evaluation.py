@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_tape_io import *  # noqa: F403
+from weather.market.snapshot_cadence_quality import snapshot_cadence_quality
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -229,6 +230,7 @@ def reliability_context_key(row):
     kind, value, value_hi = band_key(row)
     source_state = str(row.get("source_freshness_state") or "unknown").strip().lower() or "unknown"
     trust_state = "trusted_current_high" if bool_value(row.get("current_high_trusted"), True) else "untrusted_current_high"
+    cadence_state = str(row.get("snapshot_cadence_quality_state") or "clean").strip().lower() or "clean"
     model_variant = row.get("model_version") or row.get("policy_version") or "unknown_model"
     return "|".join([
         row.get("market_id") or "unknown_market",
@@ -236,6 +238,7 @@ def reliability_context_key(row):
         f"hour:{int(hour) if hour is not None else 'missing'}",
         f"band:{kind}:{value}:{value_hi}",
         f"source:{source_state}",
+        f"cadence:{cadence_state}",
         trust_state,
     ])
 
@@ -247,6 +250,11 @@ def reliability_confidence(row, config):
     if source_state and source_state not in {"all_fresh", "fresh"}:
         confidence *= 0.80
         reasons.append(f"source_state:{source_state}")
+    cadence = snapshot_cadence_quality(row, config=config)
+    cadence_multiplier = maybe_float(cadence.get("snapshot_cadence_confidence_multiplier")) or 1.0
+    if cadence.get("snapshot_cadence_quality_state") not in {"clean", "triggered", "disabled"} or cadence_multiplier < 1.0:
+        confidence *= cadence_multiplier
+        reasons.append(f"cadence_quality:{cadence.get('snapshot_cadence_quality_state')}")
     if not bool_value(row.get("current_high_trusted"), True):
         confidence *= 0.70
         reasons.append("untrusted_current_high")
@@ -264,6 +272,65 @@ def reliability_confidence(row, config):
     floor = float(config.get("calibration_confidence_floor", 0.15) or 0.15)
     confidence = max(floor, min(1.0, confidence))
     return confidence, reasons or ["full_confidence"]
+
+
+def current_high_trust_gate_state(row, config):
+    state = {
+        "current_high_trust_gate_status": "clear",
+        "current_high_trust_gate_action": "allow",
+        "current_high_trust_gate_reason": "",
+        "current_high_trust_gate_aggressive": False,
+        "current_high_trust_gate_size_multiplier": 1.0,
+    }
+    if not config.get("current_high_trust_gate_enabled", True):
+        state.update({
+            "current_high_trust_gate_status": "disabled",
+            "current_high_trust_gate_reason": "current-high trust gate disabled",
+        })
+        return state
+    if bool_value(row.get("current_high_trusted"), True):
+        state["current_high_trust_gate_reason"] = "current-high state trusted"
+        return state
+
+    local, _zone_name = market_local_time(row)
+    hour = maybe_float(row.get("capture_hour_local"))
+    if hour is None and local is not None:
+        hour = local.hour
+    start_hour = float(config.get("current_high_trust_gate_start_hour_local") or 15)
+    late_window = hour is None or hour >= start_hour
+    edge = maybe_float(row.get("edge"))
+    best_ask = maybe_float(first_present(row, "best_ask", "clob_best_ask"))
+    distance = current_high_band_distance(row)
+    aggressive = any([
+        low_price_tail_flag(row, config),
+        edge is not None and edge >= float(config.get("current_high_trust_gate_aggressive_min_edge") or 0.08),
+        best_ask is not None and best_ask <= float(config.get("current_high_trust_gate_aggressive_max_price") or 0.20),
+        distance is not None and distance <= float(config.get("current_high_trust_gate_lockin_distance") or 1.0),
+    ])
+    reason_bits = [
+        "untrusted_current_high",
+        f"hour:{int(hour) if hour is not None else 'missing'}",
+        f"current_max_state:{row.get('current_max_state') or 'unknown'}",
+    ]
+    if row.get("current_high_guard_reason"):
+        reason_bits.append(f"guard:{row.get('current_high_guard_reason')}")
+    state["current_high_trust_gate_aggressive"] = bool(aggressive)
+    state["current_high_trust_gate_reason"] = ";".join(reason_bits)
+    if not late_window:
+        state["current_high_trust_gate_status"] = "observe"
+        state["current_high_trust_gate_action"] = "allow_pre_late_window"
+        return state
+    if aggressive and str(config.get("current_high_trust_gate_action") or "deny_aggressive") == "deny_aggressive":
+        state["current_high_trust_gate_status"] = "blocked"
+        state["current_high_trust_gate_action"] = "deny_aggressive"
+        return state
+    state["current_high_trust_gate_status"] = "capped"
+    state["current_high_trust_gate_action"] = "cap_size"
+    state["current_high_trust_gate_size_multiplier"] = max(
+        0.0,
+        min(1.0, float(config.get("current_high_trust_gate_size_multiplier") or 0.25)),
+    )
+    return state
 
 
 def clob_continuity_state(row, config):
@@ -295,12 +362,15 @@ def mark_sanity_state(row, config):
 
 def enrich_taker_risk_fields(row, config):
     out = dict(row)
+    cadence = snapshot_cadence_quality(out, config=config)
+    out.update(cadence)
     fair = clamp_probability(out.get("fair_probability"))
     best_ask = clamp_probability(first_present(out, "best_ask", "clob_best_ask"))
     edge = maybe_float(out.get("edge"))
     if edge is None and fair is not None and best_ask is not None:
         edge = fair - best_ask
     confidence, reasons = reliability_confidence(out, config)
+    trust_gate = current_high_trust_gate_state(out, config)
     adjusted = None
     risk_edge = None
     if fair is not None and best_ask is not None and edge is not None:
@@ -321,6 +391,7 @@ def enrich_taker_risk_fields(row, config):
         "sizing_limit_reason": "base",
         "low_price_tail": low_price_tail_flag(out, config),
         "tail_risk_bucket": tail_risk_bucket(out, config),
+        **trust_gate,
         "current_high_band_distance": compact_float(current_high_band_distance(out)),
         "adjacent_bin_cluster_key": adjacent_bin_cluster_key(out),
         "clob_continuity_status": continuity_status,
@@ -551,6 +622,14 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "current_high_guard_reason": input_row.get("current_high_guard_reason") or "",
         "source_fresh": bool_value(input_row.get("source_fresh"), False),
         "source_freshness_state": input_row.get("source_freshness_state") or "",
+        "snapshot_cadence": input_row.get("snapshot_cadence") or "",
+        "snapshot_cadence_quality_state": input_row.get("snapshot_cadence_quality_state") or "",
+        "snapshot_cadence_gap_count": input_row.get("snapshot_cadence_gap_count") or "",
+        "snapshot_cadence_max_gap_seconds": input_row.get("snapshot_cadence_max_gap_seconds") or "",
+        "snapshot_cadence_last_model_age_seconds": input_row.get("snapshot_cadence_last_model_age_seconds") or "",
+        "snapshot_cadence_confidence_multiplier": input_row.get("snapshot_cadence_confidence_multiplier") or "",
+        "snapshot_cadence_permission": input_row.get("snapshot_cadence_permission") or "",
+        "snapshot_cadence_reason": input_row.get("snapshot_cadence_reason") or "",
         "capture_hour_local": None,
         "capture_timezone": "",
         "early_hour_guardrail_status": "inactive",
@@ -575,6 +654,11 @@ def candidate_skip_reason(row, config):
         return "NO_TRADE_MARKET_INACTIVE", "market is not active"
     if config.get("require_source_fresh") and not bool_value(row.get("source_fresh"), False):
         return "NO_TRADE_SOURCE_STALE", "source freshness gate is false"
+    if row.get("snapshot_cadence_permission") == "deny":
+        return (
+            "NO_TRADE_SNAPSHOT_CADENCE_DEGRADED",
+            row.get("snapshot_cadence_reason") or "snapshot cadence quality gate denied taker permission",
+        )
     if fair is None:
         return "NO_TRADE_MISSING_FAIR", "missing fair probability"
     if not row.get("clob_token_id"):
@@ -614,6 +698,11 @@ def candidate_skip_reason(row, config):
             return "NO_TRADE_TOO_EARLY_LOCAL_HOUR", "local capture hour is before strategy timing window"
     if config.get("require_current_high_trusted") and not bool_value(row.get("current_high_trusted"), False):
         return "NO_TRADE_CURRENT_HIGH_NOT_TRUSTED", "current-high state is not trusted enough for this strategy"
+    if row.get("current_high_trust_gate_status") == "blocked":
+        return (
+            "NO_TRADE_CURRENT_HIGH_TRUST_GATE",
+            row.get("current_high_trust_gate_reason") or "untrusted current-high state blocks aggressive entry",
+        )
     if config.get("require_clob_continuity") and row.get("clob_continuity_status") != "pass":
         return "NO_TRADE_CLOB_CONTINUITY", row.get("clob_continuity_reason") or "CLOB continuity gate failed"
     max_current_high_distance = maybe_float(config.get("max_current_high_band_distance"))

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     acquire_lock,
+    build_parser,
     load_status,
     repair_stale_locks,
     release_lock,
@@ -19,6 +20,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_daily_flow_analysis_step,
     run_daily_refresh,
     run_distribution_stage_attribution_step,
+    run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
@@ -62,6 +64,16 @@ def _args(tmp, **overrides):
         "skip_active_variant_shadow": False,
         "active_variant_shadow_sources": "",
         "variant_registry": str(root / "config" / "model_variant_registry.json"),
+        "skip_frozen_baseline_replay_trend": False,
+        "frozen_baseline_current_predictions": "",
+        "frozen_baseline_baseline_predictions": "",
+        "frozen_baseline_manifest": str(root / "backtest" / "frozen_baseline_manifest.json"),
+        "frozen_baseline_current_variant_id": "item50_pooled_forecast_v3_candidate",
+        "frozen_baseline_baseline_variant_id": "",
+        "frozen_baseline_code_identity": "",
+        "frozen_baseline_trend_jsonl": str(root / "backtest" / "frozen_baseline_replay_trend.jsonl"),
+        "frozen_baseline_json_out": str(root / "backtest" / "frozen_baseline_replay_trend.json"),
+        "frozen_baseline_report_out": str(root / "backtest" / "frozen_baseline_replay_trend_report.md"),
         "skip_model_variant_evidence_growth": False,
         "variant_evidence_current": "",
         "variant_evidence_baseline": "",
@@ -331,6 +343,32 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(status["status"], "dry_run")
         self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * len(DEFAULT_RUNNERS))
 
+    def test_cli_dry_run_defaults_to_dry_run_status_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parser = build_parser()
+            args = parser.parse_args([
+                "run",
+                "--dry-run",
+                "--backtest-root",
+                str(root / "backtest"),
+                "--snapshots-root",
+                str(root / "snapshots"),
+            ])
+            captured = {}
+
+            def fake_run(run_args):
+                captured["status_out"] = run_args.status_out
+                captured["report_out"] = run_args.report_out
+                return {"status": "dry_run"}, Path(run_args.status_out), Path(run_args.report_out)
+
+            with patch("weather.operations.daily_refresh_cli.run_daily_refresh", side_effect=fake_run):
+                code = args.func(args)
+
+        self.assertEqual(code, 0)
+        self.assertTrue(captured["status_out"].endswith("daily_refresh_dry_run_status.json"))
+        self.assertTrue(captured["report_out"].endswith("daily_refresh_dry_run_report.md"))
+
     def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
@@ -348,7 +386,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
         self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
-        self.assertLess(names.index("active_variant_shadow"), names.index("model_variant_evidence_growth"))
+        self.assertLess(names.index("active_variant_shadow"), names.index("frozen_baseline_replay_trend"))
+        self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
 
     def test_promotion_refresh_disk_preflight_blocks_before_candidate_export(self):
         def after(_args):
@@ -738,6 +777,48 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "critical")
         self.assertEqual(payload["summary"]["daily_flow_analysis"]["status"], "BLOCKED")
 
+    def test_frozen_baseline_replay_trend_step_scores_pinned_manifest(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        current_row = (
+            "item50_pooled_forecast_v3_candidate,f_family,False,False,nyc,"
+            "2026-06-11,s1,eq:82,0.8,0.5,0.5,0.5,1,a,p,2026-06-15\n"
+        )
+        baseline_row = (
+            "pooled_f_candidate_control,f_family,False,True,nyc,"
+            "2026-06-11,s1,eq:82,0.2,0.5,0.5,0.5,1,a,p,2026-06-15\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            current = backtest / "active_variant_shadow_long.csv"
+            baseline = backtest / "baseline.csv"
+            manifest = backtest / "frozen_baseline_manifest.json"
+            current.write_text(header + current_row, encoding="utf-8")
+            baseline.write_text(header + baseline_row + current_row, encoding="utf-8")
+            manifest.write_text(json.dumps({
+                "schema_version": "frozen_baseline_manifest_v0.1",
+                "baseline_id": "control",
+                "code_identity": "pooled_f_candidate_control",
+                "predictions_paths": [str(baseline)],
+            }), encoding="utf-8")
+
+            result = run_frozen_baseline_replay_trend_step(_args(tmp))
+            payload = json.loads((backtest / "frozen_baseline_replay_trend.json").read_text(encoding="utf-8"))
+            report = (backtest / "frozen_baseline_replay_trend_report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(result["status"], "PRESENT")
+        self.assertEqual(result["baseline_variant_id"], "pooled_f_candidate_control")
+        self.assertEqual(result["shared_observations"], 1)
+        self.assertLess(result["brier_delta_current_minus_baseline"], 0)
+        self.assertEqual(payload["independent_baseline_status"], "PRESENT")
+        self.assertIn("weather held constant", report)
+
     def test_model_variant_evidence_growth_step_runs_from_daily_refresh_inputs(self):
         header = (
             "variant_id,variant_family,uses_market_features,is_control,market_id,"
@@ -816,6 +897,9 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertTrue(Path(result["json_out"]).exists())
             self.assertTrue(Path(result["report_out"]).exists())
             self.assertEqual(result["settled_folder_count"], 1)
+            self.assertEqual(result["market_stage_row_count"], 3)
+            self.assertEqual(result["market_stage_cutoff_regime_row_count"], 3)
+            self.assertEqual(result["bottom_location_winner_mass_blocker_count"], 0)
             self.assertEqual(result["top_net_negative_stage"]["group"], "post_live_signals")
 
     def test_settled_day_root_cause_step_writes_outputs(self):
@@ -887,17 +971,24 @@ class TestDailyRefresh(unittest.TestCase):
             result = run_active_variant_shadow_step(args)
             long_exists = (root / "backtest" / "active_variant_shadow_long.csv").exists()
             sidecar_exists = (root / "backtest" / "active_variant_shadow_attribution.jsonl").exists()
-            json_exists = (root / "backtest" / "active_variant_shadow.json").exists()
-            report_exists = (root / "backtest" / "active_variant_shadow_report.md").exists()
+            json_path = root / "backtest" / "active_variant_shadow.json"
+            json_exists = json_path.exists()
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+            report_path = root / "backtest" / "active_variant_shadow_report.md"
+            report_exists = report_path.exists()
+            report_text = report_path.read_text(encoding="utf-8")
 
         self.assertEqual(result["status"], "BLOCK")
         self.assertEqual(result["summary"]["canonical_rows"], 1)
         self.assertEqual(result["missing_active_variant_ids"], ["missing_v"])
+        self.assertEqual(payload["multi_variant_shadow"]["claim_lanes"]["weather_only_core_model"]["rows"], 1)
         self.assertTrue(long_exists)
         self.assertTrue(sidecar_exists)
         self.assertTrue(result["attribution_sidecar_out"].endswith("active_variant_shadow_attribution.jsonl"))
         self.assertTrue(json_exists)
         self.assertTrue(report_exists)
+        self.assertIn("Claim Lane Separation", report_text)
+        self.assertIn("weather_only_core_model", report_text)
 
     def test_active_variant_shadow_uses_registry_export_paths_by_default(self):
         header = (

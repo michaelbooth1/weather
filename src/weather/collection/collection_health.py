@@ -402,6 +402,12 @@ def source_status_for_row(row):
 
 def source_degradation_bucket(row):
     status = source_status_for_row(row)
+    degradation = str(row.get("degradation_state") or "").strip().lower()
+    if status in {"expected_current_day_unavailable", "expected_unavailable"} or degradation in {
+        "expected_current_day_unavailable",
+        "expected_unavailable",
+    }:
+        return "expected_unavailable"
     if status == "rate_limited":
         return "rate_limited"
     if status == "rate_limited_cache":
@@ -427,6 +433,7 @@ def source_status_detail(row, bucket):
         "retry_after_seconds": maybe_float(row.get("retry_after_seconds")),
         "degradation_state": row.get("degradation_state"),
         "cache_status": row.get("cache_status"),
+        "fallback_source": row.get("fallback_source"),
         "fetched_at": row.get("fetched_at"),
         "age_minutes": maybe_float(row.get("age_minutes")),
         "ttl_minutes": maybe_float(row.get("ttl_minutes")),
@@ -494,6 +501,7 @@ def source_family_degradation(folder):
             "fallback_source_count": 0,
             "rate_limited_source_count": 0,
             "provider_cooldown_source_count": 0,
+            "expected_unavailable_source_count": 0,
             "claim_lane_allowance": {
                 "model_review": False,
                 "paper_trading": False,
@@ -520,6 +528,7 @@ def source_family_degradation(folder):
                 "fallback_source_count": 0,
                 "rate_limited_source_count": 0,
                 "provider_cooldown_source_count": 0,
+                "expected_unavailable_source_count": 0,
                 "unknown_source_count": 0,
                 "sources": [],
                 "fresh_sources": [],
@@ -527,6 +536,7 @@ def source_family_degradation(folder):
                 "fallback_sources": [],
                 "rate_limited_sources": [],
                 "provider_cooldown_sources": [],
+                "expected_unavailable_sources": [],
                 "unknown_sources": [],
                 "source_details": [],
             },
@@ -550,6 +560,9 @@ def source_family_degradation(folder):
             if str(row.get("cache_status") or "").strip().lower() == "provider_cooldown":
                 summary["provider_cooldown_source_count"] += 1
                 summary["provider_cooldown_sources"].append(source)
+        elif bucket == "expected_unavailable":
+            summary["expected_unavailable_source_count"] += 1
+            summary["expected_unavailable_sources"].append(source)
         else:
             summary["unknown_source_count"] += 1
             summary["unknown_sources"].append(source)
@@ -559,11 +572,13 @@ def source_family_degradation(folder):
     fallback_source_count = 0
     rate_limited_source_count = 0
     provider_cooldown_source_count = 0
+    expected_unavailable_source_count = 0
     for summary in families.values():
         failed_source_count += summary["failed_source_count"]
         fallback_source_count += summary["fallback_source_count"]
         rate_limited_source_count += summary["rate_limited_source_count"]
         provider_cooldown_source_count += summary["provider_cooldown_source_count"]
+        expected_unavailable_source_count += summary["expected_unavailable_source_count"]
         affected = (
             summary["failed_source_count"]
             + summary["fallback_source_count"]
@@ -581,6 +596,8 @@ def source_family_degradation(folder):
         summary["trading_blocking"] = bool(affected and not nonblocking_rate_limit_with_fresh_coverage)
         if nonblocking_rate_limit_with_fresh_coverage:
             summary["status"] = "rate_limited_with_fresh_family_coverage"
+        elif summary["expected_unavailable_source_count"] and not affected:
+            summary["status"] = "expected_current_day_unavailable"
         else:
             summary["status"] = "degraded" if affected else "healthy"
         if affected:
@@ -629,6 +646,7 @@ def source_family_degradation(folder):
         "fallback_source_count": fallback_source_count,
         "rate_limited_source_count": rate_limited_source_count,
         "provider_cooldown_source_count": provider_cooldown_source_count,
+        "expected_unavailable_source_count": expected_unavailable_source_count,
         "claim_lane_allowance": claim_lane_allowance,
         "model_review_allowed": True,
         "trading_evidence_allowed": blocking_family_count == 0,
@@ -647,6 +665,7 @@ def fleet_source_family_degradation_summary(markets):
     cooldown_by_family = Counter()
     fallback_by_family = Counter()
     rate_limited_by_family = Counter()
+    expected_by_family = Counter()
     for row in available:
         for family, family_row in (row.get("families") or {}).items():
             affected = (
@@ -662,6 +681,7 @@ def fleet_source_family_degradation_summary(markets):
             cooldown_by_family[family] += int(family_row.get("provider_cooldown_source_count") or 0)
             fallback_by_family[family] += int(family_row.get("fallback_source_count") or 0)
             rate_limited_by_family[family] += int(family_row.get("rate_limited_source_count") or 0)
+            expected_by_family[family] += int(family_row.get("expected_unavailable_source_count") or 0)
     top_degraded_family = None
     if affected_by_family:
         top_degraded_family = affected_by_family.most_common(1)[0][0]
@@ -685,11 +705,15 @@ def fleet_source_family_degradation_summary(markets):
         "provider_cooldown_family_source_counts": dict(sorted(cooldown_by_family.items())),
         "fallback_family_source_counts": dict(sorted(fallback_by_family.items())),
         "rate_limited_family_source_counts": dict(sorted(rate_limited_by_family.items())),
+        "expected_unavailable_family_source_counts": dict(sorted(expected_by_family.items())),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
         "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
         "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
         "fallback_source_count": sum(int(row.get("fallback_source_count") or 0) for row in available),
         "rate_limited_source_count": sum(int(row.get("rate_limited_source_count") or 0) for row in available),
+        "expected_unavailable_source_count": sum(
+            int(row.get("expected_unavailable_source_count") or 0) for row in available
+        ),
         "provider_cooldown_source_count": sum(
             int(row.get("provider_cooldown_source_count") or 0) for row in available
         ),
@@ -718,9 +742,11 @@ def source_status_market_proof(row):
             "fallback_source_count": family_row.get("fallback_source_count"),
             "rate_limited_source_count": family_row.get("rate_limited_source_count"),
             "provider_cooldown_source_count": family_row.get("provider_cooldown_source_count"),
+            "expected_unavailable_source_count": family_row.get("expected_unavailable_source_count"),
             "fallback_sources": family_row.get("fallback_sources") or [],
             "rate_limited_sources": family_row.get("rate_limited_sources") or [],
             "provider_cooldown_sources": family_row.get("provider_cooldown_sources") or [],
+            "expected_unavailable_sources": family_row.get("expected_unavailable_sources") or [],
             "top_cache_states": family_row.get("top_cache_states") or {},
             "max_cache_age_minutes": family_row.get("max_cache_age_minutes"),
             "max_retry_after_seconds": family_row.get("max_retry_after_seconds"),
@@ -747,6 +773,7 @@ def source_status_market_proof(row):
         "affected_family_count": source_status.get("affected_family_count", 0),
         "blocking_family_count": source_status.get("blocking_family_count", 0),
         "provider_cooldown_source_count": source_status.get("provider_cooldown_source_count", 0),
+        "expected_unavailable_source_count": source_status.get("expected_unavailable_source_count", 0),
         "top_degraded_family": top_family,
         "affected_families": affected,
         "repair_command": source_status.get("repair_command"),

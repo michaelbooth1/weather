@@ -1,4 +1,4 @@
-# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-20 - CADENCE PROOF ADDED, CLEAN ACTIVE DAY PENDING]
+# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-22 - JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING]
 
 Goal: eliminate active-day snapshot cadence gaps so broad live-forward evidence
 can count for all selected markets.
@@ -80,3 +80,28 @@ gap is `22.137341816666666` minutes, and the explicit next unblock action is
 `collect next active day with zero snapshot_coverage_gap blocked markets`.
 `recoverable_same_day_market_count` is `0`, so another restart/status rerun
 cannot make this active day countable.
+
+2026-06-22 maintenance refresh: after repairing malformed loop console logs and
+restarting the managed loops on current source, fleet observability shows loop
+artifact integrity `OK` with malformed lines `0` and duplicate writers `0`.
+The live-forward SLO remains `BLOCK`, but the blocker is now cleanly the
+nonrecoverable active-day cadence evidence: `snapshot_coverage_gap` still
+blocks all 12 markets, with `54` total gaps, max gap
+`22.137341816666666` minutes, `recoverable_same_day_market_count=0`, and
+`nonrecoverable_active_day_blocked_market_count=12`. The next unblock action
+remains `collect next active day with zero snapshot_coverage_gap blocked
+markets`; another same-day restart cannot make the current active day
+countable.
+
+2026-06-22 midnight refresh: the regenerated
+`data/backtest/fleet_observability.json` at `2026-06-22T04:20:04Z` shows the
+new current-code loops are healthy and source/source-status freshness gates are
+passing, but the broad live-forward SLO still cannot count. The target cadence
+window remains the June 21 active day, and `snapshot_coverage_gap` blocks `8`
+markets with nonrecoverable gaps: austin `1` gap max `19` minutes, chicago `6`
+max `20`, dallas `4` max `20`, denver `5` max `22`, houston `7` max `20`,
+los-angeles `3` max `20`, san-francisco `6` max `20`, and seattle `3` max `18`.
+`recoverable_same_day_market_count=0`; another same-day restart cannot make the
+June 21 window countable. The useful action is to keep collecting the June 22
+active day on the current source and rerun fleet observability after the active
+window has enough coverage to prove zero blocked snapshot-coverage-gap markets.

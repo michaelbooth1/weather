@@ -15,6 +15,38 @@ def write_json(path, payload):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def write_mixed_runtime_snapshots(snapshots_root):
+    folder = Path(snapshots_root) / "highest-temperature-in-toronto-on-june-21-2026"
+    folder.mkdir(parents=True)
+    path = folder / "snapshots_long.csv"
+    fieldnames = [
+        "snapshot_id",
+        "market_id",
+        "target_date",
+        "runtime_git_commit",
+        "runtime_git_dirty",
+        "runtime_source_fingerprint",
+        "runtime_code_state",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for commit, source, count in [
+            ("5b6f5af2d396", "source-a", 2),
+            ("2e3672d99680", "source-b", 1),
+        ]:
+            for index in range(count):
+                writer.writerow({
+                    "snapshot_id": f"{commit}-{index}",
+                    "market_id": "toronto",
+                    "target_date": "2026-06-21",
+                    "runtime_git_commit": commit,
+                    "runtime_git_dirty": "False",
+                    "runtime_source_fingerprint": source,
+                    "runtime_code_state": "current",
+                })
+
+
 class TestDailyProgressLedger(unittest.TestCase):
     def test_build_progress_row_blocks_broad_claim_until_all_gates_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -244,7 +276,11 @@ class TestDailyProgressLedger(unittest.TestCase):
                 ],
             }
 
-            row = build_progress_row(backtest_root=backtest, daily_refresh_status=daily_refresh)
+            row = build_progress_row(
+                backtest_root=backtest,
+                snapshots_root=root / "snapshots",
+                daily_refresh_status=daily_refresh,
+            )
 
         self.assertFalse(row["broad_improvement_claim_allowed"])
         failures = json.loads(row["broad_improvement_claim_failures"])
@@ -291,6 +327,101 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["trading_taker_active_strategy_canary_settled_order_count"], 4)
         self.assertEqual(row["trading_taker_active_strategy_canary_min_settled_orders"], 5)
         self.assertEqual(row["trading_taker_active_strategy_canary_age_days"], 0)
+
+    def test_mixed_runtime_identity_blocks_broad_claims(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            snapshots = root / "snapshots"
+            write_mixed_runtime_snapshots(snapshots)
+            daily_refresh = {
+                "status": "ok",
+                "generated_at_utc": "2026-06-21T23:59:00+00:00",
+                "summary": {"labels": {"total": 0, "quality_counts": {}}},
+                "steps": [],
+            }
+
+            row = build_progress_row(
+                backtest_root=backtest,
+                snapshots_root=snapshots,
+                daily_refresh_status=daily_refresh,
+                generated_at_utc="2026-06-22T00:00:00+00:00",
+            )
+
+        failures = json.loads(row["broad_improvement_claim_failures"])
+        segments = json.loads(row["runtime_identity_segments"])
+        self.assertEqual(row["run_date"], "2026-06-21")
+        self.assertEqual(row["runtime_identity_status"], "BLOCK")
+        self.assertTrue(row["runtime_identity_mixed"])
+        self.assertEqual(row["runtime_identity_count"], 2)
+        self.assertEqual(row["runtime_identity_snapshot_rows"], 3)
+        self.assertEqual(row["runtime_identity_blocking_reason"], "mixed_runtime_identity_unsegmented")
+        self.assertIn("mixed_runtime_identity_unsegmented", failures)
+        self.assertEqual({row["runtime_git_commit"] for row in segments}, {"5b6f5af2d396", "2e3672d99680"})
+
+    def test_frozen_baseline_artifact_clears_independent_baseline_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            write_json(
+                backtest / "progress_audit.json",
+                {
+                    "core_model_trend_claim": {
+                        "claim_allowed": True,
+                        "status": "PROVEN",
+                        "summary": {
+                            "positive_skill_days": 3,
+                            "positive_daily_first_days": 3,
+                            "rolling_daily_first_brier_skill": 0.01,
+                            "promotion_grade_market_days": 84,
+                        },
+                    }
+                },
+            )
+            write_json(
+                backtest / "fleet_observability.json",
+                {
+                    "live_forward_slo": {"status": "PASS"},
+                    "collection": {"source_status_proof": {"summary": {}}},
+                },
+            )
+            write_json(
+                backtest / "model_variant_evidence_growth.json",
+                {"evidence_sla": {"status": "BLOCK", "reasons": ["missing baseline evidence"]}},
+            )
+            write_json(
+                backtest / "frozen_baseline_replay_trend.json",
+                {
+                    "independent_baseline_status": "PRESENT",
+                    "baseline_id": "control",
+                    "current_code_identity": "current",
+                    "coverage": {"shared_observations": 10, "shared_market_days": 2},
+                    "overall": {
+                        "brier_delta_current_minus_baseline": -0.02,
+                        "brier_delta_current_minus_market": 0.01,
+                    },
+                },
+            )
+            daily_refresh = {
+                "status": "ok",
+                "generated_at_utc": "2026-06-21T23:59:00+00:00",
+                "summary": {"labels": {"total": 84, "quality_counts": {"complete": 84}}},
+                "steps": [],
+            }
+
+            row = build_progress_row(
+                backtest_root=backtest,
+                snapshots_root=root / "snapshots",
+                daily_refresh_status=daily_refresh,
+            )
+
+        failures = json.loads(row["broad_improvement_claim_failures"])
+        self.assertEqual(row["evidence_independent_baseline_status"], "PRESENT")
+        self.assertEqual(row["evidence_frozen_baseline_status"], "PRESENT")
+        self.assertEqual(row["evidence_frozen_baseline_shared_observations"], 10)
+        self.assertEqual(row["evidence_frozen_baseline_brier_delta_current_minus_baseline"], -0.02)
+        self.assertNotIn("independent_baseline_missing", failures)
 
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -21,6 +21,7 @@ _DEPENDENCY_NAMES = {
     "STEP_ORDER",
     "progress_audit",
     "active_variant_shadow_refresh",
+    "frozen_baseline_replay_trend",
     "hourly_model_performance",
     "ten_minute_model_performance",
     "settled_day_root_cause",
@@ -115,6 +116,43 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--variant-evidence-min-market-days", type=int, default=1)
     parser.add_argument("--variant-evidence-rolling-7d-min-market-days", type=int, default=1)
     parser.add_argument("--variant-evidence-per-shadow-market-min-days", type=int, default=4)
+    parser.add_argument("--skip-frozen-baseline-replay-trend", action="store_true")
+    parser.add_argument(
+        "--frozen-baseline-current-predictions",
+        default="",
+        help="Comma-separated current prediction exports; defaults to active_variant_shadow_long.csv.",
+    )
+    parser.add_argument(
+        "--frozen-baseline-baseline-predictions",
+        default="",
+        help="Comma-separated pinned baseline prediction exports; defaults to the frozen baseline manifest.",
+    )
+    parser.add_argument(
+        "--frozen-baseline-manifest",
+        default="",
+        help="Frozen baseline manifest path; defaults to <backtest-root>/frozen_baseline_manifest.json.",
+    )
+    parser.add_argument(
+        "--frozen-baseline-current-variant-id",
+        default="item50_pooled_forecast_v3_candidate",
+    )
+    parser.add_argument("--frozen-baseline-baseline-variant-id", default="")
+    parser.add_argument("--frozen-baseline-code-identity", default="")
+    parser.add_argument(
+        "--frozen-baseline-trend-jsonl",
+        default="",
+        help="Trend JSONL output; defaults to <backtest-root>/frozen_baseline_replay_trend.jsonl.",
+    )
+    parser.add_argument(
+        "--frozen-baseline-json-out",
+        default="",
+        help="Trend JSON output; defaults to <backtest-root>/frozen_baseline_replay_trend.json.",
+    )
+    parser.add_argument(
+        "--frozen-baseline-report-out",
+        default="",
+        help="Trend report output; defaults to <backtest-root>/frozen_baseline_replay_trend_report.md.",
+    )
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--skip-hourly-model-performance", action="store_true")
@@ -257,6 +295,7 @@ def build_run_parser(parser, dependencies=None):
 
 def cmd_run(args):
     lock = None
+    _redirect_default_dry_run_outputs(args)
     if not args.dry_run:
         preflight = lock_preflight(args)
         lock = acquire_lock(args.lock_path, force=args.force_lock)
@@ -283,6 +322,23 @@ def cmd_run(args):
     if payload["status"] == "critical":
         return 2
     return 0
+
+
+def _is_default_path(value, default):
+    try:
+        return Path(value) == Path(default)
+    except TypeError:
+        return False
+
+
+def _redirect_default_dry_run_outputs(args):
+    if not getattr(args, "dry_run", False):
+        return
+    backtest_root = Path(args.backtest_root)
+    if _is_default_path(getattr(args, "status_out", None), DEFAULT_STATUS_OUT):
+        args.status_out = str(backtest_root / "daily_refresh_dry_run_status.json")
+    if _is_default_path(getattr(args, "report_out", None), DEFAULT_REPORT_OUT):
+        args.report_out = str(backtest_root / "daily_refresh_dry_run_report.md")
 
 
 def cmd_status(args):

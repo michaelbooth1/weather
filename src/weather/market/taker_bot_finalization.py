@@ -447,6 +447,18 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
             or ((run_config.get("policy_config") or {}).get("canary_min_settled_orders"))
             or DEFAULT_CANARY_MIN_SETTLED_ORDERS
         ),
+        "canary_settled_market_count": int(((gates_by_strategy.get(active_id) or {}).get("settled_market_count")) or 0),
+        "canary_min_settled_markets": int(
+            ((run_config.get("policy_config") or {}).get("promotion_min_settled_markets"))
+            or DEFAULT_PROMOTION_MIN_SETTLED_MARKETS
+        ),
+        "canary_tail_fill_fraction": compact_float(
+            (gates_by_strategy.get(active_id) or {}).get("low_price_tail_fill_fraction")
+        ),
+        "canary_max_tail_fill_fraction": compact_float(
+            ((run_config.get("policy_config") or {}).get("promotion_max_tail_fill_fraction"))
+            or DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION
+        ),
         "canary_age_days": (run_config.get("active_strategy_canary") or {}).get("age_days"),
         "canary_failed_gates": (gates_by_strategy.get(active_id) or {}).get("failed_gates") or [],
         "reason": reason,
@@ -479,7 +491,15 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
     labels = load_settlement_labels(labels_csv)
     raw_orders = read_order_rows(order_path)
     scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
-    pnl_payload = build_pnl_payload(scored_orders, budget_usdc, run_id, target_date, now=now)
+    run_config = read_json(run_folder / "run_config.json", {}) or {}
+    pnl_payload = build_pnl_payload(
+        scored_orders,
+        budget_usdc,
+        run_id,
+        target_date,
+        now=now,
+        policy_config=run_config.get("policy_config") or {},
+    )
     reported_summary = reported_taker_pnl_summary(run_summary, daily_pnl)
     reconciliation = build_settlement_reconciliation(pnl_payload.get("summary") or {}, reported_summary)
     settled_orders_path = run_folder / "settled_orders_long.csv"
@@ -494,7 +514,6 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
         target_date=target_date,
         now=now,
     )
-    run_config = read_json(run_folder / "run_config.json", {}) or {}
     bakeoff = read_json(run_folder / "strategy_bakeoff.json", {}) or {}
     next_gate = next_run_policy_gate(strategy_summary, run_config=run_config, bakeoff=bakeoff)
     final_summary = {
@@ -513,6 +532,10 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
         "active_strategy_total_label_sample_count": next_gate.get("total_label_sample_count"),
         "active_strategy_canary_settled_order_count": next_gate.get("canary_settled_order_count"),
         "active_strategy_canary_min_settled_orders": next_gate.get("canary_min_settled_orders"),
+        "active_strategy_canary_settled_market_count": next_gate.get("canary_settled_market_count"),
+        "active_strategy_canary_min_settled_markets": next_gate.get("canary_min_settled_markets"),
+        "active_strategy_canary_tail_fill_fraction": next_gate.get("canary_tail_fill_fraction"),
+        "active_strategy_canary_max_tail_fill_fraction": next_gate.get("canary_max_tail_fill_fraction"),
         "active_strategy_canary_age_days": next_gate.get("canary_age_days"),
         "settled_orders_path": str(settled_orders_path),
         "settled_report_path": str(settled_report_path),

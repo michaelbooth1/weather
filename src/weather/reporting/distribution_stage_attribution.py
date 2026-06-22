@@ -18,6 +18,7 @@ from weather.operations.runtime_identity import (
     identities_match,
 )
 from weather.paths import data_path
+from weather.reporting.cutoff_regime_weighting import cutoff_regime
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
 
@@ -35,6 +36,16 @@ STAGE_ORDER = tuple(key for key, _label in DRIVER_WATERFALL_STAGES)
 STAGE_LABELS = dict(DRIVER_WATERFALL_STAGES)
 FORECAST_SHAPE_STAGES = {"forecast_pull"}
 EMPIRICAL_REGIMES = {"empirical", "calibrated_empirical"}
+BOTTOM_LOCATION_MARKETS = ("miami", "nyc", "seattle")
+BOTTOM_LOCATION_GUARD_STAGES = (
+    "post_live_signals",
+    "forecast_pull",
+    "settlement_lag_adjusted",
+    "current_observed_floor",
+    "high_has_stood_lockin",
+    "late_day_lockin",
+    "final_model",
+)
 
 
 def utc_now():
@@ -105,6 +116,25 @@ def effective_band_spread(probability):
     return 4.0 * p * (1.0 - p)
 
 
+def is_adjacent_winner_band(row):
+    settlement_bucket = maybe_int(row.get("settlement_bucket"))
+    if settlement_bucket is None or row.get("outcome") == 1:
+        return False
+    kind = row.get("band_kind")
+    value = maybe_int(row.get("band_value"))
+    value_hi = maybe_int(row.get("band_value_hi"))
+    if value is None:
+        return False
+    if kind == "lte":
+        return value == settlement_bucket - 1
+    if kind == "gte":
+        return value == settlement_bucket + 1
+    if value_hi is None:
+        value_hi = value
+    settlement_hi = settlement_bucket + max(0, value_hi - value)
+    return value_hi == settlement_bucket - 1 or value == settlement_hi + 1
+
+
 def read_json(path, default=None):
     path = Path(path)
     if not path.exists():
@@ -140,6 +170,7 @@ def _score_component_row(row, folder, settlement):
         "captured_at_utc": row.get("captured_at_utc") or "",
         "captured_at_local": row.get("captured_at_local") or "",
         "cutoff_hour": row.get("cutoff_hour") or "",
+        "cutoff_regime": cutoff_regime(row.get("cutoff_hour")),
         "active_model_kind": row.get("active_model_kind") or "",
         "stage_regime": row.get("active_model_kind") or "unknown",
         "runtime_identity_schema_version": row.get("runtime_identity_schema_version") or "",
@@ -154,6 +185,7 @@ def _score_component_row(row, folder, settlement):
         "band_kind": kind,
         "band_value": value,
         "band_value_hi": value_hi,
+        "settlement_bucket": settlement_bucket,
         "outcome": outcome,
         "probability": probability,
         "brier": binary_brier(probability, outcome),
@@ -196,6 +228,7 @@ def attribution_rows_for_folder(folder):
                     "delta_brier": None,
                     "delta_logloss": None,
                     "winner_probability_delta": None,
+                    "adjacent_winner_mass_delta": None,
                     "effective_band_spread_delta": None,
                 })
             else:
@@ -208,6 +241,11 @@ def attribution_rows_for_folder(folder):
                         if row["outcome"] == 1
                         else None
                     ),
+                    "adjacent_winner_mass_delta": (
+                        row["probability"] - previous["probability"]
+                        if is_adjacent_winner_band(row)
+                        else None
+                    ),
                     "effective_band_spread_delta": (
                         row["effective_band_spread"] - previous["effective_band_spread"]
                     ),
@@ -217,21 +255,63 @@ def attribution_rows_for_folder(folder):
     return rows
 
 
+def _component_scope_row(row, folder):
+    component_name = row.get("component_name")
+    snapshot_id = row.get("snapshot_id")
+    if not component_name or not snapshot_id:
+        return None
+    return {
+        "event_slug": row.get("event_slug") or folder.name,
+        "market_id": "",
+        "target_date": "",
+        "snapshot_id": snapshot_id,
+        "captured_at_utc": row.get("captured_at_utc") or "",
+        "captured_at_local": row.get("captured_at_local") or "",
+        "cutoff_hour": row.get("cutoff_hour") or "",
+        "active_model_kind": row.get("active_model_kind") or "",
+        "stage_regime": row.get("active_model_kind") or "unknown",
+        "runtime_identity_schema_version": row.get("runtime_identity_schema_version") or "",
+        "runtime_git_branch": row.get("runtime_git_branch") or "",
+        "runtime_git_commit": row.get("runtime_git_commit") or "",
+        "runtime_git_dirty": row.get("runtime_git_dirty") or "",
+        "runtime_dirty_fingerprint": row.get("runtime_dirty_fingerprint") or "",
+        "runtime_source_fingerprint": row.get("runtime_source_fingerprint") or "",
+        "runtime_code_state": row.get("runtime_code_state") or "",
+        "component_name": component_name,
+    }
+
+
+def component_scope_rows_for_folder(folder):
+    folder = Path(folder)
+    component_path = folder / COMPONENT_FILENAME
+    rows = []
+    with component_path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            scope_row = _component_scope_row(row, folder)
+            if scope_row:
+                rows.append(scope_row)
+    return rows
+
+
 def mean(values):
     values = [value for value in values if value is not None]
     return sum(values) / len(values) if values else None
 
 
-def aggregate_rows(rows, group_key=None):
+def aggregate_rows_by_keys(rows, group_keys=None):
+    group_keys = tuple(group_keys or ())
     groups = defaultdict(list)
     for row in rows:
-        key = "all" if group_key is None else row.get(group_key)
-        groups[str(key if key not in (None, "") else "-")].append(row)
+        if not group_keys:
+            key = ("all",)
+        else:
+            key = tuple(str(row.get(item) if row.get(item) not in (None, "") else "-") for item in group_keys)
+        groups[key].append(row)
     output = []
     for key, group in sorted(groups.items()):
         delta_rows = [row for row in group if row.get("delta_brier") is not None]
-        output.append({
-            "group": key,
+        output_row = {
+            "group": " | ".join(key),
             "n": len(group),
             "delta_n": len(delta_rows),
             "mean_brier": mean(row.get("brier") for row in group),
@@ -241,13 +321,86 @@ def aggregate_rows(rows, group_key=None):
             "mean_winner_probability_delta": mean(
                 row.get("winner_probability_delta") for row in delta_rows
             ),
+            "mean_adjacent_winner_mass_delta": mean(
+                row.get("adjacent_winner_mass_delta") for row in delta_rows
+            ),
             "mean_effective_band_spread_delta": mean(
                 row.get("effective_band_spread_delta") for row in delta_rows
             ),
             "brier_worse_rows": sum(1 for row in delta_rows if row.get("delta_brier", 0.0) > 0),
             "brier_better_rows": sum(1 for row in delta_rows if row.get("delta_brier", 0.0) < 0),
-        })
+        }
+        for index, group_key in enumerate(group_keys):
+            output_row[group_key] = key[index]
+        output.append(output_row)
     return output
+
+
+def aggregate_rows(rows, group_key=None):
+    return aggregate_rows_by_keys(rows, () if group_key is None else (group_key,))
+
+
+def bottom_location_guardrail_rows(
+    rows,
+    *,
+    bottom_markets=BOTTOM_LOCATION_MARKETS,
+    guard_stages=BOTTOM_LOCATION_GUARD_STAGES,
+):
+    bottom = {str(market) for market in bottom_markets}
+    stage_set = {str(stage) for stage in guard_stages}
+    market_day_stage = aggregate_rows_by_keys(
+        rows,
+        ("market_id", "target_date", "component_name", "cutoff_regime"),
+    )
+    guardrails = []
+    for row in market_day_stage:
+        market_id = row.get("market_id")
+        stage = row.get("component_name")
+        winner_delta = row.get("mean_winner_probability_delta")
+        brier_delta = row.get("mean_delta_brier")
+        logloss_delta = row.get("mean_delta_logloss")
+        if market_id not in bottom or stage not in stage_set or winner_delta is None:
+            continue
+        winner_mass_reduced = winner_delta < 0
+        improved_scores = (
+            brier_delta is not None
+            and logloss_delta is not None
+            and brier_delta < 0
+            and logloss_delta < 0
+        )
+        status = "PASS" if not winner_mass_reduced or improved_scores else "BLOCK"
+        reason = (
+            "winner probability reduced without same-day Brier and log-loss improvement"
+            if status == "BLOCK"
+            else "winner probability preserved or score improvements justify the reduction"
+        )
+        guardrails.append({
+            "market_id": market_id,
+            "target_date": row.get("target_date"),
+            "component_name": stage,
+            "component_label": STAGE_LABELS.get(stage, stage),
+            "cutoff_regime": row.get("cutoff_regime"),
+            "status": status,
+            "reason": reason,
+            "n": row.get("n"),
+            "delta_n": row.get("delta_n"),
+            "mean_delta_brier": brier_delta,
+            "mean_delta_logloss": logloss_delta,
+            "mean_winner_probability_delta": winner_delta,
+            "mean_adjacent_winner_mass_delta": row.get("mean_adjacent_winner_mass_delta"),
+            "brier_better_rows": row.get("brier_better_rows", 0),
+            "brier_worse_rows": row.get("brier_worse_rows", 0),
+        })
+    return sorted(
+        guardrails,
+        key=lambda row: (
+            row.get("status") != "BLOCK",
+            row.get("mean_winner_probability_delta") or 0.0,
+            -(row.get("mean_delta_logloss") or 0.0),
+            row.get("market_id") or "",
+            row.get("target_date") or "",
+        ),
+    )
 
 
 def _is_feature_model_regime(regime):
@@ -283,9 +436,14 @@ def _unique_count(rows, key):
     return len({row.get(key) for row in rows if row.get(key)})
 
 
-def forecast_shape_scope_summary(rows, *, current_identity=None):
+def forecast_shape_scope_summary(rows, *, current_identity=None, raw_rows=None):
     current_identity = current_identity or None
+    scope_rows = list(raw_rows if raw_rows is not None else rows)
     shape_rows = [
+        row for row in scope_rows
+        if row.get("component_name") in FORECAST_SHAPE_STAGES
+    ]
+    scored_shape_rows = [
         row for row in rows
         if row.get("component_name") in FORECAST_SHAPE_STAGES
     ]
@@ -297,8 +455,16 @@ def forecast_shape_scope_summary(rows, *, current_identity=None):
         row for row in shape_rows
         if not _is_feature_model_regime(row.get("stage_regime"))
     ]
+    scored_feature_rows = [
+        row for row in scored_shape_rows
+        if _is_feature_model_regime(row.get("stage_regime"))
+    ]
+    scored_empirical_rows = [
+        row for row in scored_shape_rows
+        if not _is_feature_model_regime(row.get("stage_regime"))
+    ]
     current_rows = [
-        row for row in rows
+        row for row in scope_rows
         if _matches_current_runtime(row, current_identity)
     ]
     current_feature_model_rows = [
@@ -362,6 +528,9 @@ def forecast_shape_scope_summary(rows, *, current_identity=None):
         "forecast_shape_stage_rows": len(shape_rows),
         "feature_model_forecast_shape_rows": len(feature_rows),
         "empirical_forecast_shape_rows": len(empirical_rows),
+        "scored_forecast_shape_stage_rows": len(scored_shape_rows),
+        "scored_feature_model_forecast_shape_rows": len(scored_feature_rows),
+        "scored_empirical_forecast_shape_rows": len(scored_empirical_rows),
         "current_code_component_rows": len(current_rows),
         "current_code_snapshot_count": _unique_count(current_rows, "snapshot_id"),
         "current_code_feature_model_component_rows": len(current_feature_model_rows),
@@ -373,18 +542,18 @@ def forecast_shape_scope_summary(rows, *, current_identity=None):
         "stale_feature_model_forecast_shape_rows": len(stale_feature_rows),
         "feature_model_regimes": feature_regimes,
         "empirical_regimes": empirical_regimes,
-        "feature_model_delta_brier": mean(row.get("delta_brier") for row in feature_rows),
+        "feature_model_delta_brier": mean(row.get("delta_brier") for row in scored_feature_rows),
         "current_code_feature_model_delta_brier": mean(
             row.get("delta_brier") for row in current_feature_rows
         ),
-        "feature_model_delta_logloss": mean(row.get("delta_logloss") for row in feature_rows),
+        "feature_model_delta_logloss": mean(row.get("delta_logloss") for row in scored_feature_rows),
         "current_code_feature_model_delta_logloss": mean(
             row.get("delta_logloss") for row in current_feature_rows
         ),
-        "empirical_delta_brier": mean(row.get("delta_brier") for row in empirical_rows),
-        "empirical_delta_logloss": mean(row.get("delta_logloss") for row in empirical_rows),
+        "empirical_delta_brier": mean(row.get("delta_brier") for row in scored_empirical_rows),
+        "empirical_delta_logloss": mean(row.get("delta_logloss") for row in scored_empirical_rows),
         "empirical_winner_probability_delta": mean(
-            row.get("winner_probability_delta") for row in empirical_rows
+            row.get("winner_probability_delta") for row in scored_empirical_rows
         ),
         "earliest_feature_model_forecast_shape_at_utc": _ordered_text(
             row.get("captured_at_utc") for row in feature_rows
@@ -454,9 +623,11 @@ def build_payload(
 ):
     current_identity = current_identity or get_runtime_identity()
     rows = []
+    scope_rows = []
     folders = component_folders(snapshots_root)
     settled_folders = 0
     for folder in folders:
+        scope_rows.extend(component_scope_rows_for_folder(folder))
         folder_rows = attribution_rows_for_folder(folder)
         if folder_rows:
             settled_folders += 1
@@ -464,10 +635,20 @@ def build_payload(
 
     by_component = aggregate_rows(rows, "component_name")
     negatives = net_negative_stages(by_component, min_rows=min_stage_rows)
-    status = "NO_DATA" if not rows else ("ACTIONABLE" if negatives else "OK")
+    by_market_stage = aggregate_rows_by_keys(rows, ("market_id", "component_name"))
+    by_market_stage_cutoff_regime = aggregate_rows_by_keys(
+        rows,
+        ("market_id", "component_name", "cutoff_regime"),
+    )
+    bottom_guardrails = bottom_location_guardrail_rows(rows)
+    bottom_guardrail_blockers = [row for row in bottom_guardrails if row.get("status") == "BLOCK"]
+    status = "NO_DATA" if not rows else (
+        "ACTIONABLE" if negatives or bottom_guardrail_blockers else "OK"
+    )
     forecast_shape_scope = forecast_shape_scope_summary(
         rows,
         current_identity=current_identity,
+        raw_rows=scope_rows,
     )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -484,12 +665,19 @@ def build_payload(
             "status": status,
             "net_negative_stage_count": len(negatives),
             "top_net_negative_stage": negatives[0] if negatives else None,
+            "bottom_location_winner_mass_blocker_count": len(bottom_guardrail_blockers),
+            "top_bottom_location_winner_mass_blocker": (
+                bottom_guardrail_blockers[0] if bottom_guardrail_blockers else None
+            ),
         },
         "overall": aggregate_rows(rows)[0] if rows else {},
         "by_component": by_component,
         "by_cutoff_hour": aggregate_rows(rows, "cutoff_hour"),
         "by_regime": aggregate_rows(rows, "stage_regime"),
         "by_market": aggregate_rows(rows, "market_id"),
+        "by_market_stage": by_market_stage,
+        "by_market_stage_cutoff_regime": by_market_stage_cutoff_regime,
+        "bottom_location_winner_mass_guardrails": bottom_guardrails,
         "forecast_shape_scope": forecast_shape_scope,
         "net_negative_stages": negatives,
     }
@@ -505,7 +693,24 @@ def _metric_row(row):
         fmt_signed(row.get("mean_delta_brier")),
         fmt_signed(row.get("mean_delta_logloss")),
         fmt_signed(row.get("mean_winner_probability_delta")),
+        fmt_signed(row.get("mean_adjacent_winner_mass_delta")),
         fmt_signed(row.get("mean_effective_band_spread_delta")),
+    ]
+
+
+def _guardrail_row(row):
+    return [
+        row.get("market_id"),
+        row.get("target_date"),
+        row.get("component_name"),
+        row.get("cutoff_regime"),
+        row.get("status"),
+        row.get("n"),
+        fmt_signed(row.get("mean_winner_probability_delta")),
+        fmt_signed(row.get("mean_adjacent_winner_mass_delta")),
+        fmt_signed(row.get("mean_delta_brier")),
+        fmt_signed(row.get("mean_delta_logloss")),
+        row.get("reason") or "-",
     ]
 
 
@@ -534,6 +739,7 @@ def render_report(payload, *, top_n=12):
         "Delta Brier",
         "Delta Log Loss",
         "Winner P Delta",
+        "Adjacent P Delta",
         "Spread Delta",
     ]
     overall = payload.get("overall") or {}
@@ -548,6 +754,29 @@ def render_report(payload, *, top_n=12):
     else:
         lines.append("No net-negative stage met the minimum row threshold.")
     lines.append("")
+    guardrails = payload.get("bottom_location_winner_mass_guardrails") or []
+    guardrail_blockers = [row for row in guardrails if row.get("status") == "BLOCK"]
+    lines += ["## Bottom-Location Winner-Mass Guardrails", ""]
+    if guardrails:
+        lines += markdown_table(
+            [
+                "Market",
+                "Date",
+                "Stage",
+                "Cutoff Regime",
+                "Status",
+                "Rows",
+                "Winner P Delta",
+                "Adjacent P Delta",
+                "Delta Brier",
+                "Delta Log Loss",
+                "Reason",
+            ],
+            [_guardrail_row(row) for row in (guardrail_blockers or guardrails)[:top_n]],
+        )
+    else:
+        lines.append("No bottom-location final/postprocess winner-mass guardrail rows.")
+    lines.append("")
     scope = payload.get("forecast_shape_scope") or {}
     lines += [
         "## Forecast Shape Scope",
@@ -560,6 +789,11 @@ def render_report(payload, *, top_n=12):
             ["Current code", scope.get("current_identity_text") or "-"],
             ["Forecast-shape rows", scope.get("forecast_shape_stage_rows")],
             ["Feature-model forecast-shape rows", scope.get("feature_model_forecast_shape_rows")],
+            ["Scored forecast-shape rows", scope.get("scored_forecast_shape_stage_rows")],
+            [
+                "Scored feature-model forecast-shape rows",
+                scope.get("scored_feature_model_forecast_shape_rows"),
+            ],
             [
                 "Current-code feature-model component rows",
                 scope.get("current_code_feature_model_component_rows"),
@@ -601,17 +835,31 @@ def render_report(payload, *, top_n=12):
         ("By Cutoff Hour", "by_cutoff_hour"),
         ("By Regime", "by_regime"),
         ("By Market", "by_market"),
+        ("By Market Stage", "by_market_stage"),
+        ("By Market Stage Cutoff Regime", "by_market_stage_cutoff_regime"),
     ):
         rows = payload.get(key) or []
         lines += [f"## {title}", ""]
-        rows = sorted(
-            rows,
-            key=lambda row: (
-                row.get("mean_delta_brier") if row.get("mean_delta_brier") is not None else -math.inf,
-                row.get("delta_n", 0),
-            ),
-            reverse=True,
-        )
+        if key in {"by_market_stage", "by_market_stage_cutoff_regime"}:
+            rows = sorted(
+                rows,
+                key=lambda row: (
+                    row.get("mean_winner_probability_delta") is None,
+                    row.get("mean_winner_probability_delta")
+                    if row.get("mean_winner_probability_delta") is not None
+                    else math.inf,
+                    -(row.get("delta_n", 0)),
+                ),
+            )
+        else:
+            rows = sorted(
+                rows,
+                key=lambda row: (
+                    row.get("mean_delta_brier") if row.get("mean_delta_brier") is not None else -math.inf,
+                    row.get("delta_n", 0),
+                ),
+                reverse=True,
+            )
         lines += markdown_table(headers, [_metric_row(row) for row in rows[:top_n]])
         lines.append("")
     return "\n".join(lines)

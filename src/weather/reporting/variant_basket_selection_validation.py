@@ -21,10 +21,16 @@ from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 
 
 SCHEMA_VERSION = "variant_basket_selection_validation_v0.1"
+NO_GO_SCHEMA_VERSION = "blocked_market_variant_basket_no_go_v0.1"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "variant_basket_selection_validation.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "variant_basket_selection_validation_report.md"
+DEFAULT_NO_GO_OUT = DEFAULT_BACKTEST_ROOT / "blocked_market_variant_basket_no_go.json"
 DEFAULT_MARKET_TOL = 0.003
+REPAIR_ITEM_219 = {
+    "roadmap_item": 219,
+    "path": "docs/roadmap/items/item-219-bottom-location-early-midday-winner-centering.md",
+}
 DEFAULT_SLICE_KEYS = (
     "cutoff_regime",
     "cutoff_hour",
@@ -45,6 +51,18 @@ DEFAULT_GUARD_POLICIES = (
     "not_near_forecast",
     "all_fresh_midday_late",
 )
+
+
+def _read_json(path: str | Path | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -168,6 +186,129 @@ def split_market_dates(rows: list[dict[str, Any]]) -> dict[str, dict[str, list[s
             eval_dates = dates[cut:]
         split[market_id] = {"train_dates": train_dates, "eval_dates": eval_dates}
     return split
+
+
+def _dates_by_market(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    dates: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        dates[row["market_id"]].add(row["target_date"])
+    return {market_id: sorted(values) for market_id, values in sorted(dates.items())}
+
+
+def _variant_families(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    families: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        variant_id = row.get("variant_id")
+        if not variant_id or variant_id == "current":
+            continue
+        family = row.get("variant_family") or "unknown"
+        families[str(variant_id)].add(str(family))
+    return {variant_id: sorted(values) for variant_id, values in sorted(families.items())}
+
+
+def _market_day_pairs(dates_by_market: dict[str, list[str]] | None) -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for market_id, dates in (dates_by_market or {}).items():
+        for target_date in dates or []:
+            pairs.add((str(market_id), str(target_date)))
+    return pairs
+
+
+def build_basket_signature(
+    rows: list[dict[str, Any]],
+    split: dict[str, dict[str, list[str]]],
+    *,
+    rows_paths: list[str | Path],
+    market_tol: float,
+    slice_keys: tuple[str, ...] | list[str],
+    min_slice_train_rows: int,
+) -> dict[str, Any]:
+    candidate_rows = [row for row in rows if row.get("variant_id") != "current"]
+    variant_ids = sorted({row["variant_id"] for row in candidate_rows})
+    return {
+        "variant_ids": variant_ids,
+        "variant_families": _variant_families(candidate_rows),
+        "markets": sorted(split),
+        "dates_by_market": _dates_by_market(candidate_rows or rows),
+        "train_dates_by_market": {
+            market_id: list((market_split or {}).get("train_dates") or [])
+            for market_id, market_split in sorted(split.items())
+        },
+        "eval_dates_by_market": {
+            market_id: list((market_split or {}).get("eval_dates") or [])
+            for market_id, market_split in sorted(split.items())
+        },
+        "slice_keys": list(slice_keys or []),
+        "guard_policies": list(DEFAULT_GUARD_POLICIES),
+        "market_tol": float(market_tol),
+        "min_slice_train_rows": int(min_slice_train_rows),
+        "input_paths": [str(path) for path in rows_paths],
+        "candidate_row_count": len(candidate_rows),
+        "market_day_count": len(_market_day_pairs(_dates_by_market(candidate_rows or rows))),
+    }
+
+
+def _known_no_go_payload(known_no_go: dict[str, Any] | str | Path | None) -> dict[str, Any] | None:
+    if known_no_go is None:
+        return None
+    payload = _read_json(known_no_go) if isinstance(known_no_go, (str, Path)) else known_no_go
+    if not payload:
+        return None
+    return payload.get("no_go_disposition") or payload
+
+
+def evaluate_known_no_go_guard(
+    signature: dict[str, Any],
+    known_no_go: dict[str, Any] | str | Path | None = None,
+) -> dict[str, Any]:
+    known = _known_no_go_payload(known_no_go)
+    if not known:
+        return {
+            "status": "NO_REFERENCE",
+            "detail": "no known blocked-market basket no-go disposition was provided",
+        }
+    known_signature = known.get("signature") or {}
+    current_pairs = _market_day_pairs(signature.get("dates_by_market") or {})
+    known_pairs = _market_day_pairs(known_signature.get("dates_by_market") or {})
+    new_pairs = sorted(current_pairs - known_pairs)
+    same_variants = signature.get("variant_ids") == known_signature.get("variant_ids")
+    same_families = signature.get("variant_families") == known_signature.get("variant_families")
+    same_markets = signature.get("markets") == known_signature.get("markets")
+    same_slice_keys = signature.get("slice_keys") == known_signature.get("slice_keys")
+    same_tolerance = signature.get("market_tol") == known_signature.get("market_tol")
+    same_candidate = same_variants and same_families
+    same_protocol = same_markets and same_slice_keys and same_tolerance
+    if same_candidate and same_protocol and not new_pairs:
+        return {
+            "status": "BLOCK",
+            "detail": "known failed blocked-market basket matched without new market-days or changed candidate family",
+            "known_disposition_id": known.get("disposition_id"),
+            "known_generated_at_utc": known.get("generated_at_utc"),
+            "new_market_days": [],
+            "repair_item": known.get("repair_item") or REPAIR_ITEM_219,
+        }
+    if same_candidate and same_protocol:
+        return {
+            "status": "WARN",
+            "detail": "known failed basket matched, but new market-days are present and must be evaluated",
+            "known_disposition_id": known.get("disposition_id"),
+            "known_generated_at_utc": known.get("generated_at_utc"),
+            "new_market_days": [
+                {"market_id": market_id, "target_date": target_date}
+                for market_id, target_date in new_pairs
+            ],
+            "repair_item": known.get("repair_item") or REPAIR_ITEM_219,
+        }
+    return {
+        "status": "PASS",
+        "detail": "provided no-go disposition does not match this basket signature",
+        "known_disposition_id": known.get("disposition_id"),
+        "same_variants": same_variants,
+        "same_families": same_families,
+        "same_markets": same_markets,
+        "same_slice_keys": same_slice_keys,
+        "same_tolerance": same_tolerance,
+    }
 
 
 def rows_for(
@@ -710,6 +851,74 @@ def evaluate_slice_policy(
     }
 
 
+def build_no_go_disposition(
+    *,
+    generated_at_utc: str,
+    acceptance: str,
+    acceptance_reasons: list[str],
+    signature: dict[str, Any],
+    aggregate_selected_eval: dict[str, Any],
+    market_results: list[dict[str, Any]],
+    guard_policy_results: list[dict[str, Any]],
+    known_no_go_guard: dict[str, Any],
+) -> dict[str, Any]:
+    blocked_markets = [
+        {
+            "market_id": row.get("market_id"),
+            "selected_variant_id": row.get("selected_variant_id"),
+            "eval_dates": row.get("eval_dates") or [],
+            "reasons": row.get("reasons") or [],
+            "selected_eval": row.get("selected_eval") or {},
+        }
+        for row in market_results
+        if row.get("status") == "blocked"
+    ]
+    blocked_guard_policies = [
+        {
+            "market_id": row.get("market_id"),
+            "variant_id": row.get("variant_id"),
+            "best_fixed_policy": row.get("best_fixed_policy"),
+            "selected_policy_counts": row.get("selected_policy_counts") or {},
+            "reasons": row.get("reasons") or [],
+            "train_selected_score": row.get("train_selected_score") or {},
+        }
+        for row in guard_policy_results
+        if row.get("status") == "blocked"
+    ]
+    disposition_status = "NO_GO" if acceptance == "blocked" else "CLEAR"
+    disposition_id = (
+        "blocked_market_variant_basket:"
+        + "+".join(signature.get("variant_ids") or ["current"])
+        + ":"
+        + "+".join(signature.get("markets") or ["all"])
+    )
+    return {
+        "schema_version": NO_GO_SCHEMA_VERSION,
+        "generated_at_utc": generated_at_utc,
+        "disposition_id": disposition_id,
+        "status": disposition_status,
+        "repair_item": REPAIR_ITEM_219,
+        "signature": signature,
+        "acceptance": acceptance,
+        "acceptance_reasons": acceptance_reasons,
+        "selected_basket_eval": aggregate_selected_eval,
+        "blocked_market_count": len(blocked_markets),
+        "blocked_markets": blocked_markets,
+        "blocked_guard_policy_count": len(blocked_guard_policies),
+        "blocked_guard_policies": blocked_guard_policies,
+        "oracle_evidence_policy": {
+            "classification": "diagnostic_only",
+            "reason": "eval oracle columns are selected on held-out eval rows and cannot count as promotion evidence",
+        },
+        "known_no_go_guard": known_no_go_guard,
+        "next_action": (
+            "build item 219 bottom-location winner-centering repair before reusing this basket"
+            if disposition_status == "NO_GO"
+            else "no no-go disposition emitted because selected evidence cleared gates"
+        ),
+    }
+
+
 def build_payload(
     rows_paths: list[str | Path],
     markets: set[str] | None = None,
@@ -717,6 +926,7 @@ def build_payload(
     include_current_control: bool = True,
     slice_keys: tuple[str, ...] | list[str] = DEFAULT_SLICE_KEYS,
     min_slice_train_rows: int = 20,
+    known_no_go: dict[str, Any] | str | Path | None = None,
 ) -> dict[str, Any]:
     rows = read_variant_rows(rows_paths)
     if markets:
@@ -725,6 +935,15 @@ def build_payload(
         rows = add_current_control(rows)
 
     split = split_market_dates(rows)
+    signature = build_basket_signature(
+        rows,
+        split,
+        rows_paths=rows_paths,
+        market_tol=market_tol,
+        slice_keys=slice_keys,
+        min_slice_train_rows=min_slice_train_rows,
+    )
+    known_no_go_guard = evaluate_known_no_go_guard(signature, known_no_go)
     market_results = []
     selected_eval_rows: list[dict[str, Any]] = []
     current_eval_rows: list[dict[str, Any]] = []
@@ -794,7 +1013,6 @@ def build_payload(
         acceptance_reasons.append("selected basket regresses current")
     if blockers:
         acceptance_reasons.append(f"{len(blockers)} market(s) block selected eval")
-    acceptance = "blocked" if acceptance_reasons else "pass"
     slice_policy_results = [
         evaluate_slice_policy(
             rows,
@@ -805,14 +1023,33 @@ def build_payload(
         )
         for slice_key in slice_keys
     ]
+    guard_policy_results = evaluate_guard_policies(rows, market_tol)
+    if known_no_go_guard.get("status") == "BLOCK":
+        acceptance_reasons.append(
+            "known no-go disposition matched without new evidence: "
+            + (known_no_go_guard.get("detail") or "inspect known_no_go_guard")
+        )
+    acceptance = "blocked" if acceptance_reasons else "pass"
+    generated_at = datetime.now(timezone.utc).isoformat()
+    no_go_disposition = build_no_go_disposition(
+        generated_at_utc=generated_at,
+        acceptance=acceptance,
+        acceptance_reasons=acceptance_reasons,
+        signature=signature,
+        aggregate_selected_eval=aggregate,
+        market_results=market_results,
+        guard_policy_results=guard_policy_results,
+        known_no_go_guard=known_no_go_guard,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": generated_at,
         "inputs": [str(path) for path in rows_paths],
         "market_tol": market_tol,
         "include_current_control": include_current_control,
         "markets": sorted(split),
         "variant_ids": sorted({row["variant_id"] for row in rows}),
+        "basket_signature": signature,
         "acceptance": acceptance,
         "acceptance_reasons": acceptance_reasons,
         "aggregate_selected_eval": aggregate,
@@ -821,7 +1058,9 @@ def build_payload(
         "market_results": market_results,
         "slice_policy_results": slice_policy_results,
         "leave_one_date_results": evaluate_leave_one_date_selection(rows, market_tol),
-        "guard_policy_results": evaluate_guard_policies(rows, market_tol),
+        "guard_policy_results": guard_policy_results,
+        "known_no_go_guard": known_no_go_guard,
+        "no_go_disposition": no_go_disposition,
         "min_slice_train_rows": min_slice_train_rows,
     }
 
@@ -856,6 +1095,31 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Markets", ", ".join(payload.get("markets") or [])],
                 ["Market tolerance", fmt_signed(payload.get("market_tol"))],
                 ["Acceptance blockers", "; ".join(payload.get("acceptance_reasons") or []) or "-"],
+            ],
+        ),
+        "",
+        "## Blocked-Market Basket No-Go Disposition",
+        "",
+        _table(
+            ["Field", "Value"],
+            [
+                ["Disposition status", (payload.get("no_go_disposition") or {}).get("status") or "-"],
+                ["Disposition id", (payload.get("no_go_disposition") or {}).get("disposition_id") or "-"],
+                ["Repair item", (payload.get("no_go_disposition") or {}).get("repair_item", {}).get("path") or "-"],
+                ["Blocked markets", (payload.get("no_go_disposition") or {}).get("blocked_market_count", 0)],
+                [
+                    "Known no-go guard",
+                    (
+                        ((payload.get("known_no_go_guard") or {}).get("status") or "-")
+                        + ": "
+                        + ((payload.get("known_no_go_guard") or {}).get("detail") or "-")
+                    ),
+                ],
+                [
+                    "Oracle evidence",
+                    ((payload.get("no_go_disposition") or {}).get("oracle_evidence_policy") or {}).get("classification") or "-",
+                ],
+                ["Next action", (payload.get("no_go_disposition") or {}).get("next_action") or "-"],
             ],
         ),
         "",
@@ -1044,7 +1308,12 @@ def render_report(payload: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_outputs(payload: dict[str, Any], out: str | Path | None, report: str | Path | None) -> None:
+def write_outputs(
+    payload: dict[str, Any],
+    out: str | Path | None,
+    report: str | Path | None,
+    no_go_out: str | Path | None = None,
+) -> None:
     if out:
         path = Path(out)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1053,6 +1322,13 @@ def write_outputs(payload: dict[str, Any], out: str | Path | None, report: str |
         path = Path(report)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(render_report(payload), encoding="utf-8")
+    if no_go_out:
+        path = Path(no_go_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload.get("no_go_disposition") or {}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
 
 def main() -> None:
@@ -1062,6 +1338,8 @@ def main() -> None:
     parser.add_argument("--market-tol", type=float, default=DEFAULT_MARKET_TOL)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
+    parser.add_argument("--known-no-go", default=None, help="Existing no-go disposition JSON to compare against.")
+    parser.add_argument("--no-go-out", default=str(DEFAULT_NO_GO_OUT))
     parser.add_argument("--no-current-control", action="store_true")
     parser.add_argument(
         "--slice-keys",
@@ -1078,8 +1356,9 @@ def main() -> None:
         include_current_control=not args.no_current_control,
         slice_keys=tuple(item.strip() for item in args.slice_keys.split(",") if item.strip()),
         min_slice_train_rows=args.min_slice_train_rows,
+        known_no_go=args.known_no_go,
     )
-    write_outputs(payload, args.out, args.report)
+    write_outputs(payload, args.out, args.report, no_go_out=args.no_go_out)
     print(f"Variant basket selection validation: {payload['acceptance']}")
 
 

@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from weather.backtesting.tape_scoring import timestamp_key
 from weather.paths import data_path, relative_to_repo
+from weather.reporting.candidate_hourly_performance import candidate_rows_corpus_hash
 from weather.reporting.formatting import markdown_table
 from weather.reporting.hourly_model_performance import (
     DEFAULT_BACKTEST_ROOT,
@@ -726,6 +727,7 @@ def build_candidate_item147(path: Path, weak_slots: set[int] | None = None) -> d
             "markets": len({row.get("market_id") for row in rows if row.get("market_id")}),
             "market_days": len({(row.get("market_id"), row.get("target_date")) for row in rows}),
             "snapshots": len({row.get("snapshot_id") for row in rows if row.get("snapshot_id")}),
+            "corpus_hash": candidate_rows_corpus_hash(rows),
         },
         "overall": summarize_candidate_rows(rows) or {},
         "by_slot": by_slot,

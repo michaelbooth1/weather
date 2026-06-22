@@ -215,7 +215,19 @@ class TestProgressAudit(unittest.TestCase):
             }
         }
 
-        claim = core_model_trend_claim(history, fleet=fleet, variant_evidence=variant)
+        runtime_identity_evidence = {
+            "status": "BLOCK",
+            "runtime_identity_count": 2,
+            "snapshot_row_count": 2446,
+            "blocking_reason": "mixed_runtime_identity_unsegmented",
+        }
+
+        claim = core_model_trend_claim(
+            history,
+            fleet=fleet,
+            variant_evidence=variant,
+            runtime_identity_evidence=runtime_identity_evidence,
+        )
 
         self.assertEqual(claim["status"], "DIRECTIONAL")
         self.assertFalse(claim["claim_allowed"])
@@ -229,6 +241,10 @@ class TestProgressAudit(unittest.TestCase):
         self.assertTrue(
             any("unique observations changed by 0" in failure for failure in claim["threshold_failures"])
         )
+        self.assertTrue(
+            any("mixed runtime identity" in failure for failure in claim["threshold_failures"])
+        )
+        self.assertEqual(claim["summary"]["runtime_identity_status"], "BLOCK")
         latest = claim["daily_sequence"][-1]
         self.assertTrue(latest["counts_toward_directional_trend"])
         self.assertFalse(latest["counts_toward_proven_claim"])
@@ -242,7 +258,9 @@ class TestProgressAudit(unittest.TestCase):
                     "broad_improvement_claim_allowed": False,
                     "broad_improvement_claim_failures": "[\"positive_skill_days_below_3\"]",
                     "ops_live_forward_slo_status": "BLOCK",
-                    "evidence_independent_baseline_status": "MISSING",
+                    "evidence_independent_baseline_status": "PRESENT",
+                    "evidence_frozen_baseline_status": "PRESENT",
+                    "evidence_frozen_baseline_brier_delta_current_minus_baseline": -0.02,
                     "trading_mm_evidence_mode": "operator_drill",
                     "trading_taker_quality_status": "SAMPLE_PENDING_NEGATIVE_LATEST",
                 }),
@@ -258,7 +276,15 @@ class TestProgressAudit(unittest.TestCase):
                 "model_skill_gain_vs_initial_strict": 0.1,
                 "model_brier_delta_vs_initial_strict": -0.01,
             },
-            "core_model_trend_claim": {"summary": {}, "threshold_failures": []},
+            "core_model_trend_claim": {
+                "status": "DIRECTIONAL",
+                "summary": {
+                    "promotion_grade_market_days": 84,
+                    "positive_daily_first_days": 3,
+                    "rolling_daily_first_brier_skill": 0.01,
+                },
+                "threshold_failures": [],
+            },
             "roadmap_baselines": {
                 "initial_strict_toronto": {},
                 "pre_label_three_day": {},
@@ -267,7 +293,35 @@ class TestProgressAudit(unittest.TestCase):
             "current_backtest": {},
             "market_day_labels": {"quality_counts": {}},
             "location_trust": {"by_market": {}, "grade_counts": {}},
-            "promotion_refresh": {},
+            "promotion_refresh": {
+                "early_hour_promotion_status": "BLOCK",
+                "early_hour_promotion_allowed": False,
+                "early_hour_promotion_blocker_count": 2,
+                "early_hour_promotion_blocker": {
+                    "status": "BLOCK",
+                    "promotion_allowed": False,
+                    "current_gates": {
+                        "hourly": {"status": "BLOCK"},
+                        "ten_minute": {"status": "BLOCK"},
+                    },
+                    "candidate_gates": {
+                        "hourly": {"gate_status": "BLOCK"},
+                        "ten_minute": {"gate_status": "PASS"},
+                    },
+                    "broad_replay": {"within_market_tolerance": False},
+                    "production_readiness": {
+                        "live_forward_slo": {"status": "BLOCK"},
+                        "current_code_soak": {"status": "PASS"},
+                    },
+                    "blockers": [
+                        {
+                            "category": "candidate_hourly_mitigation",
+                            "severity": "block",
+                            "detail": "candidate hourly gate must PASS",
+                        }
+                    ],
+                },
+            },
             "ten_minute_model_performance": {
                 "exists": True,
                 "status": "BLOCK",
@@ -288,6 +342,13 @@ class TestProgressAudit(unittest.TestCase):
             },
             "promotion_gauntlet_latest": {},
             "fleet_observability": {},
+            "frozen_baseline_replay_trend": {
+                "exists": True,
+                "independent_baseline_status": "PRESENT",
+                "baseline_id": "control",
+                "coverage": {"shared_observations": 10, "shared_market_days": 2},
+                "overall": {"brier_delta_current_minus_baseline": -0.02},
+            },
             "loop_statuses": {},
             "pooled_candidate_series": [],
             "daily_progress_ledger_latest": ledger,
@@ -299,9 +360,14 @@ class TestProgressAudit(unittest.TestCase):
         self.assertIn("2026-06-19", report)
         self.assertIn("operator_drill", report)
         self.assertIn("SAMPLE_PENDING_NEGATIVE_LATEST", report)
+        self.assertIn("Live-Forward Vs Weather-Held-Constant", report)
+        self.assertIn("Frozen baseline replay trend", report)
+        self.assertIn("-0.0200", report)
         self.assertIn("## 10-Minute Weak-Slot Watchlist", report)
         self.assertIn("03:00, 03:10", report)
         self.assertIn("10-minute weak-slot model Brier trails market", report)
+        self.assertIn("### Early-Hour Promotion Blocker", report)
+        self.assertIn("candidate hourly gate must PASS", report)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,16 @@ class TestShadowABMonitor(unittest.TestCase):
                         {"market_id": "miami", "action": "BLOCK_CANDIDATE", "reason": "serving block"},
                     ],
                 },
+                "promotion_allowlist": {
+                    "schema_version": "promotion_allowlist_v0.1",
+                    "path": "allowlist.json",
+                    "candidate_id": "candidate_v1",
+                    "markets": [
+                        {"market_id": "nyc", "action": "PROMOTE_CANDIDATE", "reason": "clear"},
+                        {"market_id": "denver", "action": "KEEP_SHADOW", "reason": "trust low"},
+                        {"market_id": "miami", "action": "BLOCK_CANDIDATE", "blocker_reason": "serving block"},
+                    ],
+                },
             })
             candidate = _write(root / "candidate.json", {
                 "replay_gate": {"global_ok": True},
@@ -82,6 +92,8 @@ class TestShadowABMonitor(unittest.TestCase):
         self.assertEqual(payload["summary"]["alert_markets"], 1)
         self.assertEqual(payload["summary"]["unique_observation_count"], 60)
         self.assertEqual(payload["evidence_accounting"]["source"], "candidate_replay_market_rows")
+        self.assertTrue(payload["promotion_allowlist"]["present"])
+        self.assertEqual(payload["promotion_allowlist"]["candidate_id"], "candidate_v1")
 
     def test_monitor_alerts_on_missing_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

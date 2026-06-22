@@ -1,4 +1,4 @@
-# 147. Early-Hour Winner-Centering Candidate [PARTIAL 2026-06-19 - AGGREGATE GATE PASS, FIVE MARKETS BLOCKED]
+# 147. Early-Hour Winner-Centering Candidate [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY BASELINE]
 
 Goal: build and evaluate an early-hour candidate that improves winner-band
 centering and rank, not just generic probability sharpness.
@@ -675,3 +675,77 @@ Verification:
 passed with `6 passed`, and
 `python -m weather.schema_registry audit --paths src\weather\reporting\forecast_side_rank_validation.py --strict`
 reported one discovered literal, registered, with zero unregistered versions.
+
+## 2026-06-22 Winner-Centering Disposition
+
+Added `weather.reporting.item147_winner_centering_disposition` with schema
+`item147_winner_centering_disposition_v0.1`.
+
+Artifacts:
+
+- `data/backtest/item147_winner_centering_disposition.json`
+- `data/backtest/item147_winner_centering_disposition_report.md`
+
+Command:
+
+`python -m weather.reporting.item147_winner_centering_disposition --out data\backtest\item147_winner_centering_disposition.json --report data\backtest\item147_winner_centering_disposition_report.md`
+
+Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. Item 147 remains the
+diagnostic early-hour baseline, not a promotion candidate.
+
+Passing evidence:
+
+- Candidate hourly early gate is `PASS`.
+- Daily-first aggregate market gap is within tolerance:
+  `delta_vs_market=+0.0024 <= +0.0030`.
+- The existing blocked-market basket is registered as `NO_GO`.
+- Lane separation remains clean: Item 147 is no-market weather-model evidence.
+
+Current blockers:
+
+- Five markets remain blocked: Austin, Los Angeles, NYC, San Francisco, and
+  Seattle.
+- Exact-band/distance gate is `BLOCK`; settlement-distance-0 early Brier trails
+  market by `+0.0142 > +0.0030`.
+- Market residual repair program is `BLOCK`.
+- The newer positive daily-first gate is `BLOCK`; the active repaired path
+  still fails its hourly early gate and rolling daily-first proof.
+
+Next action: do not rerun broad Item 147 forecast-centering. Keep it as the
+shadow diagnostic baseline and move remaining work into active
+served-distribution and market-specific residual repair gates.
+
+## 2026-06-22 disposition refresh after daily-first gate
+
+Regenerated the Item 147 winner-centering disposition after refreshing the
+positive daily-first gate:
+
+- `data/backtest/item147_winner_centering_disposition.json`
+- `data/backtest/item147_winner_centering_disposition_report.md`
+
+The refreshed disposition remains `KEEP_SHADOW_DIAGNOSTIC`; promotion remains
+disallowed with `4` blockers. Passing evidence is still useful but not
+sufficient:
+
+- Item 147 candidate hourly early gate is `PASS` with early-hour
+  `delta_vs_market=-0.0008`.
+- Aggregate daily-first market gap is within tolerance:
+  `+0.0024 <= +0.0030`.
+- The blocked-market variant basket is registered as `NO_GO`.
+- Lane separation remains clean because Item 147 is no-market weather-model
+  evidence.
+
+Current blockers:
+
+- `per_market_promotion_gate`: Austin, Los Angeles, NYC, San Francisco, and
+  Seattle remain blocked.
+- `exact_band_distance_zero_gate`: target Brier trails market by
+  `+0.0142 > +0.0030`.
+- `market_residual_repair_gate`: market residual repair program is still
+  `BLOCK`.
+- `positive_daily_first_gate`: the active repaired path still blocks on early-
+  hour Brier gap `+0.0048 > +0.0030`.
+
+This keeps Item 147 as the diagnostic baseline for early-hour winner-centering,
+not a promotion candidate. Remaining promotion work belongs in active
+served-distribution and market-specific residual repair gates.

@@ -351,6 +351,11 @@ def apply_taker_budget(
             remaining_budget,
             base_order_notional,
         )
+        trust_gate_multiplier = maybe_float(row.get("current_high_trust_gate_size_multiplier")) or 1.0
+        if row.get("current_high_trust_gate_status") == "capped" and trust_gate_multiplier < 1.0:
+            max_order_notional *= max(0.0, trust_gate_multiplier)
+            sizing_multiplier = compact_float((maybe_float(sizing_multiplier) or 1.0) * trust_gate_multiplier)
+            sizing_reason = f"{sizing_reason}+current_high_trust_cap"
         row["sizing_multiplier"] = sizing_multiplier
         row["sizing_limit_reason"] = sizing_reason
         if max_order_notional <= 1e-9:

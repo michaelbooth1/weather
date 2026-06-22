@@ -12,6 +12,7 @@ def write_report(path, payload, min_free_bytes=0):
     candidate_agg = candidate.get("aggregate") or {}
     replay_gate = candidate.get("replay_gate") or {}
     decisions = payload.get("decisions") or {}
+    allowlist = payload.get("promotion_allowlist") or {}
     serving = payload.get("serving_gauntlet")
     readiness = payload.get("readiness") or {}
 
@@ -32,11 +33,147 @@ def write_report(path, payload, min_free_bytes=0):
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
             ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
             ["Readiness status", readiness.get("status") or "-"],
+            ["Promotion allowlist", allowlist.get("path") or "-"],
             ["Promote", ", ".join(decisions.get("promote_markets") or []) or "-"],
             ["Shadow", ", ".join(decisions.get("shadow_markets") or []) or "-"],
             ["Blocked", ", ".join(decisions.get("blocked_markets") or []) or "-"],
         ],
     )
+    if allowlist:
+        lines += [
+            "",
+            "## F-Family Promotion Allowlist",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Schema", allowlist.get("schema_version") or "-"],
+                ["Candidate id", allowlist.get("candidate_id") or "-"],
+                ["Generated", allowlist.get("generated_at_utc") or "-"],
+                ["Policy", (allowlist.get("policy") or {}).get("permission_gate") or "-"],
+            ],
+        )
+        lines += markdown_table(
+            [
+                "Market",
+                "Action",
+                "Serving",
+                "Permission",
+                "Candidate Brier",
+                "Current Brier",
+                "Market Brier",
+                "Delta Current",
+                "Delta Market",
+                "Blocker/Reason",
+            ],
+            [
+                [
+                    row.get("market_id"),
+                    row.get("action"),
+                    row.get("serving_behavior"),
+                    row.get("permission_behavior"),
+                    fmt_num(row.get("candidate_brier")),
+                    fmt_num(row.get("current_brier")),
+                    fmt_num(row.get("market_brier")),
+                    fmt_signed(row.get("delta_vs_current"), 4),
+                    fmt_signed(row.get("delta_vs_market"), 4),
+                    row.get("blocker_reason") or row.get("reason") or "-",
+                ]
+                for row in allowlist.get("markets") or []
+            ],
+        )
+    source_missingness = payload.get("source_missingness_location_gate") or {}
+    if source_missingness:
+        summary = source_missingness.get("summary") or {}
+        lines += [
+            "",
+            "## Market Source/Missingness Location Gate",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", source_missingness.get("status") or "-"],
+                ["Candidate shadow export", source_missingness.get("candidate_shadow_variant_path") or "-"],
+                ["Market tolerance", fmt_num(source_missingness.get("market_tolerance"), 4)],
+                ["Minimum rows", source_missingness.get("min_rows")],
+                ["Bottom markets", ", ".join(source_missingness.get("bottom_markets") or []) or "-"],
+                ["Decoded missingness hashes", summary.get("decoded_missingness_hash_count", 0)],
+                ["Blockers", summary.get("blocker_count", 0)],
+            ],
+        )
+        blockers = source_missingness.get("blockers") or []
+        if blockers:
+            lines += markdown_table(
+                ["Category", "Market", "Detail"],
+                [
+                    [row.get("category"), row.get("market_id") or "-", row.get("detail")]
+                    for row in blockers[:12]
+                ],
+            )
+        source_rows = [
+            row for row in source_missingness.get("market_source_freshness") or []
+            if row.get("market_id") in set(source_missingness.get("bottom_markets") or [])
+        ][:12]
+        if source_rows:
+            lines += ["", "### Bottom-Market Source Freshness Slices", ""]
+            lines += markdown_table(
+                ["Market", "Source State", "Status", "Rows", "Candidate Brier", "Market Brier", "Delta Market"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("source_freshness_state"),
+                        row.get("status"),
+                        row.get("n"),
+                        fmt_num(row.get("candidate_brier"), 4),
+                        fmt_num(row.get("market_brier"), 4),
+                        fmt_signed(row.get("delta_vs_market"), 4),
+                    ]
+                    for row in source_rows
+                ],
+            )
+        count_rows = [
+            row for row in source_missingness.get("market_forecast_source_count") or []
+            if row.get("market_id") in set(source_missingness.get("bottom_markets") or [])
+        ][:12]
+        if count_rows:
+            lines += ["", "### Bottom-Market Forecast Source Count Slices", ""]
+            lines += markdown_table(
+                ["Market", "Source Count", "Status", "Rows", "Candidate Brier", "Market Brier", "Delta Market"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("forecast_source_count_bucket"),
+                        row.get("status"),
+                        row.get("n"),
+                        fmt_num(row.get("candidate_brier"), 4),
+                        fmt_num(row.get("market_brier"), 4),
+                        fmt_signed(row.get("delta_vs_market"), 4),
+                    ]
+                    for row in count_rows
+                ],
+            )
+        missingness_rows = [
+            row for row in source_missingness.get("market_feature_missingness") or []
+            if row.get("market_id") in set(source_missingness.get("bottom_markets") or [])
+        ][:12]
+        if missingness_rows:
+            lines += ["", "### Bottom-Market Feature Missingness Slices", ""]
+            lines += markdown_table(
+                ["Market", "Missingness Hash", "Status", "Rows", "Delta Market", "Decoded Missing Features"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("feature_missingness_hash"),
+                        row.get("status"),
+                        row.get("n"),
+                        fmt_signed(row.get("delta_vs_market"), 4),
+                        ", ".join(row.get("missing_features") or []) or "-",
+                    ]
+                    for row in missingness_rows
+                ],
+            )
     lines += [
         "",
         "## Promotion Readiness Blockers",
@@ -66,6 +203,34 @@ def write_report(path, payload, min_free_bytes=0):
             ],
             readiness_details,
         )
+    runtime_evidence = payload.get("runtime_identity_evidence") or {}
+    runtime_segments = ((runtime_evidence.get("snapshots") or {}).get("segments") or [])
+    lines += [
+        "",
+        "## Runtime Identity Evidence",
+        "",
+        f"Status: **{runtime_evidence.get('status') or '-'}**",
+        f"Mixed runtime identity: `{runtime_evidence.get('mixed_runtime_identity')}`",
+        f"Runtime identities: `{runtime_evidence.get('runtime_identity_count')}`",
+        f"Snapshot rows: `{runtime_evidence.get('snapshot_row_count')}`",
+        f"Blocking reason: `{runtime_evidence.get('blocking_reason') or '-'}`",
+        f"Reconciliation: `{runtime_evidence.get('reconciliation_status') or '-'}`",
+        "",
+    ]
+    lines += markdown_table(
+        ["Commit", "Rows", "Snapshots", "Markets", "Target Dates", "Source Fingerprint"],
+        [
+            [
+                row.get("runtime_git_commit") or row.get("runtime_key"),
+                row.get("row_count"),
+                row.get("snapshot_count"),
+                row.get("market_count"),
+                row.get("target_date_count"),
+                row.get("runtime_source_fingerprint") or "-",
+            ]
+            for row in runtime_segments
+        ],
+    )
     operational_gate_rows = _operational_gate_rows(payload)
     if operational_gate_rows:
         lines += [
@@ -77,6 +242,55 @@ def write_report(path, payload, min_free_bytes=0):
             ["Gate", "Status", "Detail"],
             operational_gate_rows,
         )
+    early_hour_blocker = payload.get("early_hour_promotion_blocker") or {}
+    if early_hour_blocker:
+        lines += [
+            "",
+            "## Early-Hour Promotion Blocker",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", early_hour_blocker.get("status") or "-"],
+                ["Promotion allowed", early_hour_blocker.get("promotion_allowed")],
+                ["Blockers", early_hour_blocker.get("blocker_count", 0)],
+                [
+                    "Current hourly gate",
+                    (early_hour_blocker.get("current_gates") or {}).get("hourly_status") or "-",
+                ],
+                [
+                    "Current 10-minute gate",
+                    (early_hour_blocker.get("current_gates") or {}).get("ten_minute_status") or "-",
+                ],
+                [
+                    "Broad replay within market tolerance",
+                    (early_hour_blocker.get("broad_replay") or {}).get("within_market_tolerance"),
+                ],
+                [
+                    "Live-forward SLO",
+                    (early_hour_blocker.get("production_readiness") or {}).get("live_forward_slo_status") or "-",
+                ],
+                [
+                    "Current-code soak",
+                    (early_hour_blocker.get("production_readiness") or {}).get("current_code_soak_status") or "-",
+                ],
+            ],
+        )
+        blockers = early_hour_blocker.get("blockers") or []
+        if blockers:
+            lines += [
+                "",
+                "### Early-Hour Blocker Detail",
+                "",
+            ]
+            lines += markdown_table(
+                ["Category", "Severity", "Detail"],
+                [
+                    [row.get("category"), row.get("severity"), row.get("detail")]
+                    for row in blockers
+                ],
+            )
     extra_transfer = payload.get("extra_location_transfer") or {}
     if extra_transfer:
         extra_gate = extra_transfer.get("promotion_gate") or {}
@@ -113,11 +327,28 @@ def write_report(path, payload, min_free_bytes=0):
             ["Candidate JSON", candidate.get("json_path") or "-"],
             ["Candidate report", candidate.get("report_path") or "-"],
             ["Serving gauntlet", (serving or {}).get("report_path") or "skipped"],
+            ["Promotion allowlist", allowlist.get("path") or "-"],
             ["Candidate hourly performance", (payload.get("candidate_hourly_performance") or {}).get("path") or "-"],
             ["10-minute performance", (payload.get("ten_minute_performance") or {}).get("path") or "-"],
             ["Candidate 10-minute performance", (payload.get("candidate_ten_minute_performance") or {}).get("path") or "-"],
             ["Source family inventory", (payload.get("source_family_inventory") or {}).get("path") or "-"],
             ["Fleet observability", (payload.get("fleet_observability") or {}).get("path") or "-"],
+            ["Settled-day freshness", (payload.get("settled_day_freshness") or {}).get("path") or "-"],
+            ["Data-layer audit", (payload.get("data_layer_audit") or {}).get("path") or "-"],
+            ["Ingest quality gate", (payload.get("ingest_quality_gate") or {}).get("path") or "-"],
+            ["Daily learning", (payload.get("daily_learning") or {}).get("path") or "-"],
+            [
+                "Per-location artifact quarantine",
+                (payload.get("per_location_artifact_quarantine") or {}).get("path") or "-",
+            ],
+            [
+                "Disk headroom",
+                (
+                    (payload.get("disk_headroom") or {}).get("path")
+                    or (payload.get("disk_headroom") or {}).get("status")
+                    or "-"
+                ),
+            ],
         ],
     )
     lines += [

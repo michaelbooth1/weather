@@ -1,4 +1,4 @@
-# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-21 - NBP STATION PERCENTILES LIVE, QMD EXCEEDANCE GRID GATE PENDING]
+# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-22 - GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED]
 
 Goal: consume the National Blend of Models' calibrated probabilistic maximum-
 temperature distribution, instead of using only its point high.
@@ -45,12 +45,88 @@ distribution is scored against.
   fields to `None` until archives exist.
 - [x] Added NBM payload/source visibility to snapshot reconstruction, source
   family inventory, disagreement casebook, and official US guidance ablations.
+- [x] Added machine-readable NBM probabilistic Tmax gate artifact.
 - [ ] Add native QMD GRIB percentile/exceedance-grid extraction for market
   points and bucket edges.
 - [ ] Backfill historical probabilistic NBM features or otherwise prove a
   replay-safe archive path for US markets.
 - [ ] Settlement-score NBM-prob as a calibration anchor and gate promotion on
   non-regressing per-market skill.
+
+## 2026-06-22 Gate Rerun
+
+The source-family refresh still treats the live NBM station-percentile path as
+unpromoted evidence. The open work remains QMD/bucket-edge extraction or a
+replay-safe station archive, historical probabilistic NBM feature backfill, and
+per-market settlement scoring before it can act as a calibration anchor.
+
+## 2026-06-22 NBM Probabilistic Gate Artifact
+
+Added `weather.reporting.nbm_probabilistic_tmax_gate`, schema
+`nbm_probabilistic_tmax_gate_v0.1`, with generated evidence at:
+
+- `data/backtest/item190_nbm_probabilistic_tmax_gate.json`
+- `data/backtest/item190_nbm_probabilistic_tmax_gate_report.md`
+
+Current gate status: `BLOCK`.
+
+Current evidence:
+
+- source inventory sees `nbm_probabilistic_tmax` in source status.
+- source inventory does not yet see `nbm_probabilistic_tmax` in forecast
+  payload rows.
+- all twelve `nbm_prob_tmax_*` feature columns are cataloged.
+- zero NBM probabilistic columns are selected by the active artifact.
+
+Blockers:
+
+- the available replay is `feature_subset=forecast_profile`, not an isolated
+  NBM-prob replay.
+- durable forecast-payload capture is missing for `nbm_probabilistic_tmax`.
+- `77` snapshot folders lack NBM payload rows.
+- historical archive status is `live_only_until_grid_archive_backfill`.
+- source-family train/serve parity is `LINEAGE_BLOCKED`.
+- the current HGB permutation artifact has zero NBM probabilistic rows.
+- no US-market settlement slice exists for NBM-prob.
+- the borrowed full forecast-profile replay still fails daily-first market
+  tolerance.
+
+Next unblock: persist NBM probabilistic payloads into forecast payload tapes,
+add QMD/bucket-edge extraction or a replay-safe NBP station archive, train a
+NBM-prob-scoped candidate with NBM columns selected, regenerate HGB permutation
+evidence, and add US-market settlement slices.
+
+## 2026-06-22 Gate Refresh
+
+I regenerated `data/backtest/item190_nbm_probabilistic_tmax_gate.json` and
+`data/backtest/item190_nbm_probabilistic_tmax_gate_report.md`. The live gate
+remains `BLOCK`.
+
+Current blockers:
+
+- `isolated_nbm_replay_missing`: the candidate replay is still scoped to
+  `forecast_profile`, not NBM probabilistic Tmax guidance.
+- `nbm_forecast_payload_missing`: `nbm_probabilistic_tmax` is absent from
+  forecast-payload inventory.
+- `nbm_payload_lineage_partial`: `77` snapshot folders lack NBM payload rows.
+- `historical_nbm_backfill_missing`: historical archive status is
+  `live_only_until_grid_archive_backfill`.
+- `nbm_features_not_selected_by_active_artifact`: zero NBM probabilistic
+  columns are selected by the active artifact.
+- `train_serve_parity_not_pass`: source-family parity is `LINEAGE_BLOCKED`.
+- `nbm_permutation_evidence_missing`: no NBM probabilistic rows are in the HGB
+  permutation artifact.
+- `blocked_validation_failed`: daily-first candidate validation is not within
+  market tolerance.
+- `us_market_settlement_slices_missing`: US-market settlement rows are `0`.
+
+The live station-text path remains useful source plumbing, but it cannot serve
+as a calibration anchor until payload capture, historical archive parity, and
+US-market settlement gates exist.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_nbm_probabilistic_tmax_gate.py tests\sources\test_nbm_probabilistic_tmax.py tests\model\test_forecast_feature.py tests\model\test_feature_store.py tests\operations\test_schema_registry.py -q` -> 53 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
 Acceptance: NBM probabilistic MaxT is ingested for US markets, exposed as
 features, and settlement-scored, with non-regressing per-market skill and a

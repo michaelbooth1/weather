@@ -1,8 +1,10 @@
 import json
+import logging
 import os
 import tempfile
 import time
 import unittest
+from io import StringIO
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -112,6 +114,23 @@ class TestSupervisorPrimitives(unittest.TestCase):
             ),
             "noop",
         )
+
+    def test_configure_json_console_logging_emits_valid_json_lines(self):
+        root_logger = logging.getLogger()
+        old_handlers = list(root_logger.handlers)
+        old_level = root_logger.level
+        stream = StringIO()
+        try:
+            supervisor.configure_json_console_logging(stream=stream, level=logging.WARNING)
+            logging.getLogger("weather.test").warning("cache lock busy: %s", "unit")
+        finally:
+            root_logger.handlers = old_handlers
+            root_logger.setLevel(old_level)
+
+        payload = json.loads(stream.getvalue().strip())
+        self.assertEqual(payload["level"], "WARNING")
+        self.assertEqual(payload["logger"], "weather.test")
+        self.assertEqual(payload["message"], "cache lock busy: unit")
 
     def test_module_command_and_detached_launch(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,4 @@
-# 160. Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-20 - CANDIDATE GATE PASSES, CURRENT GATE STILL BLOCKED]
+# 160. Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-22 - GATE REFRESHED, PROOF BLOCKED]
 
 Goal: close the early-hour model gap that blocks promotion despite directional
 all-day progress.
@@ -79,3 +79,79 @@ candidate-specific hourly gate passes for the 00:00-08:00 window, daily-first
 skill is non-negative over the required rolling window, and the promotion
 report preserves the distinction between weather-model lift and market-aware
 risk overlay.
+
+## 2026-06-22 Positive Daily-First Gate
+
+Added `weather.reporting.early_hour_positive_daily_first_gate` with schema
+`early_hour_positive_daily_first_gate_v0.1`.
+
+Artifacts:
+
+- `data/backtest/early_hour_positive_daily_first_gate.json`
+- `data/backtest/early_hour_positive_daily_first_gate_report.md`
+
+Command:
+
+`python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md`
+
+Result: **BLOCK** with 6 blockers. The gate now reconciles candidate hourly,
+weak-slot, served-distribution, progress-audit, and daily-first trend evidence
+before this item can close.
+
+Passing evidence:
+
+- Repaired candidate 10-minute weak-slot gate is `PASS` with
+  `delta_vs_market=-0.0089`.
+
+Current blockers:
+
+- Candidate hourly early gate is `BLOCK`; early-hour Brier trails market by
+  `+0.0048 > +0.0030`.
+- Served-distribution contract is `BLOCK`; repaired evidence is
+  `row_export_surrogate`, replay verdict is `BLOCK`, and cutover is
+  `DO_NOT_CUT_OVER`.
+- Rolling daily-first skill is still negative at `-0.2212`.
+- Positive daily-first days are `1`; the gate requires `3`.
+- Promotion-grade market-days are `36`; the gate requires `84`.
+- Progress audit remains `DIRECTIONAL` and `claim_allowed=False`, with blockers
+  for positive-skill day count, daily-first skill, market-day count,
+  live-forward SLO, independent baseline evidence, and mixed runtime identity.
+
+Remaining unblock: produce an accepted early-hour candidate whose hourly gate
+passes, promote it through active replay-contract evidence, and rerun progress
+audit until rolling daily-first skill is non-negative with enough positive days
+and promotion-grade market-days.
+
+## 2026-06-22 positive daily-first gate refresh
+
+Regenerated the positive daily-first gate after refreshing the served-
+distribution contract:
+
+- `data/backtest/early_hour_positive_daily_first_gate.json`
+- `data/backtest/early_hour_positive_daily_first_gate_report.md`
+
+The refreshed gate remains `BLOCK` with `6` blockers. The repaired candidate
+10-minute weak-slot gate is still the only passing acceptance dependency, with
+weak-slot `delta_vs_market=-0.0089`.
+
+Current blockers:
+
+- `candidate_hourly_early_gate`: early-hour candidate Brier trails market by
+  `+0.0048 > +0.0030`.
+- `served_distribution_contract`: served-distribution evidence remains
+  `row_export_surrogate`, replay verdict is `BLOCK`, and cutover is
+  `DO_NOT_CUT_OVER`.
+- `rolling_daily_first_non_negative`: rolling daily-first skill is still
+  `-0.2212`.
+- `positive_daily_first_days`: the gate requires `3` positive daily-first days;
+  current evidence has `1`.
+- `promotion_grade_market_days`: the gate requires `84` promotion-grade
+  market-days; current evidence has `36`.
+- `progress_claim_allowed`: progress audit remains `DIRECTIONAL` with
+  `claim_allowed=False`, blocked by positive-day count, rolling daily-first
+  skill, market-day count, live-forward SLO countability, missing independent
+  baseline evidence, and mixed runtime identity.
+
+No progress-audit claim was accepted here. Item 160 remains partial until a
+served early-hour candidate clears the hourly gate and the daily-first trend
+turns non-negative with enough countable evidence.

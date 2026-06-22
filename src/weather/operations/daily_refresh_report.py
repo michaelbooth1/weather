@@ -120,6 +120,17 @@ def render_report(payload):
                     f"{(result.get('summary') or {}).get('canonical_rows')} rows; "
                     f"missing {len(result.get('missing_active_variant_ids') or [])}"
                 )
+        elif step.get("name") == "frozen_baseline_replay_trend":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            elif result.get("status") == "MISSING":
+                detail = f"MISSING; {result.get('reason') or '; '.join(result.get('status_reasons') or []) or '-'}"
+            else:
+                detail = (
+                    f"{result.get('status')} "
+                    f"{result.get('shared_observations')} shared obs; "
+                    f"cur-base {result.get('brier_delta_current_minus_baseline')}"
+                )
         elif step.get("name") == "model_variant_evidence_growth":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -152,7 +163,8 @@ def render_report(payload):
             top_stage = (result.get("top_net_negative_stage") or {}).get("group") or "-"
             detail = (
                 f"{result.get('status')}; rows {result.get('attribution_row_count')}; "
-                f"net_negative {result.get('net_negative_stage_count')}; top {top_stage}"
+                f"net_negative {result.get('net_negative_stage_count')}; top {top_stage}; "
+                f"winner_mass_blocks {result.get('bottom_location_winner_mass_blocker_count')}"
             )
         elif step.get("name") == "settled_day_root_cause":
             if result.get("status") == "SKIPPED":

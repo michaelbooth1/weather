@@ -22,6 +22,7 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.reporting.model_history import build_history_payload
+from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.scoring.metrics import daily_first_score
 
 
@@ -385,6 +386,7 @@ def load_promotion_refresh(path):
     gauntlet = payload.get("serving_gauntlet") or {}
     corpus = payload.get("corpus") or {}
     trust = payload.get("trust") or {}
+    early_hour_blocker = payload.get("early_hour_promotion_blocker") or {}
     return {
         "path": str(path),
         "exists": True,
@@ -408,6 +410,12 @@ def load_promotion_refresh(path):
         "identity_record_count": corpus.get("identity_record_count"),
         "trust_min": trust.get("family_min_trust"),
         "trust_max": trust.get("family_max_trust"),
+        "readiness_status": (payload.get("readiness") or {}).get("status"),
+        "readiness_blocker_count": len((payload.get("readiness") or {}).get("blockers") or []),
+        "early_hour_promotion_blocker": early_hour_blocker,
+        "early_hour_promotion_status": early_hour_blocker.get("status"),
+        "early_hour_promotion_allowed": early_hour_blocker.get("promotion_allowed"),
+        "early_hour_promotion_blocker_count": early_hour_blocker.get("blocker_count"),
     }
 
 
@@ -599,7 +607,20 @@ def _trend_row_multiplier_blockers(variant):
     return blockers
 
 
-def core_model_trend_claim(history, *, fleet=None, variant_evidence=None):
+def _trend_runtime_identity_blockers(runtime_identity_evidence):
+    evidence = runtime_identity_evidence or {}
+    if evidence.get("status") != "BLOCK":
+        return []
+    return [
+        (
+            "mixed runtime identity blocks unsegmented core-model trend claims"
+            f": {evidence.get('runtime_identity_count')} identities, "
+            f"{evidence.get('snapshot_row_count')} snapshot rows"
+        )
+    ]
+
+
+def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtime_identity_evidence=None):
     """Strict generated answer for the day-over-day core-model trend claim."""
     history = history or {}
     by_date = history.get("by_date") or []
@@ -675,6 +696,7 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None):
     )
     collection_blockers = _trend_collection_blockers(fleet or {})
     row_multiplier_blockers = _trend_row_multiplier_blockers(variant_evidence or {})
+    runtime_identity_blockers = _trend_runtime_identity_blockers(runtime_identity_evidence or {})
     rolling_daily_first_skill = _mean(row.get("daily_first_brier_skill") for row in rolling)
     skill_slope = _linear_slope(comparable, "brier_skill")
     gap_slope = _linear_slope(comparable, "model_minus_market_brier")
@@ -703,6 +725,7 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None):
         )
     threshold_failures.extend(collection_blockers)
     threshold_failures.extend(row_multiplier_blockers)
+    threshold_failures.extend(runtime_identity_blockers)
 
     directional_signals = []
     if skill_slope is not None and skill_slope > 0:
@@ -751,7 +774,11 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None):
             "model_minus_market_brier_slope_per_day": gap_slope,
             "latest_comparable_date": comparable[-1]["date"] if comparable else None,
             "latest_comparable_brier_skill": comparable[-1]["brier_skill"] if comparable else None,
+            "runtime_identity_status": (runtime_identity_evidence or {}).get("status"),
+            "runtime_identity_count": (runtime_identity_evidence or {}).get("runtime_identity_count"),
+            "runtime_identity_snapshot_rows": (runtime_identity_evidence or {}).get("snapshot_row_count"),
         },
+        "runtime_identity_evidence": runtime_identity_evidence or {},
         "directional_signals": directional_signals,
         "threshold_failures": threshold_failures,
         "next_evidence_needed": next_evidence,
@@ -772,10 +799,12 @@ def _trend_next_action(failure):
         return "Repair live-forward collection health before using active-day evidence in the trend claim."
     if "scored rows increased" in failure or "independent-evidence" in failure:
         return "Add independent settled observations, not only row-multiplied variant scores."
+    if "mixed runtime" in failure or "runtime identity" in failure:
+        return "Segment model evidence by runtime identity or add an explicit cross-runtime reconciliation report."
     return "Inspect the core-model trend claim threshold failure."
 
 
-def build_core_model_trend_claim(backtest_root, snapshots_root):
+def build_core_model_trend_claim(backtest_root, snapshots_root, runtime_identity_evidence=None):
     try:
         history = build_history_payload(
             snapshots_root=snapshots_root,
@@ -792,7 +821,12 @@ def build_core_model_trend_claim(backtest_root, snapshots_root):
         }
     fleet = read_json(Path(backtest_root) / "fleet_observability.json", default={}) or {}
     variant = read_json(Path(backtest_root) / "model_variant_evidence_growth.json", default={}) or {}
-    return core_model_trend_claim(history, fleet=fleet, variant_evidence=variant)
+    return core_model_trend_claim(
+        history,
+        fleet=fleet,
+        variant_evidence=variant,
+        runtime_identity_evidence=runtime_identity_evidence,
+    )
 
 
 def compute_loop_state(status, kind, now=None):
@@ -895,6 +929,13 @@ def classify_trend(payload):
 def build_audit(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, roadmap_path=DEFAULT_ROADMAP):
     backtest_root = Path(backtest_root)
     now = utc_now()
+    daily_progress = load_daily_progress_ledger(backtest_root / "daily_progress_latest.json")
+    runtime_target_date = daily_progress.get("run_date") or now.date().isoformat()
+    runtime_evidence = build_runtime_identity_evidence(
+        snapshots_root=snapshots_root,
+        target_date=runtime_target_date,
+        reconciliation_path=backtest_root / "runtime_identity_reconciliation.json",
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -907,15 +948,36 @@ def build_audit(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAP
         "market_day_labels": load_market_day_labels(backtest_root / "market_day_labels.csv"),
         "location_trust": load_location_trust(backtest_root / "location_trust.json"),
         "fleet_observability": load_fleet_observability(backtest_root / "fleet_observability.json"),
+        "frozen_baseline_replay_trend": load_frozen_baseline_replay_trend(
+            backtest_root / "frozen_baseline_replay_trend.json"
+        ),
         "loop_statuses": load_loop_statuses(snapshots_root, now=now),
-        "daily_progress_ledger_latest": load_daily_progress_ledger(backtest_root / "daily_progress_latest.json"),
+        "daily_progress_ledger_latest": daily_progress,
+        "runtime_identity_evidence": runtime_evidence,
     }
-    payload["core_model_trend_claim"] = build_core_model_trend_claim(backtest_root, snapshots_root)
+    payload["core_model_trend_claim"] = build_core_model_trend_claim(
+        backtest_root,
+        snapshots_root,
+        runtime_identity_evidence=runtime_evidence,
+    )
     payload["trend_assessment"] = classify_trend(payload)
     return payload
 
 
 def load_daily_progress_ledger(path):
+    path = Path(path)
+    if not path.exists():
+        return {"exists": False, "path": str(path)}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"exists": True, "path": str(path), "status": "unreadable", "error": str(exc)}
+    payload["exists"] = True
+    payload["path"] = str(path)
+    return payload
+
+
+def load_frozen_baseline_replay_trend(path):
     path = Path(path)
     if not path.exists():
         return {"exists": False, "path": str(path)}
@@ -951,6 +1013,7 @@ def render_report(payload):
     trust = payload["location_trust"]
     refresh = payload["promotion_refresh"]
     ten_minute = payload.get("ten_minute_model_performance") or {}
+    frozen = payload.get("frozen_baseline_replay_trend") or {}
     gauntlet = payload["promotion_gauntlet_latest"]
     fleet = payload["fleet_observability"]
     loops = payload["loop_statuses"]
@@ -1107,6 +1170,8 @@ def render_report(payload):
 
     lines.extend(["", "## Core Model Day-Over-Day Claim", ""])
     trend_summary = core_trend.get("summary") or {}
+    runtime_evidence = core_trend.get("runtime_identity_evidence") or payload.get("runtime_identity_evidence") or {}
+    runtime_segments = ((runtime_evidence.get("snapshots") or {}).get("segments") or [])
     lines.extend(markdown_table(
         ["Field", "Value"],
         [
@@ -1120,6 +1185,39 @@ def render_report(payload):
             ["Model-minus-market gap slope/day", fmt_signed(trend_summary.get("model_minus_market_brier_slope_per_day"), 4)],
             ["Latest comparable day", trend_summary.get("latest_comparable_date") or "-"],
             ["Latest comparable skill", fmt_skill(trend_summary.get("latest_comparable_brier_skill"))],
+            ["Runtime identity status", runtime_evidence.get("status") or "-"],
+            ["Runtime identity count", runtime_evidence.get("runtime_identity_count")],
+            ["Runtime snapshot rows", runtime_evidence.get("snapshot_row_count")],
+            ["Runtime blocker", runtime_evidence.get("blocking_reason") or "-"],
+        ],
+    ))
+    frozen_overall = frozen.get("overall") or {}
+    frozen_coverage = frozen.get("coverage") or {}
+    lines.extend(["", "### Live-Forward Vs Weather-Held-Constant", ""])
+    lines.extend(markdown_table(
+        ["Signal", "Status", "Evidence", "Brier Delta", "Read"],
+        [
+            [
+                "Live-forward daily-first trend",
+                core_trend.get("status") or "-",
+                (
+                    f"{trend_summary.get('promotion_grade_market_days', 0)} promotion-grade market-days; "
+                    f"{trend_summary.get('positive_daily_first_days', 0)} positive daily-first days"
+                ),
+                fmt_skill(trend_summary.get("rolling_daily_first_brier_skill")),
+                "Weather varies by day; useful for live performance but confounded by daily weather mix.",
+            ],
+            [
+                "Frozen baseline replay trend",
+                frozen.get("independent_baseline_status") or ("MISSING" if not frozen.get("exists") else "-"),
+                (
+                    f"{frozen_coverage.get('shared_observations', 0)} shared observations; "
+                    f"{frozen_coverage.get('shared_market_days', 0)} shared market-days; "
+                    f"baseline {frozen.get('baseline_id') or '-'}"
+                ),
+                fmt_signed(frozen_overall.get("brier_delta_current_minus_baseline"), 4),
+                "Weather held constant; negative current-baseline delta is code-attributable improvement.",
+            ],
         ],
     ))
     failures = core_trend.get("threshold_failures") or []
@@ -1135,6 +1233,21 @@ def render_report(payload):
         lines.extend(["", "Next evidence needed:"])
         for action in dict.fromkeys(needed):
             lines.append(f"- {action}")
+    lines.extend(["", "### Runtime Identity Segments", ""])
+    lines.extend(markdown_table(
+        ["Commit", "Rows", "Snapshots", "Markets", "Target Dates", "Source Fingerprint"],
+        [
+            [
+                row.get("runtime_git_commit") or row.get("runtime_key"),
+                row.get("row_count"),
+                row.get("snapshot_count"),
+                row.get("market_count"),
+                row.get("target_date_count"),
+                row.get("runtime_source_fingerprint") or "-",
+            ]
+            for row in runtime_segments
+        ],
+    ))
     sequence_rows = []
     for row in core_trend.get("daily_sequence") or []:
         sequence_rows.append([
@@ -1174,6 +1287,16 @@ def render_report(payload):
                 ["Claim failures", ledger.get("broad_improvement_claim_failures") or "[]"],
                 ["Live-forward SLO", ledger.get("ops_live_forward_slo_status") or "-"],
                 ["Independent baseline", ledger.get("evidence_independent_baseline_status") or "-"],
+                ["Frozen baseline", ledger.get("evidence_frozen_baseline_status") or "-"],
+                [
+                    "Frozen current-baseline Brier",
+                    fmt_signed(
+                        ledger.get("evidence_frozen_baseline_brier_delta_current_minus_baseline"),
+                        4,
+                    ),
+                ],
+                ["Runtime identity", ledger.get("runtime_identity_status") or "-"],
+                ["Runtime blocker", ledger.get("runtime_identity_blocking_reason") or "-"],
                 ["MM evidence mode", ledger.get("trading_mm_evidence_mode") or "-"],
                 ["Taker quality", ledger.get("trading_taker_quality_status") or "-"],
             ],
@@ -1215,6 +1338,14 @@ def render_report(payload):
             ["Promotion refresh candidate", f"{refresh.get('candidate_verdict', '-')} / {refresh.get('candidate_cutover_decision', '-')}"],
             ["Promotion actions", f"{len(refresh.get('promote_markets') or [])} promote, {len(refresh.get('shadow_markets') or [])} shadow, {len(refresh.get('blocked_markets') or [])} blocked"],
             ["Current serving gauntlet", f"{refresh.get('serving_gauntlet_verdict', '-')}"],
+            [
+                "Early-hour promotion blocker",
+                (
+                    f"{refresh.get('early_hour_promotion_status') or '-'}; "
+                    f"allowed={refresh.get('early_hour_promotion_allowed')}; "
+                    f"blockers={refresh.get('early_hour_promotion_blocker_count', '-')}"
+                ),
+            ],
             ["Gauntlet regression", f"{gauntlet.get('regression_status', '-')} - {gauntlet.get('regression_message', '-')}"],
             ["Promotion corpus", f"{fmt_count(refresh.get('corpus_market_days'))} market-days, {fmt_count(refresh.get('corpus_snapshots'))} snapshots, {fmt_count(refresh.get('corpus_band_rows'))} band rows"],
             ["Exact identity settled records", fmt_count(refresh.get("identity_record_count"))],
@@ -1222,6 +1353,33 @@ def render_report(payload):
             ["Skill by market", f"{trust.get('positive_skill_markets', 0)} positive, {trust.get('negative_skill_markets', 0)} negative"],
         ],
     ))
+    early_hour = refresh.get("early_hour_promotion_blocker") or {}
+    if early_hour:
+        current_gates = early_hour.get("current_gates") or {}
+        candidate_gates = early_hour.get("candidate_gates") or {}
+        broad_replay = early_hour.get("broad_replay") or {}
+        production = early_hour.get("production_readiness") or {}
+        lines.extend(["", "### Early-Hour Promotion Blocker", ""])
+        lines.extend(markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", early_hour.get("status") or "-"],
+                ["Promotion allowed", early_hour.get("promotion_allowed")],
+                ["Current hourly gate", (current_gates.get("hourly") or {}).get("status") or "-"],
+                ["Current 10-minute gate", (current_gates.get("ten_minute") or {}).get("status") or "-"],
+                ["Candidate hourly gate", (candidate_gates.get("hourly") or {}).get("gate_status") or "-"],
+                ["Candidate 10-minute gate", (candidate_gates.get("ten_minute") or {}).get("gate_status") or "-"],
+                ["Broad replay within tolerance", broad_replay.get("within_market_tolerance")],
+                ["Live-forward SLO", (production.get("live_forward_slo") or {}).get("status") or "-"],
+                ["Current-code soak", (production.get("current_code_soak") or {}).get("status") or "-"],
+            ],
+        ))
+        blocker_rows = [
+            [row.get("category"), row.get("severity"), row.get("detail")]
+            for row in early_hour.get("blockers") or []
+        ]
+        if blocker_rows:
+            lines.extend(markdown_table(["Category", "Severity", "Detail"], blocker_rows[:8]))
 
     lines.extend([
         "",

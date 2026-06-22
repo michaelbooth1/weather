@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -100,8 +100,15 @@ class TestReanalysisSynoptic(unittest.TestCase):
                 "soil_moisture_0_to_7cm": 0.21,
                 "shortwave_radiation": 6100.0,
                 "cloud_cover_low": 15.0,
+                "precipitation": 1.2,
+                "et0_fao_evapotranspiration": 0.4,
             }
         }
+        for offset in range(2, 31):
+            raw[date(2025, 6, 2) - timedelta(days=offset)] = {
+                "precipitation": 0.1,
+                "et0_fao_evapotranspiration": 0.2,
+            }
         pressure_level = {
             date(2025, 6, 1): {
                 "reanalysis_prev_day_temperature_850hpa_c": 14.25,
@@ -134,6 +141,13 @@ class TestReanalysisSynoptic(unittest.TestCase):
         self.assertEqual(row["reanalysis_prev_day_soil_temperature_0_to_7cm_mean"], 23.5)
         self.assertEqual(row["reanalysis_prev_day_soil_moisture_0_to_7cm_mean"], 0.21)
         self.assertEqual(row["reanalysis_prev_day_shortwave_radiation_sum"], 6100.0)
+        self.assertEqual(row["reanalysis_prev_day_precipitation_sum"], 1.2)
+        self.assertAlmostEqual(row["reanalysis_prev_7d_precipitation_sum"], 1.8)
+        self.assertAlmostEqual(row["reanalysis_prev_14d_precipitation_sum"], 2.5)
+        self.assertAlmostEqual(row["reanalysis_prev_30d_precipitation_sum"], 4.1)
+        self.assertAlmostEqual(row["reanalysis_prev_7d_precipitation_minus_et0"], 0.2)
+        self.assertAlmostEqual(row["reanalysis_prev_14d_precipitation_minus_et0"], -0.5)
+        self.assertAlmostEqual(row["reanalysis_prev_30d_precipitation_minus_et0"], -2.1)
         self.assertEqual(row["reanalysis_prev_day_low_cloud_mean"], 15.0)
         self.assertEqual(row["reanalysis_pressure_level_available"], 1.0)
         self.assertEqual(row["reanalysis_prev_day_temperature_850hpa_c"], 14.25)

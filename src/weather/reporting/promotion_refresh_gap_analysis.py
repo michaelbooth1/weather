@@ -158,7 +158,7 @@ def _gap_rule(slice_name, group):
             "roadmap_owner": "Item 47",
             "next_experiment": "clob_overlay_quote_gate_shadow",
             "experiment_artifact": "data/backtest/experiments/clob_overlay_quote_gate_shadow.json",
-            "claim_lane": "market_informed_clob_overlay",
+            "claim_lane": "market_informed_quote_risk",
             "counts_toward_core_skill_claim": False,
         }
     return {
@@ -213,6 +213,51 @@ def build_gap_owner_table(gap_drivers, decisions=None, *, limit=12):
 
 def _operational_gate_rows(payload):
     rows = []
+    freshness = payload.get("evidence_freshness") or {}
+    for gate in freshness.get("gates") or []:
+        rows.append([
+            "Evidence freshness: " + str(gate.get("name") or "-"),
+            gate.get("status") or "-",
+            gate.get("detail") or gate.get("path") or "-",
+        ])
+    artifact_quarantine = payload.get("per_location_artifact_quarantine") or {}
+    if artifact_quarantine:
+        summary = artifact_quarantine.get("summary") or {}
+        rows.append([
+            "Per-location artifact quarantine",
+            artifact_quarantine.get("status") or "-",
+            (
+                f"historical_only={summary.get('historical_only_count', 0)}, "
+                f"active_violations={summary.get('active_candidate_violation_count', 0)}"
+            ),
+        ])
+    early_hour = payload.get("early_hour_promotion_blocker") or {}
+    if early_hour:
+        current = early_hour.get("current_gates") or {}
+        rows.append([
+            "Early-hour promotion blocker",
+            early_hour.get("status") or "-",
+            (
+                f"hourly={current.get('hourly_status') or '-'}, "
+                f"ten_minute={current.get('ten_minute_status') or '-'}, "
+                f"blockers={early_hour.get('blocker_count', 0)}"
+            ),
+        ])
+    source_missingness = payload.get("source_missingness_location_gate") or {}
+    if source_missingness:
+        summary = source_missingness.get("summary") or {}
+        first = source_missingness.get("first_blocker") or {}
+        rows.append([
+            "Source/missingness location gate",
+            source_missingness.get("status") or "-",
+            (
+                f"market_source={summary.get('market_source_freshness_slice_count', 0)}, "
+                f"market_count={summary.get('market_forecast_source_count_slice_count', 0)}, "
+                f"missingness={summary.get('market_feature_missingness_slice_count', 0)}, "
+                f"blockers={summary.get('blocker_count', 0)}"
+                + (f"; first={first.get('detail')}" if first.get("detail") else "")
+            ),
+        ])
     source_family = payload.get("source_family_inventory") or {}
     if source_family:
         preflight = source_family.get("promotion_preflight") or {}
@@ -388,12 +433,12 @@ def model_skill_claims(candidate, gap_owner_table=None):
                 else "core candidate still needs aggregate delta_vs_market <= 0 and daily-first clearance"
             ),
         },
-        "market_informed_clob_overlay": {
+        "market_informed_quote_risk": {
             "counts_toward_core_skill_claim": False,
             "may_support_quote_gating": True,
             "owner_row_count": sum(
                 1 for row in owner_rows
-                if row.get("claim_lane") == "market_informed_clob_overlay"
+                if row.get("claim_lane") == "market_informed_quote_risk"
             ),
             "reason": "CLOB-informed overlays are quote/permission evidence, not weather-only core-skill evidence.",
         },

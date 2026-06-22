@@ -25,6 +25,7 @@ from weather.collection.live_variant_predictions import (
     build_live_variant_prediction_rows,
 )
 from weather.market.market_config import config_for_date, config_from_event
+from weather.market.snapshot_cadence_quality import snapshot_cadence_quality
 from weather.model.feature_store import (
     FEATURE_AUDIT_COLUMNS,
     audit_row,
@@ -84,6 +85,13 @@ LONG_COLUMNS = [
     "feature_schema_version",
     *RUNTIME_IDENTITY_COLUMNS,
     "snapshot_cadence",
+    "snapshot_cadence_quality_state",
+    "snapshot_cadence_gap_count",
+    "snapshot_cadence_max_gap_seconds",
+    "snapshot_cadence_last_model_age_seconds",
+    "snapshot_cadence_confidence_multiplier",
+    "snapshot_cadence_permission",
+    "snapshot_cadence_reason",
     "trigger_reason",
     "trigger_source",
     "trigger_previous_value",
@@ -161,6 +169,7 @@ SOURCE_STATUS_COLUMNS = [
     "retry_after_seconds",
     "degradation_state",
     "cache_status",
+    "fallback_source",
     "fetched_at",
     "age_minutes",
     "ttl_minutes",
@@ -359,6 +368,21 @@ class SnapshotStore:
             captured_at,
             model_version,
         )
+        previous_scheduled = self.last_snapshot_time(cadence="scheduled")
+        cadence_gap_seconds = None
+        cadence_gap_count = 0
+        if previous_scheduled is not None:
+            cadence_gap_seconds = (
+                captured_at.astimezone(timezone.utc) - previous_scheduled.astimezone(timezone.utc)
+            ).total_seconds()
+            if cadence == "scheduled" and cadence_gap_seconds > SNAPSHOT_INTERVAL.total_seconds() * 1.5:
+                cadence_gap_count = 1
+        cadence_quality = snapshot_cadence_quality({
+            "snapshot_cadence": cadence,
+            "snapshot_cadence_gap_count": cadence_gap_count,
+            "snapshot_cadence_max_gap_seconds": cadence_gap_seconds if cadence_gap_count else None,
+            "snapshot_cadence_last_model_age_seconds": 0.0,
+        })
 
         bins = model_client.market_bins(event)
         long_rows = []
@@ -387,6 +411,7 @@ class SnapshotStore:
                 "feature_schema_version": feature_schema_version,
                 **runtime_fields,
                 "snapshot_cadence": cadence,
+                **cadence_quality,
                 **trigger_summary,
                 "top_temp_c": top_temp,
                 "top_probability": top_probability,
@@ -435,6 +460,7 @@ class SnapshotStore:
                 serving_model_version=model_version,
                 runtime_fields=runtime_fields,
                 snapshot_cadence=cadence,
+                cadence_quality=cadence_quality,
                 trigger_summary=trigger_summary,
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
@@ -456,6 +482,7 @@ class SnapshotStore:
             "runtime_guard": runtime_guard,
             "model_identity": model_identity,
             "snapshot_cadence": cadence,
+            "snapshot_cadence_quality": cadence_quality,
             "trigger_context": trigger_context,
             "top_temp_c": top_temp,
             "top_probability": top_probability,
@@ -566,6 +593,7 @@ class SnapshotStore:
             runtime_identity,
             runtime_guard,
             cadence=cadence,
+            cadence_quality=cadence_quality,
             trigger_context=trigger_context,
         )
 
@@ -724,6 +752,7 @@ class SnapshotStore:
                 "retry_after_seconds": item.get("retry_after_seconds"),
                 "degradation_state": self.source_degradation_state(status, item),
                 "cache_status": self.source_cache_status(status, item),
+                "fallback_source": item.get("fallback_source"),
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
@@ -756,6 +785,10 @@ class SnapshotStore:
         return source
 
     def source_degradation_state(self, status, item):
+        if status in {"expected_current_day_unavailable", "expected_unavailable"}:
+            return status
+        if item.get("degradation_state") in {"expected_current_day_unavailable", "expected_unavailable"}:
+            return item.get("degradation_state")
         if status == "rate_limited_cache":
             return "rate_limited_fallback"
         if status == "stale_cache":
@@ -1279,6 +1312,13 @@ class SnapshotStore:
             "feature_schema_version",
             *RUNTIME_IDENTITY_COLUMNS,
             "snapshot_cadence",
+            "snapshot_cadence_quality_state",
+            "snapshot_cadence_gap_count",
+            "snapshot_cadence_max_gap_seconds",
+            "snapshot_cadence_last_model_age_seconds",
+            "snapshot_cadence_confidence_multiplier",
+            "snapshot_cadence_permission",
+            "snapshot_cadence_reason",
             "trigger_reason",
             "top_temp_c",
             "top_probability",
@@ -1315,6 +1355,13 @@ class SnapshotStore:
             "feature_schema_version": first.get("feature_schema_version"),
             **{column: first.get(column) for column in RUNTIME_IDENTITY_COLUMNS},
             "snapshot_cadence": first.get("snapshot_cadence"),
+            "snapshot_cadence_quality_state": first.get("snapshot_cadence_quality_state"),
+            "snapshot_cadence_gap_count": first.get("snapshot_cadence_gap_count"),
+            "snapshot_cadence_max_gap_seconds": first.get("snapshot_cadence_max_gap_seconds"),
+            "snapshot_cadence_last_model_age_seconds": first.get("snapshot_cadence_last_model_age_seconds"),
+            "snapshot_cadence_confidence_multiplier": first.get("snapshot_cadence_confidence_multiplier"),
+            "snapshot_cadence_permission": first.get("snapshot_cadence_permission"),
+            "snapshot_cadence_reason": first.get("snapshot_cadence_reason"),
             "trigger_reason": first.get("trigger_reason"),
             "top_temp_c": first.get("top_temp_c"),
             "top_probability": first.get("top_probability"),
@@ -1773,6 +1820,7 @@ class SnapshotStore:
         runtime_identity=None,
         runtime_guard=None,
         cadence="scheduled",
+        cadence_quality=None,
         trigger_context=None,
     ):
         """Persist the full model inputs for this snapshot so it can be replayed.
@@ -1798,6 +1846,7 @@ class SnapshotStore:
             "runtime_identity": runtime_identity,
             "runtime_guard": runtime_guard,
             "snapshot_cadence": cadence,
+            "snapshot_cadence_quality": cadence_quality or snapshot_cadence_quality({"snapshot_cadence": cadence}),
             "trigger_context": trigger_context,
             # The timestamp the build actually used (falls back to the write time).
             "built_at": model.get("built_at") or captured_at.isoformat(),

@@ -5,10 +5,14 @@ import unittest
 from pathlib import Path
 
 from weather.market.taker_bot import (
+    DEFAULT_CONFIG,
     FINALIZATION_SCHEMA_VERSION,
     ORDER_COLUMNS,
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
+    build_pnl_payload,
     build_run_once,
+    candidate_skip_reason,
+    enrich_taker_risk_fields,
     finalize_taker_run,
     next_run_policy_gate,
     run_taker_strategy_bakeoff,
@@ -42,6 +46,7 @@ def write_market_fixture(
     book_captured_at="2026-06-14T15:59:50+00:00",
     bands=None,
     duplicate_first_snapshot=False,
+    cadence_fields=None,
 ):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / EVENT
@@ -55,7 +60,7 @@ def write_market_fixture(
         token = "" if blank_tokens or (missing_token and value == 80) else f"token-{value}"
         condition = "" if blank_tokens else f"condition-{value}"
         label = f"{value}-{value + 1} F"
-        snapshot_rows.append({
+        snapshot = {
             "snapshot_id": "s1",
             "captured_at_utc": captured_at,
             "event_slug": EVENT,
@@ -68,7 +73,9 @@ def write_market_fixture(
             "model_probability": fair,
             "market_yes": "0.50",
             "market_status": "active",
-        })
+        }
+        snapshot.update(cadence_fields or {})
+        snapshot_rows.append(snapshot)
         clob_rows.append({
             "snapshot_id": "s1",
             "captured_at_utc": captured_at,
@@ -387,6 +394,89 @@ class TestTakerBot(unittest.TestCase):
         self.assertLess(float(row["fill_notional_usdc"]), 10.0)
         self.assertEqual(payload["pnl"]["by_strategy"][0]["low_price_tail_fill_count"], 0)
 
+    def test_snapshot_cadence_gap_blocks_taker_buy_despite_fresh_source_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.95", "0.60")],
+                cadence_fields={
+                    "snapshot_cadence": "scheduled",
+                    "snapshot_cadence_gap_count": "2",
+                    "snapshot_cadence_max_gap_seconds": "1328.4",
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=100,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"max_order_usdc": 10, "max_position_per_token_usdc": 10},
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        row = orders[0]
+        self.assertEqual(row["reason_code"], "NO_TRADE_SNAPSHOT_CADENCE_DEGRADED")
+        self.assertEqual(row["snapshot_cadence_quality_state"], "gappy")
+        self.assertEqual(row["snapshot_cadence_permission"], "deny")
+        self.assertIn("cadence_quality:gappy", row["reliability_reason"])
+        self.assertLess(float(row["reliability_confidence"]), 1.0)
+        self.assertLess(float(row["reliability_adjusted_fair_probability"]), float(row["fair_probability"]))
+
+    def test_late_untrusted_current_high_blocks_aggressive_taker_for_june_21_markets(self):
+        cases = {
+            "toronto": (84.0, 86.0),
+            "atlanta": (84.02, 86.0),
+            "denver": (83.84, 87.0),
+            "houston": (86.0, 89.0),
+            "san-francisco": (64.94, 70.0),
+        }
+        config = {**DEFAULT_CONFIG, "min_edge": 0.03}
+        for market_id, (raw_high, settlement_high) in cases.items():
+            with self.subTest(market_id=market_id):
+                row = {
+                    "market_id": market_id,
+                    "event_slug": f"highest-temperature-in-{market_id}-on-june-21-2026",
+                    "snapshot_id": "s1",
+                    "captured_at_utc": "2026-06-21T20:00:00+00:00",
+                    "capture_hour_local": "16",
+                    "range_label": f"{int(settlement_high)}-{int(settlement_high) + 1} F",
+                    "bin_kind": "eq",
+                    "bin_value": str(int(settlement_high)),
+                    "bin_value_hi": str(int(settlement_high) + 1),
+                    "clob_token_id": f"token-{market_id}",
+                    "fair_probability": "0.30",
+                    "best_ask": "0.10",
+                    "best_bid": "0.09",
+                    "market_mid": "0.095",
+                    "edge": "0.20",
+                    "ask_size_at_best": "50",
+                    "book_age_seconds": "10",
+                    "model_age_seconds": "10",
+                    "source_fresh": "True",
+                    "source_freshness_state": "all_fresh",
+                    "raw_current_high": str(raw_high),
+                    "raw_current_high_bucket": str(round(raw_high)),
+                    "settlement_current_high": str(settlement_high),
+                    "current_high_trusted": "False",
+                    "current_high_guard_reason": "settlement_adjusted_high_diverged_from_raw_current_high",
+                    "current_max_state": "current_max_history_gap",
+                }
+                enriched = enrich_taker_risk_fields(row, config)
+                reason, detail = candidate_skip_reason(enriched, config)
+
+                self.assertEqual(reason, "NO_TRADE_CURRENT_HIGH_TRUST_GATE")
+                self.assertEqual(enriched["current_high_trust_gate_status"], "blocked")
+                self.assertEqual(enriched["current_high_trust_gate_action"], "deny_aggressive")
+                self.assertTrue(enriched["current_high_trust_gate_aggressive"])
+                self.assertIn("untrusted_current_high", detail)
+
     def test_low_price_tail_strategy_caps_tail_lottery_size(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -419,6 +509,64 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["active_strategy_id"], "low_price_tail_capped")
         self.assertEqual(payload["summary"]["active_strategy_lifecycle"], "candidate_canary")
         self.assertEqual(payload["summary"]["active_strategy_canary"]["strategy_id"], "low_price_tail_capped")
+
+    def test_positive_mtm_zero_settled_tail_heavy_run_is_not_countable(self):
+        rows = []
+        for index in range(50):
+            tail = index < 31
+            value = 70 + (index % 10)
+            row = order_row(
+                "atlanta",
+                EVENT,
+                f"{value}-{value + 1} F",
+                value,
+                value + 1,
+                fill_size=10,
+                fill_notional=0.2 if tail else 3.0,
+                fair_probability=0.8,
+                mark_pnl=55.0 if tail else 0.0,
+            )
+            row.update({
+                "strategy_id": "low_price_tail_capped",
+                "strategy_family": "tail_risk_sizing",
+                "strategy_status": "candidate",
+                "low_price_tail": "True" if tail else "False",
+                "tail_risk_bucket": "low_price_tail" if tail else "core_edge",
+            })
+            rows.append(row)
+
+        payload = build_pnl_payload(
+            rows,
+            100,
+            "taker-20260621-bbe63642",
+            "2026-06-21",
+            policy_config={"promotion_max_tail_fill_fraction": 0.5},
+        )
+        strategy = payload["by_strategy"][0]
+        alerts = {
+            row["code"]
+            for row in (payload["tail_fill_quality"]["summary"].get("alerts") or [])
+        }
+
+        self.assertEqual(payload["summary"]["settled_order_count"], 0)
+        self.assertEqual(payload["summary"]["unsettled_order_count"], 50)
+        self.assertGreater(payload["summary"]["mark_to_market_pnl_usdc"], 0)
+        self.assertEqual(payload["summary"]["low_price_tail_fill_count"], 31)
+        self.assertEqual(payload["tail_fill_quality"]["summary"]["status"], "WARN_HIGH_TAIL_SHARE")
+        self.assertIn("HIGH_TAIL_FILL_FRACTION", alerts)
+        self.assertIn("TAIL_FILLS_MISSING_SETTLEMENT", alerts)
+        self.assertFalse(strategy["quality_candidate_countable"])
+        self.assertEqual(strategy["quality_candidate_evidence_basis"], "settlement_scored")
+        self.assertEqual(strategy["settlement_promotion_gate_status"], "BLOCK")
+        self.assertIn("min_settled_orders", strategy["settlement_promotion_failed_gates"])
+        self.assertIn("no_unresolved_orders", strategy["settlement_promotion_failed_gates"])
+        self.assertIn("max_tail_fill_fraction", strategy["settlement_promotion_failed_gates"])
+        self.assertEqual(
+            payload["strategy_comparison"]["countable_strategy_quality_candidate_status"],
+            "MISSING_SETTLED_SAMPLE",
+        )
+        self.assertIsNone(payload["strategy_comparison"]["best_settlement_scored_strategy_id"])
+        self.assertFalse(payload["strategy_comparison"]["mtm_promotion_allowed"])
 
     def test_strategy_bakeoff_replays_shared_tape_and_writes_promotion_report(self):
         with tempfile.TemporaryDirectory() as tmp:

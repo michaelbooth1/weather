@@ -1,4 +1,4 @@
-# 189. ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-21 - OPEN-METEO GLOBAL MODEL CLUSTER LIVE, GATE PENDING]
+# 189. ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]
 
 Goal: widen the forecast ensemble the model already consumes with ECMWF and the
 new machine-learning NWP models, which now lead surface-temperature skill.
@@ -51,8 +51,86 @@ regimes where the observed path is still weak.
 - [x] Add ECMWF + ML-NWP members to forecast collection + ensemble metrics
       (scoped to Open-Meteo IFS/AIFS/AIGFS/GraphCast).
 - [x] Extend disagreement / per-model-delta / run-to-run features.
+- [x] Machine-readable global-model guidance gate artifact.
 - [ ] Historical archive/retrain and settlement-scored predawn/morning gate.
 - [ ] Optional additional ML members when a stable no-key provider path exists.
+
+## 2026-06-22 Gate Rerun
+
+The refreshed weak-input disposition keeps the relevant
+`official_multimodel_guidance` family in `regime_backfill`: `33`
+low-coverage/sparse features, `19` near-constant or unanalyzable features, no
+positive broad family permutation gate, and incomplete source lineage/parity.
+The next unblock is a replay-safe archive/backfill for the global-model members,
+then a predawn/morning settlement gate.
+
+## 2026-06-22 Global-Model Gate Artifact
+
+Added `weather.reporting.global_model_guidance_gate`, schema
+`global_model_guidance_gate_v0.1`, with generated evidence at:
+
+- `data/backtest/item189_global_model_guidance_gate.json`
+- `data/backtest/item189_global_model_guidance_gate_report.md`
+
+Current gate status: `BLOCK`.
+
+Current evidence:
+
+- `multi_model_guidance` source inventory sees `open_meteo_global_models` in
+  both source status and forecast payloads.
+- all eight ECMWF/AIFS/AIGFS/GraphCast diagnostic columns are cataloged.
+- the borrowed full forecast-profile replay has an early/predawn proxy slice
+  with `-0.0015` Brier delta versus current, but it is not scoped to global
+  model guidance.
+- the current HGB permutation artifact has five legacy global-ensemble rows,
+  but zero ECMWF/AIFS/AIGFS/GraphCast rows.
+
+Blockers:
+
+- the available replay is `feature_subset=forecast_profile`, not an isolated
+  global-model replay.
+- `92` snapshot folders lack global-model payload rows.
+- historical archive status is `live_only_until_model_run_archive_backfill`.
+- zero global-model columns are selected by the active artifact.
+- source-family train/serve parity is `LINEAGE_BLOCKED`.
+- no ECMWF/AIFS/AIGFS/GraphCast permutation rows exist in the current HGB
+  artifact.
+- the borrowed full forecast-profile replay still fails daily-first market
+  tolerance.
+
+Next unblock: backfill or replay-save Open-Meteo global-model runs, train a
+global-model-scoped candidate with the eight global-model columns selected,
+regenerate HGB permutation evidence, and add a predawn/morning settlement slice.
+
+## 2026-06-22 Gate Refresh
+
+I regenerated `data/backtest/item189_global_model_guidance_gate.json` and
+`data/backtest/item189_global_model_guidance_gate_report.md`. The live gate
+remains `BLOCK`.
+
+Current blockers:
+
+- `isolated_global_model_replay_missing`: the candidate replay is still scoped
+  to `forecast_profile`, not Open-Meteo global-model guidance.
+- `global_model_payload_lineage_partial`: `92` snapshot folders lack
+  global-model payload rows.
+- `historical_global_model_backfill_missing`: historical archive status is
+  `live_only_until_model_run_archive_backfill`.
+- `global_model_features_not_selected_by_active_artifact`: zero global-model
+  columns are selected by the active artifact.
+- `train_serve_parity_not_pass`: source-family parity is `LINEAGE_BLOCKED`.
+- `global_model_permutation_evidence_missing`: no ECMWF/AIFS/AIGFS/GraphCast
+  rows are present in the HGB permutation artifact.
+- `blocked_validation_failed`: daily-first candidate validation is not within
+  market tolerance.
+
+The full-profile early slice still has a supportive `-0.0015` delta versus
+current, but it is not scoped evidence for this subfamily and cannot promote the
+global-model features.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_global_model_guidance_gate.py tests\model\test_forecast_feature.py tests\model\test_feature_store.py tests\operations\test_schema_registry.py -q` -> 48 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
 Acceptance: the forecast ensemble includes a clustered ECMWF/ML-NWP live source,
 the derived disagreement/delta features reflect its members, and settlement-

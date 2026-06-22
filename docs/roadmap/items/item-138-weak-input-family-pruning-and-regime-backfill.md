@@ -1,4 +1,4 @@
-# 138. Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-18 - DISPOSITION REPORT LIVE, ACTIVE ARTIFACT PRUNING BLOCKED]
+# 138. Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]
 
 Goal: reduce overfit risk by pruning or quarantining broad input families that
 do not currently show durable value, while defining targeted backfills for
@@ -98,3 +98,68 @@ Remaining acceptance blocker: the existing served artifact has not been
 retrained/pruned under the new policy, so item 138 is not complete until a
 candidate artifact proves that weak families are excluded or explicitly gated
 by positive regime-specific settlement evidence.
+
+## 2026-06-22 active-artifact pruning gate
+
+Regenerated the weak-family disposition report:
+
+```powershell
+python -m weather.reporting.weak_input_family_disposition --out data\backtest\item138_weak_input_family_disposition.json --report data\backtest\item138_weak_input_family_disposition_report.md
+```
+
+Added `weather.reporting.item138_weak_input_family_gate`, schema
+`item138_weak_input_family_gate_v0.1`, and generated:
+
+```powershell
+python -m weather.reporting.item138_weak_input_family_gate --out data\backtest\item138_weak_input_family_gate.json --report data\backtest\item138_weak_input_family_gate_report.md
+```
+
+Result: **BLOCK**, disposition **KEEP_POLICY_SHADOW_PRUNE_ON_RETRAIN**.
+
+Passing evidence:
+
+- All nine input families have explicit dispositions.
+- Every `regime_backfill` family has a targeted plan.
+- The diagnostic-only family surface is present for model explanations.
+
+Blockers:
+
+- Active artifact preflight still warns on `marine_microclimate`,
+  `open_meteo_forecast_profile`, and `surface_weather`.
+- Upstream Item 136 source-state reliability remains shadow-only because
+  degraded/high-disagreement raw-forecast thresholds and Chicago/NYC market
+  thresholds still block.
+
+Next action: keep weak families diagnostic or regime-backfill only. Do not
+treat the active artifact as pruned until training preflight is `PASS` and
+upstream source-state reliability gates clear.
+
+## 2026-06-22 active-artifact pruning gate refresh
+
+Regenerated the weak input-family disposition and active-artifact pruning gate
+after refreshing upstream Item 136:
+
+- `data/backtest/item138_weak_input_family_disposition.json`
+- `data/backtest/item138_weak_input_family_disposition_report.md`
+- `data/backtest/item138_weak_input_family_gate.json`
+- `data/backtest/item138_weak_input_family_gate_report.md`
+
+The refreshed gate remains `BLOCK` with disposition
+`KEEP_POLICY_SHADOW_PRUNE_ON_RETRAIN`. Passing evidence remains:
+
+- all `9` input families have explicit dispositions.
+- every `regime_backfill` family has a targeted backfill plan.
+- diagnostic-only family surface is present for model explanations.
+
+Current blockers:
+
+- `active_artifact_pruning_preflight`: active artifact still warns on weak
+  families `marine_microclimate`, `open_meteo_forecast_profile`, and
+  `surface_weather`. The weak-family disposition itself is still `WARN`.
+- `upstream_source_state_disposition`: Item 136 remains shadow-only because
+  degraded/high-disagreement raw-forecast thresholds and Chicago/NYC market
+  thresholds still block.
+
+Keep weak families diagnostic or regime-backfill only. Do not treat the active
+artifact as pruned until training preflight is `PASS` and upstream source-state
+reliability gates clear.

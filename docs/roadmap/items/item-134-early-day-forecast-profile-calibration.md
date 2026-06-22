@@ -1,4 +1,4 @@
-# 134. Early-Day Forecast Profile Calibration [PARTIAL 2026-06-19 - ALL-HOUR REPLAY COMPLETE, PROMOTION BLOCKED]
+# 134. Early-Day Forecast Profile Calibration [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]
 
 Goal: turn the strongest measured early-day signal, the forecast-profile
 family, into a deliberately calibrated model lane rather than letting it be one
@@ -141,3 +141,77 @@ still blocks Austin, Denver, NYC, San Francisco, and Seattle. The all-hour
 run is therefore useful negative evidence: broader forecast-profile coverage
 improves current replay, but it does not clear market tolerance or
 high-disagreement safety, so it should not be promoted as an Item 48 unblock.
+
+## 2026-06-22 forecast-profile disposition
+
+Added `weather.reporting.item134_forecast_profile_disposition`, schema
+`item134_forecast_profile_disposition_v0.1`, and generated:
+
+```powershell
+python -m weather.reporting.item134_forecast_profile_disposition --out data\backtest\item134_forecast_profile_disposition.json --report data\backtest\item134_forecast_profile_disposition_report.md
+```
+
+Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. The report keeps the
+useful Item 134 evidence explicit while preventing it from being reused as a
+promotion shortcut.
+
+Passing evidence:
+
+- Forecast-profile subset contract is present.
+- All-hour replay covered 67,430 rows with zero missing candidate rows.
+- Aggregate and cutoff-regime slices improve current replay within tolerance.
+- Lane separation is clean: the forecast-profile shadow variant does not use
+  market features.
+
+Promotion blockers:
+
+- Daily-first blocked validation remains outside market tolerance
+  (`+0.0043` Brier versus market).
+- High-disagreement guardrail still blocks Austin, Denver, NYC,
+  San Francisco, and Seattle.
+- Per-market promotion still has Austin, Chicago, NYC, San Francisco, and
+  Seattle blocked, with Dallas, Los Angeles, and Miami shadow-only.
+- The served-distribution calibration contract is still blocked
+  (`row_export_surrogate`, `DO_NOT_CUT_OVER`).
+- The positive daily-first gate is still blocked by the active early-hour
+  candidate market gap (`+0.0048`).
+
+Next action: keep Item 134 as a shadow forecast-profile diagnostic. Do not
+promote or rerun the broad forecast-profile lane until daily-first market
+tolerance, high-disagreement markets, and the served-distribution/positive
+daily-first gates are clear.
+
+## 2026-06-22 forecast-profile disposition refresh
+
+Regenerated the Item 134 forecast-profile disposition after refreshing the
+served-distribution and positive daily-first gates:
+
+- `data/backtest/item134_forecast_profile_disposition.json`
+- `data/backtest/item134_forecast_profile_disposition_report.md`
+
+The refreshed disposition remains `KEEP_SHADOW_DIAGNOSTIC`; promotion remains
+disallowed with `5` blockers. Passing evidence remains useful:
+
+- forecast-profile subset contract is present.
+- all-hour replay covered `67,430` rows with `0` missing candidate rows.
+- aggregate and cutoff-regime slices improve current replay within tolerance.
+- lane separation is clean: the forecast-profile lane remains no-market
+  weather-model evidence.
+
+Current blockers:
+
+- `daily_first_market_tolerance`: daily-first blocked validation is not within
+  market tolerance; daily-first candidate trails market by `+0.0043`.
+- `high_disagreement_guardrail`: Austin, Denver, NYC, San Francisco, and
+  Seattle remain blocked in high-disagreement slices.
+- `per_market_promotion_gate`: Austin, Chicago, NYC, San Francisco, and Seattle
+  remain blocked, while Dallas, Los Angeles, and Miami are shadow-only.
+- `served_distribution_contract`: served-distribution evidence remains
+  `row_export_surrogate`, replay verdict is `BLOCK`, and cutover is
+  `DO_NOT_CUT_OVER`.
+- `positive_daily_first_gate`: the active repaired path still blocks on early-
+  hour Brier gap `+0.0048 > +0.0030`.
+
+This keeps Item 134 as a shadow forecast-profile diagnostic. Do not promote or
+rerun the broad lane until daily-first market tolerance, high-disagreement
+guardrails, and the served-distribution/positive daily-first gates clear.

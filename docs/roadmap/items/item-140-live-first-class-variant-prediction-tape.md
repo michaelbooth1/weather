@@ -1,4 +1,4 @@
-# 140. Live First-Class Variant Prediction Tape [PARTIAL 2026-06-18 - LIVE VARIANT TAPE CONTRACT LIVE, RUNTIME EXECUTION BLOCKED]
+# 140. Live First-Class Variant Prediction Tape [COMPLETE 2026-06-22 - LIVE VARIANT RUNTIME RUNNERS WIRED]
 
 Goal: record first-class live predictions for active model variants at snapshot
 time, not only after settlement through replay.
@@ -61,10 +61,20 @@ Implementation update 2026-06-18:
   variant rows for active registry variants, and fleet observability exposes a
   dedicated `variant_prediction_freshness` recovery gate.
 
-Current blocker after item 142: the active registry now defines artifact,
-export, and `live_runtime` contracts for every active headline variant, but the
-snapshot loop still needs an explicit runtime runner that can execute those
-contracts at capture time. Until `pooled_candidate_replay`,
-`conservative_bridge_policy`, and CLOB-overlay `live_runtime` values are mapped
-to bounded snapshot-time prediction functions, live rows are expected to be
-explicit skip/failure rows rather than probability rows.
+Completion update 2026-06-22:
+
+- Added bounded live runtime dispatch for `pooled_candidate_replay`,
+  `conservative_bridge_policy`, and CLOB-overlay `microstructure_shadow_report`
+  registry contracts.
+- Pooled candidate artifacts now score the live snapshot feature vector against
+  the captured market bands, including artifact hashing, postprocess metadata,
+  partition normalization, and current-serving blend metadata where configured.
+- Conservative bridge variants emit explicit serving-probability passthrough
+  rows until their base candidate payload is available, preserving live tape
+  coverage without changing the serving model.
+- CLOB overlay variants now distinguish taxonomy-gated rows from raw
+  microstructure overlays instead of falling through to generic unsupported
+  runtime skips.
+- Covered the runner contract with live-variant tests for bridge passthrough,
+  pooled artifact scoring, missing feature vectors, taxonomy-gated CLOB rows,
+  persistence, and collection-health freshness.

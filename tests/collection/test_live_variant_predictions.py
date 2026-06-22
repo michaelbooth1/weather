@@ -1,5 +1,6 @@
 import csv
 import json
+import pickle
 import tempfile
 import unittest
 from datetime import date, datetime, timezone
@@ -55,12 +56,33 @@ class RaisingVariantClient(FakeModelClient):
         raise RuntimeError(f"boom {variant['variant_id']}")
 
 
+class IdentityImputer:
+    def transform(self, frame):
+        return frame
+
+
+class ConstantClassifier:
+    classes_ = [0, 1]
+
+    def __init__(self, probability):
+        self.probability = float(probability)
+
+    def predict_proba(self, rows):
+        return [[1.0 - self.probability, self.probability] for _ in range(len(rows))]
+
+
 def _registry(path, variants):
     payload = {
         "schema_version": REGISTRY_SCHEMA_VERSION,
         "variants": variants,
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _write_pickle(path, payload):
+    with path.open("wb") as handle:
+        pickle.dump(payload, handle)
     return path
 
 
@@ -84,7 +106,7 @@ def _band_rows():
     ]
 
 
-def _build_rows(registry_path, *, model=None, model_client=None):
+def _build_rows(registry_path, *, model=None, model_client=None, cadence_quality=None, band_rows=None):
     captured_at = datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
     return build_live_variant_prediction_rows(
         snapshot_id="snap",
@@ -92,13 +114,14 @@ def _build_rows(registry_path, *, model=None, model_client=None):
         event={"slug": "highest-temperature-in-toronto-on-june-18-2026", "updatedAt": "u1"},
         model=model or {"distribution": {20: 1.0}},
         model_client=model_client or FakeModelClient(),
-        band_rows=_band_rows(),
+        band_rows=band_rows or _band_rows(),
         event_slug="highest-temperature-in-toronto-on-june-18-2026",
         market_id="toronto",
         target_date=date(2026, 6, 18),
         serving_model_version="serving-v",
         runtime_fields={"runtime_code_state": "current"},
         snapshot_cadence="triggered",
+        cadence_quality=cadence_quality,
         trigger_summary={"trigger_reason": "wu_current_temp_bucket_crossed"},
         registry_path=registry_path,
     )
@@ -177,6 +200,158 @@ class TestLiveVariantPredictions(unittest.TestCase):
         self.assertEqual(rows[0]["artifact_hash"], "artifact-hash")
         self.assertEqual(rows[0]["postprocess_config_hash"], "post-hash")
         self.assertEqual(rows[0]["band_key"], "lte_20c")
+
+    def test_conservative_bridge_runtime_writes_serving_passthrough_probability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = _registry(Path(tmp) / "registry.json", [
+                {
+                    "variant_id": "bridge-v",
+                    "variant_family": "family",
+                    "lifecycle": "active",
+                    "track": "market_informed",
+                    "active_for_headline": True,
+                    "artifact_required": False,
+                    "live_runtime": "conservative_bridge_policy",
+                },
+            ])
+
+            rows = _build_rows(registry_path)
+
+        self.assertEqual(rows[0]["prediction_status"], "predicted")
+        self.assertEqual(rows[0]["live_runtime"], "conservative_bridge_policy")
+        self.assertIsNone(rows[0]["failure_reason"])
+        self.assertAlmostEqual(rows[0]["variant_probability"], 0.44)
+        self.assertAlmostEqual(rows[0]["serving_model_probability"], 0.44)
+
+    def test_pooled_candidate_runtime_scores_live_feature_vector_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = _write_pickle(Path(tmp) / "pooled.pkl", {
+                "prediction_mode": "band_binary",
+                "models": {
+                    "12": {
+                        "model": ConstantClassifier(0.73),
+                        "imputer": IdentityImputer(),
+                        "feature_names": ["cutoff_hour", "band_value", "band_value_hi"],
+                        "classes": [0, 1],
+                    }
+                },
+                "postprocess": {
+                    "partition_normalization_enabled": False,
+                    "current_blend_enabled": False,
+                },
+            })
+            registry_path = _registry(Path(tmp) / "registry.json", [
+                {
+                    "variant_id": "pooled-v",
+                    "variant_family": "family",
+                    "lifecycle": "active",
+                    "track": "no_market",
+                    "active_for_headline": True,
+                    "artifact_path": str(artifact),
+                    "live_runtime": "pooled_candidate_replay",
+                },
+            ])
+            model = {
+                "distribution": {20: 1.0},
+                "feature_vector": {
+                    "cutoff_hour": 12,
+                    "high_so_far": 19.0,
+                    "forecast_high": 21.0,
+                    "market_id": "toronto",
+                },
+            }
+
+            rows = _build_rows(registry_path, model=model)
+
+        self.assertEqual(rows[0]["prediction_status"], "predicted")
+        self.assertIsNone(rows[0]["failure_reason"])
+        self.assertEqual(rows[0]["live_runtime"], "pooled_candidate_replay")
+        self.assertAlmostEqual(rows[0]["variant_probability"], 0.73)
+
+    def test_pooled_candidate_runtime_reports_missing_live_feature_vector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = _write_pickle(Path(tmp) / "pooled.pkl", {
+                "prediction_mode": "band_binary",
+                "models": {"12": {}},
+            })
+            registry_path = _registry(Path(tmp) / "registry.json", [
+                {
+                    "variant_id": "pooled-v",
+                    "variant_family": "family",
+                    "lifecycle": "active",
+                    "track": "no_market",
+                    "active_for_headline": True,
+                    "artifact_path": str(artifact),
+                    "live_runtime": "pooled_candidate_replay",
+                },
+            ])
+
+            rows = _build_rows(registry_path)
+
+        self.assertEqual(rows[0]["prediction_status"], "failed")
+        self.assertEqual(rows[0]["failure_reason"], "missing_feature_vector")
+        self.assertEqual(rows[0]["live_runtime"], "pooled_candidate_replay")
+
+    def test_microstructure_runtime_taxonomy_gate_skips_with_explicit_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = _registry(Path(tmp) / "registry.json", [
+                {
+                    "variant_id": "clob-taxonomy",
+                    "variant_family": "family",
+                    "lifecycle": "active",
+                    "track": "market_informed",
+                    "active_for_headline": True,
+                    "artifact_required": False,
+                    "postprocess_config_hash": "taxonomy_gate",
+                    "live_runtime": "microstructure_shadow_report",
+                },
+            ])
+
+            rows = _build_rows(registry_path)
+
+        self.assertEqual(rows[0]["prediction_status"], "skipped")
+        self.assertEqual(rows[0]["failure_reason"], "taxonomy_gate_unavailable_live")
+        self.assertEqual(rows[0]["live_runtime"], "microstructure_shadow_report")
+
+    def test_cadence_quality_haircuts_served_variant_probability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = _registry(Path(tmp) / "registry.json", [
+                {
+                    "variant_id": "live-v",
+                    "variant_family": "family",
+                    "lifecycle": "active",
+                    "track": "no_market",
+                    "active_for_headline": True,
+                    "artifact_hash": "artifact-hash",
+                    "postprocess_config_hash": "post-hash",
+                },
+            ])
+            model = {
+                "live_variant_predictions": {
+                    "live-v": {
+                        "distribution": {19: 0.20, 20: 0.30, 21: 0.50},
+                        "model_version": "variant-v",
+                        "live_runtime": "model_payload",
+                    }
+                }
+            }
+
+            rows = _build_rows(
+                registry_path,
+                model=model,
+                cadence_quality={
+                    "snapshot_cadence_quality_state": "gappy",
+                    "snapshot_cadence_gap_count": 2,
+                    "snapshot_cadence_max_gap_seconds": 1328.4,
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["snapshot_cadence_quality_state"], "gappy")
+        self.assertEqual(row["snapshot_cadence_permission"], "deny")
+        self.assertLess(float(row["snapshot_cadence_confidence_multiplier"]), 1.0)
+        self.assertLess(row["cadence_adjusted_variant_probability"], row["variant_probability"])
+        self.assertGreater(row["cadence_adjusted_variant_probability"], float(row["market_yes"]))
 
     def test_runtime_exception_emits_failure_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,4 @@
-# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-20 - TAXONOMY AND SOAK REPORT LIVE, ACTIVE-DAY PROOF BLOCKED]
+# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-22 - CURRENT SOURCE RUNNING, JUNE 23 AGING PENDING]
 
 Goal: reduce supervisor restart noise and prove that current-code loops can
 hold cadence across a full active day.
@@ -134,3 +134,59 @@ Acceptance: fleet observability can prove a full active day where all managed
 loops stayed current-code, single-writer, under restart budget, and within
 cadence thresholds; otherwise it reports the exact loop, restart class, and
 owner blocking countability.
+
+## 2026-06-22 Maintenance Repair
+
+The two remaining malformed loop-console lines were both expected cache-lock
+warnings emitted as plain text into JSONL-style console logs. I added a shared
+JSON-line logging formatter for managed loop modes, wired it into the snapshot,
+CLOB, and observation-trigger loop entrypoints, stopped the managed loops,
+repaired the affected console logs while no writer was alive, and restarted the
+loops on current source.
+
+Evidence:
+
+- `python -m pytest tests/operations/test_supervisor.py tests/operations/test_loop_jsonl_repair.py tests/model/test_source_cache_ttl.py -q`
+  passed (`33 passed`).
+- `python -m pytest tests/collection/test_loop_supervisor.py tests/operations/test_observation_trigger.py tests/market/test_market_microstructure.py -q`
+  passed (`67 passed`).
+- `python -m weather.operations.loop_jsonl_repair repair data/snapshots/loop_console.log data/snapshots/observation_trigger_console.log`
+  produced `PASS`.
+- The refreshed `data/backtest/fleet_observability.json` has
+  `loop_integrity_status=OK`, malformed lines `0`, duplicate writers `0`, and
+  all three loops `RUNNING`, current-code, and single-writer on
+  `master@1e175b4428b7 src:f0eef80ee37a7f33`.
+- `current_code_soak.summary.immediate_repair_loop_count=0`; the first blocker
+  is now only `snapshot_capture restart_budget_exceeded=293>6`.
+
+The item remains partial because all three restart budgets still exceed the
+countable active-day thresholds: snapshot `293>6`, CLOB `293>12`, and
+observation-trigger `315>12`. If no further restarts occur, the latest aging
+blocker clears at `2026-06-23T03:48:21.125579+00:00`, after which the proof
+still needs a clean active day with the cadence SLO passing.
+
+## 2026-06-22 Midnight Fleet Refresh
+
+Regenerated `data/backtest/fleet_observability.json` at
+`2026-06-22T04:20:04Z` after the source-family inventory fix and the managed
+loop restart at the new current source fingerprint `ce533797aeb70c1d`.
+
+The structural loop hygiene remains good:
+
+- `loop_integrity_status=OK`
+- malformed JSONL lines: `0`
+- duplicate writers: `0`
+- all three managed loops are `RUNNING`, single-writer, `consecutive_errors=0`
+- current loop identity: `master@1e175b4428b7 src:ce533797aeb70c1d`
+
+The item still cannot close because the current-code soak remains `BLOCK`.
+There are no immediate repair loops, but all three restart budgets are still
+inside the 24-hour aging window:
+
+- snapshot capture: `296>6`, clearing at `2026-06-23T03:50:15.286515+00:00`
+- CLOB capture: `295>12`, clearing at `2026-06-23T03:30:12.682470+00:00`
+- observation trigger: `319>12`, clearing at `2026-06-23T03:29:59.356290+00:00`
+
+Next unblock: leave the loops running on `ce533797aeb70c1d` through the aging
+window, then rerun fleet observability after `2026-06-23T03:50:15Z`. Completion
+still requires the restart budgets and the snapshot cadence SLO to pass.

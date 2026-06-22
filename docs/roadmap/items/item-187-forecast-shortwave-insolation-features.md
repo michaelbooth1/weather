@@ -1,4 +1,4 @@
-# 187. Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-21 - RADIATION FEATURE PATH LIVE, GATE PENDING]
+# 187. Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-22 - GATE REFRESHED, ISOLATED REPLAY BLOCKED]
 
 Goal: feed the model the forecast surface energy input that drives daytime
 heating: downward shortwave radiation, direct/diffuse radiation mix, and
@@ -47,9 +47,75 @@ field. If a stable provider field is added, this item can add an explicit
 
 - [x] Add forecast shortwave / peak-window cloud / direct-radiation share features.
 - [x] Wire Open-Meteo radiation fields through the existing fetch path.
-- [ ] Settlement-scored gate, with attention to morning/midday cutoffs.
+- [x] Machine-readable settlement-scored radiation/insolation gate artifact.
+- [ ] Passing settlement-scored gate, with attention to morning/midday cutoffs.
 - [ ] Optional: add true clear-sky-index features if the forecast source
       persistently exposes clear-sky shortwave radiation.
+
+## 2026-06-22 Gate Rerun
+
+The refreshed weak-input disposition keeps `open_meteo_forecast_profile` in
+`served` disposition and positive at broad family level, but it still has `46`
+features with `44` low-coverage/sparse rows. This does not close the item
+because the radiation/insolation subset has not been isolated from the broader
+forecast-profile family or settlement-scored for morning/midday lift with no
+late-day regression.
+
+## 2026-06-22 Radiation Gate Artifact
+
+Added `weather.reporting.forecast_radiation_gate`, schema
+`forecast_radiation_gate_v0.1`, with generated evidence at:
+
+- `data/backtest/item187_forecast_radiation_gate.json`
+- `data/backtest/item187_forecast_radiation_gate_report.md`
+
+Current gate status: `BLOCK`.
+
+Current supportive signal from the full forecast-profile replay:
+
+- early cutoff Brier improves current by `-0.0015`, but trails market by
+  `+0.0031`.
+- midday cutoff Brier improves current by `-0.0026`, but trails market by
+  `+0.0088`.
+- late cutoff Brier is safe versus current at `-0.0002`.
+
+That signal is not sufficient to close item 187 because the replay artifact is
+`feature_subset=forecast_profile`, not an isolated
+`forecast_cloud_solar_radiation` replay. The gate also blocks because direct
+and diffuse radiation/direct-share permutation rows are absent from the current
+HGB permutation artifact, the full-profile daily-first validation is not within
+market tolerance, and high-disagreement guardrails block Austin, Denver, NYC,
+San Francisco, and Seattle.
+
+Next unblock: add a `forecast_cloud_solar_radiation` feature-subset train/replay
+lane, replay it against settlement outcomes, then regenerate HGB permutation
+evidence with the current feature schema so direct/diffuse radiation and
+direct-share rows are present.
+
+## 2026-06-22 Gate Refresh
+
+I regenerated `data/backtest/item187_forecast_radiation_gate.json` and
+`data/backtest/item187_forecast_radiation_gate_report.md`. The live gate
+remains `BLOCK`.
+
+Current blockers:
+
+- `isolated_radiation_replay_missing`: the candidate replay is still scoped to
+  `forecast_profile`, not `forecast_cloud_solar_radiation`.
+- `direct_diffuse_permutation_evidence_missing`: direct/diffuse radiation and
+  direct-share rows are absent from the current HGB permutation artifact.
+- `blocked_validation_failed`: daily-first candidate validation is not within
+  market tolerance.
+- `market_guardrails_blocked`: Austin, Denver, NYC, San Francisco, and Seattle
+  remain blocked.
+
+The available full-profile signal is still only supportive context: early,
+midday, and late cutoff slices improve current, but this is not isolated
+radiation evidence and does not permit promotion.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_forecast_radiation_gate.py tests\model\test_feature_store.py tests\sources\test_historical_sources.py tests\operations\test_schema_registry.py -q` -> 58 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
 Acceptance: forecast insolation features are available and settlement-scored,
 with measured pre-peak skill improvement and no late-day regression.

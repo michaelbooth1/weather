@@ -292,7 +292,7 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         self.assertGreater(distribution[18], 0.005)
         self.assertGreater(distribution[19] + distribution[20], 0.60)
 
-    def test_feature_model_uses_current_max_since_7am_as_soft_signal_only(self):
+    def test_feature_model_does_not_use_support_only_current_max_as_serving_signal(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
         model.calibrated_weights = None
         model.predict_feature_distribution = lambda sources, cutoff_hour, now: (
@@ -333,12 +333,17 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
         now = datetime(2026, 6, 1, 16, 0, tzinfo=toronto_model.TORONTO_TZ)
         without_soft_max = model.estimate_distribution(sources_with_current_max(18.0), now=now)
         with_soft_max = model.estimate_distribution(sources_with_current_max(19.0), now=now)
+        context = model._last_probability_calibration_context
 
-        # Below the hedged observation floors: suppressed, never near-hard.
+        # The 19-vs-17 WU-history gap is support-only under the current-max
+        # trust policy. It is available to retrained features, but serving
+        # floors/live signals consume only trusted current max.
+        self.assertEqual(context["current_max_disposition"], "support_only")
+        self.assertEqual(context["current_max_state"], "current_max_above_history_minor_gap")
         self.assertLess(with_soft_max[17], 0.05)
         self.assertGreater(with_soft_max[18], 0.05)
-        self.assertGreater(with_soft_max[19], without_soft_max[19])
-        self.assertLess(with_soft_max[18], without_soft_max[18])
+        self.assertAlmostEqual(with_soft_max[18], without_soft_max[18])
+        self.assertAlmostEqual(with_soft_max[19], without_soft_max[19])
 
     def test_current_temperature_is_hedged_floor_not_near_hard(self):
         # v0.5.4 doctrine: a lone live current reading above the printed WU

@@ -55,11 +55,24 @@ class TestMultiVariantShadow(unittest.TestCase):
         self.assertEqual(payload["status"], "OK")
         self.assertEqual(payload["tracks"]["no_market"]["variant_ids"], ["exact_catchup"])
         self.assertEqual(payload["tracks"]["market_informed"]["variant_ids"], ["clob_overlay"])
+        self.assertEqual(payload["claim_lanes"]["weather_only_core_model"]["rows"], 2)
+        self.assertEqual(payload["claim_lanes"]["market_informed_quote_risk"]["rows"], 2)
+        self.assertEqual(
+            payload["claim_lanes"]["weather_only_core_model"]["counts_toward_weather_model_promotion_rows"],
+            2,
+        )
+        self.assertEqual(
+            payload["claim_lanes"]["market_informed_quote_risk"]["counts_toward_weather_model_promotion_rows"],
+            0,
+        )
         self.assertLess(variants["exact_catchup"]["daily_first"]["delta_vs_current"], 0)
         self.assertEqual(variants["exact_catchup"]["daily_first"]["n_days"], 2)
         self.assertEqual(payload["summary"]["unique_observation_count"], 2)
         self.assertEqual(payload["summary"]["scored_rows"], 4)
-        self.assertIn("Daily-first scores are the primary comparison", render_report(payload))
+        report = render_report(payload)
+        self.assertIn("Daily-first scores are the primary comparison", report)
+        self.assertIn("Claim Lane Separation", report)
+        self.assertIn("market_informed_quote_risk", report)
 
     def test_governance_limits_non_control_variants_by_family(self):
         rows = [
@@ -342,6 +355,11 @@ class TestMultiVariantShadow(unittest.TestCase):
             feature_missingness_hash="missingness-hash",
             clob_feature_available=1.0,
             clob_midpoint=0.72,
+            uses_market_features=True,
+            claim_lane="market_informed_quote_risk",
+            counts_toward_weather_model_promotion=False,
+            quote_risk_eligible=True,
+            quote_risk_gate_reason="allowed taxonomy: market_lead",
         )
 
         payload = build_payload([raw], use_variant_registry=False)
@@ -351,7 +369,12 @@ class TestMultiVariantShadow(unittest.TestCase):
 
         self.assertEqual(row["attribution_schema_version"], ATTRIBUTION_SCHEMA_VERSION)
         self.assertEqual(row["source_freshness_state"], "stale:open_meteo")
+        self.assertEqual(row["claim_lane"], "market_informed_quote_risk")
+        self.assertFalse(row["counts_toward_weather_model_promotion"])
+        self.assertTrue(row["quote_risk_eligible"])
+        self.assertEqual(row["quote_risk_gate_reason"], "allowed taxonomy: market_lead")
         self.assertEqual(payload["attribution"]["attributed_row_count"], 1)
+        self.assertEqual(payload["claim_lanes"]["market_informed_quote_risk"]["quote_risk_eligible_rows"], 1)
         self.assertEqual(payload["variants"][0]["by_source_freshness"][0]["group"], "stale:open_meteo")
         self.assertEqual(payload["variants"][0]["by_settlement_distance"][0]["group"], "0")
         self.assertEqual(payload["variants"][0]["by_casebook_taxonomy"][0]["group"], "market_lead")
@@ -366,6 +389,8 @@ class TestMultiVariantShadow(unittest.TestCase):
 
         self.assertEqual(round_trip["rows"][0]["source_freshness_state"], "stale:open_meteo")
         self.assertEqual(round_trip["rows"][0]["casebook_taxonomy"], "market_lead")
+        self.assertEqual(round_trip["rows"][0]["claim_lane"], "market_informed_quote_risk")
+        self.assertTrue(round_trip["rows"][0]["quote_risk_eligible"])
 
     def test_reads_json_object_with_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

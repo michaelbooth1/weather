@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 from collections import defaultdict
@@ -17,9 +18,13 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from weather.paths import data_path
+from weather.reporting import candidate_hourly_performance
+from weather.reporting import candidate_variant_replay_summary
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.ten_minute_model_performance import (
     DEFAULT_ITEM147_ROWS,
+    build_candidate_item147,
+    candidate_ten_minute_gate,
     read_candidate_checkpoint_rows,
     slot_label,
     summarize_candidate_rows,
@@ -32,12 +37,21 @@ DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_TEN_MINUTE_REPORT = DEFAULT_BACKTEST_ROOT / "ten_minute_model_performance.json"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_report.md"
+DEFAULT_CANDIDATE_ROWS_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_candidate_rows.csv"
+DEFAULT_CANDIDATE_REPLAY_SUMMARY_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_replay_summary.json"
+DEFAULT_CANDIDATE_REPLAY_SUMMARY_REPORT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_replay_summary_report.md"
+DEFAULT_CANDIDATE_HOURLY_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_hourly_candidate_performance.json"
+DEFAULT_CANDIDATE_HOURLY_REPORT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_hourly_candidate_performance_report.md"
+DEFAULT_CANDIDATE_TEN_MINUTE_OUT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_ten_minute_performance.json"
+DEFAULT_CANDIDATE_TEN_MINUTE_REPORT = DEFAULT_BACKTEST_ROOT / "predawn_weak_slot_repair_ten_minute_performance_report.md"
+DEFAULT_SOURCE_CANDIDATE_JSON = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
 DEFAULT_MIN_BRIER_IMPROVEMENT = 0.003
 DEFAULT_MARKET_TOL = 0.003
 CALIBRATOR_C = 100.0
 CALIBRATOR_BLEND = 0.60
 CALIBRATOR_EXTRAPOLATION = 1.50
 CALIBRATOR_POWER = 0.75
+DEFAULT_OUTPUT_VARIANT_ID = "predawn_logistic_winner_centering_candidate_blend"
 CALIBRATOR_NUMERIC_FEATURES = [
     "current_probability",
     "item147_probability",
@@ -185,7 +199,14 @@ def fit_predawn_calibrator(train_rows: list[dict[str, Any]]):
     return model
 
 
-def calibrator_raw_weights(rows: list[dict[str, Any]], model) -> list[float]:
+def calibrator_raw_weights(
+    rows: list[dict[str, Any]],
+    model,
+    *,
+    blend: float = CALIBRATOR_BLEND,
+    extrapolation: float = CALIBRATOR_EXTRAPOLATION,
+    partition_power: float = CALIBRATOR_POWER,
+) -> list[float]:
     if not rows:
         return []
     if model is None:
@@ -196,9 +217,9 @@ def calibrator_raw_weights(rows: list[dict[str, Any]], model) -> list[float]:
     for row, logistic_probability in zip(rows, logistic_probabilities):
         current = safe_float(row.get("current_probability")) or 0.0
         item147 = safe_float(row.get("variant_probability")) or 0.0
-        blended = ((1.0 - CALIBRATOR_BLEND) * item147) + (CALIBRATOR_BLEND * float(logistic_probability))
-        extrapolated = current + (CALIBRATOR_EXTRAPOLATION * (blended - current))
-        output.append(max(0.0, extrapolated) ** CALIBRATOR_POWER)
+        blended = ((1.0 - float(blend)) * item147) + (float(blend) * float(logistic_probability))
+        extrapolated = current + (float(extrapolation) * (blended - current))
+        output.append(max(0.0, extrapolated) ** float(partition_power))
     return output
 
 
@@ -226,13 +247,26 @@ def normalize_snapshot_weights(rows: list[dict[str, Any]], weights: list[float])
 def calibrated_weak_slot_rows(
     rows: list[dict[str, Any]],
     weak_slots: set[int],
+    *,
+    blend: float = CALIBRATOR_BLEND,
+    extrapolation: float = CALIBRATOR_EXTRAPOLATION,
+    partition_power: float = CALIBRATOR_POWER,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     scoped = scoped_policy_rows(rows, weak_slots)
     weak_rows = [row for row in scoped if row.get("time_slot_minute") in weak_slots]
     split = split_dates(weak_rows)
     train_rows = rows_for_dates(weak_rows, split["train_dates"])
     model = fit_predawn_calibrator(train_rows)
-    transformed_weak = normalize_snapshot_weights(weak_rows, calibrator_raw_weights(weak_rows, model))
+    transformed_weak = normalize_snapshot_weights(
+        weak_rows,
+        calibrator_raw_weights(
+            weak_rows,
+            model,
+            blend=blend,
+            extrapolation=extrapolation,
+            partition_power=partition_power,
+        ),
+    )
     by_key = {
         (
             row.get("market_id"),
@@ -263,9 +297,9 @@ def calibrated_weak_slot_rows(
         "numeric_features": list(CALIBRATOR_NUMERIC_FEATURES),
         "categorical_features": list(CALIBRATOR_CATEGORICAL_FEATURES),
         "logistic_c": CALIBRATOR_C,
-        "blend_with_item147": CALIBRATOR_BLEND,
-        "extrapolation_from_current": CALIBRATOR_EXTRAPOLATION,
-        "partition_power": CALIBRATOR_POWER,
+        "blend_with_candidate": float(blend),
+        "extrapolation_from_current": float(extrapolation),
+        "partition_power": float(partition_power),
     }
     return output, metadata
 
@@ -454,16 +488,31 @@ def regime_guardrails(rows: list[dict[str, Any]], weak_slots: set[int]) -> list[
     return output
 
 
-def build_payload(
+def build_repair_result(
     candidate_rows: str | Path = DEFAULT_ITEM147_ROWS,
     ten_minute_report: str | Path = DEFAULT_TEN_MINUTE_REPORT,
     *,
     min_brier_improvement: float = DEFAULT_MIN_BRIER_IMPROVEMENT,
     market_tol: float = DEFAULT_MARKET_TOL,
-) -> dict[str, Any]:
+    blend: float = CALIBRATOR_BLEND,
+    extrapolation: float = CALIBRATOR_EXTRAPOLATION,
+    partition_power: float = CALIBRATOR_POWER,
+    output_variant_id: str = DEFAULT_OUTPUT_VARIANT_ID,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     weak_slots = weak_slots_from_report(ten_minute_report)
     source_rows = read_candidate_checkpoint_rows(Path(candidate_rows))
-    rows, calibration_metadata = calibrated_weak_slot_rows(source_rows, weak_slots)
+    rows, calibration_metadata = calibrated_weak_slot_rows(
+        source_rows,
+        weak_slots,
+        blend=blend,
+        extrapolation=extrapolation,
+        partition_power=partition_power,
+    )
+    for row in rows:
+        row["variant_id"] = output_variant_id
+    corpus_hash = candidate_hourly_performance.candidate_rows_corpus_hash(
+        [candidate_row_for_csv(row) for row in rows]
+    )
     weak_rows = [row for row in rows if row.get("time_slot_minute") in weak_slots]
     split = split_dates(weak_rows)
     train_rows = rows_for_dates(weak_rows, split["train_dates"])
@@ -499,15 +548,15 @@ def build_payload(
             "gate": "non_predawn_guardrail_regression",
             "detail": f"{len(guardrail_blockers)} non-predawn guardrail row(s) blocked",
         })
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "candidate_policy": {
-            "variant_id": "predawn_logistic_winner_centering_item147_blend",
+            "variant_id": output_variant_id,
             "source_variant_ids": sorted({row.get("variant_id") for row in source_rows if row.get("variant_id")}),
             "uses_market_features": False,
             "scope": (
-                "fit weak-slot no-market logistic centering on the train split, blend with item147_time_split_alpha, "
+                "fit weak-slot no-market logistic centering on the train split, blend with the input candidate, "
                 "normalize each snapshot partition, and use current probabilities outside weak slots"
             ),
             "weak_slot_labels": [slot_label(slot) for slot in sorted(weak_slots)],
@@ -519,6 +568,16 @@ def build_payload(
             "ten_minute_report": str(ten_minute_report),
             "min_brier_improvement": float(min_brier_improvement),
             "market_tolerance": float(market_tol),
+        },
+        "candidate_gate_lineage": {
+            "variant_id": output_variant_id,
+            "corpus_hash": corpus_hash,
+            "validation_evidence": "row_export_surrogate",
+            "active_replay_export_contract": False,
+            "active_contract_note": (
+                "candidate rows are promotion-gate compatible; promotion refresh must keep broad "
+                "cutover blocked until an active replay/export contract supplies this same lineage"
+            ),
         },
         "status": "PASS" if not blockers else "BLOCK",
         "blocker_count": len(blockers),
@@ -534,6 +593,31 @@ def build_payload(
             "top_cases": top_cases(weak_rows),
         },
     }
+    return payload, rows
+
+
+def build_payload(
+    candidate_rows: str | Path = DEFAULT_ITEM147_ROWS,
+    ten_minute_report: str | Path = DEFAULT_TEN_MINUTE_REPORT,
+    *,
+    min_brier_improvement: float = DEFAULT_MIN_BRIER_IMPROVEMENT,
+    market_tol: float = DEFAULT_MARKET_TOL,
+    blend: float = CALIBRATOR_BLEND,
+    extrapolation: float = CALIBRATOR_EXTRAPOLATION,
+    partition_power: float = CALIBRATOR_POWER,
+    output_variant_id: str = DEFAULT_OUTPUT_VARIANT_ID,
+) -> dict[str, Any]:
+    payload, _rows = build_repair_result(
+        candidate_rows,
+        ten_minute_report,
+        min_brier_improvement=min_brier_improvement,
+        market_tol=market_tol,
+        blend=blend,
+        extrapolation=extrapolation,
+        partition_power=partition_power,
+        output_variant_id=output_variant_id,
+    )
+    return payload
 
 
 def _summary_rows(payload: dict[str, Any]) -> list[list[Any]]:
@@ -668,12 +752,294 @@ def write_outputs(payload: dict[str, Any], json_out=DEFAULT_OUT, report_out=DEFA
     return json_path, report_path
 
 
+CANDIDATE_ROW_FIELDS = [
+    "variant_id",
+    "market_id",
+    "target_date",
+    "snapshot_id",
+    "band_key",
+    "probability",
+    "current_probability",
+    "market_yes",
+    "outcome",
+    "captured_at_local",
+    "bin_type",
+    "bin_value",
+    "cutoff_hour",
+    "cutoff_regime",
+    "settlement_distance_bucket",
+    "forecast_bucket_pressure",
+    "forecast_disagreement_bucket",
+    "forecast_source_count_bucket",
+    "source_freshness_state",
+]
+
+
+def candidate_row_for_csv(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "variant_id": row.get("variant_id"),
+        "market_id": row.get("market_id"),
+        "target_date": row.get("target_date"),
+        "snapshot_id": row.get("snapshot_id"),
+        "band_key": row.get("band_key"),
+        "probability": row.get("variant_probability"),
+        "current_probability": row.get("current_probability"),
+        "market_yes": row.get("market_yes"),
+        "outcome": row.get("outcome"),
+        "captured_at_local": row.get("captured_at_local"),
+        "bin_type": row.get("bin_type"),
+        "bin_value": row.get("bin_value"),
+        "cutoff_hour": row.get("cutoff_hour"),
+        "cutoff_regime": row.get("cutoff_regime"),
+        "settlement_distance_bucket": row.get("settlement_distance_bucket"),
+        "forecast_bucket_pressure": row.get("forecast_bucket_pressure"),
+        "forecast_disagreement_bucket": row.get("forecast_disagreement_bucket"),
+        "forecast_source_count_bucket": row.get("forecast_source_count_bucket"),
+        "source_freshness_state": row.get("source_freshness_state"),
+    }
+
+
+def write_candidate_rows(rows: list[dict[str, Any]], path: str | Path) -> Path:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CANDIDATE_ROW_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(candidate_row_for_csv(row) for row in rows)
+    return output_path
+
+
+def render_candidate_ten_minute_report(payload: dict[str, Any]) -> str:
+    gate = payload.get("candidate_ten_minute_gate") or {}
+    candidate = payload.get("candidate_ten_minute_performance") or {}
+    overlap = candidate.get("weak_slot_overlap") or {}
+    return "\n".join([
+        "# Predawn Repair Candidate 10-Minute Gate",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Schema: `{payload.get('schema_version')}`",
+        "",
+        "## Scope",
+        "",
+        *markdown_table(
+            ["Field", "Value"],
+            [
+                ["Variant IDs", ", ".join(payload.get("variant_ids") or []) or "-"],
+                ["Candidate rows", (payload.get("inputs") or {}).get("candidate_rows")],
+                ["Corpus hash", (payload.get("corpus") or {}).get("corpus_hash") or "-"],
+                ["Weak slots", ", ".join((payload.get("weak_slots") or {}).get("slot_labels") or [])],
+            ],
+        ),
+        "",
+        "## Gate",
+        "",
+        *markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", gate.get("status")],
+                ["Blockers", gate.get("blocker_count", 0)],
+                ["First blocker", (gate.get("first_blocker") or {}).get("detail") or "-"],
+                ["Rows", overlap.get("row_count")],
+                ["Market-days", overlap.get("market_days")],
+                ["Delta vs current", fmt_signed(overlap.get("delta_vs_current"))],
+                ["Delta vs market", fmt_signed(overlap.get("delta_vs_market"))],
+                ["Log-loss delta vs current", fmt_signed(overlap.get("logloss_delta_vs_current"))],
+                ["Log-loss delta vs market", fmt_signed(overlap.get("logloss_delta_vs_market"))],
+            ],
+        ),
+        "",
+    ])
+
+
+def build_candidate_ten_minute_payload(
+    candidate_rows: str | Path,
+    weak_slots: set[int],
+    *,
+    candidate_min_weak_market_days: int = 10,
+    weak_brier_improvement_min: float = DEFAULT_MIN_BRIER_IMPROVEMENT,
+    weak_market_regression_tolerance: float = DEFAULT_MARKET_TOL,
+    weak_logloss_regression_tolerance: float = 0.010,
+) -> dict[str, Any]:
+    candidate = build_candidate_item147(Path(candidate_rows), weak_slots=weak_slots)
+    gate = candidate_ten_minute_gate(
+        candidate,
+        min_weak_market_days=candidate_min_weak_market_days,
+        weak_brier_improvement_min=weak_brier_improvement_min,
+        weak_market_regression_tolerance=weak_market_regression_tolerance,
+        weak_logloss_regression_tolerance=weak_logloss_regression_tolerance,
+    )
+    return {
+        "schema_version": "predawn_candidate_ten_minute_performance_v0.1",
+        "generated_at_utc": utc_iso(),
+        "inputs": {
+            "candidate_rows": str(candidate_rows),
+            "candidate_min_weak_market_days": int(candidate_min_weak_market_days),
+            "weak_brier_improvement_min": float(weak_brier_improvement_min),
+            "weak_market_regression_tolerance": float(weak_market_regression_tolerance),
+            "weak_logloss_regression_tolerance": float(weak_logloss_regression_tolerance),
+        },
+        "corpus": {
+            **(candidate.get("corpus") or {}),
+            "candidate_rows": str(candidate_rows),
+        },
+        "variant_ids": candidate.get("variant_ids") or [],
+        "weak_slots": {
+            "slot_minutes": sorted(weak_slots),
+            "slot_labels": [slot_label(slot) for slot in sorted(weak_slots)],
+        },
+        "candidate_ten_minute_performance": candidate,
+        "candidate_item147": candidate,
+        "candidate_ten_minute_gate": gate,
+    }
+
+
+def write_candidate_ten_minute_outputs(
+    payload: dict[str, Any],
+    json_out: str | Path = DEFAULT_CANDIDATE_TEN_MINUTE_OUT,
+    report_out: str | Path = DEFAULT_CANDIDATE_TEN_MINUTE_REPORT,
+) -> tuple[Path, Path]:
+    json_path = Path(json_out)
+    report_path = Path(report_out)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    report_path.write_text(render_candidate_ten_minute_report(payload), encoding="utf-8")
+    return json_path, report_path
+
+
+def write_candidate_gate_outputs(
+    *,
+    candidate_rows: str | Path,
+    weak_slots: set[int],
+    source_candidate_json: str | Path = DEFAULT_SOURCE_CANDIDATE_JSON,
+    validation_evidence: str = "row_export_surrogate",
+    replay_summary_json_out: str | Path = DEFAULT_CANDIDATE_REPLAY_SUMMARY_OUT,
+    replay_summary_report_out: str | Path = DEFAULT_CANDIDATE_REPLAY_SUMMARY_REPORT,
+    hourly_json_out: str | Path = DEFAULT_CANDIDATE_HOURLY_OUT,
+    hourly_report_out: str | Path = DEFAULT_CANDIDATE_HOURLY_REPORT,
+    ten_minute_json_out: str | Path = DEFAULT_CANDIDATE_TEN_MINUTE_OUT,
+    ten_minute_report_out: str | Path = DEFAULT_CANDIDATE_TEN_MINUTE_REPORT,
+    min_hourly_market_days: int = 10,
+    candidate_min_weak_market_days: int = 10,
+    weak_brier_improvement_min: float = DEFAULT_MIN_BRIER_IMPROVEMENT,
+    weak_market_regression_tolerance: float = DEFAULT_MARKET_TOL,
+    weak_logloss_regression_tolerance: float = 0.010,
+) -> dict[str, Any]:
+    replay_summary = candidate_variant_replay_summary.build_variant_replay_summary(
+        candidate_rows,
+        source_candidate_json,
+        validation_evidence=validation_evidence,
+    )
+    replay_json, replay_report = candidate_variant_replay_summary.write_outputs(
+        replay_summary,
+        replay_summary_json_out,
+        replay_summary_report_out,
+    )
+    hourly_payload = candidate_hourly_performance.build_candidate_hourly_performance(
+        candidate_rows,
+        min_market_days=min_hourly_market_days,
+    )
+    source_corpus_hash = (replay_summary.get("corpus") or {}).get("corpus_hash")
+    row_export_corpus_hash = (
+        (replay_summary.get("corpus") or {}).get("row_export_corpus_hash")
+        or (hourly_payload.get("corpus") or {}).get("corpus_hash")
+    )
+    hourly_payload.setdefault("corpus", {})["corpus_hash"] = source_corpus_hash or row_export_corpus_hash
+    hourly_payload.setdefault("corpus", {})["row_export_corpus_hash"] = row_export_corpus_hash
+    hourly_json, hourly_report = candidate_hourly_performance.write_outputs(
+        hourly_payload,
+        hourly_json_out,
+        hourly_report_out,
+    )
+    ten_payload = build_candidate_ten_minute_payload(
+        candidate_rows,
+        weak_slots,
+        candidate_min_weak_market_days=candidate_min_weak_market_days,
+        weak_brier_improvement_min=weak_brier_improvement_min,
+        weak_market_regression_tolerance=weak_market_regression_tolerance,
+        weak_logloss_regression_tolerance=weak_logloss_regression_tolerance,
+    )
+    ten_payload.setdefault("corpus", {})["corpus_hash"] = source_corpus_hash or row_export_corpus_hash
+    ten_payload.setdefault("corpus", {})["row_export_corpus_hash"] = row_export_corpus_hash
+    for key in ("candidate_ten_minute_performance", "candidate_item147"):
+        ten_payload.setdefault(key, {}).setdefault("corpus", {})["corpus_hash"] = (
+            source_corpus_hash or row_export_corpus_hash
+        )
+        ten_payload.setdefault(key, {}).setdefault("corpus", {})["row_export_corpus_hash"] = row_export_corpus_hash
+    ten_json, ten_report = write_candidate_ten_minute_outputs(
+        ten_payload,
+        ten_minute_json_out,
+        ten_minute_report_out,
+    )
+    corpus_hashes = {
+        "replay_summary": (replay_summary.get("corpus") or {}).get("corpus_hash"),
+        "hourly": (hourly_payload.get("corpus") or {}).get("corpus_hash"),
+        "ten_minute": (ten_payload.get("corpus") or {}).get("corpus_hash"),
+    }
+    row_export_corpus_hashes = {
+        "replay_summary": (replay_summary.get("corpus") or {}).get("row_export_corpus_hash"),
+        "hourly": (hourly_payload.get("corpus") or {}).get("row_export_corpus_hash"),
+        "ten_minute": (ten_payload.get("corpus") or {}).get("row_export_corpus_hash"),
+    }
+    matching = len({value for value in corpus_hashes.values() if value}) == 1 and all(corpus_hashes.values())
+    row_export_matching = (
+        len({value for value in row_export_corpus_hashes.values() if value}) == 1
+        and all(row_export_corpus_hashes.values())
+    )
+    variant_ids = {
+        "replay_summary": (replay_summary.get("candidate_shadow_variants") or {}).get("variant_ids") or [],
+        "hourly": hourly_payload.get("variant_ids") or [],
+        "ten_minute": ten_payload.get("variant_ids") or [],
+    }
+    return {
+        "status": "PASS" if matching and row_export_matching else "BLOCK",
+        "corpus_hashes": corpus_hashes,
+        "corpus_hash_match": matching,
+        "row_export_corpus_hashes": row_export_corpus_hashes,
+        "row_export_corpus_hash_match": row_export_matching,
+        "variant_ids": variant_ids,
+        "paths": {
+            "candidate_rows": str(candidate_rows),
+            "replay_summary_json": replay_json,
+            "replay_summary_report": replay_report,
+            "hourly_json": hourly_json,
+            "hourly_report": hourly_report,
+            "ten_minute_json": ten_json,
+            "ten_minute_report": ten_report,
+        },
+        "replay_summary": replay_summary,
+        "candidate_hourly_performance": hourly_payload,
+        "candidate_ten_minute_performance": ten_payload,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Validate predawn weak-slot winner-centering repairs.")
     parser.add_argument("--candidate-rows", default=str(DEFAULT_ITEM147_ROWS))
     parser.add_argument("--ten-minute-report", default=str(DEFAULT_TEN_MINUTE_REPORT))
     parser.add_argument("--min-brier-improvement", type=float, default=DEFAULT_MIN_BRIER_IMPROVEMENT)
     parser.add_argument("--market-tol", type=float, default=DEFAULT_MARKET_TOL)
+    parser.add_argument("--calibrator-blend", type=float, default=CALIBRATOR_BLEND)
+    parser.add_argument("--calibrator-extrapolation", type=float, default=CALIBRATOR_EXTRAPOLATION)
+    parser.add_argument("--calibrator-power", type=float, default=CALIBRATOR_POWER)
+    parser.add_argument("--output-variant-id", default=DEFAULT_OUTPUT_VARIANT_ID)
+    parser.add_argument("--candidate-rows-out", default="")
+    parser.add_argument("--write-candidate-gates", action="store_true")
+    parser.add_argument("--source-candidate-json", default=str(DEFAULT_SOURCE_CANDIDATE_JSON))
+    parser.add_argument(
+        "--validation-evidence",
+        default="row_export_surrogate",
+        choices=candidate_variant_replay_summary.VALIDATION_EVIDENCE_CHOICES,
+    )
+    parser.add_argument("--candidate-replay-summary-json-out", default=str(DEFAULT_CANDIDATE_REPLAY_SUMMARY_OUT))
+    parser.add_argument("--candidate-replay-summary-report-out", default=str(DEFAULT_CANDIDATE_REPLAY_SUMMARY_REPORT))
+    parser.add_argument("--candidate-hourly-json-out", default=str(DEFAULT_CANDIDATE_HOURLY_OUT))
+    parser.add_argument("--candidate-hourly-report-out", default=str(DEFAULT_CANDIDATE_HOURLY_REPORT))
+    parser.add_argument("--candidate-ten-minute-json-out", default=str(DEFAULT_CANDIDATE_TEN_MINUTE_OUT))
+    parser.add_argument("--candidate-ten-minute-report-out", default=str(DEFAULT_CANDIDATE_TEN_MINUTE_REPORT))
+    parser.add_argument("--candidate-hourly-min-market-days", type=int, default=10)
+    parser.add_argument("--candidate-ten-minute-min-weak-market-days", type=int, default=10)
+    parser.add_argument("--candidate-weak-logloss-tol", type=float, default=0.010)
     parser.add_argument("--json-out", default=str(DEFAULT_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT))
     return parser
@@ -681,15 +1047,44 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    payload = build_payload(
+    payload, rows = build_repair_result(
         args.candidate_rows,
         args.ten_minute_report,
         min_brier_improvement=args.min_brier_improvement,
         market_tol=args.market_tol,
+        blend=args.calibrator_blend,
+        extrapolation=args.calibrator_extrapolation,
+        partition_power=args.calibrator_power,
+        output_variant_id=args.output_variant_id,
     )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Wrote {json_out}")
     print(f"Wrote {report_out}")
+    if args.candidate_rows_out:
+        candidate_rows_out = write_candidate_rows(rows, args.candidate_rows_out)
+        print(f"Wrote repaired candidate rows to {candidate_rows_out}")
+        if args.write_candidate_gates:
+            weak_slots = weak_slots_from_report(args.ten_minute_report)
+            gate_outputs = write_candidate_gate_outputs(
+                candidate_rows=candidate_rows_out,
+                weak_slots=weak_slots,
+                source_candidate_json=args.source_candidate_json,
+                validation_evidence=args.validation_evidence,
+                replay_summary_json_out=args.candidate_replay_summary_json_out,
+                replay_summary_report_out=args.candidate_replay_summary_report_out,
+                hourly_json_out=args.candidate_hourly_json_out,
+                hourly_report_out=args.candidate_hourly_report_out,
+                ten_minute_json_out=args.candidate_ten_minute_json_out,
+                ten_minute_report_out=args.candidate_ten_minute_report_out,
+                min_hourly_market_days=args.candidate_hourly_min_market_days,
+                candidate_min_weak_market_days=args.candidate_ten_minute_min_weak_market_days,
+                weak_brier_improvement_min=args.min_brier_improvement,
+                weak_market_regression_tolerance=args.market_tol,
+                weak_logloss_regression_tolerance=args.candidate_weak_logloss_tol,
+            )
+            print(f"Candidate gate lineage: {gate_outputs['status']}")
+            for path in gate_outputs["paths"].values():
+                print(f"Wrote {path}")
     print(f"Predawn weak-slot repair validation: {payload['status']}")
     return 0
 

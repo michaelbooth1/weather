@@ -1,8 +1,10 @@
+import csv
 import os
 import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from weather.reporting.promotion_refresh import (  # noqa: E402
@@ -16,8 +18,12 @@ from weather.reporting.promotion_refresh import (  # noqa: E402
     _write_incomplete_manifest,
     _write_json,
     _write_started_manifest,
+    build_evidence_freshness_gate,
+    build_early_hour_promotion_blocker,
     build_gap_owner_table,
     build_family_decisions,
+    build_promotion_allowlist,
+    build_source_missingness_location_gate,
     load_precomputed_candidate_report,
     market_skill_diagnostics,
     model_skill_claims,
@@ -29,6 +35,26 @@ from weather.reporting.promotion_refresh import (  # noqa: E402
 
 def _spec(market_id, city, unit="F"):
     return SimpleNamespace(id=market_id, city_label=city, display_unit=unit)
+
+
+def _early_hour_candidate():
+    return {
+        "aggregate": {"delta_vs_market": 0.001},
+        "corpus": {"corpus_hash": "corpus-1"},
+        "candidate_shadow_variants": {
+            "variant_id": "candidate_v1",
+            "active_registry_contract": {"variant_id": "candidate_v1"},
+        },
+    }
+
+
+def _candidate_gate_report(gate_key, *, status="PASS", variant_id="candidate_v1", corpus_hash="corpus-1", generated_at=None):
+    return {
+        "generated_at_utc": generated_at or "2026-06-22T12:00:00+00:00",
+        "variant_ids": [variant_id] if variant_id else [],
+        "corpus": {"corpus_hash": corpus_hash} if corpus_hash else {},
+        gate_key: {"status": status, "variant_ids": [variant_id] if variant_id else []},
+    }
 
 
 class TestPromotionRefresh(unittest.TestCase):
@@ -94,6 +120,79 @@ class TestPromotionRefresh(unittest.TestCase):
         nyc = next(row for row in decisions["markets"] if row["market_id"] == "nyc")
         self.assertEqual(nyc["settled_days_in_corpus"], 2)
         self.assertEqual(nyc["action"], "PROMOTE_CANDIDATE")
+
+    def test_promotion_allowlist_blocks_failed_market_even_when_candidate_has_promotes(self):
+        specs = [
+            _spec("atlanta", "Atlanta"),
+            _spec("miami", "Miami"),
+        ]
+        manifest = {"entries": [{"market_id": "atlanta"}, {"market_id": "miami"}]}
+        trust_rows = [
+            {"market": "atlanta", "trust_score": 80, "grade": "Strong", "settled_days": 4},
+            {"market": "miami", "trust_score": 80, "grade": "Strong", "settled_days": 4},
+        ]
+        candidate_report = {
+            "replay_gate": {"global_ok": True},
+            "market_rows": [
+                {
+                    "market_id": "atlanta",
+                    "verdict": "PASS",
+                    "reason": "beats current replay and clears market/trust gates",
+                    "days": 4,
+                    "snapshots": 20,
+                    "rows": 60,
+                    "comparison": {
+                        "candidate_brier": 0.02,
+                        "current_brier": 0.04,
+                        "market_brier": 0.03,
+                        "delta_vs_current": -0.02,
+                        "delta_vs_market": -0.01,
+                    },
+                },
+                {
+                    "market_id": "miami",
+                    "verdict": "BLOCK",
+                    "reason": "candidate trails market by +0.0148 > 0.0030",
+                    "days": 4,
+                    "snapshots": 20,
+                    "rows": 60,
+                    "comparison": {
+                        "candidate_brier": 0.0548,
+                        "current_brier": 0.0600,
+                        "market_brier": 0.0400,
+                        "delta_vs_current": -0.0052,
+                        "delta_vs_market": 0.0148,
+                    },
+                },
+            ],
+        }
+
+        decisions = build_family_decisions(
+            manifest,
+            trust_rows,
+            candidate_report,
+            specs=specs,
+        )
+        allowlist = build_promotion_allowlist(
+            decisions,
+            {
+                "json_path": "candidate.json",
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+                "verdict": "SHADOW_ONLY",
+            },
+            generated_at_utc="2026-06-22T12:00:00+00:00",
+            path="allowlist.json",
+        )
+        rows = {row["market_id"]: row for row in allowlist["markets"]}
+
+        self.assertEqual(allowlist["schema_version"], "promotion_allowlist_v0.1")
+        self.assertEqual(allowlist["promote_markets"], ["atlanta"])
+        self.assertEqual(allowlist["blocked_markets"], ["miami"])
+        self.assertTrue(rows["atlanta"]["candidate_serving_allowed"])
+        self.assertFalse(rows["miami"]["candidate_serving_allowed"])
+        self.assertFalse(rows["miami"]["candidate_permission_allowed"])
+        self.assertEqual(rows["miami"]["serving_behavior"], "current_or_shadow")
+        self.assertIn("trails market", rows["miami"]["blocker_reason"])
 
     def test_all_family_specs_include_c_and_f_markets(self):
         specs = [
@@ -446,6 +545,332 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("tape_backup_sla", blockers)
         self.assertIn("100 bytes short", blockers["tape_backup_sla"]["detail"])
 
+    def test_evidence_freshness_blocks_location_countability(self):
+        freshness = build_evidence_freshness_gate(
+            settled_day_freshness={
+                "path": "settled.json",
+                "status": "FAIL",
+                "target_date": "2026-06-20",
+                "summary": {
+                    "incomplete_market_count": 12,
+                    "missing_replay_status_count": 12,
+                },
+                "repair_command": "repair settlements",
+                "replay_status_repair_command": "repair replay status",
+            },
+            data_layer_audit={
+                "path": "data_layer.json",
+                "gate_summary": {"status": "PASS", "fail_count": 0, "warn_count": 0},
+            },
+            ingest_quality_gate={"path": "ingest.json", "status": "PASS"},
+            fleet_observability={
+                "path": "fleet.json",
+                "status": "OK",
+                "summary": {"live_forward_slo_status": "PASS", "critical_alerts": 0},
+                "clob_books": {"status": "PASS", "blocked_markets": []},
+            },
+            daily_learning={
+                "path": "daily_learning.json",
+                "status": "OK",
+                "summary": {"blocker_count": 0},
+            },
+            disk_headroom={
+                "path": "data/backtest",
+                "status": "PASS",
+                "free_bytes": 2_000_000_000,
+                "min_free_bytes": 1_000_000_000,
+            },
+        )
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            evidence_freshness=freshness,
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(freshness["status"], "BLOCK")
+        self.assertFalse(freshness["counts_for_location_validation"])
+        self.assertIn("location_evidence_freshness", blockers)
+        self.assertIn("missing_replay_status=12", blockers["location_evidence_freshness"]["detail"])
+
+    def test_evidence_freshness_passes_when_all_countability_gates_are_green(self):
+        freshness = build_evidence_freshness_gate(
+            settled_day_freshness={
+                "status": "PASS",
+                "target_date": "2026-06-20",
+                "summary": {
+                    "incomplete_market_count": 0,
+                    "missing_replay_status_count": 0,
+                },
+            },
+            data_layer_audit={"gate_summary": {"status": "PASS", "fail_count": 0, "warn_count": 0}},
+            ingest_quality_gate={"status": "PASS"},
+            fleet_observability={
+                "status": "OK",
+                "summary": {"live_forward_slo_status": "PASS", "critical_alerts": 0},
+                "clob_books": {"status": "PASS", "blocked_markets": []},
+            },
+            daily_learning={"status": "OK", "summary": {"blocker_count": 0}},
+            disk_headroom={"status": "PASS", "free_bytes": 2_000_000_000, "min_free_bytes": 1_000_000_000},
+        )
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            evidence_freshness=freshness,
+        )
+
+        self.assertEqual(freshness["status"], "PASS")
+        self.assertTrue(freshness["counts_for_location_validation"])
+        self.assertEqual(readiness["status"], "READY")
+        self.assertNotIn("location_evidence_freshness", {row["category"] for row in readiness["blockers"]})
+
+    def test_per_location_artifact_quarantine_blocks_stale_active_candidates(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            per_location_artifact_quarantine={
+                "path": "per_location_artifact_quarantine.json",
+                "status": "FAIL",
+                "summary": {"active_candidate_violation_count": 1},
+                "active_candidate_violations": [
+                    {
+                        "market_id": "seattle",
+                        "artifact_kind": "hgb_model",
+                        "path": "artifacts/models/hgb/feature_model_hgb_seattle.pkl",
+                        "disposition": "active_candidate_blocked",
+                    }
+                ],
+            },
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("per_location_artifact_quarantine", blockers)
+        self.assertIn("active violations=1", blockers["per_location_artifact_quarantine"]["detail"])
+
+    def test_early_hour_blocker_passes_with_matching_fresh_candidate_evidence(self):
+        blocker = build_early_hour_promotion_blocker(
+            candidate=_early_hour_candidate(),
+            hourly_performance={"hourly_performance_gate": {"status": "BLOCK"}},
+            candidate_hourly_performance=_candidate_gate_report("candidate_hourly_gate"),
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "BLOCK"}},
+            candidate_ten_minute_performance=_candidate_gate_report("candidate_ten_minute_gate"),
+            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(blocker["status"], "PASS")
+        self.assertTrue(blocker["promotion_allowed"])
+
+    def test_early_hour_blocker_fails_closed_on_mismatched_variant(self):
+        blocker = build_early_hour_promotion_blocker(
+            candidate=_early_hour_candidate(),
+            hourly_performance={"hourly_performance_gate": {"status": "BLOCK"}},
+            candidate_hourly_performance=_candidate_gate_report("candidate_hourly_gate", variant_id="other"),
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
+            candidate_ten_minute_performance=None,
+            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+        )
+
+        categories = {row["category"] for row in blocker["blockers"]}
+        self.assertEqual(blocker["status"], "BLOCK")
+        self.assertIn("candidate_hourly_mitigation", categories)
+        self.assertFalse(blocker["candidate_gates"]["hourly"]["variant_match"])
+
+    def test_early_hour_blocker_fails_closed_on_stale_candidate_report(self):
+        blocker = build_early_hour_promotion_blocker(
+            candidate=_early_hour_candidate(),
+            hourly_performance={"hourly_performance_gate": {"status": "BLOCK"}},
+            candidate_hourly_performance=_candidate_gate_report(
+                "candidate_hourly_gate",
+                generated_at="2026-06-18T00:00:00+00:00",
+            ),
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
+            candidate_ten_minute_performance=None,
+            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+            max_candidate_report_age_hours=72,
+        )
+
+        self.assertEqual(blocker["status"], "BLOCK")
+        self.assertEqual(blocker["candidate_gates"]["hourly"]["freshness"]["status"], "STALE")
+
+    def test_early_hour_blocker_fails_closed_when_ten_minute_mitigation_missing(self):
+        blocker = build_early_hour_promotion_blocker(
+            candidate=_early_hour_candidate(),
+            hourly_performance={"hourly_performance_gate": {"status": "PASS"}},
+            candidate_hourly_performance=None,
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "BLOCK"}},
+            candidate_ten_minute_performance=None,
+            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+        )
+
+        categories = {row["category"] for row in blocker["blockers"]}
+        self.assertIn("candidate_ten_minute_mitigation", categories)
+        self.assertEqual(blocker["candidate_gates"]["ten_minute"]["gate_status"], "MISSING")
+
+    def test_early_hour_blocker_rejects_surrogate_only_replay(self):
+        candidate = _early_hour_candidate()
+        candidate["candidate_shadow_variants"] = {"variant_id": "candidate_v1"}
+
+        blocker = build_early_hour_promotion_blocker(
+            candidate=candidate,
+            hourly_performance={"hourly_performance_gate": {"status": "PASS"}},
+            candidate_hourly_performance=None,
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
+            candidate_ten_minute_performance=None,
+            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(blocker["status"], "BLOCK")
+        self.assertIn("active_replay_export_contract", {row["category"] for row in blocker["blockers"]})
+
+    def test_promotion_readiness_surfaces_early_hour_blocker(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            early_hour_promotion_blocker={
+                "status": "BLOCK",
+                "blockers": [{"detail": "candidate hourly gate must PASS"}],
+            },
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertIn("early_hour_promotion_blocker", blockers)
+        self.assertIn("candidate hourly gate must PASS", blockers["early_hour_promotion_blocker"]["detail"])
+
+    def test_source_missingness_gate_blocks_bottom_market_slices_and_decodes_hash(self):
+        fields = [
+            "market_id",
+            "probability",
+            "current_probability",
+            "market_yes",
+            "outcome",
+            "source_freshness_state",
+            "forecast_source_count_bucket",
+            "feature_missingness_hash",
+            "candidate_cutoff_hour",
+            "candidate_cutoff_regime",
+            "settlement_distance_bucket",
+            "forecast_source_count",
+            "forecast_disagreement",
+            "forecast_gap",
+            "forecast_disagreement_bucket",
+            "forecast_bucket_pressure",
+            "clob_feature_available",
+            "clob_midpoint",
+            "clob_spread",
+            "clob_liquidity_score",
+            "casebook_taxonomy",
+        ]
+        rows = [
+            {
+                "market_id": "miami",
+                "probability": "0.80",
+                "current_probability": "0.70",
+                "market_yes": "0.10",
+                "outcome": "0",
+                "source_freshness_state": "all_fresh",
+                "forecast_source_count_bucket": "two_sources",
+                "feature_missingness_hash": "shared_hash",
+                "candidate_cutoff_hour": "9",
+                "candidate_cutoff_regime": "midday",
+                "settlement_distance_bucket": "0",
+                "forecast_source_count": "2",
+                "forecast_disagreement": "0.04",
+                "forecast_gap": "0.02",
+                "forecast_disagreement_bucket": "low",
+                "forecast_bucket_pressure": "warm_side",
+                "clob_feature_available": "1",
+                "clob_midpoint": "",
+                "clob_spread": "0.04",
+                "clob_liquidity_score": "0.8",
+                "casebook_taxonomy": "",
+            },
+            {
+                "market_id": "atlanta",
+                "probability": "0.10",
+                "current_probability": "0.20",
+                "market_yes": "0.20",
+                "outcome": "0",
+                "source_freshness_state": "all_fresh",
+                "forecast_source_count_bucket": "two_sources",
+                "feature_missingness_hash": "shared_hash",
+                "candidate_cutoff_hour": "9",
+                "candidate_cutoff_regime": "midday",
+                "settlement_distance_bucket": "0",
+                "forecast_source_count": "2",
+                "forecast_disagreement": "0.04",
+                "forecast_gap": "0.02",
+                "forecast_disagreement_bucket": "low",
+                "forecast_bucket_pressure": "warm_side",
+                "clob_feature_available": "1",
+                "clob_midpoint": "",
+                "clob_spread": "0.04",
+                "clob_liquidity_score": "0.8",
+                "casebook_taxonomy": "",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shadow.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields)
+                writer.writeheader()
+                writer.writerows(rows)
+
+            gate = build_source_missingness_location_gate(
+                {"candidate_shadow_variants": {"path": str(path)}},
+                bottom_markets=("miami",),
+                market_tolerance=0.003,
+                min_rows=1,
+            )
+
+        categories = {row["category"] for row in gate["blockers"]}
+        missingness_by_market = {
+            row["market_id"]: row
+            for row in gate["market_feature_missingness"]
+            if row.get("feature_missingness_hash") == "shared_hash"
+        }
+        decoded = {
+            row["feature_missingness_hash"]: row
+            for row in gate["missingness_hash_decodes"]
+        }
+
+        self.assertEqual(gate["schema_version"], "source_missingness_location_gate_v0.1")
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertIn("bottom_market_all_fresh_market_gap", categories)
+        self.assertIn("bottom_market_two_source_market_gap", categories)
+        self.assertIn("bottom_market_high_impact_missingness", categories)
+        self.assertEqual(missingness_by_market["miami"]["status"], "BLOCK")
+        self.assertEqual(missingness_by_market["atlanta"]["status"], "PASS")
+        self.assertIn("casebook_taxonomy", decoded["shared_hash"]["missing_features"])
+        self.assertIn("clob_midpoint", decoded["shared_hash"]["missing_features"])
+
+    def test_promotion_readiness_surfaces_source_missingness_location_gate(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            source_missingness_location_gate={
+                "status": "BLOCK",
+                "first_blocker": {"detail": "miami all-fresh candidate trails market"},
+            },
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertIn("source_missingness_location_gate", blockers)
+        self.assertIn(
+            "miami all-fresh candidate trails market",
+            blockers["source_missingness_location_gate"]["detail"],
+        )
+
     def test_promotion_readiness_surfaces_extra_location_gate(self):
         readiness = promotion_readiness(
             {"aggregate": {}},
@@ -587,7 +1012,7 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("settlement_distance_0", rows[0]["experiment_artifact"])
         self.assertTrue(rows[0]["counts_toward_core_skill_claim"])
         self.assertEqual(rows[0]["affected_markets"], ["nyc", "seattle"])
-        self.assertEqual(rows[1]["claim_lane"], "market_informed_clob_overlay")
+        self.assertEqual(rows[1]["claim_lane"], "market_informed_quote_risk")
         self.assertFalse(rows[1]["counts_toward_core_skill_claim"])
 
     def test_market_skill_claims_separate_core_and_clob_lanes(self):
@@ -596,12 +1021,12 @@ class TestPromotionRefresh(unittest.TestCase):
                 "aggregate": {"delta_vs_market": 0.01},
                 "blocked_validation": {"passed": True},
             },
-            [{"claim_lane": "market_informed_clob_overlay"}],
+            [{"claim_lane": "market_informed_quote_risk"}],
         )
 
         self.assertFalse(claims["weather_only_core_model"]["broad_market_skill_claim_allowed"])
-        self.assertFalse(claims["market_informed_clob_overlay"]["counts_toward_core_skill_claim"])
-        self.assertTrue(claims["market_informed_clob_overlay"]["may_support_quote_gating"])
+        self.assertFalse(claims["market_informed_quote_risk"]["counts_toward_core_skill_claim"])
+        self.assertTrue(claims["market_informed_quote_risk"]["may_support_quote_gating"])
 
     def test_market_skill_diagnostics_targets_non_promoted_markets(self):
         rows = market_skill_diagnostics(
@@ -898,6 +1323,93 @@ class TestPromotionRefresh(unittest.TestCase):
                 "ten_minute_performance_mitigation": {"applied": True},
             },
             "decisions": {"promote_markets": [], "shadow_markets": [], "blocked_markets": [], "markets": []},
+            "promotion_allowlist": {
+                "schema_version": "promotion_allowlist_v0.1",
+                "path": "f_family_promotion_allowlist.json",
+                "candidate_id": "candidate_v1",
+                "generated_at_utc": "2026-06-15T00:00:00+00:00",
+                "policy": {"permission_gate": "candidate_permission_allowed is true only for PROMOTE_CANDIDATE markets"},
+                "markets": [
+                    {
+                        "market_id": "miami",
+                        "action": "BLOCK_CANDIDATE",
+                        "serving_behavior": "current_or_shadow",
+                        "permission_behavior": "current_or_harvest_only",
+                        "candidate_brier": 0.0548,
+                        "current_brier": 0.0600,
+                        "market_brier": 0.0400,
+                        "delta_vs_current": -0.0052,
+                        "delta_vs_market": 0.0148,
+                        "blocker_reason": "candidate trails market by +0.0148 > 0.0030",
+                    }
+                ],
+            },
+            "source_missingness_location_gate": {
+                "schema_version": "source_missingness_location_gate_v0.1",
+                "status": "BLOCK",
+                "candidate_shadow_variant_path": "item82_miami_fallback_shadow_variants.csv",
+                "market_tolerance": 0.003,
+                "min_rows": 30,
+                "bottom_markets": ["miami", "nyc", "seattle"],
+                "summary": {
+                    "row_count": 200,
+                    "market_source_freshness_slice_count": 4,
+                    "market_forecast_source_count_slice_count": 4,
+                    "market_feature_missingness_slice_count": 4,
+                    "decoded_missingness_hash_count": 2,
+                    "blocker_count": 1,
+                },
+                "first_blocker": {
+                    "category": "bottom_market_all_fresh_market_gap",
+                    "market_id": "miami",
+                    "detail": "miami all-fresh candidate trails market by +0.0148 > 0.0030",
+                },
+                "blockers": [
+                    {
+                        "category": "bottom_market_all_fresh_market_gap",
+                        "market_id": "miami",
+                        "detail": "miami all-fresh candidate trails market by +0.0148 > 0.0030",
+                    }
+                ],
+                "market_source_freshness": [
+                    {
+                        "market_id": "miami",
+                        "source_freshness_state": "all_fresh",
+                        "status": "BLOCK",
+                        "n": 80,
+                        "candidate_brier": 0.0548,
+                        "market_brier": 0.0400,
+                        "delta_vs_market": 0.0148,
+                    }
+                ],
+                "market_forecast_source_count": [
+                    {
+                        "market_id": "miami",
+                        "forecast_source_count_bucket": "two_sources",
+                        "status": "BLOCK",
+                        "n": 80,
+                        "candidate_brier": 0.0548,
+                        "market_brier": 0.0400,
+                        "delta_vs_market": 0.0148,
+                    }
+                ],
+                "market_feature_missingness": [
+                    {
+                        "market_id": "miami",
+                        "feature_missingness_hash": "shared_hash",
+                        "status": "BLOCK",
+                        "n": 80,
+                        "delta_vs_market": 0.0148,
+                        "missing_features": ["casebook_taxonomy", "clob_midpoint"],
+                    }
+                ],
+                "missingness_hash_decodes": [
+                    {
+                        "feature_missingness_hash": "shared_hash",
+                        "missing_features": ["casebook_taxonomy", "clob_midpoint"],
+                    }
+                ],
+            },
             "serving_gauntlet": None,
             "hourly_performance": {
                 "hourly_performance_gate": {
@@ -939,6 +1451,51 @@ class TestPromotionRefresh(unittest.TestCase):
                     "backup_root": "data/tape_backups",
                 },
             },
+            "evidence_freshness": {
+                "status": "BLOCK",
+                "counts_for_location_validation": False,
+                "gates": [
+                    {
+                        "name": "settled_day_freshness",
+                        "status": "FAIL",
+                        "detail": "missing_replay_status=12",
+                    }
+                ],
+            },
+            "per_location_artifact_quarantine": {
+                "path": "per_location_artifact_quarantine.json",
+                "status": "PASS",
+                "summary": {
+                    "historical_only_count": 22,
+                    "active_candidate_violation_count": 0,
+                },
+            },
+            "early_hour_promotion_blocker": {
+                "status": "BLOCK",
+                "promotion_allowed": False,
+                "blocker_count": 1,
+                "current_gates": {
+                    "hourly_status": "BLOCK",
+                    "ten_minute_status": "BLOCK",
+                },
+                "broad_replay": {"within_market_tolerance": False},
+                "production_readiness": {
+                    "live_forward_slo_status": "BLOCK",
+                    "current_code_soak_status": "BLOCK",
+                },
+                "blockers": [
+                    {
+                        "category": "candidate_hourly_mitigation",
+                        "severity": "block",
+                        "detail": "candidate hourly gate must PASS with matching lineage",
+                    }
+                ],
+            },
+            "settled_day_freshness": {"path": "settled_day_freshness.json"},
+            "data_layer_audit": {"path": "data_layer_audit.json"},
+            "ingest_quality_gate": {"path": "ingest_quality_gate.json"},
+            "daily_learning": {"path": "daily_learning.json"},
+            "disk_headroom": {"path": "data/backtest", "status": "PASS"},
         }
         with tempfile.TemporaryDirectory() as tmp:
             path = write_report(Path(tmp) / "report.md", payload)
@@ -953,6 +1510,25 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("candidate hourly gate passed and variant id matched", text)
         self.assertIn("candidate 10-minute gate passed and variant id matched", text)
         self.assertIn("fleet_observability.json", text)
+        self.assertIn("Evidence freshness: settled_day_freshness", text)
+        self.assertIn("Per-location artifact quarantine", text)
+        self.assertIn("Early-hour promotion blocker", text)
+        self.assertIn("Source/missingness location gate", text)
+        self.assertIn("## Early-Hour Promotion Blocker", text)
+        self.assertIn("## F-Family Promotion Allowlist", text)
+        self.assertIn("## Market Source/Missingness Location Gate", text)
+        self.assertIn("Bottom-Market Source Freshness Slices", text)
+        self.assertIn("Bottom-Market Forecast Source Count Slices", text)
+        self.assertIn("Bottom-Market Feature Missingness Slices", text)
+        self.assertIn("casebook_taxonomy, clob_midpoint", text)
+        self.assertIn("f_family_promotion_allowlist.json", text)
+        self.assertIn("candidate trails market by +0.0148", text)
+        self.assertIn("candidate hourly gate must PASS with matching lineage", text)
+        self.assertIn("settled_day_freshness.json", text)
+        self.assertIn("data_layer_audit.json", text)
+        self.assertIn("ingest_quality_gate.json", text)
+        self.assertIn("daily_learning.json", text)
+        self.assertIn("per_location_artifact_quarantine.json", text)
 
     def test_write_report_emits_serving_blocking_source_freshness(self):
         serving = {

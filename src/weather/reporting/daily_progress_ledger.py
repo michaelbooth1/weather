@@ -13,6 +13,7 @@ from pathlib import Path
 from weather.io import write_json_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
+from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.reporting.trading_evidence import build_trading_evidence_summary
 
 
@@ -146,6 +147,15 @@ def _independent_baseline_status(variant):
     return "PRESENT" if variant.get("baseline") or variant.get("baseline_paths") else "MISSING"
 
 
+def _frozen_baseline_status(frozen):
+    if not frozen:
+        return None
+    status = frozen.get("independent_baseline_status")
+    if status in {"PRESENT", "MISSING"}:
+        return status
+    return None
+
+
 def _quality_counts(daily_refresh):
     return (((daily_refresh.get("summary") or {}).get("labels") or {}).get("quality_counts") or {})
 
@@ -171,6 +181,8 @@ def broad_claim_failures(row):
         failures.append("live_forward_slo_not_pass")
     if row.get("evidence_independent_baseline_status") != "PRESENT":
         failures.append("independent_baseline_missing")
+    if row.get("runtime_identity_status") == "BLOCK":
+        failures.append(row.get("runtime_identity_blocking_reason") or "runtime_identity_blocked")
     return failures
 
 
@@ -183,16 +195,31 @@ def build_progress_row(
 ):
     backtest_root = Path(backtest_root)
     daily_refresh = daily_refresh_status or _artifact(backtest_root, "daily_refresh_status.json")
+    generated_at = generated_at_utc or utc_iso()
+    run_date = str(
+        daily_refresh.get("generated_at_utc")
+        or daily_refresh.get("finished_at_utc")
+        or generated_at
+    )[:10]
     progress = _artifact(backtest_root, "progress_audit.json")
     promotion = _artifact(backtest_root, "f_family_promotion_refresh.json")
     fleet = _artifact(backtest_root, "fleet_observability.json")
     variant = _artifact(backtest_root, "model_variant_evidence_growth.json")
+    frozen_baseline = _artifact(backtest_root, "frozen_baseline_replay_trend.json")
     snapshot_eval = _artifact(backtest_root, "snapshot_evaluation.json")
     daily_learning = _artifact(backtest_root, "daily_learning.json")
     trading = build_trading_evidence_summary(
         mm_runs_root=backtest_root.parent / "mm_runs",
         taker_runs_root=backtest_root.parent / "taker_runs",
     )
+    runtime_evidence = build_runtime_identity_evidence(
+        snapshots_root=snapshots_root,
+        target_date=run_date,
+        mm_runs_root=backtest_root.parent / "mm_runs",
+        taker_runs_root=backtest_root.parent / "taker_runs",
+        reconciliation_path=backtest_root / "runtime_identity_reconciliation.json",
+    )
+    runtime_snapshots = runtime_evidence.get("snapshots") or {}
     trend = progress.get("core_model_trend_claim") or {}
     trend_summary = trend.get("summary") or {}
     candidate = (promotion.get("candidate") or {})
@@ -206,6 +233,9 @@ def build_progress_row(
     observation = fleet.get("observation_trigger") or {}
     backup = fleet.get("tape_backup") or {}
     current_soak = fleet.get("current_code_soak") or {}
+    frozen_status = _frozen_baseline_status(frozen_baseline)
+    frozen_overall = frozen_baseline.get("overall") or {}
+    frozen_coverage = frozen_baseline.get("coverage") or {}
     disk = _disk_preflight(daily_refresh, backtest_root)
     mm = trading.get("market_making") or {}
     mm_starvation = mm.get("evidence_starvation") or {}
@@ -221,13 +251,8 @@ def build_progress_row(
     label_quality = _quality_counts(daily_refresh)
     row = {
         "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": generated_at_utc or utc_iso(),
-        "run_date": str(
-            daily_refresh.get("generated_at_utc")
-            or daily_refresh.get("finished_at_utc")
-            or generated_at_utc
-            or utc_iso()
-        )[:10],
+        "generated_at_utc": generated_at,
+        "run_date": run_date,
         "daily_refresh_status": _daily_refresh_status(daily_refresh),
         "daily_refresh_duration_seconds": daily_refresh.get("duration_seconds"),
         "daily_refresh_blockers": json_field([
@@ -257,8 +282,34 @@ def build_progress_row(
         "evidence_corpus_market_days": maybe_int(corpus.get("market_day_count")),
         "evidence_corpus_snapshots": maybe_int(corpus.get("snapshot_count")),
         "evidence_snapshot_inventory_count": maybe_int(((snapshot_eval.get("snapshot_inventory") or {}).get("snapshot_count"))),
-        "evidence_independent_baseline_status": _independent_baseline_status(variant),
+        "evidence_independent_baseline_status": (
+            "PRESENT" if frozen_status == "PRESENT" else _independent_baseline_status(variant)
+        ),
+        "evidence_frozen_baseline_status": frozen_status or "MISSING",
+        "evidence_frozen_baseline_id": frozen_baseline.get("baseline_id"),
+        "evidence_frozen_baseline_current_code_identity": frozen_baseline.get("current_code_identity"),
+        "evidence_frozen_baseline_shared_observations": maybe_int(
+            frozen_coverage.get("shared_observations")
+        ),
+        "evidence_frozen_baseline_shared_market_days": maybe_int(
+            frozen_coverage.get("shared_market_days")
+        ),
+        "evidence_frozen_baseline_brier_delta_current_minus_baseline": maybe_float(
+            frozen_overall.get("brier_delta_current_minus_baseline")
+        ),
+        "evidence_frozen_baseline_brier_delta_current_minus_market": maybe_float(
+            frozen_overall.get("brier_delta_current_minus_market")
+        ),
         "evidence_variant_sla_status": ((variant.get("evidence_sla") or {}).get("status")),
+        "runtime_identity_status": runtime_evidence.get("status"),
+        "runtime_identity_mixed": runtime_evidence.get("mixed_runtime_identity"),
+        "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
+        "runtime_identity_snapshot_rows": runtime_evidence.get("snapshot_row_count"),
+        "runtime_identity_blocking_reason": runtime_evidence.get("blocking_reason"),
+        "runtime_identity_reconciliation_status": runtime_evidence.get("reconciliation_status"),
+        "runtime_identity_reconciliation_allowed": runtime_evidence.get("reconciliation_allowed"),
+        "runtime_identity_segments": json_field(runtime_snapshots.get("segments") or []),
+        "runtime_identity_trading_runs": json_field(runtime_evidence.get("trading_runs") or {}),
         "ops_fleet_status": fleet.get("status"),
         "ops_live_forward_slo_status": live_slo.get("status"),
         "ops_live_forward_slo_counts": live_slo.get("counts_toward_live_forward_gate"),
@@ -312,6 +363,7 @@ def build_progress_row(
         "trading_mm_latest_preflight_blocked_market_fraction": mm_starvation_latest.get(
             "preflight_blocked_market_fraction"
         ),
+        "trading_mm_current_high_trust_no_quote_count": mm.get("current_high_trust_no_quote_count"),
         "trading_mm_evidence_starvation_owner_items": json_field(
             mm_starvation_owner_source.get("recovery_owner_items") or []
         ),
@@ -322,6 +374,7 @@ def build_progress_row(
         "trading_taker_settlement_pnl_usdc": taker.get("settlement_pnl_usdc"),
         "trading_taker_mark_to_market_pnl_usdc": taker.get("mark_to_market_pnl_usdc"),
         "trading_taker_pnl_source": taker.get("pnl_source"),
+        "trading_taker_pnl_evidence_status": taker.get("pnl_evidence_status"),
         "trading_taker_settled_orders": taker.get("settled_order_count"),
         "trading_taker_unsettled_orders": taker.get("unsettled_order_count"),
         "trading_taker_reconciliation_status": taker.get("settlement_reconciliation_status"),
@@ -336,6 +389,14 @@ def build_progress_row(
         "trading_taker_strategy_quality_candidate_net_pnl_usdc": taker.get(
             "strategy_quality_candidate_net_pnl_usdc"
         ),
+        "trading_taker_promotion_evidence_basis": taker.get("promotion_evidence_basis"),
+        "trading_taker_mtm_promotion_allowed": taker.get("mtm_promotion_allowed"),
+        "trading_taker_tail_fill_quality_status": taker.get("tail_fill_quality_status"),
+        "trading_taker_low_price_tail_fill_count": taker.get("low_price_tail_fill_count"),
+        "trading_taker_low_price_tail_fill_fraction": taker.get("low_price_tail_fill_fraction"),
+        "trading_taker_tail_fill_alert_count": taker.get("tail_fill_alert_count"),
+        "trading_taker_tail_fill_alerts": json_field(taker.get("tail_fill_alerts") or []),
+        "trading_taker_current_high_trust_no_trade_count": taker.get("current_high_trust_no_trade_count"),
         "trading_taker_active_strategy_id": taker.get("active_strategy_id"),
         "trading_taker_active_strategy_lifecycle": taker.get("active_strategy_lifecycle"),
         "trading_taker_active_strategy_lifecycle_status": taker.get("active_strategy_lifecycle_status"),
@@ -352,6 +413,18 @@ def build_progress_row(
         ),
         "trading_taker_active_strategy_canary_min_settled_orders": taker.get(
             "active_strategy_canary_min_settled_orders"
+        ),
+        "trading_taker_active_strategy_canary_settled_market_count": taker.get(
+            "active_strategy_canary_settled_market_count"
+        ),
+        "trading_taker_active_strategy_canary_min_settled_markets": taker.get(
+            "active_strategy_canary_min_settled_markets"
+        ),
+        "trading_taker_active_strategy_canary_tail_fill_fraction": taker.get(
+            "active_strategy_canary_tail_fill_fraction"
+        ),
+        "trading_taker_active_strategy_canary_max_tail_fill_fraction": taker.get(
+            "active_strategy_canary_max_tail_fill_fraction"
         ),
         "trading_taker_active_strategy_canary_age_days": taker.get("active_strategy_canary_age_days"),
         "daily_learning_status": daily_learning.get("status"),
@@ -462,6 +535,19 @@ def render_report(rows):
             ["Disk preflight", latest.get("ops_disk_preflight_status") or "-"],
             ["Disk headroom bytes", latest.get("ops_disk_headroom_bytes")],
             ["Independent baseline", latest.get("evidence_independent_baseline_status") or "-"],
+            ["Frozen baseline", latest.get("evidence_frozen_baseline_status") or "-"],
+            ["Frozen baseline id", latest.get("evidence_frozen_baseline_id") or "-"],
+            ["Frozen shared observations", fmt(latest.get("evidence_frozen_baseline_shared_observations"))],
+            [
+                "Frozen Brier current-baseline",
+                fmt(latest.get("evidence_frozen_baseline_brier_delta_current_minus_baseline")),
+            ],
+            ["Runtime identity status", latest.get("runtime_identity_status") or "-"],
+            ["Runtime identity mixed", latest.get("runtime_identity_mixed")],
+            ["Runtime identity count", latest.get("runtime_identity_count")],
+            ["Runtime identity rows", latest.get("runtime_identity_snapshot_rows")],
+            ["Runtime identity blocker", latest.get("runtime_identity_blocking_reason") or "-"],
+            ["Runtime reconciliation", latest.get("runtime_identity_reconciliation_status") or "-"],
             ["MM evidence mode", latest.get("trading_mm_evidence_mode") or "-"],
             ["MM evidence starvation", latest.get("trading_mm_evidence_starvation_status") or "-"],
             ["MM starved active-day streak", fmt(latest.get("trading_mm_starved_active_day_streak"))],
@@ -469,9 +555,11 @@ def render_report(rows):
             ["MM recovery closeout", latest.get("trading_mm_preflight_recovery_status") or "-"],
             ["MM post-repair preflight", latest.get("trading_mm_post_repair_preflight_status") or "-"],
             ["MM countable paper market-days", fmt(latest.get("trading_mm_countable_paper_market_day_count"))],
+            ["MM current-high trust no-quotes", fmt(latest.get("trading_mm_current_high_trust_no_quote_count"))],
             ["Taker quality", latest.get("trading_taker_quality_status") or "-"],
             ["Taker net P&L", fmt(latest.get("trading_taker_net_pnl_usdc"))],
             ["Taker P&L source", latest.get("trading_taker_pnl_source") or "-"],
+            ["Taker P&L evidence", latest.get("trading_taker_pnl_evidence_status") or "-"],
             ["Taker settled / unsettled", f"{latest.get('trading_taker_settled_orders')}/{latest.get('trading_taker_unsettled_orders')}"],
             ["Taker reconciliation", latest.get("trading_taker_reconciliation_status") or "-"],
             ["Taker best strategy", latest.get("trading_taker_best_strategy_id") or "-"],
@@ -480,6 +568,18 @@ def render_report(rows):
                 "Taker strategy candidate status",
                 latest.get("trading_taker_strategy_quality_candidate_status") or "-",
             ],
+            ["Taker promotion evidence", latest.get("trading_taker_promotion_evidence_basis") or "-"],
+            ["Taker MTM can promote", latest.get("trading_taker_mtm_promotion_allowed")],
+            ["Taker tail quality", latest.get("trading_taker_tail_fill_quality_status") or "-"],
+            [
+                "Taker tail fills",
+                (
+                    f"{fmt(latest.get('trading_taker_low_price_tail_fill_count'))} "
+                    f"({fmt(latest.get('trading_taker_low_price_tail_fill_fraction'))})"
+                ),
+            ],
+            ["Taker tail alerts", fmt(latest.get("trading_taker_tail_fill_alert_count"))],
+            ["Taker current-high trust no-trades", fmt(latest.get("trading_taker_current_high_trust_no_trade_count"))],
             ["Taker active strategy", latest.get("trading_taker_active_strategy_id") or "-"],
             ["Taker active lifecycle", latest.get("trading_taker_active_strategy_lifecycle_status") or "-"],
             ["Taker active next action", latest.get("trading_taker_active_strategy_next_action") or "-"],
@@ -495,6 +595,20 @@ def render_report(rows):
                 (
                     f"{fmt(latest.get('trading_taker_active_strategy_canary_settled_order_count'))}/"
                     f"{fmt(latest.get('trading_taker_active_strategy_canary_min_settled_orders'))}"
+                ),
+            ],
+            [
+                "Taker canary settled markets",
+                (
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_settled_market_count'))}/"
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_min_settled_markets'))}"
+                ),
+            ],
+            [
+                "Taker canary tail fraction",
+                (
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_tail_fill_fraction'))}/"
+                    f"{fmt(latest.get('trading_taker_active_strategy_canary_max_tail_fill_fraction'))}"
                 ),
             ],
         ],

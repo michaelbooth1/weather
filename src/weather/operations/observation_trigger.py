@@ -47,6 +47,7 @@ from weather.operations.supervisor import (
     append_jsonl as supervisor_append_jsonl,
     attach_status_writer,
     atomic_write_json,
+    configure_json_console_logging,
     launch_detached,
     pid_is_python,
     read_writer_lock,
@@ -1488,6 +1489,7 @@ def main(argv=None):
         print(json.dumps(run_once(args), indent=2, sort_keys=True, default=str))
         return
     if command == "loop":
+        configure_json_console_logging()
         run_loop(args)
         return
     if command == "status":

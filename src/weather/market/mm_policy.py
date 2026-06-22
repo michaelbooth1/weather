@@ -37,6 +37,10 @@ from weather.market.live_observation_normalization import (
     normalized_high_fields,
     normalized_high_for_market,
 )
+from weather.market.snapshot_cadence_quality import (
+    cadence_adjusted_probability,
+    snapshot_cadence_quality,
+)
 
 
 SCHEMA_VERSION = "mm_quote_intent_v0.2"
@@ -93,6 +97,18 @@ DEFAULT_POLICY_CONFIG = {
     "early_hour_guardrail_override_count_buckets": "normal_count,high_count,full_count",
     "early_hour_guardrail_override_disagreement_buckets": "low_disagreement,moderate_disagreement",
     "early_hour_guardrail_override_max_forecast_disagreement": 1.5,
+    "snapshot_cadence_quality_enabled": True,
+    "max_snapshot_cadence_gap_seconds": 900.0,
+    "snapshot_cadence_stale_model_seconds": 900.0,
+    "snapshot_cadence_confidence_haircut": 0.75,
+    "snapshot_cadence_degraded_permission": "deny",
+    "snapshot_cadence_quote_size_multiplier": 0.5,
+    "snapshot_cadence_quote_widen_buffer": 0.01,
+    "current_high_trust_gate_enabled": True,
+    "current_high_trust_gate_start_hour_local": 15,
+    "current_high_trust_gate_edge_action": "deny",
+    "current_high_trust_gate_harvest_size_multiplier": 0.5,
+    "current_high_trust_gate_quote_widen_buffer": 0.01,
 }
 
 HOURLY_TRUST_BANDS = [
@@ -166,6 +182,17 @@ QUOTE_COLUMNS = [
     "book_age_seconds",
     "model_age_seconds",
     "watcher_age_seconds",
+    "snapshot_cadence",
+    "snapshot_cadence_quality_state",
+    "snapshot_cadence_gap_count",
+    "snapshot_cadence_max_gap_seconds",
+    "snapshot_cadence_last_model_age_seconds",
+    "snapshot_cadence_confidence_multiplier",
+    "snapshot_cadence_permission",
+    "snapshot_cadence_quote_size_multiplier",
+    "snapshot_cadence_quote_widen_buffer",
+    "snapshot_cadence_reason",
+    "cadence_adjusted_fair_probability",
     "raw_current_high",
     "raw_current_high_bucket",
     "settlement_current_high",
@@ -175,6 +202,18 @@ QUOTE_COLUMNS = [
     "raw_current_high_bin_key",
     "probability_on_raw_current_high",
     "probability_on_settlement_current_high",
+    "current_max_state",
+    "current_max_disposition",
+    "current_max_gap_to_wu_history",
+    "current_max_gap_to_current_temp",
+    "current_high_trusted",
+    "current_high_guard_reason",
+    "current_high_trust_gate_status",
+    "current_high_trust_gate_action",
+    "current_high_trust_gate_reason",
+    "current_high_trust_gate_aggressive",
+    "current_high_trust_gate_size_multiplier",
+    "current_high_trust_gate_quote_widen_buffer",
     "capture_hour_utc",
     "capture_hour_local",
     "capture_timezone",
@@ -424,6 +463,68 @@ def early_hour_guardrail_state(row, config=None, now=None):
         "market_aware_overlay_edge": overlay_edge,
         "market_aware_overlay_used_for_risk_only": True,
     }
+
+
+def current_high_trust_gate_state(row, config=None, now=None, edge=None, mode=None):
+    config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
+    state = {
+        "current_high_trust_gate_status": "clear",
+        "current_high_trust_gate_action": "allow",
+        "current_high_trust_gate_reason": "",
+        "current_high_trust_gate_aggressive": False,
+        "current_high_trust_gate_size_multiplier": 1.0,
+        "current_high_trust_gate_quote_widen_buffer": 0.0,
+    }
+    if not bool_value(config.get("current_high_trust_gate_enabled"), True):
+        state.update({
+            "current_high_trust_gate_status": "disabled",
+            "current_high_trust_gate_reason": "current-high trust gate disabled",
+        })
+        return state
+    if bool_value(row.get("current_high_trusted"), True):
+        state["current_high_trust_gate_reason"] = "current-high state trusted"
+        return state
+
+    trust = hourly_trust_state(row, config=config, now=now)
+    hour = trust.get("capture_hour_local")
+    start_hour = float(config.get("current_high_trust_gate_start_hour_local") or 15)
+    late_window = hour is None or float(hour) >= start_hour
+    aggressive = str(mode or "").lower() == "edge"
+    if not aggressive and edge is not None:
+        threshold = (
+            float(config["edge_min_advantage"])
+            + float(config["edge_fee_buffer"])
+            + float(config["adverse_selection_buffer"])
+        )
+        aggressive = abs(float(edge)) >= threshold
+    reason_bits = [
+        "untrusted_current_high",
+        f"hour:{int(hour) if hour is not None else 'missing'}",
+        f"current_max_state:{row.get('current_max_state') or 'unknown'}",
+    ]
+    if row.get("current_high_guard_reason"):
+        reason_bits.append(f"guard:{row.get('current_high_guard_reason')}")
+    state["current_high_trust_gate_reason"] = ";".join(reason_bits)
+    state["current_high_trust_gate_aggressive"] = bool(aggressive)
+    if not late_window:
+        state["current_high_trust_gate_status"] = "observe"
+        state["current_high_trust_gate_action"] = "allow_pre_late_window"
+        return state
+    if aggressive and str(config.get("current_high_trust_gate_edge_action") or "deny") == "deny":
+        state["current_high_trust_gate_status"] = "blocked"
+        state["current_high_trust_gate_action"] = "deny_aggressive_edge"
+        return state
+    state["current_high_trust_gate_status"] = "capped"
+    state["current_high_trust_gate_action"] = "cap_and_widen"
+    state["current_high_trust_gate_size_multiplier"] = max(
+        0.0,
+        min(1.0, float(config.get("current_high_trust_gate_harvest_size_multiplier") or 0.5)),
+    )
+    state["current_high_trust_gate_quote_widen_buffer"] = max(
+        0.0,
+        float(config.get("current_high_trust_gate_quote_widen_buffer") or 0.0),
+    )
+    return state
 
 
 def policy_hash(config):
@@ -689,21 +790,34 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
         return {}, {"path": str(path), "exists": False}
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
     states = {}
-    for row in ((payload.get("decisions") or {}).get("markets") or []):
+    allowlist = payload.get("promotion_allowlist") or {}
+    allowlist_rows = allowlist.get("markets") or []
+    decision_rows = ((payload.get("decisions") or {}).get("markets") or [])
+    rows = allowlist_rows or decision_rows
+    for row in rows:
         market_id = row.get("market_id")
         if not market_id:
             continue
+        action = row.get("action")
+        verdict = row.get("verdict")
         states[market_id] = {
-            "promotion_state": promotion_state_from_action(row.get("action"), row.get("verdict")),
-            "action": row.get("action"),
-            "verdict": row.get("verdict"),
-            "reason": row.get("reason"),
+            "promotion_state": promotion_state_from_action(action, verdict),
+            "action": action,
+            "verdict": verdict,
+            "reason": row.get("blocker_reason") or row.get("reason"),
+            "candidate_id": row.get("candidate_id") or allowlist.get("candidate_id"),
+            "candidate_serving_allowed": row.get("candidate_serving_allowed"),
+            "candidate_permission_allowed": row.get("candidate_permission_allowed"),
+            "promotion_allowlist_enforced": bool(allowlist_rows),
         }
     micro_gate = (((payload.get("candidate") or {}).get("microstructure") or {}).get("gate") or {})
     return states, {
         "path": str(path),
         "exists": True,
         "market_count": len(states),
+        "promotion_allowlist_enforced": bool(allowlist_rows),
+        "promotion_allowlist_schema_version": allowlist.get("schema_version"),
+        "promotion_allowlist_path": allowlist.get("path"),
         "microstructure_gate": micro_gate,
     }
 
@@ -815,6 +929,16 @@ def _base_output(row, config, now, reason_code, reason_detail):
     if model_age is None:
         model_age = age_seconds(row.get("captured_at_utc"), now)
     watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    cadence = snapshot_cadence_quality({
+        **row,
+        "model_age_seconds": model_age,
+    }, config=config, now=now)
+    cadence_adjusted_fair = cadence_adjusted_probability(
+        fair,
+        mid,
+        cadence.get("snapshot_cadence_confidence_multiplier"),
+    )
+    current_high_gate = current_high_trust_gate_state(row, config=config, now=now, edge=edge, mode="none")
     output = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -864,6 +988,8 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "book_age_seconds": book_age,
         "model_age_seconds": model_age,
         "watcher_age_seconds": watcher_age,
+        **cadence,
+        "cadence_adjusted_fair_probability": cadence_adjusted_fair,
         "raw_current_high": row.get("raw_current_high"),
         "raw_current_high_bucket": row.get("raw_current_high_bucket"),
         "settlement_current_high": row.get("settlement_current_high"),
@@ -873,6 +999,13 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "raw_current_high_bin_key": row.get("raw_current_high_bin_key") or "",
         "probability_on_raw_current_high": maybe_float(row.get("probability_on_raw_current_high")),
         "probability_on_settlement_current_high": maybe_float(row.get("probability_on_settlement_current_high")),
+        "current_max_state": row.get("current_max_state") or "",
+        "current_max_disposition": row.get("current_max_disposition") or "",
+        "current_max_gap_to_wu_history": maybe_float(row.get("current_max_gap_to_wu_history")),
+        "current_max_gap_to_current_temp": maybe_float(row.get("current_max_gap_to_current_temp")),
+        "current_high_trusted": bool_value(row.get("current_high_trusted"), True),
+        "current_high_guard_reason": row.get("current_high_guard_reason") or "",
+        **current_high_gate,
         "capture_hour_utc": guardrail["capture_hour_utc"],
         "capture_hour_local": guardrail["capture_hour_local"],
         "capture_timezone": guardrail["capture_timezone"],
@@ -908,8 +1041,21 @@ def _no_quote(row, config, now, reason_code, reason_detail):
 
 def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_price=None):
     output = _base_output(row, config, now, reason_code, "quote permitted by shadow policy")
+    current_high_gate = current_high_trust_gate_state(
+        row,
+        config=config,
+        now=now,
+        edge=output.get("edge"),
+        mode=regime,
+    )
+    output.update(current_high_gate)
     widen = maybe_float(output.get("early_hour_guardrail_quote_widen_buffer")) or 0.0
-    if output.get("early_hour_guardrail_status") == "active" and widen > 0.0:
+    cadence_degraded = output.get("snapshot_cadence_quality_state") in {"gappy", "stale", "missing", "blocked"}
+    if cadence_degraded:
+        widen += maybe_float(output.get("snapshot_cadence_quote_widen_buffer")) or 0.0
+    if output.get("current_high_trust_gate_status") == "capped":
+        widen += maybe_float(output.get("current_high_trust_gate_quote_widen_buffer")) or 0.0
+    if widen > 0.0:
         min_price = float(config["min_price"])
         max_price = float(config["max_price"])
         if bid_price is not None:
@@ -928,6 +1074,22 @@ def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_pric
     if output.get("early_hour_guardrail_status") == "active" and size_multiplier < 1.0:
         size *= max(0.0, size_multiplier)
         limiter = "early_hour_market_guardrail"
+    cadence_size_multiplier = maybe_float(output.get("snapshot_cadence_quote_size_multiplier")) or 1.0
+    if cadence_degraded and cadence_size_multiplier < 1.0:
+        size *= max(0.0, cadence_size_multiplier)
+        limiter = (
+            "snapshot_cadence_quality"
+            if limiter == "configured_size"
+            else f"{limiter}+snapshot_cadence_quality"
+        )
+    current_high_size_multiplier = maybe_float(output.get("current_high_trust_gate_size_multiplier")) or 1.0
+    if output.get("current_high_trust_gate_status") == "capped" and current_high_size_multiplier < 1.0:
+        size *= max(0.0, current_high_size_multiplier)
+        limiter = (
+            "current_high_trust_gate"
+            if limiter == "configured_size"
+            else f"{limiter}+current_high_trust_gate"
+        )
     if size <= 0:
         return _no_quote(row, config, now, "NO_QUOTE_RISK_CAP", f"{limiter} leaves no quote size")
     output.update({
@@ -997,6 +1159,10 @@ def decide_quote(row, config=None, now=None):
     if model_age is None:
         model_age = age_seconds(row.get("captured_at_utc"), now)
     watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    cadence = snapshot_cadence_quality({
+        **row,
+        "model_age_seconds": model_age,
+    }, config=config, now=now)
     depth = maybe_float(first_present(row, "book_depth_1pct_total", "clob_depth_1pct_total")) or 0.0
     if fair is None:
         return _no_quote(row, config, now, "NO_QUOTE_MISSING_FAIR", "missing fair probability")
@@ -1008,12 +1174,27 @@ def decide_quote(row, config=None, now=None):
         return _no_quote(row, config, now, "NO_QUOTE_STALE_BOOK", "book age exceeds latency budget")
     if model_age is None or model_age > float(config["max_model_age_seconds"]):
         return _no_quote(row, config, now, "NO_QUOTE_STALE_MODEL", "model age exceeds latency budget")
+    if cadence.get("snapshot_cadence_permission") == "deny":
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED",
+            cadence.get("snapshot_cadence_reason") or "snapshot cadence quality gate denied quote permission",
+        )
     if watcher_age is None or watcher_age > float(config["max_watcher_age_seconds"]):
         return _no_quote(row, config, now, "NO_QUOTE_STALE_WATCHER", "watcher age exceeds latency budget")
     if depth < float(config["min_depth_1pct_total"]):
         return _no_quote(row, config, now, "NO_QUOTE_THIN_DEPTH", "book depth below minimum")
 
-    edge = fair - mid
+    fair_for_edge = cadence_adjusted_probability(
+        fair,
+        mid,
+        cadence.get("snapshot_cadence_confidence_multiplier"),
+    )
+    if fair_for_edge is None:
+        fair_for_edge = fair
+    edge = fair_for_edge - mid
     tick = float(config["tick_size"])
     min_price = float(config["min_price"])
     max_price = float(config["max_price"])
@@ -1024,8 +1205,24 @@ def decide_quote(row, config=None, now=None):
         + float(config["adverse_selection_buffer"])
     )
     guardrail = early_hour_guardrail_state(row, config=config, now=now)
+    current_high_edge_gate = current_high_trust_gate_state(
+        row,
+        config=config,
+        now=now,
+        edge=edge,
+        mode="edge",
+    )
 
     if promotion_state == "PASS" and known_edge_allowed and abs(edge) >= edge_threshold:
+        if current_high_edge_gate.get("current_high_trust_gate_status") == "blocked":
+            return _no_quote(
+                row,
+                config,
+                now,
+                "NO_QUOTE_CURRENT_HIGH_TRUST_GATE",
+                current_high_edge_gate.get("current_high_trust_gate_reason")
+                or "untrusted current-high state blocks aggressive edge quote",
+            )
         if (
             guardrail.get("early_hour_guardrail_status") == "active"
             and abs(edge) < float(guardrail["early_hour_guardrail_min_edge"])
@@ -1043,14 +1240,14 @@ def decide_quote(row, config=None, now=None):
         best_ask = clamp_probability(first_present(row, "clob_best_ask", "best_ask"))
         if edge > 0:
             ceiling = (best_ask - tick) if best_ask is not None else max_price
-            bid_price = max(min_price, min(ceiling, fair - float(config["adverse_selection_buffer"])))
+            bid_price = max(min_price, min(ceiling, fair_for_edge - float(config["adverse_selection_buffer"])))
             if best_ask is not None and bid_price >= best_ask:
                 return _no_quote(row, config, now, "NO_QUOTE_POST_ONLY_CROSS", "edge bid would cross ask")
             if best_bid is not None and bid_price <= best_bid:
                 return _no_quote(row, config, now, "NO_QUOTE_EDGE_TOO_SMALL", "edge does not improve resting bid")
             return _quote(row, config, now, "edge", "YES_BID", "QUOTE_EDGE_MODEL", bid_price=bid_price)
         floor = (best_bid + tick) if best_bid is not None else min_price
-        ask_price = min(max_price, max(floor, fair + float(config["adverse_selection_buffer"])))
+        ask_price = min(max_price, max(floor, fair_for_edge + float(config["adverse_selection_buffer"])))
         if best_bid is not None and ask_price <= best_bid:
             return _no_quote(row, config, now, "NO_QUOTE_POST_ONLY_CROSS", "edge ask would cross bid")
         if best_ask is not None and ask_price >= best_ask:
@@ -1083,6 +1280,12 @@ def _band_key_without_token(row):
 def source_status_kind(item):
     item = item or {}
     status = normalize_token(item.get("status"))
+    degradation = normalize_token(item.get("degradation_state"))
+    if status in {"expected_current_day_unavailable", "expected_unavailable"} or degradation in {
+        "expected_current_day_unavailable",
+        "expected_unavailable",
+    }:
+        return "expected_unavailable"
     ok = None
     if item.get("ok") not in (None, ""):
         ok = bool_value(item.get("ok"), None)
@@ -1117,7 +1320,7 @@ def source_freshness_state_from_rows(rows):
             continue
         by_state.setdefault(state, []).append(source)
     parts = []
-    for state in ("failed", "stale", "unknown"):
+    for state in ("failed", "expected_unavailable", "stale", "unknown"):
         if by_state.get(state):
             parts.append(f"{state}:{source_list_label(by_state[state])}")
     return ";".join(parts) if parts else "all_fresh"

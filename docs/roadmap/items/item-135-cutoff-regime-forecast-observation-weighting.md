@@ -1,4 +1,4 @@
-# 135. Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-19 - FINAL LOCK-IN PASS, REGIME GAPS BLOCKED]
+# 135. Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]
 
 Goal: make the model explicitly switch weight between forecast-profile evidence
 and observed-temperature-path evidence by cutoff regime.
@@ -97,3 +97,77 @@ current `0.0003`, market `0.0000`, and market gap `+0.0002`.
 The blocker has therefore changed. Final-lock-in row coverage is no longer the
 blocker; Item 135 needs early/midday/late market-gap repair. The all-hour
 regime blend is not an Item 48 promotion path by itself.
+
+## 2026-06-22 cutoff-regime disposition
+
+Added `weather.reporting.item135_cutoff_regime_disposition`, schema
+`item135_cutoff_regime_disposition_v0.1`, and generated:
+
+```powershell
+python -m weather.reporting.item135_cutoff_regime_disposition --out data\backtest\item135_cutoff_regime_disposition.json --report data\backtest\item135_cutoff_regime_disposition_report.md
+```
+
+Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. The report keeps the
+all-hour regime-weighted lane available as diagnostic evidence while making
+promotion fail closed.
+
+Passing evidence:
+
+- All-hour regime replay covered 67,430 rows across 44 market-days.
+- The market-day leakage audit passes with zero duplicate observation keys.
+- Aggregate and daily-first replay improve current.
+- Final lock-in passes on all-hour rows (`+0.0002` Brier versus market).
+- Lane separation is clean: the regime-weighted shadow lane does not use
+  market features.
+
+Promotion blockers:
+
+- Separate regime thresholds still block early (`+0.0034` versus market),
+  midday (`+0.0123`), and late (`+0.0074`).
+- Upstream Item 134 forecast-profile disposition remains blocked by daily-first
+  market tolerance.
+- The served-distribution calibration contract is still blocked
+  (`row_export_surrogate`, `DO_NOT_CUT_OVER`).
+- The positive daily-first gate is still blocked by the active early-hour
+  candidate market gap (`+0.0048`).
+
+Next action: keep Item 135 as a shadow cutoff-regime diagnostic. Do not promote
+the broad regime-weighted lane until early, midday, and late market gaps clear
+together with upstream Item 134 and the served-distribution/positive
+daily-first gates.
+
+## 2026-06-22 cutoff-regime disposition refresh
+
+Regenerated the Item 135 cutoff-regime disposition after refreshing upstream
+Item 134 plus the served-distribution and positive daily-first gates:
+
+- `data/backtest/item135_cutoff_regime_disposition.json`
+- `data/backtest/item135_cutoff_regime_disposition_report.md`
+
+The refreshed disposition remains `KEEP_SHADOW_DIAGNOSTIC`; promotion remains
+disallowed with `4` blockers. Passing evidence remains:
+
+- all-hour regime replay covered `67,430` rows across `44` market-days.
+- market-day leakage audit is `PASS`.
+- aggregate and daily-first regime replay improve current.
+- final lock-in threshold passes on all-hour rows with market gap `+0.0002`.
+- lane separation is clean: the regime-weighted lane remains no-market
+  weather-model evidence.
+
+Current blockers:
+
+- `regime_thresholds`: early, midday, and late remain blocked. Market gaps are
+  early `+0.0034`, midday `+0.0123`, and late `+0.0074` versus the `+0.0030`
+  tolerance.
+- `upstream_forecast_profile_disposition`: Item 134 remains shadow-only because
+  daily-first blocked validation is not within market tolerance.
+- `served_distribution_contract`: served-distribution evidence remains
+  `row_export_surrogate`, replay verdict is `BLOCK`, and cutover is
+  `DO_NOT_CUT_OVER`.
+- `positive_daily_first_gate`: the active repaired path still blocks on early-
+  hour Brier gap `+0.0048 > +0.0030`.
+
+This keeps Item 135 as a shadow cutoff-regime diagnostic. Do not promote the
+broad regime-weighted lane until early, midday, and late market gaps clear
+together with upstream Item 134 and the served-distribution/positive
+daily-first gates.

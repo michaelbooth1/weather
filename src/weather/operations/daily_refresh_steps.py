@@ -40,6 +40,7 @@ from weather.reporting import daily_rollup_freshness
 from weather.reporting import disagreement_casebook
 from weather.reporting import distribution_stage_attribution
 from weather.reporting import fleet_observability
+from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import price_free_model_learning
 from weather.reporting import progress_audit
@@ -65,6 +66,7 @@ STEP_ORDER = (
     "promotion_refresh",
     "shadow_ab_monitor",
     "active_variant_shadow",
+    "frozen_baseline_replay_trend",
     "model_variant_evidence_growth",
     "progress_audit",
     "disagreement_casebook",
@@ -659,6 +661,120 @@ def run_active_variant_shadow_step(args):
     }
 
 
+def _comma_paths(value):
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _filter_variant(rows, variant_id):
+    if not variant_id:
+        return rows
+    return [row for row in rows if row.get("variant_id") == variant_id]
+
+
+def run_frozen_baseline_replay_trend_step(args):
+    if getattr(args, "skip_frozen_baseline_replay_trend", False):
+        return {"status": "SKIPPED", "reason": "skip_frozen_baseline_replay_trend"}
+    current_paths = _comma_paths(getattr(args, "frozen_baseline_current_predictions", ""))
+    if not current_paths:
+        current_paths = [backtest_path(args, "active_variant_shadow_long.csv")]
+    missing_current = [path for path in current_paths if not Path(path).exists()]
+    if missing_current:
+        return {
+            "status": "SKIPPED",
+            "reason": "missing_current_frozen_baseline_predictions",
+            "missing_paths": missing_current,
+        }
+
+    manifest_path = Path(
+        getattr(args, "frozen_baseline_manifest", "")
+        or backtest_path(args, "frozen_baseline_manifest.json")
+    )
+    manifest = frozen_baseline_replay_trend.load_manifest(manifest_path) or {}
+    baseline_paths = _comma_paths(getattr(args, "frozen_baseline_baseline_predictions", ""))
+    if not baseline_paths:
+        baseline_paths = manifest.get("predictions_paths") or []
+    if not baseline_paths:
+        return {
+            "status": "MISSING",
+            "reason": "missing_pinned_baseline",
+            "manifest": as_path(manifest_path),
+        }
+    missing_baseline = [path for path in baseline_paths if not Path(path).exists()]
+    if missing_baseline:
+        return {
+            "status": "MISSING",
+            "reason": "missing_pinned_baseline_predictions",
+            "manifest": as_path(manifest_path),
+            "missing_paths": missing_baseline,
+        }
+
+    current_variant_id = getattr(args, "frozen_baseline_current_variant_id", "") or ""
+    baseline_variant_id = (
+        getattr(args, "frozen_baseline_baseline_variant_id", "")
+        or manifest.get("code_identity")
+        or ""
+    )
+    current_rows = _filter_variant(
+        frozen_baseline_replay_trend.read_prediction_rows(current_paths),
+        current_variant_id,
+    )
+    baseline_rows = _filter_variant(
+        frozen_baseline_replay_trend.read_prediction_rows(baseline_paths),
+        baseline_variant_id,
+    )
+    payload = frozen_baseline_replay_trend.build_payload(
+        current_rows,
+        baseline_rows,
+        manifest=manifest,
+        code_identity=(
+            getattr(args, "frozen_baseline_code_identity", "")
+            or current_variant_id
+            or None
+        ),
+        current_paths=current_paths,
+        baseline_paths=baseline_paths,
+    )
+    trend_jsonl = Path(
+        getattr(args, "frozen_baseline_trend_jsonl", "")
+        or backtest_path(args, "frozen_baseline_replay_trend.jsonl")
+    )
+    json_out = Path(
+        getattr(args, "frozen_baseline_json_out", "")
+        or backtest_path(args, "frozen_baseline_replay_trend.json")
+    )
+    report_out = Path(
+        getattr(args, "frozen_baseline_report_out", "")
+        or backtest_path(args, "frozen_baseline_replay_trend_report.md")
+    )
+    trend_rows = frozen_baseline_replay_trend.upsert_trend(
+        frozen_baseline_replay_trend.trend_row(payload),
+        trend_jsonl,
+    )
+    frozen_baseline_replay_trend.write_json(json_out, payload)
+    report_out.parent.mkdir(parents=True, exist_ok=True)
+    report_out.write_text(
+        frozen_baseline_replay_trend.render_report(payload, trend_rows),
+        encoding="utf-8",
+    )
+    overall = payload.get("overall") or {}
+    coverage = payload.get("coverage") or {}
+    return {
+        "status": payload.get("independent_baseline_status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "trend_jsonl": as_path(trend_jsonl),
+        "manifest": as_path(manifest_path),
+        "baseline_id": payload.get("baseline_id"),
+        "current_variant_id": current_variant_id,
+        "baseline_variant_id": baseline_variant_id,
+        "shared_observations": coverage.get("shared_observations"),
+        "shared_market_days": coverage.get("shared_market_days"),
+        "brier_delta_current_minus_baseline": overall.get("brier_delta_current_minus_baseline"),
+        "brier_delta_current_minus_market": overall.get("brier_delta_current_minus_market"),
+        "status_reasons": payload.get("status_reasons") or [],
+    }
+
+
 def run_model_variant_evidence_growth_step(args):
     if getattr(args, "skip_model_variant_evidence_growth", False):
         return {"status": "SKIPPED", "reason": "skip_model_variant_evidence_growth"}
@@ -877,8 +993,18 @@ def run_distribution_stage_attribution_step(args):
         "folder_count": payload.get("folder_count"),
         "settled_folder_count": payload.get("settled_folder_count"),
         "attribution_row_count": payload.get("attribution_row_count"),
+        "market_stage_row_count": len(payload.get("by_market_stage") or []),
+        "market_stage_cutoff_regime_row_count": len(
+            payload.get("by_market_stage_cutoff_regime") or []
+        ),
         "net_negative_stage_count": (payload.get("summary") or {}).get("net_negative_stage_count"),
         "top_net_negative_stage": (payload.get("summary") or {}).get("top_net_negative_stage"),
+        "bottom_location_winner_mass_blocker_count": (
+            payload.get("summary") or {}
+        ).get("bottom_location_winner_mass_blocker_count"),
+        "top_bottom_location_winner_mass_blocker": (
+            payload.get("summary") or {}
+        ).get("top_bottom_location_winner_mass_blocker"),
     }
 
 
@@ -1058,6 +1184,7 @@ DEFAULT_RUNNERS = (
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("active_variant_shadow", run_active_variant_shadow_step),
+    ("frozen_baseline_replay_trend", run_frozen_baseline_replay_trend_step),
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
@@ -1111,6 +1238,7 @@ def pipeline_summary(steps):
     price_free = ((by_name.get("price_free_model_learning") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
+    frozen_baseline = ((by_name.get("frozen_baseline_replay_trend") or {}).get("result") or {})
     variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
@@ -1187,6 +1315,21 @@ def pipeline_summary(steps):
             "summary": active_variant_shadow.get("summary") or {},
             "missing_active_variant_ids": active_variant_shadow.get("missing_active_variant_ids") or [],
             "blockers": active_variant_shadow.get("blockers") or [],
+        },
+        "frozen_baseline_replay_trend": {
+            "status": frozen_baseline.get("status"),
+            "baseline_id": frozen_baseline.get("baseline_id"),
+            "current_variant_id": frozen_baseline.get("current_variant_id"),
+            "baseline_variant_id": frozen_baseline.get("baseline_variant_id"),
+            "shared_observations": frozen_baseline.get("shared_observations"),
+            "shared_market_days": frozen_baseline.get("shared_market_days"),
+            "brier_delta_current_minus_baseline": frozen_baseline.get(
+                "brier_delta_current_minus_baseline"
+            ),
+            "brier_delta_current_minus_market": frozen_baseline.get(
+                "brier_delta_current_minus_market"
+            ),
+            "status_reasons": frozen_baseline.get("status_reasons") or [],
         },
         "model_variant_evidence_growth": {
             "status": variant_evidence.get("status"),

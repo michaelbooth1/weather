@@ -41,6 +41,7 @@ HOURLY_VARIABLES = (
     "cloud_cover_low",
     "cloud_cover_mid",
     "cloud_cover_high",
+    "precipitation",
     "shortwave_radiation",
     "direct_radiation",
     "diffuse_radiation",
@@ -51,6 +52,7 @@ HOURLY_VARIABLES = (
 )
 
 RICH_REANALYSIS_HOURLY_VARIABLES = (
+    "precipitation",
     "soil_temperature_0_to_7cm",
     "soil_moisture_0_to_7cm",
     "vapour_pressure_deficit",

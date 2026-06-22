@@ -1,4 +1,4 @@
-# 185. Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - CHILD GATE TRIAGE REFRESHED, VALIDATION PENDING]
+# 185. Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]
 
 Goal: integrate the highest-value weather data sources the daily-high research
 audit found the model is physically blind to, each earning its place by
@@ -60,14 +60,27 @@ see.
 ## 2026-06-22 Child-Gate Triage
 
 Refreshed `data/backtest/source_family_inventory.json` and
-`data/backtest/item138_weak_input_family_disposition.json`. The parent gate is
-still validation-pending; none of the 186-191 children has enough
-settlement-scored evidence for promotion.
+`data/backtest/item138_weak_input_family_disposition.json` again after the
+current promotion/retrain artifacts. The parent gate is still
+validation-pending; none of the 186-191 children has enough settlement-scored
+evidence for promotion. The first refresh showed source-family promotion
+preflight `BLOCK` with two parity blockers, `forecast_baseline` and
+`reanalysis_synoptic`, both `MISSING_FEATURE_COLUMNS`.
+
+I fixed the inventory preflight to evaluate train/serve parity against the
+active artifact's retained feature columns instead of every catalogued family
+column. That matters because the current artifact retained `4` forecast-baseline
+columns and `40` reanalysis columns; catalog-only or imputer-dropped columns
+were incorrectly counted as promotion blockers. Regenerating
+`data/backtest/source_family_inventory.json` at `2026-06-22T04:13:52Z` now
+reports source-family promotion preflight `PASS` with `0` blocking families.
+The bounded promotion refresh at `2026-06-22T04:14:28Z` also dropped the
+`source_family_preflight` blocker from readiness.
 
 | Child | Current Generated Evidence | Next Unblock |
 | :--- | :--- | :--- |
-| 186 soil/reanalysis dryness | `reanalysis_synoptic` remains `diagnostic_only`; weak-family coverage reports `40` low-coverage and `40` near-constant/unanalyzable features, with no positive broad family permutation gate. | Add the remaining antecedent precipitation / evaporative-fraction fields, then rerun per-market item-27 settlement gates. |
-| 187 forecast radiation | `open_meteo_forecast_profile` is served, but the weak-family report still has `44` low-coverage/sparse feature rows; the radiation subset has not cleared its own morning/midday settlement gate. | Run an isolated radiation-feature gate and require no late-day regression. |
+| 186 soil/reanalysis dryness | Source-family parity is now `PASS` for the active artifact's retained `40` reanalysis columns, and promotion preflight no longer blocks. The catalog-only soil-dryness columns are still absent from historical sidecars, and the child still lacks isolated settlement-scored soil/antecedent-dryness lift. | Add remaining antecedent precipitation / evaporative-fraction fields or explicitly keep them diagnostic, then run per-market soil-dryness settlement gates before promotion influence. |
+| 187 forecast radiation | `open_meteo_forecast_profile` is served and positive at broad family level, but the weak-family report still has `46` features with `44` low-coverage/sparse rows; the radiation subset has not cleared its own morning/midday settlement gate. | Run an isolated radiation-feature gate and require no late-day regression. |
 | 188 aerosol/smoke | Open-Meteo AQ live features exist, but the child still lacks historical AQ backfill/retrain support and a high-AOD/high-PM smoke-day slice. | Backfill AQ or prove replay-safe live history, then score the smoke slice. |
 | 189 ECMWF/ML-NWP members | `official_multimodel_guidance` is `regime_backfill` with `33` low-coverage and `19` near-constant/unanalyzable features; lineage/parity is incomplete. | Archive/backfill the global-model members and rerun predawn/morning settlement gates. |
 | 190 NBM probabilistic Tmax | NBM station percentiles are live under the official-guidance family, but QMD GRIB extraction and replay-safe historical probabilistic features remain open. | Add QMD/bucket-edge extraction or a replay-safe station archive, then score as a calibration anchor. |

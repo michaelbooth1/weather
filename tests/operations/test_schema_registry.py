@@ -14,9 +14,9 @@ from weather.schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.13")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.14")
         self.assertEqual(schema_version("feature_quality_quarantine"), "feature_quality_quarantine_v0.1")
-        self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.4")
+        self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.5")
         self.assertEqual(schema_version("pressure_level_cache_status"), "pressure_level_cache_status_v0.1")
         self.assertEqual(schema_version("reanalysis_sidecar_coverage_audit"), "reanalysis_sidecar_coverage_audit_v0.1")
         self.assertEqual(schema_version("historical_coverage"), "historical_coverage_v1")
@@ -35,6 +35,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("price_free_model_learning"), "price_free_model_learning_v0.1")
         self.assertEqual(schema_version("candidate_hourly_performance"), "candidate_hourly_performance_v0.1")
         self.assertEqual(schema_version("candidate_hourly_performance_gate"), "candidate_hourly_performance_gate_v0.1")
+        self.assertEqual(schema_version("candidate_variant_replay_summary"), "candidate_variant_replay_summary_v0.1")
         self.assertEqual(schema_version("ten_minute_model_performance"), "ten_minute_model_performance_v0.1")
         self.assertEqual(schema_version("ten_minute_performance_gate"), "ten_minute_performance_gate_v0.1")
         self.assertEqual(
@@ -42,6 +43,26 @@ class TestSchemaRegistry(unittest.TestCase):
             "candidate_ten_minute_performance_gate_v0.1",
         )
         self.assertEqual(schema_version("predawn_weak_slot_repair"), "predawn_weak_slot_repair_v0.1")
+        self.assertEqual(
+            schema_version("predawn_weak_slot_parameter_sweep"),
+            "predawn_weak_slot_parameter_sweep_v0.1",
+        )
+        self.assertEqual(
+            schema_version("bottom_location_winner_centering"),
+            "bottom_location_winner_centering_v0.1",
+        )
+        self.assertEqual(
+            schema_version("exact_band_distance_zero_calibration"),
+            "exact_band_distance_zero_calibration_v0.1",
+        )
+        self.assertEqual(
+            schema_version("market_residual_repair_program"),
+            "market_residual_repair_program_v0.1",
+        )
+        self.assertEqual(
+            schema_version("current_max_trust_retrain_gate"),
+            "current_max_trust_retrain_gate_v0.1",
+        )
         self.assertEqual(schema_version("config_inventory"), "config_inventory_v0.1")
         self.assertEqual(schema_version("location_registry"), "location_registry_v0.1")
         self.assertEqual(schema_version("location_market_events"), "location_market_events_v0.1")
@@ -52,6 +73,31 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("candidate_rank_sharpening_validation"), "candidate_rank_sharpening_validation_v0.1")
         self.assertEqual(schema_version("forecast_side_rank_validation"), "forecast_side_rank_validation_v0.1")
         self.assertEqual(schema_version("forecast_profile_guardrails"), "forecast_profile_guardrails_v0.1")
+        self.assertEqual(
+            schema_version("item134_forecast_profile_disposition"),
+            "item134_forecast_profile_disposition_v0.1",
+        )
+        self.assertEqual(
+            schema_version("item135_cutoff_regime_disposition"),
+            "item135_cutoff_regime_disposition_v0.1",
+        )
+        self.assertEqual(
+            schema_version("item136_source_state_disposition"),
+            "item136_source_state_disposition_v0.1",
+        )
+        self.assertEqual(
+            schema_version("item138_weak_input_family_gate"),
+            "item138_weak_input_family_gate_v0.1",
+        )
+        self.assertEqual(
+            schema_version("item186_soil_antecedent_gate"),
+            "item186_soil_antecedent_gate_v0.1",
+        )
+        self.assertEqual(schema_version("forecast_radiation_gate"), "forecast_radiation_gate_v0.1")
+        self.assertEqual(schema_version("forecast_smoke_gate"), "forecast_smoke_gate_v0.1")
+        self.assertEqual(schema_version("global_model_guidance_gate"), "global_model_guidance_gate_v0.1")
+        self.assertEqual(schema_version("nbm_probabilistic_tmax_gate"), "nbm_probabilistic_tmax_gate_v0.1")
+        self.assertEqual(schema_version("marine_contrast_gate"), "marine_contrast_gate_v0.1")
         self.assertEqual(schema_version("winner_band_signal_validation"), "winner_band_signal_validation_v0.1")
         self.assertEqual(schema_version("market_anchor_time_split_validation"), "market_anchor_time_split_validation_v0.2")
         self.assertEqual(schema_version("clob_coverage_audit"), "clob_coverage_audit_v0.3")
@@ -62,7 +108,23 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("module_size_audit"), "module_size_audit_v0.1")
         self.assertEqual(schema_version("pooled_continuous_density_hgb"), "pooled_continuous_density_hgb_v0.7")
         self.assertEqual(schema_version("pooled_all_market_band_hgb"), "pooled_all_market_band_hgb_v0.1")
+        self.assertEqual(schema_version("promotion_allowlist"), "promotion_allowlist_v0.1")
+        self.assertEqual(schema_version("source_missingness_location_gate"), "source_missingness_location_gate_v0.1")
         self.assertEqual(schema_version("pooled_all_market_band_hgb_exact_winner"), "pooled_all_market_band_hgb_exact_winner_v0.1")
+        self.assertEqual(schema_version("pooled_f_retrain_location_gate"), "pooled_f_retrain_location_gate_v0.1")
+        self.assertEqual(schema_version("serving_ordinal_smoothing_gate"), "serving_ordinal_smoothing_gate_v0.1")
+        self.assertEqual(
+            schema_version("served_distribution_calibration_contract"),
+            "served_distribution_calibration_contract_v0.1",
+        )
+        self.assertEqual(
+            schema_version("early_hour_positive_daily_first_gate"),
+            "early_hour_positive_daily_first_gate_v0.1",
+        )
+        self.assertEqual(
+            schema_version("item147_winner_centering_disposition"),
+            "item147_winner_centering_disposition_v0.1",
+        )
         self.assertEqual(schema_version("market_hour_kind_bias"), "market_hour_kind_bias_v1")
         self.assertEqual(schema_version("live_forward_gate"), "live_forward_gate_v0.2")
         self.assertEqual(schema_version("market_making_daily_roll"), "market_making_daily_roll_v0.2")

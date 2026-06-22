@@ -3,7 +3,10 @@ import sys
 import unittest
 from datetime import datetime
 from weather.model.toronto_model import TorontoHighTempModel, TORONTO_TZ, _UNLOADED
-from weather.model.model_distribution import DistributionPipelineState
+from weather.model.model_distribution import (
+    DistributionPipelineState,
+    EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS,
+)
 from weather.model.model_contracts import DistributionResult
 
 
@@ -631,11 +634,12 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertEqual(out, scores)
         self.assertNotIn("forecast_pull", pipeline.components)
 
-    def test_forecast_shape_stage_still_applies_to_empirical_fallback_path(self):
+    def test_forecast_shape_stage_applies_to_validated_empirical_fallback_market(self):
         pipeline = DistributionPipelineState()
         scores = {20: 0.70, 21: 0.20, 22: 0.10}
         now = datetime(2026, 5, 29, 10, 0, tzinfo=TORONTO_TZ)
 
+        self.assertIn("toronto", EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS)
         out = self.model.distribution_forecast_shape_stage(
             scores,
             forecast_values=[22.0, 22.1],
@@ -650,6 +654,33 @@ class TestDistributionHelpers(unittest.TestCase):
 
         self.assertNotEqual(out, scores)
         self.assertIn("forecast_pull", pipeline.components)
+        self.assertTrue(pipeline.metadata["forecast_shape_policy"]["enabled"])
+
+    def test_forecast_shape_stage_blocks_unvalidated_empirical_fallback_market(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="atlanta")
+        pipeline = DistributionPipelineState()
+        scores = {20: 0.70, 21: 0.20, 22: 0.10}
+        now = datetime(2026, 5, 29, 10, 0, tzinfo=TORONTO_TZ)
+
+        out = model.distribution_forecast_shape_stage(
+            scores,
+            forecast_values=[22.0, 22.1],
+            history={"rows": []},
+            now=now,
+            observed_bucket=20,
+            current_observed_bucket=20,
+            using_feature_model=False,
+            using_calibrated_empirical=False,
+            pipeline=pipeline,
+        )
+
+        self.assertEqual(out, scores)
+        self.assertNotIn("forecast_pull", pipeline.components)
+        self.assertFalse(pipeline.metadata["forecast_shape_policy"]["enabled"])
+        self.assertEqual(
+            pipeline.metadata["forecast_shape_policy"]["reason"],
+            "empirical_fallback_market_not_validated",
+        )
         self.assertAlmostEqual(sum(out.values()), 1.0, places=6)
 
     def test_observed_floor_stage_records_each_floor_snapshot(self):

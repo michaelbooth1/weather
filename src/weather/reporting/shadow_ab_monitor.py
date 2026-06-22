@@ -48,7 +48,11 @@ def maybe_float(value):
 
 
 def decision_by_market(promotion):
-    decisions = (promotion.get("decisions") or {}).get("markets") or []
+    decisions = (
+        (promotion.get("promotion_allowlist") or {}).get("markets")
+        or (promotion.get("decisions") or {}).get("markets")
+        or []
+    )
     return {
         str(row.get("market_id")): row
         for row in decisions
@@ -195,6 +199,12 @@ def build_monitor(
         "generated_at_utc": utc_iso(),
         "status": status,
         "promotion_refresh_path": str(promotion_refresh),
+        "promotion_allowlist": {
+            "present": bool((promotion.get("promotion_allowlist") or {}).get("markets")),
+            "schema_version": (promotion.get("promotion_allowlist") or {}).get("schema_version"),
+            "path": (promotion.get("promotion_allowlist") or {}).get("path"),
+            "candidate_id": (promotion.get("promotion_allowlist") or {}).get("candidate_id"),
+        },
         "candidate_replay_path": str(candidate_replay),
         "thresholds": {
             "current_regression_tol": current_tol,
@@ -219,6 +229,7 @@ def build_monitor(
 
 def render_report(payload):
     summary = payload.get("summary") or {}
+    allowlist = payload.get("promotion_allowlist") or {}
     lines = [
         "# Shadow/A-B Monitor",
         "",
@@ -240,6 +251,9 @@ def render_report(payload):
             ["Unique observations", summary.get("unique_observation_count", 0)],
             ["Snapshots", summary.get("snapshot_count", 0)],
             ["Market-days", summary.get("market_day_count", 0)],
+            ["Promotion allowlist", allowlist.get("present")],
+            ["Allowlist candidate", allowlist.get("candidate_id") or "-"],
+            ["Allowlist path", allowlist.get("path") or "-"],
         ],
     )
     alerts = payload.get("global_alerts") or []

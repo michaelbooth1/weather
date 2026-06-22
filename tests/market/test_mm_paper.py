@@ -414,6 +414,70 @@ def write_snapshot_fixture(root):
 
 
 class TestMMPaper(unittest.TestCase):
+    def test_known_edge_map_prefers_promotion_allowlist_over_legacy_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            promotion = root / "promotion.json"
+            promotion.write_text(json.dumps({
+                "decisions": {
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "action": "PROMOTE_CANDIDATE",
+                            "verdict": "PASS",
+                            "metrics": {"delta_vs_market": -0.01},
+                        }
+                    ]
+                },
+                "promotion_allowlist": {
+                    "schema_version": "promotion_allowlist_v0.1",
+                    "candidate_id": "candidate_v1",
+                    "markets": [
+                        {
+                            "market_id": "atlanta",
+                            "candidate_id": "candidate_v1",
+                            "action": "BLOCK_CANDIDATE",
+                            "verdict": "BLOCK",
+                            "candidate_permission_allowed": False,
+                            "candidate_serving_allowed": False,
+                            "blocker_reason": "candidate trails market by +0.0148 > 0.0030",
+                            "delta_vs_market": 0.0148,
+                        }
+                    ],
+                },
+            }), encoding="utf-8")
+            paper_payload = {
+                "schema_version": "mm_paper_v0.1",
+                "summary": {
+                    "conservative_fills": 8,
+                    "anti_overfit": {"live_forward_days": ["2026-06-01"] * 14},
+                },
+                "markout_slices": [
+                    {
+                        "market_id": "atlanta",
+                        "hour_utc": "15",
+                        "band_distance_bucket": "edge_3c_8c",
+                        "band_type": "eq",
+                        "casebook_taxonomy": "market_lead",
+                        "regime": "daytime",
+                        "source_fresh": "true",
+                        "book_imbalance_bucket": "balanced",
+                        "fill_count": 8,
+                        "markout_30m_ci_low": 0.02,
+                        "net_pnl_after_fees_incentives_usdc": 3.0,
+                    }
+                ],
+            }
+
+            known_edge = build_known_edge_map(paper_payload, promotion_refresh=promotion)
+            record = next(row for row in known_edge["records"] if row.get("cutoff") == "paper_slice")
+
+        self.assertEqual(record["base_permission"], "BLOCK")
+        self.assertEqual(record["permission"], "no_quote")
+        self.assertEqual(record["reason"], "promotion_block")
+        self.assertTrue(record["promotion"]["promotion_allowlist_enforced"])
+        self.assertEqual(record["promotion"]["candidate_id"], "candidate_v1")
+
     def test_conservative_fills_queue_markouts_incentives_and_known_edge_map(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

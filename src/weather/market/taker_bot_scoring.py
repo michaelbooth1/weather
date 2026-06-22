@@ -247,12 +247,232 @@ def independent_opinion_key(row):
     )
 
 
-def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
+def _numeric_config(config, key, default):
+    value = maybe_float((config or {}).get(key))
+    return default if value is None else value
+
+
+def _int_config(config, key, default):
+    value = maybe_float((config or {}).get(key))
+    return int(default if value is None else value)
+
+
+def promotion_thresholds(policy_config=None):
+    policy_config = policy_config or {}
+    return {
+        "min_settled_orders": _int_config(
+            policy_config,
+            "promotion_min_settled_orders",
+            DEFAULT_PROMOTION_MIN_SETTLED_ORDERS,
+        ),
+        "min_settled_markets": _int_config(
+            policy_config,
+            "promotion_min_settled_markets",
+            DEFAULT_PROMOTION_MIN_SETTLED_MARKETS,
+        ),
+        "min_settled_net_pnl_usdc": _numeric_config(
+            policy_config,
+            "promotion_min_settled_net_pnl_usdc",
+            DEFAULT_PROMOTION_MIN_SETTLED_NET_PNL_USDC,
+        ),
+        "min_settled_expected_pnl_usdc": _numeric_config(
+            policy_config,
+            "promotion_min_settled_expected_pnl_usdc",
+            DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC,
+        ),
+        "max_tail_fill_fraction": _numeric_config(
+            policy_config,
+            "promotion_max_tail_fill_fraction",
+            DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
+        ),
+    }
+
+
+def tail_fill_detail(row):
+    return {
+        "strategy_id": strategy_id_for_row(row),
+        "market_id": row.get("market_id") or "",
+        "event_slug": row.get("event_slug") or "",
+        "range_label": row.get("range_label") or "",
+        "clob_token_id": row.get("clob_token_id") or "",
+        "fair_probability": compact_float(first_present(row, "fair_probability", "model_probability")),
+        "market_probability": compact_float(first_present(row, "best_ask", "clob_best_ask", "market_mid")),
+        "fill_price": compact_float(row.get("fill_price")),
+        "filled_shares": compact_float(row.get("fill_size")),
+        "spent_usdc": compact_float(row.get("total_spent_usdc")),
+        "pnl_source": row.get("pnl_source") or "",
+        "settlement_status": row.get("settlement_status") or "",
+        "settlement_outcome": compact_float(row.get("settlement_outcome")),
+        "settlement_pnl_usdc": compact_float(row.get("settlement_pnl_usdc")),
+        "mark_to_market_pnl_usdc": compact_float(row.get("mark_pnl_usdc")),
+        "net_pnl_usdc": compact_float(row.get("net_pnl_usdc")),
+    }
+
+
+def tail_fill_quality_payload(rows, max_tail_fill_fraction=DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION):
+    filled = [row for row in rows or [] if str(row.get("order_status") or "").upper() == "FILLED"]
+    tail_rows = [row for row in filled if bool_value(row.get("low_price_tail"), False)]
+    settled_tail = [row for row in tail_rows if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+    unsettled_tail = [row for row in tail_rows if row.get("pnl_source") not in SETTLEMENT_PNL_SOURCES]
+    fill_count = len(filled)
+    tail_count = len(tail_rows)
+    fraction = tail_count / fill_count if fill_count else 0.0
+    threshold = float(max_tail_fill_fraction)
+    high_fraction = tail_count > 0 and fraction > threshold
+    missing_settlement = tail_count > 0 and not settled_tail
+    alerts = []
+    if high_fraction:
+        alerts.append({
+            "code": "HIGH_TAIL_FILL_FRACTION",
+            "detail": (
+                f"{tail_count}/{fill_count} filled orders are low-price tail fills; "
+                f"threshold={threshold:.4f}"
+            ),
+        })
+    if missing_settlement:
+        alerts.append({
+            "code": "TAIL_FILLS_MISSING_SETTLEMENT",
+            "detail": "low-price tail fills have no settlement-scored outcomes yet",
+        })
+    by_key = defaultdict(lambda: {
+        "strategy_id": "",
+        "market_id": "",
+        "range_label": "",
+        "fill_count": 0,
+        "settled_count": 0,
+        "win_count": 0,
+        "loss_count": 0,
+        "spent_usdc": 0.0,
+        "settlement_pnl_usdc": 0.0,
+        "mark_to_market_pnl_usdc": 0.0,
+        "net_pnl_usdc": 0.0,
+    })
+    for row in tail_rows:
+        key = (strategy_id_for_row(row), row.get("market_id") or "", row.get("range_label") or "")
+        bucket = by_key[key]
+        bucket["strategy_id"], bucket["market_id"], bucket["range_label"] = key
+        bucket["fill_count"] += 1
+        bucket["spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
+        bucket["settlement_pnl_usdc"] += maybe_float(row.get("settlement_pnl_usdc")) or 0.0
+        bucket["mark_to_market_pnl_usdc"] += maybe_float(row.get("mark_pnl_usdc")) or 0.0
+        bucket["net_pnl_usdc"] += maybe_float(row.get("net_pnl_usdc")) or 0.0
+        if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES:
+            bucket["settled_count"] += 1
+        outcome = maybe_float(row.get("settlement_outcome"))
+        if outcome == 1.0:
+            bucket["win_count"] += 1
+        elif outcome == 0.0:
+            bucket["loss_count"] += 1
+    by_market_range = [
+        {
+            **value,
+            "spent_usdc": round(value["spent_usdc"], 6),
+            "settlement_pnl_usdc": round(value["settlement_pnl_usdc"], 6),
+            "mark_to_market_pnl_usdc": round(value["mark_to_market_pnl_usdc"], 6),
+            "net_pnl_usdc": round(value["net_pnl_usdc"], 6),
+        }
+        for _key, value in sorted(by_key.items())
+    ]
+    status = (
+        "WARN_HIGH_TAIL_SHARE"
+        if high_fraction else
+        "PENDING_SETTLEMENT"
+        if missing_settlement else
+        "NO_TAIL_FILLS"
+        if tail_count == 0 else
+        "PASS"
+    )
+    return {
+        "summary": {
+            "status": status,
+            "filled_order_count": fill_count,
+            "low_price_tail_fill_count": tail_count,
+            "low_price_tail_fill_fraction": compact_float(fraction),
+            "max_tail_fill_fraction": compact_float(threshold),
+            "settled_tail_fill_count": len(settled_tail),
+            "unsettled_tail_fill_count": len(unsettled_tail),
+            "tail_win_count": sum(1 for row in settled_tail if maybe_float(row.get("settlement_outcome")) == 1.0),
+            "tail_loss_count": sum(1 for row in settled_tail if maybe_float(row.get("settlement_outcome")) == 0.0),
+            "tail_spent_usdc": sum_field(tail_rows, "total_spent_usdc"),
+            "tail_settlement_pnl_usdc": sum_field(settled_tail, "settlement_pnl_usdc"),
+            "tail_mark_to_market_pnl_usdc": sum_field(unsettled_tail, "mark_pnl_usdc"),
+            "alert_count": len(alerts),
+            "alerts": alerts,
+        },
+        "by_market_range": by_market_range,
+        "fills": [tail_fill_detail(row) for row in tail_rows],
+    }
+
+
+def settlement_promotion_gate(strategy_row, thresholds):
+    settled_orders = int(strategy_row.get("settled_order_count") or 0)
+    settled_markets = int(strategy_row.get("settled_market_count") or 0)
+    unsettled_orders = int(strategy_row.get("unsettled_order_count") or 0)
+    unscored_orders = int(strategy_row.get("unscored_order_count") or 0)
+    settled_net = maybe_float(strategy_row.get("settlement_scored_net_pnl_usdc")) or 0.0
+    settled_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
+    tail_summary = strategy_row.get("tail_fill_quality_summary") or {}
+    max_tail_fraction = maybe_float(thresholds.get("max_tail_fill_fraction")) or 0.0
+    tail_fraction = maybe_float(tail_summary.get("low_price_tail_fill_fraction")) or 0.0
+    gates = [
+        {
+            "name": "min_settled_orders",
+            "ok": settled_orders >= int(thresholds.get("min_settled_orders") or 0),
+            "value": settled_orders,
+            "threshold": int(thresholds.get("min_settled_orders") or 0),
+        },
+        {
+            "name": "min_settled_markets",
+            "ok": settled_markets >= int(thresholds.get("min_settled_markets") or 0),
+            "value": settled_markets,
+            "threshold": int(thresholds.get("min_settled_markets") or 0),
+        },
+        {
+            "name": "min_settlement_scored_net_pnl",
+            "ok": settled_net >= float(thresholds.get("min_settled_net_pnl_usdc") or 0.0),
+            "value": compact_float(settled_net),
+            "threshold": compact_float(thresholds.get("min_settled_net_pnl_usdc")),
+        },
+        {
+            "name": "min_settlement_scored_expected_pnl",
+            "ok": settled_expected >= float(thresholds.get("min_settled_expected_pnl_usdc") or 0.0),
+            "value": compact_float(settled_expected),
+            "threshold": compact_float(thresholds.get("min_settled_expected_pnl_usdc")),
+        },
+        {
+            "name": "no_unresolved_orders",
+            "ok": unsettled_orders == 0 and unscored_orders == 0,
+            "value": unsettled_orders + unscored_orders,
+            "threshold": 0,
+        },
+        {
+            "name": "max_tail_fill_fraction",
+            "ok": tail_fraction <= max_tail_fraction,
+            "value": compact_float(tail_fraction),
+            "threshold": compact_float(max_tail_fraction),
+        },
+    ]
+    failed = [row["name"] for row in gates if not row["ok"]]
+    return {
+        "basis": "settlement_scored",
+        "status": "PASS" if not failed else "BLOCK",
+        "failed_gates": failed,
+        "gates": gates,
+        **thresholds,
+    }
+
+
+def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, policy_config=None):
     now = utc_now(now)
+    thresholds = promotion_thresholds(policy_config)
     filled = [row for row in order_rows if str(row.get("order_status") or "").upper() == "FILLED"]
     settled = [row for row in filled if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
     marked = [row for row in filled if row.get("pnl_source") == "mark_to_market"]
     unscored = [row for row in filled if row.get("pnl_source") == "unscored"]
+    tail_quality = tail_fill_quality_payload(
+        filled,
+        max_tail_fill_fraction=thresholds["max_tail_fill_fraction"],
+    )
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in order_rows)
     by_market = defaultdict(lambda: {
         "filled_order_count": 0,
@@ -281,12 +501,22 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         "risk_adjusted_expected_pnl_usdc": 0.0,
         "net_pnl_usdc": 0.0,
         "settled_order_count": 0,
+        "settled_markets": set(),
+        "settlement_scored_expected_pnl_usdc": 0.0,
+        "settlement_scored_risk_adjusted_expected_pnl_usdc": 0.0,
         "unsettled_order_count": 0,
         "unscored_order_count": 0,
         "win_count": 0,
         "loss_count": 0,
         "low_price_tail_fill_count": 0,
         "low_price_tail_spent_usdc": 0.0,
+        "low_price_tail_settled_count": 0,
+        "low_price_tail_unsettled_count": 0,
+        "low_price_tail_win_count": 0,
+        "low_price_tail_loss_count": 0,
+        "low_price_tail_settlement_pnl_usdc": 0.0,
+        "low_price_tail_mark_to_market_pnl_usdc": 0.0,
+        "low_price_tail_net_pnl_usdc": 0.0,
         "clob_continuity_fail_count": 0,
         "mark_sanity_outlier_count": 0,
         "stale_book_rows": 0,
@@ -338,18 +568,29 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         strat["settlement_pnl_usdc"] += maybe_float(row.get("settlement_pnl_usdc")) or 0.0
         strat["mark_to_market_pnl_usdc"] += maybe_float(row.get("mark_pnl_usdc")) or 0.0
         edge = maybe_float(first_present(row, "expected_profit_per_share", "edge"))
+        expected_contribution = None
         if edge is not None:
-            strat["expected_pnl_usdc"] += (edge * (maybe_float(row.get("fill_size")) or 0.0)) - (
+            expected_contribution = (edge * (maybe_float(row.get("fill_size")) or 0.0)) - (
                 maybe_float(row.get("fee_usdc")) or 0.0
             )
+            strat["expected_pnl_usdc"] += expected_contribution
         risk_edge = maybe_float(first_present(row, "risk_adjusted_expected_profit_per_share", "risk_adjusted_edge"))
+        risk_contribution = None
         if risk_edge is not None:
-            strat["risk_adjusted_expected_pnl_usdc"] += (
+            risk_contribution = (
                 risk_edge * (maybe_float(row.get("fill_size")) or 0.0)
             ) - (maybe_float(row.get("fee_usdc")) or 0.0)
+            strat["risk_adjusted_expected_pnl_usdc"] += risk_contribution
         if bool_value(row.get("low_price_tail"), False):
             strat["low_price_tail_fill_count"] += 1
             strat["low_price_tail_spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
+            strat["low_price_tail_net_pnl_usdc"] += maybe_float(row.get("net_pnl_usdc")) or 0.0
+            if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES:
+                strat["low_price_tail_settled_count"] += 1
+                strat["low_price_tail_settlement_pnl_usdc"] += maybe_float(row.get("settlement_pnl_usdc")) or 0.0
+            else:
+                strat["low_price_tail_unsettled_count"] += 1
+                strat["low_price_tail_mark_to_market_pnl_usdc"] += maybe_float(row.get("mark_pnl_usdc")) or 0.0
         if row.get("clob_continuity_status") not in {"", "pass"}:
             strat["clob_continuity_fail_count"] += 1
         if row.get("mark_sanity_status") == "outlier":
@@ -357,6 +598,11 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         strat["net_pnl_usdc"] += maybe_float(row.get("net_pnl_usdc")) or 0.0
         if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES:
             strat["settled_order_count"] += 1
+            strat["settled_markets"].add(market_id)
+            if expected_contribution is not None:
+                strat["settlement_scored_expected_pnl_usdc"] += expected_contribution
+            if risk_contribution is not None:
+                strat["settlement_scored_risk_adjusted_expected_pnl_usdc"] += risk_contribution
         elif row.get("pnl_source") == "mark_to_market":
             strat["unsettled_order_count"] += 1
         else:
@@ -364,8 +610,12 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
             strat["unscored_order_count"] += 1
         if maybe_float(row.get("settlement_outcome")) == 1.0:
             strat["win_count"] += 1
+            if bool_value(row.get("low_price_tail"), False):
+                strat["low_price_tail_win_count"] += 1
         elif maybe_float(row.get("settlement_outcome")) == 0.0:
             strat["loss_count"] += 1
+            if bool_value(row.get("low_price_tail"), False):
+                strat["low_price_tail_loss_count"] += 1
         strat["filled_opinions"].add(independent_opinion_key(row))
         token = row.get("clob_token_id") or row.get("order_id") or ""
         pos = positions[token]
@@ -396,12 +646,21 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         "settlement_pnl_usdc": sum_field(settled, "settlement_pnl_usdc"),
         "mark_to_market_pnl_usdc": sum_field(marked, "mark_pnl_usdc"),
         "net_pnl_usdc": sum_field([row for row in filled if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc"),
+        "low_price_tail_fill_count": tail_quality["summary"]["low_price_tail_fill_count"],
+        "low_price_tail_fill_fraction": tail_quality["summary"]["low_price_tail_fill_fraction"],
+        "tail_fill_quality_status": tail_quality["summary"]["status"],
+        "tail_fill_alert_count": tail_quality["summary"]["alert_count"],
         "win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
         "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
         "reason_counts": dict(sorted(reason_counts.items())),
     }
     strategy_rows = []
     for key, value in sorted(by_strategy.items()):
+        strategy_fills = [row for row in filled if strategy_id_for_row(row) == key]
+        strategy_tail_quality = tail_fill_quality_payload(
+            strategy_fills,
+            max_tail_fill_fraction=thresholds["max_tail_fill_fraction"],
+        )
         row = {
             "experiment_id": value["experiment_id"],
             "strategy_id": key,
@@ -431,6 +690,13 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
             ),
             "net_pnl_usdc": round(value["net_pnl_usdc"], 6),
             "settled_order_count": value["settled_order_count"],
+            "settled_market_count": len(value["settled_markets"]),
+            "settlement_scored_net_pnl_usdc": round(value["settlement_pnl_usdc"], 6),
+            "settlement_scored_expected_pnl_usdc": round(value["settlement_scored_expected_pnl_usdc"], 6),
+            "settlement_scored_risk_adjusted_expected_pnl_usdc": round(
+                value["settlement_scored_risk_adjusted_expected_pnl_usdc"],
+                6,
+            ),
             "unsettled_order_count": value["unsettled_order_count"],
             "unscored_order_count": value["unscored_order_count"],
             "win_count": value["win_count"],
@@ -438,6 +704,19 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
             "independent_opinion_count": len(value["filled_opinions"]),
             "low_price_tail_fill_count": value["low_price_tail_fill_count"],
             "low_price_tail_spent_usdc": round(value["low_price_tail_spent_usdc"], 6),
+            "low_price_tail_fill_fraction": compact_float(
+                value["low_price_tail_fill_count"] / value["filled_order_count"]
+                if value["filled_order_count"] else 0.0
+            ),
+            "low_price_tail_settled_count": value["low_price_tail_settled_count"],
+            "low_price_tail_unsettled_count": value["low_price_tail_unsettled_count"],
+            "low_price_tail_win_count": value["low_price_tail_win_count"],
+            "low_price_tail_loss_count": value["low_price_tail_loss_count"],
+            "low_price_tail_settlement_pnl_usdc": round(value["low_price_tail_settlement_pnl_usdc"], 6),
+            "low_price_tail_mark_to_market_pnl_usdc": round(value["low_price_tail_mark_to_market_pnl_usdc"], 6),
+            "low_price_tail_net_pnl_usdc": round(value["low_price_tail_net_pnl_usdc"], 6),
+            "tail_fill_quality_summary": strategy_tail_quality["summary"],
+            "tail_fill_quality_by_market_range": strategy_tail_quality["by_market_range"],
             "clob_continuity_fail_count": value["clob_continuity_fail_count"],
             "mark_sanity_outlier_count": value["mark_sanity_outlier_count"],
             "stale_book_rows": value["stale_book_rows"],
@@ -447,11 +726,14 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
                 value["unsettled_order_count"] - value["unscored_order_count"],
                 value["unscored_order_count"],
             ),
-            "quality_candidate_countable": bool(
-                value["settled_order_count"] > 0 and value["unsettled_order_count"] == 0
-            ),
             "reason_counts": dict(sorted(value["reason_counts"].items())),
         }
+        gate = settlement_promotion_gate(row, thresholds)
+        row["settlement_promotion_gate"] = gate
+        row["settlement_promotion_gate_status"] = gate["status"]
+        row["settlement_promotion_failed_gates"] = gate["failed_gates"]
+        row["quality_candidate_countable"] = gate["status"] == "PASS"
+        row["quality_candidate_evidence_basis"] = "settlement_scored"
         strategy_rows.append(row)
     best_by_net = max(strategy_rows, key=lambda row: row["net_pnl_usdc"], default=None)
     countable_candidates = [row for row in strategy_rows if row["quality_candidate_countable"]]
@@ -467,6 +749,9 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         "countable_strategy_quality_candidate_status": (
             "COUNTABLE_SETTLED" if best_countable else "MISSING_SETTLED_SAMPLE"
         ),
+        "promotion_thresholds": thresholds,
+        "promotion_evidence_basis": "settlement_scored",
+        "mtm_promotion_allowed": False,
     }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -476,6 +761,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None):
         "summary": summary,
         "by_strategy": strategy_rows,
         "strategy_comparison": strategy_comparison,
+        "tail_fill_quality": tail_quality,
         "by_market": [
             {
                 "market_id": key,

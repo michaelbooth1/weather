@@ -90,6 +90,8 @@ VARIANT_METADATA_FIELDS = (
     "variant_family",
     "uses_market_features",
     "is_control",
+    "claim_lane",
+    "counts_toward_weather_model_promotion",
     "artifact_hash",
     "postprocess_config_hash",
     "experiment_start_date",
@@ -112,6 +114,10 @@ LONG_TABLE_COLUMNS = [
     "variant_family",
     "uses_market_features",
     "is_control",
+    "claim_lane",
+    "counts_toward_weather_model_promotion",
+    "quote_risk_eligible",
+    "quote_risk_gate_reason",
     "market_id",
     "target_date",
     "snapshot_id",
@@ -242,9 +248,25 @@ def normalize_row(raw, row_number=None):
             value = maybe_float(value)
         elif field in {"uses_market_features", "is_control", "used_extra_location_labels", "target_local_labels_present"}:
             value = parse_bool(value)
+        elif field in {"counts_toward_weather_model_promotion", "quote_risk_eligible"}:
+            value = None if value in (None, "") else parse_bool(value)
         elif value is not None:
             value = str(value)
         out[field] = value
+
+    if not out.get("claim_lane"):
+        out["claim_lane"] = (
+            "market_informed_quote_risk"
+            if out.get("uses_market_features")
+            else "weather_only_core_model"
+        )
+    if out.get("counts_toward_weather_model_promotion") is None:
+        out["counts_toward_weather_model_promotion"] = out.get("claim_lane") == "weather_only_core_model"
+    if out.get("quote_risk_eligible") is None:
+        out["quote_risk_eligible"] = False
+    if not out.get("quote_risk_gate_reason") and out.get("claim_lane") == "weather_only_core_model":
+        out["quote_risk_gate_reason"] = "weather_only_core_model"
+
     if not out.get("attribution_schema_version") and any(
         out.get(field) not in (None, "")
         for field in ATTRIBUTION_COLUMNS
@@ -374,6 +396,36 @@ def attribution_summary(rows):
             for field, count in field_counts.items()
         },
         "slice_fields": [field for field, _label in ATTRIBUTION_SLICE_FIELDS],
+    }
+
+
+def claim_lane_summary(rows):
+    lanes = {}
+    for row in rows:
+        lane = str(row.get("claim_lane") or "unassigned")
+        bucket = lanes.setdefault(lane, {
+            "rows": 0,
+            "variant_ids": set(),
+            "uses_market_features_rows": 0,
+            "counts_toward_weather_model_promotion_rows": 0,
+            "quote_risk_eligible_rows": 0,
+        })
+        bucket["rows"] += 1
+        if row.get("variant_id"):
+            bucket["variant_ids"].add(row.get("variant_id"))
+        if row.get("uses_market_features"):
+            bucket["uses_market_features_rows"] += 1
+        if row.get("counts_toward_weather_model_promotion"):
+            bucket["counts_toward_weather_model_promotion_rows"] += 1
+        if row.get("quote_risk_eligible"):
+            bucket["quote_risk_eligible_rows"] += 1
+    return {
+        lane: {
+            **values,
+            "variant_ids": sorted(values["variant_ids"]),
+            "variant_count": len(values["variant_ids"]),
+        }
+        for lane, values in sorted(lanes.items())
     }
 
 
@@ -600,6 +652,8 @@ def variant_metadata(rows):
         "variant_family": first.get("variant_family"),
         "uses_market_features": bool(first.get("uses_market_features")),
         "is_control": bool(first.get("is_control")),
+        "claim_lane": first.get("claim_lane"),
+        "counts_toward_weather_model_promotion": bool(first.get("counts_toward_weather_model_promotion")),
         "artifact_hash": first.get("artifact_hash"),
         "postprocess_config_hash": first.get("postprocess_config_hash"),
         "experiment_start_date": first.get("experiment_start_date"),
@@ -1065,6 +1119,7 @@ def build_payload(
             "by_market": evidence_by_market(rows),
         },
         "attribution": attribution_summary(rows),
+        "claim_lanes": claim_lane_summary(rows),
         "attribution_slices": attribution_slice_summary(rows),
         "deduplication": deduplication,
         "variant_registry": registry_info,
@@ -1275,6 +1330,21 @@ def _attribution_slice_rows(payload):
     return rows[:75] or [["-", "-", 0, 0, "-", "-", "-", "-"]]
 
 
+def _claim_lane_rows(claim_lanes):
+    rows = []
+    for lane, item in sorted((claim_lanes or {}).items()):
+        rows.append([
+            lane,
+            item.get("rows", 0),
+            item.get("variant_count", 0),
+            ", ".join(item.get("variant_ids") or []) or "-",
+            item.get("counts_toward_weather_model_promotion_rows", 0),
+            item.get("quote_risk_eligible_rows", 0),
+            item.get("uses_market_features_rows", 0),
+        ])
+    return rows or [["-", 0, 0, "-", 0, 0, 0]]
+
+
 def _market_rows(variant):
     rows = []
     for item in variant.get("by_market") or []:
@@ -1462,6 +1532,19 @@ def render_report(payload):
             ]
             for name, track in active_tracks.items()
         ],
+    )
+    lines += ["", "## Claim Lane Separation", ""]
+    lines += markdown_table(
+        [
+            "Claim Lane",
+            "Rows",
+            "Variants",
+            "Variant IDs",
+            "Weather Promotion Rows",
+            "Quote-Risk Eligible Rows",
+            "Market-Feature Rows",
+        ],
+        _claim_lane_rows(payload.get("claim_lanes") or {}),
     )
     lane = payload.get("extra_location_shadow_lane") or {}
     lines += [

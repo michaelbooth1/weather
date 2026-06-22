@@ -1,7 +1,13 @@
 """Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
 
 from weather.reporting.fleet_observability_gates import *  # noqa: F403
-from weather.reporting.trading_evidence import DEFAULT_MM_RUNS_ROOT, mm_evidence_starvation_summary
+from weather.reporting.trading_evidence import (
+    DEFAULT_MM_RUNS_ROOT,
+    DEFAULT_TAKER_RUNS_ROOT,
+    build_trading_evidence_summary,
+    mm_evidence_starvation_summary,
+)
+from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -19,6 +25,39 @@ def mm_evidence_starvation_alerts(starvation):
         "message": alert.get("message"),
         "detail": detail,
     }]
+
+
+def runtime_identity_target_date(collection):
+    dates = [
+        str(row.get("target_date"))
+        for row in (collection or {}).get("markets") or []
+        if row.get("target_date")
+    ]
+    if not dates:
+        return None
+    counts = Counter(dates)
+    return sorted(counts.items(), key=lambda pair: (pair[1], pair[0]), reverse=True)[0][0]
+
+
+def runtime_identity_alerts(evidence):
+    if not evidence or evidence.get("status") != "BLOCK":
+        return []
+    return [{
+        "severity": "warning",
+        "market_id": "fleet",
+        "category": "runtime_identity",
+        "message": (
+            "mixed runtime identities block unsegmented model and promotion evidence "
+            f"for {evidence.get('target_date') or 'selected snapshots'}"
+        ),
+        "detail": {
+            "blocking_reason": evidence.get("blocking_reason"),
+            "runtime_identity_count": evidence.get("runtime_identity_count"),
+            "snapshot_row_count": evidence.get("snapshot_row_count"),
+            "reconciliation_status": evidence.get("reconciliation_status"),
+        },
+    }]
+
 
 def mm_paper_evidence_summary(path=DEFAULT_MM_PAPER_REPORT):
     path = Path(path)
@@ -130,6 +169,7 @@ def _format_source_family_detail(families, limit=2):
             f"failed={item.get('failed_source_count', 0)}",
             f"fallback={item.get('fallback_source_count', 0)}",
             f"rate_limited={item.get('rate_limited_source_count', 0)}",
+            f"expected={item.get('expected_unavailable_source_count', 0)}",
             f"cooldown={item.get('provider_cooldown_source_count', 0)}",
         ]
         cache_states = item.get("top_cache_states") or {}
@@ -177,6 +217,7 @@ def build_observability_payload(
     tape_backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
     verify_tape_backup_checksums=False,
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
+    taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
 ):
     collection = fleet_collection_health(
         snapshots_root=snapshots_root,
@@ -207,6 +248,17 @@ def build_observability_payload(
     current_code_soak = current_code_soak_summary(loop_integrity, live_forward_slo)
     mm_paper_evidence = mm_paper_evidence_summary()
     mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
+    trading_evidence = build_trading_evidence_summary(
+        mm_runs_root=mm_runs_root,
+        taker_runs_root=taker_runs_root,
+    )
+    runtime_evidence = build_runtime_identity_evidence(
+        snapshots_root=snapshots_root,
+        target_date=runtime_identity_target_date(collection),
+        mm_runs_root=mm_runs_root,
+        taker_runs_root=taker_runs_root,
+        reconciliation_path=Path(snapshots_root).parent / "backtest" / "runtime_identity_reconciliation.json",
+    )
     settled_freshness = settled_day_freshness_summary()
     tape_backup_status = tape_backup.backup_status(
         backup_root=tape_backup_root,
@@ -221,6 +273,7 @@ def build_observability_payload(
     alerts.extend(loop_integrity_alerts(loop_integrity))
     alerts.extend(current_code_soak_alerts(current_code_soak))
     alerts.extend(mm_evidence_starvation_alerts(mm_starvation))
+    alerts.extend(runtime_identity_alerts(runtime_evidence))
     alerts.extend(settled_day_freshness_alerts(settled_freshness))
     alerts.extend(tape_backup.backup_alerts(tape_backup_status))
     payload = {
@@ -240,6 +293,8 @@ def build_observability_payload(
         "live_forward_slo": live_forward_slo,
         "mm_paper_evidence": mm_paper_evidence,
         "mm_evidence_starvation": mm_starvation,
+        "trading_evidence": trading_evidence,
+        "runtime_identity_evidence": runtime_evidence,
         "settled_day_freshness": settled_freshness,
         "tape_backup": tape_backup_status,
         "alerts": alerts,
@@ -273,6 +328,16 @@ def build_observability_payload(
                 "recovery_attempted_starved_active_day_count"
             ),
             "mm_evidence_starvation_status": mm_starvation.get("status"),
+            "mm_current_high_trust_no_quote_count": (
+                (trading_evidence.get("market_making") or {}).get("current_high_trust_no_quote_count")
+            ),
+            "taker_current_high_trust_no_trade_count": (
+                (trading_evidence.get("taker") or {}).get("current_high_trust_no_trade_count")
+            ),
+            "runtime_identity_status": runtime_evidence.get("status"),
+            "runtime_identity_mixed": runtime_evidence.get("mixed_runtime_identity"),
+            "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
+            "runtime_identity_snapshot_rows": runtime_evidence.get("snapshot_row_count"),
             "tape_backup_status": tape_backup_status.get("status"),
             "loop_integrity_status": "OK" if (loop_integrity.get("summary") or {}).get("ok") else "WARN",
             "current_code_soak_status": current_code_soak.get("status"),

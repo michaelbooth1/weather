@@ -1,4 +1,4 @@
-# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-20 - PRESSURE-LEVEL SOURCE-LAG AND CLOB CONTINUITY BLOCKED]
+# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]
 
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
@@ -1051,3 +1051,39 @@ market-informed repair. The next unblock is to refresh the NOAA PSL
 pressure-level cache once the upstream daily files include June 2026, rebuild
 all market sidecars, rerun this sidecar coverage audit, then rerun the
 source-family inventory, Item 27 reanalysis gates, and full pinned replay.
+
+## 2026-06-22 Reanalysis sidecar audit refresh
+
+I regenerated the replay-window sidecar coverage audit:
+`data/backtest/item32_reanalysis_sidecar_coverage_audit.json` and
+`data/backtest/item32_reanalysis_sidecar_coverage_audit_report.md`.
+The command exits nonzero by design while the audit status is `BLOCK`.
+
+The required replay-window groups were `rich_surface` and `pressure_level` for
+`2026-06-07` through `2026-06-13`. All 12 markets still have seven target rows
+and `PASS 100.0%` rich-surface coverage, so the useful Open-Meteo archive
+fields are present in the combined replay window. All 12 markets still have
+`MISSING 0.0%` pressure-level coverage, with last complete pressure sidecar
+coverage on `2026-03-18`; this remains the active data-layer blocker for the
+NOAA PSL 850 hPa temperature, 500 hPa height, and 1000-500 hPa thickness
+fields.
+
+The refreshed audit table also reports `MISSING 0.0%` teleconnection coverage
+inside the target window. Teleconnection was not in the required group set for
+this audit run, so it is diagnostic rather than the fail-closed blocker. Any
+future replay claim that relies on teleconnection lag fields should make that
+group explicit in the audit requirement list.
+
+`data/backtest/source_family_inventory_report.md` remains clean for the
+registered `reanalysis_synoptic` source family: lineage and train/serve parity
+are `PASS`, the family is still a `PROMOTION_CANDIDATE`, and the positive
+market shadow lane remains restricted to Atlanta, Austin, Dallas, Houston, Los
+Angeles, Miami, and Seattle. The canonical current artifact inventory still has
+no artifact lane, so this is not a promotion. Item 32 remains `PARTIAL` until
+pressure-level source lag is cleared and the settlement-scored replay/model
+quality blockers from the combined Item 32 artifact are rerun and pass.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_reanalysis_sidecar_coverage_audit.py tests\reporting\test_source_family_inventory.py tests\sources\test_reanalysis_synoptic.py tests\calibration\test_pooled_candidate_replay.py tests\operations\test_schema_registry.py -q`
+  passed with `73 passed`, `1 warning`.

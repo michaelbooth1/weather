@@ -1736,6 +1736,83 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertFalse(by_taxonomy["book_liquidity_artifact"]["allowed"])
         self.assertIn("micro_ece", by_taxonomy["book_liquidity_artifact"]["reason"])
 
+    def test_candidate_report_shows_clob_quote_risk_claim_lane(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "report.md"
+            write_report(
+                {
+                    "generated_at": "2026-06-15T00:00:00",
+                    "verdict": "BLOCK",
+                    "candidate_market_verdict": "BLOCK",
+                    "cutover_decision": "NO_CUTOVER",
+                    "artifact": {},
+                    "corpus": {},
+                    "coverage": {},
+                    "diagnostics": {},
+                    "replay_gate": {"corpus_ok": True, "fidelity_ok": True},
+                    "blocked_validation": {},
+                    "aggregate": None,
+                    "daily_first": None,
+                    "microstructure": {
+                        "schema_version": "clob_microstructure_overlay_v0.2",
+                        "diagnostics": {
+                            "eligible_rows": 100,
+                            "predicted_rows": 90,
+                            "fold_count": 3,
+                            "skipped_folds": [],
+                            "casebook": {"path": "casebook.json", "refs": 4},
+                            "casebook_matched_rows": 20,
+                            "gated_overlay_rows": 12,
+                            "gated_base_rows": 88,
+                            "artifact_path": "clob.pkl",
+                            "artifact_train_rows": 80,
+                            "claim_lanes": {
+                                "weather_only_core_model": {
+                                    "rows": 100,
+                                    "counts_toward_weather_model_promotion": True,
+                                },
+                                "market_informed_quote_risk": {
+                                    "rows": 180,
+                                    "quote_risk_eligible_rows": 12,
+                                    "counts_toward_weather_model_promotion": False,
+                                },
+                            },
+                        },
+                        "gate": {
+                            "policy": "target_taxonomy_replay_allowlist",
+                            "allowed_taxonomies": ["market_lead"],
+                            "decisions": [
+                                {
+                                    "taxonomy": "market_lead",
+                                    "allowed": True,
+                                    "rows": 40,
+                                    "reason": "replay-proven improvement",
+                                }
+                            ],
+                        },
+                        "aggregate": {},
+                        "gated": {"aggregate": {}, "target_slices": []},
+                        "target_slices": [],
+                        "by_taxonomy": [],
+                    },
+                    "market_rows": [],
+                    "by_market": [],
+                    "by_hour": [],
+                    "by_cutoff_regime": [],
+                    "by_bin_type": [],
+                    "by_settlement_distance": [],
+                    "by_source_freshness": [],
+                },
+                out,
+            )
+            text = out.read_text(encoding="utf-8")
+
+        self.assertIn("market_informed_quote_risk", text)
+        self.assertIn("Counts toward weather-only promotion", text)
+        self.assertIn("False", text)
+        self.assertIn("Quote-risk eligible rows", text)
+        self.assertIn("clob_feature_available == 1", text)
+
     def test_microstructure_shadow_variant_rows_are_item69_compatible(self):
         rows = [
             {
@@ -1753,6 +1830,9 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 "recorded_p": 0.29,
                 "market_yes": 0.35,
                 "outcome": 1,
+                "casebook_taxonomy": "market_lead",
+                "micro_gate_taxonomy": "market_lead",
+                "micro_gate_reason": "allowed taxonomy: market_lead",
             }
         ]
 
@@ -1762,8 +1842,18 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(len(variant_rows), 3)
         self.assertFalse(by_id["pooled_f_candidate_control"]["uses_market_features"])
         self.assertTrue(by_id["pooled_f_candidate_control"]["is_control"])
+        self.assertEqual(by_id["pooled_f_candidate_control"]["claim_lane"], "weather_only_core_model")
+        self.assertTrue(by_id["pooled_f_candidate_control"]["counts_toward_weather_model_promotion"])
+        self.assertFalse(by_id["pooled_f_candidate_control"]["quote_risk_eligible"])
         self.assertTrue(by_id["clob_overlay_raw_oof"]["uses_market_features"])
         self.assertTrue(by_id["clob_overlay_gated_taxonomy"]["uses_market_features"])
+        self.assertEqual(by_id["clob_overlay_raw_oof"]["claim_lane"], "market_informed_quote_risk")
+        self.assertFalse(by_id["clob_overlay_raw_oof"]["counts_toward_weather_model_promotion"])
+        self.assertFalse(by_id["clob_overlay_raw_oof"]["quote_risk_eligible"])
+        self.assertEqual(by_id["clob_overlay_gated_taxonomy"]["claim_lane"], "market_informed_quote_risk")
+        self.assertFalse(by_id["clob_overlay_gated_taxonomy"]["counts_toward_weather_model_promotion"])
+        self.assertTrue(by_id["clob_overlay_gated_taxonomy"]["quote_risk_eligible"])
+        self.assertEqual(by_id["clob_overlay_gated_taxonomy"]["quote_risk_gate_reason"], "allowed taxonomy: market_lead")
         self.assertEqual(by_id["clob_overlay_gated_taxonomy"]["variant_family"], "clob_overlay")
         self.assertEqual(by_id["clob_overlay_gated_taxonomy"]["band_key"], "82-83 F")
         self.assertEqual(by_id["clob_overlay_gated_taxonomy"]["experiment_start_date"], "2026-06-15")

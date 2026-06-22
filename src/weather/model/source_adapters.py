@@ -33,6 +33,29 @@ class SourceProviderRateLimited(RuntimeError):
         self.cache_status = cache_status
 
 
+class SourceExpectedUnavailable(RuntimeError):
+    """Raised when a source is expected to be unavailable for the target context."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        status="expected_unavailable",
+        source_family=None,
+        http_status=None,
+        degradation_state="expected_unavailable",
+        cache_status="expected_unavailable",
+        fallback_source=None,
+    ):
+        super().__init__(message)
+        self.status = status
+        self.source_family = source_family
+        self.http_status = http_status
+        self.degradation_state = degradation_state
+        self.cache_status = cache_status
+        self.fallback_source = fallback_source
+
+
 @dataclass(frozen=True)
 class SourceAdapter:
     name: str
@@ -79,6 +102,7 @@ def source_exception_metadata(exc):
         "retry_after_seconds",
         "degradation_state",
         "cache_status",
+        "fallback_source",
     ):
         value = getattr(exc, key, None)
         if value not in (None, ""):

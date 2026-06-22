@@ -31,6 +31,7 @@ from weather.operations.supervisor import (
     append_jsonl,
     attach_status_writer,
     atomic_write_json,
+    configure_json_console_logging,
     file_lock_is_stale,
     launch_detached,
     pid_is_python,
@@ -1249,6 +1250,7 @@ def main():
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return
     if command == "loop":
+        configure_json_console_logging()
         run_book_loop(
             market_id=args.market,
             interval_seconds=args.interval_seconds,

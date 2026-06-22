@@ -706,6 +706,62 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("03:00, 03:10", gate_learning["signal"])
         self.assertIn("## 10-Minute Weak-Slot Gate", report)
 
+    def test_build_learning_payload_surfaces_early_hour_promotion_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion = json.loads((backtest_root / "f_family_promotion_refresh.json").read_text(encoding="utf-8"))
+            promotion["early_hour_promotion_blocker"] = {
+                "schema_version": "early_hour_promotion_blocker_v0.1",
+                "status": "BLOCK",
+                "promotion_allowed": False,
+                "blocker_count": 2,
+                "current_gates": {
+                    "hourly": {"status": "BLOCK"},
+                    "ten_minute": {"status": "BLOCK"},
+                },
+                "candidate_gates": {
+                    "hourly": {"gate_status": "BLOCK"},
+                    "ten_minute": {"gate_status": "PASS"},
+                },
+                "broad_replay": {"within_market_tolerance": False},
+                "production_readiness": {
+                    "live_forward_slo": {"status": "BLOCK"},
+                    "current_code_soak": {"status": "PASS"},
+                },
+                "blockers": [
+                    {
+                        "category": "candidate_hourly_mitigation",
+                        "severity": "block",
+                        "detail": "candidate hourly gate must PASS",
+                    },
+                    {
+                        "category": "broad_replay_market_tolerance",
+                        "severity": "block",
+                        "detail": "candidate replay must be within tolerance",
+                    },
+                ],
+            }
+            (backtest_root / "f_family_promotion_refresh.json").write_text(
+                json.dumps(promotion),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "early_hour_promotion_blocker"
+            )
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["scorecard"]["promotion"]["early_hour_promotion_allowed"])
+        self.assertTrue(learning["blocker"])
+        self.assertIn("candidate_hourly_mitigation", learning["signal"])
+        self.assertIn("candidate-specific hourly and 10-minute gates", learning["action"])
+        self.assertIn("## Early-Hour Promotion Blocker", report)
+        self.assertIn("candidate hourly gate must PASS", report)
+
     def test_build_learning_payload_counts_per_market_live_forward_credit_without_broad_permission(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

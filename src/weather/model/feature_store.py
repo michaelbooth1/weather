@@ -10,6 +10,9 @@ from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
+# v1.14 (ROADMAP item 186): gated reanalysis antecedent precipitation and
+# precipitation-minus-ET0 water-balance windows for soil/land-surface dryness.
+#
 # v1.13 (ROADMAP items 194-196): robust forecast consensus/outlier features
 # and model diagnostics for ramp warm-tail dampening and late-day lock-in
 # coverage.

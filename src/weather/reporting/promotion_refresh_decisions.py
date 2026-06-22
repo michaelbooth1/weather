@@ -1,9 +1,21 @@
 """Implementation slice extracted from src/weather/reporting/promotion_refresh.py."""
 
+import csv
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+from weather.calibration.pooled_candidate_scoring import ATTRIBUTION_FEATURE_FIELDS
 from weather.reporting.promotion_refresh_readers import *  # noqa: F403
+from weather.schema_registry import schema_version
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+EARLY_HOUR_PROMOTION_BLOCKER_SCHEMA_VERSION = schema_version("early_hour_promotion_blocker")
+PROMOTION_ALLOWLIST_SCHEMA_VERSION = schema_version("promotion_allowlist")
+SOURCE_MISSINGNESS_LOCATION_GATE_SCHEMA_VERSION = schema_version("source_missingness_location_gate")
+DEFAULT_SOURCE_MISSINGNESS_BOTTOM_MARKETS = ("miami", "nyc", "seattle")
 
 def build_family_decisions(
     manifest,
@@ -87,6 +99,345 @@ def build_family_decisions(
     }
 
 
+def _candidate_identity(candidate):
+    candidate = candidate or {}
+    shadow = candidate.get("candidate_shadow_variants") or {}
+    active_contract = shadow.get("active_registry_contract") or {}
+    artifact = candidate.get("artifact") or {}
+    return (
+        shadow.get("variant_id")
+        or active_contract.get("variant_id")
+        or artifact.get("artifact_id")
+        or artifact.get("path")
+        or candidate.get("json_path")
+        or "unknown_candidate"
+    )
+
+
+def _allowlist_row(item, *, candidate_id, generated_at_utc):
+    metrics = item.get("metrics") or {}
+    action = item.get("action") or "BLOCK_CANDIDATE"
+    candidate_allowed = action == "PROMOTE_CANDIDATE"
+    reason = item.get("reason") or "-"
+    return {
+        "market_id": item.get("market_id"),
+        "candidate_id": candidate_id,
+        "generated_at_utc": generated_at_utc,
+        "action": action,
+        "verdict": item.get("verdict"),
+        "candidate_serving_allowed": candidate_allowed,
+        "candidate_permission_allowed": candidate_allowed,
+        "serving_behavior": "candidate" if candidate_allowed else "current_or_shadow",
+        "permission_behavior": "candidate_candidate_only" if candidate_allowed else "current_or_harvest_only",
+        "blocker_reason": "" if candidate_allowed else reason,
+        "reason": reason,
+        "candidate_brier": metrics.get("candidate_brier"),
+        "current_brier": metrics.get("current_brier"),
+        "market_brier": metrics.get("market_brier"),
+        "delta_vs_current": metrics.get("delta_vs_current"),
+        "delta_vs_market": metrics.get("delta_vs_market"),
+        "candidate_days": item.get("candidate_days"),
+        "candidate_snapshots": item.get("candidate_snapshots"),
+        "candidate_band_rows": item.get("candidate_band_rows"),
+        "settled_days_in_corpus": item.get("settled_days_in_corpus"),
+        "trust_score": item.get("trust_score"),
+        "trust_grade": item.get("trust_grade"),
+        "blocked_validation": item.get("blocked_validation") or {},
+    }
+
+
+def build_promotion_allowlist(
+    decisions,
+    candidate,
+    *,
+    family_unit=DEFAULT_FAMILY_UNIT,
+    generated_at_utc=None,
+    path=None,
+):
+    generated_at_utc = generated_at_utc or _utc_now()
+    candidate = candidate or {}
+    candidate_id = _candidate_identity(candidate)
+    rows = [
+        _allowlist_row(item, candidate_id=candidate_id, generated_at_utc=generated_at_utc)
+        for item in decisions.get("markets") or []
+        if item.get("market_id")
+    ]
+    rows = sorted(rows, key=lambda row: row.get("market_id") or "")
+    action_counts = Counter(row.get("action") for row in rows)
+    promote_markets = [row["market_id"] for row in rows if row.get("action") == "PROMOTE_CANDIDATE"]
+    shadow_markets = [row["market_id"] for row in rows if row.get("action") == "KEEP_SHADOW"]
+    blocked_markets = [row["market_id"] for row in rows if row.get("action") == "BLOCK_CANDIDATE"]
+    return {
+        "schema_version": PROMOTION_ALLOWLIST_SCHEMA_VERSION,
+        "generated_at_utc": generated_at_utc,
+        "path": _as_path(path) if path else None,
+        "family_unit": family_unit,
+        "candidate_id": candidate_id,
+        "candidate_verdict": candidate.get("verdict"),
+        "candidate_cutover_decision": candidate.get("cutover_decision"),
+        "candidate_json_path": candidate.get("json_path"),
+        "candidate_report_path": candidate.get("report_path"),
+        "policy": {
+            "candidate_serving_allowed_action": "PROMOTE_CANDIDATE",
+            "non_promote_behavior": "current_or_shadow",
+            "permission_gate": "candidate_permission_allowed is true only for PROMOTE_CANDIDATE markets",
+        },
+        "summary": {
+            "market_count": len(rows),
+            "promote_count": len(promote_markets),
+            "shadow_count": len(shadow_markets),
+            "blocked_count": len(blocked_markets),
+            "action_counts": dict(sorted(action_counts.items())),
+        },
+        "promote_markets": promote_markets,
+        "shadow_markets": shadow_markets,
+        "blocked_markets": blocked_markets,
+        "markets": rows,
+    }
+
+
+def _safe_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_shadow_variant_rows(path):
+    if not path:
+        return []
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def _scored_probability_rows(rows):
+    scored = []
+    for row in rows or []:
+        outcome = _safe_float(row.get("outcome"))
+        candidate = _safe_float(row.get("probability"))
+        market = _safe_float(row.get("market_yes"))
+        if outcome is None or candidate is None or market is None:
+            continue
+        scored.append(row)
+    return scored
+
+
+def _probability_summary(rows):
+    rows = _scored_probability_rows(rows)
+    if not rows:
+        return {
+            "n": 0,
+            "candidate_brier": None,
+            "current_brier": None,
+            "market_brier": None,
+            "delta_vs_current": None,
+            "delta_vs_market": None,
+        }
+    candidate_errors = []
+    current_errors = []
+    market_errors = []
+    for row in rows:
+        outcome = _safe_float(row.get("outcome"))
+        candidate = _safe_float(row.get("probability"))
+        current = _safe_float(row.get("current_probability"))
+        market = _safe_float(row.get("market_yes"))
+        candidate_errors.append((candidate - outcome) ** 2)
+        if current is not None:
+            current_errors.append((current - outcome) ** 2)
+        market_errors.append((market - outcome) ** 2)
+    candidate_brier = sum(candidate_errors) / len(candidate_errors)
+    current_brier = sum(current_errors) / len(current_errors) if current_errors else None
+    market_brier = sum(market_errors) / len(market_errors)
+    return {
+        "n": len(rows),
+        "candidate_brier": candidate_brier,
+        "current_brier": current_brier,
+        "market_brier": market_brier,
+        "delta_vs_current": (
+            candidate_brier - current_brier
+            if current_brier is not None
+            else None
+        ),
+        "delta_vs_market": candidate_brier - market_brier,
+    }
+
+
+def _decoded_missingness(row):
+    return sorted(
+        field
+        for field in ATTRIBUTION_FEATURE_FIELDS
+        if row.get(field) in (None, "")
+    )
+
+
+def _missingness_decodes(rows):
+    decoded = {}
+    counts = Counter()
+    markets = defaultdict(set)
+    for row in rows or []:
+        hash_value = row.get("feature_missingness_hash") or "missingness_unknown"
+        counts[hash_value] += 1
+        market_id = row.get("market_id")
+        if market_id:
+            markets[hash_value].add(market_id)
+        decoded.setdefault(hash_value, _decoded_missingness(row))
+    return [
+        {
+            "feature_missingness_hash": hash_value,
+            "rows": counts[hash_value],
+            "markets": sorted(markets[hash_value]),
+            "missing_features": decoded.get(hash_value) or [],
+            "missing_feature_count": len(decoded.get(hash_value) or []),
+        }
+        for hash_value, _count in counts.most_common()
+    ]
+
+
+def _grouped_variant_rows(rows, keys):
+    groups = defaultdict(list)
+    for row in rows or []:
+        key = tuple(row.get(field) or "unknown" for field in keys)
+        groups[key].append(row)
+    output = []
+    for key, group_rows in sorted(groups.items(), key=lambda item: item[0]):
+        summary = _probability_summary(group_rows)
+        output.append({
+            **{field: value for field, value in zip(keys, key)},
+            **summary,
+        })
+    output.sort(key=lambda row: (row.get("delta_vs_market") is None, -(row.get("delta_vs_market") or 0.0)))
+    return output
+
+
+def _slice_status(row, market_tolerance, min_rows):
+    n = int(row.get("n") or 0)
+    delta = row.get("delta_vs_market")
+    if n < int(min_rows):
+        return "SPARSE"
+    if delta is None:
+        return "MISSING"
+    if float(delta) > float(market_tolerance):
+        return "BLOCK"
+    return "PASS"
+
+
+def _slice_blocker(category, row, detail):
+    return {
+        "category": category,
+        "severity": "block",
+        "market_id": row.get("market_id"),
+        "detail": detail,
+        "evidence": row,
+    }
+
+
+def build_source_missingness_location_gate(
+    candidate,
+    *,
+    bottom_markets=DEFAULT_SOURCE_MISSINGNESS_BOTTOM_MARKETS,
+    market_tolerance=0.003,
+    min_rows=30,
+):
+    candidate = candidate or {}
+    variant_path = (candidate.get("candidate_shadow_variants") or {}).get("path")
+    rows = _read_shadow_variant_rows(variant_path)
+    scored = _scored_probability_rows(rows)
+    bottom = {str(market) for market in bottom_markets or []}
+    source_rows = _grouped_variant_rows(scored, ("market_id", "source_freshness_state"))
+    source_count_rows = _grouped_variant_rows(scored, ("market_id", "forecast_source_count_bucket"))
+    missingness_rows = _grouped_variant_rows(scored, ("market_id", "feature_missingness_hash"))
+    decodes = _missingness_decodes(scored)
+    decode_by_hash = {row["feature_missingness_hash"]: row for row in decodes}
+    blockers = []
+    if not variant_path or not scored:
+        blockers.append({
+            "category": "source_missingness_shadow_export_missing",
+            "severity": "block",
+            "market_id": None,
+            "detail": "candidate shadow variant export with source/missingness context is required",
+            "evidence": {
+                "candidate_shadow_variant_path": _as_path(variant_path) if variant_path else None,
+                "row_count": len(scored),
+            },
+        })
+
+    for row in source_rows:
+        row["status"] = _slice_status(row, market_tolerance, min_rows)
+        if (
+            row.get("market_id") in bottom
+            and row.get("source_freshness_state") == "all_fresh"
+            and row["status"] == "BLOCK"
+        ):
+            blockers.append(_slice_blocker(
+                "bottom_market_all_fresh_market_gap",
+                row,
+                (
+                    f"{row.get('market_id')} all-fresh candidate trails market by "
+                    f"{row.get('delta_vs_market'):+.4f} > {float(market_tolerance):.4f}"
+                ),
+            ))
+
+    for row in source_count_rows:
+        row["status"] = _slice_status(row, market_tolerance, min_rows)
+        if (
+            row.get("market_id") in bottom
+            and row.get("forecast_source_count_bucket") == "two_sources"
+            and row["status"] == "BLOCK"
+        ):
+            blockers.append(_slice_blocker(
+                "bottom_market_two_source_market_gap",
+                row,
+                (
+                    f"{row.get('market_id')} two-source candidate trails market by "
+                    f"{row.get('delta_vs_market'):+.4f} > {float(market_tolerance):.4f}"
+                ),
+            ))
+
+    for row in missingness_rows:
+        row["status"] = _slice_status(row, market_tolerance, min_rows)
+        decoded = decode_by_hash.get(row.get("feature_missingness_hash")) or {}
+        row["missing_features"] = decoded.get("missing_features") or []
+        row["missing_feature_count"] = decoded.get("missing_feature_count", 0)
+        if row.get("market_id") in bottom and row["status"] == "BLOCK":
+            blockers.append(_slice_blocker(
+                "bottom_market_high_impact_missingness",
+                row,
+                (
+                    f"{row.get('market_id')} missingness hash "
+                    f"{row.get('feature_missingness_hash')} trails market by "
+                    f"{row.get('delta_vs_market'):+.4f} > {float(market_tolerance):.4f}"
+                ),
+            ))
+
+    return {
+        "schema_version": SOURCE_MISSINGNESS_LOCATION_GATE_SCHEMA_VERSION,
+        "status": "PASS" if not blockers else "BLOCK",
+        "candidate_shadow_variant_path": _as_path(variant_path) if variant_path else None,
+        "market_tolerance": float(market_tolerance),
+        "min_rows": int(min_rows),
+        "bottom_markets": sorted(bottom),
+        "summary": {
+            "row_count": len(scored),
+            "market_source_freshness_slice_count": len(source_rows),
+            "market_forecast_source_count_slice_count": len(source_count_rows),
+            "market_feature_missingness_slice_count": len(missingness_rows),
+            "decoded_missingness_hash_count": len(decodes),
+            "blocker_count": len(blockers),
+        },
+        "blockers": blockers,
+        "first_blocker": blockers[0] if blockers else None,
+        "market_source_freshness": source_rows,
+        "market_forecast_source_count": source_count_rows,
+        "market_feature_missingness": missingness_rows,
+        "missingness_hash_decodes": decodes,
+    }
+
+
 def _decision_table_rows(decisions):
     rows = []
     for item in decisions:
@@ -163,6 +514,429 @@ def _candidate_ten_minute_variant_ids(candidate_ten_minute_performance):
     return ids
 
 
+def _is_green_status(status):
+    return status in {"PASS", "OK", "READY"}
+
+
+def _freshness_gate(name, status, detail, *, path=None, severity="block", evidence=None):
+    status = status or "MISSING"
+    ok = _is_green_status(status)
+    return {
+        "name": name,
+        "status": status,
+        "ok": ok,
+        "severity": "pass" if ok else severity,
+        "detail": detail,
+        "path": path,
+        "evidence": evidence or {},
+    }
+
+
+def build_evidence_freshness_gate(
+    *,
+    settled_day_freshness=None,
+    data_layer_audit=None,
+    ingest_quality_gate=None,
+    fleet_observability=None,
+    daily_learning=None,
+    disk_headroom=None,
+):
+    """Build the countability gate for location promotion evidence."""
+    gates = []
+    settled = settled_day_freshness or {}
+    settled_summary = settled.get("summary") or {}
+    gates.append(_freshness_gate(
+        "settled_day_freshness",
+        settled.get("status"),
+        (
+            "settled-day freshness must be PASS before location validation counts; "
+            f"target={settled.get('target_date') or '-'}, "
+            f"incomplete={settled_summary.get('incomplete_market_count')}, "
+            f"missing_replay_status={settled_summary.get('missing_replay_status_count')}"
+        ),
+        path=settled.get("path"),
+        evidence={
+            "summary": settled_summary,
+            "repair_command": settled.get("repair_command"),
+            "replay_status_repair_command": settled.get("replay_status_repair_command"),
+        },
+    ))
+
+    data_layer = data_layer_audit or {}
+    data_summary = data_layer.get("gate_summary") or {}
+    gates.append(_freshness_gate(
+        "data_layer_audit",
+        data_summary.get("status") or data_layer.get("status"),
+        (
+            "data-layer audit gate must be PASS before location validation counts; "
+            f"fail={data_summary.get('fail_count')}, warn={data_summary.get('warn_count')}"
+        ),
+        path=data_layer.get("path"),
+        evidence={
+            "gate_summary": data_summary,
+            "recommendation_count": data_layer.get("recommendation_count"),
+            "p0_remediation_count": data_layer.get("p0_remediation_count"),
+        },
+    ))
+
+    ingest = ingest_quality_gate or {}
+    ingest_reasons = ingest.get("fail_reasons") or ingest.get("warn_reasons") or []
+    gates.append(_freshness_gate(
+        "ingest_quality_gate",
+        ingest.get("status"),
+        (
+            "ingest quality gate must be PASS before location validation counts"
+            + (f": {ingest_reasons[0]}" if ingest_reasons else "")
+        ),
+        path=ingest.get("path"),
+        evidence={
+            "summary": ingest.get("summary") or {},
+            "fail_reasons": ingest.get("fail_reasons") or [],
+            "warn_reasons": ingest.get("warn_reasons") or [],
+        },
+    ))
+
+    fleet = fleet_observability or {}
+    fleet_summary = fleet.get("summary") or {}
+    gates.append(_freshness_gate(
+        "fleet_observability",
+        fleet.get("status"),
+        (
+            "fleet observability must be OK/PASS before location validation counts; "
+            f"live_forward={fleet_summary.get('live_forward_slo_status') or '-'}, "
+            f"critical_alerts={fleet_summary.get('critical_alerts')}"
+        ),
+        path=fleet.get("path"),
+        evidence={"summary": fleet_summary},
+    ))
+
+    clob_books = fleet.get("clob_books") or {}
+    gates.append(_freshness_gate(
+        "clob_book_freshness",
+        clob_books.get("status"),
+        (
+            "CLOB book freshness must be PASS before market-informed location evidence counts"
+            + (
+                f"; blocked={', '.join(clob_books.get('blocked_markets') or [])}"
+                if clob_books.get("blocked_markets")
+                else ""
+            )
+        ),
+        path=fleet.get("path"),
+        evidence=clob_books,
+    ))
+
+    learning = daily_learning or {}
+    learning_summary = learning.get("summary") or {}
+    gates.append(_freshness_gate(
+        "daily_learning",
+        learning.get("status"),
+        (
+            "daily-learning rollup must be OK before promotion/readiness evidence counts; "
+            f"blockers={learning_summary.get('blocker_count')}"
+        ),
+        path=learning.get("path"),
+        evidence={
+            "summary": learning_summary,
+            "training_ready": (learning.get("retrain_plan") or {}).get("training_ready"),
+            "promotion_ready": (learning.get("retrain_plan") or {}).get("promotion_ready"),
+        },
+    ))
+
+    disk = disk_headroom or {}
+    gates.append(_freshness_gate(
+        "artifact_disk_headroom",
+        disk.get("status"),
+        (
+            "artifact disk headroom must satisfy the configured reserve before "
+            "promotion/readiness exports count; "
+            f"free_bytes={disk.get('free_bytes')}, min_free_bytes={disk.get('min_free_bytes')}"
+        ),
+        path=disk.get("path"),
+        evidence=disk,
+    ))
+
+    blockers = [gate for gate in gates if not gate.get("ok")]
+    return {
+        "status": "PASS" if not blockers else "BLOCK",
+        "counts_for_location_validation": not blockers,
+        "gate_count": len(gates),
+        "blocked_gate_count": len(blockers),
+        "gates": gates,
+        "first_blocker": blockers[0] if blockers else None,
+        "blockers": blockers,
+    }
+
+
+def _gate_status(report, key):
+    return ((report or {}).get(key) or {}).get("status")
+
+
+def _gate_first_detail(report, key):
+    gate = (report or {}).get(key) or {}
+    first = gate.get("first_blocker") or next(iter(gate.get("blockers") or []), {})
+    return first.get("detail") or ""
+
+
+def _variant_ids(report, gate_key=None):
+    ids = set()
+    for value in (report or {}).get("variant_ids") or []:
+        if value not in (None, ""):
+            ids.add(str(value))
+    if gate_key:
+        gate = (report or {}).get(gate_key) or {}
+        for value in gate.get("variant_ids") or []:
+            if value not in (None, ""):
+                ids.add(str(value))
+    return ids
+
+
+def _corpus_hash(report):
+    report = report or {}
+    for section in (
+        report,
+        report.get("candidate_item147") or {},
+        report.get("candidate_ten_minute_performance") or {},
+    ):
+        value = (section.get("corpus") or {}).get("corpus_hash") or section.get("corpus_hash")
+        if value:
+            return value
+    return None
+
+
+def _parse_generated_at(value):
+    if not value:
+        return None
+    text = str(value)
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _freshness_status(report, *, now=None, max_age_hours=72):
+    generated = _parse_generated_at((report or {}).get("generated_at_utc"))
+    if generated is None:
+        return {
+            "status": "MISSING",
+            "generated_at_utc": (report or {}).get("generated_at_utc"),
+            "age_hours": None,
+            "max_age_hours": max_age_hours,
+        }
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    age_hours = max(0.0, (now.astimezone(timezone.utc) - generated).total_seconds() / 3600.0)
+    return {
+        "status": "PASS" if age_hours <= max_age_hours else "STALE",
+        "generated_at_utc": generated.isoformat(),
+        "age_hours": round(age_hours, 3),
+        "max_age_hours": max_age_hours,
+    }
+
+
+def _lineage_check(
+    *,
+    report,
+    gate_key,
+    expected_variant_id,
+    expected_corpus_hash,
+    now=None,
+    max_age_hours=72,
+):
+    variants = _variant_ids(report, gate_key)
+    report_hash = _corpus_hash(report)
+    freshness = _freshness_status(report, now=now, max_age_hours=max_age_hours)
+    return {
+        "gate_status": _gate_status(report, gate_key) or "MISSING",
+        "variant_ids": sorted(variants),
+        "expected_variant_id": expected_variant_id,
+        "variant_match": bool(expected_variant_id and expected_variant_id in variants),
+        "corpus_hash": report_hash,
+        "expected_corpus_hash": expected_corpus_hash,
+        "corpus_match": bool(report_hash and expected_corpus_hash and report_hash == expected_corpus_hash),
+        "freshness": freshness,
+        "first_blocker_detail": _gate_first_detail(report, gate_key),
+    }
+
+
+def _append_blocker(blockers, category, detail, *, evidence=None):
+    blockers.append({
+        "category": category,
+        "severity": "block",
+        "detail": detail,
+        "evidence": evidence or {},
+    })
+
+
+def build_early_hour_promotion_blocker(
+    *,
+    candidate,
+    hourly_performance=None,
+    candidate_hourly_performance=None,
+    ten_minute_performance=None,
+    candidate_ten_minute_performance=None,
+    fleet_observability=None,
+    market_tolerance=0.003,
+    now=None,
+    max_candidate_report_age_hours=72,
+):
+    candidate = candidate or {}
+    candidate_shadow = candidate.get("candidate_shadow_variants") or {}
+    candidate_variant_id = candidate_shadow.get("variant_id")
+    active_contract = candidate_shadow.get("active_registry_contract") or {}
+    candidate_corpus_hash = (candidate.get("corpus") or {}).get("corpus_hash")
+    aggregate = candidate.get("aggregate") or {}
+    delta_vs_market = aggregate.get("delta_vs_market")
+    try:
+        delta_vs_market_value = float(delta_vs_market)
+    except (TypeError, ValueError):
+        delta_vs_market_value = None
+
+    hourly_status = _gate_status(hourly_performance, "hourly_performance_gate") or "MISSING"
+    ten_minute_status = _gate_status(ten_minute_performance, "ten_minute_performance_gate") or "MISSING"
+    hourly_lineage = _lineage_check(
+        report=candidate_hourly_performance,
+        gate_key="candidate_hourly_gate",
+        expected_variant_id=candidate_variant_id,
+        expected_corpus_hash=candidate_corpus_hash,
+        now=now,
+        max_age_hours=max_candidate_report_age_hours,
+    )
+    ten_minute_lineage = _lineage_check(
+        report=candidate_ten_minute_performance,
+        gate_key="candidate_ten_minute_gate",
+        expected_variant_id=candidate_variant_id,
+        expected_corpus_hash=candidate_corpus_hash,
+        now=now,
+        max_age_hours=max_candidate_report_age_hours,
+    )
+    broad_replay = {
+        "variant_id": candidate_variant_id,
+        "active_registry_contract_present": bool(active_contract),
+        "corpus_hash": candidate_corpus_hash,
+        "delta_vs_market": delta_vs_market_value,
+        "market_tolerance": float(market_tolerance),
+        "within_market_tolerance": (
+            delta_vs_market_value is not None
+            and delta_vs_market_value <= float(market_tolerance)
+        ),
+    }
+    fleet_summary = (fleet_observability or {}).get("summary") or {}
+    live_forward_slo = (fleet_observability or {}).get("live_forward_slo") or {}
+    production_readiness = {
+        "live_forward_slo_status": (
+            live_forward_slo.get("status")
+            or fleet_summary.get("live_forward_slo_status")
+            or "MISSING"
+        ),
+        "current_code_soak_status": (
+            fleet_summary.get("current_code_soak_status")
+            or ((fleet_observability or {}).get("current_code_soak") or {}).get("status")
+            or "MISSING"
+        ),
+    }
+
+    blockers = []
+    if hourly_status in {"BLOCK", "MISSING"}:
+        hourly_clear = (
+            hourly_lineage["gate_status"] == "PASS"
+            and hourly_lineage["variant_match"]
+            and hourly_lineage["corpus_match"]
+            and hourly_lineage["freshness"]["status"] == "PASS"
+        )
+        if not hourly_clear:
+            _append_blocker(
+                blockers,
+                "candidate_hourly_mitigation",
+                (
+                    f"current hourly gate is {hourly_status}; candidate hourly gate must PASS "
+                    "with matching variant, corpus hash, and fresh generated_at"
+                ),
+                evidence=hourly_lineage,
+            )
+    if ten_minute_status in {"BLOCK", "MISSING"}:
+        ten_minute_clear = (
+            ten_minute_lineage["gate_status"] == "PASS"
+            and ten_minute_lineage["variant_match"]
+            and ten_minute_lineage["corpus_match"]
+            and ten_minute_lineage["freshness"]["status"] == "PASS"
+        )
+        if not ten_minute_clear:
+            _append_blocker(
+                blockers,
+                "candidate_ten_minute_mitigation",
+                (
+                    f"current 10-minute weak-slot gate is {ten_minute_status}; "
+                    "candidate 10-minute gate must PASS with matching variant, corpus hash, "
+                    "and fresh generated_at"
+                ),
+                evidence=ten_minute_lineage,
+            )
+    if not broad_replay["active_registry_contract_present"]:
+        _append_blocker(
+            blockers,
+            "active_replay_export_contract",
+            "candidate replay evidence is surrogate-only unless backed by an active registry export contract",
+            evidence=broad_replay,
+        )
+    if not broad_replay["within_market_tolerance"]:
+        _append_blocker(
+            blockers,
+            "broad_replay_market_tolerance",
+            (
+                "candidate broad replay must be within market tolerance before "
+                "early-hour mitigation can clear promotion"
+            ),
+            evidence=broad_replay,
+        )
+    if production_readiness["live_forward_slo_status"] not in {"PASS", "OK"}:
+        _append_blocker(
+            blockers,
+            "live_forward_slo",
+            (
+                "live-forward SLO remains a production-readiness blocker, "
+                f"status={production_readiness['live_forward_slo_status']}"
+            ),
+            evidence=production_readiness,
+        )
+    if production_readiness["current_code_soak_status"] not in {"PASS", "OK"}:
+        _append_blocker(
+            blockers,
+            "current_code_soak",
+            (
+                "current-code soak remains a production-readiness blocker, "
+                f"status={production_readiness['current_code_soak_status']}"
+            ),
+            evidence=production_readiness,
+        )
+
+    return {
+        "schema_version": EARLY_HOUR_PROMOTION_BLOCKER_SCHEMA_VERSION,
+        "status": "PASS" if not blockers else "BLOCK",
+        "promotion_allowed": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "current_gates": {
+            "hourly_status": hourly_status,
+            "hourly_first_blocker": _gate_first_detail(hourly_performance, "hourly_performance_gate"),
+            "ten_minute_status": ten_minute_status,
+            "ten_minute_first_blocker": _gate_first_detail(ten_minute_performance, "ten_minute_performance_gate"),
+        },
+        "candidate_gates": {
+            "hourly": hourly_lineage,
+            "ten_minute": ten_minute_lineage,
+        },
+        "broad_replay": broad_replay,
+        "production_readiness": production_readiness,
+    }
+
+
 def promotion_readiness(
     candidate,
     serving,
@@ -174,6 +948,11 @@ def promotion_readiness(
     candidate_ten_minute_performance=None,
     source_family_inventory=None,
     fleet_observability=None,
+    runtime_identity_evidence=None,
+    evidence_freshness=None,
+    per_location_artifact_quarantine=None,
+    early_hour_promotion_blocker=None,
+    source_missingness_location_gate=None,
 ):
     blockers = []
     market_scope = _market_scope_phrase(decisions.get("family_unit"))
@@ -239,6 +1018,81 @@ def promotion_readiness(
             "category": "current_serving_gauntlet",
             "severity": "block",
             "detail": "current-serving gauntlet is BLOCK; inspect serving market rows before promotion",
+        })
+    runtime_evidence = runtime_identity_evidence or {}
+    if runtime_evidence.get("status") == "BLOCK":
+        blockers.append({
+            "category": "runtime_identity",
+            "severity": "block",
+            "detail": (
+                "mixed runtime identities block unsegmented promotion evidence: "
+                f"{runtime_evidence.get('runtime_identity_count')} identities, "
+                f"{runtime_evidence.get('snapshot_row_count')} snapshot rows"
+            ),
+            "evidence": {
+                "blocking_reason": runtime_evidence.get("blocking_reason"),
+                "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
+                "snapshot_row_count": runtime_evidence.get("snapshot_row_count"),
+                "reconciliation_status": runtime_evidence.get("reconciliation_status"),
+            },
+        })
+    freshness = evidence_freshness or {}
+    if freshness and freshness.get("status") != "PASS":
+        first = freshness.get("first_blocker") or next(iter(freshness.get("blockers") or []), {})
+        blockers.append({
+            "category": "location_evidence_freshness",
+            "severity": "block",
+            "detail": (
+                "location promotion evidence is non-countable until freshness gates pass: "
+                + (first.get("detail") or "inspect evidence_freshness")
+            ),
+            "evidence": freshness,
+        })
+    artifact_quarantine = per_location_artifact_quarantine or {}
+    if artifact_quarantine and artifact_quarantine.get("status") != "PASS":
+        summary = artifact_quarantine.get("summary") or {}
+        violations = artifact_quarantine.get("active_candidate_violations") or []
+        blockers.append({
+            "category": "per_location_artifact_quarantine",
+            "severity": "block",
+            "detail": (
+                "stale or unregistered per-location artifacts cannot appear as active "
+                "promotion candidates; "
+                f"active violations={summary.get('active_candidate_violation_count', len(violations))}"
+            ),
+            "evidence": {
+                "status": artifact_quarantine.get("status"),
+                "path": artifact_quarantine.get("path"),
+                "summary": summary,
+                "active_candidate_violations": violations[:12],
+            },
+        })
+    early_hour_blocker = early_hour_promotion_blocker or {}
+    if early_hour_blocker and early_hour_blocker.get("status") != "PASS":
+        first = next(iter(early_hour_blocker.get("blockers") or []), {})
+        blockers.append({
+            "category": "early_hour_promotion_blocker",
+            "severity": "block",
+            "detail": (
+                "early-hour promotion remains fail-closed: "
+                + (first.get("detail") or "inspect early_hour_promotion_blocker")
+            ),
+            "evidence": early_hour_blocker,
+        })
+    source_missingness_gate = source_missingness_location_gate or {}
+    if source_missingness_gate and source_missingness_gate.get("status") != "PASS":
+        first = source_missingness_gate.get("first_blocker") or next(
+            iter(source_missingness_gate.get("blockers") or []),
+            {},
+        )
+        blockers.append({
+            "category": "source_missingness_location_gate",
+            "severity": "block",
+            "detail": (
+                "market/source/missingness location gate is BLOCK: "
+                + (first.get("detail") or "inspect source_missingness_location_gate")
+            ),
+            "evidence": source_missingness_gate,
         })
     source_preflight = (source_family_inventory or {}).get("promotion_preflight") or {}
     source_status = source_preflight.get("status")
@@ -381,6 +1235,9 @@ def promotion_readiness(
         "blocked_market_details": blocked_details,
         "hourly_performance_mitigation": hourly_mitigation,
         "ten_minute_performance_mitigation": ten_minute_mitigation,
+        "evidence_freshness": freshness,
+        "per_location_artifact_quarantine": artifact_quarantine,
+        "early_hour_promotion_blocker": early_hour_blocker,
     }
 
 # Re-export imported dependency names as well because later slices intentionally

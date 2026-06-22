@@ -26,6 +26,7 @@ from weather.sources.nbm_probabilistic_tmax import (
 )
 from weather.model.source_adapters import (
     FETCH_META_KEY,
+    SourceExpectedUnavailable,
     SourceProviderRateLimited,
     fetch_source_group as run_source_adapter_group,
     retry_after_seconds as response_retry_after_seconds,
@@ -414,6 +415,7 @@ class SourceFetchMixin:
             "retry_after_seconds",
             "degradation_state",
             "cache_status",
+            "fallback_source",
             "cache_age_minutes",
             "ttl_minutes",
         ):
@@ -437,6 +439,10 @@ class SourceFetchMixin:
         return "stale_cache"
 
     def source_degradation_state(self, status, item):
+        if status in {"expected_current_day_unavailable", "expected_unavailable"}:
+            return status
+        if item.get("degradation_state") in {"expected_current_day_unavailable", "expected_unavailable"}:
+            return item.get("degradation_state")
         if status == "rate_limited_cache":
             return "rate_limited_fallback"
         if status == "stale_cache":
@@ -486,6 +492,26 @@ class SourceFetchMixin:
                     cache_age_minutes is not None
                     and cache_age_minutes <= ttl_minutes
                 )
+                if (
+                    failure_status in {"expected_current_day_unavailable", "expected_unavailable"}
+                ):
+                    output = {
+                        "ok": False,
+                        "stale": False,
+                        "status": failure_status,
+                        "fetched_at": item.get("fetched_at"),
+                        "error": item.get("error", "Expected source unavailability"),
+                        "latency_ms": item.get("latency_ms"),
+                        "ttl_minutes": ttl_minutes,
+                        "data": {},
+                    }
+                    output.update(self.source_metadata_fields(item, name))
+                    output["ttl_minutes"] = ttl_minutes
+                    output["degradation_state"] = self.source_degradation_state(failure_status, item)
+                    output.setdefault("cache_status", "expected_unavailable")
+                    output.setdefault("fallback_source", item.get("fallback_source") or "current_live_sources")
+                    blended[name] = output
+                    continue
                 if (
                     cached_item
                     and cached_item.get("target_date") == self.target_date.isoformat()
@@ -666,12 +692,32 @@ class SourceFetchMixin:
             "https://api.weather.com/v1/location/"
             f"{self.spec.wu_history_id}/observations/historical.json"
         )
-        payload = self.get_json(url, {
+        params = {
             "apiKey": WEATHER_COM_KEY,
             "units": self.spec.wu_units,
             "startDate": self.target_date_str,
             "endDate": self.target_date_str,
-        })
+        }
+        try:
+            payload = self.get_json(url, params)
+        except requests.HTTPError as exc:
+            response = getattr(exc, "response", None)
+            status_code = getattr(response, "status_code", None)
+            today = datetime.now(self.spec.tz).date()
+            if status_code == 400 and self.target_date == today:
+                raise SourceExpectedUnavailable(
+                    (
+                        "WU history is expected to be unavailable for the current target date; "
+                        "fall back to wu_current/METAR/official observations."
+                    ),
+                    status="expected_current_day_unavailable",
+                    source_family="wu_history",
+                    http_status=400,
+                    degradation_state="expected_current_day_unavailable",
+                    cache_status="expected_unavailable",
+                    fallback_source="wu_current,metar,eccc_swob,current_high_ledger",
+                ) from exc
+            raise
 
         rows = []
         for obs in payload.get("observations", []) or []:

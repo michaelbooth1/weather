@@ -35,6 +35,7 @@ from weather.operations.supervisor import (
     acquire_writer_lock,
     attach_status_writer,
     atomic_write_json,
+    configure_json_console_logging,
     default_ensure_decision,
     launch_detached,
     pid_is_python,
@@ -916,6 +917,7 @@ def main():
         print(json.dumps(capture_snapshot(force=args.force), indent=2, sort_keys=True))
         return
 
+    configure_json_console_logging()
     run_loop(force=args.force, interval_minutes=args.interval_minutes)
 
 

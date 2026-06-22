@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_finalization import *  # noqa: F403
+from weather.operations.runtime_identity import get_runtime_identity
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -76,14 +77,17 @@ def build_run_config_payload(
     experiment_id=DEFAULT_EXPERIMENT_ID,
     strategy_specs=None,
     registry=None,
+    runtime_identity=None,
 ):
     strategy_specs = strategy_specs or selected_strategy_specs(None, base_config=config, registry=registry)
     lifecycle = active_strategy_lifecycle_payload(strategy_specs, config=config, target_date=target_date)
+    runtime_identity = runtime_identity or get_runtime_identity()
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "created_at_utc": now.isoformat(),
         "target_date": ensure_date(target_date).isoformat(),
+        "runtime_identity": runtime_identity,
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "budget_usdc": float(budget_usdc),
         "budget_scope": "per_strategy",
@@ -193,8 +197,7 @@ def build_run_once(
     tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
     append_jsonl(run_folder / "budget_ledger.jsonl", budget_ledger)
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget_usdc) for item in strategy_specs)
-    pnl_payload = build_pnl_payload(all_rows, total_budget_usdc, run_id, target, now=now)
-    write_json(run_folder / "daily_pnl.json", pnl_payload)
+    runtime_identity = get_runtime_identity()
     run_config = build_run_config_payload(
         run_id,
         target,
@@ -208,7 +211,17 @@ def build_run_once(
         experiment_id=experiment_id,
         strategy_specs=strategy_specs,
         registry=strategy_registry,
+        runtime_identity=runtime_identity,
     )
+    pnl_payload = build_pnl_payload(
+        all_rows,
+        total_budget_usdc,
+        run_id,
+        target,
+        now=now,
+        policy_config=run_config.get("policy_config") or config,
+    )
+    write_json(run_folder / "daily_pnl.json", pnl_payload)
     write_json(run_folder / "run_config.json", run_config)
     strategy_summary = build_strategy_summary_payload(
         pnl_payload,
@@ -238,6 +251,7 @@ def build_run_once(
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "target_date": target.isoformat(),
+        "runtime_identity": runtime_identity,
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
         "active_strategy_id": run_config.get("active_strategy_id"),
@@ -274,6 +288,7 @@ def build_run_once(
         "target_date": target.isoformat(),
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
+        "runtime_identity": runtime_identity,
         "run_folder": str(run_folder),
         "run_config_path": str(run_folder / "run_config.json"),
         "orders_path": str(order_path),

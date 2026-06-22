@@ -1,4 +1,4 @@
-# 213. Current-Date WU History Expected-Degradation Handling [OPEN 2026-06-22 - CURRENT-DAY 400S SHOULD NOT LOOK LIKE SOURCE FAILURES]
+# 213. Current-Date WU History Expected-Degradation Handling [COMPLETE 2026-06-22 - CURRENT-DAY WU 400S ARE TYPED EXPECTED DEGRADATION]
 
 Goal: handle current-date `wu_history` requests as an expected unavailable or
 degraded path when the provider returns 400s, while preserving useful current
@@ -27,14 +27,37 @@ know when this is an expected current-date limitation and degrade cleanly to
 4. Add a daily summary counter that separates expected current-date WU history
    degradation from unexpected source failures.
 
-- [ ] Add current-date WU history classification and fallback state.
-- [ ] Update source-status reporting and fleet observability to separate this
+- [x] Add current-date WU history classification and fallback state.
+- [x] Update source-status reporting and fleet observability to separate this
   state from true failures.
-- [ ] Make current-high trust logic consume the cleaner fallback state.
-- [ ] Add fixtures covering current-date 400s for US and Toronto-style station
+- [x] Make current-high trust logic consume the cleaner fallback state.
+- [x] Add fixtures covering current-date 400s for US and Toronto-style station
   IDs.
-- [ ] Backfill or annotate June 21 source-failure reports so the pattern is
+- [x] Backfill or annotate June 21 source-failure reports so the pattern is
   traceable.
+
+## Completion Notes
+
+Added typed expected-unavailable source metadata for current-target-date
+`wu_history` 400s. `fetch_wu_history` now converts current-day Weather.com/WU
+history 400 responses into `expected_current_day_unavailable` with
+`http_status=400`, `cache_status=expected_unavailable`, and
+`fallback_source=wu_current,metar,eccc_swob,current_high_ledger`.
+
+Source-status rows now persist `fallback_source`, and source family/fleet
+observability summaries expose `expected_unavailable_source_count` separately
+from `failed_source_count`. Expected current-day WU history unavailability no
+longer increments true failed-source counts or blocks source-status proof by
+itself, while reliability/source freshness still records the explicit
+`expected_unavailable:wu_history` state for downstream consumers.
+
+Regression fixtures cover both Toronto-style (`CYYZ:9:CA`) and US-style
+(`KATL:9:US`) WU history IDs, and a source-status proof fixture matching the
+June 21 repeated-400 pattern.
+
+Verification:
+
+- `python -m pytest tests\model\test_current_day_wu_history_degradation.py tests\collection\test_collection_robustness.py tests\collection\test_live_variant_predictions.py tests\reporting\test_fleet_observability.py -q`
 
 Acceptance: current-target-date WU history 400s no longer appear as repeated
 generic failures; they produce a typed degradation state with a known fallback,

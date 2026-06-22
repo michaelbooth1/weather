@@ -520,6 +520,11 @@ def summarize_market_making_run(path, payload):
     )
     countable_mode = evidence_mode == COUNTABLE_MM_EVIDENCE_MODE
     countable_all_markets = bool(payload.get("counts_toward_live_forward_gate"))
+    reason_counts = (
+        payload.get("reason_counts")
+        or ((payload.get("latest_tick") or {}).get("reason_counts"))
+        or {}
+    )
     return {
         "exists": True,
         "path": str(path),
@@ -541,6 +546,10 @@ def summarize_market_making_run(path, payload):
             payload.get("cumulative_live_trade_permission_rows")
             or payload.get("live_trade_permission_rows")
             or 0
+        ),
+        "reason_counts": reason_counts,
+        "current_high_trust_no_quote_count": _int_value(
+            reason_counts.get("NO_QUOTE_CURRENT_HIGH_TRUST_GATE")
         ),
         "counts_toward_live_forward_gate": countable_all_markets,
         "countable_mode": countable_mode,
@@ -568,6 +577,8 @@ def _taker_summary_fields(payload, settled_payload=None):
     strategy_comparison = pnl_payload.get("strategy_comparison") or {}
     by_strategy = pnl_payload.get("by_strategy") or []
     countable_candidate = strategy_comparison.get("countable_strategy_quality_candidate") or {}
+    tail_quality = pnl_payload.get("tail_fill_quality") or {}
+    tail_summary = tail_quality.get("summary") or {}
     strategy_fields = {
         "strategy_count": strategy_comparison.get("strategy_count") or len(by_strategy),
         "best_strategy_id": strategy_comparison.get("best_strategy_id"),
@@ -584,6 +595,14 @@ def _taker_summary_fields(payload, settled_payload=None):
         "strategy_quality_candidate_net_pnl_usdc": _float_value(countable_candidate.get("net_pnl_usdc")),
         "strategy_comparison": strategy_comparison,
         "by_strategy": by_strategy,
+        "promotion_evidence_basis": strategy_comparison.get("promotion_evidence_basis"),
+        "mtm_promotion_allowed": bool(strategy_comparison.get("mtm_promotion_allowed")),
+        "tail_fill_quality_status": tail_summary.get("status"),
+        "low_price_tail_fill_count": _int_value(tail_summary.get("low_price_tail_fill_count")),
+        "low_price_tail_fill_fraction": _float_value(tail_summary.get("low_price_tail_fill_fraction")),
+        "tail_fill_alert_count": _int_value(tail_summary.get("alert_count")),
+        "tail_fill_alerts": tail_summary.get("alerts") or [],
+        "tail_fill_quality": tail_quality,
     }
     if settled_payload:
         settled_summary = settled_payload.get("summary") or {}
@@ -591,28 +610,55 @@ def _taker_summary_fields(payload, settled_payload=None):
         reconciliation = settled_payload.get("reconciliation") or {}
         next_gate = settled_payload.get("next_run_policy_gate") or {}
         warnings = reconciliation.get("warnings") or []
+        settled_count = _int_value(_first_present(
+            settled_pnl.get("settled_order_count"),
+            settled_summary.get("settled_order_count"),
+        ))
+        mtm_pnl = _float_value(_first_present(
+            settled_pnl.get("mark_to_market_pnl_usdc"),
+            settled_summary.get("mark_to_market_pnl_usdc"),
+        ))
+        pnl_source = settled_summary.get("pnl_source") or reconciliation.get("preferred_pnl_source")
+        evidence_status = (
+            "SETTLEMENT_SCORED"
+            if settled_count > 0 else
+            "PROVISIONAL_MTM_ONLY"
+            if mtm_pnl != 0.0 or pnl_source == "mark_to_market" else
+            "UNSCORED"
+        )
         return {
-            "filled_orders": _int_value(settled_pnl.get("filled_order_count") or settled_summary.get("filled_order_count")),
-            "budget_spent_usdc": _float_value(
-                settled_pnl.get("budget_spent_usdc") or settled_summary.get("budget_spent_usdc")
-            ),
-            "net_pnl_usdc": _float_value(settled_pnl.get("net_pnl_usdc") or settled_summary.get("net_pnl_usdc")),
-            "mark_to_market_pnl_usdc": _float_value(
-                settled_pnl.get("mark_to_market_pnl_usdc") or settled_summary.get("mark_to_market_pnl_usdc")
-            ),
-            "settlement_pnl_usdc": _float_value(
-                settled_pnl.get("settlement_pnl_usdc") or settled_summary.get("settlement_pnl_usdc")
-            ),
-            "settled_order_count": _int_value(
-                settled_pnl.get("settled_order_count") or settled_summary.get("settled_order_count")
-            ),
-            "unsettled_order_count": _int_value(
-                settled_pnl.get("unsettled_order_count") or settled_summary.get("unsettled_order_count")
-            ),
+            "filled_orders": _int_value(_first_present(
+                settled_pnl.get("filled_order_count"),
+                settled_summary.get("filled_order_count"),
+            )),
+            "budget_spent_usdc": _float_value(_first_present(
+                settled_pnl.get("budget_spent_usdc"),
+                settled_summary.get("budget_spent_usdc"),
+            )),
+            "net_pnl_usdc": _float_value(_first_present(
+                settled_pnl.get("net_pnl_usdc"),
+                settled_summary.get("net_pnl_usdc"),
+            )),
+            "mark_to_market_pnl_usdc": mtm_pnl,
+            "settlement_pnl_usdc": _float_value(_first_present(
+                settled_pnl.get("settlement_pnl_usdc"),
+                settled_summary.get("settlement_pnl_usdc"),
+            )),
+            "settled_order_count": settled_count,
+            "unsettled_order_count": _int_value(_first_present(
+                settled_pnl.get("unsettled_order_count"),
+                settled_summary.get("unsettled_order_count"),
+            )),
             "reason_counts": settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {},
+            "current_high_trust_no_trade_count": _int_value(
+                (settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {}).get(
+                    "NO_TRADE_CURRENT_HIGH_TRUST_GATE"
+                )
+            ),
             "root_cause_class": summary.get("root_cause_class"),
             "first_failing_gate": summary.get("first_failing_gate"),
-            "pnl_source": settled_summary.get("pnl_source") or reconciliation.get("preferred_pnl_source"),
+            "pnl_source": pnl_source,
+            "pnl_evidence_status": evidence_status,
             "settlement_finalization_status": "available",
             "settlement_reconciliation_status": reconciliation.get("status"),
             "settlement_reconciliation_warnings": warnings,
@@ -651,6 +697,22 @@ def _taker_summary_fields(payload, settled_payload=None):
                 next_gate.get("canary_min_settled_orders"),
                 settled_summary.get("active_strategy_canary_min_settled_orders"),
             )),
+            "active_strategy_canary_settled_market_count": _int_value(_first_present(
+                next_gate.get("canary_settled_market_count"),
+                settled_summary.get("active_strategy_canary_settled_market_count"),
+            )),
+            "active_strategy_canary_min_settled_markets": _int_value(_first_present(
+                next_gate.get("canary_min_settled_markets"),
+                settled_summary.get("active_strategy_canary_min_settled_markets"),
+            )),
+            "active_strategy_canary_tail_fill_fraction": _float_value(_first_present(
+                next_gate.get("canary_tail_fill_fraction"),
+                settled_summary.get("active_strategy_canary_tail_fill_fraction"),
+            )),
+            "active_strategy_canary_max_tail_fill_fraction": _float_value(_first_present(
+                next_gate.get("canary_max_tail_fill_fraction"),
+                settled_summary.get("active_strategy_canary_max_tail_fill_fraction"),
+            )),
             "active_strategy_canary_age_days": _int_value(_first_present(
                 next_gate.get("canary_age_days"),
                 settled_summary.get("active_strategy_canary_age_days"),
@@ -666,6 +728,13 @@ def _taker_summary_fields(payload, settled_payload=None):
         "mark_to_market" if _float_value(pnl.get("mark_to_market_pnl_usdc")) != 0.0 else
         "unscored"
     )
+    evidence_status = (
+        "SETTLEMENT_SCORED"
+        if _int_value(pnl.get("settled_order_count")) > 0 else
+        "PROVISIONAL_MTM_ONLY"
+        if pnl_source == "mark_to_market" else
+        "UNSCORED"
+    )
     return {
         "filled_orders": _int_value(summary.get("cumulative_filled_orders") or pnl.get("filled_order_count")),
         "budget_spent_usdc": _float_value(summary.get("budget_spent_usdc") or pnl.get("budget_spent_usdc")),
@@ -675,9 +744,15 @@ def _taker_summary_fields(payload, settled_payload=None):
         "settled_order_count": _int_value(pnl.get("settled_order_count")),
         "unsettled_order_count": _int_value(pnl.get("unsettled_order_count")),
         "reason_counts": pnl.get("reason_counts") or summary.get("reason_counts") or {},
+        "current_high_trust_no_trade_count": _int_value(
+            (pnl.get("reason_counts") or summary.get("reason_counts") or {}).get(
+                "NO_TRADE_CURRENT_HIGH_TRUST_GATE"
+            )
+        ),
         "root_cause_class": summary.get("root_cause_class"),
         "first_failing_gate": summary.get("first_failing_gate"),
         "pnl_source": pnl_source,
+        "pnl_evidence_status": evidence_status,
         "settlement_finalization_status": "missing",
         "settlement_reconciliation_status": None,
         "settlement_reconciliation_warnings": [],
@@ -694,6 +769,10 @@ def _taker_summary_fields(payload, settled_payload=None):
         "active_strategy_canary_min_settled_orders": _int_value(
             (summary.get("active_strategy_canary") or {}).get("min_settled_orders")
         ),
+        "active_strategy_canary_settled_market_count": 0,
+        "active_strategy_canary_min_settled_markets": 0,
+        "active_strategy_canary_tail_fill_fraction": 0.0,
+        "active_strategy_canary_max_tail_fill_fraction": 0.0,
         "active_strategy_canary_age_days": _int_value(
             (summary.get("active_strategy_canary") or {}).get("age_days")
         ),

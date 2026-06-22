@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import inspect
+import pickle
 from datetime import timezone
+from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from weather.paths import REPO_ROOT
 from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 from weather.schema_registry import schema_version
+from weather.market.snapshot_cadence_quality import cadence_adjusted_probability, snapshot_cadence_quality
 
 
 SCHEMA_VERSION = schema_version("live_variant_predictions")
 SUPPORTED_TRACKS = {"no_market", "market_informed"}
+KNOWN_LIVE_RUNTIMES = {
+    "pooled_candidate_replay",
+    "conservative_bridge_policy",
+    "microstructure_shadow_report",
+}
 
 LIVE_VARIANT_PREDICTION_COLUMNS = [
     "schema_version",
@@ -32,6 +41,13 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
     "runtime_source_fingerprint",
     "runtime_code_state",
     "snapshot_cadence",
+    "snapshot_cadence_quality_state",
+    "snapshot_cadence_gap_count",
+    "snapshot_cadence_max_gap_seconds",
+    "snapshot_cadence_last_model_age_seconds",
+    "snapshot_cadence_confidence_multiplier",
+    "snapshot_cadence_permission",
+    "snapshot_cadence_reason",
     "trigger_reason",
     "trigger_source",
     "trigger_previous_value",
@@ -64,7 +80,9 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
     "bin_value_c",
     "bin_value_hi_c",
     "variant_probability",
+    "cadence_adjusted_variant_probability",
     "serving_model_probability",
+    "cadence_adjusted_serving_model_probability",
     "market_yes",
     "market_no",
     "variant_edge",
@@ -106,6 +124,7 @@ def build_live_variant_prediction_rows(
     serving_model_version: str,
     runtime_fields: dict[str, Any] | None = None,
     snapshot_cadence: str = "scheduled",
+    cadence_quality: dict[str, Any] | None = None,
     trigger_summary: dict[str, Any] | None = None,
     registry_path: str | Path = DEFAULT_REGISTRY_PATH,
     runner: Any = None,
@@ -118,6 +137,10 @@ def build_live_variant_prediction_rows(
 
     runtime_fields = runtime_fields or {}
     trigger_summary = trigger_summary or {}
+    cadence_quality = snapshot_cadence_quality({
+        "snapshot_cadence": snapshot_cadence,
+        **(cadence_quality or {}),
+    })
     captured_utc = captured_at.astimezone(timezone.utc).isoformat()
     captured_local = captured_at.isoformat()
     target_date_value = target_date.isoformat() if hasattr(target_date, "isoformat") else target_date
@@ -128,6 +151,11 @@ def build_live_variant_prediction_rows(
         "model_client": model_client,
         "captured_at": captured_at,
         "band_rows": band_rows,
+        "snapshot_id": snapshot_id,
+        "event_slug": event_slug,
+        "market_id": market_id,
+        "target_date": target_date_value,
+        "serving_model_version": serving_model_version,
     }
     for variant in variants:
         try:
@@ -154,6 +182,7 @@ def build_live_variant_prediction_rows(
                 "event_updated_at": (event or {}).get("updatedAt"),
                 **runtime_fields,
                 "snapshot_cadence": snapshot_cadence,
+                **cadence_quality,
                 **trigger_summary,
                 "serving_model_version": serving_model_version,
             },
@@ -174,6 +203,10 @@ def _predict_variant_payload(variant: dict[str, Any], context: dict[str, Any], r
     model_payload = _model_variant_payload(context.get("model") or {}, variant.get("variant_id"))
     if model_payload is not None:
         return model_payload
+
+    runtime_payload = _runtime_variant_payload(variant, context)
+    if runtime_payload is not None:
+        return runtime_payload
 
     reason, detail = _skip_reason_for_variant(variant)
     return {
@@ -210,6 +243,369 @@ def _model_variant_payload(model: dict[str, Any], variant_id: Any) -> dict[str, 
     return None
 
 
+def _runtime_variant_payload(variant: dict[str, Any], context: dict[str, Any]) -> dict[str, Any] | None:
+    runtime = str(variant.get("live_runtime") or "")
+    if runtime == "pooled_candidate_replay":
+        return _pooled_candidate_replay_payload(variant, context)
+    if runtime == "conservative_bridge_policy":
+        return _serving_passthrough_payload(
+            variant,
+            context,
+            runtime=runtime,
+            detail="policy overlay uses serving probabilities until a base candidate live payload is available",
+        )
+    if runtime == "microstructure_shadow_report":
+        return _microstructure_shadow_payload(variant, context)
+    return None
+
+
+def _prediction_failure(runtime: str, reason: str, detail: str) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "failure_reason": reason,
+        "failure_detail": detail,
+        "live_runtime": runtime,
+    }
+
+
+def _serving_passthrough_payload(
+    variant: dict[str, Any],
+    context: dict[str, Any],
+    *,
+    runtime: str,
+    detail: str,
+) -> dict[str, Any]:
+    probabilities = {}
+    for band in context.get("band_rows") or []:
+        probability = _maybe_float(band.get("model_probability"))
+        if probability is not None:
+            probabilities[band_key(band)] = probability
+    if not probabilities:
+        return _prediction_failure(runtime, "missing_serving_probabilities", detail)
+    return {
+        "status": "predicted",
+        "probabilities": probabilities,
+        "model_version": variant.get("variant_id"),
+        "live_runtime": runtime,
+        "failure_detail": detail,
+    }
+
+
+@lru_cache(maxsize=32)
+def _load_pickle_artifact(path_text: str, mtime_ns: int) -> dict[str, Any]:
+    del mtime_ns
+    with Path(path_text).open("rb") as handle:
+        artifact = pickle.load(handle)
+    if not isinstance(artifact, dict):
+        raise ValueError(f"{path_text} is not a dictionary artifact")
+    return artifact
+
+
+def _load_variant_artifact(variant: dict[str, Any]) -> tuple[dict[str, Any] | None, Path | None, str | None]:
+    artifact_path = _variant_artifact_path(variant)
+    if not artifact_path:
+        return None, None, "registry entry has no artifact path"
+    resolved = _resolve_artifact_path(artifact_path)
+    if resolved is None:
+        return None, None, f"remote artifact path is not supported for live prediction: {artifact_path}"
+    if not resolved.exists():
+        return None, resolved, f"artifact path does not exist: {artifact_path}"
+    return _load_pickle_artifact(str(resolved), resolved.stat().st_mtime_ns), resolved, None
+
+
+def _artifact_hash(path: Path | None, variant: dict[str, Any]) -> str | None:
+    if variant.get("artifact_hash") or variant.get("artifact_sha256"):
+        return variant.get("artifact_hash") or variant.get("artifact_sha256")
+    if path is None:
+        return None
+    try:
+        from weather.artifacts import sha256_file
+
+        return sha256_file(path)
+    except Exception:  # noqa: BLE001 - hash is metadata, not a live prediction blocker
+        return None
+
+
+def _feature_vector(context: dict[str, Any]) -> dict[str, Any]:
+    model = context.get("model") or {}
+    vector = model.get("feature_vector") or {}
+    return dict(vector) if isinstance(vector, dict) else {}
+
+
+def _band_value(band: dict[str, Any], key: str) -> Any:
+    value = band.get(key)
+    if value is not None:
+        return value
+    aliases = {
+        "bin_value_c": ("value", "bin_value"),
+        "bin_value_hi_c": ("value_hi", "bin_value_hi"),
+        "bin_kind": ("kind",),
+    }
+    for alias in aliases.get(key, ()):
+        if band.get(alias) is not None:
+            return band.get(alias)
+    return value
+
+
+def _band_prediction_records(feature_vector: dict[str, Any], band_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from weather.calibration.pooled_feature_model import band_prediction_record
+
+    records = []
+    for band in band_rows:
+        records.append(band_prediction_record(
+            feature_vector,
+            _band_value(band, "bin_kind"),
+            _band_value(band, "bin_value_c"),
+            value_hi=_band_value(band, "bin_value_hi_c"),
+        ))
+    return records
+
+
+def _postprocess_enabled(config: dict[str, Any]) -> bool:
+    return any(
+        key in (config or {})
+        for key in (
+            "hard_floor_enabled",
+            "support_floor_enabled",
+            "late_lockin_enabled",
+            "adjacent_calibration_enabled",
+            "exact_winner_catchup_enabled",
+            "forecast_centering_enabled",
+        )
+    )
+
+
+def _normalize_probability_partition(probabilities: dict[str, float], gamma: float) -> dict[str, float]:
+    if not probabilities:
+        return probabilities
+    weights = {
+        key: max(1e-12, float(value)) ** max(0.1, float(gamma or 1.0))
+        for key, value in probabilities.items()
+    }
+    total = sum(weights.values())
+    if total <= 0:
+        return probabilities
+    return {key: value / total for key, value in weights.items()}
+
+
+def _apply_current_blend(
+    probabilities: dict[str, float],
+    band_rows: list[dict[str, Any]],
+    postprocess: dict[str, Any],
+    market_id: str | None,
+) -> dict[str, float]:
+    if not postprocess.get("current_blend_enabled", False):
+        return probabilities
+    market_alpha = postprocess.get("current_blend_market_alpha") or {}
+    alpha = market_alpha.get(market_id, postprocess.get("current_blend_default_alpha", 1.0))
+    try:
+        alpha = max(0.0, min(1.0, float(alpha)))
+    except (TypeError, ValueError):
+        alpha = 1.0
+    output = dict(probabilities)
+    for band in band_rows:
+        key = band_key(band)
+        candidate = _maybe_float(output.get(key))
+        current = _maybe_float(band.get("model_probability"))
+        if candidate is None or current is None:
+            continue
+        output[key] = (alpha * candidate) + ((1.0 - alpha) * current)
+    return output
+
+
+def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    runtime = "pooled_candidate_replay"
+    artifact, artifact_path, error = _load_variant_artifact(variant)
+    if error:
+        return _prediction_failure(runtime, "missing_artifact", error)
+    feature_vector = _feature_vector(context)
+    if not feature_vector:
+        return _prediction_failure(runtime, "missing_feature_vector", "live snapshot model did not include feature_vector")
+    band_rows = list(context.get("band_rows") or [])
+    if not band_rows:
+        return _prediction_failure(runtime, "missing_band_rows", "live snapshot has no band rows")
+    mode = str((artifact or {}).get("prediction_mode") or "band_binary")
+    try:
+        if mode == "continuous_density_f":
+            probabilities = _density_probabilities(artifact or {}, feature_vector, band_rows)
+        else:
+            probabilities = _band_binary_probabilities(artifact or {}, feature_vector, band_rows, context)
+    except Exception as exc:  # noqa: BLE001 - one variant must not block serving tape
+        return _prediction_failure(runtime, "runtime_exception", f"{type(exc).__name__}: {exc}")
+    if not probabilities:
+        return _prediction_failure(runtime, "missing_band_probability", "artifact produced no live band probabilities")
+    return {
+        "status": "predicted",
+        "probabilities": probabilities,
+        "model_version": variant.get("variant_id"),
+        "artifact_path": str(artifact_path) if artifact_path else _variant_artifact_path(variant),
+        "artifact_hash": _artifact_hash(artifact_path, variant),
+        "postprocess_config_hash": variant.get("postprocess_config_hash"),
+        "live_runtime": runtime,
+    }
+
+
+def _band_binary_probabilities(
+    artifact: dict[str, Any],
+    feature_vector: dict[str, Any],
+    band_rows: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> dict[str, float]:
+    from weather.calibration.pooled_feature_model import apply_band_postprocessing, predict_band_rows_for_bundle
+
+    records = _band_prediction_records(feature_vector, band_rows)
+    if not records:
+        return {}
+    hour = str(records[0].get("cutoff_hour") or (context.get("captured_at").hour if context.get("captured_at") else ""))
+    bundle = (artifact.get("models") or {}).get(hour)
+    if not bundle:
+        raise ValueError(f"artifact has no live model for cutoff hour {hour!r}")
+    raw = predict_band_rows_for_bundle(bundle, records, postprocess=False)
+    postprocess = artifact.get("postprocess") or {}
+    probabilities = {}
+    for band, record, probability in zip(band_rows, records, raw):
+        p = _maybe_float(probability)
+        if p is None:
+            continue
+        if _postprocess_enabled(postprocess):
+            p = apply_band_postprocessing(p, record, config=postprocess)
+        probabilities[band_key(band)] = max(0.0, min(1.0, float(p)))
+    if postprocess.get("partition_normalization_enabled", True):
+        probabilities = _normalize_probability_partition(
+            probabilities,
+            float(postprocess.get("partition_normalization_gamma", 1.25)),
+        )
+    probabilities = _apply_current_blend(
+        probabilities,
+        band_rows,
+        postprocess,
+        str(feature_vector.get("market_id") or context.get("market_id") or ""),
+    )
+    return probabilities
+
+
+def _density_probabilities(
+    artifact: dict[str, Any],
+    feature_vector: dict[str, Any],
+    band_rows: list[dict[str, Any]],
+) -> dict[str, float]:
+    from weather.calibration.pooled_candidate_replay import (
+        apply_continuous_density_calibration,
+        density_band_probability_from_distribution,
+        density_projection_index,
+        density_projection_probability,
+        predict_density_rows_for_bundle,
+    )
+
+    payloads = predict_density_rows_for_bundle(artifact, [feature_vector])
+    payload = payloads[0] if payloads else None
+    if not payload:
+        return {}
+    postprocess = artifact.get("density_postprocess") or {}
+    if postprocess.get("enabled"):
+        payload = apply_continuous_density_calibration(
+            payload,
+            artifact,
+            floor_bucket=feature_vector.get("observed_floor_bucket"),
+            unit=feature_vector.get("display_unit") or feature_vector.get("unit") or "F",
+            resolution_weight=feature_vector.get("late_lockin_strength", 0.0),
+            cutoff_hour=feature_vector.get("cutoff_hour"),
+        )
+    index = density_projection_index(payload)
+    probabilities = {}
+    unit = feature_vector.get("display_unit") or feature_vector.get("unit") or "F"
+    spec = SimpleNamespace(display_unit=unit, unit=unit)
+    for band in band_rows:
+        kind = _band_value(band, "bin_kind")
+        value = _band_value(band, "bin_value_c")
+        value_hi = _band_value(band, "bin_value_hi_c")
+        probability = density_projection_probability(index, unit, kind, value, value_hi=value_hi)
+        if probability is None:
+            probability = density_band_probability_from_distribution(
+                payload,
+                spec,
+                {"kind": kind, "value": value, "value_hi": value_hi, "unit": unit},
+            )
+        if _maybe_float(probability) is not None:
+            probabilities[band_key(band)] = max(0.0, min(1.0, float(probability)))
+    if postprocess.get("enabled") and postprocess.get("partition_normalization_enabled", False):
+        probabilities = _normalize_probability_partition(
+            probabilities,
+            float(postprocess.get("partition_normalization_gamma", 1.25)),
+        )
+    return probabilities
+
+
+def _microstructure_shadow_payload(variant: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    runtime = "microstructure_shadow_report"
+    if str(variant.get("postprocess_config_hash") or "") == "taxonomy_gate":
+        return {
+            "status": "skipped",
+            "failure_reason": "taxonomy_gate_unavailable_live",
+            "failure_detail": "taxonomy-gated CLOB overlay requires casebook taxonomy unavailable at live snapshot time",
+            "live_runtime": runtime,
+        }
+    artifact, artifact_path, error = _load_variant_artifact(variant)
+    if error:
+        return _prediction_failure(runtime, "missing_artifact", error)
+    band_rows = list(context.get("band_rows") or [])
+    records = []
+    for band in band_rows:
+        serving_p = _maybe_float(band.get("model_probability"))
+        market_yes = _maybe_float(band.get("market_yes"))
+        if serving_p is None or market_yes is None:
+            continue
+        bid = _maybe_float(band.get("best_bid"))
+        ask = _maybe_float(band.get("best_ask"))
+        midpoint = ((bid + ask) / 2.0) if bid is not None and ask is not None else market_yes
+        spread = (ask - bid) if bid is not None and ask is not None else None
+        records.append({
+            "_band_key": band_key(band),
+            "candidate_p": serving_p,
+            "replayed_p": serving_p,
+            "market_yes": market_yes,
+            "clob_feature_available": 1.0,
+            "clob_midpoint": midpoint,
+            "clob_spread": spread,
+            "clob_liquidity_score": _maybe_float(band.get("liquidity") or band.get("volume")),
+            "source_freshness_state": "live_snapshot",
+            "forecast_source_count_bucket": "unknown",
+            "forecast_disagreement_bucket": "unknown",
+            "forecast_bucket_pressure": "unknown",
+            "casebook_taxonomy": "live_unlabeled",
+        })
+    if not records:
+        return _prediction_failure(
+            runtime,
+            "missing_microstructure_features",
+            "live CLOB overlay requires serving probability and market probability",
+        )
+    try:
+        from weather.calibration.pooled_candidate_replay import microstructure_feature_frame
+
+        feature_names = artifact.get("feature_names") or []
+        frame = microstructure_feature_frame(records, feature_names=feature_names)
+        x_eval = artifact["imputer"].transform(frame)
+        probabilities = artifact["model"].predict_proba(x_eval)
+        classes = [int(value) for value in artifact.get("classes") or artifact["model"].classes_]
+        idx = classes.index(1) if 1 in classes else 0
+        band_probabilities = {
+            record["_band_key"]: max(0.0, min(1.0, float(prob[idx])))
+            for record, prob in zip(records, probabilities)
+        }
+    except Exception as exc:  # noqa: BLE001
+        return _prediction_failure(runtime, "runtime_exception", f"{type(exc).__name__}: {exc}")
+    return {
+        "status": "predicted",
+        "probabilities": band_probabilities,
+        "model_version": variant.get("variant_id"),
+        "artifact_path": str(artifact_path) if artifact_path else _variant_artifact_path(variant),
+        "artifact_hash": _artifact_hash(artifact_path, variant),
+        "postprocess_config_hash": variant.get("postprocess_config_hash"),
+        "live_runtime": runtime,
+    }
+
+
 def _skip_reason_for_variant(variant: dict[str, Any]) -> tuple[str, str]:
     track = variant.get("track")
     if track not in SUPPORTED_TRACKS:
@@ -228,6 +624,8 @@ def _skip_reason_for_variant(variant: dict[str, Any]) -> tuple[str, str]:
     runtime = variant.get("live_runtime") or variant.get("prediction_function")
     if not runtime:
         return "unsupported_runtime", "registry entry has no live runtime contract"
+    if str(runtime) in KNOWN_LIVE_RUNTIMES:
+        return "runtime_unavailable", f"live runtime {runtime!r} could not produce a bounded prediction"
     return "unsupported_runtime", f"live runtime {runtime!r} requires an explicit prediction runner"
 
 
@@ -281,6 +679,7 @@ def _rows_for_variant(
                 row_failure_detail = f"variant payload did not include probability for {band_key(band)}"
         market_yes = _maybe_float(band.get("market_yes"))
         variant_edge = probability - market_yes if probability is not None and market_yes is not None else None
+        multiplier = (base or {}).get("snapshot_cadence_confidence_multiplier")
         rows.append({
             **base,
             "variant_id": variant.get("variant_id"),
@@ -309,7 +708,17 @@ def _rows_for_variant(
             "bin_value_c": band.get("bin_value_c"),
             "bin_value_hi_c": band.get("bin_value_hi_c"),
             "variant_probability": probability,
+            "cadence_adjusted_variant_probability": cadence_adjusted_probability(
+                probability,
+                market_yes,
+                multiplier,
+            ),
             "serving_model_probability": band.get("model_probability"),
+            "cadence_adjusted_serving_model_probability": cadence_adjusted_probability(
+                band.get("model_probability"),
+                market_yes,
+                multiplier,
+            ),
             "market_yes": band.get("market_yes"),
             "market_no": band.get("market_no"),
             "variant_edge": variant_edge,

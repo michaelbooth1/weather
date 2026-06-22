@@ -87,6 +87,10 @@ MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS = [
     "variant_family",
     "uses_market_features",
     "is_control",
+    "claim_lane",
+    "counts_toward_weather_model_promotion",
+    "quote_risk_eligible",
+    "quote_risk_gate_reason",
     "market_id",
     "target_date",
     "snapshot_id",
@@ -513,6 +517,35 @@ def _shadow_band_key(row):
     return f"{kind}:{value}"
 
 
+def _claim_lane_metadata(row, variant):
+    uses_market_features = bool(variant.get("uses_market_features"))
+    claim_lane = variant.get("claim_lane") or (
+        "market_informed_quote_risk" if uses_market_features else "weather_only_core_model"
+    )
+    counts_toward_weather_model_promotion = bool(
+        variant.get("counts_toward_weather_model_promotion", not uses_market_features)
+    )
+    quote_risk_candidate = bool(variant.get("quote_risk_candidate"))
+    gate_reason = row.get("micro_gate_reason") or ""
+    quote_risk_eligible = (
+        quote_risk_candidate
+        and claim_lane == "market_informed_quote_risk"
+        and str(gate_reason).startswith("allowed taxonomy:")
+    )
+    if not uses_market_features:
+        quote_risk_gate_reason = "weather_only_core_model"
+    elif quote_risk_candidate:
+        quote_risk_gate_reason = gate_reason or "missing taxonomy gate reason"
+    else:
+        quote_risk_gate_reason = "market_informed_diagnostic_only"
+    return {
+        "claim_lane": claim_lane,
+        "counts_toward_weather_model_promotion": counts_toward_weather_model_promotion,
+        "quote_risk_eligible": quote_risk_eligible,
+        "quote_risk_gate_reason": quote_risk_gate_reason,
+    }
+
+
 def _shadow_variant_row(row, variant, experiment_start_date):
     probability = row.get(variant["probability_field"])
     if not _valid_probability(probability):
@@ -531,6 +564,7 @@ def _shadow_variant_row(row, variant, experiment_start_date):
         "variant_family": variant["variant_family"],
         "uses_market_features": variant["uses_market_features"],
         "is_control": variant["is_control"],
+        **_claim_lane_metadata(row, variant),
         "market_id": row.get("market_id"),
         "target_date": row.get("target_date"),
         "snapshot_id": row.get("snapshot_id"),
@@ -898,6 +932,9 @@ def microstructure_shadow_variant_rows(
             "probability_field": "candidate_p",
             "uses_market_features": False,
             "is_control": True,
+            "claim_lane": "weather_only_core_model",
+            "counts_toward_weather_model_promotion": True,
+            "quote_risk_candidate": False,
             "artifact_hash": candidate_artifact_hash,
             "postprocess_config_hash": "base_candidate",
         },
@@ -907,6 +944,9 @@ def microstructure_shadow_variant_rows(
             "probability_field": "micro_candidate_p",
             "uses_market_features": True,
             "is_control": False,
+            "claim_lane": "market_informed_quote_risk",
+            "counts_toward_weather_model_promotion": False,
+            "quote_risk_candidate": False,
             "artifact_hash": microstructure_artifact_hash,
             "postprocess_config_hash": "raw_oof",
         },
@@ -916,6 +956,9 @@ def microstructure_shadow_variant_rows(
             "probability_field": "micro_gated_candidate_p",
             "uses_market_features": True,
             "is_control": False,
+            "claim_lane": "market_informed_quote_risk",
+            "counts_toward_weather_model_promotion": False,
+            "quote_risk_candidate": True,
             "artifact_hash": microstructure_artifact_hash,
             "postprocess_config_hash": "taxonomy_gate",
         },

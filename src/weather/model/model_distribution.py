@@ -72,6 +72,20 @@ from weather.model.model_distribution_constants import (
     VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
     WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
 )
+
+
+EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS = frozenset({
+    # Item 181 settled stage attribution: empirical fallback forecast-shape
+    # must be non-regressing on both Brier and log-loss before serving applies it.
+    "houston",
+    "los-angeles",
+    "miami",
+    "nyc",
+    "seattle",
+    "toronto",
+})
+
+
 @dataclass
 class DistributionPipelineState:
     """Named probability snapshots and metadata for one distribution run."""
@@ -903,8 +917,27 @@ class DistributionMixin(DistributionSignalMixin):
         pipeline,
     ):
         """Apply the forecast floor and upper-tail forecast pull."""
+        market_id = str(getattr(self, "market_id", "") or "").strip().lower()
+        policy = {
+            "enabled": (
+                not using_feature_model
+                and not using_calibrated_empirical
+                and market_id in EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS
+            ),
+            "market_id": market_id or None,
+            "allowed_markets": sorted(EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS),
+            "reason": None,
+        }
         if using_feature_model or using_calibrated_empirical:
+            policy["reason"] = "feature_or_calibrated_empirical_path"
+            pipeline.update_metadata(forecast_shape_policy=policy)
             return scores
+        if market_id not in EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS:
+            policy["reason"] = "empirical_fallback_market_not_validated"
+            pipeline.update_metadata(forecast_shape_policy=policy)
+            return scores
+        policy["reason"] = "empirical_fallback_market_validated"
+        pipeline.update_metadata(forecast_shape_policy=policy)
         floor_votes = self.unfalsified_forecasts(
             forecast_values,
             history,

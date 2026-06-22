@@ -6,7 +6,7 @@ import argparse
 import csv
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,7 @@ SCHEMA_VERSION = "forecast_source_state_reliability_v0.1"
 VARIANT_ID = "item136_source_state_reliability_v0_1"
 VARIANT_FAMILY = "forecast_source_state_reliability"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
-DEFAULT_SHADOW_VARIANTS = DEFAULT_BACKTEST_ROOT / "item134_forecast_profile_shadow_variants.csv"
+DEFAULT_SHADOW_VARIANTS = DEFAULT_BACKTEST_ROOT / "item134_forecast_profile_all_hours_shadow_variants.csv"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "item136_source_state_reliability.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "item136_source_state_reliability_report.md"
 DEFAULT_VARIANT_OUT = DEFAULT_BACKTEST_ROOT / "item136_reliability_calibrated_shadow_variants.csv"
@@ -325,6 +325,33 @@ def market_thresholds(rows: list[dict[str, Any]], *, min_rows: int = 50, toleran
     return output
 
 
+def quote_risk_reporting(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    reason_counts = Counter(str(row.get("source_state_reliability_reason") or "unknown") for row in rows)
+    risky_rows = [
+        row
+        for row in rows
+        if row.get("source_state_risk_bucket") in {"moderate_risk", "high_risk"}
+    ]
+    return {
+        "status": "shadow_only",
+        "claim_lane": "weather_only_quote_risk_diagnostic",
+        "rows": len(rows),
+        "risky_rows": len(risky_rows),
+        "reason_field": "source_state_reliability_reason",
+        "alpha_field": "source_state_reliability_alpha",
+        "risk_bucket_field": "source_state_risk_bucket",
+        "top_reasons": [
+            {"reason": reason, "rows": count}
+            for reason, count in reason_counts.most_common(8)
+        ],
+        "usage": (
+            "Source-state reliability reason is available for quote-width/risk diagnostics, "
+            "but this no-market shadow lane cannot grant promotion or quote-risk permission until "
+            "reliability acceptance gates pass."
+        ),
+    }
+
+
 def acceptance(payload: dict[str, Any]) -> dict[str, Any]:
     by_slice = {row.get("group"): row for row in payload.get("by_source_state_slice") or []}
     by_disagreement = {row.get("group"): row for row in payload.get("by_forecast_disagreement") or []}
@@ -398,6 +425,7 @@ def build_report_payload(
         "by_forecast_disagreement": grouped_comparison(rows, "forecast_disagreement_bucket"),
         "calibration_curve": calibration_curve(rows),
         "market_thresholds": market_thresholds(rows),
+        "quote_risk_reporting": quote_risk_reporting(rows),
     }
     payload["acceptance"] = acceptance(payload)
     return payload
@@ -502,6 +530,29 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
                 "; ".join(row.get("reasons") or []) or "-",
             ]
             for row in payload.get("market_thresholds") or []
+        ],
+    )
+    quote_risk = payload.get("quote_risk_reporting") or {}
+    lines += ["", "## Quote-Risk Reporting", ""]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Status", quote_risk.get("status") or "-"],
+            ["Claim lane", quote_risk.get("claim_lane") or "-"],
+            ["Rows", quote_risk.get("rows", 0)],
+            ["Risky rows", quote_risk.get("risky_rows", 0)],
+            ["Reason field", quote_risk.get("reason_field") or "-"],
+            ["Alpha field", quote_risk.get("alpha_field") or "-"],
+            ["Risk bucket field", quote_risk.get("risk_bucket_field") or "-"],
+            ["Usage", quote_risk.get("usage") or "-"],
+        ],
+    )
+    lines += ["", "### Top Reliability Reasons", ""]
+    lines += markdown_table(
+        ["Reason", "Rows"],
+        [
+            [row.get("reason") or "-", row.get("rows", 0)]
+            for row in quote_risk.get("top_reasons") or []
         ],
     )
     path.parent.mkdir(parents=True, exist_ok=True)
