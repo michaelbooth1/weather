@@ -18,6 +18,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [2026-05-28 Codex audit summary](audits/codex-audit-summary-2026-05-28.md)
 - [2026-05-28 deep model audit](audits/codex-deep-model-audit-2026-05-28.md)
 - [2026-06-20 taker bot log audit](audits/taker-bot-log-audit-2026-06-20.md)
+- [2026-06-22 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-22.md)
 
 ## Status Taxonomy
 
@@ -134,6 +135,11 @@ infrastructure work remains.
 | 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |
 | 203 | [Historical Snapshot Sidecar Coverage Closure [COMPLETE 2026-06-21 - SIDECAR ELIGIBILITY AND PROMOTION EXCLUSIONS LIVE]](items/item-203-historical-snapshot-sidecar-coverage-closure.md) |
 | 208 | [Historical Feature-Quality Quarantine And Training Exclusion [COMPLETE 2026-06-21 - FEATURE-QUALITY QUARANTINE EXCLUDES LEGACY BAD ROWS]](items/item-208-historical-feature-quality-quarantine-and-training-exclusion.md) |
+| 243 | [Closed Market-Day Parquet Archive Contract [OPEN 2026-06-22 - COLUMNAR ARCHIVE CONTRACT MISSING]](items/item-243-closed-market-day-parquet-archive-contract.md) |
+| 244 | [Historical Snapshot Parquet Backfill And Validation Harness [OPEN 2026-06-22 - CLOSED-DAY CONVERSION PIPELINE MISSING]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
+| 245 | [Parquet-First Historical Analysis Readers [OPEN 2026-06-22 - ANALYSIS READS TEXT TAPES BY DEFAULT]](items/item-245-parquet-first-historical-analysis-readers.md) |
+| 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
+| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-22 - UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -266,6 +272,20 @@ infrastructure work remains.
 | 231 | [Market-Specific Early-Hour Residual Repair Program [COMPLETE 2026-06-22 - MARKET MANIFESTS AND REJECTED-FAMILY REGISTRY LIVE]](items/item-231-market-specific-early-hour-residual-repair-program.md) |
 | 232 | [Current-Max Trust Retrain And Warm-Tail Replay [PARTIAL 2026-06-22 - GATE REFRESHED, RETRAIN/ABLATION BLOCKED]](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | [Validate-What-You-Serve Early-Hour Calibration Head [PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
+| 234 | [Settlement-Only Taker Quality Gate [COMPLETE 2026-06-22 - MTM-ONLY QUALITY FAILS CLOSED]](items/item-234-settlement-only-taker-quality-gate.md) |
+| 235 | [Bad-Tail No-Go And Tail Calibration Repair [COMPLETE 2026-06-22 - BAD TAIL SLICES FAIL CLOSED]](items/item-235-bad-tail-no-go-and-tail-calibration-repair.md) |
+| 236 | [Universal Current-High And Warm-Tail Risk Gates [COMPLETE 2026-06-22 - STRATEGY-FAMILY LOOPHOLES CLOSED]](items/item-236-universal-current-high-and-warm-tail-risk-gates.md) |
+| 237 | [Active Taker Canary Demotion And Requalification [COMPLETE 2026-06-22 - CANARY PAPER-ONLY UNTIL REQUALIFIED]](items/item-237-active-taker-canary-demotion-and-requalification.md) |
+| 238 | [Daily Taker Full-Bakeoff Champion/Challenger Loop [COMPLETE 2026-06-22]](items/item-238-daily-taker-full-bakeoff-champion-challenger-loop.md) |
+| 239 | [Taker Settlement Finalization Liveness And Storage SLA [COMPLETE 2026-06-22]](items/item-239-taker-settlement-finalization-liveness-and-storage-sla.md) |
+| 240 | [Taker Fee, Slippage, And Executable-Depth Profitability Model [OPEN 2026-06-22 - PAPER PNL ASSUMES ZERO LIVE FRICTION]](items/item-240-taker-fee-slippage-and-executable-depth-profitability-model.md) |
+| 241 | [Market Benchmark No-Trade And Profitability Scoreboard [OPEN 2026-06-22 - MODEL TRADES WHERE MARKET IS SMARTER]](items/item-241-market-benchmark-no-trade-and-profitability-scoreboard.md) |
+| 242 | [Decisive Model Proof Packet And Gate Stack Ratchet [OPEN 2026-06-22 - HARD-SLICE PROOF PACKET MISSING]](items/item-242-decisive-model-proof-packet-and-gate-stack-ratchet.md) |
+| 248 | [Austin Robust Forecast-Cluster Signal [OPEN 2026-06-22 - FEATURE-PATH MAX CLUSTER OVERHEATS]](items/item-248-austin-robust-forecast-cluster-signal.md) |
+| 249 | [Official METAR Rollover Lock-In Signal [OPEN 2026-06-22 - LATE ROLLOVER IGNORED WHEN WU CURRENT IS FLAT]](items/item-249-official-metar-rollover-lockin-signal.md) |
+| 250 | [Austin HGB Per-Location Requalification [OPEN 2026-06-22 - ACTIVE ARTIFACT LOSES TO MARKET]](items/item-250-austin-hgb-per-location-requalification.md) |
+| 251 | [Standing-High Partial Lock-In Dampener [OPEN 2026-06-22 - HIGH STOOD BUT FORECAST CEILING BLOCKS LOCK-IN]](items/item-251-standing-high-partial-lockin-dampener.md) |
+| 252 | [Impossible Guidance Feature Quarantine [OPEN 2026-06-22 - GUIDANCE CAN BE FRESH BUT PHYSICALLY IMPOSSIBLE]](items/item-252-impossible-guidance-feature-quarantine.md) |
 
 ### Architecture And Maintainability
 

@@ -16,6 +16,7 @@ DEFAULT_TAKER_RUNS_ROOT = DEFAULT_DATA_ROOT / "taker_runs"
 TAKER_QUALITY_MIN_ROLLING_RUNS = 5
 TAKER_QUALITY_MIN_FILLS = 100
 TAKER_QUALITY_MIN_NET_PNL_USDC = 0.0
+TAKER_SETTLEMENT_SCORED_STATUS = "SETTLEMENT_SCORED"
 COUNTABLE_MM_EVIDENCE_MODE = "active_day_live_forward"
 MM_STARVATION_BLOCKED_FRACTION_THRESHOLD = 0.75
 MM_STALE_INPUT_GATES = {"model_freshness", "clob_freshness", "observation_trigger"}
@@ -797,9 +798,20 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
         if isinstance(item, tuple) else _taker_summary_fields(item)
         for item in rolling_payloads
     ]
-    rolling_runs = len(rolling_fields)
-    rolling_fills = sum(row["filled_orders"] for row in rolling_fields)
-    rolling_net_pnl = sum(row["net_pnl_usdc"] for row in rolling_fields)
+    settlement_fields = [
+        row for row in rolling_fields
+        if row.get("pnl_evidence_status") == TAKER_SETTLEMENT_SCORED_STATUS
+    ]
+    mtm_only_fields = [
+        row for row in rolling_fields
+        if row.get("pnl_evidence_status") == "PROVISIONAL_MTM_ONLY"
+    ]
+    rolling_total_runs = len(rolling_fields)
+    rolling_total_fills = sum(row["filled_orders"] for row in rolling_fields)
+    rolling_reported_net_pnl = sum(row["net_pnl_usdc"] for row in rolling_fields)
+    rolling_runs = len(settlement_fields)
+    rolling_fills = sum(row["filled_orders"] for row in settlement_fields)
+    rolling_net_pnl = sum(row["net_pnl_usdc"] for row in settlement_fields)
     rolling_mtm_pnl = sum(row["mark_to_market_pnl_usdc"] for row in rolling_fields)
     sample_ready = rolling_runs >= TAKER_QUALITY_MIN_ROLLING_RUNS and rolling_fills >= TAKER_QUALITY_MIN_FILLS
     threshold_pass = sample_ready and rolling_net_pnl >= TAKER_QUALITY_MIN_NET_PNL_USDC
@@ -826,7 +838,12 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
             "rolling_run_count": rolling_runs,
             "rolling_filled_orders": rolling_fills,
             "rolling_net_pnl_usdc": rolling_net_pnl,
+            "rolling_total_run_count": rolling_total_runs,
+            "rolling_total_filled_orders": rolling_total_fills,
+            "rolling_reported_net_pnl_usdc": rolling_reported_net_pnl,
             "rolling_mark_to_market_pnl_usdc": rolling_mtm_pnl,
+            "rolling_provisional_mtm_run_count": len(mtm_only_fields),
+            "evidence_basis": "settlement_scored",
             "min_rolling_runs": TAKER_QUALITY_MIN_ROLLING_RUNS,
             "min_filled_orders": TAKER_QUALITY_MIN_FILLS,
             "min_net_pnl_usdc": TAKER_QUALITY_MIN_NET_PNL_USDC,
@@ -836,6 +853,8 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
                 if threshold_pass else
                 "rolling sample is large enough but below taker quality thresholds"
                 if sample_ready else
+                "MTM-only taker P&L is diagnostic; quality requires settlement-scored rolling evidence"
+                if rolling_total_runs and not rolling_runs else
                 "latest taker P&L is diagnostic only until the rolling sample is large enough"
             ),
         },

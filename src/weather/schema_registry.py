@@ -809,6 +809,13 @@ REGISTERED_SCHEMAS = (
         "Post-settlement taker fill reconciliation against finalized market-day labels.",
     ),
     SchemaSpec(
+        "taker_settlement_finalization_watchdog",
+        "taker_settlement_finalization_watchdog_v0.1",
+        "weather.market.taker_bot",
+        "active",
+        "Finalization liveness scanner for labelable taker runs, bakeoff refresh, and storage SLA state.",
+    ),
+    SchemaSpec(
         "live_forward_gate",
         "live_forward_gate_v0.2",
         "weather.market.live_forward_gate",
@@ -1147,6 +1154,13 @@ REGISTERED_SCHEMAS = (
         "weather.market.taker_bot",
         "active",
         "Settlement-scored replay bakeoff for taker strategy arms and promotion gates.",
+    ),
+    SchemaSpec(
+        "taker_champion_challenger_ledger",
+        "taker_champion_challenger_ledger_v0.1",
+        "weather.market.taker_bot",
+        "active",
+        "Multi-day settlement-scored champion/challenger ledger for taker strategy promotion.",
     ),
     SchemaSpec(
         "market_making_tape_encoding",

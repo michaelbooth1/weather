@@ -32,6 +32,7 @@ STATUS_RE = re.compile(
     r"(?: - (?P<disposition>.*))?$"
 )
 CHECKLIST_RE = re.compile(r"^- \[[ xX]\] ", re.MULTILINE)
+BLOCKED_MARKER_RE = re.compile(r"\bBLOCK(?:ED|S|ING)?\b", re.IGNORECASE)
 REQUIRED_ACTIVE_MARKERS = {
     "goal": re.compile(r"^Goal:", re.MULTILINE),
     "source": re.compile(r"^Source:", re.MULTILINE),
@@ -329,6 +330,49 @@ def build_payload(
         "roadmap_index": roadmap_index,
         "lint_issues": issues,
         "status": "OK" if not issues else "ERROR",
+    }
+
+
+def item_has_blocked_marker(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in ("status_text", "disposition")
+    )
+    return bool(BLOCKED_MARKER_RE.search(text))
+
+
+def summarize_roadmap_status(
+    roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
+    *,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    payload = build_payload(roadmap_root, generated_at_utc=generated_at_utc)
+    items = payload.get("items") or []
+    open_items = [item for item in items if item.get("status") == "OPEN"]
+    open_item_rows = [
+        {
+            "number": item.get("number"),
+            "title": item.get("title"),
+            "date": item.get("date"),
+            "disposition": item.get("disposition") or "",
+            "blocked": item_has_blocked_marker(item),
+            "path": item.get("path"),
+        }
+        for item in open_items
+    ]
+    blocked_count = sum(1 for item in open_item_rows if item["blocked"])
+    summary = payload.get("summary") or {}
+    return {
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "roadmap_root": payload.get("roadmap_root"),
+        "status": payload.get("status"),
+        "closed_item_count": summary.get("complete_item_count", 0),
+        "open_item_count": len(open_item_rows),
+        "open_blocked_item_count": blocked_count,
+        "open_unblocked_item_count": len(open_item_rows) - blocked_count,
+        "lint_error_count": summary.get("lint_error_count", 0),
+        "open_items": open_item_rows,
     }
 
 

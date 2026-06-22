@@ -16,14 +16,16 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
-from weather.market.taker_bot import ACTIVE_DEFAULT_STRATEGY_ID, DEFAULT_RUNS_ROOT, DEFAULT_CONFIG
+from weather.market.taker_bot import DEFAULT_BAKEOFF_STRATEGIES, DEFAULT_RUNS_ROOT, DEFAULT_CONFIG
 from weather.operations.bot_run_liveness import (
+    DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
+    DEFAULT_STARTUP_GRACE_SECONDS,
     disk_capacity_preflight,
     disk_full_status,
     failed_status,
     is_disk_full_error,
-    terminal_status_for_dead_pid,
+    terminal_status_for_inactive_process,
 )
 from weather.operations.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
@@ -38,7 +40,13 @@ DEFAULT_TIMEZONE = "America/Toronto"
 DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
-DEFAULT_STRATEGIES = ACTIVE_DEFAULT_STRATEGY_ID
+DEFAULT_STRATEGIES = DEFAULT_BAKEOFF_STRATEGIES
+ACTIVITY_FILENAMES = (
+    "orders_long.csv",
+    "budget_ledger.jsonl",
+    "daily_pnl.json",
+    "run_summary.json",
+)
 
 
 def utc_now():
@@ -214,6 +222,17 @@ def launch_taker_bot_process(command, *, repo_root=REPO_ROOT, console_log_path=D
     return child.pid
 
 
+def taker_activity_paths(runs_root, target_date, console_log_path=DEFAULT_CONSOLE_LOG_PATH):
+    paths = [Path(console_log_path)]
+    day_root = Path(runs_root) / ensure_date(target_date)
+    if day_root.exists():
+        for run_folder in sorted(day_root.glob("*")):
+            if not run_folder.is_dir():
+                continue
+            paths.extend(run_folder / name for name in ACTIVITY_FILENAMES)
+    return paths
+
+
 def _base_payload(
     *,
     target_date,
@@ -265,7 +284,10 @@ def start_for_date(
     strategies=None,
     experiment_id=None,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     disk_usage_fn=None,
+    activity_stat_fn=None,
     now=None,
     pid_alive=pid_matches_taker_bot,
     launcher=launch_taker_bot_process,
@@ -288,8 +310,20 @@ def start_for_date(
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
     if existing.get("target_date") == target_date and existing.get("status") in {"started", "already_running"}:
-        refreshed = terminal_status_for_dead_pid(existing, now=now, pid_alive=pid_alive)
-        if refreshed.get("status") == "pid_missing" and not force:
+        refreshed = terminal_status_for_inactive_process(
+            existing,
+            now=now,
+            pid_alive=pid_alive,
+            activity_paths=taker_activity_paths(
+                existing.get("runs_root") or runs_root,
+                target_date,
+                existing.get("console_log_path") or console_log_path,
+            ),
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            stat_fn=activity_stat_fn,
+        )
+        if refreshed.get("status") in {"pid_missing", "idle_process"} and not force:
             payload = _base_payload(
                 target_date=target_date,
                 budget_usdc=budget_usdc,
@@ -387,14 +421,35 @@ def start_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs)
     )
 
 
-def load_status(path=DEFAULT_STATUS_PATH, *, now=None, pid_alive=pid_matches_taker_bot, write_back=False):
+def load_status(
+    path=DEFAULT_STATUS_PATH,
+    *,
+    now=None,
+    pid_alive=pid_matches_taker_bot,
+    write_back=False,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    activity_stat_fn=None,
+):
     status = read_json(path)
     if not status:
         return {"exists": False, "path": str(path)}
-    status = terminal_status_for_dead_pid(status, now=now, pid_alive=pid_alive)
+    status = terminal_status_for_inactive_process(
+        status,
+        now=now,
+        pid_alive=pid_alive,
+        activity_paths=taker_activity_paths(
+            status.get("runs_root") or DEFAULT_RUNS_ROOT,
+            status.get("target_date") or target_date_for_roll(now=now),
+            status.get("console_log_path") or DEFAULT_CONSOLE_LOG_PATH,
+        ),
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        stat_fn=activity_stat_fn,
+    )
     status["exists"] = True
     status["path"] = str(path)
-    if write_back and status.get("status") == "pid_missing":
+    if write_back and status.get("status") in {"pid_missing", "idle_process"}:
         write_json(path, status)
     return status
 
@@ -415,6 +470,8 @@ def build_start_parser(parser):
     parser.add_argument("--strategies", default=None, help="Comma-separated taker strategy IDs to run.")
     parser.add_argument("--experiment-id", default=None, help="Stable taker strategy experiment ID.")
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
+    parser.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
+    parser.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
     return parser
 
 
@@ -435,6 +492,8 @@ def cmd_start(args):
         strategies=args.strategies,
         experiment_id=args.experiment_id,
         min_free_bytes=args.min_free_bytes,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
         now=parse_datetime(args.now),
     )
     print(
@@ -447,7 +506,12 @@ def cmd_start(args):
 
 
 def cmd_status(args):
-    status = load_status(args.status_out, write_back=True)
+    status = load_status(
+        args.status_out,
+        write_back=True,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
+    )
     print(json.dumps(status, indent=2, sort_keys=True, default=str))
     return 0 if status.get("exists") else 1
 
@@ -459,6 +523,8 @@ def build_parser():
     start.set_defaults(func=cmd_start)
     status = sub.add_parser("status")
     status.add_argument("--status-out", default=str(DEFAULT_STATUS_PATH))
+    status.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
+    status.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
     status.set_defaults(func=cmd_status)
     return parser
 

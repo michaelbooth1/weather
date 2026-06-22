@@ -183,6 +183,58 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertAlmostEqual(taker["low_price_tail_fill_fraction"], 0.62)
         self.assertEqual(taker["tail_fill_alert_count"], 2)
 
+    def test_positive_mtm_rolling_sample_cannot_pass_quality_without_settlement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for offset, day in enumerate(["2026-06-17", "2026-06-18", "2026-06-19", "2026-06-20", "2026-06-21"]):
+                run = root / "taker_runs" / day / f"taker-{offset}"
+                run.mkdir(parents=True)
+                (run / "run_summary.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "taker_bot_run_v0.1",
+                            "run_id": f"taker-{offset}",
+                            "target_date": day,
+                            "mode": "paper-taker",
+                            "summary": {
+                                "cumulative_filled_orders": 50,
+                                "budget_spent_usdc": 60.0,
+                                "cumulative_net_pnl_usdc": 1000.0 + offset,
+                            },
+                            "pnl": {
+                                "summary": {
+                                    "filled_order_count": 50,
+                                    "net_pnl_usdc": 1000.0 + offset,
+                                    "mark_to_market_pnl_usdc": 1000.0 + offset,
+                                    "settlement_pnl_usdc": 0.0,
+                                    "settled_order_count": 0,
+                                    "unsettled_order_count": 50,
+                                }
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+            )
+
+        quality = summary["taker"]["quality_gate"]
+        self.assertEqual(summary["taker"]["pnl_evidence_status"], "PROVISIONAL_MTM_ONLY")
+        self.assertNotEqual(quality["status"], "PASS")
+        self.assertFalse(quality["sample_ready"])
+        self.assertEqual(quality["evidence_basis"], "settlement_scored")
+        self.assertEqual(quality["rolling_run_count"], 0)
+        self.assertEqual(quality["rolling_filled_orders"], 0)
+        self.assertEqual(quality["rolling_net_pnl_usdc"], 0)
+        self.assertEqual(quality["rolling_total_run_count"], 5)
+        self.assertEqual(quality["rolling_total_filled_orders"], 250)
+        self.assertAlmostEqual(quality["rolling_reported_net_pnl_usdc"], 5010.0)
+        self.assertEqual(quality["rolling_provisional_mtm_run_count"], 5)
+        self.assertIn("MTM-only", quality["interpretation"])
+
     def test_taker_evidence_prefers_settled_finalization_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

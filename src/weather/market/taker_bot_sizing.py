@@ -76,6 +76,89 @@ def remaining_cap(cap_value, used_value):
     return max(0.0, cap - float(used_value or 0.0))
 
 
+def taker_fee_config(config):
+    model = str(config.get("taker_fee_model") or "paper_no_fee").strip() or "paper_no_fee"
+    rate = max(0.0, float(config.get("taker_fee_rate") or 0.0))
+    return {
+        "fee_model_version": model,
+        "fee_model_name": model,
+        "fee_market_category": config.get("taker_fee_market_category") or "weather",
+        "fee_rate": rate,
+        "fee_effective_date": config.get("taker_fee_effective_date") or "",
+        "fee_provenance_url": config.get("taker_fee_provenance_url") or "",
+        "pnl_fee_basis": "after_fee" if rate > 0 and model != "paper_no_fee" else "paper_no_fee",
+    }
+
+
+def taker_fee_per_share(price, config):
+    price = clamp_probability(price)
+    if price is None:
+        return 0.0
+    fee = taker_fee_config(config)
+    rate = float(fee.get("fee_rate") or 0.0)
+    model = fee.get("fee_model_name") or ""
+    if rate <= 0:
+        return 0.0
+    if model == "polymarket_symmetric_price_v1":
+        return rate * price * (1.0 - price)
+    if model == "flat_notional_v1":
+        return rate * price
+    return 0.0
+
+
+def executable_depth_state(row, config):
+    best_ask = clamp_probability(first_present(row, "best_ask", "clob_best_ask", "gamma_best_ask"))
+    top_size = maybe_float(first_present(row, "ask_size_at_best", "clob_ask_size_at_best")) or 0.0
+    depth_1pct = maybe_float(first_present(
+        row,
+        "ask_depth_1pct",
+        "clob_depth_1pct_total",
+        "clob_ask_depth_1pct",
+    ))
+    if depth_1pct is None:
+        depth_1pct = top_size
+    haircut = max(0.0, min(1.0, float(config.get("executable_depth_haircut") or 1.0)))
+    executable_depth = max(0.0, max(top_size, depth_1pct) * haircut)
+    return {
+        "executable_depth_model_version": config.get("executable_depth_model") or "top_of_book_only_v1",
+        "executable_depth_mode": "top_of_book_plus_1pct_depth" if depth_1pct > top_size else "top_of_book",
+        "top_of_book_size": compact_float(top_size),
+        "executable_depth_size": compact_float(executable_depth),
+        "executable_depth_1pct_size": compact_float(depth_1pct),
+        "frictionless_fill_price": compact_float(best_ask),
+    }
+
+
+def executable_fill_cost(fill_size, best_ask, top_size, config):
+    fill_size = max(0.0, float(fill_size or 0.0))
+    best_ask = clamp_probability(best_ask) or 0.0
+    top_size = max(0.0, float(top_size or 0.0))
+    if fill_size <= 0 or best_ask <= 0:
+        return {
+            "executable_fill_price": None,
+            "frictionless_notional_usdc": 0.0,
+            "fill_notional_usdc": 0.0,
+            "slippage_usdc": 0.0,
+            "slippage_price_impact_bps": 0.0,
+        }
+    top_fill = min(fill_size, top_size)
+    depth_fill = max(0.0, fill_size - top_fill)
+    impact_bps = max(0.0, float(config.get("executable_depth_slippage_bps") or 0.0))
+    depth_price = min(0.999, best_ask * (1.0 + impact_bps / 10000.0))
+    notional = (top_fill * best_ask) + (depth_fill * depth_price)
+    frictionless = fill_size * best_ask
+    avg_price = notional / fill_size if fill_size > 0 else None
+    slippage = max(0.0, notional - frictionless)
+    realized_impact_bps = ((avg_price / best_ask) - 1.0) * 10000.0 if best_ask > 0 and avg_price is not None else 0.0
+    return {
+        "executable_fill_price": compact_float(avg_price),
+        "frictionless_notional_usdc": compact_float(frictionless),
+        "fill_notional_usdc": compact_float(notional),
+        "slippage_usdc": compact_float(slippage),
+        "slippage_price_impact_bps": compact_float(realized_impact_bps),
+    }
+
+
 def current_high_band_distance(row):
     current = maybe_float(first_present(row, "settlement_current_high", "raw_current_high_bucket", "raw_current_high"))
     kind, value, value_hi = band_key(row)
@@ -187,6 +270,14 @@ def apply_taker_budget(
             strategy=strategy,
             experiment_id=experiment_id,
         )
+        row.update(taker_fee_config(config))
+        row.update(executable_depth_state({**input_row, **row}, config))
+        edge = maybe_float(row.get("edge"))
+        best_ask = maybe_float(row.get("best_ask"))
+        if edge is not None and best_ask is not None:
+            row["expected_profit_after_friction_per_share"] = compact_float(
+                edge - taker_fee_per_share(best_ask, config)
+            )
         if row["intent_key"] in seen_keys:
             continue
         seen_keys.add(row["intent_key"])
@@ -195,6 +286,7 @@ def apply_taker_budget(
         row.update(modal_context_for_row({**input_row, **row}, modal_contexts, config=config))
         row.update(weak_slot_gate_state({**input_row, **row}, config))
         row.update(warm_tail_guard_state({**input_row, **row}, config))
+        row.update(bad_tail_no_go_state({**input_row, **row}, config))
         reason, detail = candidate_skip_reason({**input_row, **row}, config)
         if reason:
             row.update({"reason_code": reason, "reason_detail": detail})
@@ -233,6 +325,7 @@ def apply_taker_budget(
         token = row.get("clob_token_id") or ""
         price = maybe_float(row.get("best_ask")) or 0.0
         ask_size = maybe_float(row.get("ask_size_at_best")) or 0.0
+        executable_depth_size = maybe_float(row.get("executable_depth_size")) or ask_size
         remaining_budget = max(0.0, budget - spent)
         position_before = positions[token]
         position_remaining = max(0.0, float(caps["max_position_per_token_usdc"]) - position_before)
@@ -343,7 +436,6 @@ def apply_taker_budget(
             })
             rows.append(row)
             continue
-        fee_rate = max(0.0, float(config["taker_fee_rate"]))
         base_order_notional = min(float(caps["max_order_usdc"]), position_remaining)
         max_order_notional, sizing_multiplier, sizing_reason = sizing_notional_cap(
             row,
@@ -367,9 +459,10 @@ def apply_taker_budget(
             })
             rows.append(row)
             continue
+        fee_per_share = taker_fee_per_share(price, config)
         max_size_by_order = max_order_notional / price if price > 0 else 0.0
-        max_size_by_budget = remaining_budget / (price * (1.0 + fee_rate)) if price > 0 else 0.0
-        fill_size = min(ask_size, max_size_by_order, max_size_by_budget)
+        max_size_by_budget = remaining_budget / (price + fee_per_share) if price > 0 else 0.0
+        fill_size = min(executable_depth_size, max_size_by_order, max_size_by_budget)
         min_order_size = maybe_float(first_present(row, "min_order_size", "minimum_order_size")) or 0.0
         if fill_size <= 1e-9 or (min_order_size > 0 and fill_size < min_order_size):
             row.update({
@@ -388,21 +481,38 @@ def apply_taker_budget(
                 "remaining_usdc": round(remaining_budget, 6),
             })
             continue
-        notional = price * fill_size
-        fee = notional * fee_rate
+        fill_cost = executable_fill_cost(fill_size, price, ask_size, config)
+        notional = maybe_float(fill_cost.get("fill_notional_usdc")) or 0.0
+        avg_price = maybe_float(fill_cost.get("executable_fill_price")) or price
+        fee = fill_size * taker_fee_per_share(avg_price, config)
         total = notional + fee
+        if total > remaining_budget > 0:
+            fill_size = fill_size * (remaining_budget / total)
+            fill_cost = executable_fill_cost(fill_size, price, ask_size, config)
+            notional = maybe_float(fill_cost.get("fill_notional_usdc")) or 0.0
+            avg_price = maybe_float(fill_cost.get("executable_fill_price")) or price
+            fee = fill_size * taker_fee_per_share(avg_price, config)
+            total = notional + fee
         spent_after = spent + total
         position_after = position_before + notional
+        slippage = maybe_float(fill_cost.get("slippage_usdc")) or 0.0
         row.update({
             "action": "BUY",
             "order_status": "FILLED",
             "reason_code": "BUY_EDGE",
             "reason_detail": "best ask is cheap versus fair value",
             "requested_notional_usdc": round(max_order_notional, 6),
-            "fill_price": round(price, 6),
+            "fill_price": round(avg_price, 6),
             "fill_size": round(fill_size, 6),
             "fill_notional_usdc": round(notional, 6),
             "fee_usdc": round(fee, 6),
+            "fee_pnl_usdc": round(-fee, 6),
+            "frictionless_fill_price": round(price, 6),
+            "frictionless_notional_usdc": round(maybe_float(fill_cost.get("frictionless_notional_usdc")) or 0.0, 6),
+            "executable_fill_price": round(avg_price, 6),
+            "slippage_price_impact_bps": round(maybe_float(fill_cost.get("slippage_price_impact_bps")) or 0.0, 6),
+            "slippage_usdc": round(slippage, 6),
+            "slippage_pnl_usdc": round(-slippage, 6),
             "total_spent_usdc": round(total, 6),
             "budget_spent_after_usdc": round(spent_after, 6),
             "budget_remaining_usdc": round(max(0.0, budget - spent_after), 6),
@@ -427,8 +537,10 @@ def apply_taker_budget(
             "event_slug": row.get("event_slug"),
             "range_label": row.get("range_label"),
             "clob_token_id": token,
-            "fill_price": round(price, 6),
+            "fill_price": round(avg_price, 6),
             "fill_size": round(fill_size, 6),
+            "fee_usdc": round(fee, 6),
+            "slippage_usdc": round(slippage, 6),
             "spent_usdc": round(spent_after, 6),
             "remaining_usdc": round(max(0.0, budget - spent_after), 6),
         })

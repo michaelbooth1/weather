@@ -288,6 +288,17 @@ def current_high_trust_gate_state(row, config):
             "current_high_trust_gate_reason": "current-high trust gate disabled",
         })
         return state
+    trust_present = row.get("current_high_trust_state_present")
+    if trust_present in (None, ""):
+        trust_present = "current_high_trusted" in row and row.get("current_high_trusted") not in (None, "")
+    if config.get("current_high_trust_missing_blocks", True) and not bool_value(trust_present, False):
+        state.update({
+            "current_high_trust_gate_status": "blocked",
+            "current_high_trust_gate_action": "deny_missing_trust_state",
+            "current_high_trust_gate_reason": "missing_current_high_trust_state",
+            "current_high_trust_gate_aggressive": True,
+        })
+        return state
     if bool_value(row.get("current_high_trusted"), True):
         state["current_high_trust_gate_reason"] = "current-high state trusted"
         return state
@@ -296,7 +307,9 @@ def current_high_trust_gate_state(row, config):
     hour = maybe_float(row.get("capture_hour_local"))
     if hour is None and local is not None:
         hour = local.hour
-    start_hour = float(config.get("current_high_trust_gate_start_hour_local") or 15)
+    start_hour = maybe_float(config.get("current_high_trust_gate_start_hour_local"))
+    if start_hour is None:
+        start_hour = 0.0
     late_window = hour is None or hour >= start_hour
     edge = maybe_float(row.get("edge"))
     best_ask = maybe_float(first_present(row, "best_ask", "clob_best_ask"))
@@ -333,6 +346,40 @@ def current_high_trust_gate_state(row, config):
     return state
 
 
+def strategy_risk_gate_allowlisted(row, config, *, family_key, id_key):
+    strategy_id = str(row.get("strategy_id") or "").strip().lower()
+    family = str(row.get("strategy_family") or "").strip().lower()
+    allowed_families = csv_tokens(config.get(family_key))
+    allowed_ids = csv_tokens(config.get(id_key))
+    return (
+        "*" in allowed_families
+        or "*" in allowed_ids
+        or (family and family in allowed_families)
+        or (strategy_id and strategy_id in allowed_ids)
+    )
+
+
+def strategy_family_blocked(row, config, key):
+    family = str(row.get("strategy_family") or "").strip().lower()
+    blocked = csv_tokens(config.get(key) or "*")
+    return "*" in blocked or (family and family in blocked)
+
+
+def snapshot_cadence_state_present(row):
+    cadence_keys = (
+        "snapshot_cadence",
+        "snapshot_cadence_quality_state",
+        "snapshot_cadence_permission",
+        "snapshot_cadence_gap_count",
+        "snapshot_cadence_max_gap_seconds",
+        "snapshot_cadence_last_model_age_seconds",
+        "cadence",
+        "cadence_quality_state",
+        "cadence_permission",
+    )
+    return any((row or {}).get(key) not in (None, "") for key in cadence_keys)
+
+
 def clob_continuity_state(row, config):
     best_bid = maybe_float(first_present(row, "best_bid", "clob_best_bid", "gamma_best_bid"))
     best_ask = maybe_float(first_present(row, "best_ask", "clob_best_ask", "gamma_best_ask"))
@@ -363,6 +410,27 @@ def mark_sanity_state(row, config):
 def enrich_taker_risk_fields(row, config):
     out = dict(row)
     cadence = snapshot_cadence_quality(out, config=config)
+    cadence_present = out.get("snapshot_cadence_state_present")
+    if cadence_present in (None, ""):
+        cadence_present = snapshot_cadence_state_present(out)
+    cadence_missing_allowed = strategy_risk_gate_allowlisted(
+        out,
+        config,
+        family_key="snapshot_cadence_missing_allow_strategy_families",
+        id_key="snapshot_cadence_missing_allow_strategy_ids",
+    )
+    if (
+        bool_value(config.get("snapshot_cadence_quality_enabled"), True)
+        and bool_value(config.get("snapshot_cadence_missing_blocks"), True)
+        and not bool_value(cadence_present, False)
+        and not cadence_missing_allowed
+    ):
+        cadence.update({
+            "snapshot_cadence": "missing",
+            "snapshot_cadence_quality_state": "missing",
+            "snapshot_cadence_permission": "deny",
+            "snapshot_cadence_reason": "missing snapshot cadence quality state",
+        })
     out.update(cadence)
     fair = clamp_probability(out.get("fair_probability"))
     best_ask = clamp_probability(first_present(out, "best_ask", "clob_best_ask"))
@@ -398,6 +466,7 @@ def enrich_taker_risk_fields(row, config):
         "clob_continuity_reason": continuity_reason,
         "mark_sanity_status": mark_status,
         "mark_sanity_reason": mark_reason,
+        "snapshot_cadence_state_present": bool_value(cadence_present, False),
     })
     return out
 
@@ -457,16 +526,21 @@ def warm_tail_guard_state(row, config):
     state["warm_tail_guard_status"] = "active"
     family = str(row.get("strategy_family") or "").strip().lower()
     status = str(row.get("strategy_status") or "").strip().lower()
-    blocked_families = csv_tokens(config.get("market_centered_warm_tail_block_strategy_families"))
+    allowed = strategy_risk_gate_allowlisted(
+        row,
+        config,
+        family_key="market_centered_warm_tail_allow_strategy_families",
+        id_key="market_centered_warm_tail_allow_strategy_ids",
+    )
     allowed_statuses = {"candidate", "promoted", "active"}
     reasons = [
         f"distance:{row.get('market_modal_band_distance')}",
         f"market_modal:{row.get('market_modal_band_key') or 'missing'}",
     ]
-    if family in blocked_families:
+    if not allowed and strategy_family_blocked(row, config, "market_centered_warm_tail_block_strategy_families"):
         state.update({
             "warm_tail_guard_status": "blocked",
-            "warm_tail_guard_reason": ";".join([*reasons, f"strategy_family:{family}"]),
+            "warm_tail_guard_reason": ";".join([*reasons, f"strategy_family:{family or 'missing'}"]),
         })
         return state
     if status not in allowed_statuses:
@@ -491,6 +565,78 @@ def warm_tail_guard_state(row, config):
             })
             return state
     state["warm_tail_guard_reason"] = ";".join(reasons)
+    return state
+
+
+def bad_tail_no_go_state(row, config):
+    state = {
+        "bad_tail_no_go_status": "inactive",
+        "bad_tail_no_go_action": "allow",
+        "bad_tail_no_go_slice_id": "",
+        "bad_tail_no_go_reason": "",
+    }
+    if not bool_value(config.get("bad_tail_no_go_enabled"), True):
+        state.update({
+            "bad_tail_no_go_status": "disabled",
+            "bad_tail_no_go_reason": "bad-tail no-go registry disabled",
+        })
+        return state
+    if not strategy_family_blocked(row, config, "bad_tail_no_go_block_strategy_families"):
+        return state
+
+    slice_id = ""
+    reasons = []
+    best_ask = maybe_float(first_present(row, "best_ask", "clob_best_ask"))
+    low_tail_max = maybe_float(config.get("bad_tail_no_go_low_price_tail_max_price"))
+    if low_tail_max is None:
+        low_tail_max = maybe_float(config.get("tail_price_threshold")) or 0.05
+    if (
+        bool_value(config.get("bad_tail_no_go_low_price_tail_enabled"), True)
+        and bool_value(row.get("low_price_tail"), False)
+        and best_ask is not None
+        and best_ask <= low_tail_max
+    ):
+        slice_id = f"low_price_tail_price_le_{low_tail_max:.2f}"
+        reasons.extend([
+            "tail_type:low_price_tail",
+            f"best_ask:{compact_float(best_ask)}",
+            f"max_price:{compact_float(low_tail_max)}",
+        ])
+    elif (
+        bool_value(config.get("bad_tail_no_go_warm_tail_enabled"), True)
+        and bool_value(config.get("market_centered_warm_tail_guard_enabled"), True)
+        and bool_value(row.get("market_centered_warm_tail"), False)
+        and row.get("warm_tail_guard_status") == "blocked"
+    ):
+        slice_id = "market_centered_warm_tail"
+        reasons.extend([
+            "tail_type:market_centered_warm_tail",
+            f"distance:{row.get('market_modal_band_distance')}",
+            f"modal:{row.get('market_modal_band_key') or 'missing'}",
+        ])
+
+    if not slice_id:
+        return state
+
+    allowed_slices = csv_tokens(config.get("bad_tail_no_go_allow_slice_ids"))
+    allowed = (
+        slice_id.lower() in allowed_slices
+        or strategy_risk_gate_allowlisted(
+            row,
+            config,
+            family_key="bad_tail_no_go_allow_strategy_families",
+            id_key="bad_tail_no_go_allow_strategy_ids",
+        )
+    )
+    state.update({
+        "bad_tail_no_go_status": "allowed" if allowed else "blocked",
+        "bad_tail_no_go_action": "allow" if allowed else "no_trade",
+        "bad_tail_no_go_slice_id": slice_id,
+        "bad_tail_no_go_reason": ";".join([
+            *reasons,
+            "requires_settlement_positive_allowlist",
+        ]),
+    })
     return state
 
 
@@ -578,6 +724,10 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "market_centered_warm_tail": False,
         "warm_tail_guard_status": "inactive",
         "warm_tail_guard_reason": "",
+        "bad_tail_no_go_status": "inactive",
+        "bad_tail_no_go_action": "allow",
+        "bad_tail_no_go_slice_id": "",
+        "bad_tail_no_go_reason": "",
         "weak_slot_gate_status": "inactive",
         "weak_slot_gate_reason": "",
         "weak_slot_gate_source": "",
@@ -618,10 +768,12 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "current_max_disposition": input_row.get("current_max_disposition") or "",
         "current_max_gap_to_wu_history": compact_float(input_row.get("current_max_gap_to_wu_history")),
         "current_max_gap_to_current_temp": compact_float(input_row.get("current_max_gap_to_current_temp")),
+        "current_high_trust_state_present": input_row.get("current_high_trusted") not in (None, ""),
         "current_high_trusted": bool_value(input_row.get("current_high_trusted"), True),
         "current_high_guard_reason": input_row.get("current_high_guard_reason") or "",
         "source_fresh": bool_value(input_row.get("source_fresh"), False),
         "source_freshness_state": input_row.get("source_freshness_state") or "",
+        "snapshot_cadence_state_present": snapshot_cadence_state_present(input_row),
         "snapshot_cadence": input_row.get("snapshot_cadence") or "",
         "snapshot_cadence_quality_state": input_row.get("snapshot_cadence_quality_state") or "",
         "snapshot_cadence_gap_count": input_row.get("snapshot_cadence_gap_count") or "",
@@ -676,9 +828,17 @@ def candidate_skip_reason(row, config):
         return "NO_TRADE_STALE_BOOK", "book age exceeds latency budget"
     if model_age is None or model_age > float(config["max_model_age_seconds"]):
         return "NO_TRADE_STALE_MODEL", "model age exceeds latency budget"
-    blocked_weak_slot_families = csv_tokens(config.get("weak_slot_guard_block_strategy_families"))
-    strategy_family = str(row.get("strategy_family") or "").strip().lower()
-    if row.get("weak_slot_gate_status") == "blocked" and strategy_family in blocked_weak_slot_families:
+    weak_slot_allowlisted = strategy_risk_gate_allowlisted(
+        row,
+        config,
+        family_key="weak_slot_guard_allow_strategy_families",
+        id_key="weak_slot_guard_allow_strategy_ids",
+    )
+    if (
+        row.get("weak_slot_gate_status") == "blocked"
+        and not weak_slot_allowlisted
+        and strategy_family_blocked(row, config, "weak_slot_guard_block_strategy_families")
+    ):
         return (
             "NO_TRADE_WEAK_SLOT_KILL_SWITCH",
             row.get("weak_slot_gate_reason") or "strategy is blocked by weak-slot performance gate",
@@ -687,6 +847,11 @@ def candidate_skip_reason(row, config):
         return (
             "NO_TRADE_MARKET_CENTERED_WARM_TAIL",
             row.get("warm_tail_guard_reason") or "market-centered warm-tail guard blocked this buy",
+        )
+    if row.get("bad_tail_no_go_status") == "blocked":
+        return (
+            "NO_TRADE_BAD_TAIL_NO_GO",
+            row.get("bad_tail_no_go_reason") or "bad-tail no-go registry blocked this buy",
         )
     min_capture_hour = maybe_float(config.get("min_capture_hour_local"))
     if min_capture_hour is not None and min_capture_hour >= 0:

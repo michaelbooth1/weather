@@ -5,6 +5,7 @@ from pathlib import Path
 from weather.reporting.roadmap_backlog import (
     SCHEMA_VERSION,
     build_payload,
+    summarize_roadmap_status,
     parse_item,
     write_json,
     write_markdown,
@@ -78,6 +79,27 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["item_count"], 3)
         self.assertEqual(payload["summary"]["active_item_count"], 2)
         self.assertEqual([row["number"] for row in payload["active_items"]], [1, 2])
+
+    def test_summarize_roadmap_status_counts_closed_and_open_blocked_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            _item(items / "item-001-open-blocked.md", 1, "OPEN 2026-06-21 - WAITING ON BLOCKED DATA")
+            _item(items / "item-002-open-blocks.md", 2, "OPEN 2026-06-21 - FORECAST CEILING BLOCKS LOCK-IN")
+            _item(items / "item-003-open-unblocked.md", 3, "OPEN 2026-06-21 - FEATURE UNBLOCKED")
+            _item(items / "item-004-complete.md", 4, "COMPLETE 2026-06-21 - DONE")
+
+            summary = summarize_roadmap_status(root, generated_at_utc="2026-06-21T00:00:00+00:00")
+
+        self.assertEqual(summary["closed_item_count"], 1)
+        self.assertEqual(summary["open_item_count"], 3)
+        self.assertEqual(summary["open_blocked_item_count"], 2)
+        self.assertEqual(summary["open_unblocked_item_count"], 1)
+        self.assertEqual(
+            [row["blocked"] for row in summary["open_items"]],
+            [True, True, False],
+        )
 
     def test_active_items_missing_required_sections_are_lint_errors(self):
         with tempfile.TemporaryDirectory() as tmp:

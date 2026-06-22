@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from weather.operations.taker_bot_daily_roll import (
+    DEFAULT_STRATEGIES,
     build_taker_bot_command,
     load_status,
     start_for_date,
@@ -47,7 +48,7 @@ class TestTakerBotDailyRoll(unittest.TestCase):
                 "60",
                 "--loop",
                 "--strategies",
-                "low_price_tail_capped",
+                DEFAULT_STRATEGIES,
             ],
         )
 
@@ -219,6 +220,46 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(second["status"], "pid_missing")
         self.assertEqual(status["status"], "pid_missing")
         self.assertEqual(len(calls), 1)
+
+    def test_alive_existing_pid_with_stale_activity_records_idle_process(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            status_path.write_text(json.dumps({
+                "schema_version": "taker_bot_daily_roll_v0.1",
+                "runner": "taker_bot_daily_roll",
+                "generated_at_utc": "2026-06-18T04:00:00+00:00",
+                "started_at_utc": "2026-06-18T04:00:00+00:00",
+                "target_date": "2026-06-18",
+                "status": "started",
+                "pid": 7654,
+                "runs_root": str(tmp / "taker_runs"),
+                "console_log_path": str(tmp / "daily_roll_console.log"),
+                "command": ["python.exe", "-m", "weather.market.taker_bot"],
+            }), encoding="utf-8")
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["root_cause_class"], "idle_process_no_recent_tape_or_log_activity")
+        self.assertEqual(payload["activity_liveness"]["status"], "NO_ACTIVITY")
+        self.assertEqual(saved["status"], "idle_process")
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

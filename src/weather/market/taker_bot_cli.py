@@ -98,6 +98,12 @@ def build_run_config_payload(
         "policy_version": config.get("policy_version", POLICY_VERSION),
         "policy_hash": policy_hash(config),
         "policy_config": config,
+        "fee_config": taker_fee_config(config),
+        "executable_depth_config": {
+            "executable_depth_model": config.get("executable_depth_model"),
+            "executable_depth_slippage_bps": config.get("executable_depth_slippage_bps"),
+            "executable_depth_haircut": config.get("executable_depth_haircut"),
+        },
         "active_strategy_id": lifecycle.get("active_strategy_id"),
         "active_strategy_lifecycle": lifecycle.get("active_strategy_lifecycle"),
         "active_strategy_canary": lifecycle.get("active_strategy_canary"),
@@ -163,7 +169,13 @@ def build_run_once(
     run_folder.mkdir(parents=True, exist_ok=True)
     order_path = run_folder / "orders_long.csv"
     existing_rows = read_order_rows(order_path) if append else []
-    observation_status = load_observation_status(observation_status_path, now=now, config=config)
+    if (
+        Path(snapshots_root) != Path(DEFAULT_SNAPSHOTS_ROOT)
+        and Path(observation_status_path) == Path(DEFAULT_OBSERVATION_STATUS)
+    ):
+        observation_status = {}
+    else:
+        observation_status = load_observation_status(observation_status_path, now=now, config=config)
     input_rows, market_summaries = discover_inputs(
         target,
         markets=markets,
@@ -392,13 +404,64 @@ def finalize_main(argv=None):
     parser.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
     parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--now", default=None, help="Testing/replay timestamp.")
+    parser.add_argument("--watchdog", action="store_true", help="Scan labelable runs and finalize missing settled P&L.")
+    parser.add_argument("--no-finalize", action="store_true", help="Report watchdog state without writing settled artifacts.")
+    parser.add_argument("--sla-hours", type=float, default=DEFAULT_FINALIZATION_SLA_HOURS)
+    parser.add_argument("--status-out", default=None, help="Optional JSON status output for watchdog mode.")
+    parser.add_argument("--report-out", default=None, help="Optional Markdown report output for watchdog mode.")
+    parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
+    parser.add_argument("--retention-days", type=int, default=DEFAULT_FINALIZATION_RETENTION_DAYS)
+    parser.add_argument("--retention-min-candidate-bytes", type=int, default=DEFAULT_RETENTION_CANDIDATE_MIN_BYTES)
+    parser.add_argument("--no-bakeoff", action="store_true", help="Do not create or refresh strategy_bakeoff artifacts.")
+    parser.add_argument("--bakeoff-strategies", default=DEFAULT_BAKEOFF_STRATEGIES)
+    parser.add_argument("--champion-strategy-id", default=ACTIVE_DEFAULT_STRATEGY_ID)
+    parser.add_argument("--champion-min-complete-label-days", type=int, default=DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS)
+    parser.add_argument("--champion-min-settled-orders", type=int, default=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS)
+    parser.add_argument("--champion-ledger-out", default=None)
+    parser.add_argument("--champion-ledger-report-out", default=None)
     args = parser.parse_args(argv)
+    if args.watchdog:
+        payload = finalization_watchdog(
+            target_date=args.date,
+            runs_root=Path(args.runs_root),
+            labels_csv=Path(args.labels_csv),
+            run_folder=Path(args.run_folder) if args.run_folder else None,
+            now=args.now,
+            sla_hours=args.sla_hours,
+            finalize_missing=not args.no_finalize,
+            min_free_bytes=args.min_free_bytes,
+            retention_days=args.retention_days,
+            retention_min_candidate_bytes=args.retention_min_candidate_bytes,
+            ensure_bakeoff=not args.no_bakeoff,
+            bakeoff_strategies=args.bakeoff_strategies,
+            champion_strategy_id=args.champion_strategy_id,
+            champion_min_complete_label_days=args.champion_min_complete_label_days,
+            champion_min_settled_orders=args.champion_min_settled_orders,
+            champion_ledger_out=Path(args.champion_ledger_out) if args.champion_ledger_out else None,
+            champion_ledger_report_out=(
+                Path(args.champion_ledger_report_out) if args.champion_ledger_report_out else None
+            ),
+        )
+        if args.status_out:
+            write_json(Path(args.status_out), payload)
+        if args.report_out:
+            Path(args.report_out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.report_out).write_text(render_finalization_watchdog_report(payload), encoding="utf-8")
+        summary = payload["summary"]
+        print(
+            "Taker finalization watchdog: "
+            f"{summary['finalized_run_count']} finalized, "
+            f"{summary['sla_breach_count']} SLA breach(es), "
+            f"{summary['pending_finalization_count']} pending"
+        )
+        return payload
     payload = finalize_taker_runs(
         target_date=args.date,
         runs_root=Path(args.runs_root),
         labels_csv=Path(args.labels_csv),
         run_folder=Path(args.run_folder) if args.run_folder else None,
         now=args.now,
+        min_free_bytes=args.min_free_bytes,
     )
     print(f"Taker finalization: {payload['run_count']} run(s) finalized")
     for row in payload["runs"]:
@@ -423,6 +486,7 @@ def bakeoff_main(argv=None):
     parser.add_argument("--now", default=None, help="Testing/replay timestamp.")
     parser.add_argument("--min-settled-orders", type=int, default=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS)
     parser.add_argument("--max-drawdown-usdc", type=float, default=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC)
+    parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
     parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
     args = parser.parse_args(argv)
     payload = run_taker_strategy_bakeoff(
@@ -437,6 +501,7 @@ def bakeoff_main(argv=None):
         config=parse_config_overrides(args.config),
         min_settled_orders=args.min_settled_orders,
         max_drawdown_usdc=args.max_drawdown_usdc,
+        min_free_bytes=args.min_free_bytes,
     )
     summary = payload["summary"]
     print(

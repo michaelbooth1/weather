@@ -1,0 +1,55 @@
+# 242. Decisive Model Proof Packet And Gate Stack Ratchet [OPEN 2026-06-22 - HARD-SLICE PROOF PACKET MISSING]
+
+Goal: collapse the current overlapping model-readiness gates into one
+decision-grade proof packet for the active weather-only model, so future work
+has to prove or reject the model on the hard slices instead of adding more
+diagnostics.
+
+Source: `docs/roadmap/audits/closed-roadmap-model-progress-audit-2026-06-22.md`.
+The audit found that most concrete technical gaps already have active roadmap
+owners, but the remaining direction risk is volume and complexity: the roadmap
+has many closed gates and many active gates, which can make it easier to add
+diagnostic structure than to force the active model through a decisive
+market-relative proof.
+
+Why this matters: the project now has enough evidence infrastructure to block
+bad claims. The next risk is using that infrastructure as a substitute for a
+clear decision. Model work should converge on a single packet that says which
+markets can promote, which stay shadow, which are blocked, and exactly which
+slice prevents each blocked market from clearing.
+
+## Design
+
+1. Define a single `weather_only_model_proof_packet` artifact that joins the
+   active artifact identity, promotion refresh, hourly gate, ten-minute gate,
+   exact-band/distance-zero gate, bottom-location gate, source/missingness
+   gate, live-forward evidence state, and broad-claim gate on the same corpus.
+2. For every active model-repair item, require its acceptance evidence to point
+   to the proof-packet field it changes. Items that only add diagnostics without
+   changing a proof-packet blocker stay `PARTIAL` or `OPEN`.
+3. Emit one market disposition table: `PROMOTE`, `SHADOW`, `BLOCK`, with the
+   first blocking slice, delta versus current, delta versus market, and whether
+   the evidence is active-artifact, active-replay-contract, row-export
+   surrogate, or diagnostic-only.
+4. Add a gate-stack ratchet: new model-readiness gates must either replace an
+   existing proof-packet field or be explicitly marked diagnostic-only until
+   they prove they change a promotion decision.
+5. Keep market-informed and trading/taker proof packets separate. CLOB overlays
+   and taker profitability can inform quote-risk or trading decisions, but they
+   cannot satisfy the weather-only proof packet.
+
+- [ ] Specify the proof-packet schema and required input artifacts.
+- [ ] Generate the proof packet from the current active reports.
+- [ ] Add a roadmap/backlog check that active model items reference a
+  proof-packet blocker or mark themselves diagnostic-only.
+- [ ] Add a ratchet report listing duplicate, superseded, or diagnostic-only
+  gates that should not drive the next work order.
+- [ ] Update the actionable work order to use proof-packet blockers as the
+  ordering source for weather-model work.
+
+Acceptance: one canonical weather-only proof packet exists; broad model claims
+and per-market promotion decisions read from it; active model-repair items map
+to concrete packet blockers; and the roadmap no longer treats new diagnostic
+reports as progress unless they change or retire a packet blocker.
+
+Related: items 48, 147, 160, 178, 219, 224, 228, 230, 233.

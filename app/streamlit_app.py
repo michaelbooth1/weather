@@ -16,6 +16,7 @@ st.set_page_config(page_title="Weather Markets", layout="wide")
 def _market_labels():
     labels = {
         "Overview": "overview",
+        "Roadmap": "roadmap",
         "History": "history",
         "Operations": "ops",
         "Market Making": "mm",
@@ -25,6 +26,8 @@ def _market_labels():
 
 
 def _default_market():
+    if "roadmap" in st.query_params:
+        return "roadmap"
     return "history" if "history" in st.query_params else st.query_params.get("market", "overview")
 
 
@@ -41,12 +44,17 @@ def _selected_market_id(labels):
 
 
 def _sync_query_params(market_id):
+    if market_id == "roadmap":
+        if "roadmap" not in st.query_params or st.query_params.get("market"):
+            st.query_params.clear()
+            st.query_params["roadmap"] = ""
+        return
     if market_id == "history":
-        if "history" not in st.query_params or st.query_params.get("market"):
+        if "history" not in st.query_params or st.query_params.get("market") or "roadmap" in st.query_params:
             st.query_params.clear()
             st.query_params["history"] = ""
         return
-    if "history" in st.query_params:
+    if "history" in st.query_params or "roadmap" in st.query_params:
         st.query_params.clear()
     st.query_params["market"] = market_id
 
@@ -59,6 +67,10 @@ def main():
         from app.views.history import render_history_page
 
         render_history_page()
+    elif market_id == "roadmap":
+        from app.views.roadmap import render_roadmap_page
+
+        render_roadmap_page()
     elif market_id == "ops":
         from app.views.operations import render_operations_page
 

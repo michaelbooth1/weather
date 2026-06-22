@@ -1,9 +1,17 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
+from datetime import datetime, timezone
+from pathlib import Path
+
 from weather.market.taker_bot_bakeoff import *  # noqa: F403
+from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+DEFAULT_FINALIZATION_SLA_HOURS = 4.0
+DEFAULT_FINALIZATION_RETENTION_DAYS = 14
+DEFAULT_RETENTION_CANDIDATE_MIN_BYTES = 100_000_000
 
 def first_numeric(*values, default=None):
     for value in values:
@@ -220,6 +228,10 @@ def render_settlement_report(payload):
                 ["Active strategy", next_gate.get("active_strategy_id")],
                 ["Lifecycle", next_gate.get("active_strategy_lifecycle")],
                 ["Lifecycle status", next_gate.get("active_strategy_lifecycle_status")],
+                ["Paper-only", next_gate.get("paper_only")],
+                ["Requalification required", next_gate.get("requalification_required")],
+                ["After-fee required", next_gate.get("canary_after_fee_required")],
+                ["After-fee evidence", next_gate.get("canary_after_fee_evidence")],
                 ["Recommended strategy", next_gate.get("recommended_strategy_id") or "-"],
                 ["Complete-label sample", next_gate.get("complete_label_sample_count")],
                 ["Canary settled orders", next_gate.get("canary_settled_order_count")],
@@ -275,6 +287,20 @@ def _gate_by_strategy(bakeoff):
     }
 
 
+def _after_fee_pnl_evidence(active_gate):
+    gate = active_gate or {}
+    basis = str(
+        gate.get("pnl_fee_basis")
+        or gate.get("net_pnl_fee_basis")
+        or gate.get("after_fee_pnl_basis")
+        or ""
+    ).strip().lower()
+    return (
+        bool_value(gate.get("after_fee_pnl_scored"), False)
+        or basis in {"after_fee", "fees_included", "net_after_fee"}
+    )
+
+
 def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
     label_summary = (bakeoff or {}).get("label_summary") or {}
     blockers = _blocker_codes(bakeoff)
@@ -293,7 +319,29 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
     total_labels = int(label_summary.get("label_rows") or 0)
     complete_labels = int(label_summary.get("complete_rows") or 0)
     active_settled = int((active_gate or {}).get("settled_order_count") or 0)
+    active_unsettled = int((active_gate or {}).get("unsettled_order_count") or 0)
+    active_unscored = int((active_gate or {}).get("unscored_order_count") or 0)
     failed_gates = list((active_gate or {}).get("failed_gates") or [])
+    failed_gate_set = set(failed_gates)
+    max_tail_fraction = maybe_float(policy.get("promotion_max_tail_fill_fraction"))
+    if max_tail_fraction is None:
+        max_tail_fraction = DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION
+    tail_fraction = maybe_float((active_gate or {}).get("low_price_tail_fill_fraction")) or 0.0
+    age_days = int(canary.get("age_days") or 0)
+    missing_settlement_block_age = int(policy.get("canary_missing_settlement_blocks_after_age_days") or 1)
+    hard_demotion_gates = {
+        "no_unresolved_orders",
+        "max_tail_fill_fraction",
+        "non_negative_settled_roi",
+        "no_resolved_stale_mark_sign_flips",
+    }
+    hard_reasons = []
+    if active_unsettled + active_unscored > 0 or "no_unresolved_orders" in failed_gate_set:
+        hard_reasons.append("unresolved_or_unscored_orders")
+    if tail_fraction > float(max_tail_fraction) or "max_tail_fill_fraction" in failed_gate_set:
+        hard_reasons.append("excessive_low_tail_fraction")
+    if failed_gate_set & {"non_negative_settled_roi", "no_resolved_stale_mark_sign_flips"}:
+        hard_reasons.extend(sorted(failed_gate_set & {"non_negative_settled_roi", "no_resolved_stale_mark_sign_flips"}))
     complete_label_gate = bool(
         total_labels > 0
         and complete_labels >= total_labels
@@ -304,12 +352,44 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
     )
     sample_gate = active_settled >= min_settled
     if not bakeoff:
+        if age_days >= missing_settlement_block_age:
+            return {
+                "status": "BLOCK",
+                "active_strategy_lifecycle_status": "blocked",
+                "promotion_eligible": False,
+                "next_action": "rollback_or_block_canary",
+                "paper_only": True,
+                "requalification_required": True,
+                "reason": "active canary has no settlement-scored bakeoff after canary cutover",
+            }
         return {
             "status": "PASS",
             "active_strategy_lifecycle_status": "candidate_canary",
             "promotion_eligible": False,
             "next_action": "continue_canary_collect_complete_labels",
+            "paper_only": True,
+            "requalification_required": True,
             "reason": "active canary has no settlement-scored bakeoff yet",
+        }
+    if hard_reasons and age_days >= missing_settlement_block_age:
+        return {
+            "status": "BLOCK",
+            "active_strategy_lifecycle_status": "blocked",
+            "promotion_eligible": False,
+            "next_action": "rollback_or_block_canary",
+            "paper_only": True,
+            "requalification_required": True,
+            "reason": "active canary violated demotion gates: " + ", ".join(dict.fromkeys(hard_reasons)),
+        }
+    if active_settled == 0 and age_days >= missing_settlement_block_age:
+        return {
+            "status": "BLOCK",
+            "active_strategy_lifecycle_status": "blocked",
+            "promotion_eligible": False,
+            "next_action": "rollback_or_block_canary",
+            "paper_only": True,
+            "requalification_required": True,
+            "reason": "active canary has no settlement-scored evidence after canary cutover",
         }
     if not complete_label_gate:
         return {
@@ -317,6 +397,8 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
             "active_strategy_lifecycle_status": "candidate_canary",
             "promotion_eligible": False,
             "next_action": "continue_canary_until_complete_labels",
+            "paper_only": True,
+            "requalification_required": True,
             "reason": "active canary has only partial or missing complete-label bakeoff evidence",
         }
     if not sample_gate:
@@ -325,17 +407,31 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
             "active_strategy_lifecycle_status": "candidate_canary",
             "promotion_eligible": False,
             "next_action": "continue_canary_until_minimum_sample",
+            "paper_only": True,
+            "requalification_required": True,
             "reason": (
                 f"active canary has {active_settled} settled orders; "
                 f"{min_settled} required before promotion"
             ),
         }
     if (active_gate or {}).get("status") == "PASS":
+        if bool_value(policy.get("canary_require_after_fee_pnl"), True) and not _after_fee_pnl_evidence(active_gate):
+            return {
+                "status": "PASS",
+                "active_strategy_lifecycle_status": "candidate_canary",
+                "promotion_eligible": False,
+                "next_action": "continue_canary_until_after_fee_scoring",
+                "paper_only": True,
+                "requalification_required": True,
+                "reason": "active canary passed settlement gates but lacks after-fee PnL evidence",
+            }
         return {
             "status": "PASS",
             "active_strategy_lifecycle_status": "promoted_default",
             "promotion_eligible": True,
             "next_action": "promote_default",
+            "paper_only": False,
+            "requalification_required": False,
             "reason": "active canary has complete-label sample and passed settlement gates",
         }
     return {
@@ -343,6 +439,8 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
         "active_strategy_lifecycle_status": "blocked",
         "promotion_eligible": False,
         "next_action": "rollback_or_block_canary",
+        "paper_only": True,
+        "requalification_required": True,
         "reason": "active canary failed complete-label settlement gates: " + (", ".join(failed_gates) or "unknown"),
     }
 
@@ -433,6 +531,8 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
             (canary_decision or {}).get("active_strategy_lifecycle_status") or active_lifecycle
         ),
         "promotion_eligible": bool((canary_decision or {}).get("promotion_eligible")),
+        "paper_only": bool((canary_decision or {}).get("paper_only")),
+        "requalification_required": bool((canary_decision or {}).get("requalification_required")),
         "next_action": (canary_decision or {}).get("next_action") or ("keep_active_strategy" if status == "PASS" else "operator_review"),
         "recommended_strategy_id": recommended_id,
         "active_net_pnl_usdc": compact_float(active_net),
@@ -460,12 +560,440 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
             or DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION
         ),
         "canary_age_days": (run_config.get("active_strategy_canary") or {}).get("age_days"),
+        "canary_after_fee_required": bool_value(
+            ((run_config.get("policy_config") or {}).get("canary_require_after_fee_pnl")),
+            True,
+        ),
+        "canary_after_fee_evidence": _after_fee_pnl_evidence(gates_by_strategy.get(active_id) or {}),
         "canary_failed_gates": (gates_by_strategy.get(active_id) or {}).get("failed_gates") or [],
         "reason": reason,
     }
 
 
-def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
+def _path_mtime_utc(path):
+    path = Path(path)
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+
+
+def _time_age_hours(value, now):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - value.astimezone(timezone.utc)).total_seconds() / 3600.0)
+
+
+def _dir_size_bytes(path):
+    total = 0
+    for item in Path(path).rglob("*"):
+        if not item.is_file():
+            continue
+        try:
+            total += item.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def taker_artifact_retention_plan(
+    runs_root=DEFAULT_RUNS_ROOT,
+    *,
+    now=None,
+    retention_days=DEFAULT_FINALIZATION_RETENTION_DAYS,
+    min_candidate_bytes=DEFAULT_RETENTION_CANDIDATE_MIN_BYTES,
+    max_candidates=50,
+):
+    now = utc_now(now)
+    root = Path(runs_root)
+    candidates = []
+    if not root.exists():
+        return {
+            "status": "NO_RUNS_ROOT",
+            "runs_root": str(root),
+            "retention_days": int(retention_days),
+            "min_candidate_bytes": int(min_candidate_bytes),
+            "candidate_count": 0,
+            "candidate_bytes": 0,
+            "candidates": [],
+            "recommended_action": "create runs root or verify configured taker runs path",
+        }
+    for folder in sorted(root.glob("*/*")):
+        if not folder.is_dir():
+            continue
+        latest = max(
+            (
+                value for value in (
+                    _path_mtime_utc(folder / "orders_long.csv"),
+                    _path_mtime_utc(folder / "run_summary.json"),
+                    _path_mtime_utc(folder / "settled_pnl.json"),
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+        age_days = (_time_age_hours(latest, now) or 0.0) / 24.0 if latest else None
+        if age_days is None or age_days < float(retention_days):
+            continue
+        size = _dir_size_bytes(folder)
+        if size < int(min_candidate_bytes):
+            continue
+        candidates.append({
+            "run_folder": str(folder),
+            "target_date": folder.parent.name,
+            "run_id": folder.name,
+            "latest_artifact_at_utc": latest.isoformat() if latest else None,
+            "age_days": round(age_days, 3) if age_days is not None else None,
+            "size_bytes": int(size),
+            "recommended_action": "move to cold storage or archive after settled_pnl.json is present",
+        })
+    candidates = sorted(candidates, key=lambda row: row.get("size_bytes") or 0, reverse=True)[:int(max_candidates)]
+    return {
+        "status": "CANDIDATES" if candidates else "OK",
+        "runs_root": str(root),
+        "retention_days": int(retention_days),
+        "min_candidate_bytes": int(min_candidate_bytes),
+        "candidate_count": len(candidates),
+        "candidate_bytes": sum(int(row.get("size_bytes") or 0) for row in candidates),
+        "candidates": candidates,
+        "recommended_action": "archive candidates before launching large backtests or finalization batches",
+    }
+
+
+def finalization_state_for_run(
+    run_folder,
+    labels_csv=DEFAULT_LABELS_CSV,
+    *,
+    now=None,
+    sla_hours=DEFAULT_FINALIZATION_SLA_HOURS,
+):
+    now = utc_now(now)
+    run_folder = Path(run_folder)
+    order_path = run_folder / "orders_long.csv"
+    settled_pnl_path = run_folder / "settled_pnl.json"
+    settled_report_path = run_folder / "settled_report.md"
+    run_summary = read_json(run_folder / "run_summary.json", {}) or {}
+    daily_pnl = read_json(run_folder / "daily_pnl.json", {}) or {}
+    target_date = (
+        run_summary.get("target_date")
+        or daily_pnl.get("target_date")
+        or run_folder.parent.name
+    )
+    run_id = run_summary.get("run_id") or daily_pnl.get("run_id") or run_folder.name
+    raw_orders = read_order_rows(order_path) if order_path.exists() else []
+    filled_orders = [row for row in raw_orders if str(row.get("order_status") or "").upper() == "FILLED"]
+    labels = load_settlement_labels(labels_csv)
+    labelable_count = 0
+    for row in filled_orders:
+        label = settlement_label_for_order(row, labels)
+        if settlement_outcome_for_order(row, label) is not None:
+            labelable_count += 1
+    unmatched_filled = max(0, len(filled_orders) - labelable_count)
+    labels_available = labelable_count > 0
+    labels_mtime = _path_mtime_utc(labels_csv)
+    orders_mtime = _path_mtime_utc(order_path)
+    settled_mtime = _path_mtime_utc(settled_pnl_path)
+    freshness_cutoff = max((value for value in (labels_mtime, orders_mtime) if value is not None), default=None)
+    finalization_fresh = bool(
+        settled_mtime is not None
+        and (freshness_cutoff is None or settled_mtime >= freshness_cutoff)
+    )
+    label_available_at = labels_mtime if labels_available else None
+    availability_age_hours = _time_age_hours(label_available_at, now)
+    needs_finalization = bool(labels_available and not finalization_fresh)
+    if not order_path.exists():
+        status = "MISSING_ORDERS"
+        sla_status = "NOT_LABELABLE"
+    elif not filled_orders:
+        status = "NO_FILLED_ORDERS"
+        sla_status = "NOT_LABELABLE"
+    elif not labels_available:
+        status = "WAITING_FOR_LABELS"
+        sla_status = "WAITING"
+    elif finalization_fresh:
+        status = "FINALIZED"
+        sla_status = "PASS"
+    elif availability_age_hours is not None and availability_age_hours > float(sla_hours):
+        status = "LABELS_AVAILABLE_NO_FINALIZATION"
+        sla_status = "BREACH"
+    else:
+        status = "LABELS_AVAILABLE_PENDING_FINALIZATION"
+        sla_status = "PENDING"
+    return {
+        "run_id": run_id,
+        "target_date": ensure_date(target_date).isoformat(),
+        "run_folder": str(run_folder),
+        "orders_path": str(order_path),
+        "settled_pnl_path": str(settled_pnl_path),
+        "settled_report_path": str(settled_report_path),
+        "status": status,
+        "sla_status": sla_status,
+        "sla_hours": float(sla_hours),
+        "needs_finalization": needs_finalization,
+        "labels_available": labels_available,
+        "label_available_at_utc": label_available_at.isoformat() if label_available_at else None,
+        "label_availability_age_hours": round(availability_age_hours, 3) if availability_age_hours is not None else None,
+        "filled_order_count": len(filled_orders),
+        "labelable_filled_order_count": labelable_count,
+        "unmatched_filled_order_count": unmatched_filled,
+        "settled_pnl_exists": settled_pnl_path.exists(),
+        "settled_report_exists": settled_report_path.exists(),
+        "finalization_fresh": finalization_fresh,
+        "orders_modified_at_utc": orders_mtime.isoformat() if orders_mtime else None,
+        "labels_modified_at_utc": labels_mtime.isoformat() if labels_mtime else None,
+        "settled_pnl_modified_at_utc": settled_mtime.isoformat() if settled_mtime else None,
+    }
+
+
+def finalization_watchdog(
+    target_date=None,
+    runs_root=DEFAULT_RUNS_ROOT,
+    labels_csv=DEFAULT_LABELS_CSV,
+    run_folder=None,
+    *,
+    now=None,
+    sla_hours=DEFAULT_FINALIZATION_SLA_HOURS,
+    finalize_missing=True,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+    retention_days=DEFAULT_FINALIZATION_RETENTION_DAYS,
+    retention_min_candidate_bytes=DEFAULT_RETENTION_CANDIDATE_MIN_BYTES,
+    ensure_bakeoff=True,
+    bakeoff_strategies=DEFAULT_BAKEOFF_STRATEGIES,
+    champion_strategy_id=ACTIVE_DEFAULT_STRATEGY_ID,
+    champion_min_complete_label_days=DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS,
+    champion_min_settled_orders=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
+    champion_ledger_out=None,
+    champion_ledger_report_out=None,
+):
+    now = utc_now(now)
+    folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
+    ledger_runs_root = Path(run_folder).parent.parent if run_folder else Path(runs_root)
+    disk_preflight = disk_capacity_preflight(
+        Path(run_folder) if run_folder else runs_root,
+        min_free_bytes=min_free_bytes,
+        usage_fn=disk_usage_fn,
+    )
+    rows = []
+    finalized = []
+    alerts = []
+    for folder in folders:
+        state = finalization_state_for_run(
+            folder,
+            labels_csv=labels_csv,
+            now=now,
+            sla_hours=sla_hours,
+        )
+        bakeoff_action = "not_labelable"
+        bakeoff_path = str(Path(folder) / "strategy_bakeoff.json")
+        if state.get("labels_available") and ensure_bakeoff:
+            if not disk_preflight.get("ok"):
+                bakeoff_action = "blocked_disk_capacity"
+            else:
+                bakeoff_state = ensure_taker_strategy_bakeoff(
+                    folder,
+                    labels_csv=labels_csv,
+                    strategies=bakeoff_strategies,
+                    now=now,
+                    min_free_bytes=min_free_bytes,
+                    disk_usage_fn=disk_usage_fn,
+                )
+                bakeoff_action = bakeoff_state.get("action")
+                bakeoff_path = bakeoff_state.get("strategy_bakeoff_path")
+        elif state.get("labels_available"):
+            bakeoff_action = "disabled"
+        action = "noop"
+        if state.get("needs_finalization") and finalize_missing:
+            if not disk_preflight.get("ok"):
+                action = "blocked_disk_capacity"
+                state["sla_status"] = "BREACH" if state.get("sla_status") == "BREACH" else "PENDING"
+                state["status"] = "DISK_BLOCKED_FINALIZATION"
+                state["disk_capacity_preflight"] = disk_preflight
+            else:
+                payload = finalize_taker_run(
+                    folder,
+                    labels_csv=labels_csv,
+                    now=now,
+                    min_free_bytes=min_free_bytes,
+                    disk_usage_fn=disk_usage_fn,
+                )
+                finalized.append({
+                    "run_id": payload.get("run_id"),
+                    "target_date": payload.get("target_date"),
+                    "run_folder": payload.get("run_folder"),
+                    "settled_pnl_path": payload.get("settled_pnl_path"),
+                    "settled_report_path": payload.get("settled_report_path"),
+                    "settled_order_count": (payload.get("summary") or {}).get("settled_order_count"),
+                    "unsettled_order_count": (payload.get("summary") or {}).get("unsettled_order_count"),
+                    "net_pnl_usdc": (payload.get("summary") or {}).get("net_pnl_usdc"),
+                })
+                state = finalization_state_for_run(
+                    folder,
+                    labels_csv=labels_csv,
+                    now=now,
+                    sla_hours=sla_hours,
+                )
+                action = "finalized"
+        elif state.get("needs_finalization"):
+            action = "would_finalize"
+        state["bakeoff_action"] = bakeoff_action
+        state["strategy_bakeoff_path"] = bakeoff_path
+        state["action"] = action
+        if state.get("sla_status") in {"BREACH", "PENDING"} and state.get("needs_finalization"):
+            alerts.append({
+                "run_id": state.get("run_id"),
+                "target_date": state.get("target_date"),
+                "status": state.get("status"),
+                "sla_status": state.get("sla_status"),
+                "action": action,
+                "run_folder": state.get("run_folder"),
+            })
+        rows.append(state)
+    retention = taker_artifact_retention_plan(
+        runs_root=ledger_runs_root,
+        now=now,
+        retention_days=retention_days,
+        min_candidate_bytes=retention_min_candidate_bytes,
+    )
+    bakeoff_paths = [
+        Path(row.get("strategy_bakeoff_path"))
+        for row in rows
+        if row.get("strategy_bakeoff_path") and Path(row.get("strategy_bakeoff_path")).exists()
+    ]
+    if champion_ledger_out:
+        champion_ledger = write_champion_challenger_ledger(
+            out_json=Path(champion_ledger_out),
+            out_report=Path(champion_ledger_report_out) if champion_ledger_report_out else None,
+            min_free_bytes=min_free_bytes,
+            disk_usage_fn=disk_usage_fn,
+            runs_root=ledger_runs_root,
+            target_date=target_date,
+            bakeoff_paths=bakeoff_paths,
+            champion_strategy_id=champion_strategy_id,
+            now=now,
+            min_complete_label_days=champion_min_complete_label_days,
+            min_settled_orders=champion_min_settled_orders,
+        )
+    else:
+        champion_ledger = build_champion_challenger_ledger(
+            runs_root=ledger_runs_root,
+            target_date=target_date,
+            bakeoff_paths=bakeoff_paths,
+            champion_strategy_id=champion_strategy_id,
+            now=now,
+            min_complete_label_days=champion_min_complete_label_days,
+            min_settled_orders=champion_min_settled_orders,
+        )
+    summary = {
+        "run_count": len(rows),
+        "labelable_run_count": sum(1 for row in rows if row.get("labels_available")),
+        "needs_finalization_count": sum(1 for row in rows if row.get("needs_finalization")),
+        "finalized_run_count": len(finalized),
+        "sla_breach_count": sum(1 for row in rows if row.get("sla_status") == "BREACH"),
+        "pending_finalization_count": sum(1 for row in rows if row.get("sla_status") == "PENDING"),
+        "bakeoff_created_count": sum(1 for row in rows if row.get("bakeoff_action") == "created"),
+        "bakeoff_fresh_count": sum(1 for row in rows if row.get("bakeoff_action") == "fresh"),
+        "disk_capacity_status": disk_preflight.get("status"),
+        "retention_candidate_count": retention.get("candidate_count"),
+        "champion_decision": champion_ledger.get("promotion_decision"),
+        "champion_recommended_strategy_id": champion_ledger.get("recommended_strategy_id"),
+    }
+    return {
+        "schema_version": "taker_settlement_finalization_watchdog_v0.1",
+        "generated_at_utc": now.isoformat(),
+        "target_date": ensure_date(target_date).isoformat() if target_date else None,
+        "runs_root": str(runs_root),
+        "labels_csv": str(labels_csv),
+        "sla_hours": float(sla_hours),
+        "finalize_missing": bool(finalize_missing),
+        "ensure_bakeoff": bool(ensure_bakeoff),
+        "bakeoff_strategies": bakeoff_strategies,
+        "summary": summary,
+        "disk_capacity_preflight": disk_preflight,
+        "retention_plan": retention,
+        "champion_challenger_ledger": champion_ledger,
+        "alerts": alerts,
+        "finalized_runs": finalized,
+        "runs": rows,
+    }
+
+
+def render_finalization_watchdog_report(payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Taker Settlement Finalization Watchdog",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Target date: `{payload.get('target_date') or 'all'}`",
+        f"Labels CSV: `{payload.get('labels_csv')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Runs scanned", summary.get("run_count")],
+            ["Labelable runs", summary.get("labelable_run_count")],
+            ["Needs finalization", summary.get("needs_finalization_count")],
+            ["Finalized runs", summary.get("finalized_run_count")],
+            ["SLA breaches", summary.get("sla_breach_count")],
+            ["Pending finalization", summary.get("pending_finalization_count")],
+            ["Bakeoffs created", summary.get("bakeoff_created_count")],
+            ["Bakeoffs fresh", summary.get("bakeoff_fresh_count")],
+            ["Champion decision", summary.get("champion_decision")],
+            ["Recommended strategy", summary.get("champion_recommended_strategy_id")],
+            ["Disk capacity", summary.get("disk_capacity_status")],
+            ["Retention candidates", summary.get("retention_candidate_count")],
+        ],
+    ))
+    lines.extend(["", "## Runs", ""])
+    lines.extend(markdown_table(
+        ["Run", "Date", "Status", "SLA", "Bakeoff", "Action", "Filled", "Labelable"],
+        [
+            [
+                row.get("run_id"),
+                row.get("target_date"),
+                row.get("status"),
+                row.get("sla_status"),
+                row.get("bakeoff_action"),
+                row.get("action"),
+                row.get("filled_order_count"),
+                row.get("labelable_filled_order_count"),
+            ]
+            for row in payload.get("runs") or []
+        ],
+    ))
+    alerts = payload.get("alerts") or []
+    if alerts:
+        lines.extend(["", "## Alerts", ""])
+        lines.extend(markdown_table(
+            ["Run", "Date", "SLA", "Action", "Folder"],
+            [
+                [
+                    row.get("run_id"),
+                    row.get("target_date"),
+                    row.get("sla_status"),
+                    row.get("action"),
+                    row.get("run_folder"),
+                ]
+                for row in alerts
+            ],
+        ))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def finalize_taker_run(
+    run_folder,
+    labels_csv=DEFAULT_LABELS_CSV,
+    now=None,
+    *,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+):
     run_folder = Path(run_folder)
     order_path = run_folder / "orders_long.csv"
     if not order_path.exists():
@@ -507,6 +1035,16 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
     settled_report_path = run_folder / "settled_report.md"
     settled_strategy_summary_path = run_folder / "settled_strategy_summary.json"
     settled_strategy_report_path = run_folder / "settled_strategy_report.md"
+    disk_preflight = disk_capacity_preflight(
+        run_folder,
+        min_free_bytes=min_free_bytes,
+        usage_fn=disk_usage_fn,
+    )
+    if not disk_preflight.get("ok"):
+        raise RuntimeError(
+            "insufficient free disk for taker settlement finalization: "
+            f"free={disk_preflight.get('free_bytes')} required={disk_preflight.get('required_free_bytes')}"
+        )
     strategy_summary = build_strategy_summary_payload(
         pnl_payload,
         run_config=read_json(run_folder / "run_config.json", {}) or {},
@@ -527,6 +1065,8 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
         "active_strategy_lifecycle": next_gate.get("active_strategy_lifecycle"),
         "active_strategy_lifecycle_status": next_gate.get("active_strategy_lifecycle_status"),
         "active_strategy_promotion_eligible": next_gate.get("promotion_eligible"),
+        "active_strategy_paper_only": next_gate.get("paper_only"),
+        "active_strategy_requalification_required": next_gate.get("requalification_required"),
         "active_strategy_next_action": next_gate.get("next_action"),
         "active_strategy_complete_label_sample_count": next_gate.get("complete_label_sample_count"),
         "active_strategy_total_label_sample_count": next_gate.get("total_label_sample_count"),
@@ -537,6 +1077,11 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
         "active_strategy_canary_tail_fill_fraction": next_gate.get("canary_tail_fill_fraction"),
         "active_strategy_canary_max_tail_fill_fraction": next_gate.get("canary_max_tail_fill_fraction"),
         "active_strategy_canary_age_days": next_gate.get("canary_age_days"),
+        "active_strategy_canary_after_fee_required": next_gate.get("canary_after_fee_required"),
+        "active_strategy_canary_after_fee_evidence": next_gate.get("canary_after_fee_evidence"),
+        "disk_capacity_status": disk_preflight.get("status"),
+        "disk_free_bytes": disk_preflight.get("free_bytes"),
+        "disk_required_free_bytes": disk_preflight.get("required_free_bytes"),
         "settled_orders_path": str(settled_orders_path),
         "settled_report_path": str(settled_report_path),
         "settled_strategy_summary_path": str(settled_strategy_summary_path),
@@ -562,6 +1107,7 @@ def finalize_taker_run(run_folder, labels_csv=DEFAULT_LABELS_CSV, now=None):
         "strategy_summary": strategy_summary,
         "next_run_policy_gate": next_gate,
         "reconciliation": reconciliation,
+        "disk_capacity_preflight": disk_preflight,
         "warnings": reconciliation.get("warnings") or [],
     }
     write_csv_rows(settled_orders_path, ORDER_COLUMNS, scored_orders)
@@ -588,10 +1134,22 @@ def finalize_taker_runs(
     labels_csv=DEFAULT_LABELS_CSV,
     run_folder=None,
     now=None,
+    *,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
 ):
     now = utc_now(now)
     folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
-    payloads = [finalize_taker_run(folder, labels_csv=labels_csv, now=now) for folder in folders]
+    payloads = [
+        finalize_taker_run(
+            folder,
+            labels_csv=labels_csv,
+            now=now,
+            min_free_bytes=min_free_bytes,
+            disk_usage_fn=disk_usage_fn,
+        )
+        for folder in folders
+    ]
     return {
         "schema_version": FINALIZATION_SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),

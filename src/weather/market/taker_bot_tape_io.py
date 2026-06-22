@@ -351,7 +351,11 @@ def assemble_taker_inputs_for_market(
         merged["market_mid"] = market_mid(merged)
         merged["source_fresh"] = source_fresh
         merged["source_freshness_state"] = source_state
-        merged.update(normalized_high_fields(current_high_assessment))
+        merged.update({
+            key: value
+            for key, value in normalized_high_fields(current_high_assessment).items()
+            if value not in (None, "")
+        })
         if not merged.get("clob_token_id"):
             merged["clob_token_id"] = token
         if "bin_value" not in merged and merged.get("bin_value_c") not in (None, ""):

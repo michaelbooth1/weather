@@ -9,8 +9,10 @@ from pathlib import Path
 
 
 DEFAULT_MIN_FREE_BYTES = 1_073_741_824
+DEFAULT_MAX_ACTIVITY_AGE_SECONDS = 300
+DEFAULT_STARTUP_GRACE_SECONDS = 180
 RUNNING_STATUSES = {"started", "already_running"}
-TERMINAL_STATUSES = {"exited", "failed", "disk_full", "pid_missing"}
+TERMINAL_STATUSES = {"exited", "failed", "disk_full", "pid_missing", "idle_process"}
 
 
 def utc_iso(now=None):
@@ -23,6 +25,26 @@ def utc_iso(now=None):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).isoformat()
+
+
+def parse_utc(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def age_seconds(value, *, now=None):
+    parsed = parse_utc(value)
+    if parsed is None:
+        return None
+    current = parse_utc(now) or datetime.now(timezone.utc)
+    return max(0.0, (current - parsed).total_seconds())
 
 
 def nearest_existing_parent(path):
@@ -80,6 +102,116 @@ def terminal_status_for_dead_pid(payload, *, now=None, pid_alive=None):
         "root_cause_class": "pid_missing",
         "zero_trades_expected": False,
         "remediation_command": "inspect the console log, then restart the daily roll with --force",
+    })
+    return payload
+
+
+def activity_liveness_preflight(
+    paths,
+    *,
+    now=None,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    started_at_utc=None,
+    stat_fn=None,
+):
+    current = parse_utc(now) or datetime.now(timezone.utc)
+    stat_fn = stat_fn or (lambda path: Path(path).stat())
+    checked = []
+    latest_path = None
+    latest_mtime = None
+    for raw_path in paths or []:
+        path = Path(raw_path)
+        try:
+            stat = stat_fn(path)
+        except OSError:
+            checked.append({"path": str(path), "exists": False})
+            continue
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+        age = max(0.0, (current - mtime).total_seconds())
+        checked.append({
+            "path": str(path),
+            "exists": True,
+            "modified_at_utc": mtime.isoformat(),
+            "age_seconds": round(age, 3),
+            "size_bytes": int(getattr(stat, "st_size", 0) or 0),
+        })
+        if latest_mtime is None or mtime > latest_mtime:
+            latest_mtime = mtime
+            latest_path = str(path)
+
+    if latest_mtime is not None:
+        latest_age = max(0.0, (current - latest_mtime).total_seconds())
+        status = "PASS" if latest_age <= float(max_activity_age_seconds) else "STALE_ACTIVITY"
+        return {
+            "status": status,
+            "ok": status == "PASS",
+            "checked_path_count": len(checked),
+            "existing_path_count": sum(1 for row in checked if row.get("exists")),
+            "latest_activity_path": latest_path,
+            "latest_activity_at_utc": latest_mtime.isoformat(),
+            "latest_activity_age_seconds": round(latest_age, 3),
+            "max_activity_age_seconds": float(max_activity_age_seconds),
+            "startup_grace_seconds": float(startup_grace_seconds),
+            "paths": checked,
+        }
+
+    startup_age = age_seconds(started_at_utc, now=current)
+    if startup_age is not None and startup_age <= float(startup_grace_seconds):
+        status = "STARTUP_GRACE"
+        ok = True
+    else:
+        status = "NO_ACTIVITY"
+        ok = False
+    return {
+        "status": status,
+        "ok": ok,
+        "checked_path_count": len(checked),
+        "existing_path_count": 0,
+        "latest_activity_path": None,
+        "latest_activity_at_utc": None,
+        "latest_activity_age_seconds": None,
+        "max_activity_age_seconds": float(max_activity_age_seconds),
+        "startup_grace_seconds": float(startup_grace_seconds),
+        "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
+        "paths": checked,
+    }
+
+
+def terminal_status_for_inactive_process(
+    payload,
+    *,
+    now=None,
+    pid_alive=None,
+    activity_paths=None,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    stat_fn=None,
+):
+    payload = terminal_status_for_dead_pid(payload, now=now, pid_alive=pid_alive)
+    if not payload or payload.get("status") not in RUNNING_STATUSES:
+        return payload
+    activity = activity_liveness_preflight(
+        activity_paths,
+        now=now,
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        started_at_utc=payload.get("started_at_utc") or payload.get("generated_at_utc"),
+        stat_fn=stat_fn,
+    )
+    payload["activity_liveness"] = activity
+    payload["pid_alive"] = True
+    if activity.get("ok"):
+        return payload
+    payload.update({
+        "status": "idle_process",
+        "action": "blocked_restart_required",
+        "terminal": True,
+        "completed_at_utc": utc_iso(now),
+        "first_failing_gate": "activity_liveness",
+        "root_cause_class": "idle_process_no_recent_tape_or_log_activity",
+        "zero_trades_expected": False,
+        "remediation_command": "inspect the console log and run tape freshness, then restart the daily roll with --force",
     })
     return payload
 

@@ -85,6 +85,35 @@ def settlement_label_for_order(row, labels):
     return labels.get("by_market_date", {}).get(key)
 
 
+def executable_pnl_components(row, payout):
+    fill_size = maybe_float(row.get("fill_size")) or 0.0
+    fill_notional = maybe_float(row.get("fill_notional_usdc"))
+    fee = maybe_float(row.get("fee_usdc")) or 0.0
+    if fill_notional is None:
+        fill_notional = max(0.0, (maybe_float(row.get("total_spent_usdc")) or 0.0) - fee)
+    frictionless = maybe_float(row.get("frictionless_notional_usdc"))
+    if frictionless is None:
+        frictionless_price = maybe_float(first_present(row, "frictionless_fill_price", "best_ask", "fill_price"))
+        frictionless = fill_size * frictionless_price if frictionless_price is not None else fill_notional
+    slippage = maybe_float(row.get("slippage_usdc"))
+    if slippage is None:
+        slippage = max(0.0, fill_notional - frictionless)
+    gross = float(payout) - frictionless
+    net = gross - fee - slippage
+    basis = row.get("pnl_fee_basis") or ("after_fee" if fee > 0 else "paper_no_fee")
+    return {
+        "gross_pnl_usdc": compact_float(gross),
+        "fee_pnl_usdc": compact_float(-fee),
+        "slippage_pnl_usdc": compact_float(-slippage),
+        "slippage_usdc": compact_float(slippage),
+        "executable_net_pnl_usdc": compact_float(net),
+        "net_pnl_usdc": compact_float(net),
+        "pnl_fee_basis": basis,
+        "after_fee_pnl_scored": basis in {"after_fee", "fees_included", "net_after_fee"},
+        "after_slippage_pnl_scored": row.get("executable_depth_model_version") not in (None, ""),
+    }
+
+
 def score_orders_against_labels(order_rows, labels):
     """Score filled taker orders against finalized labels without touching raw tape."""
     scored = []
@@ -112,20 +141,15 @@ def score_orders_against_labels(order_rows, labels):
             continue
         matched += 1
         fill_size = maybe_float(row.get("fill_size")) or 0.0
-        fill_notional = maybe_float(row.get("fill_notional_usdc"))
-        if fill_notional is None:
-            fill_notional = maybe_float(row.get("total_spent_usdc")) or 0.0
-        fee = maybe_float(row.get("fee_usdc")) or 0.0
-        cost = fill_notional + fee
         payout = float(outcome) * fill_size
-        pnl = payout - cost
+        components = executable_pnl_components(row, payout)
         out.update({
             "settlement_status": "settled",
             "settlement_payout_usdc": compact_float(payout),
-            "settlement_pnl_usdc": compact_float(pnl),
+            "settlement_pnl_usdc": components["net_pnl_usdc"],
             "mark_pnl_usdc": None,
             "pnl_source": "settlement_finalized",
-            "net_pnl_usdc": compact_float(pnl),
+            **components,
         })
         scored.append(out)
     return scored, {
@@ -181,33 +205,30 @@ def score_orders(order_rows, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, ledger_root=
             }
         item = cache[event_slug]
         fill_size = maybe_float(row.get("fill_size")) or 0.0
-        fill_notional = maybe_float(row.get("fill_notional_usdc")) or 0.0
-        fee = maybe_float(row.get("fee_usdc")) or 0.0
-        cost = fill_notional + fee
         outcome = settlement_outcome_for_order(row, item["settlement"])
         mark = latest_mark(item["marks"], row.get("clob_token_id"), now)
         out["settlement_outcome"] = compact_float(outcome)
         out["mark_price"] = compact_float(mark.get("price") if mark else None)
         if outcome is not None:
             payout = outcome * fill_size
-            pnl = payout - cost
+            components = executable_pnl_components(row, payout)
             out.update({
                 "settlement_status": "settled",
                 "settlement_payout_usdc": compact_float(payout),
-                "settlement_pnl_usdc": compact_float(pnl),
+                "settlement_pnl_usdc": components["net_pnl_usdc"],
                 "mark_pnl_usdc": None,
                 "pnl_source": "settlement",
-                "net_pnl_usdc": compact_float(pnl),
+                **components,
             })
         elif mark:
-            mark_pnl = (float(mark["price"]) * fill_size) - cost
+            components = executable_pnl_components(row, float(mark["price"]) * fill_size)
             out.update({
                 "settlement_status": "unsettled",
                 "settlement_payout_usdc": None,
                 "settlement_pnl_usdc": None,
-                "mark_pnl_usdc": compact_float(mark_pnl),
+                "mark_pnl_usdc": components["net_pnl_usdc"],
                 "pnl_source": "mark_to_market",
-                "net_pnl_usdc": compact_float(mark_pnl),
+                **components,
             })
         else:
             out.update({
@@ -411,6 +432,8 @@ def settlement_promotion_gate(strategy_row, thresholds):
     unscored_orders = int(strategy_row.get("unscored_order_count") or 0)
     settled_net = maybe_float(strategy_row.get("settlement_scored_net_pnl_usdc")) or 0.0
     settled_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
+    after_fee_scored = bool_value(strategy_row.get("after_fee_pnl_scored"), False)
+    after_slippage_scored = bool_value(strategy_row.get("after_slippage_pnl_scored"), False)
     tail_summary = strategy_row.get("tail_fill_quality_summary") or {}
     max_tail_fraction = maybe_float(thresholds.get("max_tail_fill_fraction")) or 0.0
     tail_fraction = maybe_float(tail_summary.get("low_price_tail_fill_fraction")) or 0.0
@@ -440,6 +463,18 @@ def settlement_promotion_gate(strategy_row, thresholds):
             "threshold": compact_float(thresholds.get("min_settled_expected_pnl_usdc")),
         },
         {
+            "name": "after_fee_pnl_scored",
+            "ok": after_fee_scored,
+            "value": after_fee_scored,
+            "threshold": True,
+        },
+        {
+            "name": "after_slippage_pnl_scored",
+            "ok": after_slippage_scored,
+            "value": after_slippage_scored,
+            "threshold": True,
+        },
+        {
             "name": "no_unresolved_orders",
             "ok": unsettled_orders == 0 and unscored_orders == 0,
             "value": unsettled_orders + unscored_orders,
@@ -454,7 +489,7 @@ def settlement_promotion_gate(strategy_row, thresholds):
     ]
     failed = [row["name"] for row in gates if not row["ok"]]
     return {
-        "basis": "settlement_scored",
+        "basis": "settlement_scored_executable_after_fee",
         "status": "PASS" if not failed else "BLOCK",
         "failed_gates": failed,
         "gates": gates,
@@ -493,8 +528,14 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "filled_shares": 0.0,
         "spent_usdc": 0.0,
         "gross_cost_usdc": 0.0,
+        "frictionless_cost_usdc": 0.0,
         "fees_usdc": 0.0,
+        "slippage_usdc": 0.0,
         "settlement_payout_usdc": 0.0,
+        "gross_pnl_usdc": 0.0,
+        "fee_pnl_usdc": 0.0,
+        "slippage_pnl_usdc": 0.0,
+        "executable_net_pnl_usdc": 0.0,
         "settlement_pnl_usdc": 0.0,
         "mark_to_market_pnl_usdc": 0.0,
         "expected_pnl_usdc": 0.0,
@@ -521,6 +562,9 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "mark_sanity_outlier_count": 0,
         "stale_book_rows": 0,
         "source_stale_rows": 0,
+        "after_fee_pnl_scored_count": 0,
+        "after_slippage_pnl_scored_count": 0,
+        "paper_no_fee_count": 0,
         "reason_counts": Counter(),
         "filled_opinions": set(),
     })
@@ -563,23 +607,44 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         strat["filled_shares"] += maybe_float(row.get("fill_size")) or 0.0
         strat["spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
         strat["gross_cost_usdc"] += maybe_float(row.get("fill_notional_usdc")) or 0.0
+        strat["frictionless_cost_usdc"] += maybe_float(row.get("frictionless_notional_usdc")) or maybe_float(row.get("fill_notional_usdc")) or 0.0
         strat["fees_usdc"] += maybe_float(row.get("fee_usdc")) or 0.0
+        strat["slippage_usdc"] += maybe_float(row.get("slippage_usdc")) or 0.0
         strat["settlement_payout_usdc"] += maybe_float(row.get("settlement_payout_usdc")) or 0.0
+        strat["gross_pnl_usdc"] += maybe_float(row.get("gross_pnl_usdc")) or 0.0
+        strat["fee_pnl_usdc"] += maybe_float(row.get("fee_pnl_usdc")) or 0.0
+        strat["slippage_pnl_usdc"] += maybe_float(row.get("slippage_pnl_usdc")) or 0.0
+        strat["executable_net_pnl_usdc"] += maybe_float(row.get("executable_net_pnl_usdc")) or maybe_float(row.get("net_pnl_usdc")) or 0.0
         strat["settlement_pnl_usdc"] += maybe_float(row.get("settlement_pnl_usdc")) or 0.0
         strat["mark_to_market_pnl_usdc"] += maybe_float(row.get("mark_pnl_usdc")) or 0.0
-        edge = maybe_float(first_present(row, "expected_profit_per_share", "edge"))
+        if bool_value(row.get("after_fee_pnl_scored"), False) or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}:
+            strat["after_fee_pnl_scored_count"] += 1
+        if bool_value(row.get("after_slippage_pnl_scored"), False) or row.get("executable_depth_model_version"):
+            strat["after_slippage_pnl_scored_count"] += 1
+        if row.get("pnl_fee_basis") == "paper_no_fee":
+            strat["paper_no_fee_count"] += 1
+        edge = maybe_float(row.get("expected_profit_after_friction_per_share"))
+        edge_after_friction = edge is not None
+        if edge is None:
+            edge = maybe_float(first_present(row, "expected_profit_per_share", "edge"))
         expected_contribution = None
         if edge is not None:
-            expected_contribution = (edge * (maybe_float(row.get("fill_size")) or 0.0)) - (
-                maybe_float(row.get("fee_usdc")) or 0.0
-            )
+            expected_contribution = edge * (maybe_float(row.get("fill_size")) or 0.0)
+            if not edge_after_friction:
+                expected_contribution -= (
+                    (maybe_float(row.get("fee_usdc")) or 0.0)
+                    + (maybe_float(row.get("slippage_usdc")) or 0.0)
+                )
             strat["expected_pnl_usdc"] += expected_contribution
         risk_edge = maybe_float(first_present(row, "risk_adjusted_expected_profit_per_share", "risk_adjusted_edge"))
         risk_contribution = None
         if risk_edge is not None:
             risk_contribution = (
                 risk_edge * (maybe_float(row.get("fill_size")) or 0.0)
-            ) - (maybe_float(row.get("fee_usdc")) or 0.0)
+            ) - (
+                (maybe_float(row.get("fee_usdc")) or 0.0)
+                + (maybe_float(row.get("slippage_usdc")) or 0.0)
+            )
             strat["risk_adjusted_expected_pnl_usdc"] += risk_contribution
         if bool_value(row.get("low_price_tail"), False):
             strat["low_price_tail_fill_count"] += 1
@@ -641,7 +706,31 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "unsettled_order_count": len(marked) + len(unscored),
         "unscored_order_count": len(unscored),
         "gross_cost_usdc": sum_field(filled, "fill_notional_usdc"),
+        "frictionless_cost_usdc": sum_field(filled, "frictionless_notional_usdc"),
         "fees_usdc": sum_field(filled, "fee_usdc"),
+        "slippage_usdc": sum_field(filled, "slippage_usdc"),
+        "gross_pnl_usdc": sum_field([row for row in filled if row.get("gross_pnl_usdc") not in (None, "")], "gross_pnl_usdc"),
+        "fee_pnl_usdc": sum_field(filled, "fee_pnl_usdc"),
+        "slippage_pnl_usdc": sum_field(filled, "slippage_pnl_usdc"),
+        "executable_net_pnl_usdc": sum_field([row for row in filled if row.get("executable_net_pnl_usdc") not in (None, "")], "executable_net_pnl_usdc"),
+        "after_fee_pnl_scored": all(
+            row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+            or bool_value(row.get("after_fee_pnl_scored"), False)
+            for row in filled
+        ) if filled else False,
+        "after_slippage_pnl_scored": all(
+            bool_value(row.get("after_slippage_pnl_scored"), False)
+            or row.get("executable_depth_model_version") not in (None, "")
+            for row in filled
+        ) if filled else False,
+        "live_profitability_evidence_basis": (
+            "executable_after_fee_after_slippage"
+            if filled and all(
+                row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+                or bool_value(row.get("after_fee_pnl_scored"), False)
+                for row in filled
+            ) else "paper_no_fee"
+        ),
         "settlement_payout_usdc": sum_field(settled, "settlement_payout_usdc"),
         "settlement_pnl_usdc": sum_field(settled, "settlement_pnl_usdc"),
         "mark_to_market_pnl_usdc": sum_field(marked, "mark_pnl_usdc"),
@@ -674,7 +763,41 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
             "filled_shares": round(value["filled_shares"], 6),
             "spent_usdc": round(value["spent_usdc"], 6),
             "gross_cost_usdc": round(value["gross_cost_usdc"], 6),
+            "frictionless_cost_usdc": round(value["frictionless_cost_usdc"], 6),
             "fees_usdc": round(value["fees_usdc"], 6),
+            "slippage_usdc": round(value["slippage_usdc"], 6),
+            "gross_pnl_usdc": round(value["gross_pnl_usdc"], 6),
+            "fee_pnl_usdc": round(value["fee_pnl_usdc"], 6),
+            "slippage_pnl_usdc": round(value["slippage_pnl_usdc"], 6),
+            "executable_net_pnl_usdc": round(value["executable_net_pnl_usdc"], 6),
+            "after_fee_pnl_scored": (
+                value["filled_order_count"] > 0
+                and value["after_fee_pnl_scored_count"] == value["filled_order_count"]
+            ),
+            "after_slippage_pnl_scored": (
+                value["filled_order_count"] > 0
+                and value["after_slippage_pnl_scored_count"] == value["filled_order_count"]
+            ),
+            "paper_no_fee_count": value["paper_no_fee_count"],
+            "pnl_fee_basis": (
+                "after_fee"
+                if value["filled_order_count"] > 0
+                and value["after_fee_pnl_scored_count"] == value["filled_order_count"]
+                else "paper_no_fee"
+            ),
+            "after_fee_pnl_basis": (
+                "after_fee"
+                if value["filled_order_count"] > 0
+                and value["after_fee_pnl_scored_count"] == value["filled_order_count"]
+                else "paper_no_fee"
+            ),
+            "live_profitability_evidence_basis": (
+                "executable_after_fee_after_slippage"
+                if value["filled_order_count"] > 0
+                and value["after_fee_pnl_scored_count"] == value["filled_order_count"]
+                and value["after_slippage_pnl_scored_count"] == value["filled_order_count"]
+                else "paper_no_fee"
+            ),
             "settlement_payout_usdc": round(value["settlement_payout_usdc"], 6),
             "settlement_pnl_usdc": round(value["settlement_pnl_usdc"], 6),
             "mark_to_market_pnl_usdc": round(value["mark_to_market_pnl_usdc"], 6),
@@ -733,7 +856,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         row["settlement_promotion_gate_status"] = gate["status"]
         row["settlement_promotion_failed_gates"] = gate["failed_gates"]
         row["quality_candidate_countable"] = gate["status"] == "PASS"
-        row["quality_candidate_evidence_basis"] = "settlement_scored"
+        row["quality_candidate_evidence_basis"] = gate["basis"]
         strategy_rows.append(row)
     best_by_net = max(strategy_rows, key=lambda row: row["net_pnl_usdc"], default=None)
     countable_candidates = [row for row in strategy_rows if row["quality_candidate_countable"]]
@@ -750,7 +873,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
             "COUNTABLE_SETTLED" if best_countable else "MISSING_SETTLED_SAMPLE"
         ),
         "promotion_thresholds": thresholds,
-        "promotion_evidence_basis": "settlement_scored",
+        "promotion_evidence_basis": "settlement_scored_executable_after_fee",
         "mtm_promotion_allowed": False,
     }
     return {

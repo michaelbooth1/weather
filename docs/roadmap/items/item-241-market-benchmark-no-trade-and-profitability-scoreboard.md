@@ -1,0 +1,37 @@
+# 241. Market Benchmark No-Trade And Profitability Scoreboard [OPEN 2026-06-22 - MODEL TRADES WHERE MARKET IS SMARTER]
+
+Goal: compare taker model decisions to market-price baselines by slice and
+route to no-trade where the market is consistently smarter than the model.
+
+Source: `docs/roadmap/audits/taker-bot-performance-strategy-audit-2026-06-22.md`.
+June 20 evidence showed market top-winner hit rate beating model top-winner hit
+rate, while tail fills and untrusted-current-high fills continued to lose.
+
+Why this matters: the highest-EV action is often not a trade. If market prices
+outperform the model in a market/hour/tail/source slice, the taker bot should
+avoid donating spread and fees while collecting evidence for future repair.
+
+## Design
+
+1. Score model top-winner, market top-winner, traded band, and no-trade
+   baselines by market, local hour, current-high distance, tail flag, and
+   source state.
+2. Add a no-trade router for slices where market baselines beat model edge or
+   where settlement evidence is insufficient.
+3. Track avoided loss, missed gain, traded PnL, and opportunity count so the
+   router can be evaluated honestly.
+4. Use the scoreboard to scale only slices that win after fees, across markets,
+   and out of sample.
+
+- [ ] Add market-vs-model benchmark scoring to daily taker reports.
+- [ ] Add slice-level no-trade recommendations and blocks when market evidence
+  beats model evidence.
+- [ ] Track avoided-loss and missed-gain metrics for no-trade decisions.
+- [ ] Add promotion tests requiring model edge to beat market/no-trade
+  baselines after fees.
+
+Acceptance: taker strategy reports identify market-smarter slices, block or
+downsize those fills, and profitability claims show traded PnL alongside
+avoided-loss and missed-gain accounting.
+
+Related: items 202, 214, 235, 238, 240.

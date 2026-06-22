@@ -1,9 +1,17 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
+from datetime import datetime, timezone
+from pathlib import Path
+
 from weather.market.taker_bot_reporting import *  # noqa: F403
+from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION = "taker_champion_challenger_ledger_v0.1"
+DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS = 3
+DEFAULT_CHAMPION_MIN_SETTLED_ORDERS = 5
 
 def replay_input_key_payload(row):
     kind, value, value_hi = band_key(row)
@@ -190,6 +198,8 @@ def strategy_gate_for_bakeoff(
     spent = maybe_float(strategy_row.get("spent_usdc")) or 0.0
     net = maybe_float(strategy_row.get("net_pnl_usdc")) or 0.0
     roi = net / spent if spent > 0 else None
+    after_fee_scored = bool_value(strategy_row.get("after_fee_pnl_scored"), False)
+    after_slippage_scored = bool_value(strategy_row.get("after_slippage_pnl_scored"), False)
     drawdown = cumulative_drawdown_usdc(filled)
     sign_flips = source_mark_sign_flip_count(source_rows, scored_rows, strategy_id)
     concentration = strategy_concentration_summary(scored_rows, strategy_id)
@@ -215,6 +225,18 @@ def strategy_gate_for_bakeoff(
             "ok": settlement_expected >= float(min_settlement_expected_pnl_usdc),
             "value": compact_float(settlement_expected),
             "threshold": compact_float(min_settlement_expected_pnl_usdc),
+        },
+        {
+            "name": "after_fee_pnl_scored",
+            "ok": after_fee_scored,
+            "value": after_fee_scored,
+            "threshold": True,
+        },
+        {
+            "name": "after_slippage_pnl_scored",
+            "ok": after_slippage_scored,
+            "value": after_slippage_scored,
+            "threshold": True,
         },
         {
             "name": "non_negative_settled_roi",
@@ -282,6 +304,11 @@ def strategy_gate_for_bakeoff(
         "settled_market_count": settled_markets,
         "unsettled_order_count": unsettled,
         "unscored_order_count": unscored,
+        "after_fee_pnl_scored": after_fee_scored,
+        "after_slippage_pnl_scored": after_slippage_scored,
+        "pnl_fee_basis": strategy_row.get("pnl_fee_basis") or "",
+        "after_fee_pnl_basis": strategy_row.get("after_fee_pnl_basis") or strategy_row.get("pnl_fee_basis") or "",
+        "live_profitability_evidence_basis": strategy_row.get("live_profitability_evidence_basis") or "",
         "spent_usdc": compact_float(spent),
         "net_pnl_usdc": compact_float(net),
         "settlement_scored_expected_pnl_usdc": compact_float(settlement_expected),
@@ -479,6 +506,8 @@ def run_taker_strategy_bakeoff(
     config=None,
     min_settled_orders=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS,
     max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
 ):
     now = utc_now(now)
     run_folder = Path(run_folder)
@@ -610,6 +639,16 @@ def run_taker_strategy_bakeoff(
         })
     out_json = Path(out_json) if out_json else run_folder / "strategy_bakeoff.json"
     out_report = Path(out_report) if out_report else run_folder / "strategy_bakeoff.md"
+    disk_preflight = disk_capacity_preflight(
+        out_json.parent,
+        min_free_bytes=min_free_bytes,
+        usage_fn=disk_usage_fn,
+    )
+    if not disk_preflight.get("ok"):
+        raise RuntimeError(
+            "insufficient free disk for taker strategy bakeoff: "
+            f"free={disk_preflight.get('free_bytes')} required={disk_preflight.get('required_free_bytes')}"
+        )
     payload = {
         "schema_version": STRATEGY_BAKEOFF_SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -651,11 +690,362 @@ def run_taker_strategy_bakeoff(
         "promotion_gates": promotion_gates,
         "paired_comparisons": paired,
         "budget_ledger": budget_ledger,
+        "disk_capacity_preflight": disk_preflight,
         "blockers": blockers,
     }
     write_json(out_json, payload)
     out_report.parent.mkdir(parents=True, exist_ok=True)
     out_report.write_text(render_bakeoff_report(payload), encoding="utf-8")
+    return payload
+
+
+def _bakeoff_mtime_utc(path):
+    try:
+        return datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+
+
+def bakeoff_needs_refresh(run_folder, labels_csv=DEFAULT_LABELS_CSV, out_json=None):
+    run_folder = Path(run_folder)
+    out_json = Path(out_json) if out_json else run_folder / "strategy_bakeoff.json"
+    if not out_json.exists():
+        return True
+    bakeoff_mtime = _bakeoff_mtime_utc(out_json)
+    cutoff = max(
+        (
+            value for value in (
+                _bakeoff_mtime_utc(run_folder / "orders_long.csv"),
+                _bakeoff_mtime_utc(labels_csv),
+            )
+            if value is not None
+        ),
+        default=None,
+    )
+    return bool(bakeoff_mtime is None or (cutoff is not None and bakeoff_mtime < cutoff))
+
+
+def ensure_taker_strategy_bakeoff(
+    run_folder,
+    labels_csv=DEFAULT_LABELS_CSV,
+    *,
+    strategies=DEFAULT_BAKEOFF_STRATEGIES,
+    now=None,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+):
+    run_folder = Path(run_folder)
+    out_json = run_folder / "strategy_bakeoff.json"
+    if not bakeoff_needs_refresh(run_folder, labels_csv=labels_csv, out_json=out_json):
+        return {
+            "action": "fresh",
+            "strategy_bakeoff_path": str(out_json),
+            "strategy_bakeoff_report_path": str(run_folder / "strategy_bakeoff.md"),
+            "payload": read_json(out_json, {}) or {},
+        }
+    payload = run_taker_strategy_bakeoff(
+        run_folder,
+        labels_csv=labels_csv,
+        strategies=strategies,
+        out_json=out_json,
+        out_report=run_folder / "strategy_bakeoff.md",
+        now=now,
+        min_free_bytes=min_free_bytes,
+        disk_usage_fn=disk_usage_fn,
+    )
+    return {
+        "action": "created",
+        "strategy_bakeoff_path": str(out_json),
+        "strategy_bakeoff_report_path": str(run_folder / "strategy_bakeoff.md"),
+        "payload": payload,
+    }
+
+
+def taker_bakeoff_artifact_paths(runs_root=DEFAULT_RUNS_ROOT, target_date=None):
+    root = Path(runs_root)
+    if target_date:
+        candidates = sorted((root / ensure_date(target_date).isoformat()).glob("*/strategy_bakeoff.json"))
+    else:
+        candidates = sorted(root.glob("*/*/strategy_bakeoff.json"))
+    return [path for path in candidates if path.exists()]
+
+
+def _bakeoff_complete_label_day(payload):
+    label_summary = payload.get("label_summary") or {}
+    blocker_codes = {row.get("code") for row in payload.get("blockers") or []}
+    return bool(
+        int(label_summary.get("label_rows") or 0) > 0
+        and int(label_summary.get("complete_rows") or 0) >= int(label_summary.get("label_rows") or 0)
+        and not (blocker_codes & {
+            "missing_target_date_labels",
+            "partial_target_date_labels",
+            "unmatched_filled_orders",
+        })
+    )
+
+
+def _strategy_gate_map(payload):
+    return {
+        row.get("strategy_id"): row
+        for row in payload.get("promotion_gates") or []
+        if row.get("strategy_id")
+    }
+
+
+def build_champion_challenger_ledger(
+    *,
+    runs_root=DEFAULT_RUNS_ROOT,
+    target_date=None,
+    bakeoff_paths=None,
+    champion_strategy_id=ACTIVE_DEFAULT_STRATEGY_ID,
+    now=None,
+    min_complete_label_days=DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS,
+    min_settled_orders=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
+):
+    now = utc_now(now)
+    paths = [Path(path) for path in (bakeoff_paths or taker_bakeoff_artifact_paths(runs_root, target_date=target_date))]
+    rows_by_strategy = {}
+    runs = []
+    for path in paths:
+        payload = read_json(path, {}) or {}
+        if not payload:
+            continue
+        complete_day = _bakeoff_complete_label_day(payload)
+        blocker_codes = [row.get("code") for row in payload.get("blockers") or [] if row.get("code")]
+        gates = _strategy_gate_map(payload)
+        runs.append({
+            "path": str(path),
+            "run_id": payload.get("run_id"),
+            "source_run_id": payload.get("source_run_id"),
+            "target_date": payload.get("target_date"),
+            "complete_label_day": complete_day,
+            "blocker_codes": blocker_codes,
+        })
+        for strategy in (payload.get("pnl") or {}).get("by_strategy") or []:
+            strategy_id = strategy.get("strategy_id")
+            if not strategy_id:
+                continue
+            gate = gates.get(strategy_id) or {}
+            entry = rows_by_strategy.setdefault(strategy_id, {
+                "strategy_id": strategy_id,
+                "strategy_family": strategy.get("strategy_family") or "unknown",
+                "role": "champion" if strategy_id == champion_strategy_id else "challenger",
+                "bakeoff_day_count": 0,
+                "complete_label_day_count": 0,
+                "partial_quality_day_count": 0,
+                "gate_pass_day_count": 0,
+                "settled_order_count": 0,
+                "settled_market_count": 0,
+                "unresolved_order_count": 0,
+                "filled_order_count": 0,
+                "spent_usdc": 0.0,
+                "settlement_pnl_usdc": 0.0,
+                "after_fee_pnl_usdc": 0.0,
+                "net_pnl_usdc": 0.0,
+                "max_drawdown_usdc": 0.0,
+                "low_price_tail_fill_count": 0,
+                "stale_mark_sign_flip_count": 0,
+                "blocker_codes": set(),
+                "target_dates": set(),
+            })
+            entry["bakeoff_day_count"] += 1
+            if complete_day:
+                entry["complete_label_day_count"] += 1
+            else:
+                entry["partial_quality_day_count"] += 1
+            if gate.get("status") == "PASS":
+                entry["gate_pass_day_count"] += 1
+            entry["settled_order_count"] += int(strategy.get("settled_order_count") or gate.get("settled_order_count") or 0)
+            entry["settled_market_count"] += int(gate.get("settled_market_count") or 0)
+            unresolved = int(strategy.get("unsettled_order_count") or 0) + int(strategy.get("unscored_order_count") or 0)
+            entry["unresolved_order_count"] += unresolved
+            entry["filled_order_count"] += int(strategy.get("filled_order_count") or 0)
+            entry["spent_usdc"] += maybe_float(strategy.get("spent_usdc")) or 0.0
+            entry["settlement_pnl_usdc"] += maybe_float(strategy.get("settlement_pnl_usdc")) or 0.0
+            entry["after_fee_pnl_usdc"] += maybe_float(strategy.get("net_pnl_usdc")) or 0.0
+            entry["net_pnl_usdc"] += maybe_float(strategy.get("net_pnl_usdc")) or 0.0
+            entry["max_drawdown_usdc"] = max(
+                entry["max_drawdown_usdc"],
+                maybe_float(gate.get("max_drawdown_usdc")) or 0.0,
+            )
+            entry["low_price_tail_fill_count"] += int(strategy.get("low_price_tail_fill_count") or 0)
+            entry["stale_mark_sign_flip_count"] += int(gate.get("stale_mark_sign_flip_count") or 0)
+            entry["blocker_codes"].update(blocker_codes)
+            if payload.get("target_date"):
+                entry["target_dates"].add(payload.get("target_date"))
+    champion = rows_by_strategy.get(champion_strategy_id) or {
+        "strategy_id": champion_strategy_id,
+        "net_pnl_usdc": 0.0,
+        "after_fee_pnl_usdc": 0.0,
+    }
+    champion_net = maybe_float(champion.get("net_pnl_usdc")) or 0.0
+    strategy_rows = []
+    for entry in rows_by_strategy.values():
+        failed_gates = []
+        if entry["complete_label_day_count"] < int(min_complete_label_days):
+            failed_gates.append("min_complete_label_days")
+        if entry["partial_quality_day_count"] > 0:
+            failed_gates.append("no_partial_quality_days")
+        if entry["settled_order_count"] < int(min_settled_orders):
+            failed_gates.append("min_settled_orders")
+        if entry["unresolved_order_count"] > 0:
+            failed_gates.append("no_unresolved_orders")
+        if entry["gate_pass_day_count"] < entry["complete_label_day_count"]:
+            failed_gates.append("all_complete_days_pass_strategy_gate")
+        if entry["strategy_id"] != champion_strategy_id and entry["net_pnl_usdc"] <= champion_net:
+            failed_gates.append("beats_current_champion_after_fee_pnl")
+        promotion_status = (
+            "PASS"
+            if entry["strategy_id"] != champion_strategy_id and not failed_gates
+            else ("CHAMPION" if entry["strategy_id"] == champion_strategy_id else "BLOCK")
+        )
+        row = {
+            "strategy_id": entry["strategy_id"],
+            "strategy_family": entry["strategy_family"],
+            "role": entry["role"],
+            "promotion_status": promotion_status,
+            "failed_gates": failed_gates,
+            "bakeoff_day_count": entry["bakeoff_day_count"],
+            "complete_label_day_count": entry["complete_label_day_count"],
+            "partial_quality_day_count": entry["partial_quality_day_count"],
+            "gate_pass_day_count": entry["gate_pass_day_count"],
+            "settled_order_count": entry["settled_order_count"],
+            "settled_market_count": entry["settled_market_count"],
+            "unresolved_order_count": entry["unresolved_order_count"],
+            "filled_order_count": entry["filled_order_count"],
+            "spent_usdc": compact_float(entry["spent_usdc"]),
+            "settlement_pnl_usdc": compact_float(entry["settlement_pnl_usdc"]),
+            "after_fee_pnl_usdc": compact_float(entry["after_fee_pnl_usdc"]),
+            "net_pnl_usdc": compact_float(entry["net_pnl_usdc"]),
+            "max_drawdown_usdc": compact_float(entry["max_drawdown_usdc"]),
+            "low_price_tail_fill_count": entry["low_price_tail_fill_count"],
+            "stale_mark_sign_flip_count": entry["stale_mark_sign_flip_count"],
+            "blocker_codes": sorted(entry["blocker_codes"]),
+            "target_dates": sorted(entry["target_dates"]),
+        }
+        strategy_rows.append(row)
+    challengers = [row for row in strategy_rows if row.get("promotion_status") == "PASS"]
+    recommended = max(
+        challengers,
+        key=lambda row: maybe_float(row.get("after_fee_pnl_usdc")) or 0.0,
+        default=None,
+    )
+    strategy_rows = sorted(
+        strategy_rows,
+        key=lambda row: (row.get("role") != "champion", -(maybe_float(row.get("after_fee_pnl_usdc")) or 0.0)),
+    )
+    return {
+        "schema_version": CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "runs_root": str(runs_root),
+        "target_date": ensure_date(target_date).isoformat() if target_date else None,
+        "champion_strategy_id": champion_strategy_id,
+        "recommended_strategy_id": (recommended or {}).get("strategy_id") or champion_strategy_id,
+        "promotion_decision": "PROMOTE_CHALLENGER" if recommended else "KEEP_CHAMPION",
+        "min_complete_label_days": int(min_complete_label_days),
+        "min_settled_orders": int(min_settled_orders),
+        "summary": {
+            "bakeoff_artifact_count": len(paths),
+            "loaded_bakeoff_count": len(runs),
+            "strategy_count": len(strategy_rows),
+            "complete_label_day_count": sum(1 for row in runs if row.get("complete_label_day")),
+            "promotion_pass_count": len(challengers),
+            "blocked_challenger_count": sum(
+                1 for row in strategy_rows
+                if row.get("role") == "challenger" and row.get("promotion_status") == "BLOCK"
+            ),
+        },
+        "runs": runs,
+        "strategies": strategy_rows,
+    }
+
+
+def render_champion_challenger_ledger(payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Taker Champion/Challenger Ledger",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Champion: `{payload.get('champion_strategy_id')}`",
+        f"Decision: `{payload.get('promotion_decision')}`",
+        f"Recommended: `{payload.get('recommended_strategy_id')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Bakeoff artifacts", summary.get("bakeoff_artifact_count")],
+            ["Loaded bakeoffs", summary.get("loaded_bakeoff_count")],
+            ["Strategies", summary.get("strategy_count")],
+            ["Complete-label days", summary.get("complete_label_day_count")],
+            ["Promotion pass", summary.get("promotion_pass_count")],
+            ["Blocked challengers", summary.get("blocked_challenger_count")],
+            ["Min complete-label days", payload.get("min_complete_label_days")],
+            ["Min settled orders", payload.get("min_settled_orders")],
+        ],
+    ))
+    lines.extend(["", "## Strategies", ""])
+    lines.extend(markdown_table(
+        [
+            "Strategy",
+            "Role",
+            "Status",
+            "Failed Gates",
+            "Complete Days",
+            "Settled",
+            "Unresolved",
+            "After-Fee P&L",
+            "Drawdown",
+        ],
+        [
+            [
+                row.get("strategy_id"),
+                row.get("role"),
+                row.get("promotion_status"),
+                ", ".join(row.get("failed_gates") or []) or "-",
+                row.get("complete_label_day_count"),
+                row.get("settled_order_count"),
+                row.get("unresolved_order_count"),
+                fmt_num(row.get("after_fee_pnl_usdc"), 4),
+                fmt_num(row.get("max_drawdown_usdc"), 4),
+            ]
+            for row in payload.get("strategies") or []
+        ],
+    ))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_champion_challenger_ledger(
+    *,
+    out_json,
+    out_report=None,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+    **kwargs,
+):
+    out_json = Path(out_json)
+    disk_preflight = disk_capacity_preflight(
+        out_json.parent,
+        min_free_bytes=min_free_bytes,
+        usage_fn=disk_usage_fn,
+    )
+    if not disk_preflight.get("ok"):
+        raise RuntimeError(
+            "insufficient free disk for taker champion/challenger ledger: "
+            f"free={disk_preflight.get('free_bytes')} required={disk_preflight.get('required_free_bytes')}"
+        )
+    payload = build_champion_challenger_ledger(**kwargs)
+    payload["disk_capacity_preflight"] = disk_preflight
+    write_json(out_json, payload)
+    if out_report:
+        out_report = Path(out_report)
+        out_report.parent.mkdir(parents=True, exist_ok=True)
+        out_report.write_text(render_champion_challenger_ledger(payload), encoding="utf-8")
+        payload["output_report_path"] = str(out_report)
+    payload["output_json_path"] = str(out_json)
     return payload
 
 # Re-export imported dependency names as well because later slices intentionally

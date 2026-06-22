@@ -1,18 +1,23 @@
 import csv
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from weather.market.taker_bot import (
     DEFAULT_CONFIG,
     FINALIZATION_SCHEMA_VERSION,
     ORDER_COLUMNS,
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
+    CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION,
+    build_champion_challenger_ledger,
     build_pnl_payload,
     build_run_once,
     candidate_skip_reason,
     enrich_taker_risk_fields,
+    finalization_watchdog,
     finalize_taker_run,
     next_run_policy_gate,
     run_taker_strategy_bakeoff,
@@ -73,6 +78,8 @@ def write_market_fixture(
             "model_probability": fair,
             "market_yes": "0.50",
             "market_status": "active",
+            "snapshot_cadence": "scheduled",
+            "current_high_trusted": "True",
         }
         snapshot.update(cadence_fields or {})
         snapshot_rows.append(snapshot)
@@ -217,6 +224,9 @@ def order_row(
         "model_age_seconds": "10",
         "source_fresh": "True",
         "source_freshness_state": "all_fresh",
+        "snapshot_cadence": "scheduled",
+        "current_high_trust_state_present": "True",
+        "current_high_trusted": "True",
         "fill_size": str(fill_size),
         "fill_price": str(fill_price),
         "fill_notional_usdc": str(fill_notional),
@@ -377,7 +387,11 @@ class TestTakerBot(unittest.TestCase):
                 run_id="daily",
                 now=NOW,
                 observation_status_path=status_path,
-                config={"max_order_usdc": 10, "max_position_per_token_usdc": 10},
+                config={
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "current_high_trust_gate_enabled": False,
+                },
                 strategies="calibrated_edge",
                 experiment_id="calibrated-sizing-fixture",
             )
@@ -429,6 +443,40 @@ class TestTakerBot(unittest.TestCase):
         self.assertLess(float(row["reliability_confidence"]), 1.0)
         self.assertLess(float(row["reliability_adjusted_fair_probability"]), float(row["fair_probability"]))
 
+    def test_missing_snapshot_cadence_state_blocks_taker_buy_by_default(self):
+        row = {
+            "market_id": "atlanta",
+            "event_slug": EVENT,
+            "snapshot_id": "s1",
+            "captured_at_utc": "2026-06-14T14:00:00+00:00",
+            "capture_hour_local": "10",
+            "range_label": "84-85 F",
+            "bin_kind": "eq",
+            "bin_value": "84",
+            "bin_value_hi": "85",
+            "clob_token_id": "token-84",
+            "fair_probability": "0.30",
+            "best_ask": "0.10",
+            "best_bid": "0.09",
+            "edge": "0.20",
+            "ask_size_at_best": "50",
+            "book_age_seconds": "10",
+            "model_age_seconds": "10",
+            "source_fresh": "True",
+            "source_freshness_state": "all_fresh",
+            "current_high_trust_state_present": "True",
+            "current_high_trusted": "True",
+        }
+
+        enriched = enrich_taker_risk_fields(row, {**DEFAULT_CONFIG, "min_edge": 0.03})
+        reason, detail = candidate_skip_reason(enriched, {**DEFAULT_CONFIG, "min_edge": 0.03})
+
+        self.assertEqual(reason, "NO_TRADE_SNAPSHOT_CADENCE_DEGRADED")
+        self.assertEqual(enriched["snapshot_cadence_quality_state"], "missing")
+        self.assertEqual(enriched["snapshot_cadence_permission"], "deny")
+        self.assertFalse(enriched["snapshot_cadence_state_present"])
+        self.assertIn("missing snapshot cadence quality state", detail)
+
     def test_late_untrusted_current_high_blocks_aggressive_taker_for_june_21_markets(self):
         cases = {
             "toronto": (84.0, 86.0),
@@ -461,6 +509,7 @@ class TestTakerBot(unittest.TestCase):
                     "model_age_seconds": "10",
                     "source_fresh": "True",
                     "source_freshness_state": "all_fresh",
+                    "snapshot_cadence": "scheduled",
                     "raw_current_high": str(raw_high),
                     "raw_current_high_bucket": str(round(raw_high)),
                     "settlement_current_high": str(settlement_high),
@@ -477,6 +526,38 @@ class TestTakerBot(unittest.TestCase):
                 self.assertTrue(enriched["current_high_trust_gate_aggressive"])
                 self.assertIn("untrusted_current_high", detail)
 
+    def test_missing_current_high_trust_state_blocks_aggressive_taker(self):
+        row = {
+            "market_id": "atlanta",
+            "event_slug": EVENT,
+            "snapshot_id": "s1",
+            "captured_at_utc": "2026-06-14T14:00:00+00:00",
+            "capture_hour_local": "10",
+            "range_label": "84-85 F",
+            "bin_kind": "eq",
+            "bin_value": "84",
+            "bin_value_hi": "85",
+            "clob_token_id": "token-84",
+            "fair_probability": "0.30",
+            "best_ask": "0.10",
+            "best_bid": "0.09",
+            "edge": "0.20",
+            "ask_size_at_best": "50",
+            "book_age_seconds": "10",
+            "model_age_seconds": "10",
+            "source_fresh": "True",
+            "source_freshness_state": "all_fresh",
+            "snapshot_cadence": "scheduled",
+        }
+
+        enriched = enrich_taker_risk_fields(row, {**DEFAULT_CONFIG, "min_edge": 0.03})
+        reason, detail = candidate_skip_reason(enriched, {**DEFAULT_CONFIG, "min_edge": 0.03})
+
+        self.assertEqual(reason, "NO_TRADE_CURRENT_HIGH_TRUST_GATE")
+        self.assertEqual(enriched["current_high_trust_gate_status"], "blocked")
+        self.assertEqual(enriched["current_high_trust_gate_action"], "deny_missing_trust_state")
+        self.assertIn("missing_current_high_trust_state", detail)
+
     def test_low_price_tail_strategy_caps_tail_lottery_size(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -490,7 +571,11 @@ class TestTakerBot(unittest.TestCase):
                 snapshots_root=snapshots_root,
                 run_id="daily",
                 now=NOW,
-                config={"max_order_usdc": 10, "max_position_per_token_usdc": 10},
+                config={
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "bad_tail_no_go_enabled": False,
+                },
                 strategies="low_price_tail_capped",
                 experiment_id="tail-sizing-fixture",
             )
@@ -509,6 +594,34 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["active_strategy_id"], "low_price_tail_capped")
         self.assertEqual(payload["summary"]["active_strategy_lifecycle"], "candidate_canary")
         self.assertEqual(payload["summary"]["active_strategy_canary"]["strategy_id"], "low_price_tail_capped")
+
+    def test_bad_tail_no_go_blocks_low_price_tail_candidate_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True, bands=[(80, "0.40", "0.01")])
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=100,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"max_order_usdc": 10, "max_position_per_token_usdc": 10},
+                strategies="low_price_tail_capped",
+                experiment_id="tail-no-go-fixture",
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertTrue(any(row["strategy_id"] == "low_price_tail_capped" for row in orders))
+        row = orders[0]
+        self.assertEqual(row["low_price_tail"], "True")
+        self.assertEqual(row["reason_code"], "NO_TRADE_BAD_TAIL_NO_GO")
+        self.assertEqual(row["bad_tail_no_go_status"], "blocked")
+        self.assertEqual(row["bad_tail_no_go_action"], "no_trade")
+        self.assertEqual(row["bad_tail_no_go_slice_id"], "low_price_tail_price_le_0.05")
 
     def test_positive_mtm_zero_settled_tail_heavy_run_is_not_countable(self):
         rows = []
@@ -669,6 +782,78 @@ class TestTakerBot(unittest.TestCase):
         )
         self.assertEqual(bakeoff["promotion_gates"][0]["status"], "PASS")
 
+    def test_champion_ledger_blocks_partial_quality_winner_from_dethroning_champion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bakeoff_path = root / "strategy_bakeoff.json"
+            bakeoff_path.write_text(json.dumps({
+                "schema_version": STRATEGY_BAKEOFF_SCHEMA_VERSION,
+                "generated_at_utc": "2026-06-20T12:00:00+00:00",
+                "run_id": "daily-bakeoff",
+                "source_run_id": "daily",
+                "target_date": "2026-06-19",
+                "label_summary": {"label_rows": 1, "complete_rows": 0, "partial_rows": 1},
+                "blockers": [{"code": "partial_target_date_labels"}],
+                "pnl": {
+                    "by_strategy": [
+                        {
+                            "strategy_id": "champion",
+                            "strategy_family": "control",
+                            "filled_order_count": 1,
+                            "settled_order_count": 1,
+                            "unsettled_order_count": 0,
+                            "unscored_order_count": 0,
+                            "spent_usdc": 1,
+                            "settlement_pnl_usdc": 1,
+                            "net_pnl_usdc": 1,
+                        },
+                        {
+                            "strategy_id": "challenger",
+                            "strategy_family": "candidate",
+                            "filled_order_count": 1,
+                            "settled_order_count": 1,
+                            "unsettled_order_count": 0,
+                            "unscored_order_count": 0,
+                            "spent_usdc": 1,
+                            "settlement_pnl_usdc": 10,
+                            "net_pnl_usdc": 10,
+                        },
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "champion",
+                        "status": "PASS",
+                        "settled_order_count": 1,
+                        "settled_market_count": 1,
+                        "failed_gates": [],
+                    },
+                    {
+                        "strategy_id": "challenger",
+                        "status": "PASS",
+                        "settled_order_count": 1,
+                        "settled_market_count": 1,
+                        "failed_gates": [],
+                    },
+                ],
+            }), encoding="utf-8")
+
+            ledger = build_champion_challenger_ledger(
+                bakeoff_paths=[bakeoff_path],
+                champion_strategy_id="champion",
+                now="2026-06-20T12:00:00+00:00",
+                min_complete_label_days=1,
+                min_settled_orders=1,
+            )
+            by_strategy = {row["strategy_id"]: row for row in ledger["strategies"]}
+
+        self.assertEqual(ledger["schema_version"], CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION)
+        self.assertEqual(ledger["promotion_decision"], "KEEP_CHAMPION")
+        self.assertEqual(ledger["recommended_strategy_id"], "champion")
+        self.assertEqual(by_strategy["challenger"]["promotion_status"], "BLOCK")
+        self.assertIn("no_partial_quality_days", by_strategy["challenger"]["failed_gates"])
+        self.assertIn("min_complete_label_days", by_strategy["challenger"]["failed_gates"])
+
     def test_low_price_tail_partial_label_stays_candidate_canary(self):
         gate = next_run_policy_gate(
             {
@@ -707,9 +892,59 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(gate["active_strategy_lifecycle"], "candidate_canary")
         self.assertEqual(gate["active_strategy_lifecycle_status"], "candidate_canary")
         self.assertFalse(gate["promotion_eligible"])
+        self.assertTrue(gate["paper_only"])
+        self.assertTrue(gate["requalification_required"])
         self.assertEqual(gate["next_action"], "continue_canary_until_complete_labels")
         self.assertEqual(gate["complete_label_sample_count"], 0)
         self.assertEqual(gate["canary_settled_order_count"], 1)
+
+    def test_low_price_tail_no_settlement_high_tail_demotes_after_cutover(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 0.0}],
+                "comparison": {},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 5, "age_days": 1},
+                "policy_config": {
+                    "canary_min_settled_orders": 5,
+                    "canary_min_complete_label_days": 3,
+                    "promotion_max_tail_fill_fraction": 0.5,
+                    "canary_missing_settlement_blocks_after_age_days": 1,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 0, "partial_rows": 1},
+                "blockers": [{"code": "partial_target_date_labels"}],
+                "pnl": {"by_strategy": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 0.0}]},
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "BLOCK",
+                        "settled_order_count": 0,
+                        "unsettled_order_count": 50,
+                        "unscored_order_count": 0,
+                        "low_price_tail_fill_fraction": 0.62,
+                        "failed_gates": [
+                            "min_settled_sample",
+                            "no_unresolved_orders",
+                            "max_tail_fill_fraction",
+                        ],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "blocked")
+        self.assertFalse(gate["promotion_eligible"])
+        self.assertTrue(gate["paper_only"])
+        self.assertTrue(gate["requalification_required"])
+        self.assertEqual(gate["next_action"], "rollback_or_block_canary")
+        self.assertIn("unresolved_or_unscored_orders", gate["reason"])
+        self.assertIn("excessive_low_tail_fraction", gate["reason"])
 
     def test_finalize_low_price_tail_partial_label_report_stays_candidate_canary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -727,6 +962,7 @@ class TestTakerBot(unittest.TestCase):
                     "canary_min_settled_orders": 1,
                     "max_order_usdc": 10,
                     "max_position_per_token_usdc": 10,
+                    "bad_tail_no_go_enabled": False,
                 },
                 strategies="low_price_tail_capped",
                 experiment_id="tail-canary-fixture",
@@ -760,6 +996,8 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(finalized["summary"]["active_strategy_lifecycle"], "candidate_canary")
         self.assertEqual(finalized["summary"]["active_strategy_lifecycle_status"], "candidate_canary")
         self.assertFalse(finalized["summary"]["active_strategy_promotion_eligible"])
+        self.assertTrue(finalized["summary"]["active_strategy_paper_only"])
+        self.assertTrue(finalized["summary"]["active_strategy_requalification_required"])
         self.assertEqual(
             finalized["summary"]["active_strategy_next_action"],
             "continue_canary_until_complete_labels",
@@ -795,6 +1033,7 @@ class TestTakerBot(unittest.TestCase):
                         "strategy_id": "low_price_tail_capped",
                         "status": "PASS",
                         "settled_order_count": 2,
+                        "pnl_fee_basis": "after_fee",
                         "failed_gates": [],
                     }
                 ],
@@ -807,6 +1046,51 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(gate["next_action"], "promote_default")
         self.assertEqual(gate["complete_label_sample_count"], 1)
         self.assertEqual(gate["canary_settled_order_count"], 2)
+        self.assertFalse(gate["paper_only"])
+        self.assertTrue(gate["canary_after_fee_evidence"])
+
+    def test_low_price_tail_complete_label_without_after_fee_stays_paper_only(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}],
+                "comparison": {"best_settlement_scored_strategy_id": "low_price_tail_capped"},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 2, "age_days": 2},
+                "policy_config": {
+                    "canary_min_settled_orders": 2,
+                    "canary_min_complete_label_days": 1,
+                    "canary_require_after_fee_pnl": True,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 1, "partial_rows": 0},
+                "blockers": [],
+                "pnl": {
+                    "by_strategy": [
+                        {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "PASS",
+                        "settled_order_count": 2,
+                        "failed_gates": [],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "candidate_canary")
+        self.assertFalse(gate["promotion_eligible"])
+        self.assertTrue(gate["paper_only"])
+        self.assertTrue(gate["requalification_required"])
+        self.assertEqual(gate["next_action"], "continue_canary_until_after_fee_scoring")
+        self.assertFalse(gate["canary_after_fee_evidence"])
 
     def test_low_price_tail_complete_label_blocks_failed_canary(self):
         gate = next_run_policy_gate(
@@ -1009,6 +1293,113 @@ class TestTakerBot(unittest.TestCase):
             self.assertIn("reported_unsettled_after_labels_available", warning_codes)
             self.assertIn("reported_mark_to_market_diverges_from_settlement", warning_codes)
 
+    def test_finalization_watchdog_finalizes_labelable_run_with_missing_settled_pnl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "taker-20260619-watchdog",
+                [
+                    order_row(
+                        "atlanta",
+                        "highest-temperature-in-atlanta-on-june-19-2026",
+                        "88-89 F",
+                        88,
+                        89,
+                        54.76,
+                        11.73047,
+                    )
+                ],
+                reported_net=0,
+                reported_mtm=0,
+                reported_unsettled=1,
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 88,
+                    "winning_band": "88-89 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            os.utime(labels, (1, 1))
+
+            payload = finalization_watchdog(
+                target_date="2026-06-19",
+                runs_root=root / "taker_runs",
+                labels_csv=labels,
+                now="2026-06-20T12:00:00+00:00",
+                sla_hours=1,
+                min_free_bytes=0,
+            )
+
+            self.assertEqual(payload["summary"]["finalized_run_count"], 1)
+            self.assertEqual(payload["summary"]["sla_breach_count"], 0)
+            self.assertEqual(payload["summary"]["bakeoff_created_count"], 1)
+            self.assertTrue((run / "settled_pnl.json").exists())
+            self.assertTrue((run / "strategy_bakeoff.json").exists())
+            settled = json.loads((run / "settled_pnl.json").read_text(encoding="utf-8"))
+            self.assertTrue(settled["next_run_policy_gate"]["bakeoff_available"])
+            self.assertEqual(payload["runs"][0]["status"], "FINALIZED")
+            self.assertEqual(payload["runs"][0]["sla_status"], "PASS")
+            self.assertEqual(payload["runs"][0]["bakeoff_action"], "created")
+            self.assertEqual(payload["runs"][0]["action"], "finalized")
+
+    def test_finalization_watchdog_blocks_labelable_run_when_disk_preflight_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "taker-20260619-disk-blocked",
+                [
+                    order_row(
+                        "atlanta",
+                        "highest-temperature-in-atlanta-on-june-19-2026",
+                        "88-89 F",
+                        88,
+                        89,
+                        54.76,
+                        11.73047,
+                    )
+                ],
+                reported_net=0,
+                reported_mtm=0,
+                reported_unsettled=1,
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 88,
+                    "winning_band": "88-89 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            os.utime(labels, (1, 1))
+
+            payload = finalization_watchdog(
+                target_date="2026-06-19",
+                runs_root=root / "taker_runs",
+                labels_csv=labels,
+                now="2026-06-20T12:00:00+00:00",
+                sla_hours=1,
+                min_free_bytes=100,
+                disk_usage_fn=lambda _path: SimpleNamespace(total=1000, used=950, free=50),
+            )
+
+            self.assertEqual(payload["summary"]["finalized_run_count"], 0)
+            self.assertEqual(payload["summary"]["sla_breach_count"], 1)
+            self.assertFalse((run / "settled_pnl.json").exists())
+            self.assertEqual(payload["runs"][0]["status"], "DISK_BLOCKED_FINALIZATION")
+            self.assertEqual(payload["runs"][0]["bakeoff_action"], "blocked_disk_capacity")
+            self.assertEqual(payload["runs"][0]["action"], "blocked_disk_capacity")
+            self.assertEqual(payload["disk_capacity_preflight"]["status"], "LOW_SPACE")
+
     def test_finalize_taker_run_flags_seattle_resolved_mark_outlier(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1094,6 +1485,7 @@ class TestTakerBot(unittest.TestCase):
                 out_json=root / "seattle-bakeoff.json",
                 out_report=root / "seattle-bakeoff.md",
                 now="2026-06-20T12:00:00+00:00",
+                config={"bad_tail_no_go_enabled": False},
             )
             gate = bakeoff["promotion_gates"][0]
 
@@ -1218,8 +1610,50 @@ class TestTakerBot(unittest.TestCase):
             orders = read_csv(Path(payload["orders_path"]))
 
         self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
-        self.assertTrue(any(row["reason_code"] == "NO_TRADE_EARLY_HOUR_CURRENT_HIGH_GUARDED" for row in orders))
+        self.assertTrue(any(row["reason_code"] == "NO_TRADE_CURRENT_HIGH_TRUST_GATE" for row in orders))
         self.assertTrue(all(row["order_status"] != "FILLED" for row in orders))
+
+    def test_current_high_trust_gate_blocks_pre_late_aggressive_taker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                captured_at="2026-06-14T09:30:00+00:00",
+                book_captured_at="2026-06-14T09:30:10+00:00",
+            )
+            status_path = root / "observation_status.json"
+            write_observation_status(status_path, {
+                "market_id": "atlanta",
+                "raw_current_high": 68.0,
+                "raw_current_high_bucket": 68,
+                "settlement_current_high": 70,
+                "current_high_trusted": False,
+                "current_high_guard_reason": "pre_reset_current_max_not_validated_by_wu_history",
+            })
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now="2026-06-14T09:31:00+00:00",
+                observation_status_path=status_path,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "early_hour_block_guarded_current_high": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertTrue(any(row["reason_code"] == "NO_TRADE_CURRENT_HIGH_TRUST_GATE" for row in orders))
+        blocked = [row for row in orders if row["reason_code"] == "NO_TRADE_CURRENT_HIGH_TRUST_GATE"]
+        self.assertTrue(all(row["current_high_trust_gate_action"] == "deny_aggressive" for row in blocked))
 
     def test_weak_slot_gate_blocks_raw_edge_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1229,7 +1663,7 @@ class TestTakerBot(unittest.TestCase):
                 settled=True,
                 captured_at="2026-06-14T13:30:00+00:00",
                 book_captured_at="2026-06-14T13:30:10+00:00",
-                bands=[(80, "0.70", "0.60")],
+                bands=[(80, "0.70", "0.10")],
             )
             gate_path = root / "ten_minute_gate.json"
             gate_path.write_text(json.dumps({
@@ -1262,6 +1696,48 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["weak_slot_blocked_rows"], 1)
         self.assertTrue(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
 
+    def test_weak_slot_gate_blocks_candidate_family_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                captured_at="2026-06-14T13:30:00+00:00",
+                book_captured_at="2026-06-14T13:30:10+00:00",
+                bands=[(80, "0.70", "0.10")],
+            )
+            gate_path = root / "ten_minute_gate.json"
+            gate_path.write_text(json.dumps({
+                "ten_minute_performance_gate": {
+                    "status": "BLOCK",
+                    "first_blocker": {"gate": "weak_slot_brier_regression"},
+                    "weak_slots": {"slot_minutes": [570], "slot_labels": ["09:30"]},
+                }
+            }), encoding="utf-8")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now="2026-06-14T13:31:00+00:00",
+                strategies="low_price_tail_capped",
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "weak_slot_guard_report_path": str(gate_path),
+                    "early_hour_block_guarded_current_high": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertTrue(any(row["strategy_id"] == "low_price_tail_capped" for row in orders))
+        self.assertTrue(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
+
     def test_market_centered_warm_tail_guard_blocks_raw_warm_band(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1291,6 +1767,37 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
         self.assertEqual(payload["summary"]["market_centered_warm_tail_blocked_rows"], 1)
         self.assertEqual(warm_rows[0]["market_modal_band_key"], "eq:80-81")
+        self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
+
+    def test_market_centered_warm_tail_guard_blocks_candidate_family_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.28"), (84, "0.70", "0.10")],
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                strategies="low_price_tail_capped",
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        warm_rows = [row for row in orders if row["range_label"] == "84-85 F"]
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(warm_rows[0]["strategy_id"], "low_price_tail_capped")
         self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
 
     def test_early_hour_caps_taker_notional(self):
