@@ -128,3 +128,9 @@ Current blockers:
 No calibration head was trained or approved here. The item stays partial with
 the validate-what-you-serve contract refreshed and fail-closed until active
 served-artifact evidence clears the same gate stack.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.served_distribution_contract`.
+Calibration-head acceptance must clear the packet served-distribution contract;
+row-export probes remain diagnostic-only until absorbed into that field.

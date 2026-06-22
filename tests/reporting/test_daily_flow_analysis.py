@@ -110,6 +110,54 @@ def write_flow_artifacts(root, *, blocked=True):
         }),
         encoding="utf-8",
     )
+    (root / "taker_finalization_watchdog.json").write_text(
+        json.dumps({
+            "schema_version": "taker_settlement_finalization_watchdog_v0.1",
+            "generated_at_utc": "2026-06-21T23:58:30+00:00",
+            "status": "OK",
+            "summary": {
+                "run_count": 1,
+                "pending_finalization_count": 0,
+                "sla_breach_count": 0,
+                "champion_decision": "KEEP_CHAMPION",
+            },
+        }),
+        encoding="utf-8",
+    )
+    (root / "taker_tail_casebook.json").write_text(
+        json.dumps({
+            "schema_version": "taker_tail_casebook_v0.1",
+            "generated_at_utc": "2026-06-21T23:58:40+00:00",
+            "summary": {
+                "status": "PASS",
+                "tail_fill_count": 0,
+                "losing_tail_fill_count": 0,
+                "no_go_candidate_count": 0,
+            },
+            "no_go_candidates": [],
+        }),
+        encoding="utf-8",
+    )
+    (root / "trading_evidence.json").write_text(
+        json.dumps({
+            "schema_version": "trading_evidence_summary_v0.1",
+            "generated_at_utc": "2026-06-21T23:58:50+00:00",
+            "status": "WARN" if blocked else "OK",
+            "market_making": {
+                "exists": True,
+                "evidence_mode": "paper-live-forward",
+                "counts_toward_live_forward_gate": not blocked,
+                "evidence_starvation_status": "PASS",
+            },
+            "taker": {
+                "exists": True,
+                "net_pnl_usdc": -4.5 if blocked else 2.0,
+                "pnl_evidence_status": "PROVISIONAL_MTM_ONLY" if blocked else "SETTLEMENT_SCORED",
+                "quality_gate": {"status": "SAMPLE_PENDING_NEGATIVE_LATEST" if blocked else "PASS"},
+            },
+        }),
+        encoding="utf-8",
+    )
 
 
 class TestDailyFlowAnalysis(unittest.TestCase):
@@ -214,6 +262,48 @@ class TestDailyFlowAnalysis(unittest.TestCase):
         self.assertEqual(payload["status"], "BLOCKED")
         self.assertEqual(action["area"], "refresh_error")
         self.assertIn("promotion_refresh", action["action"])
+
+    def test_build_flow_analysis_blocks_taker_finalization_and_tail_no_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_flow_artifacts(backtest_root, blocked=False)
+            (backtest_root / "taker_finalization_watchdog.json").write_text(
+                json.dumps({
+                    "schema_version": "taker_settlement_finalization_watchdog_v0.1",
+                    "status": "BREACH",
+                    "summary": {
+                        "run_count": 2,
+                        "pending_finalization_count": 1,
+                        "sla_breach_count": 1,
+                    },
+                }),
+                encoding="utf-8",
+            )
+            (backtest_root / "taker_tail_casebook.json").write_text(
+                json.dumps({
+                    "schema_version": "taker_tail_casebook_v0.1",
+                    "summary": {
+                        "status": "BLOCK_BAD_TAIL_SLICES",
+                        "tail_fill_count": 3,
+                        "losing_tail_fill_count": 2,
+                        "no_go_candidate_count": 1,
+                    },
+                    "no_go_candidates": [
+                        {"slice_key": "low_price_tail|atlanta|hour:16", "loss_count": 2}
+                    ],
+                }),
+                encoding="utf-8",
+            )
+
+            payload = build_flow_analysis(backtest_root=backtest_root)
+            areas = {row["area"] for row in payload["actions"]}
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertIn("taker_settlement_finalization", areas)
+        self.assertIn("taker_tail_no_go", areas)
+        self.assertIn("Taker And Trading", report)
+        self.assertIn("BLOCK_BAD_TAIL_SLICES", report)
 
 
 if __name__ == "__main__":

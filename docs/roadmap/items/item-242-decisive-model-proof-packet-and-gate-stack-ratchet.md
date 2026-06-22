@@ -1,4 +1,4 @@
-# 242. Decisive Model Proof Packet And Gate Stack Ratchet [OPEN 2026-06-22 - HARD-SLICE PROOF PACKET MISSING]
+# 242. Decisive Model Proof Packet And Gate Stack Ratchet [COMPLETE 2026-06-22 - WEATHER-ONLY PROOF PACKET AND RATCHET LIVE]
 
 Goal: collapse the current overlapping model-readiness gates into one
 decision-grade proof packet for the active weather-only model, so future work
@@ -38,13 +38,13 @@ slice prevents each blocked market from clearing.
    and taker profitability can inform quote-risk or trading decisions, but they
    cannot satisfy the weather-only proof packet.
 
-- [ ] Specify the proof-packet schema and required input artifacts.
-- [ ] Generate the proof packet from the current active reports.
-- [ ] Add a roadmap/backlog check that active model items reference a
+- [x] Specify the proof-packet schema and required input artifacts.
+- [x] Generate the proof packet from the current active reports.
+- [x] Add a roadmap/backlog check that active model items reference a
   proof-packet blocker or mark themselves diagnostic-only.
-- [ ] Add a ratchet report listing duplicate, superseded, or diagnostic-only
+- [x] Add a ratchet report listing duplicate, superseded, or diagnostic-only
   gates that should not drive the next work order.
-- [ ] Update the actionable work order to use proof-packet blockers as the
+- [x] Update the actionable work order to use proof-packet blockers as the
   ordering source for weather-model work.
 
 Acceptance: one canonical weather-only proof packet exists; broad model claims
@@ -53,3 +53,34 @@ to concrete packet blockers; and the roadmap no longer treats new diagnostic
 reports as progress unless they change or retire a packet blocker.
 
 Related: items 48, 147, 160, 178, 219, 224, 228, 230, 233.
+
+## Completion - 2026-06-22
+
+Implemented `weather.reporting.weather_only_model_proof_packet` with schema
+`weather_only_model_proof_packet_v0.1`. The generated artifacts are:
+
+- `data/backtest/weather_only_model_proof_packet.json`
+- `data/backtest/weather_only_model_proof_packet_report.md`
+
+The current packet is intentionally fail-closed: status `BLOCK`, 11 blocking
+gates, 0 promote markets, 3 shadow markets, and 8 blocked markets. The first
+blocker is `gates.active_artifact_identity`: the active pooled-F artifact is
+loaded but stamped with `toronto_feature_store_v1.13` while runtime uses
+`toronto_feature_store_v1.14`.
+
+The packet now joins active artifact identity, promotion refresh readiness,
+hourly, 10-minute, exact-band/distance-zero, bottom-location,
+source/missingness, live-forward, broad-claim, served-distribution, positive
+daily-first, and lane-separation gates. Market dispositions expose the first
+blocking slice, delta versus current, delta versus market, and evidence basis.
+
+The roadmap ratchet is live in the packet: active model-repair items 48, 147,
+160, 178, 219, 224, 228, 230, and 233 reference concrete proof-packet fields or
+are explicitly diagnostic-only. The actionable work order now cites the proof
+packet and orders weather-model work from packet blockers instead of standalone
+diagnostic reports.
+
+Verification:
+
+- `python -m weather.reporting.weather_only_model_proof_packet`
+- `python -m pytest tests\reporting\test_weather_only_model_proof_packet.py tests\operations\test_schema_registry.py -q`

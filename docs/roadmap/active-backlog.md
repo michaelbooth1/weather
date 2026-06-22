@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-22T20:30:57.686496+00:00
+Generated: 2026-06-22T22:41:41.293695+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 252 |
-| Active items | 47 |
-| OPEN | 16 |
+| Active items | 43 |
+| OPEN | 12 |
 | PARTIAL | 31 |
-| COMPLETE | 205 |
+| COMPLETE | 209 |
 | ROADMAP rows | 252 |
 | ROADMAP primary rows | 252 |
 | Lint errors | 0 |
@@ -52,15 +52,12 @@ Status: `OK`
 | 191 | PARTIAL | 2026-06-22 | GATE REFRESHED, SST/BREEZE SLICE BLOCKED | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-22 | GATE REFRESHED, RETRAIN/LOCATION BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | PARTIAL | 2026-06-22 | SCHEMA RE-EXPORTED, LOCATION BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 232 | PARTIAL | 2026-06-22 | GATE REFRESHED, RETRAIN/ABLATION BLOCKED | [Current-Max Trust Retrain And Warm-Tail Replay](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 240 | OPEN | 2026-06-22 | PAPER PNL ASSUMES ZERO LIVE FRICTION | [Taker Fee, Slippage, And Executable-Depth Profitability Model](items/item-240-taker-fee-slippage-and-executable-depth-profitability-model.md) |
-| 241 | OPEN | 2026-06-22 | MODEL TRADES WHERE MARKET IS SMARTER | [Market Benchmark No-Trade And Profitability Scoreboard](items/item-241-market-benchmark-no-trade-and-profitability-scoreboard.md) |
-| 242 | OPEN | 2026-06-22 | HARD-SLICE PROOF PACKET MISSING | [Decisive Model Proof Packet And Gate Stack Ratchet](items/item-242-decisive-model-proof-packet-and-gate-stack-ratchet.md) |
 | 243 | OPEN | 2026-06-22 | COLUMNAR ARCHIVE CONTRACT MISSING | [Closed Market-Day Parquet Archive Contract](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | OPEN | 2026-06-22 | CLOSED-DAY CONVERSION PIPELINE MISSING | [Historical Snapshot Parquet Backfill And Validation Harness](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | OPEN | 2026-06-22 | ANALYSIS READS TEXT TAPES BY DEFAULT | [Parquet-First Historical Analysis Readers](items/item-245-parquet-first-historical-analysis-readers.md) |
@@ -68,7 +65,6 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 248 | OPEN | 2026-06-22 | FEATURE-PATH MAX CLUSTER OVERHEATS | [Austin Robust Forecast-Cluster Signal](items/item-248-austin-robust-forecast-cluster-signal.md) |
 | 249 | OPEN | 2026-06-22 | LATE ROLLOVER IGNORED WHEN WU CURRENT IS FLAT | [Official METAR Rollover Lock-In Signal](items/item-249-official-metar-rollover-lockin-signal.md) |
-| 250 | OPEN | 2026-06-22 | ACTIVE ARTIFACT LOSES TO MARKET | [Austin HGB Per-Location Requalification](items/item-250-austin-hgb-per-location-requalification.md) |
 | 251 | OPEN | 2026-06-22 | HIGH STOOD BUT FORECAST CEILING BLOCKS LOCK-IN | [Standing-High Partial Lock-In Dampener](items/item-251-standing-high-partial-lockin-dampener.md) |
 | 252 | OPEN | 2026-06-22 | GUIDANCE CAN BE FRESH BUT PHYSICALLY IMPOSSIBLE | [Impossible Guidance Feature Quarantine](items/item-252-impossible-guidance-feature-quarantine.md) |
 

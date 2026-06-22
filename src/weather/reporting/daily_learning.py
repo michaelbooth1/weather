@@ -45,6 +45,9 @@ ARTIFACT_FILES = {
     "settled_day_root_cause": "settled_day_root_cause.json",
     "settled_day_freshness": "settled_day_freshness.json",
     "source_family_inventory": "source_family_inventory.json",
+    "taker_finalization_watchdog": "taker_finalization_watchdog.json",
+    "taker_tail_casebook": "taker_tail_casebook.json",
+    "trading_evidence": "trading_evidence.json",
 }
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
@@ -199,6 +202,8 @@ def _scorecard(payloads, daily_refresh_summary=None):
     root_cause = payloads.get("settled_day_root_cause") or {}
     settled_day = payloads.get("settled_day_freshness") or {}
     source_family_inventory = payloads.get("source_family_inventory") or {}
+    taker_finalization = payloads.get("taker_finalization_watchdog") or {}
+    taker_tail = payloads.get("taker_tail_casebook") or {}
     snapshot_status = snapshot_eval.get("status") or {}
     snapshot_inventory = snapshot_eval.get("snapshot_inventory") or {}
     backlog = snapshot_eval.get("improvement_backlog") or {}
@@ -305,6 +310,19 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "mm_paper_evidence": fleet.get("mm_paper_evidence") or {},
         },
         "trading_evidence": trading,
+        "taker_finalization_watchdog": {
+            "status": taker_finalization.get("status"),
+            "summary": taker_finalization.get("summary") or {},
+            "alerts": taker_finalization.get("alerts") or [],
+            "finalized_runs": taker_finalization.get("finalized_runs") or [],
+            "champion_challenger_ledger": taker_finalization.get("champion_challenger_ledger") or {},
+        },
+        "taker_tail_casebook": {
+            "status": (taker_tail.get("summary") or {}).get("status") or taker_tail.get("status"),
+            "summary": taker_tail.get("summary") or {},
+            "by_tail_type": taker_tail.get("by_tail_type") or [],
+            "no_go_candidates": taker_tail.get("no_go_candidates") or [],
+        },
         "data_layer_audit": {
             "gate_status": (data_layer.get("gate_summary") or {}).get("status"),
             "gate_summary": data_layer.get("gate_summary") or {},
@@ -586,6 +604,8 @@ def _build_learnings(payloads, scorecard, artifacts=None):
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     promotion = scorecard["promotion"]
     casebook = scorecard["casebook"]
+    taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
+    taker_tail = scorecard.get("taker_tail_casebook") or {}
     rollup_freshness = scorecard.get("rollup_freshness") or {}
 
     if rollup_freshness.get("status") == "BLOCK":
@@ -1130,6 +1150,44 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             blocker=True,
         ))
 
+    finalization_summary = taker_finalization.get("summary") or {}
+    if finalization_summary.get("sla_breach_count") or finalization_summary.get("pending_finalization_count"):
+        breach_count = safe_int(finalization_summary.get("sla_breach_count"))
+        pending_count = safe_int(finalization_summary.get("pending_finalization_count"))
+        learnings.append(_learning(
+            "P0" if breach_count else "P1",
+            "taker_settlement_finalization",
+            "taker_finalization_watchdog",
+            (
+                f"Taker settlement finalization has {breach_count} SLA breach(es) "
+                f"and {pending_count} pending run(s)."
+            ),
+            "Run python -m weather.market.taker_bot finalize --watchdog and require fresh settled_pnl plus strategy_bakeoff artifacts before taker-quality claims.",
+            evidence=taker_finalization,
+            blocker=bool(breach_count),
+        ))
+
+    tail_summary = taker_tail.get("summary") or {}
+    if tail_summary.get("status") == "BLOCK_BAD_TAIL_SLICES":
+        candidates = taker_tail.get("no_go_candidates") or []
+        first = candidates[0] if candidates else {}
+        learnings.append(_learning(
+            "P0",
+            "taker_tail_no_go",
+            "taker_tail_casebook",
+            (
+                f"Taker tail casebook found {tail_summary.get('no_go_candidate_count')} no-go tail slice(s); "
+                f"first={first.get('slice_key') or '-'}."
+            ),
+            "Keep matching low-price or market-centered warm-tail slices blocked until repeated settlement-positive out-of-sample evidence clears the no-go list.",
+            evidence={
+                "summary": tail_summary,
+                "first_no_go_candidate": first,
+                "no_go_candidates": candidates[:10],
+            },
+            blocker=True,
+        ))
+
     trading = scorecard.get("trading_evidence") or {}
     mm_trading = trading.get("market_making") or {}
     if mm_trading.get("exists"):
@@ -1306,10 +1364,11 @@ def build_learning_payload(
 ):
     payloads, artifacts = load_inputs(backtest_root)
     data_root = Path(backtest_root).parent
-    payloads["trading_evidence"] = build_trading_evidence_summary(
-        mm_runs_root=data_root / "mm_runs",
-        taker_runs_root=data_root / "taker_runs",
-    )
+    if not payloads.get("trading_evidence"):
+        payloads["trading_evidence"] = build_trading_evidence_summary(
+            mm_runs_root=data_root / "mm_runs",
+            taker_runs_root=data_root / "taker_runs",
+        )
     generated = generated_at_utc or utc_iso()
     daily_status_rollup = (
         ((payloads.get("daily_refresh_status") or {}).get("summary") or {}).get("rollup_freshness")
@@ -1389,6 +1448,10 @@ def _scorecard_rows(scorecard):
     mm_trading = trading.get("market_making") or {}
     taker = trading.get("taker") or {}
     taker_quality = taker.get("quality_gate") or {}
+    taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
+    taker_finalization_summary = taker_finalization.get("summary") or {}
+    taker_tail = scorecard.get("taker_tail_casebook") or {}
+    taker_tail_summary = taker_tail.get("summary") or {}
     return [
         ["Labels finalized", labels.get("total")],
         ["Corpus market-days", corpus.get("market_day_count")],
@@ -1502,6 +1565,25 @@ def _scorecard_rows(scorecard):
                 f"tail={taker.get('low_price_tail_fill_count', 0)} "
                 f"({taker.get('tail_fill_quality_status') or '-'}); "
                 f"root={taker.get('root_cause_class') or '-'}"
+            ),
+        ],
+        [
+            "Taker settlement finalization",
+            (
+                f"{taker_finalization.get('status') or '-'}; "
+                f"runs={taker_finalization_summary.get('run_count', '-')}; "
+                f"pending={taker_finalization_summary.get('pending_finalization_count', '-')}; "
+                f"sla={taker_finalization_summary.get('sla_breach_count', '-')}; "
+                f"champion={taker_finalization_summary.get('champion_decision') or '-'}"
+            ),
+        ],
+        [
+            "Taker tail casebook",
+            (
+                f"{taker_tail.get('status') or '-'}; "
+                f"tail={taker_tail_summary.get('tail_fill_count', '-')}; "
+                f"losing={taker_tail_summary.get('losing_tail_fill_count', '-')}; "
+                f"no_go={taker_tail_summary.get('no_go_candidate_count', '-')}"
             ),
         ],
         [
@@ -1924,6 +2006,10 @@ def render_report(payload):
         mm_trading = trading.get("market_making") or {}
         taker = trading.get("taker") or {}
         taker_quality = taker.get("quality_gate") or {}
+        taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
+        taker_finalization_summary = taker_finalization.get("summary") or {}
+        taker_tail = scorecard.get("taker_tail_casebook") or {}
+        taker_tail_summary = taker_tail.get("summary") or {}
         lines += ["", "## Trading Evidence", ""]
         lines += markdown_table(
             ["Area", "Value"],
@@ -1960,6 +2046,12 @@ def render_report(payload):
                 ["Taker root cause", taker.get("root_cause_class") or "-"],
                 ["Taker quality status", taker_quality.get("status") or "-"],
                 ["Taker quality interpretation", taker_quality.get("interpretation") or "-"],
+                ["Taker finalization status", taker_finalization.get("status") or "-"],
+                ["Taker pending finalization", taker_finalization_summary.get("pending_finalization_count")],
+                ["Taker finalization SLA breaches", taker_finalization_summary.get("sla_breach_count")],
+                ["Taker champion decision", taker_finalization_summary.get("champion_decision") or "-"],
+                ["Taker tail casebook", taker_tail.get("status") or "-"],
+                ["Taker tail no-go candidates", taker_tail_summary.get("no_go_candidate_count")],
             ],
         )
     source_status_proof = ((scorecard.get("fleet") or {}).get("source_status_proof") or {})

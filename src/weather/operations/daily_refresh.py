@@ -52,6 +52,9 @@ from weather.reporting import snapshot_evaluation
 from weather.reporting import distribution_stage_attribution
 from weather.reporting import settled_day_root_cause
 from weather.reporting import variant_evidence_growth
+from weather.reporting import taker_tail_casebook
+from weather.reporting import trading_evidence
+from weather.market import taker_bot
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations.long_job_guard import (
@@ -126,6 +129,9 @@ from weather.operations.daily_refresh_steps import (
     run_settled_day_root_cause_step,
     run_shadow_ab_monitor_step,
     run_snapshot_evaluation_step,
+    run_taker_finalization_watchdog_step,
+    run_taker_tail_casebook_step,
+    run_trading_evidence_step,
     run_step,
     run_ten_minute_model_performance_step,
     summarize_labels,
@@ -323,6 +329,9 @@ def _cli_dependencies():
         hourly_model_performance=hourly_model_performance,
         ten_minute_model_performance=ten_minute_model_performance,
         settled_day_root_cause=settled_day_root_cause,
+        taker_bot=taker_bot,
+        taker_tail_casebook=taker_tail_casebook,
+        trading_evidence=trading_evidence,
         promotion_refresh=promotion_refresh,
         clob_order_book_tiering=clob_order_book_tiering,
         fleet_observability=fleet_observability,

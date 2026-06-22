@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 
 
 DEFAULT_DATA_ROOT = data_path()
 DEFAULT_MM_RUNS_ROOT = DEFAULT_DATA_ROOT / "mm_runs"
 DEFAULT_TAKER_RUNS_ROOT = DEFAULT_DATA_ROOT / "taker_runs"
+DEFAULT_BACKTEST_ROOT = DEFAULT_DATA_ROOT / "backtest"
+DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "trading_evidence.json"
+DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "trading_evidence_report.md"
 TAKER_QUALITY_MIN_ROLLING_RUNS = 5
 TAKER_QUALITY_MIN_FILLS = 100
 TAKER_QUALITY_MIN_NET_PNL_USDC = 0.0
@@ -49,6 +55,10 @@ def _read_json(path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def utc_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _read_remediation_payload(path, payload):
@@ -594,9 +604,14 @@ def _taker_summary_fields(payload, settled_payload=None):
             or "MISSING_SETTLED_SAMPLE"
         ),
         "strategy_quality_candidate_net_pnl_usdc": _float_value(countable_candidate.get("net_pnl_usdc")),
+        "strategy_quality_candidate_live_profitability_basis": (
+            countable_candidate.get("live_profitability_evidence_basis")
+        ),
         "strategy_comparison": strategy_comparison,
         "by_strategy": by_strategy,
         "promotion_evidence_basis": strategy_comparison.get("promotion_evidence_basis"),
+        "market_benchmark_status": strategy_comparison.get("market_benchmark_status"),
+        "market_benchmark_summary": strategy_comparison.get("market_benchmark_summary") or {},
         "mtm_promotion_allowed": bool(strategy_comparison.get("mtm_promotion_allowed")),
         "tail_fill_quality_status": tail_summary.get("status"),
         "low_price_tail_fill_count": _int_value(tail_summary.get("low_price_tail_fill_count")),
@@ -640,6 +655,22 @@ def _taker_summary_fields(payload, settled_payload=None):
                 settled_pnl.get("net_pnl_usdc"),
                 settled_summary.get("net_pnl_usdc"),
             )),
+            "executable_net_pnl_usdc": _float_value(_first_present(
+                settled_pnl.get("executable_net_pnl_usdc"),
+                settled_summary.get("executable_net_pnl_usdc"),
+            )),
+            "fees_usdc": _float_value(_first_present(
+                settled_pnl.get("fees_usdc"),
+                settled_summary.get("fees_usdc"),
+            )),
+            "slippage_usdc": _float_value(_first_present(
+                settled_pnl.get("slippage_usdc"),
+                settled_summary.get("slippage_usdc"),
+            )),
+            "live_profitability_evidence_basis": _first_present(
+                settled_pnl.get("live_profitability_evidence_basis"),
+                settled_summary.get("live_profitability_evidence_basis"),
+            ),
             "mark_to_market_pnl_usdc": mtm_pnl,
             "settlement_pnl_usdc": _float_value(_first_present(
                 settled_pnl.get("settlement_pnl_usdc"),
@@ -864,6 +895,8 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
 def build_trading_evidence_summary(
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
+    *,
+    generated_at_utc=None,
 ):
     mm_path, mm_payload = _latest_run_summary(mm_runs_root)
     taker_path, taker_payload = _latest_run_summary(taker_runs_root)
@@ -886,6 +919,9 @@ def build_trading_evidence_summary(
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
     return {
         "schema_version": "trading_evidence_summary_v0.1",
+        "generated_at_utc": generated_at_utc or utc_iso(),
+        "mm_runs_root": str(mm_runs_root),
+        "taker_runs_root": str(taker_runs_root),
         "market_making": market_making,
         "taker": summarize_taker_run(
             taker_path,
@@ -894,3 +930,128 @@ def build_trading_evidence_summary(
             settled_payload=taker_settled_payload,
         ),
     }
+
+
+def _summary_status(payload):
+    mm = payload.get("market_making") or {}
+    taker = payload.get("taker") or {}
+    taker_quality = taker.get("quality_gate") or {}
+    if mm.get("evidence_starvation_status") == "CRITICAL":
+        return "CRITICAL"
+    if taker_quality.get("status") == "BLOCK":
+        return "BLOCK"
+    if (
+        taker.get("pnl_evidence_status") == "PROVISIONAL_MTM_ONLY"
+        or taker_quality.get("status") == "SAMPLE_PENDING_NEGATIVE_LATEST"
+        or mm.get("countability_status") == "NON_COUNTABLE"
+    ):
+        return "WARN"
+    return "OK"
+
+
+def render_report(payload):
+    mm = payload.get("market_making") or {}
+    taker = payload.get("taker") or {}
+    quality = taker.get("quality_gate") or {}
+    lines = [
+        "# Trading Evidence Summary",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Status: **{payload.get('status') or _summary_status(payload)}**",
+        "",
+        "## Market Making",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Run", mm.get("run_id") or "-"],
+            ["Evidence mode", mm.get("evidence_mode") or "-"],
+            ["Counts toward live-forward", mm.get("counts_toward_live_forward_gate")],
+            ["Countability status", mm.get("countability_status") or "-"],
+            ["Quote rows", mm.get("quote_rows")],
+            ["Paper-posted legs", mm.get("paper_posted_lifecycle_legs")],
+            ["Live-trade permission rows", mm.get("live_trade_permission_rows")],
+            ["Evidence starvation", mm.get("evidence_starvation_status") or "-"],
+            ["Starved active-day streak", mm.get("starved_active_day_streak")],
+            ["Blockers", ", ".join(mm.get("countability_blockers") or []) or "-"],
+        ],
+    )
+    lines += ["", "## Taker", ""]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Run", taker.get("run_id") or "-"],
+            ["Filled orders", taker.get("filled_orders")],
+            ["Net P&L", fmt_signed(taker.get("net_pnl_usdc"), 4)],
+            ["Executable net P&L", fmt_signed(taker.get("executable_net_pnl_usdc"), 4)],
+            ["P&L source", taker.get("pnl_source") or "-"],
+            ["P&L evidence", taker.get("pnl_evidence_status") or "-"],
+            ["Settled / unsettled", f"{taker.get('settled_order_count')}/{taker.get('unsettled_order_count')}"],
+            ["Settlement reconciliation", taker.get("settlement_reconciliation_status") or "-"],
+            ["Active strategy", taker.get("active_strategy_id") or "-"],
+            ["Lifecycle status", taker.get("active_strategy_lifecycle_status") or "-"],
+            ["Promotion eligible", taker.get("active_strategy_promotion_eligible")],
+            ["Low-price tail fills", taker.get("low_price_tail_fill_count")],
+            ["Tail-fill status", taker.get("tail_fill_quality_status") or "-"],
+            ["Quality status", quality.get("status") or "-"],
+            ["Quality interpretation", quality.get("interpretation") or "-"],
+        ],
+    )
+    if taker.get("by_strategy"):
+        lines += ["", "## Taker Strategies", ""]
+        lines += markdown_table(
+            ["Strategy", "Filled", "Settled", "Unsettled", "Net P&L", "Executable Net", "Quality Countable"],
+            [
+                [
+                    row.get("strategy_id"),
+                    row.get("filled_order_count"),
+                    row.get("settled_order_count"),
+                    row.get("unsettled_order_count"),
+                    fmt_num(row.get("net_pnl_usdc"), 4),
+                    fmt_num(row.get("executable_net_pnl_usdc"), 4),
+                    row.get("quality_candidate_countable"),
+                ]
+                for row in taker.get("by_strategy") or []
+            ],
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_outputs(payload, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_OUT):
+    payload = dict(payload)
+    payload.setdefault("status", _summary_status(payload))
+    json_path = Path(json_out)
+    report_path = Path(report_out)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    report_path.write_text(render_report(payload), encoding="utf-8")
+    return json_path, report_path
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="Build market-making and taker trading evidence summary.")
+    parser.add_argument("--mm-runs-root", default=str(DEFAULT_MM_RUNS_ROOT))
+    parser.add_argument("--taker-runs-root", default=str(DEFAULT_TAKER_RUNS_ROOT))
+    parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
+    parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    payload = build_trading_evidence_summary(
+        mm_runs_root=args.mm_runs_root,
+        taker_runs_root=args.taker_runs_root,
+    )
+    json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
+    print(f"Trading evidence: {payload.get('status') or _summary_status(payload)}")
+    print(f"JSON written to {json_out}")
+    print(f"Report written to {report_out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -121,12 +121,12 @@ def score_orders_against_labels(order_rows, labels):
     unmatched = 0
     for row in order_rows or []:
         out = dict(row)
-        if str(row.get("order_status") or "").upper() != "FILLED":
-            scored.append(out)
-            continue
         label = settlement_label_for_order(row, labels)
         outcome = settlement_outcome_for_order(row, label)
         out["settlement_outcome"] = compact_float(outcome)
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            scored.append(out)
+            continue
         if outcome is None:
             unmatched += 1
             out.update({
@@ -192,9 +192,6 @@ def score_orders(order_rows, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, ledger_root=
     scored = []
     for row in order_rows or []:
         out = dict(row)
-        if str(row.get("order_status") or "").upper() != "FILLED":
-            scored.append(out)
-            continue
         event_slug = row.get("event_slug") or ""
         if event_slug not in cache:
             folder = Path(snapshots_root) / event_slug
@@ -209,6 +206,9 @@ def score_orders(order_rows, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, ledger_root=
         mark = latest_mark(item["marks"], row.get("clob_token_id"), now)
         out["settlement_outcome"] = compact_float(outcome)
         out["mark_price"] = compact_float(mark.get("price") if mark else None)
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            scored.append(out)
+            continue
         if outcome is not None:
             payout = outcome * fill_size
             components = executable_pnl_components(row, payout)
@@ -425,6 +425,129 @@ def tail_fill_quality_payload(rows, max_tail_fill_fraction=DEFAULT_PROMOTION_MAX
     }
 
 
+def _benchmark_one_share_net(row, policy_config):
+    outcome = maybe_float(row.get("settlement_outcome"))
+    price = maybe_float(first_present(row, "best_ask", "clob_best_ask", "market_mid"))
+    if outcome is None or price is None:
+        return None
+    config = {**DEFAULT_CONFIG, **(policy_config or {})}
+    return outcome - price - taker_fee_per_share(price, config)
+
+
+def market_benchmark_scoreboard(order_rows, policy_config=None):
+    groups = defaultdict(list)
+    for row in order_rows or []:
+        groups[(
+            strategy_id_for_row(row),
+            row.get("target_date") or "",
+            row.get("market_id") or "",
+            row.get("snapshot_id") or "",
+        )].append(row)
+    strategy = defaultdict(lambda: {
+        "strategy_id": "",
+        "opportunity_count": 0,
+        "settled_opportunity_count": 0,
+        "market_smarter_slice_count": 0,
+        "model_beats_market_count": 0,
+        "model_beats_no_trade_count": 0,
+        "traded_pnl_usdc": 0.0,
+        "model_top_net_pnl_usdc": 0.0,
+        "market_top_net_pnl_usdc": 0.0,
+        "no_trade_net_pnl_usdc": 0.0,
+        "avoided_loss_usdc": 0.0,
+        "missed_gain_usdc": 0.0,
+        "recommendations": [],
+    })
+    slices = []
+    for key, rows in sorted(groups.items()):
+        strategy_id, target_date, market_id, snapshot_id = key
+        scored = [row for row in rows if maybe_float(row.get("settlement_outcome")) is not None]
+        if not rows:
+            continue
+        model_top = max(rows, key=lambda row: maybe_float(first_present(row, "fair_probability", "model_probability")) or -1.0)
+        market_top = max(rows, key=lambda row: maybe_float(first_present(row, "best_ask", "clob_best_ask", "market_mid")) or -1.0)
+        model_net = _benchmark_one_share_net(model_top, policy_config)
+        market_net = _benchmark_one_share_net(market_top, policy_config)
+        traded_rows = [row for row in rows if str(row.get("order_status") or "").upper() == "FILLED"]
+        traded_pnl = sum(maybe_float(row.get("net_pnl_usdc")) or 0.0 for row in traded_rows)
+        avoided_loss = 0.0
+        missed_gain = 0.0
+        for row in rows:
+            if str(row.get("order_status") or "").upper() == "FILLED":
+                continue
+            hypothetical = _benchmark_one_share_net(row, policy_config)
+            if hypothetical is None:
+                continue
+            if hypothetical < 0:
+                avoided_loss += abs(hypothetical)
+            elif hypothetical > 0:
+                missed_gain += hypothetical
+        market_smarter = bool(market_net is not None and model_net is not None and market_net > model_net)
+        model_beats_no_trade = bool(model_net is not None and model_net >= 0.0)
+        recommendation = "no_trade_market_smarter" if market_smarter else ("no_trade_model_negative" if not model_beats_no_trade else "allow")
+        item = {
+            "strategy_id": strategy_id,
+            "target_date": target_date,
+            "market_id": market_id,
+            "snapshot_id": snapshot_id,
+            "model_top_range_label": model_top.get("range_label"),
+            "market_top_range_label": market_top.get("range_label"),
+            "traded_fill_count": len(traded_rows),
+            "model_top_net_pnl_usdc": compact_float(model_net),
+            "market_top_net_pnl_usdc": compact_float(market_net),
+            "traded_pnl_usdc": compact_float(traded_pnl),
+            "no_trade_net_pnl_usdc": 0.0,
+            "avoided_loss_usdc": compact_float(avoided_loss),
+            "missed_gain_usdc": compact_float(missed_gain),
+            "market_smarter": market_smarter,
+            "model_beats_no_trade": model_beats_no_trade,
+            "recommendation": recommendation,
+        }
+        slices.append(item)
+        bucket = strategy[strategy_id]
+        bucket["strategy_id"] = strategy_id
+        bucket["opportunity_count"] += 1
+        bucket["settled_opportunity_count"] += 1 if scored else 0
+        bucket["market_smarter_slice_count"] += 1 if market_smarter else 0
+        bucket["model_beats_market_count"] += 0 if market_smarter else 1
+        bucket["model_beats_no_trade_count"] += 1 if model_beats_no_trade else 0
+        bucket["traded_pnl_usdc"] += traded_pnl
+        bucket["model_top_net_pnl_usdc"] += model_net or 0.0
+        bucket["market_top_net_pnl_usdc"] += market_net or 0.0
+        bucket["avoided_loss_usdc"] += avoided_loss
+        bucket["missed_gain_usdc"] += missed_gain
+        if recommendation != "allow":
+            bucket["recommendations"].append(item)
+    strategy_rows = []
+    for key, value in sorted(strategy.items()):
+        status = "BLOCK_MARKET_SMARTER" if value["market_smarter_slice_count"] > 0 else "PASS"
+        strategy_rows.append({
+            **{k: v for k, v in value.items() if k != "recommendations"},
+            "status": status,
+            "traded_pnl_usdc": round(value["traded_pnl_usdc"], 6),
+            "model_top_net_pnl_usdc": round(value["model_top_net_pnl_usdc"], 6),
+            "market_top_net_pnl_usdc": round(value["market_top_net_pnl_usdc"], 6),
+            "no_trade_net_pnl_usdc": 0.0,
+            "avoided_loss_usdc": round(value["avoided_loss_usdc"], 6),
+            "missed_gain_usdc": round(value["missed_gain_usdc"], 6),
+            "recommendations": value["recommendations"],
+        })
+    return {
+        "schema_version": "taker_market_benchmark_scoreboard_v0.1",
+        "summary": {
+            "strategy_count": len(strategy_rows),
+            "opportunity_count": len(slices),
+            "market_smarter_slice_count": sum(1 for row in slices if row.get("market_smarter")),
+            "no_trade_recommendation_count": sum(1 for row in slices if row.get("recommendation") != "allow"),
+            "traded_pnl_usdc": round(sum(row.get("traded_pnl_usdc") or 0.0 for row in slices), 6),
+            "avoided_loss_usdc": round(sum(row.get("avoided_loss_usdc") or 0.0 for row in slices), 6),
+            "missed_gain_usdc": round(sum(row.get("missed_gain_usdc") or 0.0 for row in slices), 6),
+        },
+        "by_strategy": strategy_rows,
+        "slices": slices,
+    }
+
+
 def settlement_promotion_gate(strategy_row, thresholds):
     settled_orders = int(strategy_row.get("settled_order_count") or 0)
     settled_markets = int(strategy_row.get("settled_market_count") or 0)
@@ -434,6 +557,7 @@ def settlement_promotion_gate(strategy_row, thresholds):
     settled_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
     after_fee_scored = bool_value(strategy_row.get("after_fee_pnl_scored"), False)
     after_slippage_scored = bool_value(strategy_row.get("after_slippage_pnl_scored"), False)
+    market_benchmark_status = strategy_row.get("market_benchmark_status") or "PASS"
     tail_summary = strategy_row.get("tail_fill_quality_summary") or {}
     max_tail_fraction = maybe_float(thresholds.get("max_tail_fill_fraction")) or 0.0
     tail_fraction = maybe_float(tail_summary.get("low_price_tail_fill_fraction")) or 0.0
@@ -473,6 +597,12 @@ def settlement_promotion_gate(strategy_row, thresholds):
             "ok": after_slippage_scored,
             "value": after_slippage_scored,
             "threshold": True,
+        },
+        {
+            "name": "market_benchmark_beats_model",
+            "ok": market_benchmark_status != "BLOCK_MARKET_SMARTER",
+            "value": market_benchmark_status,
+            "threshold": "PASS",
         },
         {
             "name": "no_unresolved_orders",
@@ -743,8 +873,14 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
         "reason_counts": dict(sorted(reason_counts.items())),
     }
+    market_benchmark = market_benchmark_scoreboard(order_rows, policy_config=policy_config)
+    market_benchmark_by_strategy = {
+        row.get("strategy_id"): row
+        for row in market_benchmark.get("by_strategy") or []
+    }
     strategy_rows = []
     for key, value in sorted(by_strategy.items()):
+        benchmark = market_benchmark_by_strategy.get(key) or {}
         strategy_fills = [row for row in filled if strategy_id_for_row(row) == key]
         strategy_tail_quality = tail_fill_quality_payload(
             strategy_fills,
@@ -798,6 +934,16 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
                 and value["after_slippage_pnl_scored_count"] == value["filled_order_count"]
                 else "paper_no_fee"
             ),
+            "market_benchmark_status": benchmark.get("status") or "PASS",
+            "market_benchmark_opportunity_count": benchmark.get("opportunity_count") or 0,
+            "market_smarter_slice_count": benchmark.get("market_smarter_slice_count") or 0,
+            "market_benchmark_traded_pnl_usdc": benchmark.get("traded_pnl_usdc") or 0.0,
+            "market_benchmark_model_top_net_pnl_usdc": benchmark.get("model_top_net_pnl_usdc") or 0.0,
+            "market_benchmark_market_top_net_pnl_usdc": benchmark.get("market_top_net_pnl_usdc") or 0.0,
+            "market_benchmark_no_trade_net_pnl_usdc": benchmark.get("no_trade_net_pnl_usdc") or 0.0,
+            "market_benchmark_avoided_loss_usdc": benchmark.get("avoided_loss_usdc") or 0.0,
+            "market_benchmark_missed_gain_usdc": benchmark.get("missed_gain_usdc") or 0.0,
+            "market_benchmark_recommendations": benchmark.get("recommendations") or [],
             "settlement_payout_usdc": round(value["settlement_payout_usdc"], 6),
             "settlement_pnl_usdc": round(value["settlement_pnl_usdc"], 6),
             "mark_to_market_pnl_usdc": round(value["mark_to_market_pnl_usdc"], 6),
@@ -872,6 +1018,12 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "countable_strategy_quality_candidate_status": (
             "COUNTABLE_SETTLED" if best_countable else "MISSING_SETTLED_SAMPLE"
         ),
+        "market_benchmark_summary": market_benchmark.get("summary") or {},
+        "market_benchmark_status": (
+            "BLOCK_MARKET_SMARTER"
+            if (market_benchmark.get("summary") or {}).get("market_smarter_slice_count")
+            else "PASS"
+        ),
         "promotion_thresholds": thresholds,
         "promotion_evidence_basis": "settlement_scored_executable_after_fee",
         "mtm_promotion_allowed": False,
@@ -885,6 +1037,7 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "by_strategy": strategy_rows,
         "strategy_comparison": strategy_comparison,
         "tail_fill_quality": tail_quality,
+        "market_benchmark_scoreboard": market_benchmark,
         "by_market": [
             {
                 "market_id": key,

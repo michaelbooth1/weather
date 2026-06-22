@@ -1,4 +1,4 @@
-# 240. Taker Fee, Slippage, And Executable-Depth Profitability Model [OPEN 2026-06-22 - PAPER PNL ASSUMES ZERO LIVE FRICTION]
+# 240. Taker Fee, Slippage, And Executable-Depth Profitability Model [COMPLETE 2026-06-22]
 
 Goal: make taker scoring, bakeoff, and profitability claims include fees,
 spread/slippage, and executable order book depth before any live-use decision.
@@ -24,10 +24,10 @@ claims need executable net PnL, not frictionless paper PnL.
 5. Mark any legacy run that lacks executable friction modeling as
    paper-no-fee, not profitable live evidence.
 
-- [ ] Add Weather taker fee configuration with provenance and effective date.
-- [ ] Add depth-aware taker fill simulation using captured order book data.
-- [ ] Add fee/slippage/net fields to taker scoring and strategy summaries.
-- [ ] Add tests showing a pre-fee-positive strategy can fail after executable
+- [x] Add Weather taker fee configuration with provenance and effective date.
+- [x] Add depth-aware taker fill simulation using captured order book data.
+- [x] Add fee/slippage/net fields to taker scoring and strategy summaries.
+- [x] Add tests showing a pre-fee-positive strategy can fail after executable
   friction.
 
 Acceptance: taker reports and promotion gates use after-fee,

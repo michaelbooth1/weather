@@ -109,3 +109,10 @@ Verification:
 
 - `python -m pytest tests\reporting\test_predawn_weak_slot_parameter_sweep.py tests\operations\test_schema_registry.py -q`
   passed with `5 passed`.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.ten_minute_gate`.
+Predawn weak-slot work remains scoped to this packet field; it stays
+diagnostic-only for broader readiness unless it also changes hourly and market
+dispositions.

@@ -321,3 +321,9 @@ Remaining blockers:
 This keeps item 178 partial: the serving-only ordinal smoothing skew is fixed
 and guarded, but acceptance still requires a schema-current active replay/export
 contract and hourly early gate clearance.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.served_distribution_contract`.
+Serving parity evidence for this item must flow through the packet served-
+distribution contract field before it can count toward weather-only readiness.

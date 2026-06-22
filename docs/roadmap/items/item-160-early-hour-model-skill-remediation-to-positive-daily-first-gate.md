@@ -155,3 +155,9 @@ Current blockers:
 No progress-audit claim was accepted here. Item 160 remains partial until a
 served early-hour candidate clears the hourly gate and the daily-first trend
 turns non-negative with enough countable evidence.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.broad_claim_gate`.
+Acceptance evidence for this item must clear the packet broad-claim field; new
+daily-first diagnostics stay diagnostic-only until they change that blocker.

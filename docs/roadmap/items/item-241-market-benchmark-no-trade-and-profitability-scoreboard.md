@@ -1,4 +1,4 @@
-# 241. Market Benchmark No-Trade And Profitability Scoreboard [OPEN 2026-06-22 - MODEL TRADES WHERE MARKET IS SMARTER]
+# 241. Market Benchmark No-Trade And Profitability Scoreboard [COMPLETE 2026-06-22]
 
 Goal: compare taker model decisions to market-price baselines by slice and
 route to no-trade where the market is consistently smarter than the model.
@@ -23,11 +23,11 @@ avoid donating spread and fees while collecting evidence for future repair.
 4. Use the scoreboard to scale only slices that win after fees, across markets,
    and out of sample.
 
-- [ ] Add market-vs-model benchmark scoring to daily taker reports.
-- [ ] Add slice-level no-trade recommendations and blocks when market evidence
+- [x] Add market-vs-model benchmark scoring to daily taker reports.
+- [x] Add slice-level no-trade recommendations and blocks when market evidence
   beats model evidence.
-- [ ] Track avoided-loss and missed-gain metrics for no-trade decisions.
-- [ ] Add promotion tests requiring model edge to beat market/no-trade
+- [x] Track avoided-loss and missed-gain metrics for no-trade decisions.
+- [x] Add promotion tests requiring model edge to beat market/no-trade
   baselines after fees.
 
 Acceptance: taker strategy reports identify market-smarter slices, block or

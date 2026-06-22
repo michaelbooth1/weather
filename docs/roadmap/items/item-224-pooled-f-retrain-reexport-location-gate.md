@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-22 - GATE REFRESHED, RETRAIN/LOCATION BLOCKED]
+# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-22 - SCHEMA RE-EXPORTED, LOCATION BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -115,3 +115,84 @@ The gate still passes training validation provenance for the existing artifact
 and report, but no schema-current retrain/re-export was produced here. The item
 therefore remains partial with an up-to-date fail-closed gate and explicit
 blocking evidence.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.active_artifact_identity`.
+Retrain/re-export work must first make the active artifact identity proof-grade
+in the packet before downstream broad-claim or per-market dispositions can
+advance.
+
+## 2026-06-22 full retrain attempt
+
+Attempted the canonical active-artifact retrain:
+
+```powershell
+python -m weather.calibration.pooled_feature_model --objective band --family-unit F --min-artifact-free-bytes 0
+```
+
+The foreground run exceeded a 15-minute timeout before writing outputs. A
+hidden background retry was then launched with stdout/stderr redirected to:
+
+- `data/backtest/pooled_f_retrain_20260622_stdout.log`
+- `data/backtest/pooled_f_retrain_20260622_stderr.log`
+
+That retry remained active after sustained CPU use, emitted only sklearn
+all-missing-column imputer warnings, produced no success stdout, and had not
+modified `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl`. It was
+stopped to avoid leaving an unbounded training process running.
+
+This full-corpus attempt was superseded by the sharded-hour re-export below.
+
+## 2026-06-22 sharded-hour re-export
+
+Used the mergeable pooled-band shard path to train hours `7` through `20`
+individually with merge payloads, then merged the 14 validated shards into the
+active artifact:
+
+```powershell
+python -m weather.calibration.pooled_feature_model --objective band --family-unit F --hours 7,8,9,10,11,12,13,14,15,16,17,18,19,20 --merge-band-shards data\backtest\pooled_f_retrain_hour07.pkl data\backtest\pooled_f_retrain_hour08.pkl data\backtest\pooled_f_retrain_hour09.pkl data\backtest\pooled_f_retrain_hour10.pkl data\backtest\pooled_f_retrain_hour11.pkl data\backtest\pooled_f_retrain_hour12.pkl data\backtest\pooled_f_retrain_hour13.pkl data\backtest\pooled_f_retrain_hour14.pkl data\backtest\pooled_f_retrain_hour15.pkl data\backtest\pooled_f_retrain_hour16.pkl data\backtest\pooled_f_retrain_hour17.pkl data\backtest\pooled_f_retrain_hour18.pkl data\backtest\pooled_f_retrain_hour19.pkl data\backtest\pooled_f_retrain_hour20.pkl --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md --min-artifact-free-bytes 0
+```
+
+Artifacts:
+
+- `artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl`
+- `data/backtest/f_family_pooled_band_model_v0_3_report.md`
+- `data/backtest/pooled_f_retrain_merged_candidate.pkl`
+- `data/backtest/pooled_f_retrain_merged_candidate_report.md`
+- `data/backtest/pooled_f_retrain_hour07.pkl` through
+  `data/backtest/pooled_f_retrain_hour20.pkl`
+
+Result: the active artifact is now stamped with
+`toronto_feature_store_v1.14`, includes models for hours `7` through `20`, and
+records `14` training shards. The merged report used `210306` postprocess fit
+rows.
+
+Reran:
+
+```powershell
+python -m weather.reporting.pooled_f_retrain_location_gate --out data\backtest\pooled_f_retrain_location_gate.json --report data\backtest\pooled_f_retrain_location_gate_report.md
+python -m weather.reporting.weather_only_model_proof_packet
+```
+
+Gate result: still `BLOCK` with `7` blockers. The stale active-artifact schema
+blocker is resolved, and
+`weather_only_model_proof_packet.gates.active_artifact_identity` now passes.
+Remaining blockers:
+
+- `training_validation_provenance`: missing artifact/report blocked-validation
+  provenance.
+- `paired_candidate_replay`: candidate replay remains `BLOCK`; blocked
+  validation remains `BLOCK`; cutover remains `DO_NOT_CUT_OVER`.
+- `promotion_refresh_broad_claim`: aggregate candidate still trails market
+  Brier by `+0.0087`.
+- `hourly_ten_minute_weak_slot_gate`: current hourly gate remains `BLOCK`.
+- `bottom_location_gate`: candidate does not improve current Brier, `+0.0307`.
+- `exact_band_distance_zero_gate`: target Brier trails market by `+0.0047`,
+  above the `+0.0030` tolerance.
+- `source_missingness_location_gate`: Miami all-fresh candidate trails market by
+  `+0.0215`.
+
+Item 224 therefore remains `PARTIAL`: schema-current re-export is complete, but
+the regenerated artifact is not yet proof-grade for broad promotion or
+location-clearance claims.

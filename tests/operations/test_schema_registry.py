@@ -28,6 +28,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("multi_variant_shadow_attribution"), "multi_variant_shadow_attribution_v0.1")
         self.assertEqual(schema_version("model_variant_registry_audit"), "model_variant_registry_audit_v0.1")
         self.assertEqual(schema_version("roadmap_backlog"), "roadmap_backlog_v0.1")
+        self.assertEqual(
+            schema_version("weather_only_model_proof_packet"),
+            "weather_only_model_proof_packet_v0.1",
+        )
+        self.assertEqual(
+            schema_version("austin_hgb_requalification"),
+            "austin_hgb_requalification_v0.1",
+        )
         self.assertEqual(schema_version("local_generated_state_cleanup"), "local_generated_state_cleanup_v0.1")
         self.assertEqual(schema_version("hourly_model_performance"), "hourly_model_performance_v0.3")
         self.assertEqual(schema_version("hourly_performance_gate"), "hourly_performance_gate_v0.1")
@@ -136,6 +144,8 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("taker_settlement_finalization_watchdog"),
             "taker_settlement_finalization_watchdog_v0.1",
         )
+        self.assertEqual(schema_version("taker_tail_casebook"), "taker_tail_casebook_v0.1")
+        self.assertEqual(schema_version("trading_evidence_summary"), "trading_evidence_summary_v0.1")
         self.assertEqual(schema_version("taker_bot_daily_roll"), "taker_bot_daily_roll_v0.1")
         self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
         self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
@@ -143,6 +153,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("taker_champion_challenger_ledger"),
             "taker_champion_challenger_ledger_v0.1",
+        )
+        self.assertEqual(
+            schema_version("taker_market_benchmark_scoreboard"),
+            "taker_market_benchmark_scoreboard_v0.1",
         )
         self.assertEqual(schema_version("settled_day_root_cause"), "settled_day_root_cause_v0.1")
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")

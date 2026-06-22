@@ -1648,3 +1648,10 @@ split-safe CLOB/microstructure continuity, build a target-day band-selection
 repair that passes current-regression checks on later dates, rerun the full
 pinned replay, then refresh staged promotion only after model-quality and
 live-forward operational gates both clear.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.market_dispositions`.
+Item 48 is the owner for the canonical per-market PROMOTE/SHADOW/BLOCK
+decision table; staged promotion refreshes do not count as readiness progress
+unless they change that packet field or clear its first blocker.

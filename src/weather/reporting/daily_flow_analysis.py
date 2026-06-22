@@ -36,6 +36,9 @@ ARTIFACT_FILES = {
     "ten_minute_model_performance": "ten_minute_model_performance.json",
     "price_free_model_learning": "price_free_model_learning.json",
     "model_variant_evidence_growth": "model_variant_evidence_growth.json",
+    "taker_finalization_watchdog": "taker_finalization_watchdog.json",
+    "taker_tail_casebook": "taker_tail_casebook.json",
+    "trading_evidence": "trading_evidence.json",
 }
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
@@ -327,7 +330,7 @@ def _add_root_cause_actions(actions: list[dict[str, Any]], root_cause: dict[str,
 
 
 def _add_artifact_gap_actions(actions: list[dict[str, Any]], artifacts: dict[str, Any]) -> None:
-    required = ("daily_learning", "daily_refresh_status")
+    required = ("daily_learning", "daily_refresh_status", "trading_evidence", "taker_finalization_watchdog", "taker_tail_casebook")
     missing = [name for name in required if not (artifacts.get(name) or {}).get("exists")]
     if missing:
         actions.append(_action(
@@ -336,9 +339,71 @@ def _add_artifact_gap_actions(actions: list[dict[str, Any]], artifacts: dict[str
             "ops owner",
             "daily_flow_analysis",
             "Missing required daily analysis inputs: " + ", ".join(missing),
-            "Run python -m weather.operations.daily_refresh run and verify daily_learning.json is produced.",
+            "Run python -m weather.operations.daily_refresh run and verify the taker and trading evidence artifacts are produced before daily_learning.",
             blocks=False,
             evidence={"missing_inputs": missing},
+        ))
+
+
+def _add_taker_trading_actions(
+    actions: list[dict[str, Any]],
+    *,
+    taker_finalization: dict[str, Any],
+    taker_tail: dict[str, Any],
+    trading_evidence: dict[str, Any],
+) -> None:
+    finalization_summary = taker_finalization.get("summary") or {}
+    if finalization_summary.get("sla_breach_count"):
+        actions.append(_action(
+            "P0",
+            "taker_settlement_finalization",
+            "trading owner",
+            "taker_finalization_watchdog",
+            f"{finalization_summary.get('sla_breach_count')} taker finalization SLA breach(es).",
+            "python -m weather.market.taker_bot finalize --watchdog",
+            blocks=True,
+            evidence=finalization_summary,
+        ))
+    tail_summary = taker_tail.get("summary") or {}
+    if tail_summary.get("status") == "BLOCK_BAD_TAIL_SLICES":
+        first = next(iter(taker_tail.get("no_go_candidates") or []), {})
+        actions.append(_action(
+            "P0",
+            "taker_tail_no_go",
+            "trading owner",
+            "taker_tail_casebook",
+            (
+                f"{tail_summary.get('no_go_candidate_count')} taker tail no-go slice(s); "
+                f"first={first.get('slice_key') or '-'}."
+            ),
+            "Keep no-go tail slices blocked and rerun the tail casebook after new settlement-scored evidence.",
+            blocks=True,
+            evidence={"summary": tail_summary, "first_no_go_candidate": first},
+        ))
+    taker = (trading_evidence.get("taker") or {})
+    quality = taker.get("quality_gate") or {}
+    if quality.get("status") == "BLOCK":
+        actions.append(_action(
+            "P1",
+            "taker_strategy_quality",
+            "trading owner",
+            "trading_evidence",
+            f"Taker quality gate BLOCK: {quality.get('interpretation') or '-'}",
+            "Keep taker strategy-quality claims blocked until settlement-scored rolling evidence clears the gate.",
+            blocks=False,
+            evidence=taker,
+        ))
+    mm = trading_evidence.get("market_making") or {}
+    if mm.get("evidence_starvation_status") == "CRITICAL":
+        actions.append(_action(
+            "P0",
+            "mm_evidence_starvation",
+            "ops owner",
+            "trading_evidence",
+            "Market-making evidence starvation is CRITICAL.",
+            mm.get("recovery_command") or "python -m weather.market.market_microstructure ensure",
+            blocks=True,
+            evidence=mm.get("evidence_starvation") or mm,
         ))
 
 
@@ -414,7 +479,13 @@ def _summary(actions: list[dict[str, Any]], artifacts: dict[str, Any]) -> dict[s
     blockers = [row for row in actions if row.get("blocks")]
     missing_inputs = [
         name for name, row in artifacts.items()
-        if name in {"daily_learning", "daily_refresh_status"} and not row.get("exists")
+        if name in {
+            "daily_learning",
+            "daily_refresh_status",
+            "trading_evidence",
+            "taker_finalization_watchdog",
+            "taker_tail_casebook",
+        } and not row.get("exists")
     ]
     highest = min((row.get("priority") for row in actions), key=lambda item: PRIORITY_ORDER.get(item, 9), default=None)
     return {
@@ -476,6 +547,9 @@ def build_flow_analysis(
     daily_learning = payloads.get("daily_learning") or {}
     root_cause = payloads.get("settled_day_root_cause") or {}
     daily_progress = payloads.get("daily_progress_latest") or {}
+    taker_finalization = payloads.get("taker_finalization_watchdog") or {}
+    taker_tail = payloads.get("taker_tail_casebook") or {}
+    trading_evidence = payloads.get("trading_evidence") or {}
     steps = list(daily_refresh_steps or daily_refresh.get("steps") or [])
 
     actions: list[dict[str, Any]] = []
@@ -484,6 +558,12 @@ def build_flow_analysis(
     _add_daily_learning_actions(actions, daily_learning)
     _add_progress_actions(actions, daily_progress)
     _add_root_cause_actions(actions, root_cause)
+    _add_taker_trading_actions(
+        actions,
+        taker_finalization=taker_finalization,
+        taker_tail=taker_tail,
+        trading_evidence=trading_evidence,
+    )
     actions = _dedupe_actions(actions)
 
     generated = generated_at_utc or utc_iso()
@@ -524,6 +604,19 @@ def build_flow_analysis(
                 "new_roadmap_item_candidates": root_cause.get("new_roadmap_item_candidates") or [],
             },
             "daily_refresh_summary": daily_refresh_summary or daily_refresh.get("summary") or {},
+            "taker_finalization_watchdog": {
+                "status": taker_finalization.get("status"),
+                "summary": taker_finalization.get("summary") or {},
+            },
+            "taker_tail_casebook": {
+                "status": (taker_tail.get("summary") or {}).get("status") or taker_tail.get("status"),
+                "summary": taker_tail.get("summary") or {},
+            },
+            "trading_evidence": {
+                "status": trading_evidence.get("status"),
+                "market_making": trading_evidence.get("market_making") or {},
+                "taker": trading_evidence.get("taker") or {},
+            },
         },
     }
 
@@ -590,6 +683,13 @@ def render_report(payload: dict[str, Any]) -> str:
     runtime = payload.get("runtime") or {}
     root = ((payload.get("source_rollups") or {}).get("settled_day_root_cause") or {})
     root_summary = root.get("summary") or {}
+    taker_finalization = ((payload.get("source_rollups") or {}).get("taker_finalization_watchdog") or {})
+    taker_finalization_summary = taker_finalization.get("summary") or {}
+    taker_tail = ((payload.get("source_rollups") or {}).get("taker_tail_casebook") or {})
+    taker_tail_summary = taker_tail.get("summary") or {}
+    trading = ((payload.get("source_rollups") or {}).get("trading_evidence") or {})
+    trading_taker = trading.get("taker") or {}
+    trading_mm = trading.get("market_making") or {}
     artifacts = payload.get("input_artifacts") or {}
     lines = [
         "# Daily Flow Analysis",
@@ -638,6 +738,26 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Issue counts", root_summary.get("issue_counts") or {}],
                 ["New roadmap candidates", len(root.get("new_roadmap_item_candidates") or [])],
                 ["Taker net PnL", fmt_signed(root_summary.get("taker_net_pnl_usdc"), 2) if root_summary.get("taker_net_pnl_usdc") is not None else "-"],
+            ],
+        ),
+        "",
+        "## Taker And Trading",
+        "",
+        *markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Finalization status", taker_finalization.get("status") or "-"],
+                ["Finalization pending", taker_finalization_summary.get("pending_finalization_count")],
+                ["Finalization SLA breaches", taker_finalization_summary.get("sla_breach_count")],
+                ["Champion decision", taker_finalization_summary.get("champion_decision") or "-"],
+                ["Tail casebook", taker_tail.get("status") or "-"],
+                ["Tail no-go candidates", taker_tail_summary.get("no_go_candidate_count")],
+                ["Trading evidence", trading.get("status") or "-"],
+                ["Taker quality", (trading_taker.get("quality_gate") or {}).get("status") or "-"],
+                ["Taker PnL evidence", trading_taker.get("pnl_evidence_status") or "-"],
+                ["MM evidence mode", trading_mm.get("evidence_mode") or "-"],
+                ["MM counts forward", trading_mm.get("counts_toward_live_forward_gate")],
+                ["MM starvation", trading_mm.get("evidence_starvation_status") or "-"],
             ],
         ),
         "",

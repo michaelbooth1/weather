@@ -65,6 +65,37 @@ def render_report(payload):
                     f"missing {summary.get('markets_with_missing_days')}; "
                     f"sparse {summary.get('markets_with_sparse_days')}"
                 )
+        elif step.get("name") == "taker_finalization_watchdog":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; runs {result.get('run_count')}; "
+                    f"finalized {result.get('finalized_run_count')}; "
+                    f"pending {result.get('pending_finalization_count')}; "
+                    f"sla {result.get('sla_breach_count')}; "
+                    f"champion {result.get('champion_decision')}"
+                )
+        elif step.get("name") == "taker_tail_casebook":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; runs {result.get('source_run_count')}; "
+                    f"tail {result.get('tail_fill_count')}; "
+                    f"losing {result.get('losing_tail_fill_count')}; "
+                    f"no_go {result.get('no_go_candidate_count')}"
+                )
+        elif step.get("name") == "trading_evidence":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; taker {result.get('taker_quality_status')} "
+                    f"{result.get('taker_pnl_evidence_status')}; "
+                    f"mm_counts {result.get('mm_counts_toward_live_forward')}; "
+                    f"starvation {result.get('mm_evidence_starvation_status')}"
+                )
         elif step.get("name") == "promotion_refresh":
             disk = result.get("disk_preflight") or {}
             if result.get("status") == "BLOCK" and disk:
@@ -270,6 +301,45 @@ def render_report(payload):
             f"Remediation: `{first.get('remediation_command') or '-'}`",
             "",
         ]
+    taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}
+    taker_tail = (payload.get("summary") or {}).get("taker_tail_casebook") or {}
+    trading = (payload.get("summary") or {}).get("trading_evidence") or {}
+    if taker_finalization.get("status") or taker_tail.get("status") or trading.get("status"):
+        lines += [
+            "",
+            "## Taker And Trading Evidence",
+            "",
+            "| Artifact | Status | Detail |",
+            "| :--- | :--- | :--- |",
+        ]
+        if taker_finalization.get("status"):
+            lines.append(
+                "| Finalization watchdog | "
+                f"{taker_finalization.get('status')} | "
+                f"runs={taker_finalization.get('run_count')}; "
+                f"finalized={taker_finalization.get('finalized_run_count')}; "
+                f"pending={taker_finalization.get('pending_finalization_count')}; "
+                f"sla={taker_finalization.get('sla_breach_count')}; "
+                f"champion={taker_finalization.get('champion_decision')} |"
+            )
+        if taker_tail.get("status"):
+            lines.append(
+                "| Tail casebook | "
+                f"{taker_tail.get('status')} | "
+                f"runs={taker_tail.get('source_run_count')}; "
+                f"tail={taker_tail.get('tail_fill_count')}; "
+                f"losing={taker_tail.get('losing_tail_fill_count')}; "
+                f"no_go={taker_tail.get('no_go_candidate_count')} |"
+            )
+        if trading.get("status"):
+            lines.append(
+                "| Trading evidence | "
+                f"{trading.get('status')} | "
+                f"taker={trading.get('taker_quality_status')} "
+                f"{trading.get('taker_pnl_evidence_status')}; "
+                f"mm_counts={trading.get('mm_counts_toward_live_forward')}; "
+                f"starvation={trading.get('mm_evidence_starvation_status')} |"
+            )
     disk_preflights = (payload.get("summary") or {}).get("disk_preflight") or {}
     if disk_preflights:
         lines += ["", "## Disk Preflight", ""]

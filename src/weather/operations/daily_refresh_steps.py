@@ -15,6 +15,7 @@ from weather.backtesting.settlement_ledger import (
     DEFAULT_LEDGER_ROOT,
     finalize_folders,
 )
+from weather.market import taker_bot
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
@@ -48,7 +49,9 @@ from weather.reporting import promotion_refresh
 from weather.reporting import settled_day_root_cause
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
+from weather.reporting import taker_tail_casebook
 from weather.reporting import ten_minute_model_performance
+from weather.reporting import trading_evidence
 from weather.reporting import variant_evidence_growth
 from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
@@ -58,6 +61,9 @@ STEP_ORDER = (
     "reanalysis_recent_refresh",
     "ingest_quality_gate",
     "market_day_labels_finalize",
+    "taker_finalization_watchdog",
+    "taker_tail_casebook",
+    "trading_evidence",
     "clob_order_book_tiering",
     "replay_status_backfill",
     "hourly_model_performance",
@@ -301,6 +307,133 @@ def run_market_day_labels_finalize(args):
         "polymarket_reconciliation": not args.skip_polymarket_reconciliation,
     })
     return summary
+
+
+def _taker_finalization_status(payload):
+    summary = payload.get("summary") or {}
+    if summary.get("sla_breach_count"):
+        return "BREACH"
+    if summary.get("pending_finalization_count") or summary.get("needs_finalization_count"):
+        return "PENDING"
+    return "OK"
+
+
+def run_taker_finalization_watchdog_step(args):
+    if getattr(args, "skip_taker_finalization_watchdog", False):
+        return {"status": "SKIPPED", "reason": "skip_taker_finalization_watchdog"}
+    champion_ledger_out = backtest_path(args, "taker_champion_challenger_ledger.json")
+    champion_report_out = backtest_path(args, "taker_champion_challenger_ledger_report.md")
+    payload = taker_bot.finalization_watchdog(
+        target_date=getattr(args, "taker_finalization_date", "") or None,
+        runs_root=getattr(args, "taker_root", taker_bot.DEFAULT_RUNS_ROOT),
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        now=getattr(args, "as_of", None),
+        sla_hours=getattr(args, "taker_finalization_sla_hours", taker_bot.DEFAULT_FINALIZATION_SLA_HOURS),
+        finalize_missing=not getattr(args, "taker_finalization_no_finalize", False),
+        min_free_bytes=getattr(args, "taker_finalization_min_free_bytes", taker_bot.DEFAULT_MIN_FREE_BYTES),
+        ensure_bakeoff=not getattr(args, "skip_taker_bakeoff", False),
+        bakeoff_strategies=getattr(args, "taker_bakeoff_strategies", taker_bot.DEFAULT_BAKEOFF_STRATEGIES),
+        champion_strategy_id=getattr(args, "taker_champion_strategy_id", taker_bot.ACTIVE_DEFAULT_STRATEGY_ID),
+        champion_min_complete_label_days=getattr(
+            args,
+            "taker_champion_min_complete_label_days",
+            taker_bot.DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS,
+        ),
+        champion_min_settled_orders=getattr(
+            args,
+            "taker_champion_min_settled_orders",
+            taker_bot.DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
+        ),
+        champion_ledger_out=champion_ledger_out,
+        champion_ledger_report_out=champion_report_out,
+    )
+    status = _taker_finalization_status(payload)
+    payload["status"] = status
+    json_out = write_json(backtest_path(args, "taker_finalization_watchdog.json"), payload)
+    report_out = backtest_path(args, "taker_finalization_watchdog_report.md")
+    Path(report_out).parent.mkdir(parents=True, exist_ok=True)
+    Path(report_out).write_text(taker_bot.render_finalization_watchdog_report(payload), encoding="utf-8")
+    summary = payload.get("summary") or {}
+    return {
+        "status": status,
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "run_count": summary.get("run_count"),
+        "labelable_run_count": summary.get("labelable_run_count"),
+        "needs_finalization_count": summary.get("needs_finalization_count"),
+        "finalized_run_count": summary.get("finalized_run_count"),
+        "sla_breach_count": summary.get("sla_breach_count"),
+        "pending_finalization_count": summary.get("pending_finalization_count"),
+        "bakeoff_created_count": summary.get("bakeoff_created_count"),
+        "bakeoff_fresh_count": summary.get("bakeoff_fresh_count"),
+        "champion_decision": summary.get("champion_decision"),
+        "champion_recommended_strategy_id": summary.get("champion_recommended_strategy_id"),
+        "champion_ledger_out": as_path(champion_ledger_out),
+        "champion_ledger_report_out": as_path(champion_report_out),
+    }
+
+
+def run_taker_tail_casebook_step(args):
+    if getattr(args, "skip_taker_tail_casebook", False):
+        return {"status": "SKIPPED", "reason": "skip_taker_tail_casebook"}
+    runs = taker_tail_casebook.discover_run_sources(
+        getattr(args, "taker_root", taker_tail_casebook.DEFAULT_TAKER_RUNS_ROOT),
+        target_date=getattr(args, "taker_tail_casebook_date", "") or None,
+        max_runs=getattr(args, "taker_tail_casebook_max_runs", 0) or None,
+    )
+    payload = taker_tail_casebook.build_tail_casebook_from_paths(
+        runs,
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        generated_at_utc=utc_iso(),
+    )
+    json_out = backtest_path(args, "taker_tail_casebook.json")
+    report_out = backtest_path(args, "taker_tail_casebook_report.md")
+    taker_tail_casebook.write_outputs(payload, json_out=json_out, report_out=report_out)
+    summary = payload.get("summary") or {}
+    return {
+        "status": summary.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "source_run_count": len(runs),
+        "tail_fill_count": summary.get("tail_fill_count"),
+        "losing_tail_fill_count": summary.get("losing_tail_fill_count"),
+        "low_price_tail_fill_count": summary.get("low_price_tail_fill_count"),
+        "warm_tail_fill_count": summary.get("warm_tail_fill_count"),
+        "no_go_candidate_count": summary.get("no_go_candidate_count"),
+    }
+
+
+def run_trading_evidence_step(args):
+    if getattr(args, "skip_trading_evidence", False):
+        return {"status": "SKIPPED", "reason": "skip_trading_evidence"}
+    payload = trading_evidence.build_trading_evidence_summary(
+        mm_runs_root=getattr(args, "mm_root", trading_evidence.DEFAULT_MM_RUNS_ROOT),
+        taker_runs_root=getattr(args, "taker_root", trading_evidence.DEFAULT_TAKER_RUNS_ROOT),
+        generated_at_utc=utc_iso(),
+    )
+    status = trading_evidence._summary_status(payload)
+    payload["status"] = status
+    json_out, report_out = trading_evidence.write_outputs(
+        payload,
+        json_out=backtest_path(args, "trading_evidence.json"),
+        report_out=backtest_path(args, "trading_evidence_report.md"),
+    )
+    taker = payload.get("taker") or {}
+    mm = payload.get("market_making") or {}
+    return {
+        "status": status,
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "mm_evidence_mode": mm.get("evidence_mode"),
+        "mm_counts_toward_live_forward": mm.get("counts_toward_live_forward_gate"),
+        "mm_evidence_starvation_status": mm.get("evidence_starvation_status"),
+        "taker_run_id": taker.get("run_id"),
+        "taker_quality_status": (taker.get("quality_gate") or {}).get("status"),
+        "taker_pnl_evidence_status": taker.get("pnl_evidence_status"),
+        "taker_net_pnl_usdc": taker.get("net_pnl_usdc"),
+        "taker_settled_order_count": taker.get("settled_order_count"),
+        "taker_unsettled_order_count": taker.get("unsettled_order_count"),
+    }
 
 
 def run_clob_order_book_tiering_step(args):
@@ -1176,6 +1309,9 @@ DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
+    ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
+    ("taker_tail_casebook", run_taker_tail_casebook_step),
+    ("trading_evidence", run_trading_evidence_step),
     ("clob_order_book_tiering", run_clob_order_book_tiering_step),
     ("replay_status_backfill", run_replay_status_backfill_step),
     ("hourly_model_performance", run_hourly_model_performance_step),
@@ -1230,6 +1366,9 @@ def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
+    taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
+    taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
+    trading = ((by_name.get("trading_evidence") or {}).get("result") or {})
     clob_tiering = ((by_name.get("clob_order_book_tiering") or {}).get("result") or {})
     replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
     promotion = ((by_name.get("promotion_refresh") or {}).get("result") or {})
@@ -1266,6 +1405,40 @@ def pipeline_summary(steps):
             "summary": ingest.get("summary") or {},
             "fail_reasons": ingest.get("fail_reasons") or [],
             "warn_reasons": ingest.get("warn_reasons") or [],
+        },
+        "taker_finalization_watchdog": {
+            "status": taker_finalization.get("status"),
+            "run_count": taker_finalization.get("run_count"),
+            "labelable_run_count": taker_finalization.get("labelable_run_count"),
+            "needs_finalization_count": taker_finalization.get("needs_finalization_count"),
+            "finalized_run_count": taker_finalization.get("finalized_run_count"),
+            "sla_breach_count": taker_finalization.get("sla_breach_count"),
+            "pending_finalization_count": taker_finalization.get("pending_finalization_count"),
+            "bakeoff_created_count": taker_finalization.get("bakeoff_created_count"),
+            "bakeoff_fresh_count": taker_finalization.get("bakeoff_fresh_count"),
+            "champion_decision": taker_finalization.get("champion_decision"),
+            "champion_recommended_strategy_id": taker_finalization.get("champion_recommended_strategy_id"),
+        },
+        "taker_tail_casebook": {
+            "status": taker_tail.get("status"),
+            "source_run_count": taker_tail.get("source_run_count"),
+            "tail_fill_count": taker_tail.get("tail_fill_count"),
+            "losing_tail_fill_count": taker_tail.get("losing_tail_fill_count"),
+            "low_price_tail_fill_count": taker_tail.get("low_price_tail_fill_count"),
+            "warm_tail_fill_count": taker_tail.get("warm_tail_fill_count"),
+            "no_go_candidate_count": taker_tail.get("no_go_candidate_count"),
+        },
+        "trading_evidence": {
+            "status": trading.get("status"),
+            "mm_evidence_mode": trading.get("mm_evidence_mode"),
+            "mm_counts_toward_live_forward": trading.get("mm_counts_toward_live_forward"),
+            "mm_evidence_starvation_status": trading.get("mm_evidence_starvation_status"),
+            "taker_run_id": trading.get("taker_run_id"),
+            "taker_quality_status": trading.get("taker_quality_status"),
+            "taker_pnl_evidence_status": trading.get("taker_pnl_evidence_status"),
+            "taker_net_pnl_usdc": trading.get("taker_net_pnl_usdc"),
+            "taker_settled_order_count": trading.get("taker_settled_order_count"),
+            "taker_unsettled_order_count": trading.get("taker_unsettled_order_count"),
         },
         "promotion": {
             "candidate_verdict": promotion.get("candidate_verdict"),

@@ -116,6 +116,31 @@ class TestMmPolicy(unittest.TestCase):
         self.assertTrue(diag["promotion_allowlist_enforced"])
         self.assertEqual(diag["promotion_allowlist_schema_version"], "promotion_allowlist_v0.1")
 
+    def test_load_promotion_states_shadows_denied_promote_allowlist_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(json.dumps({
+                "promotion_allowlist": {
+                    "schema_version": "promotion_allowlist_v0.1",
+                    "markets": [
+                        {
+                            "market_id": "austin",
+                            "action": "PROMOTE_CANDIDATE",
+                            "verdict": "PASS",
+                            "candidate_serving_allowed": False,
+                            "candidate_permission_allowed": False,
+                            "blocker_reason": "candidate cutover is not allowed",
+                        }
+                    ],
+                },
+            }), encoding="utf-8")
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "SHADOW")
+        self.assertFalse(states["austin"]["candidate_permission_allowed"])
+        self.assertTrue(diag["promotion_allowlist_enforced"])
+
     def test_blocked_promotion_fails_closed(self):
         quote = decide_quote(fresh_row(promotion_state="BLOCK"), now=NOW)
 

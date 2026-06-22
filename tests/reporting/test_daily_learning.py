@@ -204,6 +204,53 @@ class TestDailyLearning(unittest.TestCase):
         self.assertFalse(payload["retrain_plan"]["training_ready"])
         self.assertGreaterEqual(payload["summary"]["blocker_count"], 1)
 
+    def test_build_learning_payload_blocks_on_taker_finalization_and_tail_no_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "taker_finalization_watchdog.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "taker_settlement_finalization_watchdog_v0.1",
+                        "status": "BREACH",
+                        "summary": {
+                            "run_count": 2,
+                            "pending_finalization_count": 1,
+                            "sla_breach_count": 1,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (backtest_root / "taker_tail_casebook.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "taker_tail_casebook_v0.1",
+                        "summary": {
+                            "status": "BLOCK_BAD_TAIL_SLICES",
+                            "tail_fill_count": 3,
+                            "losing_tail_fill_count": 2,
+                            "no_go_candidate_count": 1,
+                        },
+                        "no_go_candidates": [
+                            {"slice_key": "low_price_tail|atlanta|hour:16", "loss_count": 2}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            categories = {row["category"] for row in payload["learnings"]}
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+        self.assertIn("taker_settlement_finalization", categories)
+        self.assertIn("taker_tail_no_go", categories)
+        self.assertIn("Taker finalization SLA breaches", report)
+        self.assertIn("Taker tail no-go candidates", report)
+
     def test_build_learning_payload_includes_price_free_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

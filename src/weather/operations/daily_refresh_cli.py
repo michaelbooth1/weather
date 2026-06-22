@@ -25,6 +25,9 @@ _DEPENDENCY_NAMES = {
     "hourly_model_performance",
     "ten_minute_model_performance",
     "settled_day_root_cause",
+    "taker_bot",
+    "taker_tail_casebook",
+    "trading_evidence",
     "promotion_refresh",
     "clob_order_book_tiering",
     "fleet_observability",
@@ -166,6 +169,53 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--taker-root", default=str(settled_day_root_cause.DEFAULT_TAKER_ROOT))
     parser.add_argument("--mm-root", default=str(settled_day_root_cause.DEFAULT_MM_ROOT))
+    parser.add_argument("--skip-taker-finalization-watchdog", action="store_true")
+    parser.add_argument(
+        "--taker-finalization-date",
+        default="",
+        help="Optional taker target date to finalize; default scans all taker runs for newly labelable tapes.",
+    )
+    parser.add_argument(
+        "--taker-finalization-sla-hours",
+        type=float,
+        default=taker_bot.DEFAULT_FINALIZATION_SLA_HOURS,
+    )
+    parser.add_argument(
+        "--taker-finalization-min-free-bytes",
+        type=int,
+        default=taker_bot.DEFAULT_MIN_FREE_BYTES,
+    )
+    parser.add_argument(
+        "--taker-finalization-no-finalize",
+        action="store_true",
+        help="Report taker finalization state without writing missing settled artifacts.",
+    )
+    parser.add_argument("--skip-taker-bakeoff", action="store_true")
+    parser.add_argument("--taker-bakeoff-strategies", default=taker_bot.DEFAULT_BAKEOFF_STRATEGIES)
+    parser.add_argument("--taker-champion-strategy-id", default=taker_bot.ACTIVE_DEFAULT_STRATEGY_ID)
+    parser.add_argument(
+        "--taker-champion-min-complete-label-days",
+        type=int,
+        default=taker_bot.DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS,
+    )
+    parser.add_argument(
+        "--taker-champion-min-settled-orders",
+        type=int,
+        default=taker_bot.DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
+    )
+    parser.add_argument("--skip-taker-tail-casebook", action="store_true")
+    parser.add_argument(
+        "--taker-tail-casebook-date",
+        default="",
+        help="Optional target date under --taker-root for the tail-loss casebook; default scans all runs.",
+    )
+    parser.add_argument(
+        "--taker-tail-casebook-max-runs",
+        type=int,
+        default=0,
+        help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
+    )
+    parser.add_argument("--skip-trading-evidence", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
     parser.add_argument(
         "--promotion-min-artifact-free-bytes",

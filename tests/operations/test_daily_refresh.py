@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import sys
@@ -7,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from weather.market.taker_bot import ORDER_COLUMNS
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     acquire_lock,
@@ -27,6 +29,9 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_price_free_model_learning_step,
     run_reanalysis_recent_refresh_step,
     run_settled_day_root_cause_step,
+    run_taker_finalization_watchdog_step,
+    run_taker_tail_casebook_step,
+    run_trading_evidence_step,
 )
 from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
@@ -104,6 +109,20 @@ def _args(tmp, **overrides):
         "settled_root_cause_date": "",
         "taker_root": str(root / "taker_runs"),
         "mm_root": str(root / "mm_runs"),
+        "skip_taker_finalization_watchdog": False,
+        "taker_finalization_date": "",
+        "taker_finalization_sla_hours": 4.0,
+        "taker_finalization_min_free_bytes": 0,
+        "taker_finalization_no_finalize": False,
+        "skip_taker_bakeoff": False,
+        "taker_bakeoff_strategies": "raw_edge_control,small_order_probe",
+        "taker_champion_strategy_id": "raw_edge_control",
+        "taker_champion_min_complete_label_days": 3,
+        "taker_champion_min_settled_orders": 5,
+        "skip_taker_tail_casebook": False,
+        "taker_tail_casebook_date": "",
+        "taker_tail_casebook_max_runs": 0,
+        "skip_trading_evidence": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
         "markets": "",
@@ -137,6 +156,17 @@ def _args(tmp, **overrides):
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def _write_order_tape(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ORDER_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            full = {column: "" for column in ORDER_COLUMNS}
+            full.update(row)
+            writer.writerow(full)
 
 
 class TestDailyRefresh(unittest.TestCase):
@@ -373,6 +403,10 @@ class TestDailyRefresh(unittest.TestCase):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
+        self.assertLess(names.index("market_day_labels_finalize"), names.index("taker_finalization_watchdog"))
+        self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_tail_casebook"))
+        self.assertLess(names.index("taker_tail_casebook"), names.index("trading_evidence"))
+        self.assertLess(names.index("trading_evidence"), names.index("daily_learning"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
@@ -938,8 +972,181 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertEqual(result["target_date"], "2026-06-20")
             self.assertTrue(Path(result["json_out"]).exists())
             self.assertTrue(Path(result["report_out"]).exists())
-            self.assertTrue(Path(result["issues_out"]).exists())
-            self.assertIn("MODEL_TOP_WARM_SIDE_MISS", result["issue_counts"])
+            issues_exists = Path(result["issues_out"]).exists()
+        self.assertTrue(issues_exists)
+        self.assertIn("MODEL_TOP_WARM_SIDE_MISS", result["issue_counts"])
+
+    def test_taker_finalization_watchdog_step_writes_settled_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "taker_runs" / "2026-06-19" / "taker-1"
+            event_slug = "highest-temperature-in-seattle-on-june-19-2026"
+            _write_order_tape(
+                run / "orders_long.csv",
+                [
+                    {
+                        "schema_version": "taker_bot_run_v0.1",
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                        "market_id": "seattle",
+                        "event_slug": event_slug,
+                        "range_label": "80-81 F",
+                        "bin_kind": "eq",
+                        "bin_value": "80",
+                        "bin_value_hi": "81",
+                        "clob_token_id": "token-seattle-80",
+                        "order_status": "FILLED",
+                        "action": "BUY",
+                        "fair_probability": "0.80",
+                        "best_ask": "0.60",
+                        "fill_price": "0.60",
+                        "fill_size": "10",
+                        "fill_notional_usdc": "6.0",
+                        "total_spent_usdc": "6.0",
+                        "fee_usdc": "0",
+                        "reason_code": "BUY_EDGE",
+                        "strategy_id": "raw_edge_control",
+                        "strategy_family": "control",
+                    }
+                ],
+            )
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "summary": {
+                            "budget_usdc": 100,
+                            "cumulative_filled_orders": 1,
+                            "cumulative_net_pnl_usdc": 0.0,
+                        },
+                        "pnl": {"summary": {"filled_order_count": 1, "unsettled_order_count": 1}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            labels = root / "backtest" / "market_day_labels.csv"
+            labels.parent.mkdir(parents=True)
+            labels.write_text(
+                "\n".join(
+                    [
+                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
+                        f"{event_slug},seattle,2026-06-19,80,80-81 F,complete",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                labels_csv=str(labels),
+                taker_finalization_min_free_bytes=0,
+                skip_taker_bakeoff=True,
+            )
+
+            result = run_taker_finalization_watchdog_step(args)
+            settled_exists = (run / "settled_pnl.json").exists()
+            json_exists = Path(result["json_out"]).exists()
+            report_exists = Path(result["report_out"]).exists()
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["finalized_run_count"], 1)
+        self.assertTrue(settled_exists)
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+
+    def test_taker_tail_casebook_step_writes_no_go_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            event_slug = "highest-temperature-in-atlanta-on-june-21-2026"
+            run = root / "taker_runs" / "2026-06-21" / "taker-tail"
+            _write_order_tape(
+                run / "orders_long.csv",
+                [
+                    {
+                        "run_id": "taker-tail",
+                        "target_date": "2026-06-21",
+                        "market_id": "atlanta",
+                        "event_slug": event_slug,
+                        "captured_at_utc": "2026-06-21T20:00:00+00:00",
+                        "order_status": "FILLED",
+                        "range_label": "84-85 F",
+                        "bin_kind": "eq",
+                        "bin_value": "84",
+                        "bin_value_hi": "85",
+                        "clob_token_id": "token-atlanta-84",
+                        "fair_probability": "0.40",
+                        "best_ask": "0.01",
+                        "fill_size": "10",
+                        "fill_notional_usdc": "0.1",
+                        "total_spent_usdc": "0.1",
+                        "low_price_tail": "True",
+                        "source_freshness_state": "all_fresh",
+                    }
+                ],
+            )
+            labels = root / "backtest" / "market_day_labels.csv"
+            labels.parent.mkdir(parents=True)
+            labels.write_text(
+                "\n".join(
+                    [
+                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
+                        f"{event_slug},atlanta,2026-06-21,80,80-81 F,complete",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_taker_tail_casebook_step(_args(tmp, labels_csv=str(labels)))
+            json_exists = Path(result["json_out"]).exists()
+            report_exists = Path(result["report_out"]).exists()
+
+        self.assertEqual(result["status"], "BLOCK_BAD_TAIL_SLICES")
+        self.assertEqual(result["tail_fill_count"], 1)
+        self.assertEqual(result["no_go_candidate_count"], 1)
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+
+    def test_trading_evidence_step_writes_summary_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "taker_runs" / "2026-06-19" / "taker-1"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "taker-1",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-taker",
+                        "summary": {
+                            "cumulative_filled_orders": 10,
+                            "budget_spent_usdc": 20.0,
+                            "cumulative_net_pnl_usdc": -2.0,
+                        },
+                        "pnl": {
+                            "summary": {
+                                "filled_order_count": 10,
+                                "net_pnl_usdc": -2.0,
+                                "mark_to_market_pnl_usdc": -2.0,
+                                "settled_order_count": 0,
+                                "unsettled_order_count": 10,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_trading_evidence_step(_args(tmp))
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            report_exists = Path(result["report_out"]).exists()
+
+        self.assertEqual(result["status"], "WARN")
+        self.assertEqual(result["taker_quality_status"], "SAMPLE_PENDING_NEGATIVE_LATEST")
+        self.assertEqual(payload["taker"]["run_id"], "taker-1")
+        self.assertTrue(report_exists)
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

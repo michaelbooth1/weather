@@ -262,7 +262,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-22 - GATE REFRESHED, RETRAIN/LOCATION BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-22 - SCHEMA RE-EXPORTED, LOCATION BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -278,12 +278,12 @@ infrastructure work remains.
 | 237 | [Active Taker Canary Demotion And Requalification [COMPLETE 2026-06-22 - CANARY PAPER-ONLY UNTIL REQUALIFIED]](items/item-237-active-taker-canary-demotion-and-requalification.md) |
 | 238 | [Daily Taker Full-Bakeoff Champion/Challenger Loop [COMPLETE 2026-06-22]](items/item-238-daily-taker-full-bakeoff-champion-challenger-loop.md) |
 | 239 | [Taker Settlement Finalization Liveness And Storage SLA [COMPLETE 2026-06-22]](items/item-239-taker-settlement-finalization-liveness-and-storage-sla.md) |
-| 240 | [Taker Fee, Slippage, And Executable-Depth Profitability Model [OPEN 2026-06-22 - PAPER PNL ASSUMES ZERO LIVE FRICTION]](items/item-240-taker-fee-slippage-and-executable-depth-profitability-model.md) |
-| 241 | [Market Benchmark No-Trade And Profitability Scoreboard [OPEN 2026-06-22 - MODEL TRADES WHERE MARKET IS SMARTER]](items/item-241-market-benchmark-no-trade-and-profitability-scoreboard.md) |
-| 242 | [Decisive Model Proof Packet And Gate Stack Ratchet [OPEN 2026-06-22 - HARD-SLICE PROOF PACKET MISSING]](items/item-242-decisive-model-proof-packet-and-gate-stack-ratchet.md) |
+| 240 | [Taker Fee, Slippage, And Executable-Depth Profitability Model [COMPLETE 2026-06-22]](items/item-240-taker-fee-slippage-and-executable-depth-profitability-model.md) |
+| 241 | [Market Benchmark No-Trade And Profitability Scoreboard [COMPLETE 2026-06-22]](items/item-241-market-benchmark-no-trade-and-profitability-scoreboard.md) |
+| 242 | [Decisive Model Proof Packet And Gate Stack Ratchet [COMPLETE 2026-06-22 - WEATHER-ONLY PROOF PACKET AND RATCHET LIVE]](items/item-242-decisive-model-proof-packet-and-gate-stack-ratchet.md) |
 | 248 | [Austin Robust Forecast-Cluster Signal [OPEN 2026-06-22 - FEATURE-PATH MAX CLUSTER OVERHEATS]](items/item-248-austin-robust-forecast-cluster-signal.md) |
 | 249 | [Official METAR Rollover Lock-In Signal [OPEN 2026-06-22 - LATE ROLLOVER IGNORED WHEN WU CURRENT IS FLAT]](items/item-249-official-metar-rollover-lockin-signal.md) |
-| 250 | [Austin HGB Per-Location Requalification [OPEN 2026-06-22 - ACTIVE ARTIFACT LOSES TO MARKET]](items/item-250-austin-hgb-per-location-requalification.md) |
+| 250 | [Austin HGB Per-Location Requalification [COMPLETE 2026-06-22 - AUSTIN HGB FAIL-CLOSED REQUALIFICATION PACKET LIVE]](items/item-250-austin-hgb-per-location-requalification.md) |
 | 251 | [Standing-High Partial Lock-In Dampener [OPEN 2026-06-22 - HIGH STOOD BUT FORECAST CEILING BLOCKS LOCK-IN]](items/item-251-standing-high-partial-lockin-dampener.md) |
 | 252 | [Impossible Guidance Feature Quarantine [OPEN 2026-06-22 - GUIDANCE CAN BE FRESH BUT PHYSICALLY IMPOSSIBLE]](items/item-252-impossible-guidance-feature-quarantine.md) |
 

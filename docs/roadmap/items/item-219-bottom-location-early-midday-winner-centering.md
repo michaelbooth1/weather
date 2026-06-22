@@ -99,3 +99,9 @@ Item 219 remains `PARTIAL`. The next actionable repair is not another global
 predawn calibrator tweak; it needs a no-market residual candidate that directly
 targets Seattle/NYC/Miami early and midday winner mass while preserving the
 late and lock-in guardrails that already pass.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.bottom_location_gate`.
+Bottom-location work is ordered by this packet blocker; candidate diagnostics
+must clear or retire it before the roadmap treats them as readiness progress.

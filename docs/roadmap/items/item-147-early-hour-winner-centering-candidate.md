@@ -749,3 +749,9 @@ Current blockers:
 This keeps Item 147 as the diagnostic baseline for early-hour winner-centering,
 not a promotion candidate. Remaining promotion work belongs in active
 served-distribution and market-specific residual repair gates.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.hourly_gate`.
+Item 147 remains diagnostic-only unless a winner-centering change clears the
+packet hourly blocker or changes the market disposition table.

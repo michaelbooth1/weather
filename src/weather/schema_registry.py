@@ -413,6 +413,20 @@ REGISTERED_SCHEMAS = (
         "Parsed numbered roadmap item inventory, active backlog report, active-item docs lint, and ROADMAP.md index ownership lint.",
     ),
     SchemaSpec(
+        "weather_only_model_proof_packet",
+        "weather_only_model_proof_packet_v0.1",
+        "weather.reporting.weather_only_model_proof_packet",
+        "active",
+        "Canonical weather-only model readiness packet joining promotion, hard-slice, live-forward, broad-claim, and roadmap-ratchet gates.",
+    ),
+    SchemaSpec(
+        "austin_hgb_requalification",
+        "austin_hgb_requalification_v0.1",
+        "weather.reporting.austin_hgb_requalification",
+        "active",
+        "Austin-local HGB requalification packet and fail-closed serving disposition for the 2026-06-22 hard slice.",
+    ),
+    SchemaSpec(
         "local_generated_state_cleanup",
         "local_generated_state_cleanup_v0.1",
         "weather.operations.local_generated_state_cleanup",
@@ -816,6 +830,20 @@ REGISTERED_SCHEMAS = (
         "Finalization liveness scanner for labelable taker runs, bakeoff refresh, and storage SLA state.",
     ),
     SchemaSpec(
+        "taker_tail_casebook",
+        "taker_tail_casebook_v0.1",
+        "weather.reporting.taker_tail_casebook",
+        "active",
+        "Taker bot tail-risk casebook for bad post-settlement slices, no-go candidates, and realized P&L outliers.",
+    ),
+    SchemaSpec(
+        "trading_evidence_summary",
+        "trading_evidence_summary_v0.1",
+        "weather.reporting.trading_evidence",
+        "active",
+        "Daily market-making and taker-bot evidence summary spanning countability, settlement quality, and risk status.",
+    ),
+    SchemaSpec(
         "live_forward_gate",
         "live_forward_gate_v0.2",
         "weather.market.live_forward_gate",
@@ -1161,6 +1189,13 @@ REGISTERED_SCHEMAS = (
         "weather.market.taker_bot",
         "active",
         "Multi-day settlement-scored champion/challenger ledger for taker strategy promotion.",
+    ),
+    SchemaSpec(
+        "taker_market_benchmark_scoreboard",
+        "taker_market_benchmark_scoreboard_v0.1",
+        "weather.market.taker_bot",
+        "active",
+        "Settlement-scored taker model-vs-market-vs-no-trade benchmark scoreboard.",
     ),
     SchemaSpec(
         "market_making_tape_encoding",

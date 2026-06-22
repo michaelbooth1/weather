@@ -64,6 +64,8 @@ def render_report(payload):
             ],
             ["Settled / unsettled", f"{pnl_summary.get('settled_order_count')} / {pnl_summary.get('unsettled_order_count')}"],
             ["Net P&L USDC", fmt_num(pnl_summary.get("net_pnl_usdc"), 4)],
+            ["Executable net P&L", fmt_num(pnl_summary.get("executable_net_pnl_usdc"), 4)],
+            ["Live profitability basis", pnl_summary.get("live_profitability_evidence_basis") or "-"],
         ],
     ))
     lines.extend(["", "## P&L", ""])
@@ -71,10 +73,16 @@ def render_report(payload):
         ["Component", "USDC"],
         [
             ["Gross cost", fmt_num(pnl_summary.get("gross_cost_usdc"), 4)],
+            ["Frictionless cost", fmt_num(pnl_summary.get("frictionless_cost_usdc"), 4)],
             ["Fees", fmt_num(pnl_summary.get("fees_usdc"), 4)],
+            ["Slippage", fmt_num(pnl_summary.get("slippage_usdc"), 4)],
             ["Settlement payout", fmt_num(pnl_summary.get("settlement_payout_usdc"), 4)],
+            ["Gross P&L", fmt_num(pnl_summary.get("gross_pnl_usdc"), 4)],
+            ["Fee P&L", fmt_num(pnl_summary.get("fee_pnl_usdc"), 4)],
+            ["Slippage P&L", fmt_num(pnl_summary.get("slippage_pnl_usdc"), 4)],
             ["Settlement P&L", fmt_num(pnl_summary.get("settlement_pnl_usdc"), 4)],
             ["Mark-to-market P&L", fmt_num(pnl_summary.get("mark_to_market_pnl_usdc"), 4)],
+            ["Executable net P&L", fmt_num(pnl_summary.get("executable_net_pnl_usdc"), 4)],
             ["Net P&L", fmt_num(pnl_summary.get("net_pnl_usdc"), 4)],
         ],
     ))
@@ -96,7 +104,7 @@ def render_report(payload):
     if strategy_rows:
         lines.extend(["", "## Strategies", ""])
         lines.extend(markdown_table(
-            ["Strategy", "Family", "Orders", "Filled", "Opinions", "Spent", "Net P&L", "P&L Source"],
+            ["Strategy", "Family", "Orders", "Filled", "Opinions", "Spent", "Fees", "Slippage", "Executable Net", "Net P&L", "Live Basis", "P&L Source"],
             [
                 [
                     row.get("strategy_id"),
@@ -105,7 +113,11 @@ def render_report(payload):
                     row.get("filled_order_count"),
                     row.get("independent_opinion_count"),
                     fmt_num(row.get("spent_usdc"), 2),
+                    fmt_num(row.get("fees_usdc"), 4),
+                    fmt_num(row.get("slippage_usdc"), 4),
+                    fmt_num(row.get("executable_net_pnl_usdc"), 4),
                     fmt_num(row.get("net_pnl_usdc"), 4),
+                    row.get("live_profitability_evidence_basis") or "-",
                     row.get("pnl_source"),
                 ]
                 for row in strategy_rows
@@ -192,6 +204,7 @@ def render_strategy_report(payload):
             ["Best settlement-scored strategy", comparison.get("best_settlement_scored_strategy_id") or "-"],
             ["Settlement-scored candidate status", comparison.get("countable_strategy_quality_candidate_status")],
             ["Promotion evidence basis", comparison.get("promotion_evidence_basis") or "-"],
+            ["Market benchmark status", comparison.get("market_benchmark_status") or "-"],
             ["MTM can promote", str(bool(comparison.get("mtm_promotion_allowed"))).lower()],
         ],
     ))
@@ -210,7 +223,12 @@ def render_strategy_report(payload):
             "Risk-Adj Exp P&L",
             "Settlement P&L",
             "MTM P&L",
+            "Fees",
+            "Slippage",
+            "Executable Net",
             "Net P&L",
+            "Live Basis",
+            "Market Benchmark",
             "Realized - Expected",
             "Tail Fills",
             "Tail Fraction",
@@ -231,7 +249,12 @@ def render_strategy_report(payload):
                 fmt_num(row.get("risk_adjusted_expected_pnl_usdc"), 4),
                 fmt_num(row.get("settlement_pnl_usdc"), 4),
                 fmt_num(row.get("mark_to_market_pnl_usdc"), 4),
+                fmt_num(row.get("fees_usdc"), 4),
+                fmt_num(row.get("slippage_usdc"), 4),
+                fmt_num(row.get("executable_net_pnl_usdc"), 4),
                 fmt_num(row.get("net_pnl_usdc"), 4),
+                row.get("live_profitability_evidence_basis") or "-",
+                row.get("market_benchmark_status") or "-",
                 fmt_num(row.get("realized_minus_expected_pnl_usdc"), 4),
                 row.get("low_price_tail_fill_count"),
                 fmt_num(row.get("low_price_tail_fill_fraction"), 4),
@@ -276,6 +299,21 @@ def render_strategy_report(payload):
                     fmt_num(row.get("net_pnl_usdc"), 4),
                 ]
                 for row in tail_rows
+            ],
+        ))
+    benchmark = payload.get("market_benchmark_scoreboard") or {}
+    benchmark_summary = benchmark.get("summary") or {}
+    if benchmark_summary:
+        lines.extend(["", "## Market Benchmark", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Opportunities", benchmark_summary.get("opportunity_count")],
+                ["Market-smarter slices", benchmark_summary.get("market_smarter_slice_count")],
+                ["No-trade recommendations", benchmark_summary.get("no_trade_recommendation_count")],
+                ["Traded P&L", fmt_num(benchmark_summary.get("traded_pnl_usdc"), 4)],
+                ["Avoided loss", fmt_num(benchmark_summary.get("avoided_loss_usdc"), 4)],
+                ["Missed gain", fmt_num(benchmark_summary.get("missed_gain_usdc"), 4)],
             ],
         ))
     lines.append("")

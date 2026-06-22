@@ -114,22 +114,45 @@ def _candidate_identity(candidate):
     )
 
 
-def _allowlist_row(item, *, candidate_id, generated_at_utc):
+def _candidate_cutover_allowed(candidate):
+    candidate = candidate or {}
+    verdict = str(candidate.get("verdict") or "").upper()
+    cutover = str(candidate.get("cutover_decision") or "").upper()
+    blocked_verdicts = {"BLOCK", "FAIL", "FAILED", "ERROR"}
+    blocked_cutovers = {"DO_NOT_CUT_OVER", "BLOCK", "BLOCKED"}
+    return verdict not in blocked_verdicts and cutover not in blocked_cutovers
+
+
+def _candidate_cutover_blocker(candidate):
+    candidate = candidate or {}
+    verdict = candidate.get("verdict") or "missing"
+    cutover = candidate.get("cutover_decision") or "missing"
+    return f"candidate cutover is not allowed: verdict={verdict}, cutover={cutover}"
+
+
+def _allowlist_row(item, *, candidate_id, generated_at_utc, candidate_cutover_allowed=True, candidate_cutover_blocker=""):
     metrics = item.get("metrics") or {}
     action = item.get("action") or "BLOCK_CANDIDATE"
-    candidate_allowed = action == "PROMOTE_CANDIDATE"
+    action_promotes = action == "PROMOTE_CANDIDATE"
+    candidate_allowed = action_promotes and candidate_cutover_allowed
     reason = item.get("reason") or "-"
+    blocker_reason = "" if candidate_allowed else reason
+    if action_promotes and not candidate_cutover_allowed:
+        blocker_reason = candidate_cutover_blocker or "candidate cutover is not allowed"
     return {
         "market_id": item.get("market_id"),
         "candidate_id": candidate_id,
         "generated_at_utc": generated_at_utc,
         "action": action,
         "verdict": item.get("verdict"),
+        "effective_promotion_state": "PASS" if candidate_allowed else ("BLOCK" if action == "BLOCK_CANDIDATE" else "SHADOW"),
+        "candidate_cutover_allowed": bool(candidate_cutover_allowed),
+        "candidate_cutover_blocker": "" if candidate_cutover_allowed else candidate_cutover_blocker,
         "candidate_serving_allowed": candidate_allowed,
         "candidate_permission_allowed": candidate_allowed,
         "serving_behavior": "candidate" if candidate_allowed else "current_or_shadow",
         "permission_behavior": "candidate_candidate_only" if candidate_allowed else "current_or_harvest_only",
-        "blocker_reason": "" if candidate_allowed else reason,
+        "blocker_reason": blocker_reason,
         "reason": reason,
         "candidate_brier": metrics.get("candidate_brier"),
         "current_brier": metrics.get("current_brier"),
@@ -157,8 +180,16 @@ def build_promotion_allowlist(
     generated_at_utc = generated_at_utc or _utc_now()
     candidate = candidate or {}
     candidate_id = _candidate_identity(candidate)
+    candidate_cutover_allowed = _candidate_cutover_allowed(candidate)
+    candidate_cutover_blocker = "" if candidate_cutover_allowed else _candidate_cutover_blocker(candidate)
     rows = [
-        _allowlist_row(item, candidate_id=candidate_id, generated_at_utc=generated_at_utc)
+        _allowlist_row(
+            item,
+            candidate_id=candidate_id,
+            generated_at_utc=generated_at_utc,
+            candidate_cutover_allowed=candidate_cutover_allowed,
+            candidate_cutover_blocker=candidate_cutover_blocker,
+        )
         for item in decisions.get("markets") or []
         if item.get("market_id")
     ]
@@ -179,6 +210,7 @@ def build_promotion_allowlist(
         "candidate_report_path": candidate.get("report_path"),
         "policy": {
             "candidate_serving_allowed_action": "PROMOTE_CANDIDATE",
+            "candidate_cutover_required": "candidate verdict must not be BLOCK and cutover_decision must not be DO_NOT_CUT_OVER",
             "non_promote_behavior": "current_or_shadow",
             "permission_gate": "candidate_permission_allowed is true only for PROMOTE_CANDIDATE markets",
         },

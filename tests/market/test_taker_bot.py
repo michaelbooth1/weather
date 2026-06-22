@@ -52,6 +52,8 @@ def write_market_fixture(
     bands=None,
     duplicate_first_snapshot=False,
     cadence_fields=None,
+    ask_size_at_best="40",
+    ask_depth_1pct="40",
 ):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / EVENT
@@ -98,7 +100,7 @@ def write_market_fixture(
             "clob_midpoint": "0.55",
             "clob_best_bid": "0.50",
             "clob_best_ask": ask,
-            "clob_depth_1pct_total": "100",
+            "clob_depth_1pct_total": ask_depth_1pct,
         })
         book_rows.append({
             "captured_at_utc": book_captured_at,
@@ -114,9 +116,9 @@ def write_market_fixture(
             "best_bid": "0.50",
             "best_ask": ask,
             "midpoint": "0.55",
-            "ask_size_at_best": "40",
+            "ask_size_at_best": ask_size_at_best,
             "bid_size_at_best": "40",
-            "ask_depth_1pct": "40",
+            "ask_depth_1pct": ask_depth_1pct,
             "bid_depth_1pct": "40",
             "min_order_size": "1",
             "tick_size": "0.001",
@@ -291,13 +293,18 @@ class TestTakerBot(unittest.TestCase):
                 snapshots_root=snapshots_root,
                 run_id="daily",
                 now=NOW,
-                config={"min_edge": 0.05, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
             )
 
             self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 1)
             self.assertEqual(payload["summary"]["cumulative_filled_orders"], 1)
-            self.assertAlmostEqual(payload["summary"]["budget_spent_usdc"], 10.0)
-            self.assertAlmostEqual(payload["summary"]["cumulative_net_pnl_usdc"], 6.666667)
+            self.assertAlmostEqual(payload["summary"]["budget_spent_usdc"], 10.2)
+            self.assertAlmostEqual(payload["summary"]["cumulative_net_pnl_usdc"], 6.466667)
             self.assertEqual(payload["tape_integrity"]["status"], "PASS")
             self.assertEqual(
                 payload["summary"]["tape_integrity"]["actual_rows"],
@@ -309,10 +316,110 @@ class TestTakerBot(unittest.TestCase):
             self.assertEqual(filled[0]["clob_token_id"], "token-80")
             self.assertEqual(filled[0]["pnl_source"], "settlement")
             self.assertAlmostEqual(float(filled[0]["fill_price"]), 0.60)
+            self.assertAlmostEqual(float(filled[0]["fee_usdc"]), 0.2)
+            self.assertEqual(filled[0]["pnl_fee_basis"], "after_fee")
             self.assertAlmostEqual(float(filled[0]["settlement_outcome"]), 1.0)
             self.assertTrue(Path(payload["daily_pnl_path"]).exists())
             self.assertTrue(Path(payload["run_report_path"]).exists())
             self.assertIn("Tape integrity", Path(payload["run_report_path"]).read_text(encoding="utf-8"))
+
+    def test_depth_aware_fill_records_slippage_when_size_exceeds_top_of_book(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                ask_size_at_best="1",
+                ask_depth_1pct="40",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            filled = [row for row in read_csv(Path(payload["orders_path"])) if row["order_status"] == "FILLED"]
+
+        self.assertEqual(len(filled), 1)
+        self.assertGreater(float(filled[0]["fill_size"]), 1.0)
+        self.assertGreater(float(filled[0]["fill_price"]), float(filled[0]["best_ask"]))
+        self.assertGreater(float(filled[0]["slippage_usdc"]), 0.0)
+        self.assertEqual(filled[0]["executable_depth_mode"], "top_of_book_plus_1pct_depth")
+
+    def test_pre_fee_positive_edge_can_fail_after_executable_friction_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True, bands=[(80, "0.61", "0.60")])
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"min_edge": 0.005, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+            )
+            filled = [row for row in read_csv(Path(payload["orders_path"])) if row["order_status"] == "FILLED"]
+            strategy = payload["pnl"]["by_strategy"][0]
+
+        self.assertEqual(len(filled), 1)
+        self.assertGreater(float(filled[0]["edge"]), 0.0)
+        self.assertLess(float(filled[0]["expected_profit_after_friction_per_share"]), 0.0)
+        self.assertLess(strategy["settlement_scored_expected_pnl_usdc"], 0.0)
+        self.assertIn("min_settlement_scored_expected_pnl", strategy["settlement_promotion_failed_gates"])
+        self.assertFalse(strategy["quality_candidate_countable"])
+
+    def test_market_benchmark_blocks_when_market_top_beats_model_trade_after_fees(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[
+                    (80, "0.50", "0.70"),
+                    (82, "0.80", "0.60"),
+                    (84, "0.10", "0.05"),
+                ],
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            filled = [row for row in read_csv(Path(payload["orders_path"])) if row["order_status"] == "FILLED"]
+            strategy = payload["pnl"]["by_strategy"][0]
+            benchmark = payload["pnl"]["market_benchmark_scoreboard"]
+
+        self.assertEqual(filled[0]["range_label"], "82-83 F")
+        self.assertEqual(strategy["market_benchmark_status"], "BLOCK_MARKET_SMARTER")
+        self.assertIn("market_benchmark_beats_model", strategy["settlement_promotion_failed_gates"])
+        self.assertFalse(strategy["quality_candidate_countable"])
+        self.assertEqual(benchmark["summary"]["market_smarter_slice_count"], 1)
+        self.assertGreater(benchmark["summary"]["missed_gain_usdc"], 0.0)
+        self.assertGreater(benchmark["summary"]["avoided_loss_usdc"], 0.0)
 
     def test_multi_arm_strategy_mode_shares_inputs_and_isolates_budgets(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -347,8 +454,8 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["strategy_count"], 2)
         self.assertEqual({row["strategy_id"] for row in filled}, {"raw_edge_control", "small_order_probe"})
         self.assertEqual({row["experiment_id"] for row in orders}, {"exp-fixture"})
-        self.assertAlmostEqual(by_strategy["raw_edge_control"]["spent_usdc"], 10.0)
-        self.assertAlmostEqual(by_strategy["small_order_probe"]["spent_usdc"], 1.0)
+        self.assertAlmostEqual(by_strategy["raw_edge_control"]["spent_usdc"], 10.2)
+        self.assertAlmostEqual(by_strategy["small_order_probe"]["spent_usdc"], 1.02)
         self.assertEqual(by_strategy["raw_edge_control"]["independent_opinion_count"], 1)
         self.assertEqual(by_strategy["small_order_probe"]["independent_opinion_count"], 1)
         self.assertEqual(strategy_summary["comparison"]["strategy_count"], 2)
@@ -669,7 +776,7 @@ class TestTakerBot(unittest.TestCase):
         self.assertIn("HIGH_TAIL_FILL_FRACTION", alerts)
         self.assertIn("TAIL_FILLS_MISSING_SETTLEMENT", alerts)
         self.assertFalse(strategy["quality_candidate_countable"])
-        self.assertEqual(strategy["quality_candidate_evidence_basis"], "settlement_scored")
+        self.assertEqual(strategy["quality_candidate_evidence_basis"], "settlement_scored_executable_after_fee")
         self.assertEqual(strategy["settlement_promotion_gate_status"], "BLOCK")
         self.assertIn("min_settled_orders", strategy["settlement_promotion_failed_gates"])
         self.assertIn("no_unresolved_orders", strategy["settlement_promotion_failed_gates"])
@@ -730,10 +837,10 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(bakeoff["summary"]["strategy_count"], 2)
         self.assertEqual(bakeoff["label_summary"]["label_rows"], 1)
         self.assertFalse(bakeoff["blockers"])
-        self.assertAlmostEqual(by_strategy["raw_edge_control"]["spent_usdc"], 10.0)
-        self.assertAlmostEqual(by_strategy["small_order_probe"]["spent_usdc"], 1.0)
-        self.assertAlmostEqual(by_strategy["raw_edge_control"]["net_pnl_usdc"], 6.666667)
-        self.assertAlmostEqual(by_strategy["small_order_probe"]["net_pnl_usdc"], 0.666667)
+        self.assertAlmostEqual(by_strategy["raw_edge_control"]["spent_usdc"], 10.2)
+        self.assertAlmostEqual(by_strategy["small_order_probe"]["spent_usdc"], 1.02)
+        self.assertAlmostEqual(by_strategy["raw_edge_control"]["net_pnl_usdc"], 6.466667)
+        self.assertAlmostEqual(by_strategy["small_order_probe"]["net_pnl_usdc"], 0.646667)
         self.assertEqual(gates["raw_edge_control"]["status"], "PASS")
         self.assertEqual(gates["small_order_probe"]["status"], "PASS")
         self.assertEqual(bakeoff["paired_comparisons"][0]["candidate_strategy_id"], "small_order_probe")
@@ -1162,7 +1269,7 @@ class TestTakerBot(unittest.TestCase):
             self.assertEqual(second["summary"]["latest_tick_filled_orders"], 0)
             self.assertEqual(second["summary"]["latest_tick_rows"], 0)
             self.assertEqual(second["summary"]["cumulative_filled_orders"], 1)
-            self.assertAlmostEqual(second["summary"]["budget_spent_usdc"], 10.0)
+            self.assertAlmostEqual(second["summary"]["budget_spent_usdc"], 10.2)
             orders = read_csv(Path(second["orders_path"]))
             self.assertEqual(sum(1 for row in orders if row["order_status"] == "FILLED"), 1)
 
@@ -1186,8 +1293,8 @@ class TestTakerBot(unittest.TestCase):
             pnl = payload["pnl"]["summary"]
             self.assertEqual(pnl["settled_order_count"], 0)
             self.assertEqual(pnl["unsettled_order_count"], 1)
-            self.assertAlmostEqual(pnl["mark_to_market_pnl_usdc"], 2.0)
-            self.assertAlmostEqual(payload["summary"]["cumulative_net_pnl_usdc"], 2.0)
+            self.assertAlmostEqual(pnl["mark_to_market_pnl_usdc"], 1.8)
+            self.assertAlmostEqual(payload["summary"]["cumulative_net_pnl_usdc"], 1.8)
 
     def test_finalize_taker_run_scores_june_19_labels_without_mutating_orders(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1494,7 +1601,7 @@ class TestTakerBot(unittest.TestCase):
         self.assertIn("non_negative_settled_roi", gate["failed_gates"])
         self.assertIn("no_resolved_stale_mark_sign_flips", gate["failed_gates"])
         self.assertEqual(gate["stale_mark_sign_flip_count"], 1)
-        self.assertAlmostEqual(gate["net_pnl_usdc"], -10.0)
+        self.assertAlmostEqual(gate["net_pnl_usdc"], -10.496)
 
     def test_missing_clob_token_blocks_taker_buy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1830,7 +1937,7 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(len(filled), 1)
         self.assertEqual(filled[0]["early_hour_guardrail_status"], "active")
         self.assertAlmostEqual(float(filled[0]["fill_notional_usdc"]), 2.0)
-        self.assertAlmostEqual(payload["summary"]["budget_spent_usdc"], 2.0)
+        self.assertAlmostEqual(payload["summary"]["budget_spent_usdc"], 2.04)
 
     def test_early_hour_caps_daily_position_count(self):
         bands = [(80 + index, "0.80", "0.60") for index in range(15)]

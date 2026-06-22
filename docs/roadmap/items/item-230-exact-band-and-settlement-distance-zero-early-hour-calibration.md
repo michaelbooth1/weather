@@ -118,3 +118,9 @@ available no-market candidate clears the exact/distance-0 target while
 protecting adjacent bands. The next implementation has to add new
 inference-time signal or retrain the artifact; another broad exact-winner alpha
 sweep would repeat the failing comparison above.
+
+## 2026-06-22 proof packet mapping
+
+Proof-packet blocker: `weather_only_model_proof_packet.gates.exact_band_distance_zero_gate`.
+Exact-band and settlement-distance-0 work must clear this packet field or be
+kept diagnostic-only.

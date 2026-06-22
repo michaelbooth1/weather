@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.market.taker_bot import (
@@ -21,13 +22,23 @@ from weather.market.taker_bot import (
     score_orders_against_labels,
     sum_field,
 )
+from weather.paths import data_path
 
 
 SCHEMA_VERSION = "taker_tail_casebook_v0.1"
+DEFAULT_DATA_ROOT = data_path()
+DEFAULT_TAKER_RUNS_ROOT = DEFAULT_DATA_ROOT / "taker_runs"
+DEFAULT_BACKTEST_ROOT = DEFAULT_DATA_ROOT / "backtest"
+DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "taker_tail_casebook.json"
+DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "taker_tail_casebook_report.md"
 DEFAULT_RUN_FOLDERS = [
-    Path("data/taker_runs/2026-06-20/taker-20260620-3d3450f0"),
-    Path("data/taker_runs/2026-06-21/taker-20260621-bbe63642"),
+    DEFAULT_TAKER_RUNS_ROOT / "2026-06-20" / "taker-20260620-3d3450f0",
+    DEFAULT_TAKER_RUNS_ROOT / "2026-06-21" / "taker-20260621-bbe63642",
 ]
+
+
+def utc_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _orders_path(path):
@@ -45,6 +56,35 @@ def _read_order_sources(paths):
             out["_source_run"] = str(order_path.parent)
             rows.append(out)
     return rows
+
+
+def discover_run_sources(runs_root=DEFAULT_TAKER_RUNS_ROOT, *, target_date=None, max_runs=None):
+    root = Path(runs_root)
+    if target_date:
+        candidates = sorted((root / str(target_date)).glob("*/orders_long.csv"))
+    else:
+        candidates = sorted(root.glob("*/*/orders_long.csv"))
+    paths = [path.parent for path in candidates if path.exists()]
+    paths = sorted(paths, key=lambda item: item.stat().st_mtime if item.exists() else 0)
+    if max_runs:
+        paths = paths[-int(max_runs):]
+    return paths
+
+
+def build_tail_casebook_from_paths(
+    run_paths,
+    *,
+    labels_csv=DEFAULT_LABELS_CSV,
+    generated_at_utc=None,
+):
+    runs = [Path(item) for item in run_paths or []]
+    labels = load_settlement_labels(labels_csv)
+    return build_tail_casebook(
+        _read_order_sources(runs),
+        labels=labels,
+        source_runs=runs,
+        generated_at_utc=generated_at_utc or utc_iso(),
+    )
 
 
 def _tail_types(row):
@@ -307,7 +347,7 @@ def write_outputs(payload, json_out=None, report_out=None):
     if json_out:
         path = Path(json_out)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if report_out:
         path = Path(report_out)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -317,15 +357,30 @@ def write_outputs(payload, json_out=None, report_out=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="append", dest="runs", help="Run folder or orders_long.csv path. Repeatable.")
+    parser.add_argument("--runs-root", default=str(DEFAULT_TAKER_RUNS_ROOT))
+    parser.add_argument("--date", default="", help="Optional target date under --runs-root.")
+    parser.add_argument("--max-runs", type=int, default=0, help="Limit to the most recent N discovered runs; 0 means all.")
     parser.add_argument("--labels", default=str(DEFAULT_LABELS_CSV))
-    parser.add_argument("--json-out", default="data/backtest/taker_tail_casebook_2026-06-20_2026-06-21.json")
-    parser.add_argument("--report-out", default="data/backtest/taker_tail_casebook_2026-06-20_2026-06-21.md")
+    parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
+    parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     args = parser.parse_args(argv)
 
-    runs = [Path(item) for item in args.runs] if args.runs else [path for path in DEFAULT_RUN_FOLDERS if path.exists()]
-    order_rows = _read_order_sources(runs)
-    labels = load_settlement_labels(args.labels)
-    payload = build_tail_casebook(order_rows, labels=labels, source_runs=runs)
+    runs = (
+        [Path(item) for item in args.runs]
+        if args.runs
+        else discover_run_sources(
+            args.runs_root,
+            target_date=args.date or None,
+            max_runs=args.max_runs or None,
+        )
+    )
+    if not runs:
+        runs = [path for path in DEFAULT_RUN_FOLDERS if path.exists()]
+    payload = build_tail_casebook_from_paths(
+        runs,
+        labels_csv=args.labels,
+        generated_at_utc=utc_iso(),
+    )
     write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
     print(
         f"Taker tail casebook: {payload['summary']['status']} "

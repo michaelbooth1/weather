@@ -194,6 +194,41 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(rows["miami"]["serving_behavior"], "current_or_shadow")
         self.assertIn("trails market", rows["miami"]["blocker_reason"])
 
+    def test_promotion_allowlist_blocks_promote_when_candidate_cutover_is_denied(self):
+        decisions = {
+            "markets": [
+                {
+                    "market_id": "austin",
+                    "action": "PROMOTE_CANDIDATE",
+                    "verdict": "PASS",
+                    "reason": "beats current replay",
+                    "metrics": {
+                        "candidate_brier": 0.03,
+                        "current_brier": 0.04,
+                        "market_brier": 0.031,
+                    },
+                }
+            ]
+        }
+
+        allowlist = build_promotion_allowlist(
+            decisions,
+            {
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+                "verdict": "BLOCK",
+                "cutover_decision": "DO_NOT_CUT_OVER",
+            },
+            generated_at_utc="2026-06-22T12:00:00+00:00",
+        )
+
+        row = allowlist["markets"][0]
+        self.assertFalse(row["candidate_serving_allowed"])
+        self.assertFalse(row["candidate_permission_allowed"])
+        self.assertFalse(row["candidate_cutover_allowed"])
+        self.assertEqual(row["effective_promotion_state"], "SHADOW")
+        self.assertEqual(row["serving_behavior"], "current_or_shadow")
+        self.assertIn("DO_NOT_CUT_OVER", row["blocker_reason"])
+
     def test_all_family_specs_include_c_and_f_markets(self):
         specs = [
             _spec("nyc", "New York"),

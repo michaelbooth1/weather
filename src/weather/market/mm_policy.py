@@ -800,8 +800,13 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
             continue
         action = row.get("action")
         verdict = row.get("verdict")
+        promotion_state = row.get("effective_promotion_state")
+        if not promotion_state:
+            promotion_state = promotion_state_from_action(action, verdict)
+            if allowlist_rows and row.get("candidate_permission_allowed") is False and promotion_state == "PASS":
+                promotion_state = "SHADOW"
         states[market_id] = {
-            "promotion_state": promotion_state_from_action(action, verdict),
+            "promotion_state": promotion_state,
             "action": action,
             "verdict": verdict,
             "reason": row.get("blocker_reason") or row.get("reason"),
