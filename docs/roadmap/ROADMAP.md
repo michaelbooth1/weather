@@ -19,6 +19,8 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [2026-05-28 deep model audit](audits/codex-deep-model-audit-2026-05-28.md)
 - [2026-06-20 taker bot log audit](audits/taker-bot-log-audit-2026-06-20.md)
 - [2026-06-22 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-22.md)
+- [2026-06-23 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-23.md)
+- [2026-06-23 trading stack performance and strategy audit](audits/trading-stack-performance-strategy-audit-2026-06-23.md)
 
 ## Status Taxonomy
 
@@ -287,6 +289,14 @@ infrastructure work remains.
 | 251 | [Standing-High Partial Lock-In Dampener [COMPLETE 2026-06-22 - PARTIAL DAMPENER GATED]](items/item-251-standing-high-partial-lockin-dampener.md) |
 | 252 | [Impossible Guidance Feature Quarantine [COMPLETE 2026-06-22 - FRESH-BUT-IMPOSSIBLE GUIDANCE QUARANTINED]](items/item-252-impossible-guidance-feature-quarantine.md) |
 | 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
+| 254 | [Extract Serving-Safe Variant-Prediction Runtime From Calibration [OPEN]](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
+| 255 | [Taker Current-High Deny Regression Proof [OPEN 2026-06-23 - PRE-LATE BYPASS STILL CONFIG-REOPENABLE]](items/item-255-taker-current-high-deny-regression-proof.md) |
+| 256 | [Post-Fix Taker After-Fee Requalification Campaign [OPEN 2026-06-23 - NO FRESH COMPLETE-LABEL PROFIT SAMPLE]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 257 | [Real NO-Book Depth For Two-Sided Taker [OPEN 2026-06-23 - SYNTHETIC COMPLEMENT DEPTH LIMITS SCALE]](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
+| 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [OPEN 2026-06-23 - JUNE 19-22 MAKER RUNS NON-COUNTABLE]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 259 | [Current-Run Artifact Profitability Field Verification [OPEN 2026-06-23 - ITEM 240/241 FIELDS ABSENT FROM JUNE 19-22 TAKER TAPES]](items/item-259-current-run-artifact-profitability-field-verification.md) |
+| 260 | [Daily Maker Paper-Score Freshness SLA [OPEN 2026-06-23 - MM PAPER REPORT STALE UNTIL MANUAL JUNE 19-22 REFRESH]](items/item-260-daily-maker-paper-score-freshness-sla.md) |
+| 261 | [Taker Canary Tail-Share Demotion On Unsettled Sample [OPEN 2026-06-23 - WARN_HIGH_TAIL_SHARE PLUS MISSING SETTLED SAMPLE MUST PAPER-ONLY]](items/item-261-taker-canary-tail-share-demotion-on-unsettled-sample.md) |
 
 ### Architecture And Maintainability
 

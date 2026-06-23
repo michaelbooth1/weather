@@ -4,20 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T00:59:07.133749+00:00
+Generated: 2026-06-23T02:03:50.498880+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 253 |
-| Active items | 37 |
-| OPEN | 6 |
+| Items | 261 |
+| Active items | 44 |
+| OPEN | 13 |
 | PARTIAL | 31 |
-| COMPLETE | 216 |
-| ROADMAP rows | 253 |
-| ROADMAP primary rows | 253 |
+| COMPLETE | 217 |
+| ROADMAP rows | 261 |
+| ROADMAP primary rows | 261 |
+| Metadata manifest rows | 261 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -60,7 +61,14 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 253 | OPEN | - | - | [Two-Sided (NO-Side) Taker Edge And Book Capture](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
+| 254 | OPEN | - | - | [Extract Serving-Safe Variant-Prediction Runtime From Calibration](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
+| 255 | OPEN | 2026-06-23 | PRE-LATE BYPASS STILL CONFIG-REOPENABLE | [Taker Current-High Deny Regression Proof](items/item-255-taker-current-high-deny-regression-proof.md) |
+| 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 257 | OPEN | 2026-06-23 | SYNTHETIC COMPLEMENT DEPTH LIMITS SCALE | [Real NO-Book Depth For Two-Sided Taker](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
+| 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 259 | OPEN | 2026-06-23 | ITEM 240/241 FIELDS ABSENT FROM JUNE 19-22 TAKER TAPES | [Current-Run Artifact Profitability Field Verification](items/item-259-current-run-artifact-profitability-field-verification.md) |
+| 260 | OPEN | 2026-06-23 | MM PAPER REPORT STALE UNTIL MANUAL JUNE 19-22 REFRESH | [Daily Maker Paper-Score Freshness SLA](items/item-260-daily-maker-paper-score-freshness-sla.md) |
+| 261 | OPEN | 2026-06-23 | WARN_HIGH_TAIL_SHARE PLUS MISSING SETTLED SAMPLE MUST PAPER-ONLY | [Taker Canary Tail-Share Demotion On Unsettled Sample](items/item-261-taker-canary-tail-share-demotion-on-unsettled-sample.md) |
 
 ## Lint Issues
 
