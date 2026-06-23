@@ -1233,6 +1233,13 @@ REGISTERED_SCHEMAS = (
         "Large-module line-count audit and ownership split map.",
     ),
     SchemaSpec(
+        "structure_inventory",
+        "structure_inventory_v0.1",
+        "weather.operations.structure_inventory",
+        "active",
+        "Repository structure, package-size, shim, artifact, data, and architecture-ratchet inventory.",
+    ),
+    SchemaSpec(
         "tape_backup_manifest",
         "tape_backup_manifest_v0.1",
         "weather.operations.tape_backup",

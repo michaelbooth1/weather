@@ -20,7 +20,8 @@ import hashlib
 import json
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from weather.paths import data_path
@@ -28,8 +29,6 @@ from weather.paths import data_path
 import requests
 
 from weather.market.market_registry import TORONTO, all_specs, spec_for_id
-from weather.model.feature_store import row_forecast_high_native, row_temp_native
-from weather.model.model_sources import request_with_retries
 from weather.sources.daily_summary import native_to_c
 from weather.units import to_float
 
@@ -188,6 +187,91 @@ def first_present(row, *keys):
         if value not in (None, ""):
             return value
     return None
+
+
+def row_value(row, *keys):
+    row = row or {}
+    for key in keys:
+        value = to_float(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def row_temp_native(row):
+    return row_value(
+        row,
+        "temp_native",
+        "temperature_native",
+        "target_temp_native",
+        "temp_c",
+        "target_temp_c",
+    )
+
+
+def row_forecast_high_native(row):
+    return row_value(
+        row,
+        "forecast_high_native",
+        "day_max_native",
+        "forecast_high",
+        "day_max",
+        "forecast_high_c",
+        "day_max_c",
+    )
+
+
+def _is_retryable(exc):
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        response = getattr(exc, "response", None)
+        if response is None:
+            return False
+        return response.status_code == 429 or response.status_code >= 500
+    return False
+
+
+def retry_after_seconds(exc):
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", {}) or {}
+    value = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if value in (None, ""):
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        pass
+    try:
+        retry_at = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
+
+
+def retry_delay_seconds(exc, attempt, base_delay=0.5, max_delay=10.0):
+    retry_after = retry_after_seconds(exc)
+    if retry_after is not None:
+        return min(float(max_delay), retry_after)
+    return min(float(max_delay), base_delay * (2 ** attempt))
+
+
+def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep, max_delay=10.0):
+    last = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - re-raised below
+            if not _is_retryable(exc):
+                raise
+            last = exc
+            if attempt < attempts - 1:
+                sleep(retry_delay_seconds(exc, attempt, base_delay=base_delay, max_delay=max_delay))
+    raise last
 
 
 def hourly_value(hourly, key, index):

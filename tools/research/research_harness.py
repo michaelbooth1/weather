@@ -111,22 +111,22 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Compatibility wrapper; use weather.reporting.ten_minute_model_performance.",
     },
-    "test_analogs_live.py": {
+    "retired_analogs_live.py": {
         "status": "retired",
         "smoke": "help",
         "notes": "Live default-market one-off; analog diagnostics moved to model reports.",
     },
-    "test_continuation.py": {
+    "retired_continuation.py": {
         "status": "retired",
         "smoke": "help",
         "notes": "Live continuation one-off; use late-day continuation report.",
     },
-    "test_feature_model_live.py": {
+    "retired_feature_model_live.py": {
         "status": "retired",
         "smoke": "help",
         "notes": "Live default-market one-off; use promotion gauntlet/replay.",
     },
-    "test_freshness.py": {
+    "retired_freshness.py": {
         "status": "retired",
         "smoke": "help",
         "notes": "Live source freshness one-off; use fleet observability.",

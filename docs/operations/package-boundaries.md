@@ -62,6 +62,15 @@ have not yet been split into cleaner owner modules:
   location trust, promotion-corpus, and source-redundancy helpers.
 - `collection -> backtesting`: forecast tracking still reuses settlement and
   tape-scoring helpers.
+- `collection -> calibration`: live variant-prediction capture
+  (`weather.collection.live_variant_predictions`) still imports serving-time
+  prediction helpers (`band_prediction_record`, `apply_band_postprocessing`,
+  `predict_band_rows_for_bundle`, `apply_continuous_density_calibration`,
+  `density_band_probability_from_distribution`, `microstructure_feature_frame`)
+  from `pooled_feature_model` / `pooled_candidate_replay`. Removal route: extract
+  serving-safe prediction helpers into a runtime owner module (e.g.
+  `weather.model.variant_prediction_runtime`) and have both collection and
+  calibration import them from there. Tracked by item 254.
 - `market -> backtesting`: market-day labels and paper scoring still reuse
   settlement helpers.
 - `market -> collection`: market-microstructure features still locate latest
@@ -73,12 +82,40 @@ have not yet been split into cleaner owner modules:
   candidate and pooled-model helpers.
 - `reporting -> operations`: observability reports still read operational
   status and job-guard helpers directly.
-- `sources -> model`: forecast-history sources still reuse model feature-store
-  and request helper code.
 
 When one of these edges is removed, also remove it from
 `TRANSITIONAL_PACKAGE_EDGES` in the architecture test. New transitional edges
 must be documented here before they are allowed.
+
+## Transitional Edge Burn-Down
+
+Generate current edge counts with:
+
+```powershell
+python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md
+```
+
+Current removal routes:
+
+| Edge | Current pressure | Owner route |
+| :--- | :--- | :--- |
+| `backtesting -> collection` | Low | Move coverage lookup used by settlement/replay into `weather.backtesting` or a shared read-only inventory helper. |
+| `backtesting -> operations` | Low | Keep only pure long-job guard helpers in operations; if replay needs them permanently, extract a shared runtime guard module. |
+| `backtesting -> reporting` | Medium | Move report formatting/promotion-corpus read helpers used by replay CLIs into shared reporting-neutral helpers. |
+| `calibration -> operations` | Low | Extract long-job guard usage behind an owner-neutral runtime utility if more calibration jobs need it. |
+| `calibration -> reporting` | Medium | Move formatting, location trust, promotion corpus, and source-redundancy primitives that calibration needs into shared owner modules. |
+| `collection -> backtesting` | Low | Move settlement/tape-scoring read contracts used by live collection into shared backtesting-neutral IO helpers. |
+| `collection -> calibration` | Low but high-risk | Item 254 owns extracting serving-safe variant prediction helpers into a runtime owner such as `weather.model.variant_prediction_runtime`. |
+| `market -> backtesting` | Medium | Extract settlement label/tape-scoring contracts used by market-day labels and paper scoring into shared settlement IO helpers. |
+| `market -> collection` | Medium | Stop locating latest snapshot folders from market features directly; consume a collection inventory/manifest contract instead. |
+| `market -> model` | Medium | Move request/source helper reuse out of model serving modules into a shared provider-request utility. |
+| `operations -> reporting` | High | Split daily-refresh orchestration from report construction; operations should call reporting entrypoints, not import deep report internals. |
+| `reporting -> calibration` | High | Keep calibration-owned scoring/training in calibration and move report-readable candidate result contracts into shared schemas or reporting readers. |
+| `reporting -> operations` | Medium | Read operational status artifacts through stable JSON/status contracts instead of importing operations helpers. |
+
+Burn-down rule: remove at least one transitional edge whenever a related large
+module is split, and update this table plus `TRANSITIONAL_PACKAGE_EDGES` in
+`tests/operations/test_import_architecture.py` in the same change.
 
 ## Facades
 

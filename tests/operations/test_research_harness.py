@@ -16,6 +16,12 @@ def test_research_inventory_covers_every_script():
     assert research_harness.validate_inventory(RESEARCH_ROOT) == []
 
 
+def test_research_scripts_do_not_use_pytest_discovery_names():
+    offenders = sorted(path.name for path in RESEARCH_ROOT.glob("test_*.py"))
+
+    assert offenders == []
+
+
 def test_supported_and_fixture_research_scripts_have_network_free_smokes():
     results = research_harness.smoke_inventory(
         RESEARCH_ROOT,

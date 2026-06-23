@@ -77,8 +77,30 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(payload["status"], "OK")
         self.assertEqual(payload["summary"]["item_count"], 3)
+        self.assertEqual(payload["summary"]["metadata_manifest_count"], 3)
         self.assertEqual(payload["summary"]["active_item_count"], 2)
         self.assertEqual([row["number"] for row in payload["active_items"]], [1, 2])
+        self.assertEqual(
+            [row["id"] for row in payload["metadata_manifest"]],
+            [1, 2, 3],
+        )
+
+    def test_metadata_manifest_includes_optional_owner_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            _item(
+                items / "item-001-open.md",
+                1,
+                "OPEN",
+                body="\nOwner/package: weather.reporting\n",
+            )
+
+            payload = build_payload(root, generated_at_utc="2026-06-21T00:00:00+00:00")
+
+        self.assertEqual(payload["metadata_manifest"][0]["owner_package"], "weather.reporting")
+        self.assertEqual(payload["metadata_manifest"][0]["status"], "OPEN")
 
     def test_summarize_roadmap_status_counts_closed_and_open_blocked_markers(self):
         with tempfile.TemporaryDirectory() as tmp:

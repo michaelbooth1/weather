@@ -48,6 +48,32 @@ It scans README, CI, app, tests, tools, scripts, and active operations docs for
 `python -m src.*`, direct `app.py` Streamlit/Test usage, and root script shim
 paths.
 
+## 2026-07-18 Review Checklist
+
+Owner: roadmap item 206.
+
+Before the removal window opens:
+
+- [ ] Keep first-party docs, tests, CI, scheduled-task setup, and reusable tools
+  on canonical `weather.*`, `app/streamlit_app.py`, `scripts/ops/*`,
+  `scripts/launch/*`, and `tools/*` paths.
+- [ ] Keep
+  `tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`
+  green.
+
+On or after 2026-07-18:
+
+- [ ] Run the first-party caller scan:
+  `python -m pytest tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims -q`.
+- [ ] Run the structure inventory and save a local ignored report:
+  `python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md`.
+- [ ] Check local scheduled tasks, operator shortcuts, and desktop launch paths
+  for direct shim usage outside Git.
+- [ ] Remove shim batches whose first-party scan is clean and whose external
+  dependency check has no known blocker.
+- [ ] For every retained shim batch, update this inventory with owner,
+  concrete dependency, next review date, and reason it could not be removed.
+
 ## Flat Python Wrappers
 
 | Wrapper | Target / Owner | Current Allowed Caller | Removal Condition |

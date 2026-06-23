@@ -31,6 +31,10 @@ STATUS_RE = re.compile(
     r"(?: (?P<date>\d{4}-\d{2}-\d{2}))?"
     r"(?: - (?P<disposition>.*))?$"
 )
+OWNER_PACKAGE_RE = re.compile(
+    r"^(?:Owner/package|Owner|Package):\s*(?P<value>.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 CHECKLIST_RE = re.compile(r"^- \[[ xX]\] ", re.MULTILINE)
 BLOCKED_MARKER_RE = re.compile(r"\bBLOCK(?:ED|S|ING)?\b", re.IGNORECASE)
 REQUIRED_ACTIVE_MARKERS = {
@@ -111,6 +115,11 @@ def parse_roadmap_index(root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, An
     }
 
 
+def _owner_package(text: str) -> str:
+    match = OWNER_PACKAGE_RE.search(text)
+    return match.group("value").strip() if match else ""
+
+
 def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
     path = Path(path)
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -125,6 +134,7 @@ def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> 
         "status": None,
         "date": None,
         "disposition": None,
+        "owner_package": _owner_package(text),
         "status_text": None,
         "active": False,
         "parse_errors": [],
@@ -156,6 +166,18 @@ def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> 
     }
     item["section_presence"]["checklist"] = item["checklist_count"] > 0
     return item
+
+
+def item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item.get("number"),
+        "title": item.get("title"),
+        "status": item.get("status"),
+        "date": item.get("date"),
+        "disposition": item.get("disposition") or "",
+        "owner_package": item.get("owner_package") or "",
+        "path": item.get("path"),
+    }
 
 
 def lint_item(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -310,6 +332,7 @@ def build_payload(
     status_counts = Counter(row.get("status") or "UNPARSED" for row in items)
     active_status_counts = Counter(row.get("status") for row in active_items)
     roadmap_index_rows = roadmap_index.get("rows") or []
+    metadata_manifest = [item_metadata(item) for item in items]
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
@@ -322,10 +345,12 @@ def build_payload(
             "complete_item_count": status_counts.get("COMPLETE", 0),
             "roadmap_index_row_count": len(roadmap_index_rows),
             "roadmap_index_primary_row_count": sum(1 for row in roadmap_index_rows if row.get("primary")),
+            "metadata_manifest_count": len(metadata_manifest),
             "lint_error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
         },
         "status_counts": dict(sorted(status_counts.items())),
         "active_items": active_items,
+        "metadata_manifest": metadata_manifest,
         "items": items,
         "roadmap_index": roadmap_index,
         "lint_issues": issues,
@@ -415,6 +440,7 @@ def write_markdown(path: str | Path, payload: dict[str, Any]) -> Path:
                 ["COMPLETE", summary.get("complete_item_count")],
                 ["ROADMAP rows", summary.get("roadmap_index_row_count")],
                 ["ROADMAP primary rows", summary.get("roadmap_index_primary_row_count")],
+                ["Metadata manifest rows", summary.get("metadata_manifest_count")],
                 ["Lint errors", summary.get("lint_error_count")],
             ],
         ),

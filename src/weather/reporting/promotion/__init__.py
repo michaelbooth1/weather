@@ -1,0 +1,2 @@
+"""Promotion reporting implementation package."""
+

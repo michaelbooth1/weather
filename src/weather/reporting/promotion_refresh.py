@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from weather.reporting.promotion_refresh_readers import *  # noqa: F403
-from weather.reporting.promotion_refresh_decisions import *  # noqa: F403
-from weather.reporting.promotion_refresh_gap_analysis import *  # noqa: F403
-from weather.reporting.promotion_refresh_report import *  # noqa: F403
-from weather.reporting.promotion_refresh_orchestration import *  # noqa: F403
-from weather.reporting.promotion_refresh_cli import *  # noqa: F403
+from weather.reporting.promotion.readers import *  # noqa: F403
+from weather.reporting.promotion.decisions import *  # noqa: F403
+from weather.reporting.promotion.gap_analysis import *  # noqa: F403
+from weather.reporting.promotion.report import *  # noqa: F403
+from weather.reporting.promotion.orchestration import *  # noqa: F403
+from weather.reporting.promotion.cli import *  # noqa: F403
 
 __all__ = [name for name in globals() if not name.startswith("__")]
 

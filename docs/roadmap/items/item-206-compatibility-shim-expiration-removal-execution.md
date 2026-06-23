@@ -27,11 +27,27 @@ discoverable forever despite first-party docs moving to canonical paths.
 
 - [ ] Rerun the compatibility caller scan after 2026-07-18.
 - [ ] Check known local scheduled tasks and operator launch paths for shim use.
+- [ ] Refresh `docs/roadmap/compatibility-shim-inventory.md` with owner,
+  dependency, and next-review metadata for any retained shim batch.
 - [ ] Remove eligible `src/*.py`, root helper, `app.py`, and root script shim
   batches.
 - [ ] Document any retained shim groups with a concrete dependency and next
   review date.
 - [ ] Update tests and docs so removed shims remain retired.
+
+## 2026-07-18 Execution Checklist
+
+Run these after the expiration date:
+
+1. `python -m pytest tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims -q`
+2. `python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md`
+3. Review local Task Scheduler entries, desktop shortcuts, and operator notes
+   for direct `src/*.py`, root `app.py`, or root script shim calls.
+4. Delete only the shim classes with a clean first-party scan and no external
+   dependency.
+5. Record any retained shim class in
+   `docs/roadmap/compatibility-shim-inventory.md` with owner, dependency, next
+   review date, and blocker.
 
 Acceptance: after the expiration date, every shim class is either deleted or
 retained with a current owner, external dependency, and next review date; no

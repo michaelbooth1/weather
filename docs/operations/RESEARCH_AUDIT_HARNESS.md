@@ -39,3 +39,6 @@ Before adding a new file under `tools/research`, add it to
 network-free smoke mode. Live scripts that require external APIs should stay
 `retired` until their durable finding is migrated into a package report,
 roadmap item, or fixture-backed test.
+
+Do not add `test_*.py` files under `tools/research`. Retired probes should use
+`retired_*.py` names, and executable checks belong under `tests/`.

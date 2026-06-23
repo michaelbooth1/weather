@@ -56,11 +56,9 @@ Canonical Streamlit entrypoint:
 .\venv\Scripts\python.exe -m streamlit run app/streamlit_app.py
 ```
 
-The root `app.py` shim still works for compatibility:
-
-```powershell
-.\venv\Scripts\python.exe -m streamlit run app.py
-```
+The legacy root `app.py` wrapper still resolves for one migration window, but it
+is no longer a documented command surface; always use the canonical entrypoint
+above. (Shim retirement is tracked separately.)
 
 The operator launcher starts Streamlit if needed, opens the Operations page, and
 writes Streamlit logs under `data/logs/`:

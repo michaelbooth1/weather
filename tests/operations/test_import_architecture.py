@@ -23,6 +23,7 @@ TARGET_MODULES = [
     Path("src/weather/calibration/intraday_calibration.py"),
     Path("src/weather/calibration/model_ensemble.py"),
     Path("src/weather/calibration/pooled_candidate_replay.py"),
+    Path("src/weather/calibration/pooled_candidate_replay_diagnostics.py"),
     Path("src/weather/calibration/pooled_candidate_replay_report.py"),
     Path("src/weather/calibration/pooled_candidate_scoring.py"),
     Path("src/weather/calibration/pooled_feature_model.py"),
@@ -69,9 +70,12 @@ TARGET_MODULES = [
     Path("src/weather/operations/nightly_retrain.py"),
     Path("src/weather/operations/observation_trigger.py"),
     Path("src/weather/operations/ops_monitor.py"),
+    Path("src/weather/operations/structure_inventory.py"),
     Path("src/weather/operations/tape_backup.py"),
     Path("src/weather/reporting/data_auditor.py"),
+    Path("src/weather/reporting/daily_learning_render.py"),
     Path("src/weather/reporting/data_layer_audit.py"),
+    Path("src/weather/reporting/data_layer_audit_collectors.py"),
     Path("src/weather/reporting/data_layer_audit_remediation.py"),
     Path("src/weather/reporting/data_layer_audit_report.py"),
     Path("src/weather/reporting/disagreement_casebook.py"),
@@ -111,6 +115,10 @@ POOLED_FEATURE_SPLIT_MODULES = [
 ]
 TAKER_BOT_SPLIT_MODULES = sorted(Path("src/weather/market").glob("taker_bot_*.py"))
 PROMOTION_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("promotion_refresh_*.py"))
+PROMOTION_REFRESH_IMPL_MODULES = sorted(
+    path for path in Path("src/weather/reporting/promotion").glob("*.py")
+    if path.name != "__init__.py"
+)
 FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("fleet_observability_*.py"))
 HOURLY_MODEL_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("hourly_model_*.py"))
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
@@ -120,6 +128,7 @@ TARGET_MODULES.extend(
     + FLEET_OBSERVABILITY_SPLIT_MODULES
     + HOURLY_MODEL_SPLIT_MODULES
     + PROMOTION_REFRESH_SPLIT_MODULES
+    + PROMOTION_REFRESH_IMPL_MODULES
     + DAILY_REFRESH_SPLIT_MODULES
     + [Path("src/weather/operations/location_config_refresh.py")]
 )
@@ -216,6 +225,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.calibration\.pooled_candidate_replay\b)",
         re.MULTILINE,
     ),
+    Path("src/weather/calibration/pooled_candidate_replay_diagnostics.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.calibration\.pooled_candidate_replay|\.pooled_candidate_replay)\s+import\b|"
+        r"import\s+weather\.calibration\.pooled_candidate_replay\b)",
+        re.MULTILINE,
+    ),
     Path("src/weather/calibration/pooled_feature_source_state.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.calibration\.pooled_feature_model|\.pooled_feature_model)\s+import\b|"
         r"import\s+weather\.calibration\.pooled_feature_model\b)",
@@ -241,6 +255,16 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.reporting\.data_layer_audit\b)",
         re.MULTILINE,
     ),
+    Path("src/weather/reporting/data_layer_audit_collectors.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.data_layer_audit|\.data_layer_audit)\s+import\b|"
+        r"import\s+weather\.reporting\.data_layer_audit\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/reporting/daily_learning_render.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.daily_learning|\.daily_learning)\s+import\b|"
+        r"import\s+weather\.reporting\.daily_learning\b)",
+        re.MULTILINE,
+    ),
 }
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(
@@ -264,7 +288,7 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
         r"import\s+weather\.reporting\.promotion_refresh\b)",
         re.MULTILINE,
     )
-    for path in PROMOTION_REFRESH_SPLIT_MODULES
+    for path in PROMOTION_REFRESH_SPLIT_MODULES + PROMOTION_REFRESH_IMPL_MODULES
 })
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(
@@ -370,13 +394,13 @@ TRANSITIONAL_PACKAGE_EDGES = {
     ("calibration", "operations"),
     ("calibration", "reporting"),
     ("collection", "backtesting"),
+    ("collection", "calibration"),
     ("market", "backtesting"),
     ("market", "collection"),
     ("market", "model"),
     ("operations", "reporting"),
     ("reporting", "calibration"),
     ("reporting", "operations"),
-    ("sources", "model"),
 }
 
 PACKAGE_BOUNDARY_DOC = Path("docs/operations/package-boundaries.md")
