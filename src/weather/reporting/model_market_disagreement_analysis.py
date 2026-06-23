@@ -426,9 +426,9 @@ def build_payload(
         "ready_for_operator_review_count": ready_for_review_count,
         "settlement_watchlist_recommendation_count": watchlist_recommendation_count,
     }
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": generated_at_utc or utc_now_iso(),
+        "generated_at_utc": generated_at,
         "summary": summary,
         "groups": {
             "by_market": group_rows(records, ("market_id",)),
@@ -451,6 +451,8 @@ def build_payload(
         )[:50],
         "revision_counts": revision_counts,
     }
+    payload["operator_review_queue"] = operator_review_queue(payload)
+    return payload
 
 
 def render_group_rows(rows: list[dict[str, Any]], limit: int = 12) -> list[list[Any]]:
@@ -476,6 +478,7 @@ def render_recommendation_rows(rows: list[dict[str, Any]], limit: int = 12) -> l
     output = []
     for row in rows[:limit]:
         evidence = row.get("evidence") or {}
+        route = row.get("route") or {}
         output.append([
             row.get("priority"),
             row.get("market_id"),
@@ -484,7 +487,27 @@ def render_recommendation_rows(rows: list[dict[str, Any]], limit: int = 12) -> l
             evidence.get("case_count"),
             evidence.get("market_closer_count"),
             evidence.get("pending_count"),
+            route.get("repair_lane"),
+            route.get("roadmap_owner"),
             row.get("action"),
+        ])
+    return output
+
+
+def render_review_queue_rows(rows: list[dict[str, Any]], limit: int = 12) -> list[list[Any]]:
+    output = []
+    for row in rows[:limit]:
+        output.append([
+            row.get("review_queue_id"),
+            row.get("status"),
+            row.get("priority"),
+            row.get("market_id"),
+            row.get("range_label"),
+            row.get("repair_lane"),
+            row.get("roadmap_owner"),
+            row.get("counts_toward_repair_evidence"),
+            row.get("automatic_model_or_trading_change_allowed"),
+            row.get("next_experiment") or "-",
         ])
     return output
 
@@ -526,12 +549,31 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Average Brier gap market-model", fmt_signed(summary.get("avg_brier_gap_market_minus_model"), 4)],
             ["Markets", ", ".join(summary.get("market_ids") or [])],
             ["Recommendations", summary.get("recommendation_count")],
+            ["Ready for operator review", summary.get("ready_for_operator_review_count")],
+            ["Settlement watchlist recommendations", summary.get("settlement_watchlist_recommendation_count")],
         ],
     ))
     lines.extend(["", "## Recommendations", ""])
     lines.extend(markdown_table(
-        ["Priority", "Market", "Band", "Direction", "Cases", "Market closer", "Pending", "Action"],
+        ["Priority", "Market", "Band", "Direction", "Cases", "Market closer", "Pending", "Repair lane", "Roadmap owner", "Action"],
         render_recommendation_rows(payload.get("recommendations") or []),
+    ))
+    review_queue = payload.get("operator_review_queue") or {}
+    lines.extend(["", "## Operator Review Queue", ""])
+    lines.extend(markdown_table(
+        [
+            "Review id",
+            "Status",
+            "Priority",
+            "Market",
+            "Band",
+            "Repair lane",
+            "Roadmap owner",
+            "Counts as evidence",
+            "Auto-change allowed",
+            "Next experiment",
+        ],
+        render_review_queue_rows(review_queue.get("rows") or []),
     ))
     lines.extend(["", "## Priority Patterns", ""])
     lines.extend(markdown_table(
@@ -552,13 +594,28 @@ def render_report(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(payload: dict[str, Any], json_out: str | Path = DEFAULT_JSON_OUT, report_out: str | Path = DEFAULT_REPORT_OUT) -> tuple[Path, Path]:
+def write_review_queue(payload: dict[str, Any], queue_out: str | Path = DEFAULT_REVIEW_QUEUE_OUT) -> Path:
+    queue_path = Path(queue_out)
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    queue = payload.get("operator_review_queue") or operator_review_queue(payload)
+    queue_path.write_text(json.dumps(queue, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return queue_path
+
+
+def write_outputs(
+    payload: dict[str, Any],
+    json_out: str | Path = DEFAULT_JSON_OUT,
+    report_out: str | Path = DEFAULT_REPORT_OUT,
+    review_queue_out: str | Path | None = None,
+) -> tuple[Path, Path]:
     json_path = Path(json_out)
     report_path = Path(report_out)
     json_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     report_path.write_text(render_report(payload), encoding="utf-8")
+    if review_queue_out:
+        write_review_queue(payload, review_queue_out)
     return json_path, report_path
 
 
@@ -567,6 +624,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-path", default=str(DEFAULT_LOG_PATH))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--review-queue-out", default=str(DEFAULT_REVIEW_QUEUE_OUT))
     parser.add_argument("--min-pattern-cases", type=int, default=1)
     parser.add_argument("--no-write", action="store_true")
     return parser
@@ -583,9 +641,11 @@ def main(argv: list[str] | None = None) -> int:
         min_pattern_cases=args.min_pattern_cases,
     )
     if not args.no_write:
-        json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
+        json_out, report_out = write_outputs(payload, args.json_out, args.report_out, review_queue_out=args.review_queue_out)
         print(f"Wrote {json_out}")
         print(f"Wrote {report_out}")
+        if args.review_queue_out:
+            print(f"Wrote {args.review_queue_out}")
     print(json.dumps(payload["summary"], indent=2, sort_keys=True))
     return 0
 

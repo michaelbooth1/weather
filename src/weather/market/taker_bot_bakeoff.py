@@ -74,6 +74,771 @@ def replay_input_ticks(replay_inputs):
     return ticks
 
 
+TAKER_MODEL_VARIANT_SPECS = {
+    "served_current": {
+        "model_variant_id": "served_current",
+        "model_variant_family": "served",
+        "model_variant_role": "control",
+        "probability_fields": ("fair_probability", "model_probability", "candidate_p"),
+    },
+    "dynamic_source_state": {
+        "model_variant_id": "dynamic_source_state",
+        "model_variant_family": "dynamic_source_state",
+        "model_variant_role": "shadow",
+        "probability_fields": (
+            "dynamic_source_probability",
+            "dynamic_source_state_probability",
+            "probability_dynamic_source_state",
+        ),
+    },
+    "exact_winner_catchup": {
+        "model_variant_id": "exact_winner_catchup",
+        "model_variant_family": "exact_winner_catchup",
+        "model_variant_role": "shadow",
+        "probability_fields": (
+            "exact_winner_probability",
+            "exact_winner_catchup_probability",
+            "probability_exact_winner",
+        ),
+    },
+    "continuous_density": {
+        "model_variant_id": "continuous_density",
+        "model_variant_family": "continuous_density",
+        "model_variant_role": "shadow",
+        "probability_fields": (
+            "continuous_density_probability",
+            "density_probability",
+            "probability_continuous_density",
+        ),
+    },
+    "clob_overlay": {
+        "model_variant_id": "clob_overlay",
+        "model_variant_family": "market_microstructure_overlay",
+        "model_variant_role": "shadow",
+        "probability_fields": (
+            "clob_overlay_probability",
+            "market_overlay_probability",
+            "microstructure_probability",
+        ),
+    },
+}
+
+
+def taker_model_variant_ids(config=None, variants=None):
+    raw = variants if variants not in (None, "") else (config or {}).get("taker_model_variant_basket")
+    raw = raw or DEFAULT_TAKER_MODEL_VARIANT_BASKET
+    if isinstance(raw, (list, tuple)):
+        items = raw
+    else:
+        items = str(raw).replace(";", ",").split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def taker_model_variant_specs(config=None, variants=None):
+    specs = []
+    for variant_id in taker_model_variant_ids(config, variants=variants):
+        base = dict(TAKER_MODEL_VARIANT_SPECS.get(variant_id) or {})
+        if not base:
+            base = {
+                "model_variant_id": variant_id,
+                "model_variant_family": "custom",
+                "model_variant_role": "shadow",
+                "probability_fields": (f"{variant_id}_probability",),
+            }
+        specs.append(base)
+    return specs
+
+
+def _variant_probability(row, spec):
+    for field in spec.get("probability_fields") or ():
+        probability = clamp_probability(row.get(field))
+        if probability is not None:
+            return probability, field
+    return None, ""
+
+
+def expand_input_rows_for_model_variants(input_rows, *, config=None, variants=None):
+    specs = taker_model_variant_specs(config, variants=variants)
+    include_missing = bool_value((config or {}).get("taker_model_variant_include_missing"), False)
+    basket_id = stable_hash([spec["model_variant_id"] for spec in specs], length=16)
+    rows = []
+    materialized = Counter()
+    missing = Counter()
+    for input_row in input_rows or []:
+        served_version = input_row.get("model_version") or input_row.get("served_model_version") or ""
+        for spec in specs:
+            probability, source = _variant_probability(input_row, spec)
+            if probability is None and not include_missing:
+                missing[spec["model_variant_id"]] += 1
+                continue
+            out = dict(input_row)
+            out["fair_probability"] = compact_float(probability)
+            out["model_probability"] = compact_float(probability)
+            out["model_variant_id"] = spec["model_variant_id"]
+            out["model_variant_family"] = spec["model_variant_family"]
+            out["model_variant_role"] = spec["model_variant_role"]
+            out["model_variant_basket_id"] = basket_id
+            out["model_variant_basket_size"] = len(specs)
+            out["model_variant_probability"] = compact_float(probability)
+            out["model_variant_probability_source"] = source or "missing_prediction"
+            out["model_variant_prediction_generated_at_utc"] = (
+                input_row.get("model_variant_prediction_generated_at_utc")
+                or input_row.get("prediction_generated_at_utc")
+                or input_row.get("captured_at_utc")
+                or ""
+            )
+            out["served_model_version"] = served_version
+            rows.append(out)
+            materialized[spec["model_variant_id"]] += 1
+    return rows, {
+        "basket_id": basket_id,
+        "requested_variant_ids": [spec["model_variant_id"] for spec in specs],
+        "materialized_variant_ids": sorted([key for key, value in materialized.items() if value > 0]),
+        "missing_variant_ids": sorted([key for key, value in missing.items() if value > 0 and materialized.get(key, 0) == 0]),
+        "materialized_row_count": len(rows),
+        "materialized_counts": dict(sorted(materialized.items())),
+        "missing_counts": dict(sorted(missing.items())),
+        "include_missing": include_missing,
+    }
+
+
+def counterfactual_strategy_arg(config=None, strategies=None):
+    if strategies not in (None, ""):
+        return strategies
+    configured = (config or {}).get("counterfactual_strategies")
+    return configured or DEFAULT_BAKEOFF_STRATEGIES
+
+
+def counterfactual_match_key(row):
+    kind, value, value_hi = band_key(row)
+    return (
+        row.get("target_date") or "",
+        row.get("market_id") or "",
+        row.get("event_slug") or "",
+        row.get("snapshot_id") or "",
+        row.get("captured_at_utc") or "",
+        row.get("range_label") or "",
+        kind or "",
+        str(value if value is not None else ""),
+        str(value_hi if value_hi is not None else ""),
+        row.get("clob_token_id") or row.get("clob_yes_token_id") or "",
+        order_side(row),
+    )
+
+
+def real_action_index(rows):
+    by_key = {}
+    for row in rows or []:
+        key = counterfactual_match_key(row)
+        existing = by_key.get(key)
+        if existing is None or str(row.get("order_status") or "").upper() == "FILLED":
+            by_key[key] = row
+    return by_key
+
+
+def annotate_counterfactual_rows(rows, *, real_rows=None, strategy_set=None):
+    real_by_key = real_action_index(real_rows or [])
+    strategy_set = strategy_set or ""
+    out = []
+    for row in rows or []:
+        item = dict(row)
+        real = real_by_key.get(counterfactual_match_key(item)) or {}
+        item.update({
+            "counterfactual_schema_version": COUNTERFACTUAL_TAPE_SCHEMA_VERSION,
+            "counterfactual_id": stable_hash({
+                "intent_key": item.get("intent_key"),
+                "strategy_id": strategy_id_for_row(item),
+                "side": order_side(item),
+                "run_id": item.get("run_id"),
+            }, length=24),
+            "counterfactual_source": "live_shared_snapshot_inputs",
+            "counterfactual_strategy_set": strategy_set,
+            "counterfactual_action": item.get("action") or "NO_TRADE",
+            "counterfactual_order_status": item.get("order_status") or "SKIPPED",
+            "counterfactual_reason_code": item.get("reason_code") or "",
+            "counterfactual_reason_detail": item.get("reason_detail") or "",
+            "counterfactual_requested_notional_usdc": item.get("requested_notional_usdc"),
+            "counterfactual_fill_size": item.get("fill_size"),
+            "counterfactual_total_spent_usdc": item.get("total_spent_usdc"),
+            "counterfactual_pnl_source": item.get("pnl_source") or "",
+            "real_action": real.get("action") or "NOT_SELECTED",
+            "real_order_status": real.get("order_status") or "NOT_SELECTED",
+            "real_reason_code": real.get("reason_code") or "",
+            "real_strategy_id": real.get("strategy_id") or "",
+            "real_order_id": real.get("order_id") or "",
+            "real_fill_size": real.get("fill_size"),
+            "real_total_spent_usdc": real.get("total_spent_usdc"),
+            "real_pnl_source": real.get("pnl_source") or "",
+        })
+        out.append(item)
+    return out
+
+
+def build_counterfactual_taker_rows(
+    input_rows,
+    existing_counterfactual_rows,
+    real_rows,
+    *,
+    budget_usdc,
+    run_id,
+    target_date,
+    now,
+    config,
+    strategies=None,
+    experiment_id=None,
+    strategy_registry=None,
+):
+    strategy_arg = counterfactual_strategy_arg(config, strategies=strategies)
+    specs = selected_strategy_specs(strategy_arg, base_config=config, registry=strategy_registry)
+    variant_input_rows, variant_manifest = expand_input_rows_for_model_variants(input_rows, config=config)
+    rows = []
+    ledger = []
+    for strategy in specs:
+        prior_rows = [
+            row for row in existing_counterfactual_rows or []
+            if strategy_id_for_row(row) == strategy["strategy_id"]
+        ]
+        strategy_rows, strategy_ledger = apply_taker_budget(
+            variant_input_rows,
+            prior_rows,
+            strategy.get("budget_usdc") or budget_usdc,
+            run_id,
+            target_date,
+            now,
+            strategy["config"],
+            strategy=strategy,
+            experiment_id=experiment_id,
+        )
+        rows.extend(strategy_rows)
+        ledger.extend(strategy_ledger)
+    return {
+        "strategy_arg": strategy_arg,
+        "strategy_specs": specs,
+        "model_variant_manifest": variant_manifest,
+        "rows": annotate_counterfactual_rows(
+            rows,
+            real_rows=real_rows,
+            strategy_set=",".join(item["strategy_id"] for item in specs),
+        ),
+        "ledger": ledger,
+    }
+
+
+def counterfactual_learning_summary(rows, pnl_payload=None):
+    rows = list(rows or [])
+    would_buy = [row for row in rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+    real_filled = [
+        row for row in rows
+        if str(row.get("real_order_status") or "").upper() == "FILLED"
+    ]
+    by_strategy = (pnl_payload or {}).get("by_strategy") or []
+    best = max(by_strategy, key=lambda row: maybe_float(row.get("net_pnl_usdc")) or 0.0, default={})
+    return {
+        "row_count": len(rows),
+        "would_buy_count": len(would_buy),
+        "settled_would_buy_count": len(settled),
+        "real_filled_match_count": len(real_filled),
+        "zero_real_fill_learning": bool(len(real_filled) == 0 and len(settled) > 0),
+        "strategy_count": len({strategy_id_for_row(row) for row in rows}),
+        "best_counterfactual_strategy_id": best.get("strategy_id"),
+        "best_counterfactual_net_pnl_usdc": best.get("net_pnl_usdc"),
+        "reason_counts": dict(sorted(Counter(row.get("reason_code") or "unknown" for row in rows).items())),
+    }
+
+
+def counterfactual_strategy_lift_rows(pnl_payload, active_strategy_id=None):
+    strategies = (pnl_payload or {}).get("by_strategy") or []
+    by_id = {row.get("strategy_id"): row for row in strategies if row.get("strategy_id")}
+    active = by_id.get(active_strategy_id) or (strategies[0] if strategies else {})
+    active_net = maybe_float(active.get("net_pnl_usdc")) or 0.0
+    rows = []
+    for row in strategies:
+        net = maybe_float(row.get("net_pnl_usdc")) or 0.0
+        rows.append({
+            "strategy_id": row.get("strategy_id"),
+            "strategy_family": row.get("strategy_family"),
+            "active_policy_strategy_id": (active or {}).get("strategy_id") or active_strategy_id,
+            "would_buy_count": row.get("filled_order_count"),
+            "settled_would_buy_count": row.get("settled_order_count"),
+            "net_pnl_usdc": compact_float(net),
+            "delta_vs_active_policy_net_pnl_usdc": compact_float(net - active_net),
+            "delta_vs_no_trade_net_pnl_usdc": compact_float(net),
+            "market_top_net_pnl_usdc": row.get("market_benchmark_market_top_net_pnl_usdc"),
+            "delta_vs_market_top_net_pnl_usdc": compact_float(
+                net - (maybe_float(row.get("market_benchmark_market_top_net_pnl_usdc")) or 0.0)
+            ),
+            "market_benchmark_status": row.get("market_benchmark_status"),
+            "quality_candidate_countable": row.get("quality_candidate_countable"),
+            "settlement_promotion_gate_status": row.get("settlement_promotion_gate_status"),
+            "settlement_promotion_failed_gates": row.get("settlement_promotion_failed_gates") or [],
+        })
+    return rows
+
+
+def _counterfactual_slice_row(dimension, value, rows):
+    rows = list(rows or [])
+    would_buy = [row for row in rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+    return {
+        "dimension": dimension,
+        "value": value if value not in (None, "") else "unknown",
+        "row_count": len(rows),
+        "would_buy_count": len(would_buy),
+        "settled_would_buy_count": len(settled),
+        "win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
+        "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
+        "spent_usdc": sum_field(would_buy, "total_spent_usdc"),
+        "net_pnl_usdc": sum_field([row for row in would_buy if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc"),
+    }
+
+
+def _capture_hour_bucket(row):
+    hour = maybe_float(row.get("capture_hour_local"))
+    if hour is not None:
+        return f"{int(hour):02d}"
+    parsed = parse_time(row.get("captured_at_utc") or row.get("generated_at_utc"))
+    return f"{parsed.hour:02d}Z" if parsed else "unknown"
+
+
+def _current_high_bucket(row):
+    gate = row.get("current_high_trust_gate_status") or "unknown"
+    distance = maybe_float(row.get("current_high_band_distance"))
+    if distance is None:
+        return gate
+    if distance <= 0:
+        bucket = "at_current_high"
+    elif distance <= 1:
+        bucket = "adjacent_current_high"
+    else:
+        bucket = "away_from_current_high"
+    return f"{gate}:{bucket}"
+
+
+def counterfactual_slice_summaries(rows):
+    rows = list(rows or [])
+    dimensions = {
+        "by_market": lambda row: row.get("market_id") or "unknown",
+        "by_hour": _capture_hour_bucket,
+        "by_tail": lambda row: row.get("tail_risk_bucket") or ("low_price_tail" if bool_value(row.get("low_price_tail"), False) else "regular"),
+        "by_current_high": _current_high_bucket,
+        "by_source_state": lambda row: row.get("source_freshness_state") or "unknown",
+    }
+    summaries = {}
+    for name, key_func in dimensions.items():
+        groups = defaultdict(list)
+        for row in rows:
+            groups[key_func(row)].append(row)
+        summaries[name] = [
+            _counterfactual_slice_row(name, key, group_rows)
+            for key, group_rows in sorted(groups.items(), key=lambda item: str(item[0]))
+        ]
+    return summaries
+
+
+def _no_side_campaign_status(no_rows, real_book_rows, real_eligible_rows, would_buy, real_eligible_would_buy, settled_real_eligible):
+    if not no_rows:
+        return "BLOCK_NO_SIDE_ROWS"
+    if not real_book_rows:
+        return "BLOCK_NO_REAL_NO_BOOK_ROWS"
+    if not real_eligible_rows:
+        return "BLOCK_REAL_NO_BOOK_DEPTH"
+    if not would_buy:
+        return "WATCH_NO_SIDE_NO_WOULD_BUY"
+    if not real_eligible_would_buy:
+        return "BLOCK_SYNTHETIC_OR_STALE_NO_BOOK"
+    if not settled_real_eligible:
+        return "COLLECTING_UNSETTLED_NO_SIDE"
+    return "COLLECTING_SETTLED_NO_SIDE"
+
+
+def _no_side_campaign_core(rows):
+    rows = list(rows or [])
+    no_rows = [row for row in rows if order_side(row) == NO_SIDE]
+    would_buy = [row for row in no_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+    real_book_rows = [row for row in no_rows if row.get("no_book_source") == "no_token_book"]
+    synthetic_rows = [row for row in no_rows if str(row.get("no_book_source") or "").startswith("synthetic")]
+    stale_rows = [
+        row for row in real_book_rows
+        if not bool_value(row.get("no_book_fresh"), False)
+    ]
+    real_eligible_rows = [
+        row for row in real_book_rows
+        if bool_value(row.get("real_no_book_depth_eligible"), False)
+    ]
+    missing_depth_rows = [
+        row for row in real_book_rows
+        if bool_value(row.get("no_book_fresh"), False)
+        and not bool_value(row.get("real_no_book_depth_eligible"), False)
+    ]
+    real_eligible_would_buy = [
+        row for row in would_buy
+        if row.get("no_book_source") == "no_token_book"
+        and bool_value(row.get("real_no_book_depth_eligible"), False)
+    ]
+    synthetic_would_buy = [
+        row for row in would_buy
+        if str(row.get("no_book_source") or "").startswith("synthetic")
+    ]
+    stale_would_buy = [
+        row for row in would_buy
+        if row.get("no_book_source") == "no_token_book"
+        and not bool_value(row.get("no_book_fresh"), False)
+    ]
+    settled_real_eligible = [
+        row for row in real_eligible_would_buy
+        if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES
+    ]
+    return {
+        "no_rows": no_rows,
+        "would_buy": would_buy,
+        "settled": settled,
+        "real_book_rows": real_book_rows,
+        "synthetic_rows": synthetic_rows,
+        "stale_rows": stale_rows,
+        "missing_depth_rows": missing_depth_rows,
+        "real_eligible_rows": real_eligible_rows,
+        "real_eligible_would_buy": real_eligible_would_buy,
+        "synthetic_would_buy": synthetic_would_buy,
+        "stale_would_buy": stale_would_buy,
+        "settled_real_eligible": settled_real_eligible,
+    }
+
+
+def _no_side_campaign_slice_row(dimension, value, rows):
+    core = _no_side_campaign_core(rows)
+    would_buy = core["would_buy"]
+    settled = core["settled"]
+    real_eligible_would_buy = core["real_eligible_would_buy"]
+    settled_real_eligible = core["settled_real_eligible"]
+    return {
+        "dimension": dimension,
+        "value": value if value not in (None, "") else "unknown",
+        "no_side_row_count": len(core["no_rows"]),
+        "real_no_book_row_count": len(core["real_book_rows"]),
+        "real_no_book_depth_eligible_row_count": len(core["real_eligible_rows"]),
+        "synthetic_no_book_row_count": len(core["synthetic_rows"]),
+        "stale_no_book_row_count": len(core["stale_rows"]),
+        "no_side_would_buy_count": len(would_buy),
+        "countable_no_side_would_buy_count": len(real_eligible_would_buy),
+        "settled_no_side_would_buy_count": len(settled),
+        "settled_countable_no_side_would_buy_count": len(settled_real_eligible),
+        "win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
+        "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
+        "spent_usdc": sum_field(would_buy, "total_spent_usdc"),
+        "net_pnl_usdc": sum_field([row for row in would_buy if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc"),
+        "countable_net_pnl_usdc": sum_field([
+            row for row in real_eligible_would_buy
+            if row.get("net_pnl_usdc") not in (None, "")
+        ], "net_pnl_usdc"),
+        "delta_vs_no_trade_net_pnl_usdc": sum_field([
+            row for row in real_eligible_would_buy
+            if row.get("net_pnl_usdc") not in (None, "")
+        ], "net_pnl_usdc"),
+    }
+
+
+def no_side_campaign_summary(rows, pnl_payload=None, *, include_slices=True):
+    core = _no_side_campaign_core(rows)
+    no_rows = core["no_rows"]
+    would_buy = core["would_buy"]
+    settled = core["settled"]
+    real_book_rows = core["real_book_rows"]
+    real_eligible_rows = core["real_eligible_rows"]
+    real_eligible_would_buy = core["real_eligible_would_buy"]
+    settled_real_eligible = core["settled_real_eligible"]
+    by_strategy_payload = {
+        row.get("strategy_id"): row
+        for row in (pnl_payload or {}).get("by_strategy") or []
+        if row.get("strategy_id")
+    }
+    out = {
+        "status": _no_side_campaign_status(
+            no_rows,
+            real_book_rows,
+            real_eligible_rows,
+            would_buy,
+            real_eligible_would_buy,
+            settled_real_eligible,
+        ),
+        "candidate_basis": "NO-side rows generated by two_sided/fade arm",
+        "countable_evidence_basis": "real no-token book depth only",
+        "synthetic_only_countable": False,
+        "no_side_row_count": len(no_rows),
+        "real_no_book_row_count": len(real_book_rows),
+        "real_no_book_depth_eligible_row_count": len(real_eligible_rows),
+        "synthetic_no_book_row_count": len(core["synthetic_rows"]),
+        "stale_no_book_row_count": len(core["stale_rows"]),
+        "missing_depth_no_book_row_count": len(core["missing_depth_rows"]),
+        "no_side_would_buy_count": len(would_buy),
+        "countable_no_side_would_buy_count": len(real_eligible_would_buy),
+        "synthetic_no_book_would_buy_count": len(core["synthetic_would_buy"]),
+        "stale_no_book_would_buy_count": len(core["stale_would_buy"]),
+        "settled_no_side_would_buy_count": len(settled),
+        "settled_countable_no_side_would_buy_count": len(settled_real_eligible),
+        "no_side_win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
+        "no_side_loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
+        "no_side_spent_usdc": sum_field(would_buy, "total_spent_usdc"),
+        "no_side_net_pnl_usdc": sum_field([
+            row for row in would_buy
+            if row.get("net_pnl_usdc") not in (None, "")
+        ], "net_pnl_usdc"),
+        "countable_no_side_net_pnl_usdc": sum_field([
+            row for row in real_eligible_would_buy
+            if row.get("net_pnl_usdc") not in (None, "")
+        ], "net_pnl_usdc"),
+        "delta_vs_no_trade_net_pnl_usdc": sum_field([
+            row for row in real_eligible_would_buy
+            if row.get("net_pnl_usdc") not in (None, "")
+        ], "net_pnl_usdc"),
+        "reason_counts": dict(sorted(Counter(row.get("reason_code") or "unknown" for row in no_rows).items())),
+    }
+    strategy_groups = defaultdict(list)
+    for row in no_rows:
+        strategy_groups[strategy_id_for_row(row)].append(row)
+    out["by_strategy"] = []
+    for strategy_id, group_rows in sorted(strategy_groups.items()):
+        strategy_row = _no_side_campaign_slice_row("by_strategy", strategy_id, group_rows)
+        pnl_row = by_strategy_payload.get(strategy_id) or {}
+        market_top = maybe_float(pnl_row.get("market_benchmark_market_top_net_pnl_usdc"))
+        strategy_net = maybe_float(pnl_row.get("net_pnl_usdc"))
+        strategy_row.update({
+            "strategy_id": strategy_id,
+            "strategy_family": (group_rows[0] if group_rows else {}).get("strategy_family") or "unknown",
+            "strategy_market_top_net_pnl_usdc": compact_float(market_top),
+            "strategy_delta_vs_market_top_net_pnl_usdc": compact_float(
+                strategy_net - market_top
+                if strategy_net is not None and market_top is not None else None
+            ),
+            "settlement_promotion_gate_status": pnl_row.get("settlement_promotion_gate_status") or "",
+            "settlement_promotion_failed_gates": pnl_row.get("settlement_promotion_failed_gates") or [],
+        })
+        out["by_strategy"].append(strategy_row)
+    if include_slices:
+        dimensions = {
+            "by_market": lambda row: row.get("market_id") or "unknown",
+            "by_hour": _capture_hour_bucket,
+        }
+        for name, key_func in dimensions.items():
+            groups = defaultdict(list)
+            for row in no_rows:
+                groups[key_func(row)].append(row)
+            out[name] = [
+                _no_side_campaign_slice_row(name, key, group_rows)
+                for key, group_rows in sorted(groups.items(), key=lambda item: str(item[0]))
+            ]
+    return out
+
+
+def model_variant_id_for_row(row):
+    return str(row.get("model_variant_id") or row.get("variant_id") or row.get("model_version") or "served_current")
+
+
+def model_variant_strategy_bakeoff(rows, *, alpha=0.05, min_settled_would_buy=5):
+    rows = list(rows or [])
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(model_variant_id_for_row(row), strategy_id_for_row(row))].append(row)
+    pair_rows = []
+    served_by_strategy = {}
+    for (variant_id, strategy_id), group_rows in sorted(groups.items()):
+        would_buy = [row for row in group_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+        settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+        net = sum_field([row for row in would_buy if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc")
+        spent = sum_field(would_buy, "total_spent_usdc")
+        row = {
+            "model_variant_id": variant_id,
+            "model_variant_family": (group_rows[0] if group_rows else {}).get("model_variant_family") or "unknown",
+            "model_variant_role": (group_rows[0] if group_rows else {}).get("model_variant_role") or "shadow",
+            "strategy_id": strategy_id,
+            "strategy_family": (group_rows[0] if group_rows else {}).get("strategy_family") or "unknown",
+            "row_count": len(group_rows),
+            "would_buy_count": len(would_buy),
+            "settled_would_buy_count": len(settled),
+            "win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
+            "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
+            "spent_usdc": spent,
+            "net_pnl_usdc": net,
+            "roi": compact_float(net / spent if spent > 0 else None),
+            "after_fee_count": sum(
+                1 for row in would_buy
+                if bool_value(row.get("after_fee_pnl_scored"), False)
+                or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+            ),
+            "after_slippage_count": sum(
+                1 for row in would_buy
+                if bool_value(row.get("after_slippage_pnl_scored"), False)
+                or row.get("executable_depth_model_version") not in (None, "")
+            ),
+        }
+        if variant_id == "served_current":
+            served_by_strategy[strategy_id] = row
+        pair_rows.append(row)
+    comparison_count = sum(1 for row in pair_rows if row.get("model_variant_id") != "served_current")
+    adjusted_alpha = compact_float(float(alpha) / comparison_count if comparison_count else float(alpha), digits=8)
+    for row in pair_rows:
+        baseline = served_by_strategy.get(row.get("strategy_id")) or {}
+        row["served_current_net_pnl_usdc"] = baseline.get("net_pnl_usdc")
+        row["delta_vs_served_current_net_pnl_usdc"] = compact_float(
+            (maybe_float(row.get("net_pnl_usdc")) or 0.0)
+            - (maybe_float(baseline.get("net_pnl_usdc")) or 0.0)
+        )
+        failed = []
+        if row.get("model_variant_id") != "served_current":
+            if int(row.get("settled_would_buy_count") or 0) < int(min_settled_would_buy):
+                failed.append("min_settled_would_buy")
+            if (maybe_float(row.get("delta_vs_served_current_net_pnl_usdc")) or 0.0) <= 0:
+                failed.append("positive_delta_vs_served_current")
+        row["variant_selection_status"] = "PASS" if row.get("model_variant_id") != "served_current" and not failed else (
+            "CONTROL" if row.get("model_variant_id") == "served_current" else "BLOCK"
+        )
+        row["variant_selection_failed_gates"] = failed
+        row["multiple_testing_adjusted_alpha"] = adjusted_alpha
+    pass_rows = [row for row in pair_rows if row.get("variant_selection_status") == "PASS"]
+    return {
+        "schema_version": "taker_model_variant_shadow_bakeoff_v0.1",
+        "alpha": float(alpha),
+        "multiple_testing_method": "bonferroni_pre_registered_basket",
+        "comparison_count": comparison_count,
+        "adjusted_alpha": adjusted_alpha,
+        "min_settled_would_buy": int(min_settled_would_buy),
+        "status": "PASS" if pass_rows else "BLOCK",
+        "recommended_model_variant_id": (max(
+            pass_rows,
+            key=lambda row: maybe_float(row.get("delta_vs_served_current_net_pnl_usdc")) or 0.0,
+            default={},
+        )).get("model_variant_id"),
+        "pair_count": len(pair_rows),
+        "pairs": pair_rows,
+    }
+
+
+def _cluster_stats(values, alpha=0.05):
+    values = [float(value or 0.0) for value in values]
+    n = len(values)
+    total = sum(values)
+    mean = total / n if n else 0.0
+    if n <= 1:
+        stdev = 0.0
+        lower = mean if n else None
+        upper = mean if n else None
+    else:
+        stdev = math.sqrt(sum((value - mean) ** 2 for value in values) / (n - 1))
+        z = 2.576 if float(alpha) <= 0.01 else 1.96
+        half_width = z * stdev / math.sqrt(n)
+        lower = mean - half_width
+        upper = mean + half_width
+    return {
+        "n": n,
+        "total": compact_float(total),
+        "mean": compact_float(mean),
+        "stdev": compact_float(stdev),
+        "mean_lower": compact_float(lower),
+        "mean_upper": compact_float(upper),
+        "total_lower": compact_float(lower * n if lower is not None else None),
+        "total_upper": compact_float(upper * n if upper is not None else None),
+    }
+
+
+def clustered_taker_promotion_statistics(
+    rows,
+    *,
+    alpha=0.05,
+    min_independent_target_days=3,
+    min_independent_markets=2,
+):
+    rows = list(rows or [])
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(model_variant_id_for_row(row), strategy_id_for_row(row))].append(row)
+    comparison_count = sum(1 for key in groups if key[0] != "served_current") or max(1, len(groups))
+    adjusted_alpha = float(alpha) / comparison_count if comparison_count else float(alpha)
+    result_rows = []
+    for (variant_id, strategy_id), group_rows in sorted(groups.items()):
+        would_buy = [row for row in group_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+        settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
+        unresolved = [row for row in would_buy if row.get("pnl_source") not in SETTLEMENT_PNL_SOURCES]
+        cluster_buckets = defaultdict(list)
+        for row in settled:
+            cluster_buckets[(row.get("target_date") or "", row.get("market_id") or "")].append(row)
+        cluster_rows = []
+        for (target_date, market_id), bucket in sorted(cluster_buckets.items()):
+            spent = sum_field(bucket, "total_spent_usdc")
+            net = sum_field([row for row in bucket if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc")
+            cluster_rows.append({
+                "target_date": target_date,
+                "market_id": market_id,
+                "settled_would_buy_count": len(bucket),
+                "spent_usdc": spent,
+                "net_pnl_usdc": net,
+                "roi": compact_float(net / spent if spent > 0 else None),
+            })
+        target_days = {row.get("target_date") for row in cluster_rows if row.get("target_date")}
+        markets = {row.get("market_id") for row in cluster_rows if row.get("market_id")}
+        net_stats = _cluster_stats([row["net_pnl_usdc"] for row in cluster_rows], alpha=adjusted_alpha)
+        spent_total = sum(row["spent_usdc"] for row in cluster_rows)
+        net_total = sum(row["net_pnl_usdc"] for row in cluster_rows)
+        after_fee_count = sum(
+            1 for row in would_buy
+            if bool_value(row.get("after_fee_pnl_scored"), False)
+            or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+        )
+        after_slippage_count = sum(
+            1 for row in would_buy
+            if bool_value(row.get("after_slippage_pnl_scored"), False)
+            or row.get("executable_depth_model_version") not in (None, "")
+        )
+        failed = []
+        if len(target_days) < int(min_independent_target_days):
+            failed.append("min_independent_target_days")
+        if len(markets) < int(min_independent_markets):
+            failed.append("min_independent_markets")
+        if unresolved:
+            failed.append("complete_settlement_required")
+        if would_buy and after_fee_count < len(would_buy):
+            failed.append("after_fee_pnl_scored")
+        if would_buy and after_slippage_count < len(would_buy):
+            failed.append("after_slippage_pnl_scored")
+        if (maybe_float(net_stats.get("mean_lower")) or 0.0) <= 0:
+            failed.append("positive_cluster_mean_pnl_lower_bound")
+        result_rows.append({
+            "model_variant_id": variant_id,
+            "strategy_id": strategy_id,
+            "status": "PASS" if not failed else "BLOCK",
+            "failed_gates": failed,
+            "cluster_key": "target_date,market_id",
+            "cluster_count": len(cluster_rows),
+            "independent_target_day_count": len(target_days),
+            "independent_market_count": len(markets),
+            "would_buy_count": len(would_buy),
+            "settled_would_buy_count": len(settled),
+            "unresolved_would_buy_count": len(unresolved),
+            "spent_usdc": compact_float(spent_total),
+            "net_pnl_usdc": compact_float(net_total),
+            "roi": compact_float(net_total / spent_total if spent_total > 0 else None),
+            "cluster_net_pnl": net_stats,
+            "after_fee_pnl_scored": bool(would_buy and after_fee_count == len(would_buy)),
+            "after_slippage_pnl_scored": bool(would_buy and after_slippage_count == len(would_buy)),
+            "clusters": cluster_rows,
+        })
+    pass_rows = [row for row in result_rows if row.get("status") == "PASS"]
+    return {
+        "schema_version": "taker_clustered_promotion_gate_v0.1",
+        "status": "PASS" if pass_rows else "BLOCK",
+        "cluster_key": "target_date,market_id",
+        "alpha": float(alpha),
+        "multiple_testing_method": "bonferroni_pre_registered_strategy_model_pairs",
+        "comparison_count": comparison_count,
+        "adjusted_alpha": compact_float(adjusted_alpha, digits=8),
+        "min_independent_target_days": int(min_independent_target_days),
+        "min_independent_markets": int(min_independent_markets),
+        "pass_pair_count": len(pass_rows),
+        "pair_count": len(result_rows),
+        "pairs": result_rows,
+    }
+
+
 def strategy_filled_rows(order_rows, strategy_id):
     return [
         row for row in order_rows or []

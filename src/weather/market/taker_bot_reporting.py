@@ -25,6 +25,8 @@ def render_report(payload):
     pnl = payload.get("pnl") or {}
     pnl_summary = pnl.get("summary") or {}
     tape_integrity = payload.get("tape_integrity") or summary.get("tape_integrity") or {}
+    no_side_campaign = summary.get("no_side_campaign") or {}
+    counterfactual_no_side_campaign = summary.get("counterfactual_no_side_campaign") or {}
     lines = [
         "# Taker Bot Paper Report",
         "",
@@ -51,6 +53,11 @@ def render_report(payload):
             ["Next-run policy status", summary.get("next_run_policy_status") or "-"],
             ["Latest tick rows", summary.get("latest_tick_rows")],
             ["New filled buys", summary.get("latest_tick_filled_orders")],
+            ["Counterfactual rows", summary.get("latest_tick_counterfactual_rows")],
+            ["Counterfactual would-buy rows", summary.get("latest_tick_counterfactual_would_buy_count")],
+            ["NO-side campaign status", counterfactual_no_side_campaign.get("status") or no_side_campaign.get("status") or "-"],
+            ["NO-side real-book rows", counterfactual_no_side_campaign.get("real_no_book_row_count") or no_side_campaign.get("real_no_book_row_count") or 0],
+            ["NO-side countable would-buy rows", counterfactual_no_side_campaign.get("countable_no_side_would_buy_count") or no_side_campaign.get("countable_no_side_would_buy_count") or 0],
             ["Cumulative filled buys", pnl_summary.get("filled_order_count")],
             ["Zero-trade root cause", summary.get("root_cause_class")],
             ["First failing gate", summary.get("first_failing_gate") or "-"],
@@ -62,12 +69,59 @@ def render_report(payload):
                     f"({tape_integrity.get('actual_rows', 0)}/{tape_integrity.get('expected_rows', 0)} rows)"
                 ),
             ],
+            [
+                "Counterfactual tape integrity",
+                (
+                    f"{(summary.get('counterfactual_tape_integrity') or {}).get('status') or '-'} "
+                    f"({(summary.get('counterfactual_tape_integrity') or {}).get('actual_rows', 0)}/"
+                    f"{(summary.get('counterfactual_tape_integrity') or {}).get('expected_rows', 0)} rows)"
+                ),
+            ],
             ["Settled / unsettled", f"{pnl_summary.get('settled_order_count')} / {pnl_summary.get('unsettled_order_count')}"],
             ["Net P&L USDC", fmt_num(pnl_summary.get("net_pnl_usdc"), 4)],
             ["Executable net P&L", fmt_num(pnl_summary.get("executable_net_pnl_usdc"), 4)],
             ["Live profitability basis", pnl_summary.get("live_profitability_evidence_basis") or "-"],
         ],
     ))
+    if no_side_campaign or counterfactual_no_side_campaign:
+        lines.extend(["", "## NO-Side Campaign", ""])
+        lines.extend(markdown_table(
+            [
+                "Source",
+                "Status",
+                "NO Rows",
+                "Real Book",
+                "Synthetic",
+                "Stale",
+                "Would Buy",
+                "Countable Would Buy",
+                "Net P&L",
+            ],
+            [
+                [
+                    "Actual",
+                    no_side_campaign.get("status") or "-",
+                    no_side_campaign.get("no_side_row_count") or 0,
+                    no_side_campaign.get("real_no_book_row_count") or 0,
+                    no_side_campaign.get("synthetic_no_book_row_count") or 0,
+                    no_side_campaign.get("stale_no_book_row_count") or 0,
+                    no_side_campaign.get("no_side_would_buy_count") or 0,
+                    no_side_campaign.get("countable_no_side_would_buy_count") or 0,
+                    fmt_num(no_side_campaign.get("countable_no_side_net_pnl_usdc"), 4),
+                ],
+                [
+                    "Counterfactual",
+                    counterfactual_no_side_campaign.get("status") or "-",
+                    counterfactual_no_side_campaign.get("no_side_row_count") or 0,
+                    counterfactual_no_side_campaign.get("real_no_book_row_count") or 0,
+                    counterfactual_no_side_campaign.get("synthetic_no_book_row_count") or 0,
+                    counterfactual_no_side_campaign.get("stale_no_book_row_count") or 0,
+                    counterfactual_no_side_campaign.get("no_side_would_buy_count") or 0,
+                    counterfactual_no_side_campaign.get("countable_no_side_would_buy_count") or 0,
+                    fmt_num(counterfactual_no_side_campaign.get("countable_no_side_net_pnl_usdc"), 4),
+                ],
+            ],
+        ))
     lines.extend(["", "## P&L", ""])
     lines.extend(markdown_table(
         ["Component", "USDC"],

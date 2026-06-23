@@ -1,11 +1,22 @@
 import datetime
+import json
 import pandas as pd
 from unittest import mock
 import sys
 import os
 import pytest
 import weather.reporting.overview_helpers as overview_helpers
-from weather.reporting.overview_helpers import check_snapshot_status, format_status_table, format_edge_table
+from weather.reporting.overview_helpers import (
+    check_snapshot_status,
+    format_audit_analysis_status_table,
+    format_audit_market_direction_table,
+    format_audit_pending_watchlist_table,
+    format_audit_recommendations_table,
+    format_audit_review_queue_table,
+    format_edge_table,
+    format_status_table,
+    load_audit_analysis_dashboard,
+)
 
 @mock.patch("weather.reporting.overview_helpers.all_specs")
 @mock.patch("weather.reporting.overview_helpers.SnapshotStore")
@@ -147,3 +158,143 @@ def test_compute_biggest_edges_marks_auto_saved_audit(mock_read_csv, mock_load_a
     assert edges[0]["audit_triggered"] is True
     assert edges[0]["audit_written"] is True
     mock_ensure_audit.assert_called_once()
+
+
+def _write_audit_jsonl(path, audited_at):
+    row = {
+        "audit_key": "nyc|snap1|eq:70-71",
+        "audited_at_utc": audited_at,
+        "market_id": "nyc",
+        "range_label": "70-71 F",
+    }
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+
+def _analysis_payload(log_path, generated_at):
+    return {
+        "schema_version": "model_market_disagreement_analysis_v0.1",
+        "generated_at_utc": generated_at,
+        "summary": {
+            "audit_log_path": str(log_path),
+            "recommendation_count": 1,
+            "ready_for_operator_review_count": 1,
+            "pending_count": 1,
+            "market_closer_count": 1,
+            "model_closer_count": 0,
+        },
+        "recommendations": [
+            {
+                "priority": "P1",
+                "category": "model_repair_candidate",
+                "market_id": "nyc",
+                "range_label": "70-71 F",
+                "direction": "market_higher_than_model",
+                "evidence": {
+                    "case_count": 1,
+                    "resolved_count": 1,
+                    "pending_count": 0,
+                    "market_closer_count": 1,
+                },
+                "route": {
+                    "repair_lane": "exact-band/winner-centering",
+                    "roadmap_owner": "Items 70, 147, 230",
+                    "counts_toward_repair_evidence": True,
+                    "automatic_model_or_trading_change_allowed": False,
+                },
+                "action": "Replay the saved snapshots.",
+            },
+        ],
+        "pending_watchlist": [
+            {
+                "market_id": "seattle",
+                "target_date": "2099-06-23",
+                "range_label": "84-85 F",
+                "direction": "model_higher_than_market",
+                "gap_points": 60.0,
+                "model_minus_market_points": 60.0,
+                "audited_at_utc": generated_at,
+            },
+        ],
+        "groups": {
+            "by_market_direction": [
+                {
+                    "market_id": "nyc",
+                    "direction": "market_higher_than_model",
+                    "case_count": 1,
+                    "resolved_count": 1,
+                    "pending_count": 0,
+                    "model_closer_count": 0,
+                    "market_closer_count": 1,
+                    "avg_gap_points": 71.0,
+                    "avg_brier_gap_market_minus_model": -0.2,
+                },
+            ],
+        },
+        "operator_review_queue": {
+            "rows": [
+                {
+                    "review_queue_id": "audit-review-nyc-test",
+                    "status": "READY_FOR_OPERATOR_REVIEW",
+                    "priority": "P1",
+                    "market_id": "nyc",
+                    "range_label": "70-71 F",
+                    "repair_lane": "exact-band/winner-centering",
+                    "roadmap_owner": "Items 70, 147, 230",
+                    "next_experiment": "audit_exact_band_winner_centering_replay",
+                    "counts_toward_repair_evidence": True,
+                    "automatic_model_or_trading_change_allowed": False,
+                },
+            ],
+        },
+    }
+
+
+def test_audit_analysis_dashboard_formats_status_and_operator_tables(tmp_path):
+    now = datetime.datetime(2099, 6, 23, 18, 0, tzinfo=datetime.timezone.utc)
+    log_path = tmp_path / "audit.jsonl"
+    analysis_path = tmp_path / "analysis.json"
+    _write_audit_jsonl(log_path, "2099-06-23T17:45:00+00:00")
+    analysis_path.write_text(
+        json.dumps(_analysis_payload(log_path, "2099-06-23T17:30:00+00:00")),
+        encoding="utf-8",
+    )
+
+    analysis = load_audit_analysis_dashboard(analysis_path, now_utc=now)
+
+    assert analysis["status"]["analysis_artifact_status"] == "OK"
+    assert analysis["status"]["audit_log_status"] == "OK"
+    status_df = format_audit_analysis_status_table(analysis)
+    rec_df = format_audit_recommendations_table(analysis["payload"])
+    pending_df = format_audit_pending_watchlist_table(analysis["payload"])
+    pattern_df = format_audit_market_direction_table(analysis["payload"])
+    queue_df = format_audit_review_queue_table(analysis["payload"])
+    assert list(status_df["Check"]) == ["Analysis artifact", "Audit log"]
+    assert rec_df.iloc[0]["Repair Lane"] == "exact-band/winner-centering"
+    assert bool(rec_df.iloc[0]["Automatic Change"]) is False
+    assert pending_df.iloc[0]["Evidence Use"] == "Settlement watchlist only"
+    assert pattern_df.iloc[0]["Market Closer"] == 1
+    assert queue_df.iloc[0]["Review ID"] == "audit-review-nyc-test"
+
+
+def test_audit_analysis_dashboard_marks_stale_and_missing_artifacts(tmp_path):
+    now = datetime.datetime(2099, 6, 23, 18, 0, tzinfo=datetime.timezone.utc)
+    missing = load_audit_analysis_dashboard(tmp_path / "missing.json", now_utc=now)
+    assert missing["status"]["analysis_artifact_status"] == "MISSING"
+
+    log_path = tmp_path / "audit.jsonl"
+    analysis_path = tmp_path / "analysis.json"
+    _write_audit_jsonl(log_path, "2099-06-23T12:00:00+00:00")
+    analysis_path.write_text(
+        json.dumps(_analysis_payload(log_path, "2099-06-23T15:00:00+00:00")),
+        encoding="utf-8",
+    )
+
+    stale = load_audit_analysis_dashboard(
+        analysis_path,
+        now_utc=now,
+        analysis_stale_minutes=90,
+        audit_stale_minutes=240,
+    )
+
+    assert stale["status"]["analysis_artifact_status"] == "STALE"
+    assert stale["status"]["audit_log_status"] == "STALE"

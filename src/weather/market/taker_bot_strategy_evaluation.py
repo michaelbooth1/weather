@@ -686,6 +686,21 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
     real_no_depth_eligible = bool(no_book_fresh and (no_ask_size or 0.0) > 0 and (no_ask_size or 0.0) >= no_book_min_depth)
     mid = market_mid(input_row)
     edge = fair - best_ask if fair is not None and best_ask is not None else None
+    model_variant_id = (
+        input_row.get("model_variant_id")
+        or input_row.get("variant_id")
+        or "served_current"
+    )
+    model_variant_family = (
+        input_row.get("model_variant_family")
+        or input_row.get("variant_family")
+        or "served"
+    )
+    model_variant_probability = clamp_probability(
+        input_row.get("model_variant_probability")
+        or input_row.get("fair_probability")
+        or input_row.get("model_probability")
+    )
     ask_size = maybe_float(first_present(input_row, "ask_size_at_best", "clob_ask_size_at_best", "ask_depth_1pct"))
     if ask_size is None:
         ask_size = 0.0
@@ -700,6 +715,7 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "snapshot_id": input_row.get("snapshot_id") or "",
         "captured_at_utc": input_row.get("captured_at_utc") or "",
         "clob_token_id": token,
+        "model_variant_id": model_variant_id,
         "range_label": input_row.get("range_label") or "",
         "fair_probability": compact_float(fair),
         "best_ask": compact_float(best_ask),
@@ -709,6 +725,24 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "schema_version": SCHEMA_VERSION,
         "policy_version": config.get("policy_version", POLICY_VERSION),
         "policy_hash": config_hash,
+        "model_variant_id": model_variant_id,
+        "model_variant_family": model_variant_family,
+        "model_variant_role": input_row.get("model_variant_role") or ("control" if model_variant_id == "served_current" else "shadow"),
+        "model_variant_basket_id": input_row.get("model_variant_basket_id") or "",
+        "model_variant_basket_size": input_row.get("model_variant_basket_size"),
+        "model_variant_probability": compact_float(model_variant_probability),
+        "model_variant_probability_source": input_row.get("model_variant_probability_source") or "",
+        "model_variant_prediction_generated_at_utc": (
+            input_row.get("model_variant_prediction_generated_at_utc")
+            or input_row.get("prediction_generated_at_utc")
+            or input_row.get("captured_at_utc")
+            or generated
+        ),
+        "served_model_version": input_row.get("served_model_version") or input_row.get("model_version") or "",
+        "model_artifact_path": input_row.get("model_artifact_path") or input_row.get("artifact_path") or "",
+        "model_artifact_hash": input_row.get("model_artifact_hash") or input_row.get("artifact_hash") or "",
+        "model_feature_schema": input_row.get("model_feature_schema") or input_row.get("feature_schema") or "",
+        "model_runtime_identity": input_row.get("model_runtime_identity") or input_row.get("runtime_identity") or "",
         "experiment_id": experiment_id,
         "strategy_id": strategy.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID,
         "strategy_family": strategy.get("strategy_family") or "raw_edge",

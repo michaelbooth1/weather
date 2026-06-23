@@ -1,4 +1,7 @@
 import datetime
+import json
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -8,9 +11,15 @@ from weather.market.market_registry import all_specs
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 from weather.reporting.model_market_disagreement_audit import (
+    DEFAULT_LOG_PATH as DEFAULT_DISAGREEMENT_AUDIT_LOG,
     audit_saved_for_row,
     ensure_audit_record_saved,
     load_audit_index,
+    read_audit_log,
+)
+from weather.reporting.model_market_disagreement_analysis import (
+    DEFAULT_JSON_OUT as DEFAULT_DISAGREEMENT_ANALYSIS_JSON,
+    parse_time,
 )
 from weather.reporting.location_trust import score_market
 
@@ -213,3 +222,214 @@ def format_status_table(status):
     df["Age"] = df["minutes_ago"].apply(format_age)
     
     return df[["Status", "Market", "Last Snapshot", "Age"]]
+
+
+def _format_minutes(value):
+    if value is None:
+        return "-"
+    value = int(value)
+    if value < 60:
+        return f"{value} mins"
+    hours = value // 60
+    minutes = value % 60
+    return f"{hours}h {minutes}m"
+
+
+def _age_minutes(now_utc, timestamp):
+    if timestamp is None:
+        return None
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+    delta = now_utc - timestamp.astimezone(datetime.timezone.utc)
+    return max(0, int(delta.total_seconds() // 60))
+
+
+def _latest_audit_time(rows):
+    latest = None
+    for row in rows or []:
+        parsed = parse_time(row.get("audited_at_utc"))
+        if parsed is None:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+    return latest
+
+
+def load_audit_analysis_dashboard(
+    analysis_path=DEFAULT_DISAGREEMENT_ANALYSIS_JSON,
+    *,
+    now_utc=None,
+    analysis_stale_minutes=90,
+    audit_stale_minutes=240,
+):
+    """Load audit-analysis status and payload for the overview dashboard."""
+    now_utc = now_utc or datetime.datetime.now(datetime.timezone.utc)
+    analysis_path = Path(analysis_path)
+    payload = None
+    artifact_status = "MISSING"
+    artifact_detail = "analysis artifact not found"
+    generated_at = None
+    analysis_age_minutes = None
+
+    if analysis_path.exists():
+        try:
+            payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+            generated_at = parse_time(payload.get("generated_at_utc"))
+            analysis_age_minutes = _age_minutes(now_utc, generated_at)
+            if generated_at is None:
+                artifact_status = "INVALID"
+                artifact_detail = "generated_at_utc is missing or invalid"
+            elif analysis_age_minutes is not None and analysis_age_minutes > analysis_stale_minutes:
+                artifact_status = "STALE"
+                artifact_detail = f"analysis is older than {analysis_stale_minutes} minutes"
+            else:
+                artifact_status = "OK"
+                artifact_detail = "analysis artifact is fresh"
+        except Exception as exc:
+            payload = None
+            artifact_status = "INVALID"
+            artifact_detail = f"could not read analysis artifact: {exc}"
+
+    summary = (payload or {}).get("summary") or {}
+    audit_log_path = Path(summary.get("audit_log_path") or DEFAULT_DISAGREEMENT_AUDIT_LOG)
+    audit_log_status = "MISSING"
+    audit_log_detail = "audit log not found"
+    latest_audit_at = None
+    audit_log_age_minutes = None
+    audit_row_count = 0
+    if audit_log_path.exists():
+        try:
+            audit_rows = read_audit_log(audit_log_path)
+            audit_row_count = len(audit_rows)
+            latest_audit_at = _latest_audit_time(audit_rows)
+            audit_log_age_minutes = _age_minutes(now_utc, latest_audit_at)
+            if not audit_rows:
+                audit_log_status = "EMPTY"
+                audit_log_detail = "audit log has no saved disagreement snapshots"
+            elif latest_audit_at is None:
+                audit_log_status = "INVALID"
+                audit_log_detail = "audit rows are missing audited_at_utc timestamps"
+            elif audit_log_age_minutes is not None and audit_log_age_minutes > audit_stale_minutes:
+                audit_log_status = "STALE"
+                audit_log_detail = f"no qualifying audit snapshot in {audit_stale_minutes} minutes"
+            else:
+                audit_log_status = "OK"
+                audit_log_detail = "audit log has recent qualifying snapshots"
+        except Exception as exc:
+            audit_log_status = "INVALID"
+            audit_log_detail = f"could not read audit log: {exc}"
+
+    return {
+        "payload": payload or {},
+        "status": {
+            "analysis_artifact_status": artifact_status,
+            "analysis_artifact_detail": artifact_detail,
+            "analysis_path": str(analysis_path),
+            "generated_at_utc": generated_at.isoformat() if generated_at else None,
+            "analysis_age_minutes": analysis_age_minutes,
+            "audit_log_status": audit_log_status,
+            "audit_log_detail": audit_log_detail,
+            "audit_log_path": str(audit_log_path),
+            "latest_audit_at_utc": latest_audit_at.isoformat() if latest_audit_at else None,
+            "audit_log_age_minutes": audit_log_age_minutes,
+            "audit_log_row_count": audit_row_count,
+        },
+    }
+
+
+def format_audit_analysis_status_table(analysis):
+    status = (analysis or {}).get("status") or {}
+    rows = [
+        {
+            "Check": "Analysis artifact",
+            "Status": status.get("analysis_artifact_status") or "MISSING",
+            "Latest": status.get("generated_at_utc") or "-",
+            "Age": _format_minutes(status.get("analysis_age_minutes")),
+            "Detail": status.get("analysis_artifact_detail") or "-",
+        },
+        {
+            "Check": "Audit log",
+            "Status": status.get("audit_log_status") or "MISSING",
+            "Latest": status.get("latest_audit_at_utc") or "-",
+            "Age": _format_minutes(status.get("audit_log_age_minutes")),
+            "Detail": status.get("audit_log_detail") or "-",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def format_audit_recommendations_table(payload, *, limit=10):
+    rows = []
+    for item in (payload or {}).get("recommendations") or []:
+        evidence = item.get("evidence") or {}
+        route = item.get("route") or {}
+        rows.append({
+            "Priority": item.get("priority"),
+            "Category": item.get("category"),
+            "Market": item.get("market_id"),
+            "Range Bucket": item.get("range_label"),
+            "Direction": item.get("direction"),
+            "Cases": evidence.get("case_count"),
+            "Resolved": evidence.get("resolved_count"),
+            "Pending": evidence.get("pending_count"),
+            "Market Closer": evidence.get("market_closer_count"),
+            "Repair Lane": route.get("repair_lane"),
+            "Roadmap Owner": route.get("roadmap_owner"),
+            "Counts As Evidence": bool(route.get("counts_toward_repair_evidence")),
+            "Automatic Change": bool(route.get("automatic_model_or_trading_change_allowed")),
+            "Action": item.get("action"),
+        })
+    return pd.DataFrame(rows[:limit])
+
+
+def format_audit_pending_watchlist_table(payload, *, limit=10):
+    rows = []
+    for item in (payload or {}).get("pending_watchlist") or []:
+        rows.append({
+            "Market": item.get("market_id"),
+            "Target Date": item.get("target_date"),
+            "Range Bucket": item.get("range_label"),
+            "Direction": item.get("direction"),
+            "Gap Points": item.get("gap_points"),
+            "Model-Market Points": item.get("model_minus_market_points"),
+            "Audited": item.get("audited_at_utc"),
+            "Evidence Use": "Settlement watchlist only",
+        })
+    return pd.DataFrame(rows[:limit])
+
+
+def format_audit_market_direction_table(payload, *, limit=12):
+    groups = (payload or {}).get("groups") or {}
+    rows = []
+    for item in groups.get("by_market_direction") or []:
+        rows.append({
+            "Market": item.get("market_id"),
+            "Direction": item.get("direction"),
+            "Cases": item.get("case_count"),
+            "Resolved": item.get("resolved_count"),
+            "Pending": item.get("pending_count"),
+            "Model Closer": item.get("model_closer_count"),
+            "Market Closer": item.get("market_closer_count"),
+            "Avg Gap Points": item.get("avg_gap_points"),
+            "Avg Brier Gap": item.get("avg_brier_gap_market_minus_model"),
+        })
+    return pd.DataFrame(rows[:limit])
+
+
+def format_audit_review_queue_table(payload, *, limit=10):
+    queue = (payload or {}).get("operator_review_queue") or {}
+    rows = []
+    for item in queue.get("rows") or []:
+        rows.append({
+            "Review ID": item.get("review_queue_id"),
+            "Status": item.get("status"),
+            "Priority": item.get("priority"),
+            "Market": item.get("market_id"),
+            "Range Bucket": item.get("range_label"),
+            "Repair Lane": item.get("repair_lane"),
+            "Roadmap Owner": item.get("roadmap_owner"),
+            "Next Experiment": item.get("next_experiment"),
+            "Counts As Evidence": bool(item.get("counts_toward_repair_evidence")),
+            "Automatic Change": bool(item.get("automatic_model_or_trading_change_allowed")),
+        })
+    return pd.DataFrame(rows[:limit])

@@ -1,6 +1,8 @@
 import json
+import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +13,47 @@ from weather.operations.taker_bot_daily_roll import (
     start_for_date,
     target_date_for_roll,
 )
+
+
+def _write_status(path, tmp, *, started_at="2026-06-18T04:00:00+00:00", pid=7654):
+    path.write_text(json.dumps({
+        "schema_version": "taker_bot_daily_roll_v0.1",
+        "runner": "taker_bot_daily_roll",
+        "generated_at_utc": started_at,
+        "started_at_utc": started_at,
+        "target_date": "2026-06-18",
+        "status": "started",
+        "pid": pid,
+        "runs_root": str(tmp / "taker_runs"),
+        "console_log_path": str(tmp / "daily_roll_console.log"),
+        "command": ["python.exe", "-m", "weather.market.taker_bot"],
+    }), encoding="utf-8")
+
+
+def _ts(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+
+
+def _write_run_artifacts(run_folder, *, timestamp, summary=None, include_orders=True, include_run_summary=True, include_strategy_summary=True):
+    run_folder.mkdir(parents=True, exist_ok=True)
+    if include_orders:
+        orders = run_folder / "orders_long.csv"
+        orders.write_text("order_status,action\nSKIPPED,NO_TRADE\n", encoding="utf-8")
+        os.utime(orders, (timestamp, timestamp))
+    budget = run_folder / "budget_ledger.jsonl"
+    budget.write_text("{}\n", encoding="utf-8")
+    os.utime(budget, (timestamp, timestamp))
+    pnl = run_folder / "daily_pnl.json"
+    pnl.write_text("{}\n", encoding="utf-8")
+    os.utime(pnl, (timestamp, timestamp))
+    if include_run_summary:
+        run_summary = run_folder / "run_summary.json"
+        run_summary.write_text(json.dumps({"summary": summary or {}}), encoding="utf-8")
+        os.utime(run_summary, (timestamp, timestamp))
+    if include_strategy_summary:
+        strategy = run_folder / "strategy_summary.json"
+        strategy.write_text("{}\n", encoding="utf-8")
+        os.utime(strategy, (timestamp, timestamp))
 
 
 class TestTakerBotDailyRoll(unittest.TestCase):
@@ -251,18 +294,7 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             status_path = tmp / "daily_roll_status.json"
-            status_path.write_text(json.dumps({
-                "schema_version": "taker_bot_daily_roll_v0.1",
-                "runner": "taker_bot_daily_roll",
-                "generated_at_utc": "2026-06-18T04:00:00+00:00",
-                "started_at_utc": "2026-06-18T04:00:00+00:00",
-                "target_date": "2026-06-18",
-                "status": "started",
-                "pid": 7654,
-                "runs_root": str(tmp / "taker_runs"),
-                "console_log_path": str(tmp / "daily_roll_console.log"),
-                "command": ["python.exe", "-m", "weather.market.taker_bot"],
-            }), encoding="utf-8")
+            _write_status(status_path, tmp)
 
             payload = start_for_date(
                 "2026-06-18",
@@ -280,10 +312,226 @@ class TestTakerBotDailyRoll(unittest.TestCase):
             saved = json.loads(status_path.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["status"], "idle_process")
-        self.assertEqual(payload["root_cause_class"], "idle_process_no_recent_tape_or_log_activity")
+        self.assertEqual(payload["root_cause_class"], "stale_pid_no_recent_useful_artifacts")
         self.assertEqual(payload["activity_liveness"]["status"], "NO_ACTIVITY")
+        self.assertEqual(payload["artifact_liveness"]["status"], "NO_RUN_FOLDER")
         self.assertEqual(saved["status"], "idle_process")
         self.assertEqual(calls, [])
+
+    def test_fresh_console_log_does_not_satisfy_taker_artifact_liveness(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            log_path = tmp / "daily_roll_console.log"
+            _write_status(status_path, tmp)
+            log_path.write_text("still printing\n", encoding="utf-8")
+            os.utime(log_path, (_ts("2026-06-18T04:19:30+00:00"), _ts("2026-06-18T04:19:30+00:00")))
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=log_path,
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["root_cause_class"], "stale_pid_no_recent_useful_artifacts")
+        self.assertEqual(payload["activity_liveness"]["existing_path_count"], 0)
+        self.assertEqual(calls, [])
+
+    def test_missing_orders_tape_marks_artifact_restart_required(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-empty",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                include_orders=False,
+                summary={"latest_tick_rows": 0, "latest_tick_filled_orders": 0},
+            )
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["first_failing_gate"], "artifact_liveness")
+        self.assertEqual(payload["root_cause_class"], "missing_orders_tape")
+        self.assertEqual(payload["artifact_liveness"]["status"], "MISSING_ORDERS_TAPE")
+        self.assertIn("orders_long.csv", payload["artifact_liveness"]["missing_required_artifacts"])
+        self.assertEqual(calls, [])
+
+    def test_stale_strategy_summary_marks_artifact_restart_required(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            run_folder = tmp / "taker_runs" / "2026-06-18" / "taker-stale-strategy"
+            _write_run_artifacts(
+                run_folder,
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={"latest_tick_rows": 12, "latest_tick_filled_orders": 0, "reason_counts": {"NO_TRADE_EDGE_TOO_SMALL": 12}},
+            )
+            os.utime(
+                run_folder / "strategy_summary.json",
+                (_ts("2026-06-18T04:00:00+00:00"), _ts("2026-06-18T04:00:00+00:00")),
+            )
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["root_cause_class"], "stale_strategy_summary")
+        self.assertEqual(payload["artifact_liveness"]["status"], "STALE_STRATEGY_SUMMARY")
+        self.assertEqual(payload["operator_report"]["restart_recommended"], True)
+        self.assertEqual(calls, [])
+
+    def test_stale_book_summary_gets_specific_root_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-stale-book",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={
+                    "latest_tick_rows": 20,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 100,
+                    "cumulative_filled_orders": 0,
+                    "reason_counts": {"NO_TRADE_STALE_BOOK": 16, "NO_TRADE_EDGE_TOO_SMALL": 4},
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["root_cause_class"], "stale_book_input")
+        self.assertEqual(payload["artifact_liveness"]["status"], "STALE_BOOK_INPUT")
+        self.assertEqual(payload["operator_report"]["latest_candidate_rows"], 100)
+
+    def test_policy_no_edge_idle_is_classified_without_restart(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-no-edge",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={
+                    "root_cause_class": "policy_no_edge",
+                    "latest_tick_rows": 20,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 100,
+                    "cumulative_filled_orders": 0,
+                    "reason_counts": {"NO_TRADE_EDGE_TOO_SMALL": 20},
+                },
+            )
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+        self.assertEqual(payload["status"], "already_running")
+        self.assertEqual(payload["root_cause_class"], "policy_no_edge")
+        self.assertEqual(payload["artifact_liveness"]["status"], "POLICY_NO_EDGE")
+        self.assertEqual(payload["operator_report"]["restart_recommended"], False)
+        self.assertEqual(calls, [])
+
+    def test_force_restart_quarantines_unhealthy_latest_run_folder(self):
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 9001
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            stale_run = tmp / "taker_runs" / "2026-06-18" / "taker-stale"
+            _write_run_artifacts(
+                stale_run,
+                timestamp=_ts("2026-06-18T04:00:00+00:00"),
+                summary={"latest_tick_rows": 12, "latest_tick_filled_orders": 0},
+            )
+
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                force=True,
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+            quarantine_path = Path(payload["forced_run_retirement"]["quarantine_path"])
+            quarantine_exists = quarantine_path.exists()
+
+        self.assertEqual(payload["status"], "started")
+        self.assertEqual(payload["forced_run_retirement"]["status"], "QUARANTINED")
+        self.assertFalse(stale_run.exists())
+        self.assertTrue(quarantine_exists)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

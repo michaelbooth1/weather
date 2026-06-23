@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from weather.market.taker_bot import (
     DEFAULT_CONFIG,
+    DEFAULT_BAKEOFF_STRATEGIES,
     FINALIZATION_SCHEMA_VERSION,
     ORDER_COLUMNS,
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
@@ -16,10 +17,12 @@ from weather.market.taker_bot import (
     build_pnl_payload,
     build_run_once,
     candidate_skip_reason,
+    clustered_taker_promotion_statistics,
     current_high_trust_config_warnings,
     enrich_taker_risk_fields,
     finalization_watchdog,
     finalize_taker_run,
+    no_side_campaign_summary,
     next_run_policy_gate,
     run_taker_strategy_bakeoff,
     verify_taker_profitability_artifacts,
@@ -62,6 +65,7 @@ def write_market_fixture(
     no_bid_size_at_best="25",
     no_ask_size_at_best="25",
     no_ask_depth_1pct="25",
+    snapshot_extra_fields_by_value=None,
 ):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / EVENT
@@ -71,6 +75,7 @@ def write_market_fixture(
     book_rows = []
     token_rows = []
     bands = bands or [(80, "0.70", "0.60"), (82, "0.52", "0.51")]
+    snapshot_extra_fields_by_value = snapshot_extra_fields_by_value or {}
     for value, fair, ask in bands:
         token = "" if blank_tokens or (missing_token and value == 80) else f"token-{value}"
         no_token = f"no-token-{value}" if include_no_book and token else ""
@@ -94,6 +99,7 @@ def write_market_fixture(
             "current_high_trusted": "True",
         }
         snapshot.update(cadence_fields or {})
+        snapshot.update(snapshot_extra_fields_by_value.get(value) or {})
         snapshot_rows.append(snapshot)
         clob_rows.append({
             "snapshot_id": "s1",
@@ -370,6 +376,215 @@ class TestTakerBot(unittest.TestCase):
             self.assertTrue(Path(payload["run_report_path"]).exists())
             self.assertIn("Tape integrity", Path(payload["run_report_path"]).read_text(encoding="utf-8"))
 
+    def test_zero_fill_run_writes_settlement_scoreable_counterfactual_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.69", "0.60")],
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                strategies="strict_edge_probe",
+                config={
+                    "min_edge": 0.01,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            orders_path = Path(payload["orders_path"])
+            counterfactual_path = Path(payload["counterfactual_orders_path"])
+            raw_before = orders_path.read_text(encoding="utf-8")
+            raw_rows = read_csv(orders_path)
+            counterfactual_rows = read_csv(counterfactual_path)
+
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            finalized = finalize_taker_run(
+                Path(payload["run_folder"]),
+                labels_csv=labels,
+                now="2026-06-15T12:00:00+00:00",
+            )
+            raw_after = orders_path.read_text(encoding="utf-8")
+            counterfactual = finalized["counterfactual"]
+            settled_counterfactual_exists = Path(counterfactual["settled_counterfactual_orders_path"]).exists()
+            settled_counterfactual_report_exists = Path(counterfactual["settled_counterfactual_report_path"]).exists()
+
+        self.assertEqual(sum(1 for row in raw_rows if row["order_status"] == "FILLED"), 0)
+        self.assertGreater(len(counterfactual_rows), len(raw_rows))
+        self.assertTrue(any(row["strategy_id"] == "raw_edge_control" for row in counterfactual_rows))
+        self.assertTrue(any(row["order_status"] == "FILLED" for row in counterfactual_rows))
+        self.assertTrue(any(row["real_strategy_id"] == "strict_edge_probe" for row in counterfactual_rows))
+        self.assertEqual(raw_after, raw_before)
+        self.assertEqual(counterfactual["status"], "SCORED")
+        self.assertTrue(counterfactual["summary"]["zero_real_fill_learning"])
+        self.assertGreater(counterfactual["summary"]["would_buy_count"], 0)
+        self.assertGreater(counterfactual["summary"]["settled_would_buy_count"], 0)
+        self.assertTrue(settled_counterfactual_exists)
+        self.assertTrue(settled_counterfactual_report_exists)
+
+    def test_counterfactual_tape_scores_model_variant_strategy_pairs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.45", "0.60")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "dynamic_source_probability": "0.80",
+                        "exact_winner_probability": "0.40",
+                    }
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                    "taker_model_variant_basket": "served_current,dynamic_source_state,exact_winner_catchup",
+                    "counterfactual_strategies": "raw_edge_control",
+                },
+            )
+            counterfactual_rows = read_csv(Path(payload["counterfactual_orders_path"]))
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            finalized = finalize_taker_run(
+                Path(payload["run_folder"]),
+                labels_csv=labels,
+                now="2026-06-15T12:00:00+00:00",
+            )
+            model_bakeoff = finalized["counterfactual"]["model_variant_bakeoff"]
+            pairs = {
+                (row["model_variant_id"], row["strategy_id"]): row
+                for row in model_bakeoff["pairs"]
+            }
+
+        self.assertEqual(
+            payload["summary"]["counterfactual_model_variant_manifest"]["materialized_variant_ids"],
+            ["dynamic_source_state", "exact_winner_catchup", "served_current"],
+        )
+        self.assertEqual(
+            {row["model_variant_id"] for row in counterfactual_rows},
+            {"served_current", "dynamic_source_state", "exact_winner_catchup"},
+        )
+        self.assertEqual(model_bakeoff["multiple_testing_method"], "bonferroni_pre_registered_basket")
+        self.assertIn(("dynamic_source_state", "raw_edge_control"), pairs)
+        self.assertGreater(float(pairs[("dynamic_source_state", "raw_edge_control")]["net_pnl_usdc"]), 0.0)
+        self.assertGreater(
+            float(pairs[("dynamic_source_state", "raw_edge_control")]["delta_vs_served_current_net_pnl_usdc"]),
+            0.0,
+        )
+        self.assertIn(
+            "min_settled_would_buy",
+            pairs[("dynamic_source_state", "raw_edge_control")]["variant_selection_failed_gates"],
+        )
+
+    def test_clustered_promotion_blocks_many_same_day_rows_without_market_day_diversity(self):
+        rows = [
+            {
+                "target_date": "2026-06-14",
+                "market_id": "atlanta",
+                "model_variant_id": "dynamic_source_state",
+                "strategy_id": "raw_edge_control",
+                "order_status": "FILLED",
+                "pnl_source": "settlement_finalized",
+                "total_spent_usdc": "1",
+                "net_pnl_usdc": "0.25",
+                "settlement_outcome": "1",
+                "pnl_fee_basis": "after_fee",
+                "after_fee_pnl_scored": "True",
+                "after_slippage_pnl_scored": "True",
+                "executable_depth_model_version": "top_of_book_plus_1pct_depth_v1",
+            }
+            for _ in range(40)
+        ]
+
+        gate = clustered_taker_promotion_statistics(
+            rows,
+            min_independent_target_days=3,
+            min_independent_markets=2,
+        )
+        pair = gate["pairs"][0]
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(pair["cluster_count"], 1)
+        self.assertEqual(pair["would_buy_count"], 40)
+        self.assertIn("min_independent_target_days", pair["failed_gates"])
+        self.assertIn("min_independent_markets", pair["failed_gates"])
+
+    def test_clustered_promotion_can_pass_across_independent_market_days(self):
+        rows = []
+        for target_date, market_id in [
+            ("2026-06-14", "atlanta"),
+            ("2026-06-15", "atlanta"),
+            ("2026-06-16", "dallas"),
+        ]:
+            rows.append({
+                "target_date": target_date,
+                "market_id": market_id,
+                "model_variant_id": "dynamic_source_state",
+                "strategy_id": "raw_edge_control",
+                "order_status": "FILLED",
+                "pnl_source": "settlement_finalized",
+                "total_spent_usdc": "1",
+                "net_pnl_usdc": "0.25",
+                "settlement_outcome": "1",
+                "pnl_fee_basis": "after_fee",
+                "after_fee_pnl_scored": "True",
+                "after_slippage_pnl_scored": "True",
+                "executable_depth_model_version": "top_of_book_plus_1pct_depth_v1",
+            })
+
+        gate = clustered_taker_promotion_statistics(
+            rows,
+            min_independent_target_days=3,
+            min_independent_markets=2,
+        )
+        pair = gate["pairs"][0]
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(pair["cluster_count"], 3)
+        self.assertEqual(pair["independent_target_day_count"], 3)
+        self.assertEqual(pair["independent_market_count"], 2)
+        self.assertEqual(pair["failed_gates"], [])
+
     def test_two_sided_taker_captures_real_no_book_depth_in_order_tape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -418,6 +633,128 @@ class TestTakerBot(unittest.TestCase):
         self.assertAlmostEqual(float(row["best_ask"]), 0.40)
         self.assertAlmostEqual(float(row["no_ask_size_at_best"]), 25.0)
         self.assertAlmostEqual(float(row["no_ask_depth_1pct"]), 25.0)
+
+    def test_default_counterfactual_campaign_collects_real_no_side_fade_evidence(self):
+        self.assertIn("fade_overpriced", DEFAULT_BAKEOFF_STRATEGIES.split(","))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.60")],
+                include_no_book=True,
+                no_best_bid="0.38",
+                no_best_ask="0.40",
+                no_ask_size_at_best="25",
+                no_ask_depth_1pct="25",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            counterfactual_rows = read_csv(Path(payload["counterfactual_orders_path"]))
+            no_rows = [
+                row for row in counterfactual_rows
+                if row["strategy_id"] == "fade_overpriced" and row["side"] == "NO_BUY"
+            ]
+
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 79,
+                    "winning_band": "79-80 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            finalized = finalize_taker_run(
+                Path(payload["run_folder"]),
+                labels_csv=labels,
+                now="2026-06-15T12:00:00+00:00",
+            )
+            campaign = finalized["counterfactual"]["no_side_campaign"]
+            report_text = Path(finalized["counterfactual"]["settled_counterfactual_report_path"]).read_text(
+                encoding="utf-8",
+            )
+
+        self.assertGreater(len(no_rows), 0)
+        self.assertTrue(any(row["order_status"] == "FILLED" for row in no_rows))
+        self.assertTrue(all(row["no_book_source"] == "no_token_book" for row in no_rows))
+        self.assertTrue(any(row["real_no_book_depth_eligible"] == "True" for row in no_rows))
+        self.assertEqual(campaign["status"], "COLLECTING_SETTLED_NO_SIDE")
+        self.assertGreater(campaign["real_no_book_row_count"], 0)
+        self.assertGreater(campaign["countable_no_side_would_buy_count"], 0)
+        self.assertGreater(campaign["settled_countable_no_side_would_buy_count"], 0)
+        self.assertEqual(campaign["synthetic_only_countable"], False)
+        self.assertGreater(campaign["countable_no_side_net_pnl_usdc"], 0.0)
+        self.assertTrue(campaign["by_market"])
+        self.assertTrue(campaign["by_hour"])
+        self.assertIn("NO-Side Campaign", report_text)
+        self.assertIn("NO-Side by Strategy", report_text)
+        self.assertEqual(
+            finalized["summary"]["counterfactual_no_side_campaign_status"],
+            "COLLECTING_SETTLED_NO_SIDE",
+        )
+
+    def test_no_side_campaign_summary_keeps_synthetic_only_evidence_non_countable(self):
+        rows = [
+            {
+                "run_id": "r1",
+                "target_date": TARGET_DATE,
+                "generated_at_utc": NOW,
+                "captured_at_utc": NOW,
+                "strategy_id": "fade_overpriced",
+                "strategy_family": "two_sided",
+                "side": "NO_BUY",
+                "order_status": "FILLED",
+                "reason_code": "BUY_EDGE",
+                "market_id": "atlanta",
+                "event_slug": EVENT,
+                "range_label": "80-81 F",
+                "bin_kind": "eq",
+                "bin_value": "80",
+                "bin_value_hi": "81",
+                "total_spent_usdc": "4.2",
+                "net_pnl_usdc": "5.8",
+                "settlement_outcome": "1",
+                "pnl_source": "settlement_finalized",
+                "no_book_source": "synthetic_from_yes_bid",
+                "no_book_fresh": "True",
+                "real_no_book_depth_eligible": "False",
+            }
+        ]
+
+        summary = no_side_campaign_summary(rows)
+        pnl = build_pnl_payload(
+            rows,
+            12,
+            "r1",
+            TARGET_DATE,
+            now="2026-06-15T12:00:00+00:00",
+        )
+        strategy = pnl["by_strategy"][0]
+
+        self.assertEqual(summary["status"], "BLOCK_NO_REAL_NO_BOOK_ROWS")
+        self.assertEqual(summary["no_side_would_buy_count"], 1)
+        self.assertEqual(summary["countable_no_side_would_buy_count"], 0)
+        self.assertEqual(summary["synthetic_no_book_would_buy_count"], 1)
+        self.assertEqual(summary["synthetic_only_countable"], False)
+        self.assertEqual(strategy["settlement_promotion_gate_status"], "BLOCK")
+        self.assertIn("real_no_book_depth_for_two_sided", strategy["settlement_promotion_failed_gates"])
 
     def test_depth_aware_fill_records_slippage_when_size_exceeds_top_of_book(self):
         with tempfile.TemporaryDirectory() as tmp:

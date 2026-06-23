@@ -187,6 +187,40 @@ def render_settlement_report(payload):
             ["Labels CSV", payload.get("labels_csv")],
         ],
     ))
+    counterfactual = payload.get("counterfactual") or {}
+    counterfactual_summary = counterfactual.get("summary") or {}
+    if counterfactual:
+        lines.extend(["", "## Counterfactual Learning", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", counterfactual.get("status")],
+                ["Rows", counterfactual_summary.get("row_count")],
+                ["Would-buy rows", counterfactual_summary.get("would_buy_count")],
+                ["Settled would-buy rows", counterfactual_summary.get("settled_would_buy_count")],
+                ["Zero-real-fill learning", str(counterfactual_summary.get("zero_real_fill_learning")).lower()],
+                ["Best strategy", counterfactual_summary.get("best_counterfactual_strategy_id") or "-"],
+                ["Report", counterfactual.get("settled_counterfactual_report_path") or "-"],
+            ],
+        ))
+        no_side_campaign = counterfactual.get("no_side_campaign") or {}
+        if no_side_campaign:
+            lines.extend(["", "## NO-Side Counterfactual Evidence", ""])
+            lines.extend(markdown_table(
+                ["Metric", "Value"],
+                [
+                    ["Status", no_side_campaign.get("status")],
+                    ["NO-side rows", no_side_campaign.get("no_side_row_count")],
+                    ["Real NO-book rows", no_side_campaign.get("real_no_book_row_count")],
+                    ["Synthetic NO-book rows", no_side_campaign.get("synthetic_no_book_row_count")],
+                    ["Stale NO-book rows", no_side_campaign.get("stale_no_book_row_count")],
+                    ["NO-side would-buy rows", no_side_campaign.get("no_side_would_buy_count")],
+                    ["Countable would-buy rows", no_side_campaign.get("countable_no_side_would_buy_count")],
+                    ["Settled countable would-buy rows", no_side_campaign.get("settled_countable_no_side_would_buy_count")],
+                    ["Countable NO-side net P&L", fmt_num(no_side_campaign.get("countable_no_side_net_pnl_usdc"), 4)],
+                    ["Delta vs no-trade", fmt_num(no_side_campaign.get("delta_vs_no_trade_net_pnl_usdc"), 4)],
+                ],
+            ))
     lines.extend(["", "## P&L", ""])
     lines.extend(markdown_table(
         ["Component", "USDC"],
@@ -685,8 +719,11 @@ def taker_artifact_retention_plan(
             (
                 value for value in (
                     _path_mtime_utc(folder / "orders_long.csv"),
+                    _path_mtime_utc(folder / COUNTERFACTUAL_TAPE_FILENAME),
                     _path_mtime_utc(folder / "run_summary.json"),
                     _path_mtime_utc(folder / "settled_pnl.json"),
+                    _path_mtime_utc(folder / SETTLED_COUNTERFACTUAL_TAPE_FILENAME),
+                    _path_mtime_utc(folder / "settled_counterfactual_pnl.json"),
                 )
                 if value is not None
             ),
@@ -1044,6 +1081,306 @@ def render_finalization_watchdog_report(payload):
     return "\n".join(lines)
 
 
+def render_counterfactual_settlement_report(payload):
+    summary = payload.get("summary") or {}
+    lift_rows = payload.get("strategy_lift") or []
+    slice_summaries = payload.get("slice_summaries") or {}
+    no_side_campaign = payload.get("no_side_campaign") or {}
+    lines = [
+        "# Taker Counterfactual Settlement Report",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Run ID: `{payload.get('run_id')}`",
+        f"Target date: `{payload.get('target_date')}`",
+        f"Counterfactual tape: `{payload.get('counterfactual_orders_path')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Counterfactual rows", summary.get("row_count")],
+            ["Would-buy rows", summary.get("would_buy_count")],
+            ["Settled would-buy rows", summary.get("settled_would_buy_count")],
+            ["Real filled matches", summary.get("real_filled_match_count")],
+            ["Zero-real-fill learning", str(summary.get("zero_real_fill_learning")).lower()],
+            ["Best strategy", summary.get("best_counterfactual_strategy_id") or "-"],
+            ["Best net P&L", fmt_num(summary.get("best_counterfactual_net_pnl_usdc"), 4)],
+        ],
+    ))
+    if no_side_campaign:
+        lines.extend(["", "## NO-Side Campaign", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", no_side_campaign.get("status")],
+                ["NO-side rows", no_side_campaign.get("no_side_row_count")],
+                ["Real NO-book rows", no_side_campaign.get("real_no_book_row_count")],
+                ["Real NO-book eligible rows", no_side_campaign.get("real_no_book_depth_eligible_row_count")],
+                ["Synthetic NO-book rows", no_side_campaign.get("synthetic_no_book_row_count")],
+                ["Stale NO-book rows", no_side_campaign.get("stale_no_book_row_count")],
+                ["NO-side would-buy rows", no_side_campaign.get("no_side_would_buy_count")],
+                ["Countable would-buy rows", no_side_campaign.get("countable_no_side_would_buy_count")],
+                ["Settled countable would-buy rows", no_side_campaign.get("settled_countable_no_side_would_buy_count")],
+                ["Countable NO-side net P&L", fmt_num(no_side_campaign.get("countable_no_side_net_pnl_usdc"), 4)],
+                ["Delta vs no-trade", fmt_num(no_side_campaign.get("delta_vs_no_trade_net_pnl_usdc"), 4)],
+            ],
+        ))
+        for slice_name, label in (("by_market", "NO-Side by Market"), ("by_hour", "NO-Side by Hour")):
+            rows = no_side_campaign.get(slice_name) or []
+            if rows:
+                lines.extend(["", f"## {label}", ""])
+                lines.extend(markdown_table(
+                    ["Value", "NO Rows", "Real Book", "Would Buy", "Countable", "Settled", "Net P&L"],
+                    [
+                        [
+                            row.get("value"),
+                            row.get("no_side_row_count"),
+                            row.get("real_no_book_row_count"),
+                            row.get("no_side_would_buy_count"),
+                            row.get("countable_no_side_would_buy_count"),
+                            row.get("settled_countable_no_side_would_buy_count"),
+                            fmt_num(row.get("countable_net_pnl_usdc"), 4),
+                        ]
+                        for row in rows
+                    ],
+                ))
+        strategy_rows = no_side_campaign.get("by_strategy") or []
+        if strategy_rows:
+            lines.extend(["", "## NO-Side by Strategy", ""])
+            lines.extend(markdown_table(
+                [
+                    "Strategy",
+                    "Family",
+                    "NO Rows",
+                    "Countable",
+                    "Settled",
+                    "NO Net P&L",
+                    "Vs No-Trade",
+                    "Strategy Vs Market Top",
+                    "Gate",
+                ],
+                [
+                    [
+                        row.get("strategy_id"),
+                        row.get("strategy_family"),
+                        row.get("no_side_row_count"),
+                        row.get("countable_no_side_would_buy_count"),
+                        row.get("settled_countable_no_side_would_buy_count"),
+                        fmt_num(row.get("countable_net_pnl_usdc"), 4),
+                        fmt_num(row.get("delta_vs_no_trade_net_pnl_usdc"), 4),
+                        fmt_num(row.get("strategy_delta_vs_market_top_net_pnl_usdc"), 4),
+                        row.get("settlement_promotion_gate_status") or "-",
+                    ]
+                    for row in strategy_rows
+                ],
+            ))
+    if lift_rows:
+        lines.extend(["", "## Strategy Lift", ""])
+        lines.extend(markdown_table(
+            [
+                "Strategy",
+                "Family",
+                "Would Buy",
+                "Settled",
+                "Net P&L",
+                "Vs Active",
+                "Vs No-Trade",
+                "Vs Market Top",
+                "Gate",
+            ],
+            [
+                [
+                    row.get("strategy_id"),
+                    row.get("strategy_family"),
+                    row.get("would_buy_count"),
+                    row.get("settled_would_buy_count"),
+                    fmt_num(row.get("net_pnl_usdc"), 4),
+                    fmt_num(row.get("delta_vs_active_policy_net_pnl_usdc"), 4),
+                    fmt_num(row.get("delta_vs_no_trade_net_pnl_usdc"), 4),
+                    fmt_num(row.get("delta_vs_market_top_net_pnl_usdc"), 4),
+                    row.get("settlement_promotion_gate_status") or "-",
+                ]
+                for row in lift_rows
+            ],
+        ))
+    if slice_summaries:
+        lines.extend(["", "## Slice Coverage", ""])
+        lines.extend(markdown_table(
+            ["Slice", "Groups", "Would Buy", "Settled"],
+            [
+                [
+                    name,
+                    len(rows or []),
+                    sum(int(row.get("would_buy_count") or 0) for row in rows or []),
+                    sum(int(row.get("settled_would_buy_count") or 0) for row in rows or []),
+                ]
+                for name, rows in sorted(slice_summaries.items())
+            ],
+        ))
+    model_bakeoff = payload.get("model_variant_bakeoff") or {}
+    if model_bakeoff:
+        lines.extend(["", "## Model Variants", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", model_bakeoff.get("status")],
+                ["Pairs", model_bakeoff.get("pair_count")],
+                ["Comparisons", model_bakeoff.get("comparison_count")],
+                ["Multiple-testing method", model_bakeoff.get("multiple_testing_method")],
+                ["Adjusted alpha", model_bakeoff.get("adjusted_alpha")],
+                ["Recommended variant", model_bakeoff.get("recommended_model_variant_id") or "-"],
+            ],
+        ))
+        lines.extend(["", "## Model Variant Pairs", ""])
+        lines.extend(markdown_table(
+            ["Variant", "Strategy", "Would Buy", "Settled", "Net P&L", "Delta vs Served", "Status"],
+            [
+                [
+                    row.get("model_variant_id"),
+                    row.get("strategy_id"),
+                    row.get("would_buy_count"),
+                    row.get("settled_would_buy_count"),
+                    fmt_num(row.get("net_pnl_usdc"), 4),
+                    fmt_num(row.get("delta_vs_served_current_net_pnl_usdc"), 4),
+                    row.get("variant_selection_status"),
+                ]
+                for row in model_bakeoff.get("pairs") or []
+            ],
+        ))
+    clustered_gate = payload.get("clustered_promotion_gate" ) or {}
+    if clustered_gate:
+        lines.extend(["", "## Clustered Promotion Gate", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", clustered_gate.get("status")],
+                ["Cluster key", clustered_gate.get("cluster_key")],
+                ["Pairs", clustered_gate.get("pair_count")],
+                ["Pass pairs", clustered_gate.get("pass_pair_count")],
+                ["Adjusted alpha", clustered_gate.get("adjusted_alpha")],
+                ["Min target days", clustered_gate.get("min_independent_target_days")],
+                ["Min markets", clustered_gate.get("min_independent_markets")],
+            ],
+        ))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def finalize_counterfactual_tape(
+    run_folder,
+    *,
+    labels_csv=DEFAULT_LABELS_CSV,
+    now=None,
+    budget_usdc=0.0,
+    run_id=None,
+    target_date=None,
+    run_config=None,
+):
+    run_folder = Path(run_folder)
+    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
+    if not counterfactual_path.exists():
+        return {
+            "status": "MISSING",
+            "counterfactual_orders_path": str(counterfactual_path),
+            "detail": "no counterfactual tape found for this run",
+        }
+    now = utc_now(now)
+    run_config = run_config or {}
+    rows = read_order_rows(counterfactual_path)
+    labels = load_settlement_labels(labels_csv)
+    scored_rows, label_summary = score_orders_against_labels(rows, labels)
+    for row in scored_rows:
+        row["counterfactual_pnl_source"] = row.get("pnl_source") or row.get("counterfactual_pnl_source") or ""
+    strategy_count = len({strategy_id_for_row(row) for row in scored_rows}) or 1
+    pnl_payload = build_pnl_payload(
+        scored_rows,
+        float(budget_usdc or 0.0) * strategy_count,
+        run_id or run_folder.name,
+        target_date or run_folder.parent.name,
+        now=now,
+        policy_config=run_config.get("policy_config") or {},
+    )
+    active_strategy_id = run_config.get("active_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
+    strategy_lift = counterfactual_strategy_lift_rows(
+        pnl_payload,
+        active_strategy_id=active_strategy_id,
+    )
+    slice_summaries = counterfactual_slice_summaries(scored_rows)
+    no_side_campaign = no_side_campaign_summary(scored_rows, pnl_payload=pnl_payload)
+    model_variant_bakeoff = model_variant_strategy_bakeoff(scored_rows)
+    policy_config = run_config.get("policy_config") or {}
+    clustered_gate = clustered_taker_promotion_statistics(
+        scored_rows,
+        alpha=maybe_float(policy_config.get("promotion_cluster_alpha")) or 0.05,
+        min_independent_target_days=int(policy_config.get("promotion_min_independent_target_days") or 3),
+        min_independent_markets=int(policy_config.get("promotion_min_independent_markets") or 2),
+    )
+    summary = counterfactual_learning_summary(scored_rows, pnl_payload=pnl_payload)
+    summary.update({
+        "active_policy_strategy_id": active_strategy_id,
+        "label_count": label_summary.get("label_count"),
+        "matched_would_buy_orders": label_summary.get("matched_filled_orders"),
+        "unmatched_would_buy_orders": label_summary.get("unmatched_filled_orders"),
+        "no_side_campaign_status": no_side_campaign.get("status"),
+        "no_side_row_count": no_side_campaign.get("no_side_row_count"),
+        "no_side_would_buy_count": no_side_campaign.get("no_side_would_buy_count"),
+        "countable_no_side_would_buy_count": no_side_campaign.get("countable_no_side_would_buy_count"),
+        "settled_countable_no_side_would_buy_count": no_side_campaign.get("settled_countable_no_side_would_buy_count"),
+    })
+    strategy_summary = build_strategy_summary_payload(
+        pnl_payload,
+        run_config=run_config,
+        run_id=run_id or run_folder.name,
+        target_date=target_date or run_folder.parent.name,
+        now=now,
+    )
+    settled_counterfactual_path = run_folder / SETTLED_COUNTERFACTUAL_TAPE_FILENAME
+    settled_pnl_path = run_folder / "settled_counterfactual_pnl.json"
+    settled_report_path = run_folder / "settled_counterfactual_report.md"
+    settled_strategy_summary_path = run_folder / "settled_counterfactual_strategy_summary.json"
+    settled_strategy_report_path = run_folder / "settled_counterfactual_strategy_report.md"
+    payload = {
+        "schema_version": COUNTERFACTUAL_TAPE_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "status": "SCORED",
+        "run_id": run_id or run_folder.name,
+        "target_date": ensure_date(target_date or run_folder.parent.name).isoformat(),
+        "run_folder": str(run_folder),
+        "counterfactual_orders_path": str(counterfactual_path),
+        "settled_counterfactual_orders_path": str(settled_counterfactual_path),
+        "settled_counterfactual_pnl_path": str(settled_pnl_path),
+        "settled_counterfactual_report_path": str(settled_report_path),
+        "settled_counterfactual_strategy_summary_path": str(settled_strategy_summary_path),
+        "settled_counterfactual_strategy_report_path": str(settled_strategy_report_path),
+        "labels_csv": str(labels_csv),
+        "label_summary": label_summary,
+        "summary": summary,
+        "strategy_lift": strategy_lift,
+        "slice_summaries": slice_summaries,
+        "no_side_campaign": no_side_campaign,
+        "model_variant_bakeoff": model_variant_bakeoff,
+        "clustered_promotion_gate": clustered_gate,
+        "pnl": pnl_payload,
+        "strategy_summary": strategy_summary,
+        "retention": {
+            "raw_tape": "keep until settled_counterfactual_orders_long.csv and settled_counterfactual_pnl.json are present",
+            "compaction_candidate_after_days": int(
+                (run_config.get("policy_config") or {}).get("counterfactual_retention_days")
+                or DEFAULT_FINALIZATION_RETENTION_DAYS
+            ),
+            "recommended_compaction": "archive or compact settled counterfactual CSV after summary artifacts are verified",
+        },
+    }
+    write_csv_rows(settled_counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, scored_rows)
+    write_json(settled_pnl_path, payload)
+    write_json(settled_strategy_summary_path, strategy_summary)
+    settled_report_path.write_text(render_counterfactual_settlement_report(payload), encoding="utf-8")
+    settled_strategy_report_path.write_text(render_strategy_report(strategy_summary), encoding="utf-8")
+    return payload
+
+
 def finalize_taker_run(
     run_folder,
     labels_csv=DEFAULT_LABELS_CSV,
@@ -1111,6 +1448,15 @@ def finalize_taker_run(
         now=now,
     )
     bakeoff = read_json(run_folder / "strategy_bakeoff.json", {}) or {}
+    counterfactual = finalize_counterfactual_tape(
+        run_folder,
+        labels_csv=labels_csv,
+        now=now,
+        budget_usdc=budget_usdc,
+        run_id=run_id,
+        target_date=target_date,
+        run_config=run_config,
+    )
     next_gate = next_run_policy_gate(strategy_summary, run_config=run_config, bakeoff=bakeoff)
     final_summary = {
         **(pnl_payload.get("summary") or {}),
@@ -1147,6 +1493,31 @@ def finalize_taker_run(
         "settled_report_path": str(settled_report_path),
         "settled_strategy_summary_path": str(settled_strategy_summary_path),
         "settled_strategy_report_path": str(settled_strategy_report_path),
+        "counterfactual_status": counterfactual.get("status"),
+        "counterfactual_row_count": (counterfactual.get("summary") or {}).get("row_count"),
+        "counterfactual_would_buy_count": (counterfactual.get("summary") or {}).get("would_buy_count"),
+        "counterfactual_settled_would_buy_count": (counterfactual.get("summary") or {}).get("settled_would_buy_count"),
+        "counterfactual_zero_real_fill_learning": (counterfactual.get("summary") or {}).get("zero_real_fill_learning"),
+        "counterfactual_no_side_campaign_status": (counterfactual.get("no_side_campaign") or {}).get("status"),
+        "counterfactual_no_side_row_count": (counterfactual.get("no_side_campaign") or {}).get("no_side_row_count"),
+        "counterfactual_no_side_would_buy_count": (counterfactual.get("no_side_campaign") or {}).get("no_side_would_buy_count"),
+        "counterfactual_countable_no_side_would_buy_count": (
+            counterfactual.get("no_side_campaign") or {}
+        ).get("countable_no_side_would_buy_count"),
+        "counterfactual_settled_countable_no_side_would_buy_count": (
+            counterfactual.get("no_side_campaign") or {}
+        ).get("settled_countable_no_side_would_buy_count"),
+        "model_variant_bakeoff_status": (counterfactual.get("model_variant_bakeoff") or {}).get("status"),
+        "model_variant_bakeoff_pair_count": (counterfactual.get("model_variant_bakeoff") or {}).get("pair_count"),
+        "model_variant_recommended_variant_id": (
+            counterfactual.get("model_variant_bakeoff") or {}
+        ).get("recommended_model_variant_id"),
+        "clustered_promotion_gate_status": (counterfactual.get("clustered_promotion_gate") or {}).get("status"),
+        "clustered_promotion_gate_pair_count": (counterfactual.get("clustered_promotion_gate") or {}).get("pair_count"),
+        "clustered_promotion_gate_pass_pair_count": (counterfactual.get("clustered_promotion_gate") or {}).get("pass_pair_count"),
+        "settled_counterfactual_orders_path": counterfactual.get("settled_counterfactual_orders_path"),
+        "settled_counterfactual_pnl_path": counterfactual.get("settled_counterfactual_pnl_path"),
+        "settled_counterfactual_report_path": counterfactual.get("settled_counterfactual_report_path"),
         **reported_summary,
     }
     payload = {
@@ -1166,6 +1537,7 @@ def finalize_taker_run(
         "summary": final_summary,
         "pnl": pnl_payload,
         "strategy_summary": strategy_summary,
+        "counterfactual": counterfactual,
         "next_run_policy_gate": next_gate,
         "reconciliation": reconciliation,
         "disk_capacity_preflight": disk_preflight,

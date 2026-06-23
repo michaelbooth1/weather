@@ -1,6 +1,11 @@
 """Implementation slice extracted from src/weather/reporting/promotion_refresh.py."""
 
 from weather.reporting.promotion.report import *  # noqa: F403
+from weather.operations.long_job_guard import (
+    DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
+    DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
+    long_job_guard,
+)
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 
 # The extracted functions below intentionally resolve globals from the

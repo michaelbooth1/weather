@@ -7,8 +7,14 @@ def render_overview_page(live_refresh_seconds):
     from weather.reporting.overview_helpers import (
         compute_biggest_edges,
         check_snapshot_status,
+        format_audit_analysis_status_table,
+        format_audit_market_direction_table,
+        format_audit_pending_watchlist_table,
+        format_audit_recommendations_table,
+        format_audit_review_queue_table,
         format_edge_table,
         format_status_table,
+        load_audit_analysis_dashboard,
     )
 
     @st.fragment(run_every=f"{live_refresh_seconds}s")
@@ -59,7 +65,56 @@ def render_overview_page(live_refresh_seconds):
         else:
             st.info("No active edge data found. Ensure snapshot loops are running.")
 
-        # 2. Capture-Tape Health
+        # 2. Audit Analysis
+        st.markdown('<div class="section-title">Audit Analysis</div>', unsafe_allow_html=True)
+        analysis = load_audit_analysis_dashboard()
+        payload = analysis.get("payload") or {}
+        analysis_status = analysis.get("status") or {}
+        summary = payload.get("summary") or {}
+        st.caption(
+            "Generated: "
+            f"{analysis_status.get('generated_at_utc') or '-'} | "
+            f"Analysis: {analysis_status.get('analysis_artifact_status') or '-'} | "
+            f"Audit log: {analysis_status.get('audit_log_status') or '-'}"
+        )
+        warning_statuses = {"MISSING", "INVALID", "STALE", "EMPTY"}
+        if analysis_status.get("analysis_artifact_status") in warning_statuses:
+            st.warning(analysis_status.get("analysis_artifact_detail") or "Audit analysis artifact needs attention.")
+        if analysis_status.get("audit_log_status") in warning_statuses:
+            st.warning(analysis_status.get("audit_log_detail") or "Audit log needs attention.")
+
+        metric_cols = st.columns(5)
+        metric_cols[0].metric("Recommendations", summary.get("recommendation_count", 0))
+        metric_cols[1].metric("Ready Review", summary.get("ready_for_operator_review_count", 0))
+        metric_cols[2].metric("Pending", summary.get("pending_count", 0))
+        metric_cols[3].metric("Market Closer", summary.get("market_closer_count", 0))
+        metric_cols[4].metric("Model Closer", summary.get("model_closer_count", 0))
+
+        st.dataframe(format_audit_analysis_status_table(analysis), width='stretch', hide_index=True)
+
+        recommendations_df = format_audit_recommendations_table(payload)
+        if not recommendations_df.empty:
+            st.markdown("**Priority Recommendations**")
+            st.dataframe(recommendations_df, width='stretch', hide_index=True)
+        else:
+            st.info("No audit-analysis recommendations found.")
+
+        pending_df = format_audit_pending_watchlist_table(payload)
+        if not pending_df.empty:
+            st.markdown("**Pending Settlement Watchlist**")
+            st.dataframe(pending_df, width='stretch', hide_index=True)
+
+        pattern_df = format_audit_market_direction_table(payload)
+        if not pattern_df.empty:
+            st.markdown("**By Market And Direction**")
+            st.dataframe(pattern_df, width='stretch', hide_index=True)
+
+        review_queue_df = format_audit_review_queue_table(payload)
+        if not review_queue_df.empty:
+            st.markdown("**Operator Review Queue**")
+            st.dataframe(review_queue_df, width='stretch', hide_index=True)
+
+        # 3. Capture-Tape Health
         st.markdown('<div class="section-title">📊 Capture-Tape Health</div>', unsafe_allow_html=True)
         status = check_snapshot_status()
         df_status = format_status_table(status)

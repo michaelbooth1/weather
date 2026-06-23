@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T20:23:37.000956+00:00
+Generated: 2026-06-23T21:26:09.626367+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 271 |
-| Active items | 36 |
-| OPEN | 8 |
-| PARTIAL | 28 |
-| COMPLETE | 235 |
-| ROADMAP rows | 271 |
-| ROADMAP primary rows | 271 |
-| Metadata manifest rows | 271 |
+| Items | 280 |
+| Active items | 39 |
+| OPEN | 10 |
+| PARTIAL | 29 |
+| COMPLETE | 241 |
+| ROADMAP rows | 280 |
+| ROADMAP primary rows | 280 |
+| Metadata manifest rows | 280 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -51,16 +51,19 @@ Status: `OK`
 | 191 | PARTIAL | 2026-06-22 | GATE REFRESHED, SST/BREEZE SLICE BLOCKED | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-22 | SCHEMA RE-EXPORTED, LOCATION BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | PARTIAL | 2026-06-23 | V1.15 EVIDENCE REFRESHED, LOCATION BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 256 | PARTIAL | 2026-06-23 | CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 271 | OPEN | 2026-06-23 | DASHBOARD AND TRIAGE ROUTING NEEDED | [Audit Analysis Operator Loop](items/item-271-audit-analysis-operator-loop.md) |
+| 277 | OPEN | 2026-06-23 | SELECTED PROOF PASSED BUT ALL-MARKET ROLL STILL STALE | [Maker All-Market Liveness And Fresh Data SLA](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
+| 278 | OPEN | 2026-06-23 | MAKER TAPES SHOW ONE SERVED MODEL VERSION | [Maker Model-Version Shadow Bakeoff](items/item-278-maker-model-version-shadow-bakeoff.md) |
+| 279 | OPEN | 2026-06-23 | 34 FILLS ACROSS 3 MARKET-DAYS CANNOT PROVE IMPROVEMENT | [Maker Clustered Statistical Promotion Gate](items/item-279-maker-clustered-statistical-promotion-gate.md) |
+| 280 | OPEN | 2026-06-23 | MISSING SIZE AND ZERO RECON ROWS WEAKEN FILL SCORING | [Maker CLOB Fill Evidence And Trade-Size Completeness](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
 
 ## Lint Issues
 

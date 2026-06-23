@@ -264,7 +264,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-22 - SCHEMA RE-EXPORTED, LOCATION BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-23 - V1.15 EVIDENCE REFRESHED, LOCATION BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -291,7 +291,7 @@ infrastructure work remains.
 | 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 | 254 | [Extract Serving-Safe Variant-Prediction Runtime From Calibration [COMPLETE 2026-06-23 - SERVING RUNTIME EDGE REMOVED AND ARCHITECTURE RATIFIED]](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
 | 255 | [Taker Current-High Deny Regression Proof [COMPLETE 2026-06-23 - CONFIG-DRIFT CURRENT-HIGH DENY RATIFIED]](items/item-255-taker-current-high-deny-regression-proof.md) |
-| 256 | [Post-Fix Taker After-Fee Requalification Campaign [OPEN 2026-06-23 - NO FRESH COMPLETE-LABEL PROFIT SAMPLE]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 256 | [Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 257 | [Real NO-Book Depth For Two-Sided Taker [COMPLETE 2026-06-23 - REAL NO-BOOK DEPTH GATES LIVE]](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
 | 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [COMPLETE 2026-06-23 - SELECTED PAPER PROOF PASS]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
 | 259 | [Current-Run Artifact Profitability Field Verification [COMPLETE 2026-06-23 - CURRENT-RUN PROFITABILITY VERIFIER GATES PROMOTION]](items/item-259-current-run-artifact-profitability-field-verification.md) |
@@ -306,7 +306,16 @@ infrastructure work remains.
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 | 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [COMPLETE 2026-06-23 - NORTH-STAR SCOREBOARD LIVE]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 | 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [OPEN 2026-06-23 - 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY]](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 271 | [Audit Analysis Operator Loop [OPEN 2026-06-23 - DASHBOARD AND TRIAGE ROUTING NEEDED]](items/item-271-audit-analysis-operator-loop.md) |
+| 271 | [Audit Analysis Operator Loop [COMPLETE 2026-06-23 - DASHBOARD OPERATOR LOOP LIVE]](items/item-271-audit-analysis-operator-loop.md) |
+| 272 | [Taker Daily-Roll Liveness And Artifact Restart [COMPLETE 2026-06-23]](items/item-272-taker-daily-roll-liveness-and-artifact-restart.md) |
+| 273 | [Settlement-Scored Taker Counterfactual Tape [COMPLETE 2026-06-23]](items/item-273-settlement-scored-taker-counterfactual-tape.md) |
+| 274 | [Taker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23]](items/item-274-taker-model-version-shadow-bakeoff.md) |
+| 275 | [Taker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23]](items/item-275-taker-clustered-statistical-promotion-gate.md) |
+| 276 | [NO-Side Taker Data Collection Campaign [COMPLETE 2026-06-23 - REAL NO-SIDE COUNTERFACTUAL CAMPAIGN LIVE]](items/item-276-no-side-taker-data-collection-campaign.md) |
+| 277 | [Maker All-Market Liveness And Fresh Data SLA [OPEN 2026-06-23 - SELECTED PROOF PASSED BUT ALL-MARKET ROLL STILL STALE]](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
+| 278 | [Maker Model-Version Shadow Bakeoff [OPEN 2026-06-23 - MAKER TAPES SHOW ONE SERVED MODEL VERSION]](items/item-278-maker-model-version-shadow-bakeoff.md) |
+| 279 | [Maker Clustered Statistical Promotion Gate [OPEN 2026-06-23 - 34 FILLS ACROSS 3 MARKET-DAYS CANNOT PROVE IMPROVEMENT]](items/item-279-maker-clustered-statistical-promotion-gate.md) |
+| 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [OPEN 2026-06-23 - MISSING SIZE AND ZERO RECON ROWS WEAKEN FILL SCORING]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
 
 ### Architecture And Maintainability
 

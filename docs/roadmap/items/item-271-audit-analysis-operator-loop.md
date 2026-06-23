@@ -1,4 +1,4 @@
-# 271. Audit Analysis Operator Loop [OPEN 2026-06-23 - DASHBOARD AND TRIAGE ROUTING NEEDED]
+# 271. Audit Analysis Operator Loop [COMPLETE 2026-06-23 - DASHBOARD OPERATOR LOOP LIVE]
 
 Goal: turn the saved model-market disagreement audit snapshots and the periodic
 `model_market_disagreement_analysis` recommendations into an operator workflow
@@ -42,14 +42,14 @@ change happens automatically from an unsettled or unreviewed recommendation.
 6. Add tests for dashboard rendering, stale/missing artifact handling, and
    recommendation-to-owner routing.
 
-- [ ] Render Audit Analysis in the dashboard with priority recommendations and
+- [x] Render Audit Analysis in the dashboard with priority recommendations and
       pending watchlist.
-- [ ] Add stale/missing analysis warnings and generation timestamp display.
-- [ ] Map recommendation categories/directions to owner roadmap items and
+- [x] Add stale/missing analysis warnings and generation timestamp display.
+- [x] Map recommendation categories/directions to owner roadmap items and
       repair lanes.
-- [ ] Keep pending-settlement cases visibly separate from resolved evidence.
-- [ ] Add an operator review/export queue for accepted recommendations.
-- [ ] Add regression tests covering JSON read, dashboard table shape, stale
+- [x] Keep pending-settlement cases visibly separate from resolved evidence.
+- [x] Add an operator review/export queue for accepted recommendations.
+- [x] Add regression tests covering JSON read, dashboard table shape, stale
       status, and owner-route mapping.
 
 Acceptance: operators can see the latest audit-analysis recommendations in the
@@ -57,3 +57,19 @@ dashboard, distinguish pending watchlist from resolved evidence, and route a
 resolved recurring pattern to a named repair lane or roadmap item. The system
 must not automatically alter model parameters, promotion gates, or trading
 policy from these recommendations without a separate reviewed experiment.
+
+Completion notes (2026-06-23): the Overview dashboard now renders an Audit
+Analysis section from `data/backtest/model_market_disagreement_analysis.json`,
+including artifact/audit-log freshness, generation time, resolved
+model-versus-market closer counts, priority recommendations, the pending
+settlement watchlist, by-market/direction patterns, and an operator review queue.
+The analysis payload now attaches deterministic repair routes for
+exact-band/winner-centering, warm-tail dampening, source-state reliability, and
+market-specific residual repair. Pending recommendations are routed to a
+settlement-watchlist lane and marked non-countable until settlement.
+
+The periodic analysis writer now also exports
+`data/backtest/model_market_disagreement_review_queue.json` with
+`automatic_model_or_trading_change_allowed=false` and no automatic model,
+promotion-gate, or trading-policy side effects. Verified with focused reporting,
+dashboard-helper, Streamlit overview, compile, and schema-registry unit tests.

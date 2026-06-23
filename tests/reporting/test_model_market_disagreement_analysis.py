@@ -1,6 +1,12 @@
 import json
 
-from weather.reporting.model_market_disagreement_analysis import build_payload, render_report, write_outputs
+from weather.reporting.model_market_disagreement_analysis import (
+    build_payload,
+    render_report,
+    route_for_pattern,
+    write_outputs,
+    write_review_queue,
+)
 
 
 def _record(
@@ -80,11 +86,22 @@ def test_build_payload_dedupes_revisions_and_finds_both_direction_patterns(tmp_p
     assert payload["summary"]["market_closer_count"] == 2
     assert payload["summary"]["model_closer_count"] == 1
     assert payload["summary"]["pending_count"] == 1
+    assert payload["summary"]["ready_for_operator_review_count"] == 2
+    assert payload["summary"]["settlement_watchlist_recommendation_count"] == 1
     assert ("nyc", "market_higher_than_model") in directions
     assert ("seattle", "model_higher_than_market") in directions
     assert any(row["category"] == "settlement_watchlist" for row in recommendations)
     assert any("under-allocation" in row["action"] for row in recommendations)
     assert any("over-allocation" in row["action"] for row in recommendations)
+    routes = {
+        (row["market_id"], row["direction"]): row["route"]["repair_lane"]
+        for row in recommendations
+    }
+    assert routes[("nyc", "market_higher_than_model")] == "exact-band/winner-centering"
+    assert routes[("seattle", "model_higher_than_market")] == "warm-tail dampening"
+    queue_rows = payload["operator_review_queue"]["rows"]
+    assert any(row["status"] == "WATCHLIST_PENDING_SETTLEMENT" for row in queue_rows)
+    assert all(row["automatic_model_or_trading_change_allowed"] is False for row in queue_rows)
 
 
 def test_render_and_write_outputs_include_actionable_sections(tmp_path):
@@ -97,12 +114,43 @@ def test_render_and_write_outputs_include_actionable_sections(tmp_path):
     report = render_report(payload)
     json_out = tmp_path / "analysis.json"
     report_out = tmp_path / "analysis.md"
+    queue_out = tmp_path / "review_queue.json"
 
-    written_json, written_report = write_outputs(payload, json_out, report_out)
+    written_json, written_report = write_outputs(payload, json_out, report_out, review_queue_out=queue_out)
+    written_queue = write_review_queue(payload, tmp_path / "review_queue_direct.json")
 
     assert "Model-Market Disagreement Audit Analysis" in report
     assert "## Recommendations" in report
+    assert "## Operator Review Queue" in report
     assert "## Pending Watchlist" in report
     assert written_json.exists()
     assert written_report.exists()
+    assert queue_out.exists()
+    assert written_queue.exists()
     assert json.loads(written_json.read_text(encoding="utf-8"))["summary"]["deduped_audit_snapshots"] == 2
+    queue = json.loads(queue_out.read_text(encoding="utf-8"))
+    assert queue["schema_version"] == "model_market_disagreement_review_queue_v0.1"
+    assert queue["policy"]["automatic_model_or_trading_change_allowed"] is False
+
+
+def test_route_for_pattern_covers_source_state_and_residual_fallback_lanes():
+    source_state_route = route_for_pattern({
+        "market_closer_count": 1,
+        "market_id": "nyc",
+        "band_key": "gte:72",
+        "range_label": "72+ F",
+        "direction": "market_higher_than_model",
+    })
+    residual_route = route_for_pattern({
+        "market_closer_count": 1,
+        "market_id": "chicago",
+        "band_key": "unknown",
+        "range_label": "74-75 F",
+        "direction": "unknown",
+    })
+
+    assert source_state_route["repair_lane"] == "source-state reliability"
+    assert source_state_route["roadmap_owner"] == "Items 105, 136"
+    assert residual_route["repair_lane"] == "market-specific residual repair"
+    assert residual_route["owner"] == "chicago market residual repair"
+    assert residual_route["automatic_model_or_trading_change_allowed"] is False

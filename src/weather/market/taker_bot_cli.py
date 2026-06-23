@@ -130,6 +130,17 @@ def build_run_config_payload(
             "loads_private_keys": False,
             "posts_orders": False,
             "pretend_taker_orders_only": True,
+            "counterfactual_orders_only": True,
+        },
+        "counterfactual_tape": {
+            "enabled": bool_value(config.get("counterfactual_tape_enabled"), True),
+            "strategies": counterfactual_strategy_arg(config),
+            "retention_days": int(config.get("counterfactual_retention_days") or 14),
+        },
+        "model_variant_basket": {
+            "variant_ids": taker_model_variant_ids(config),
+            "include_missing": bool_value(config.get("taker_model_variant_include_missing"), False),
+            "default_basket": DEFAULT_TAKER_MODEL_VARIANT_BASKET,
         },
     }
 
@@ -208,6 +219,65 @@ def build_run_once(
     write_csv_rows(order_path, ORDER_COLUMNS, all_rows)
     tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
     append_jsonl(run_folder / "budget_ledger.jsonl", budget_ledger)
+    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
+    counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
+    counterfactual_rows = []
+    all_counterfactual_rows = []
+    counterfactual_strategy_ids = []
+    counterfactual_model_variant_manifest = {
+        "requested_variant_ids": [],
+        "materialized_variant_ids": [],
+        "missing_variant_ids": [],
+        "materialized_row_count": 0,
+    }
+    counterfactual_tape_integrity = {
+        "status": "DISABLED",
+        "path": str(counterfactual_path),
+        "row_kind": "counterfactual_orders_long",
+        "expected_rows": 0,
+        "actual_rows": 0,
+        "detail": "counterfactual tape disabled by config",
+    }
+    if bool_value(config.get("counterfactual_tape_enabled"), True):
+        existing_counterfactual_rows = read_order_rows(counterfactual_path) if append else []
+        counterfactual_build = build_counterfactual_taker_rows(
+            input_rows,
+            existing_counterfactual_rows,
+            all_rows,
+            budget_usdc=budget_usdc,
+            run_id=run_id,
+            target_date=target,
+            now=now,
+            config=config,
+            strategies=counterfactual_strategy_arg(config),
+            experiment_id=experiment_id,
+            strategy_registry=strategy_registry,
+        )
+        counterfactual_rows = counterfactual_build["rows"]
+        counterfactual_strategy_ids = [
+            item.get("strategy_id")
+            for item in counterfactual_build.get("strategy_specs") or []
+        ]
+        counterfactual_model_variant_manifest = counterfactual_build.get("model_variant_manifest") or counterfactual_model_variant_manifest
+        all_counterfactual_rows = score_orders(
+            [*existing_counterfactual_rows, *counterfactual_rows],
+            snapshots_root=snapshots_root,
+            ledger_root=ledger_root,
+            now=now,
+        )
+        all_counterfactual_rows = annotate_counterfactual_rows(
+            all_counterfactual_rows,
+            real_rows=all_rows,
+            strategy_set=",".join(counterfactual_strategy_ids),
+        )
+        write_csv_rows(counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, all_counterfactual_rows)
+        counterfactual_tape_integrity = tape_integrity_summary(
+            counterfactual_path,
+            len(all_counterfactual_rows),
+            "counterfactual_orders_long",
+        )
+        if counterfactual_build.get("ledger"):
+            append_jsonl(counterfactual_ledger_path, counterfactual_build["ledger"])
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget_usdc) for item in strategy_specs)
     runtime_identity = get_runtime_identity()
     run_config = build_run_config_payload(
@@ -233,6 +303,8 @@ def build_run_once(
         now=now,
         policy_config=run_config.get("policy_config") or config,
     )
+    no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
+    counterfactual_no_side_campaign = no_side_campaign_summary(all_counterfactual_rows)
     write_json(run_folder / "daily_pnl.json", pnl_payload)
     write_json(run_folder / "run_config.json", run_config)
     strategy_summary = build_strategy_summary_payload(
@@ -279,6 +351,25 @@ def build_run_once(
         "latest_tick_rows": len(new_rows),
         "latest_tick_filled_orders": len(latest_filled),
         "latest_tick_spent_usdc": sum_field(latest_filled, "total_spent_usdc"),
+        "latest_tick_counterfactual_rows": len(counterfactual_rows),
+        "latest_tick_counterfactual_would_buy_count": sum(
+            1 for row in counterfactual_rows
+            if str(row.get("order_status") or "").upper() == "FILLED"
+        ),
+        "cumulative_counterfactual_rows": len(all_counterfactual_rows),
+        "cumulative_counterfactual_would_buy_count": sum(
+            1 for row in all_counterfactual_rows
+            if str(row.get("order_status") or "").upper() == "FILLED"
+        ),
+        "counterfactual_strategy_ids": counterfactual_strategy_ids,
+        "counterfactual_model_variant_manifest": counterfactual_model_variant_manifest,
+        "no_side_campaign": no_side_campaign,
+        "counterfactual_no_side_campaign": counterfactual_no_side_campaign,
+        "no_side_campaign_status": no_side_campaign.get("status"),
+        "counterfactual_no_side_campaign_status": counterfactual_no_side_campaign.get("status"),
+        "counterfactual_no_side_rows": counterfactual_no_side_campaign.get("no_side_row_count"),
+        "counterfactual_no_side_would_buy_count": counterfactual_no_side_campaign.get("no_side_would_buy_count"),
+        "counterfactual_countable_no_side_would_buy_count": counterfactual_no_side_campaign.get("countable_no_side_would_buy_count"),
         "cumulative_order_rows": len(all_rows),
         "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
         "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],
@@ -291,6 +382,7 @@ def build_run_once(
         "next_run_policy_status": "UNKNOWN",
         "market_status_counts": dict(sorted(Counter(row.get("status") for row in market_summaries).items())),
         "tape_integrity": tape_integrity,
+        "counterfactual_tape_integrity": counterfactual_tape_integrity,
         **zero_trade_diagnosis,
     }
     payload = {
@@ -304,7 +396,9 @@ def build_run_once(
         "run_folder": str(run_folder),
         "run_config_path": str(run_folder / "run_config.json"),
         "orders_path": str(order_path),
+        "counterfactual_orders_path": str(counterfactual_path),
         "budget_ledger_path": str(run_folder / "budget_ledger.jsonl"),
+        "counterfactual_budget_ledger_path": str(counterfactual_ledger_path),
         "daily_pnl_path": str(run_folder / "daily_pnl.json"),
         "run_report_path": str(run_folder / "run_report.md"),
         "strategy_summary_path": str(run_folder / "strategy_summary.json"),
@@ -318,7 +412,10 @@ def build_run_once(
         "markets": market_summaries,
         "pnl": pnl_payload,
         "latest_orders": new_rows,
+        "latest_counterfactual_orders": counterfactual_rows,
         "tape_integrity": tape_integrity,
+        "counterfactual_tape_integrity": counterfactual_tape_integrity,
+        "counterfactual_model_variant_manifest": counterfactual_model_variant_manifest,
         "operator_alert": {
             "run_folder": str(run_folder),
             "clob_status_command": "python -m weather.market.market_microstructure status",

@@ -58,16 +58,26 @@ FINALIZATION_SCHEMA_VERSION = "taker_settlement_finalization_v0.1"
 STRATEGY_REGISTRY_SCHEMA_VERSION = "taker_strategy_registry_v0.1"
 STRATEGY_REPORT_SCHEMA_VERSION = "taker_strategy_report_v0.1"
 STRATEGY_BAKEOFF_SCHEMA_VERSION = "taker_strategy_bakeoff_v0.1"
+COUNTERFACTUAL_TAPE_SCHEMA_VERSION = "taker_counterfactual_tape_v0.1"
 POLICY_VERSION = "taker_bot_policy_v0.1"
 DEFAULT_RUNS_ROOT = data_path() / "taker_runs"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
+COUNTERFACTUAL_TAPE_FILENAME = "counterfactual_orders_long.csv"
+SETTLED_COUNTERFACTUAL_TAPE_FILENAME = "settled_counterfactual_orders_long.csv"
 RECONCILIATION_WARNING_USDC = 1.0
 SETTLEMENT_PNL_SOURCES = {"settlement", "settlement_finalized"}
 DEFAULT_CONTROL_STRATEGY_ID = "raw_edge_control"
 ACTIVE_DEFAULT_STRATEGY_ID = "low_price_tail_capped"
 ACTIVE_DEFAULT_STRATEGY_CANARY_STARTED_DATE = "2026-06-21"
 DEFAULT_EXPERIMENT_ID = "default_taker_strategy_experiment"
+DEFAULT_TAKER_MODEL_VARIANT_BASKET = ",".join([
+    "served_current",
+    "dynamic_source_state",
+    "exact_winner_catchup",
+    "continuous_density",
+    "clob_overlay",
+])
 DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS = 1
 DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC = 100.0
 DEFAULT_CANARY_MIN_SETTLED_ORDERS = 5
@@ -146,10 +156,18 @@ DEFAULT_CONFIG = {
     "canary_min_complete_label_days": DEFAULT_CANARY_MIN_COMPLETE_LABEL_DAYS,
     "canary_missing_settlement_blocks_after_age_days": 1,
     "canary_require_after_fee_pnl": True,
+    "counterfactual_tape_enabled": True,
+    "counterfactual_strategies": "",
+    "counterfactual_retention_days": 14,
+    "taker_model_variant_basket": DEFAULT_TAKER_MODEL_VARIANT_BASKET,
+    "taker_model_variant_include_missing": False,
     "promotion_min_settled_orders": DEFAULT_PROMOTION_MIN_SETTLED_ORDERS,
     "promotion_min_settled_markets": DEFAULT_PROMOTION_MIN_SETTLED_MARKETS,
     "promotion_min_settled_net_pnl_usdc": DEFAULT_PROMOTION_MIN_SETTLED_NET_PNL_USDC,
     "promotion_min_settled_expected_pnl_usdc": DEFAULT_PROMOTION_MIN_SETTLED_EXPECTED_PNL_USDC,
+    "promotion_min_independent_target_days": 3,
+    "promotion_min_independent_markets": 2,
+    "promotion_cluster_alpha": 0.05,
     "promotion_max_tail_fill_fraction": DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
     "canary_max_top_market_spend_share": 1.0,
     "canary_max_repeated_opinion_count": 0,
@@ -354,6 +372,7 @@ DEFAULT_BAKEOFF_STRATEGIES = ",".join([
     DEFAULT_CONTROL_STRATEGY_ID,
     "calibrated_edge",
     "low_price_tail_capped",
+    "fade_overpriced",
     "winner_centered_or_adjacent",
     "current_high_lockin",
     "late_day_liquidity_filtered",
@@ -363,6 +382,19 @@ ORDER_COLUMNS = [
     "schema_version",
     "policy_version",
     "policy_hash",
+    "model_variant_id",
+    "model_variant_family",
+    "model_variant_role",
+    "model_variant_basket_id",
+    "model_variant_basket_size",
+    "model_variant_probability",
+    "model_variant_probability_source",
+    "model_variant_prediction_generated_at_utc",
+    "served_model_version",
+    "model_artifact_path",
+    "model_artifact_hash",
+    "model_feature_schema",
+    "model_runtime_identity",
     "experiment_id",
     "strategy_id",
     "strategy_family",
@@ -531,6 +563,30 @@ ORDER_COLUMNS = [
     "mark_pnl_usdc",
     "pnl_source",
     "net_pnl_usdc",
+]
+
+COUNTERFACTUAL_ORDER_COLUMNS = [
+    *ORDER_COLUMNS,
+    "counterfactual_schema_version",
+    "counterfactual_id",
+    "counterfactual_source",
+    "counterfactual_strategy_set",
+    "counterfactual_action",
+    "counterfactual_order_status",
+    "counterfactual_reason_code",
+    "counterfactual_reason_detail",
+    "counterfactual_requested_notional_usdc",
+    "counterfactual_fill_size",
+    "counterfactual_total_spent_usdc",
+    "counterfactual_pnl_source",
+    "real_action",
+    "real_order_status",
+    "real_reason_code",
+    "real_strategy_id",
+    "real_order_id",
+    "real_fill_size",
+    "real_total_spent_usdc",
+    "real_pnl_source",
 ]
 
 
