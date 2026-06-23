@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T03:35:23.822849+00:00
+Generated: 2026-06-23T14:33:16.336192+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 265 |
-| Active items | 38 |
-| OPEN | 7 |
+| Items | 268 |
+| Active items | 40 |
+| OPEN | 9 |
 | PARTIAL | 31 |
-| COMPLETE | 227 |
-| ROADMAP rows | 265 |
-| ROADMAP primary rows | 265 |
-| Metadata manifest rows | 265 |
+| COMPLETE | 228 |
+| ROADMAP rows | 268 |
+| ROADMAP primary rows | 268 |
+| Metadata manifest rows | 268 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -63,6 +63,8 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 267 | OPEN | 2026-06-23 | LEARNED SOURCE-BIAS ARTIFACT IS TORONTO-ONLY AND MISSES THE TWO HOTTEST SOURCES | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit)](items/item-267-multi-market-source-bias-model-extension.md) |
+| 268 | OPEN | 2026-06-23 | WARM TILT PERSISTS PAST THE RAMP-WINDOW OWNER | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local)](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 
 ## Lint Issues
 

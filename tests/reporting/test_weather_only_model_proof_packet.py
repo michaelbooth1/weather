@@ -328,6 +328,119 @@ class TestWeatherOnlyModelProofPacket(unittest.TestCase):
         self.assertEqual(check["status"], "PASS")
         self.assertTrue(check["rows"][0]["diagnostic_only"])
 
+    def test_winner_rank_parity_gate_blocks_broad_packet_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            roadmap = root / "roadmap"
+            artifact = root / "models" / "pooled.pkl"
+            write_artifact(artifact)
+            write_json(
+                backtest / "f_family_promotion_refresh.json",
+                {
+                    "candidate": {
+                        "verdict": "PASS",
+                        "artifact": {"path": str(artifact)},
+                        "aggregate": {"rows": 10},
+                    },
+                    "readiness": {"status": "PASS", "blockers": []},
+                    "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+                    "model_skill_claims": {
+                        "weather_only_core_model": {
+                            "broad_market_skill_claim_allowed": True,
+                            "reason": "",
+                        },
+                        "market_informed_quote_risk": {
+                            "counts_toward_core_skill_claim": False,
+                        },
+                    },
+                    "decisions": {"markets": []},
+                },
+            )
+            write_json(
+                backtest / "hourly_model_performance.json",
+                {"hourly_performance_gate": {"status": "PASS"}},
+            )
+            write_json(
+                backtest / "ten_minute_model_performance.json",
+                {"ten_minute_performance_gate": {"status": "PASS"}},
+            )
+            write_json(backtest / "exact_band_distance_zero_calibration.json", {"status": "PASS"})
+            write_json(backtest / "bottom_location_winner_centering.json", {"status": "PASS"})
+            write_json(
+                backtest / "fleet_observability.json",
+                {
+                    "status": "PASS",
+                    "live_forward_slo": {
+                        "status": "PASS",
+                        "counts_toward_live_forward_gate": True,
+                    },
+                },
+            )
+            write_json(
+                backtest / "progress_audit.json",
+                {"core_model_trend_claim": {"status": "PASS", "claim_allowed": True}},
+            )
+            write_json(backtest / "daily_progress_latest.json", {"broad_improvement_claim_allowed": True})
+            write_json(
+                backtest / "served_distribution_calibration_contract.json",
+                {"status": "PASS", "acceptance_passed": True},
+            )
+            write_json(
+                backtest / "early_hour_positive_daily_first_gate.json",
+                {"status": "PASS", "acceptance_passed": True},
+            )
+            write_json(
+                backtest / "austin_hgb_requalification.json",
+                {"status": "PASS", "summary": {}, "hard_slices": []},
+            )
+            write_json(
+                backtest / "winner_rank_parity.json",
+                {
+                    "schema_version": "winner_rank_parity_v0.1",
+                    "status": "BLOCK",
+                    "summary": {
+                        "model_top_hit_rate": 0.40,
+                        "market_top_hit_rate": 0.60,
+                        "market_top_model_miss_excess": 12,
+                        "brier_contribution": 0.02,
+                    },
+                    "parity_gate": {
+                        "status": "BLOCK",
+                        "blocker_count": 1,
+                        "first_blocker": {
+                            "gate": "top_hit_gap",
+                            "detail": "model top-hit rate trails market",
+                        },
+                        "blockers": [],
+                    },
+                },
+            )
+
+            payload = build_payload(
+                artifact_path=artifact,
+                promotion_refresh=backtest / "f_family_promotion_refresh.json",
+                hourly=backtest / "hourly_model_performance.json",
+                ten_minute=backtest / "ten_minute_model_performance.json",
+                exact_distance=backtest / "exact_band_distance_zero_calibration.json",
+                bottom_location=backtest / "bottom_location_winner_centering.json",
+                fleet_observability=backtest / "fleet_observability.json",
+                progress_audit=backtest / "progress_audit.json",
+                daily_progress=backtest / "daily_progress_latest.json",
+                served_distribution=backtest / "served_distribution_calibration_contract.json",
+                positive_daily_first=backtest / "early_hour_positive_daily_first_gate.json",
+                austin_requalification=backtest / "austin_hgb_requalification.json",
+                winner_rank_parity=backtest / "winner_rank_parity.json",
+                roadmap_root=roadmap,
+            )
+            report = render_report(payload)
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertEqual(payload["first_blocker"]["field"], "gates.winner_rank_parity_gate")
+        self.assertEqual(payload["summary"]["winner_rank_parity_status"], "BLOCK")
+        self.assertEqual(payload["summary"]["market_top_model_miss_excess"], 12)
+        self.assertIn("Winner-Rank Parity", report)
+
 
 if __name__ == "__main__":
     unittest.main()

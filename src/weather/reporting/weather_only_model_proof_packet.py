@@ -34,6 +34,7 @@ DEFAULT_DAILY_PROGRESS = DEFAULT_BACKTEST_ROOT / "daily_progress_latest.json"
 DEFAULT_SERVED_DISTRIBUTION = DEFAULT_BACKTEST_ROOT / "served_distribution_calibration_contract.json"
 DEFAULT_POSITIVE_DAILY_FIRST = DEFAULT_BACKTEST_ROOT / "early_hour_positive_daily_first_gate.json"
 DEFAULT_AUSTIN_REQUALIFICATION = DEFAULT_BACKTEST_ROOT / "austin_hgb_requalification.json"
+DEFAULT_WINNER_RANK_PARITY = DEFAULT_BACKTEST_ROOT / "winner_rank_parity.json"
 
 MODEL_ITEM_PACKET_FIELDS = {
     48: "market_dispositions",
@@ -46,6 +47,7 @@ MODEL_ITEM_PACKET_FIELDS = {
     230: "gates.exact_band_distance_zero_gate",
     233: "gates.served_distribution_contract",
     250: "hard_slices.austin_hgb_requalification",
+    266: "gates.winner_rank_parity_gate",
 }
 
 
@@ -137,6 +139,41 @@ def _simple_gate_summary(path: str | Path, *, status_key: str = "status") -> dic
         "blocker_count": (payload or {}).get("blocker_count", len((payload or {}).get("blockers") or [])),
         "first_blocker": _first_blocker_detail(payload),
         "summary": (payload or {}).get("summary") or {},
+    }
+
+
+def winner_rank_parity_summary(path: str | Path) -> dict[str, Any]:
+    payload = read_json(path)
+    gate = (payload or {}).get("parity_gate") or {}
+    summary = (payload or {}).get("summary") or {}
+    primary = (payload or {}).get("primary_weather_only") or {}
+    return {
+        "path": str(path),
+        "exists": _path_exists(path),
+        "schema_version": (payload or {}).get("schema_version"),
+        "generated_at_utc": (payload or {}).get("generated_at_utc"),
+        "status": _status(gate.get("status") or (payload or {}).get("status")),
+        "blocker_count": gate.get("blocker_count", len(gate.get("blockers") or [])),
+        "first_blocker": _first_blocker_detail(gate),
+        "model_top_hit_rate": summary.get("model_top_hit_rate") or primary.get("model_top_hit_rate"),
+        "market_top_hit_rate": summary.get("market_top_hit_rate") or primary.get("market_top_hit_rate"),
+        "market_top_model_miss_excess": (
+            summary.get("market_top_model_miss_excess")
+            if summary.get("market_top_model_miss_excess") is not None
+            else primary.get("market_top_model_miss_excess")
+        ),
+        "winner_probability_gap_market_minus_model": (
+            summary.get("winner_probability_gap_market_minus_model")
+            if summary.get("winner_probability_gap_market_minus_model") is not None
+            else primary.get("winner_probability_gap_market_minus_model")
+        ),
+        "brier_contribution": (
+            summary.get("brier_contribution")
+            if summary.get("brier_contribution") is not None
+            else primary.get("model_top_miss_market_top_hit_brier_contribution")
+        ),
+        "summary": summary,
+        "gate": gate,
     }
 
 
@@ -318,6 +355,7 @@ def build_gates(
     broad_claim: dict[str, Any],
     served_distribution: dict[str, Any],
     positive_daily_first: dict[str, Any],
+    winner_rank_parity: dict[str, Any],
 ) -> list[dict[str, Any]]:
     gates: list[dict[str, Any]] = []
     artifact_ok = bool(
@@ -419,6 +457,19 @@ def build_gates(
             else fleet.get("reason") or "live-forward evidence is not countable"
         ),
         fleet,
+    ))
+
+    parity_ok = _passes(winner_rank_parity.get("status"))
+    gates.append(_gate(
+        "winner_rank_parity_gate",
+        "PASS" if parity_ok else "BLOCK",
+        (
+            "winner-rank parity gate passed"
+            if parity_ok
+            else winner_rank_parity.get("first_blocker")
+            or "winner-rank parity gap is above tolerance or parity report is missing"
+        ),
+        winner_rank_parity,
     ))
 
     progress = (broad_claim.get("progress_audit") or {})
@@ -561,6 +612,12 @@ def ratchet_report(gates: list[dict[str, Any]]) -> dict[str, Any]:
             "detail": "Keep as a validate-what-you-serve input; do not order separate readiness work from it alone.",
         },
         {
+            "gate": "winner_rank_parity",
+            "classification": "input_gate",
+            "proof_packet_field": "gates.winner_rank_parity_gate",
+            "detail": "Blocks broad weather-only claims while model top-rank misses market top hits above tolerance.",
+        },
+        {
             "gate": "early_hour_positive_daily_first_gate",
             "classification": "input_gate",
             "proof_packet_field": "gates.positive_daily_first_gate",
@@ -655,6 +712,7 @@ def build_payload(
     served_distribution: str | Path = DEFAULT_SERVED_DISTRIBUTION,
     positive_daily_first: str | Path = DEFAULT_POSITIVE_DAILY_FIRST,
     austin_requalification: str | Path = DEFAULT_AUSTIN_REQUALIFICATION,
+    winner_rank_parity: str | Path = DEFAULT_WINNER_RANK_PARITY,
     roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -669,6 +727,7 @@ def build_payload(
     served_payload = _simple_gate_summary(served_distribution)
     positive_payload = _simple_gate_summary(positive_daily_first)
     austin_payload = austin_requalification_summary(austin_requalification)
+    parity_payload = winner_rank_parity_summary(winner_rank_parity)
     gates = build_gates(
         artifact=artifact,
         promotion=promotion,
@@ -680,6 +739,7 @@ def build_payload(
         broad_claim=broad_payload,
         served_distribution=served_payload,
         positive_daily_first=positive_payload,
+        winner_rank_parity=parity_payload,
     )
     evidence_basis = evidence_class(promotion, artifact)
     dispositions = market_dispositions(promotion, gates, evidence_basis)
@@ -704,6 +764,11 @@ def build_payload(
             "block_count": disposition_counts.get("BLOCK", 0),
             "evidence_basis": evidence_basis,
             "roadmap_reference_status": roadmap_check.get("status"),
+            "winner_rank_parity_status": parity_payload.get("status"),
+            "model_top_hit_rate": parity_payload.get("model_top_hit_rate"),
+            "market_top_hit_rate": parity_payload.get("market_top_hit_rate"),
+            "market_top_model_miss_excess": parity_payload.get("market_top_model_miss_excess"),
+            "winner_rank_brier_contribution": parity_payload.get("brier_contribution"),
         },
         "inputs": {
             "artifact_path": str(artifact_path),
@@ -718,6 +783,7 @@ def build_payload(
             "served_distribution": str(served_distribution),
             "positive_daily_first": str(positive_daily_first),
             "austin_requalification": str(austin_requalification),
+            "winner_rank_parity": str(winner_rank_parity),
             "roadmap_root": str(roadmap_root),
         },
         "active_artifact_identity": artifact,
@@ -730,6 +796,7 @@ def build_payload(
         "broad_claim": broad_payload,
         "served_distribution": served_payload,
         "positive_daily_first": positive_payload,
+        "winner_rank_parity": parity_payload,
         "hard_slices": {
             "austin_hgb_requalification": austin_payload,
         },
@@ -766,6 +833,11 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Shadow markets", summary.get("shadow_count")],
             ["Blocked markets", summary.get("block_count")],
             ["Roadmap reference check", summary.get("roadmap_reference_status")],
+            ["Winner-rank parity", summary.get("winner_rank_parity_status")],
+            ["Model top-hit rate", fmt_num(summary.get("model_top_hit_rate"))],
+            ["Market top-hit rate", fmt_num(summary.get("market_top_hit_rate"))],
+            ["Market-top/model-miss excess", summary.get("market_top_model_miss_excess")],
+            ["Parity Brier contribution", fmt_num(summary.get("winner_rank_brier_contribution"))],
         ],
     )
     lines += ["", "## Gates", ""]
@@ -821,6 +893,21 @@ def render_report(payload: dict[str, Any]) -> str:
                     row.get("first_requalification_blocker") or "-",
                 ]
                 for name, row in sorted(hard_slices.items())
+            ],
+        )
+    parity = payload.get("winner_rank_parity") or {}
+    if parity:
+        lines += ["", "## Winner-Rank Parity", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", parity.get("status")],
+                ["Model top-hit rate", fmt_num(parity.get("model_top_hit_rate"))],
+                ["Market top-hit rate", fmt_num(parity.get("market_top_hit_rate"))],
+                ["Market-top/model-miss excess", parity.get("market_top_model_miss_excess")],
+                ["Winner probability gap market-model", fmt_num(parity.get("winner_probability_gap_market_minus_model"))],
+                ["Top-miss Brier contribution", fmt_num(parity.get("brier_contribution"))],
+                ["First blocker", parity.get("first_blocker") or "-"],
             ],
         )
     lines += ["", "## Roadmap Reference Check", ""]
@@ -888,6 +975,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--served-distribution", default=str(DEFAULT_SERVED_DISTRIBUTION))
     parser.add_argument("--positive-daily-first", default=str(DEFAULT_POSITIVE_DAILY_FIRST))
     parser.add_argument("--austin-requalification", default=str(DEFAULT_AUSTIN_REQUALIFICATION))
+    parser.add_argument("--winner-rank-parity", default=str(DEFAULT_WINNER_RANK_PARITY))
     parser.add_argument("--roadmap-root", default=str(DEFAULT_ROADMAP_ROOT))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
@@ -905,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
         served_distribution=args.served_distribution,
         positive_daily_first=args.positive_daily_first,
         austin_requalification=args.austin_requalification,
+        winner_rank_parity=args.winner_rank_parity,
         roadmap_root=args.roadmap_root,
     )
     json_path, report_path = write_outputs(payload, args.out, args.report)

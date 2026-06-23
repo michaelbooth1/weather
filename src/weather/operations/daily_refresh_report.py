@@ -239,6 +239,17 @@ def render_report(payload):
                     f"{result.get('status')}; date {result.get('target_date')}; "
                     f"issues {result.get('issue_count')}; taker {result.get('taker_net_pnl_usdc')}"
                 )
+        elif step.get("name") == "winner_rank_parity":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('parity_gate_status')}; cases {result.get('snapshot_case_count')}; "
+                    f"model_top {result.get('model_top_hit_rate')}; "
+                    f"market_top {result.get('market_top_hit_rate')}; "
+                    f"excess {result.get('market_top_model_miss_excess')}; "
+                    f"blockers {result.get('blocker_count')}"
+                )
         elif step.get("name") == "data_retention_inventory":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -346,6 +357,24 @@ def render_report(payload):
             f"Lanes: `{scorecard.get('lane_count')}`",
             f"Blockers: `{scorecard.get('blocker_count')}`",
             f"Served-vs-validated parity: `{scorecard.get('served_validated_parity_status')}`",
+            "",
+        ]
+    parity = (payload.get("summary") or {}).get("winner_rank_parity") or {}
+    if parity.get("status"):
+        first = parity.get("first_blocker") or {}
+        lines += [
+            "",
+            "## Winner-Rank Parity",
+            "",
+            f"Status: `{parity.get('status')}`",
+            f"Gate: `{parity.get('parity_gate_status')}`",
+            f"Snapshot cases: `{parity.get('snapshot_case_count')}`",
+            f"Model top-hit rate: `{parity.get('model_top_hit_rate')}`",
+            f"Market top-hit rate: `{parity.get('market_top_hit_rate')}`",
+            f"Market-top/model-miss excess: `{parity.get('market_top_model_miss_excess')}`",
+            f"Brier contribution: `{parity.get('brier_contribution')}`",
+            f"Candidate guardrail blockers: `{parity.get('candidate_guardrail_block_count')}`",
+            f"First blocker: {first.get('detail') or '-'}",
             "",
         ]
     taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}

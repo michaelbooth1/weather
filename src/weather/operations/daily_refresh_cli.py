@@ -25,6 +25,7 @@ _DEPENDENCY_NAMES = {
     "hourly_model_performance",
     "ten_minute_model_performance",
     "settled_day_root_cause",
+    "winner_rank_parity",
     "taker_bot",
     "taker_tail_casebook",
     "trading_evidence",
@@ -163,6 +164,13 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--skip-ten-minute-model-performance", action="store_true")
     parser.add_argument("--skip-price-free-model-learning", action="store_true")
     parser.add_argument("--skip-settled-day-root-cause", action="store_true")
+    parser.add_argument("--skip-winner-rank-parity", action="store_true")
+    parser.add_argument("--winner-rank-parity-days", type=int, default=winner_rank_parity.DEFAULT_DAYS)
+    parser.add_argument(
+        "--winner-rank-parity-min-snapshots",
+        type=int,
+        default=winner_rank_parity.DEFAULT_MIN_SNAPSHOTS,
+    )
     parser.add_argument(
         "--settled-root-cause-date",
         default="",

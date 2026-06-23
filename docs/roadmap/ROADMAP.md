@@ -301,6 +301,9 @@ infrastructure work remains.
 | 263 | [Physical Feature-Family Isolated Replay Ratchet [COMPLETE 2026-06-23 - FAIL-CLOSED PHYSICAL FAMILY RATCHET LIVE]](items/item-263-physical-feature-family-isolated-replay-ratchet.md) |
 | 264 | [Market Benchmark And Residual Edge Research Lane [COMPLETE 2026-06-23 - MARKET RESIDUAL LANE FAIL-CLOSED]](items/item-264-market-benchmark-and-residual-edge-research-lane.md) |
 | 265 | [Settlement-Source Revision And Truth-Label Audit [COMPLETE 2026-06-23 - TRUTH-LABEL AUDIT AND BLOCKER LIVE]](items/item-265-settlement-source-revision-and-truth-label-audit.md) |
+| 266 | [Winner-Rank Parity And Market-Top-Miss Repair Gate [COMPLETE 2026-06-23 - PARITY GATE LIVE, CURRENT MODEL BLOCKED]](items/item-266-winner-rank-parity-and-market-top-miss-repair-gate.md) |
+| 267 | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [OPEN 2026-06-23 - LEARNED SOURCE-BIAS ARTIFACT IS TORONTO-ONLY AND MISSES THE TWO HOTTEST SOURCES]](items/item-267-multi-market-source-bias-model-extension.md) |
+| 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [OPEN 2026-06-23 - WARM TILT PERSISTS PAST THE RAMP-WINDOW OWNER]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 
 ### Architecture And Maintainability
 

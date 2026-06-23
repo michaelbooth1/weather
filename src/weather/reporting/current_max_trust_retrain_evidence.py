@@ -44,6 +44,14 @@ DEFAULT_OUT = data_path("backtest", "current_max_trust_retrain_evidence.json")
 DEFAULT_REPORT = data_path("backtest", "current_max_trust_retrain_evidence_report.md")
 MODES = ("no_current_max", "raw_current_max", "trust_weighted")
 MAX_REGRESSION_TOLERANCE = 0.003
+MIN_ABLATION_EFFECT = 1e-9
+TRUST_VALUE_FIELDS = (
+    "trusted_current_max",
+    "support_only_current_max",
+    "quarantined_current_max",
+    "current_max_gap_to_history",
+    "current_max_gap_to_current_temp",
+)
 
 
 def utc_iso() -> str:
@@ -64,21 +72,42 @@ def artifact_trust_field_summary(artifact: dict[str, Any]) -> dict[str, Any]:
     models = artifact.get("models") or {}
     per_hour = []
     missing_by_hour: dict[str, list[str]] = {}
+    hours_without_trust_value_statistics: dict[str, list[str]] = {}
     for hour, bundle in sorted(models.items(), key=lambda item: int(item[0])):
         names = set(bundle.get("feature_names") or [])
+        ordered_names = list(bundle.get("feature_names") or [])
+        imputer_stats = list(getattr(bundle.get("imputer"), "statistics_", []) or [])
         missing = [field for field in TRUST_FIELDS if field not in names]
+        missing_value_statistics = []
+        present_value_statistics = []
+        for field in TRUST_VALUE_FIELDS:
+            if field not in names:
+                missing_value_statistics.append(field)
+                continue
+            index = ordered_names.index(field)
+            value = imputer_stats[index] if index < len(imputer_stats) else None
+            if finite_float(value) is None:
+                missing_value_statistics.append(field)
+            else:
+                present_value_statistics.append(field)
         per_hour.append({
             "hour": int(hour),
             "feature_count": len(names),
             "trust_fields_present": [field for field in TRUST_FIELDS if field in names],
             "missing_trust_fields": missing,
+            "trust_value_statistics_present": present_value_statistics,
+            "missing_trust_value_statistics": missing_value_statistics,
         })
         if missing:
             missing_by_hour[str(hour)] = missing
+        if not present_value_statistics:
+            hours_without_trust_value_statistics[str(hour)] = missing_value_statistics
     return {
         "hour_model_count": len(models),
         "all_hours_have_trust_fields": not missing_by_hour and bool(models),
+        "all_hours_have_trust_value_statistics": not hours_without_trust_value_statistics and bool(models),
         "missing_by_hour": missing_by_hour,
+        "hours_without_trust_value_statistics": hours_without_trust_value_statistics,
         "per_hour": per_hour,
     }
 
@@ -217,8 +246,16 @@ def _brier(summary: dict[str, Any] | None) -> float | None:
     return (summary or {}).get("candidate_brier")
 
 
+def _current_brier(summary: dict[str, Any] | None) -> float | None:
+    return (summary or {}).get("current_brier")
+
+
 def _logloss(summary: dict[str, Any] | None) -> float | None:
     return (summary or {}).get("candidate_logloss")
+
+
+def _current_logloss(summary: dict[str, Any] | None) -> float | None:
+    return (summary or {}).get("current_logloss")
 
 
 def _delta(left: float | None, right: float | None) -> float | None:
@@ -237,7 +274,7 @@ def current_max_trust_ablation_decision(
     no_current = mode_scores.get("no_current_max") or {}
     checks = []
 
-    def add_check(name: str, left: dict[str, Any] | None, right: dict[str, Any] | None, metric: str = "brier"):
+    def add_pair_check(name: str, left: dict[str, Any] | None, right: dict[str, Any] | None, metric: str = "brier"):
         getter = _brier if metric == "brier" else _logloss
         left_value = getter(left)
         right_value = getter(right)
@@ -253,18 +290,72 @@ def current_max_trust_ablation_decision(
             "passed": passed,
         })
 
-    add_check("risky_current_max_brier_vs_raw", trust.get("risky_current_max"), raw.get("risky_current_max"))
-    add_check("warm_tail_brier_vs_raw", trust.get("warm_tail"), raw.get("warm_tail"))
-    add_check("early_hour_brier_vs_raw", trust.get("early_hour"), raw.get("early_hour"))
-    add_check("early_hour_logloss_vs_raw", trust.get("early_hour"), raw.get("early_hour"), metric="logloss")
-    add_check("late_lock_in_brier_vs_raw", trust.get("late_lock_in"), raw.get("late_lock_in"))
-    add_check("daily_first_brier_vs_no_current_max", trust.get("daily_first"), no_current.get("daily_first"))
+    def add_current_check(
+        name: str,
+        summary: dict[str, Any] | None,
+        metric: str = "brier",
+        *,
+        max_delta: float = 0.0,
+    ):
+        candidate_getter = _brier if metric == "brier" else _logloss
+        current_getter = _current_brier if metric == "brier" else _current_logloss
+        candidate_value = candidate_getter(summary)
+        current_value = current_getter(summary)
+        delta = _delta(candidate_value, current_value)
+        passed = delta is not None and delta <= max_delta
+        checks.append({
+            "check": name,
+            "metric": metric,
+            "trust_weighted": candidate_value,
+            "comparison": current_value,
+            "delta": delta,
+            "tolerance": float(max_delta),
+            "passed": passed,
+        })
+
+    add_pair_check("risky_current_max_brier_vs_raw", trust.get("risky_current_max"), raw.get("risky_current_max"))
+    add_pair_check("warm_tail_brier_vs_raw", trust.get("warm_tail"), raw.get("warm_tail"))
+    add_pair_check("early_hour_brier_vs_raw", trust.get("early_hour"), raw.get("early_hour"))
+    add_pair_check("early_hour_logloss_vs_raw", trust.get("early_hour"), raw.get("early_hour"), metric="logloss")
+    add_pair_check("late_lock_in_brier_vs_raw", trust.get("late_lock_in"), raw.get("late_lock_in"))
+    add_pair_check("daily_first_brier_vs_no_current_max", trust.get("daily_first"), no_current.get("daily_first"))
+    add_current_check("risky_current_max_brier_vs_current", trust.get("risky_current_max"))
+    add_current_check("warm_tail_brier_vs_current", trust.get("warm_tail"))
+    add_current_check("early_hour_brier_vs_current", trust.get("early_hour"), max_delta=tolerance)
+    add_current_check("early_hour_logloss_vs_current", trust.get("early_hour"), metric="logloss", max_delta=tolerance)
+    add_current_check("late_lock_in_brier_vs_current", trust.get("late_lock_in"), max_delta=tolerance)
+
+    sensitivity_deltas = [
+        delta
+        for left, right, getter in (
+            (trust.get("risky_current_max"), raw.get("risky_current_max"), _brier),
+            (trust.get("warm_tail"), raw.get("warm_tail"), _brier),
+            (trust.get("early_hour"), raw.get("early_hour"), _brier),
+            (trust.get("early_hour"), raw.get("early_hour"), _logloss),
+            (trust.get("late_lock_in"), raw.get("late_lock_in"), _brier),
+            (trust.get("daily_first"), no_current.get("daily_first"), _brier),
+        )
+        for delta in [_delta(getter(left), getter(right))]
+        if delta is not None
+    ]
+    max_effect = max((abs(delta) for delta in sensitivity_deltas), default=None)
+    checks.append({
+        "check": "current_max_ablation_mode_sensitivity",
+        "metric": "max_abs_delta",
+        "trust_weighted": max_effect,
+        "comparison": MIN_ABLATION_EFFECT,
+        "delta": max_effect,
+        "tolerance": MIN_ABLATION_EFFECT,
+        "passed": max_effect is not None and max_effect > MIN_ABLATION_EFFECT,
+    })
+
     missing = [check["check"] for check in checks if check["delta"] is None]
     failed = [check for check in checks if not check["passed"]]
     return {
         "status": "PASS" if not failed else "BLOCK",
-        "policy": "trust_weighted_must_not_regress_raw_or_no_current_max",
+        "policy": "trust_weighted_must_improve_current_risky_and_warm_tail_without_regressing_raw_no_current_or_late_lockin",
         "tolerance": float(tolerance),
+        "minimum_ablation_effect": MIN_ABLATION_EFFECT,
         "checks": checks,
         "missing_checks": missing,
         "failed_checks": failed,
@@ -361,7 +452,16 @@ def build_payload(
     trust_summary = artifact_trust_field_summary(artifact)
     ablation = current_max_trust_ablation_decision(mode_scores, tolerance=tolerance)
     schema_ok = artifact.get("feature_schema_version") == FEATURE_SCHEMA_VERSION
-    status = "PASS" if schema_ok and trust_summary["all_hours_have_trust_fields"] and ablation["status"] == "PASS" else "BLOCK"
+    status = (
+        "PASS"
+        if (
+            schema_ok
+            and trust_summary["all_hours_have_trust_fields"]
+            and trust_summary["all_hours_have_trust_value_statistics"]
+            and ablation["status"] == "PASS"
+        )
+        else "BLOCK"
+    )
     blockers = []
     if not schema_ok:
         blockers.append({
@@ -376,6 +476,12 @@ def build_payload(
             "blocker": "artifact_trust_fields",
             "detail": "one or more hour models are missing current-max trust fields",
             "missing_by_hour": trust_summary["missing_by_hour"],
+        })
+    if not trust_summary["all_hours_have_trust_value_statistics"]:
+        blockers.append({
+            "blocker": "artifact_trust_value_training_coverage",
+            "detail": "one or more hour models have no non-null trainable current-max trust value statistics",
+            "hours_without_trust_value_statistics": trust_summary["hours_without_trust_value_statistics"],
         })
     if ablation["status"] != "PASS":
         blockers.append({
@@ -437,6 +543,7 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Artifact schema", artifact.get("feature_schema_version")],
             ["Hour models", len(artifact.get("hour_models") or [])],
             ["All hours have trust fields", (artifact.get("trust_fields") or {}).get("all_hours_have_trust_fields")],
+            ["All hours have trainable trust values", (artifact.get("trust_fields") or {}).get("all_hours_have_trust_value_statistics")],
             ["Ablation status", ablation.get("status")],
             ["Daily-first trust vs raw", fmt_signed(ablation.get("trust_weighted_delta_vs_raw"), 4)],
             ["Daily-first trust vs no current-max", fmt_signed(ablation.get("trust_weighted_delta_vs_no_current_max"), 4)],

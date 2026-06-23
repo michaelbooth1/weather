@@ -35,6 +35,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_taker_finalization_watchdog_step,
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
+    run_winner_rank_parity_step,
 )
 from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
@@ -111,6 +112,9 @@ def _args(tmp, **overrides):
         "skip_price_free_model_learning": False,
         "skip_settled_day_root_cause": False,
         "settled_root_cause_date": "",
+        "skip_winner_rank_parity": False,
+        "winner_rank_parity_days": 7,
+        "winner_rank_parity_min_snapshots": 1,
         "taker_root": str(root / "taker_runs"),
         "mm_root": str(root / "mm_runs"),
         "skip_taker_finalization_watchdog": False,
@@ -474,7 +478,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("data_layer_audit"), names.index("snapshot_evaluation"))
         self.assertLess(names.index("snapshot_evaluation"), names.index("distribution_stage_attribution"))
         self.assertLess(names.index("distribution_stage_attribution"), names.index("settled_day_root_cause"))
-        self.assertLess(names.index("settled_day_root_cause"), names.index("data_retention_inventory"))
+        self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("winner_rank_parity"))
+        self.assertLess(names.index("settled_day_root_cause"), names.index("winner_rank_parity"))
+        self.assertLess(names.index("winner_rank_parity"), names.index("data_retention_inventory"))
         self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
         self.assertLess(names.index("daily_learning"), names.index("daily_flow_analysis"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
@@ -484,6 +490,116 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
+
+    def test_winner_rank_parity_step_writes_gate_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, as_of="2026-06-23", winner_rank_parity_min_snapshots=1)
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            rows = [
+                {
+                    "variant_id": "item50_pooled_forecast_v3_candidate",
+                    "variant_family": "pooled_f_candidate",
+                    "uses_market_features": "False",
+                    "claim_lane": "weather_only_core_model",
+                    "counts_toward_weather_model_promotion": "True",
+                    "market_id": "miami",
+                    "target_date": "2026-06-22",
+                    "snapshot_id": "s1",
+                    "band_key": "winner",
+                    "probability": "0.20",
+                    "market_yes": "0.70",
+                    "outcome": "1",
+                    "bin_type": "eq",
+                    "bin_value": "90",
+                    "cutoff_hour": "7",
+                    "cutoff_regime": "early",
+                    "settlement_distance_bucket": "0",
+                    "forecast_disagreement_bucket": "high_disagreement",
+                    "forecast_source_count_bucket": "two_sources",
+                    "source_freshness_state": "all_fresh",
+                },
+                {
+                    "variant_id": "item50_pooled_forecast_v3_candidate",
+                    "variant_family": "pooled_f_candidate",
+                    "uses_market_features": "False",
+                    "claim_lane": "weather_only_core_model",
+                    "counts_toward_weather_model_promotion": "True",
+                    "market_id": "miami",
+                    "target_date": "2026-06-22",
+                    "snapshot_id": "s1",
+                    "band_key": "loser",
+                    "probability": "0.60",
+                    "market_yes": "0.20",
+                    "outcome": "0",
+                    "bin_type": "eq",
+                    "bin_value": "91",
+                    "cutoff_hour": "7",
+                    "cutoff_regime": "early",
+                    "settlement_distance_bucket": "1",
+                    "forecast_disagreement_bucket": "high_disagreement",
+                    "forecast_source_count_bucket": "two_sources",
+                    "source_freshness_state": "all_fresh",
+                },
+                {
+                    "variant_id": "item50_pooled_forecast_v3_candidate",
+                    "variant_family": "pooled_f_candidate",
+                    "uses_market_features": "False",
+                    "claim_lane": "weather_only_core_model",
+                    "counts_toward_weather_model_promotion": "True",
+                    "market_id": "miami",
+                    "target_date": "2026-06-22",
+                    "snapshot_id": "s2",
+                    "band_key": "winner",
+                    "probability": "0.70",
+                    "market_yes": "0.20",
+                    "outcome": "1",
+                    "bin_type": "eq",
+                    "bin_value": "90",
+                    "cutoff_hour": "12",
+                    "cutoff_regime": "ramp",
+                    "settlement_distance_bucket": "0",
+                    "forecast_disagreement_bucket": "high_disagreement",
+                    "forecast_source_count_bucket": "two_sources",
+                    "source_freshness_state": "all_fresh",
+                },
+                {
+                    "variant_id": "item50_pooled_forecast_v3_candidate",
+                    "variant_family": "pooled_f_candidate",
+                    "uses_market_features": "False",
+                    "claim_lane": "weather_only_core_model",
+                    "counts_toward_weather_model_promotion": "True",
+                    "market_id": "miami",
+                    "target_date": "2026-06-22",
+                    "snapshot_id": "s2",
+                    "band_key": "loser",
+                    "probability": "0.20",
+                    "market_yes": "0.60",
+                    "outcome": "0",
+                    "bin_type": "eq",
+                    "bin_value": "91",
+                    "cutoff_hour": "12",
+                    "cutoff_regime": "ramp",
+                    "settlement_distance_bucket": "1",
+                    "forecast_disagreement_bucket": "high_disagreement",
+                    "forecast_source_count_bucket": "two_sources",
+                    "source_freshness_state": "all_fresh",
+                },
+            ]
+            path = backtest / "active_variant_shadow_long.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=sorted({key for row in rows for key in row}))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            result = run_winner_rank_parity_step(args)
+            payload = json.loads((backtest / "winner_rank_parity.json").read_text(encoding="utf-8"))
+            report_exists = (backtest / "winner_rank_parity.md").exists()
+
+        self.assertIn(result["status"], {"PASS", "BLOCK"})
+        self.assertEqual(result["snapshot_case_count"], 2)
+        self.assertEqual(payload["schema_version"], "winner_rank_parity_v0.1")
+        self.assertTrue(report_exists)
 
     def test_promotion_refresh_disk_preflight_blocks_before_candidate_export(self):
         def after(_args):

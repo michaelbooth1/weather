@@ -56,6 +56,7 @@ from weather.reporting import taker_tail_casebook
 from weather.reporting import ten_minute_model_performance
 from weather.reporting import trading_evidence
 from weather.reporting import variant_evidence_growth
+from weather.reporting import winner_rank_parity
 from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 
@@ -87,6 +88,7 @@ STEP_ORDER = (
     "snapshot_evaluation",
     "distribution_stage_attribution",
     "settled_day_root_cause",
+    "winner_rank_parity",
     "data_retention_inventory",
     "daily_learning",
     "daily_flow_analysis",
@@ -1296,6 +1298,47 @@ def run_settled_day_root_cause_step(args):
     }
 
 
+def run_winner_rank_parity_step(args):
+    if getattr(args, "skip_winner_rank_parity", False):
+        return {"status": "SKIPPED", "reason": "skip_winner_rank_parity"}
+    payload = winner_rank_parity.build_payload(
+        snapshots_root=args.snapshots_root,
+        labels_csv=getattr(args, "labels_csv", winner_rank_parity.DEFAULT_LABELS_CSV),
+        active_shadow_long=backtest_path(args, "active_variant_shadow_long.csv"),
+        proper_scoring=backtest_path(args, "proper_scoring_reliability_scorecard.json"),
+        settled_day_root_cause=backtest_path(args, "settled_day_root_cause.json"),
+        as_of=getattr(args, "as_of", None),
+        days=getattr(args, "winner_rank_parity_days", winner_rank_parity.DEFAULT_DAYS),
+        generated_at_utc=utc_iso(),
+        min_snapshots=getattr(args, "winner_rank_parity_min_snapshots", winner_rank_parity.DEFAULT_MIN_SNAPSHOTS),
+    )
+    json_out, report_out = winner_rank_parity.write_outputs(
+        payload,
+        json_out=backtest_path(args, "winner_rank_parity.json"),
+        report_out=backtest_path(args, "winner_rank_parity.md"),
+    )
+    summary = payload.get("summary") or {}
+    gate = payload.get("parity_gate") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "source_row_count": summary.get("source_row_count"),
+        "candidate_row_count": summary.get("candidate_row_count"),
+        "snapshot_case_count": summary.get("snapshot_case_count"),
+        "variant_count": summary.get("variant_count"),
+        "parity_gate_status": gate.get("status"),
+        "blocker_count": gate.get("blocker_count"),
+        "first_blocker": gate.get("first_blocker") or {},
+        "model_top_hit_rate": summary.get("model_top_hit_rate"),
+        "market_top_hit_rate": summary.get("market_top_hit_rate"),
+        "market_top_model_miss_excess": summary.get("market_top_model_miss_excess"),
+        "winner_probability_gap_market_minus_model": summary.get("winner_probability_gap_market_minus_model"),
+        "brier_contribution": summary.get("brier_contribution"),
+        "candidate_guardrail_block_count": summary.get("candidate_guardrail_block_count"),
+    }
+
+
 def run_data_retention_inventory_step(args):
     if getattr(args, "skip_data_retention_inventory", False):
         return {"status": "SKIPPED", "reason": "skip_data_retention_inventory"}
@@ -1452,6 +1495,7 @@ DEFAULT_RUNNERS = (
     ("snapshot_evaluation", run_snapshot_evaluation_step),
     ("distribution_stage_attribution", run_distribution_stage_attribution_step),
     ("settled_day_root_cause", run_settled_day_root_cause_step),
+    ("winner_rank_parity", run_winner_rank_parity_step),
     ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
     ("daily_flow_analysis", run_daily_flow_analysis_step),
@@ -1512,6 +1556,7 @@ def pipeline_summary(steps):
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     stage_attribution = ((by_name.get("distribution_stage_attribution") or {}).get("result") or {})
     root_cause = ((by_name.get("settled_day_root_cause") or {}).get("result") or {})
+    parity = ((by_name.get("winner_rank_parity") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
     flow = ((by_name.get("daily_flow_analysis") or {}).get("result") or {})
     variant_learning_gate = variant_learning_gate_from_steps(steps)
@@ -1717,6 +1762,22 @@ def pipeline_summary(steps):
             "issue_counts": root_cause.get("issue_counts") or {},
             "taker_net_pnl_usdc": root_cause.get("taker_net_pnl_usdc"),
             "mm_run_count": root_cause.get("mm_run_count"),
+        },
+        "winner_rank_parity": {
+            "status": parity.get("status"),
+            "parity_gate_status": parity.get("parity_gate_status"),
+            "source_row_count": parity.get("source_row_count"),
+            "candidate_row_count": parity.get("candidate_row_count"),
+            "snapshot_case_count": parity.get("snapshot_case_count"),
+            "variant_count": parity.get("variant_count"),
+            "blocker_count": parity.get("blocker_count"),
+            "first_blocker": parity.get("first_blocker") or {},
+            "model_top_hit_rate": parity.get("model_top_hit_rate"),
+            "market_top_hit_rate": parity.get("market_top_hit_rate"),
+            "market_top_model_miss_excess": parity.get("market_top_model_miss_excess"),
+            "winner_probability_gap_market_minus_model": parity.get("winner_probability_gap_market_minus_model"),
+            "brier_contribution": parity.get("brier_contribution"),
+            "candidate_guardrail_block_count": parity.get("candidate_guardrail_block_count"),
         },
         "daily_learning": {
             "status": learning.get("status"),

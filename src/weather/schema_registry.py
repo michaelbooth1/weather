@@ -427,6 +427,13 @@ REGISTERED_SCHEMAS = (
         "Canonical proper-scoring, calibration, sharpness, CRPS/ranked-probability, and lane-separated reliability scorecard.",
     ),
     SchemaSpec(
+        "winner_rank_parity",
+        "winner_rank_parity_v0.1",
+        "weather.reporting.winner_rank_parity",
+        "active",
+        "Winner top-rank parity gate comparing model and market top-hit behavior by repair owner slice.",
+    ),
+    SchemaSpec(
         "physical_feature_family_ratchet",
         "physical_feature_family_ratchet_v0.1",
         "weather.reporting.physical_feature_family_ratchet",

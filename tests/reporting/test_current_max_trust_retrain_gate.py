@@ -8,6 +8,7 @@ from weather.reporting.current_max_trust_retrain_gate import (
     write_outputs,
 )
 from weather.reporting.current_max_trust_retrain_evidence import (
+    artifact_trust_field_summary,
     current_max_trust_ablation_decision,
     raw_current_max_value,
     transform_current_max_row,
@@ -180,11 +181,61 @@ def test_current_max_treatments_remove_or_promote_raw_values():
     assert raw["current_max_quarantined_flag"] == 0.0
 
 
-def _score(candidate_brier, candidate_logloss=None, n=100):
+def test_artifact_trust_field_summary_requires_trainable_trust_values():
+    class FakeImputer:
+        statistics_ = [
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            0.0,
+            0.0,
+            0.0,
+            float("nan"),
+            float("nan"),
+        ]
+
+    artifact = {
+        "models": {
+            "7": {
+                "feature_names": [
+                    "trusted_current_max",
+                    "support_only_current_max",
+                    "quarantined_current_max",
+                    "current_max_trusted_flag",
+                    "current_max_support_only_flag",
+                    "current_max_quarantined_flag",
+                    "current_max_gap_to_history",
+                    "current_max_gap_to_current_temp",
+                ],
+                "imputer": FakeImputer(),
+            }
+        }
+    }
+
+    summary = artifact_trust_field_summary(artifact)
+
+    assert summary["all_hours_have_trust_fields"] is True
+    assert summary["all_hours_have_trust_value_statistics"] is False
+    assert summary["hours_without_trust_value_statistics"]["7"] == [
+        "trusted_current_max",
+        "support_only_current_max",
+        "quarantined_current_max",
+        "current_max_gap_to_history",
+        "current_max_gap_to_current_temp",
+    ]
+
+
+def _score(candidate_brier, candidate_logloss=None, current_brier=None, current_logloss=None, n=100):
+    candidate_logloss = candidate_logloss if candidate_logloss is not None else candidate_brier
+    current_brier = current_brier if current_brier is not None else candidate_brier + 0.01
+    current_logloss = current_logloss if current_logloss is not None else candidate_logloss + 0.01
     return {
         "n": n,
         "candidate_brier": candidate_brier,
-        "candidate_logloss": candidate_logloss if candidate_logloss is not None else candidate_brier,
+        "candidate_logloss": candidate_logloss,
+        "current_brier": current_brier,
+        "current_logloss": current_logloss,
+        "delta_vs_current": candidate_brier - current_brier,
     }
 
 
@@ -215,3 +266,33 @@ def test_current_max_ablation_decision_requires_no_regression():
     blocked = current_max_trust_ablation_decision(mode_scores)
     assert blocked["status"] == "BLOCK"
     assert any(check["check"] == "early_hour_brier_vs_raw" for check in blocked["failed_checks"])
+
+
+def test_current_max_ablation_decision_blocks_flat_or_warm_tail_regression():
+    flat_score = _score(0.05)
+    mode_scores = {
+        "trust_weighted": {
+            "risky_current_max": flat_score,
+            "warm_tail": _score(0.06, current_brier=0.059),
+            "early_hour": flat_score,
+            "late_lock_in": flat_score,
+            "daily_first": flat_score,
+        },
+        "raw_current_max": {
+            "risky_current_max": flat_score,
+            "warm_tail": _score(0.06, current_brier=0.059),
+            "early_hour": flat_score,
+            "late_lock_in": flat_score,
+            "daily_first": flat_score,
+        },
+        "no_current_max": {
+            "daily_first": flat_score,
+        },
+    }
+
+    blocked = current_max_trust_ablation_decision(mode_scores)
+
+    assert blocked["status"] == "BLOCK"
+    failed = {check["check"] for check in blocked["failed_checks"]}
+    assert "warm_tail_brier_vs_current" in failed
+    assert "current_max_ablation_mode_sensitivity" in failed
