@@ -7,11 +7,20 @@ from weather.market.market_config import config_for_date
 from weather.market.market_registry import all_specs
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.reporting.model_market_disagreement_audit import (
+    audit_saved_for_row,
+    ensure_audit_record_saved,
+    load_audit_index,
+)
 from weather.reporting.location_trust import score_market
 
 @st.cache_data(ttl=60, show_spinner=False)
 def compute_biggest_edges(n=10):
     edges = []
+    try:
+        audit_index = load_audit_index()
+    except Exception:
+        audit_index = {}
     
     for spec in all_specs():
         store = SnapshotStore(event_slug=config_for_date(market_id=spec.id).event_slug)
@@ -37,6 +46,22 @@ def compute_biggest_edges(n=10):
             
             # Sort by absolute edge descending and pick the top one
             top_row = latest_df.sort_values("abs_edge", ascending=False).iloc[0]
+            top_row_dict = top_row.to_dict()
+            if not top_row_dict.get("event_slug"):
+                top_row_dict["event_slug"] = store.event_slug
+            audit_status = {
+                "saved": audit_saved_for_row(top_row_dict, audit_index=audit_index),
+                "triggered": False,
+                "written": False,
+            }
+            try:
+                audit_status = ensure_audit_record_saved(
+                    top_row_dict,
+                    folder=store.root,
+                    audit_index=audit_index,
+                )
+            except Exception as exc:
+                print(f"Error saving edge audit for {spec.id}: {exc}")
             
             # Get trust score
             try:
@@ -57,7 +82,15 @@ def compute_biggest_edges(n=10):
                 "market_price": float(top_row.get("market_yes", 0)),
                 "trust_score": trust_score,
                 "settled_days": settled_days,
-                "captured_at": top_row.get("captured_at_local", "")
+                "captured_at": top_row.get("captured_at_local", ""),
+                "event_slug": top_row_dict.get("event_slug"),
+                "snapshot_id": top_row.get("snapshot_id", ""),
+                "bin_kind": top_row.get("bin_kind", ""),
+                "bin_value_c": top_row.get("bin_value_c", ""),
+                "bin_value_hi_c": top_row.get("bin_value_hi_c", top_row.get("bin_value_hi", "")),
+                "audit_saved": bool(audit_status.get("saved")),
+                "audit_triggered": bool(audit_status.get("triggered")),
+                "audit_written": bool(audit_status.get("written")),
             })
             
         except Exception as e:
@@ -139,6 +172,9 @@ def format_edge_table(edges):
     df["Market Price"] = (df["market_price"] * 100).map(lambda x: f"{x:.1f}%")
     df["Trust"] = df["trust_score"].map(lambda x: f"{x:.0f}/100")
     df["Settled Days"] = df["settled_days"]
+    if "audit_saved" not in df:
+        df["audit_saved"] = False
+    df["Audit Saved"] = df["audit_saved"].map(bool)
     
     # Rename columns for final output
     df = df.rename(columns={
@@ -149,7 +185,7 @@ def format_edge_table(edges):
     
     # Extract only the columns we want to show
     # (View Link will be added later in app.py due to Streamlit markdown limitations)
-    return df[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "market_id", "edge_percent"]]
+    return df[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Audit Saved", "market_id", "edge_percent"]]
 
 def format_status_table(status):
     if not status:

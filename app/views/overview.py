@@ -46,7 +46,7 @@ def render_overview_page(live_refresh_seconds):
 
             # Use column configuration to render links
             st.dataframe(
-                df_edges[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Action"]],
+                df_edges[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Audit Saved", "Action"]],
                 width='stretch',
                 hide_index=True,
                 column_config={

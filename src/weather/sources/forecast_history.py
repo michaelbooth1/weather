@@ -164,14 +164,18 @@ DATA_ROOT = data_root_for(TORONTO)
 DAILY_PATH = daily_path_for(TORONTO)
 MANIFEST_PATH = DATA_ROOT / "manifest.json"
 # Generous target-season window so one day's +/-7 climatology window is covered
-# for any late-May / early-June target date. One API call per year covers it.
+# for late-May and June target dates. One API call per year covers it.
 SEASON_START = (5, 10)
-SEASON_END = (6, 15)
+SEASON_END = (6, 30)
 
 
 def season_start_end(year):
     start = f"{year}-{SEASON_START[0]:02d}-{SEASON_START[1]:02d}"
-    end = f"{year}-{SEASON_END[0]:02d}-{SEASON_END[1]:02d}"
+    end_date = datetime(year, SEASON_END[0], SEASON_END[1]).date()
+    today = datetime.now().date()
+    if int(year) == today.year and end_date > today:
+        end_date = today
+    end = end_date.isoformat()
     return start, end
 
 

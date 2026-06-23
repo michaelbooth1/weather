@@ -598,6 +598,20 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec("disagreement_casebook", "disagreement_casebook_v0.1", "weather.reporting.disagreement_casebook", "active"),
     SchemaSpec(
+        "model_market_disagreement_audit",
+        "model_market_disagreement_audit_v0.1",
+        "weather.reporting.model_market_disagreement_audit",
+        "active",
+        "Append-only audit log for large model-vs-market band probability gaps and settlement-scored closer-source checks.",
+    ),
+    SchemaSpec(
+        "model_market_disagreement_analysis",
+        "model_market_disagreement_analysis_v0.1",
+        "weather.reporting.model_market_disagreement_analysis",
+        "active",
+        "Periodic rollup over model-market disagreement audit rows for recurring patterns, trend slices, and repair recommendations.",
+    ),
+    SchemaSpec(
         "distribution_stage_attribution",
         "distribution_stage_attribution_v0.1",
         "weather.reporting.distribution_stage_attribution",
