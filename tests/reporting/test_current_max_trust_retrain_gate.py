@@ -7,6 +7,11 @@ from weather.reporting.current_max_trust_retrain_gate import (
     build_payload,
     write_outputs,
 )
+from weather.reporting.current_max_trust_retrain_evidence import (
+    current_max_trust_ablation_decision,
+    raw_current_max_value,
+    transform_current_max_row,
+)
 
 
 CURRENT_MAX_FIELDS = [
@@ -143,3 +148,70 @@ def test_gate_passes_with_matching_retrain_and_ablation_report(tmp_path):
 
     assert payload["status"] == "PASS"
     assert payload["blocker_count"] == 0
+
+
+def test_current_max_treatments_remove_or_promote_raw_values():
+    row = {
+        "trusted_current_max": None,
+        "support_only_current_max": 84.0,
+        "quarantined_current_max": 91.0,
+        "current_max_trusted_flag": 0.0,
+        "current_max_support_only_flag": 1.0,
+        "current_max_quarantined_flag": 1.0,
+        "current_max_gap_to_history": 8.0,
+        "current_max_gap_to_current_temp": 10.0,
+    }
+
+    assert raw_current_max_value(row) == 91.0
+
+    no_current = transform_current_max_row(row, "no_current_max")
+    assert no_current["trusted_current_max"] is None
+    assert no_current["support_only_current_max"] is None
+    assert no_current["quarantined_current_max"] is None
+    assert no_current["current_max_trusted_flag"] == 0.0
+    assert no_current["current_max_gap_to_history"] is None
+
+    raw = transform_current_max_row(row, "raw_current_max")
+    assert raw["trusted_current_max"] == 91.0
+    assert raw["support_only_current_max"] is None
+    assert raw["quarantined_current_max"] is None
+    assert raw["current_max_trusted_flag"] == 1.0
+    assert raw["current_max_support_only_flag"] == 0.0
+    assert raw["current_max_quarantined_flag"] == 0.0
+
+
+def _score(candidate_brier, candidate_logloss=None, n=100):
+    return {
+        "n": n,
+        "candidate_brier": candidate_brier,
+        "candidate_logloss": candidate_logloss if candidate_logloss is not None else candidate_brier,
+    }
+
+
+def test_current_max_ablation_decision_requires_no_regression():
+    mode_scores = {
+        "trust_weighted": {
+            "risky_current_max": _score(0.05),
+            "warm_tail": _score(0.06),
+            "early_hour": _score(0.07, 0.2),
+            "late_lock_in": _score(0.01),
+            "daily_first": _score(0.04),
+        },
+        "raw_current_max": {
+            "risky_current_max": _score(0.08),
+            "warm_tail": _score(0.07),
+            "early_hour": _score(0.071, 0.201),
+            "late_lock_in": _score(0.011),
+            "daily_first": _score(0.041),
+        },
+        "no_current_max": {
+            "daily_first": _score(0.042),
+        },
+    }
+    passing = current_max_trust_ablation_decision(mode_scores)
+    assert passing["status"] == "PASS"
+
+    mode_scores["trust_weighted"]["early_hour"] = _score(0.08, 0.25)
+    blocked = current_max_trust_ablation_decision(mode_scores)
+    assert blocked["status"] == "BLOCK"
+    assert any(check["check"] == "early_hour_brier_vs_raw" for check in blocked["failed_checks"])

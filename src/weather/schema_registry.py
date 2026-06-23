@@ -760,6 +760,13 @@ REGISTERED_SCHEMAS = (
         "Current-max trust retrain readiness, root-cause baseline, and trust-field ablation evidence gate.",
     ),
     SchemaSpec(
+        "current_max_trust_retrain_evidence",
+        "current_max_trust_retrain_evidence_v0.1",
+        "weather.reporting.current_max_trust_retrain_evidence",
+        "active",
+        "Current-max trust retrain artifact inspection and no/raw/trust-weighted ablation evidence.",
+    ),
+    SchemaSpec(
         "late_day_lock_in_repair",
         "late_day_lock_in_repair_v0.1",
         "weather.reporting.late_day_lock_in_repair",

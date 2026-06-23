@@ -83,6 +83,10 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("current_max_trust_retrain_gate"),
             "current_max_trust_retrain_gate_v0.1",
         )
+        self.assertEqual(
+            schema_version("current_max_trust_retrain_evidence"),
+            "current_max_trust_retrain_evidence_v0.1",
+        )
         self.assertEqual(schema_version("config_inventory"), "config_inventory_v0.1")
         self.assertEqual(schema_version("location_registry"), "location_registry_v0.1")
         self.assertEqual(schema_version("location_market_events"), "location_market_events_v0.1")
