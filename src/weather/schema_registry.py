@@ -434,6 +434,13 @@ REGISTERED_SCHEMAS = (
         "Winner top-rank parity gate comparing model and market top-hit behavior by repair owner slice.",
     ),
     SchemaSpec(
+        "afternoon_residual_centering",
+        "afternoon_residual_centering_v0.1",
+        "weather.calibration.afternoon_residual_centering",
+        "active",
+        "Per-market/regime 15:00-18:00 residual centering and disagreement-scaled spread artifact.",
+    ),
+    SchemaSpec(
         "physical_feature_family_ratchet",
         "physical_feature_family_ratchet_v0.1",
         "weather.reporting.physical_feature_family_ratchet",

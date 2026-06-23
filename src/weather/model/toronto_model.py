@@ -48,6 +48,7 @@ from weather.model.model_distribution import DistributionMixin
 from weather.model.model_features import FeatureModelMixin
 from weather.model.model_presentation import PresentationMixin
 from weather.model.calibration_runtime import (
+    load_afternoon_residual_centering,
     load_family_secondary_manifest,
     load_forecast_error_model,
     load_probability_calibration,
@@ -74,6 +75,7 @@ class TorontoHighTempModel(
         self.set_target_date(target_date or TARGET_DATE)
         self.calibrated_weights = self.load_calibrated_weights()
         self.forecast_error_model = self.load_forecast_error_model()
+        self.afternoon_residual_centering = self.load_afternoon_residual_centering()
         self.settlement_lag_model = self.load_settlement_lag_model()
         self.probability_calibration = self.load_probability_calibration()
         self.family_secondary_artifacts = self.load_family_secondary_artifacts()
@@ -114,6 +116,10 @@ class TorontoHighTempModel(
     def load_forecast_error_model(self):
         path = resolve_artifact_path(f"forecast_error_model{self.spec.artifact_suffix}.json")
         return load_forecast_error_model(path)
+
+    def load_afternoon_residual_centering(self):
+        path = resolve_artifact_path("afternoon_residual_centering.json")
+        return load_afternoon_residual_centering(path)
 
     def load_settlement_lag_model(self):
         path = resolve_artifact_path(f"settlement_lag_model{self.spec.artifact_suffix}.json")

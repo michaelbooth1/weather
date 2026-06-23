@@ -35,7 +35,12 @@ from weather.reporting.formatting import (
     fmt_signed,
     markdown_table,
 )
-from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION, row_temp_native
+from weather.model.feature_store import (
+    FEATURE_COLUMNS,
+    FEATURE_DIAGNOSTIC_COLUMNS,
+    FEATURE_SCHEMA_VERSION,
+    row_temp_native,
+)
 from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
@@ -288,6 +293,14 @@ def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None)
     copy["forecast_source_count_bucket"] = forecast_source_count_bucket(source_count)
     copy["forecast_disagreement_bucket"] = forecast_disagreement_bucket(disagreement)
     copy["forecast_bucket_pressure"] = forecast_bucket_pressure(pressure)
+    for column in (
+        "current_max_state",
+        "current_max_disposition",
+        "current_max_quarantine_reason",
+    ):
+        value = feature_row.get(column)
+        copy[column] = value
+        band_row[column] = value
 
 def _model_for_market(models, market_id):
     if market_id not in models:
@@ -363,6 +376,8 @@ def _record_feature_row(
     ]
     observed_support = model.max_value(*support_values)
     row = {column: features.get(column) for column in FEATURE_COLUMNS}
+    for column in FEATURE_DIAGNOSTIC_COLUMNS:
+        row[column] = features.get(column)
     for column in REANALYSIS_SYNOPTIC_FEATURE_COLUMNS:
         if reanalysis_synoptic_features and column in reanalysis_synoptic_features:
             row[column] = reanalysis_synoptic_features.get(column)
@@ -917,6 +932,19 @@ def current_blend_context_value(row, key):
 def current_blend_context_rule_matches(row, rule):
     for key, expected in (rule or {}).items():
         if key in {"alpha", "policy_id", "description"}:
+            continue
+        if key.endswith("_min") or key.endswith("_max"):
+            base_key = key[:-4]
+            actual = current_blend_context_value(row, base_key)
+            try:
+                actual_value = float(actual)
+                expected_value = float(expected)
+            except (TypeError, ValueError):
+                return False
+            if key.endswith("_min") and actual_value < expected_value:
+                return False
+            if key.endswith("_max") and actual_value > expected_value:
+                return False
             continue
         actual = current_blend_context_value(row, key)
         expected_values = expected if isinstance(expected, list) else [expected]

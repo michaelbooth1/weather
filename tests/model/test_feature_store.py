@@ -106,6 +106,44 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(features["current_max_quarantined_flag"], 1.0)
         self.assertEqual(features["current_max_disposition"], "quarantined")
 
+    def test_historical_builder_populates_current_max_trust_from_reset_window(self):
+        rows = [
+            {"minute_of_day": 360, "temp_c": 18.0, "dewpoint_c": 10.0, "humidity": 60.0, "pressure": 1015.0},
+            {"minute_of_day": 420, "temp_c": 17.0, "dewpoint_c": 10.0, "humidity": 60.0, "pressure": 1015.0},
+            {"minute_of_day": 540, "temp_c": 21.0, "dewpoint_c": 11.0, "humidity": 55.0, "pressure": 1014.0},
+        ]
+
+        historical = build_historical_feature_record(
+            "2026-06-07",
+            rows,
+            {"bucket": 23},
+            9,
+            unit="C",
+        )
+
+        self.assertEqual(historical["trusted_current_max"], 21.0)
+        self.assertEqual(historical["current_max_trusted_flag"], 1.0)
+        self.assertEqual(historical["current_max_state"], "wu_history_validated_current_max")
+
+    def test_historical_builder_keeps_pre_reset_current_max_support_only(self):
+        rows = [
+            {"minute_of_day": 300, "temp_c": 21.0, "dewpoint_c": 10.0, "humidity": 60.0, "pressure": 1015.0},
+            {"minute_of_day": 360, "temp_c": 20.0, "dewpoint_c": 10.0, "humidity": 60.0, "pressure": 1015.0},
+        ]
+
+        historical = build_historical_feature_record(
+            "2026-06-07",
+            rows,
+            {"bucket": 23},
+            6,
+            unit="C",
+        )
+
+        self.assertIsNone(historical["trusted_current_max"])
+        self.assertEqual(historical["support_only_current_max"], 21.0)
+        self.assertEqual(historical["current_max_support_only_flag"], 1.0)
+        self.assertEqual(historical["current_max_state"], "pre_reset_current_max_null")
+
     def test_live_feature_extraction_quarantines_f_market_startup_sentinel(self):
         model = TorontoHighTempModel(market_id="nyc", target_date="2026-06-20")
         rows = [{"time": "00:05", "minute_of_day": 5, "temp_native": 17.0}]
@@ -292,7 +330,7 @@ class TestFeatureStore(unittest.TestCase):
         ]
         live = model.extract_live_features({
             "wu_history": {"ok": True, "data": {"rows": rows}},
-            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0, "max_since_7am_c": 20.0}},
             "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 23.0}},
         }, cutoff_hour=12)
         historical = build_historical_feature_record(
@@ -492,7 +530,7 @@ class TestFeatureStore(unittest.TestCase):
 
         live = model.extract_live_features({
             "wu_history": {"ok": True, "data": {"rows": obs_rows}},
-            "wu_current": {"ok": True, "data": {"temp_c": 20.0}},
+            "wu_current": {"ok": True, "data": {"temp_c": 20.0, "max_since_7am_c": 20.0}},
             "open_meteo": {
                 "ok": True,
                 "data": {"rows": forecast_rows[1:], "day_rows": forecast_rows, "day_max_c": 26.0},

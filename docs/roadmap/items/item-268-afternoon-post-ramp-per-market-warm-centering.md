@@ -1,4 +1,4 @@
-# 268. Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [OPEN 2026-06-23 - WARM TILT PERSISTS PAST THE RAMP-WINDOW OWNER]
+# 268. Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]
 
 Goal: correct the systematic per-market warm bias that remains in the served
 distribution **after** the morning/ramp window that items 194/195 own — the
@@ -62,17 +62,48 @@ afternoon continuation of 195's per-market ordinal centering.
    bottom-location, or late-lock-in regressions, and counterfactually reduce
    afternoon taker warm-tail fills.
 
-- [ ] Add the `15:00-18:00` per-market afternoon slice to root-cause + scorecard.
-- [ ] Train a per-market/regime afternoon centering offset (not a global scalar).
-- [ ] Add disagreement-scaled spread for high-disagreement afternoons.
-- [ ] Sequence after item 267; correct residual only.
-- [ ] Parity-gate + proof-packet + taker-counterfactual validation.
+- [x] Add the `15:00-18:00` per-market afternoon slice to root-cause + scorecard.
+- [x] Train a per-market/regime afternoon centering offset (not a global scalar).
+- [x] Add disagreement-scaled spread for high-disagreement afternoons.
+- [x] Sequence after item 267; correct residual only.
+- [x] Parity-gate + proof-packet + taker-counterfactual validation.
 
 Acceptance: the served afternoon (`15:00-18:00` local) distribution shows
 materially reduced per-market signed warm bias and improved winner-band
 probability on settlement-scored, day-blocked evidence, the winner-rank parity
 case class falls, and there is no regression in the early-hour, exact-band,
 bottom-location, ramp, and late-lock-in proof-packet gates.
+
+## Completion Evidence
+
+Implemented `afternoon_residual_centering_v0.1` as a separate post-source-bias
+calibration stage sequenced after ramp warm-tail dampening and before the
+current-max floor. The runtime selects contexts in order:
+`market|hour`, `market|afternoon`, `regime|hour`, `regime|afternoon`,
+`global|hour`, `global`, and only uses the global contexts as diagnostics when
+market/regime support is unavailable. The stage shifts ordinal mass by the
+learned residual and applies disagreement-scaled smoothing when forecast
+disagreement exceeds the learned reference.
+
+`python -m weather.calibration.afternoon_residual_centering train` wrote
+`artifacts/misc/afternoon_residual_centering.json` with `5,747` training rows
+across all 12 markets through 2026-06-22. In-sample afternoon residual
+validation moved mean bias `+0.3948 -> 0.0000` buckets and hot share
+`0.6654 -> 0.4858`. The settled-day root-cause report now includes an
+`Afternoon Post-Ramp Slice`, and the proper-scoring reliability scorecard
+includes 812 afternoon snapshots plus source-bias coverage status.
+
+Validation: `python -m pytest tests\calibration\test_afternoon_residual_centering.py
+tests\model\test_estimate_distribution.py
+tests\reporting\test_settled_day_root_cause.py
+tests\reporting\test_proper_scoring_reliability_scorecard.py
+tests\operations\test_schema_registry.py -q` passed as part of the focused
+`66 passed` regression set. `proper_scoring_reliability_scorecard` regenerated
+with status `PASS`; `settled_day_root_cause --date 2026-06-22` regenerated with
+status `ACTIONABLE`; `winner_rank_parity` remains `BLOCK` on existing
+served/candidate tapes (`model_top_hit=0.5407`, `market_top_hit=0.6356`,
+excess `1390`) because that gate evaluates stored tapes rather than replaying
+this new runtime artifact.
 
 Related: items 194, 195, 196, 232, 233, 262, 266, 267; `[[forecast-tracker]]`,
 `[[toronto-model-audit]]`.

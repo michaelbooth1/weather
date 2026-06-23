@@ -10,6 +10,7 @@ from weather.calibration.pooled_candidate_replay import (
     attach_density_candidate_probabilities,
     annotate_casebook_rows,
     apply_current_blend_guardrail,
+    attach_forecast_profile_slice_context,
     band_probability_from_distribution,
     build_microstructure_gate,
     candidate_shadow_variant_rows,
@@ -410,6 +411,57 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["candidate_p"], 0.80)
         self.assertAlmostEqual(rows[1]["candidate_p"], 0.20)
         self.assertAlmostEqual(rows[2]["candidate_p"], 0.80)
+
+    def test_current_blend_guardrail_supports_numeric_context_thresholds(self):
+        rows = [
+            {
+                "market_id": "austin",
+                "band_mid_minus_high_so_far": 2.5,
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+            },
+            {
+                "market_id": "austin",
+                "band_mid_minus_high_so_far": 1.5,
+                "candidate_p": 0.80,
+                "replayed_p": 0.20,
+            },
+        ]
+
+        apply_current_blend_guardrail(rows, {
+            "current_blend_default_alpha": 1.0,
+            "current_blend_context_alpha": [
+                {
+                    "policy_id": "warm_tail_backoff",
+                    "band_mid_minus_high_so_far_min": 2.0,
+                    "alpha": 0.35,
+                }
+            ],
+        })
+
+        self.assertAlmostEqual(rows[0]["candidate_p"], 0.41)
+        self.assertAlmostEqual(rows[1]["candidate_p"], 0.80)
+
+    def test_forecast_slice_context_carries_current_max_diagnostics_to_postprocess_row(self):
+        copy = {}
+        band_row = {"band_mid_minus_forecast": 2.0}
+
+        attach_forecast_profile_slice_context(
+            copy,
+            feature_row={
+                "forecast_source_count": 3,
+                "forecast_disagreement": 1.5,
+                "current_max_state": "current_max_history_gap",
+                "current_max_disposition": "quarantined",
+                "current_max_quarantine_reason": "large_gap_to_wu_history",
+            },
+            band_row=band_row,
+        )
+
+        self.assertEqual(copy["current_max_disposition"], "quarantined")
+        self.assertEqual(copy["current_max_state"], "current_max_history_gap")
+        self.assertEqual(band_row["current_max_disposition"], "quarantined")
+        self.assertEqual(copy["forecast_bucket_pressure"], "warm_side")
 
     def test_conservative_bridge_alpha_schedule_is_predeclared(self):
         self.assertAlmostEqual(bridge_alpha_for_market("atlanta"), 0.90)

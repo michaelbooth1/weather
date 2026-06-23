@@ -1198,6 +1198,7 @@ def build_historical_feature_record(
     cloud_group_fn=None,
     microclimate_feature_fn=None,
     wall_minute=None,
+    unit=None,
     strict=False,
 ):
     """One training record at printed-cutoff ``cutoff_hour``. ``wall_minute``
@@ -1230,6 +1231,17 @@ def build_historical_feature_record(
     live_reading_minus_high = (
         live_reading - high_so_far if live_reading is not None else None
     )
+    reset_minutes = 7 * 60
+    current_max_rows = [
+        row_temp_native(row)
+        for row in rows
+        if row.get("minute_of_day") is not None
+        and reset_minutes <= int(row["minute_of_day"]) <= wall_minute
+        and row_temp_native(row) is not None
+    ]
+    if live_reading is not None and wall_minute >= reset_minutes:
+        current_max_rows.append(live_reading)
+    current_max_since_reset = max(current_max_rows) if current_max_rows else high_so_far
     current_temp = row_temp_native(current_obs)
     if current_temp is None and strict:
         return None
@@ -1320,11 +1332,11 @@ def build_historical_feature_record(
     )
     current_max_features = {
         **current_max_trust_features(
-            None,
+            current_max_since_reset,
             history_max=high_so_far,
             current_temp=current_temp,
             cutoff_hour=cutoff_hour,
-            unit=None,
+            unit=unit,
         ),
         "startup_feature_quarantined_flag": 0.0,
         "startup_feature_quarantine_reason": "",

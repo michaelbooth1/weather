@@ -103,6 +103,26 @@ def default_band_postprocess(
             "san-francisco": 0.0,
             "seattle": 0.20,
         },
+        "current_blend_context_alpha": [
+            {
+                "policy_id": "item232_current_max_trust_warm_tail_backoff_v0_1",
+                "description": "Reduce warm-tail candidate weight when forecast-relative pressure is warm-side.",
+                "forecast_bucket_pressure": "warm_side",
+                "alpha": 0.35,
+            },
+            {
+                "policy_id": "item232_current_max_trust_warm_tail_backoff_v0_1",
+                "description": "Reduce warm-tail candidate weight when the band sits at least two degrees above the printed floor.",
+                "band_mid_minus_high_so_far_min": 2.0,
+                "alpha": 0.35,
+            },
+            {
+                "policy_id": "item232_current_max_trust_warm_tail_backoff_v0_1",
+                "description": "Use half candidate weight when current-max is support-only, quarantined, or pre-reset.",
+                "current_max_disposition": ["support_only", "quarantined", "null_before_reset"],
+                "alpha": 0.50,
+            },
+        ],
     }
     if exact_winner_catchup_enabled and exact_winner_shadow_blend:
         # Item 70 is a catch-up shadow lane. Keep incumbent blending disabled

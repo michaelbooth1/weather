@@ -61,7 +61,7 @@ def live_sources():
     ok = lambda data: {"ok": True, "data": data}
     return {
         "wu_history": ok({"rows": rows, "max_c": 24.0}),
-        "wu_current": ok({"temp_c": 24.0}),
+        "wu_current": ok({"temp_c": 24.0, "max_since_7am_c": 24.0}),
         "weather_forecast": ok({"rows": []}),
         "eccc_citypage": ok({}),
         "open_meteo": ok({"rows": [], "day_max_c": FORECAST_HIGH}),
@@ -120,6 +120,7 @@ class TestFeatureSkew(unittest.TestCase):
 
         sources = live_sources()
         sources["wu_current"]["data"]["temp_c"] = 25.0
+        sources["wu_current"]["data"]["max_since_7am_c"] = 25.0
         serve = model.extract_live_features(
             sources, CUTOFF_HOUR,
             now=datetime(2026, 6, 2, 14, 30, tzinfo=TORONTO_TZ),
@@ -175,7 +176,12 @@ class TestFeatureSkew(unittest.TestCase):
 
         serve_sources = {
             **live_sources_for_alias,
-            "wu_current": ok({"temp_c": 93.0, "dewpoint_c": 75.0, "humidity": 58.0}),
+            "wu_current": ok({
+                "temp_c": 93.0,
+                "dewpoint_c": 75.0,
+                "humidity": 58.0,
+                "max_since_7am_c": 93.0,
+            }),
             "open_meteo": ok({"rows": [], "day_rows": [], "day_max_c": 96.0}),
             "weather_forecast": ok({"rows": []}),
             "eccc_citypage": ok({}),
@@ -266,7 +272,7 @@ class TestFeatureSkew(unittest.TestCase):
         ok = lambda data: {"ok": True, "data": data}
         serve = model.extract_live_features({
             "wu_history": ok({"rows": live_rows, "max_c": 24.0}),
-            "wu_current": ok({"temp_c": 24.0}),
+            "wu_current": ok({"temp_c": 24.0, "max_since_7am_c": 24.0}),
             "weather_forecast": ok({"rows": []}),
             "eccc_citypage": ok({}),
             "open_meteo": ok({"rows": [], "day_max_c": FORECAST_HIGH}),

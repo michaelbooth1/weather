@@ -194,6 +194,45 @@ def band_identity(row: dict[str, Any]) -> tuple[str, int | None, int | None]:
     return band_key(row)
 
 
+def band_midpoint(row: dict[str, Any]) -> float | None:
+    _kind, value, value_hi = band_key(row)
+    if value is None:
+        return None
+    value_hi = value if value_hi is None else value_hi
+    return (float(value) + float(value_hi)) / 2.0
+
+
+def model_expected_bucket(rows: list[dict[str, Any]]) -> float | None:
+    pairs = []
+    for row in rows:
+        probability = maybe_float(row.get("model_probability"))
+        midpoint = band_midpoint(row)
+        if probability is None or midpoint is None or probability < 0:
+            continue
+        pairs.append((midpoint, probability))
+    total = sum(probability for _, probability in pairs)
+    if total <= 0:
+        return None
+    return sum(midpoint * probability for midpoint, probability in pairs) / total
+
+
+def model_effective_spread(rows: list[dict[str, Any]], expected: float | None) -> float | None:
+    if expected is None:
+        return None
+    pairs = []
+    for row in rows:
+        probability = maybe_float(row.get("model_probability"))
+        midpoint = band_midpoint(row)
+        if probability is None or midpoint is None or probability < 0:
+            continue
+        pairs.append((midpoint, probability))
+    total = sum(probability for _, probability in pairs)
+    if total <= 0:
+        return None
+    variance = sum(((midpoint - expected) ** 2) * probability for midpoint, probability in pairs) / total
+    return math.sqrt(max(0.0, variance))
+
+
 def capture_hour(row: dict[str, Any]) -> int | None:
     text = row.get("captured_at_local") or row.get("captured_at_utc") or ""
     if "T" in text:
@@ -202,6 +241,27 @@ def capture_hour(row: dict[str, Any]) -> int | None:
         except ValueError:
             pass
     return maybe_int(row.get("capture_hour_local") or row.get("cutoff_hour"))
+
+
+def afternoon_slice_summary(snapshot_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [
+        row for row in snapshot_rows
+        if row.get("hour") is not None and 15 <= int(row.get("hour")) <= 18
+    ]
+    biases = [
+        row.get("model_expected_minus_settlement")
+        for row in rows
+        if row.get("model_expected_minus_settlement") is not None
+    ]
+    return {
+        "hour_window": "15-18",
+        "snapshot_count": len(rows),
+        "mean_expected_high_bias": mean(biases),
+        "hot_share": mean(1.0 if bias > 0 else 0.0 for bias in biases),
+        "mean_winner_probability": mean(row.get("final_model_probability") for row in rows),
+        "mean_effective_spread": mean(row.get("model_effective_spread") for row in rows),
+        "mean_forecast_disagreement": mean(row.get("forecast_disagreement") for row in rows),
+    }
 
 
 def load_features_by_snapshot(folder: Path) -> dict[str, dict[str, Any]]:
@@ -441,6 +501,10 @@ def analyze_snapshot_folder(folder: str | Path) -> dict[str, Any]:
         final_identity = band_identity(final_row)
         model_rank = _rank(rows, "model_probability", final_identity)
         market_rank = _rank(rows, "market_yes", final_identity)
+        expected = model_expected_bucket(rows)
+        spread = model_effective_spread(rows, expected)
+        feature_row = features_by_snapshot.get(snapshot_id, {})
+        disagreement = maybe_float(final_row.get("forecast_disagreement") or feature_row.get("forecast_disagreement"))
         explanation_evidence = explanation_evidence_summary(explanations_by_snapshot.get(snapshot_id, []))
         market_event_evidence = market_event_summary(
             market_events,
@@ -465,6 +529,14 @@ def analyze_snapshot_folder(folder: str | Path) -> dict[str, Any]:
             "market_top_probability": maybe_float(market_top.get("market_yes")),
             "model_final_rank": model_rank,
             "market_final_rank": market_rank,
+            "model_expected_bucket": expected,
+            "model_expected_minus_settlement": (
+                expected - final_bucket
+                if expected is not None and final_bucket is not None
+                else None
+            ),
+            "model_effective_spread": spread,
+            "forecast_disagreement": disagreement,
             "model_top_is_winner": band_identity(model_top) == final_identity,
             "market_top_is_winner": band_identity(market_top) == final_identity,
             "explanation_available": explanation_evidence.get("available"),
@@ -483,7 +555,7 @@ def analyze_snapshot_folder(folder: str | Path) -> dict[str, Any]:
         snapshot_rows.append(row)
         _snapshot_issue_checks(
             row=final_row,
-            feature_row=features_by_snapshot.get(snapshot_id, {}),
+            feature_row=feature_row,
             final_bucket=final_bucket,
             final_row=final_row,
             model_top=model_top,
@@ -506,6 +578,7 @@ def analyze_snapshot_folder(folder: str | Path) -> dict[str, Any]:
         "mean_final_market_probability": mean(row.get("final_market_probability") for row in snapshot_rows),
         "mean_model_final_rank": mean(row.get("model_final_rank") for row in snapshot_rows),
         "mean_market_final_rank": mean(row.get("market_final_rank") for row in snapshot_rows),
+        "afternoon_post_ramp_slice": afternoon_slice_summary(snapshot_rows),
         "explanation_snapshot_count": sum(1 for row in snapshot_rows if row.get("explanation_available")),
         "explanation_row_count": sum(int(row.get("explanation_row_count") or 0) for row in snapshot_rows),
         "explanation_sections": sorted({
@@ -847,6 +920,31 @@ def roadmap_mappings(
     return rows
 
 
+def aggregate_afternoon_slice(market_reports: list[dict[str, Any]]) -> dict[str, Any]:
+    slices = [
+        report.get("afternoon_post_ramp_slice") or {}
+        for report in market_reports
+        if report.get("afternoon_post_ramp_slice")
+    ]
+    total_snapshots = sum(int(row.get("snapshot_count") or 0) for row in slices)
+    weighted = []
+    for row in slices:
+        count = int(row.get("snapshot_count") or 0)
+        if count <= 0:
+            continue
+        weighted.extend([row] * count)
+    return {
+        "hour_window": "15-18",
+        "market_count": len([row for row in slices if int(row.get("snapshot_count") or 0) > 0]),
+        "snapshot_count": total_snapshots,
+        "mean_expected_high_bias": mean(row.get("mean_expected_high_bias") for row in weighted),
+        "hot_share": mean(row.get("hot_share") for row in weighted),
+        "mean_winner_probability": mean(row.get("mean_winner_probability") for row in weighted),
+        "mean_effective_spread": mean(row.get("mean_effective_spread") for row in weighted),
+        "mean_forecast_disagreement": mean(row.get("mean_forecast_disagreement") for row in weighted),
+    }
+
+
 def build_payload(
     target_date: str,
     *,
@@ -860,6 +958,7 @@ def build_payload(
 ) -> dict[str, Any]:
     folders = snapshot_folders_for_date(snapshots_root, target_date)
     market_reports = [analyze_snapshot_folder(folder) for folder in folders]
+    afternoon_slice = aggregate_afternoon_slice(market_reports)
     taker = analyze_taker_run(taker_run_folder or discover_taker_run(target_date, taker_root), target_date)
     market_maker = analyze_mm_runs(target_date, mm_root)
     performance = analyze_performance_artifacts(target_date, backtest_root)
@@ -916,6 +1015,7 @@ def build_payload(
             "market_top_winner_rate": mean(report.get("market_top_winner_rate") for report in market_reports),
             "mean_final_model_probability": mean(report.get("mean_final_model_probability") for report in market_reports),
             "mean_final_market_probability": mean(report.get("mean_final_market_probability") for report in market_reports),
+            "afternoon_post_ramp_slice": afternoon_slice,
             "explanation_snapshot_count": explanation_snapshot_count,
             "explanation_coverage_rate": (
                 explanation_snapshot_count / snapshot_count
@@ -994,6 +1094,23 @@ def render_report(payload: dict[str, Any], *, top_n: int = 12) -> str:
     ]
     issue_counts = (payload.get("summary") or {}).get("issue_counts") or {}
     lines += ["## Issue Counts", ""]
+    afternoon = (payload.get("summary") or {}).get("afternoon_post_ramp_slice") or {}
+    lines += ["## Afternoon Post-Ramp Slice", ""]
+    lines += markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Hour window", afternoon.get("hour_window")],
+            ["Markets", afternoon.get("market_count")],
+            ["Snapshots", afternoon.get("snapshot_count")],
+            ["Mean expected-high bias", fmt_signed(afternoon.get("mean_expected_high_bias"), 3)],
+            ["Hot share", fmt_num(afternoon.get("hot_share"), 3)],
+            ["Winner probability", fmt_num(afternoon.get("mean_winner_probability"), 3)],
+            ["Effective spread", fmt_num(afternoon.get("mean_effective_spread"), 3)],
+            ["Forecast disagreement", fmt_num(afternoon.get("mean_forecast_disagreement"), 3)],
+        ],
+    )
+    lines.append("")
+
     if issue_counts:
         lines += markdown_table(
             ["Issue", "Count"],

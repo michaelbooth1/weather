@@ -520,6 +520,41 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertAlmostEqual(sum(out.values()), 1.0, places=6)
         self.assertLess(after_tail, before_tail)
 
+    def test_afternoon_residual_centering_stage_shifts_distribution(self):
+        model = TorontoHighTempModel(target_date="2026-06-22", market_id="nyc")
+        model.afternoon_residual_centering = {
+            "component": {
+                "enabled": True,
+                "start_hour": 15,
+                "end_hour": 18,
+                "min_context_n": 1,
+                "max_abs_shift": 2.0,
+                "disagreement_reference": 3.0,
+                "spread_blend_per_unit": 0.05,
+                "spread_blend_max": 0.35,
+            },
+            "contexts": {
+                "market=nyc|hour=16": {
+                    "n": 5,
+                    "mean_residual": -1.0,
+                    "mean_expected_minus_settlement": 1.0,
+                }
+            },
+        }
+        pipeline = DistributionPipelineState()
+        scores = {88: 0.2, 89: 0.3, 90: 0.5}
+
+        out, context = model.distribution_afternoon_residual_centering_stage(
+            scores,
+            hour=16,
+            forecast_context={"forecast_disagreement": 6.0},
+            pipeline=pipeline,
+        )
+
+        self.assertTrue(context["active"])
+        self.assertIn("afternoon_residual_centering", pipeline.components)
+        self.assertLess(sum(bucket * probability for bucket, probability in out.items()), 89.3)
+
     def test_live_signal_application_stage_records_snapshot(self):
         pipeline = DistributionPipelineState()
         scores = {20: 0.25, 21: 0.5, 22: 0.25}

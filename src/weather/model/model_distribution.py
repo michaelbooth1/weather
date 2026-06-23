@@ -20,7 +20,10 @@ from weather.model.model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
-from weather.model.calibration_runtime import apply_exact_distribution_calibration
+from weather.model.calibration_runtime import (
+    apply_afternoon_residual_centering,
+    apply_exact_distribution_calibration,
+)
 from weather.model.model_contracts import DistributionResult
 from weather.model.feature_store import current_max_trust_features
 
@@ -426,6 +429,13 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
         calibration_context["ramp_warm_tail_dampening"] = ramp_warm_tail_context
+        scores, afternoon_centering_context = self.distribution_afternoon_residual_centering_stage(
+            scores,
+            hour=now.hour,
+            forecast_context=forecast_ensemble,
+            pipeline=pipeline,
+        )
+        calibration_context["afternoon_residual_centering"] = afternoon_centering_context
         scores = self.distribution_validated_current_max_floor_stage(
             scores,
             validated_current_max_floor,
@@ -635,6 +645,35 @@ class DistributionMixin(DistributionSignalMixin):
         if context.get("active"):
             pipeline.snapshot_normalized(
                 "ramp_warm_tail_dampening",
+                scores,
+                self.normalize_scores,
+            )
+        return scores, context
+
+    def afternoon_residual_regime_id(self):
+        if self.spec.display_unit == "C":
+            return "canadian"
+        return "marine" if self.spec.coastal else "continental"
+
+    def distribution_afternoon_residual_centering_stage(
+        self,
+        scores,
+        *,
+        hour,
+        forecast_context,
+        pipeline,
+    ):
+        scores, context = apply_afternoon_residual_centering(
+            scores,
+            getattr(self, "afternoon_residual_centering", None),
+            market_id=getattr(self, "market_id", None),
+            regime_id=self.afternoon_residual_regime_id(),
+            hour=hour,
+            forecast_disagreement=(forecast_context or {}).get("forecast_disagreement"),
+        )
+        if context.get("active"):
+            pipeline.snapshot_normalized(
+                "afternoon_residual_centering",
                 scores,
                 self.normalize_scores,
             )

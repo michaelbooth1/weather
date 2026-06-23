@@ -7,12 +7,16 @@ from datetime import datetime
 from pathlib import Path
 from weather.calibration.forecast_error_model import (
     build_artifact,
+    forecast_component_sources_for_spec,
     forecast_error_distribution,
     forecast_rows_from_daily_archive,
     forecast_rows_from_snapshot_folders,
+    regime_for_spec,
     score_component_rows,
     summarize_error_rows,
 )
+from weather.market.market_registry import NYC
+from weather.model.calibration_runtime import forecast_error_distribution as runtime_forecast_error_distribution
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -138,6 +142,37 @@ class TestForecastErrorModel(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["forecast_high_c"], 92.0)
 
+    def test_snapshot_forecast_rows_canonicalize_global_and_nws_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-7-2026"
+            folder.mkdir()
+            (folder / "snapshots_long.csv").write_text(
+                "\n".join([
+                    "event_slug,wu_history_high_c",
+                    f"{folder.name},88",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "forecasts_long.csv").write_text(
+                "\n".join([
+                    "snapshot_id,target_date,source,captured_at_local,forecast_high_native,target_temp_native",
+                    "s1,2026-06-07,global_ensemble,2026-06-07T12:00:00-04:00,87,87",
+                    "s1,2026-06-07,nws_forecast,2026-06-07T12:00:00-04:00,86,86",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            rows = forecast_rows_from_snapshot_folders(
+                [folder],
+                {"2026-06-07": {"high_c": 88.0, "bucket": 88, "row_count": 24}},
+                market_id="nyc",
+                regime_id="marine",
+            )
+
+        self.assertEqual({row["source"] for row in rows}, {"global_ensemble", "nws_hourly"})
+        self.assertEqual({row["market_id"] for row in rows}, {"nyc"})
+
     def test_distribution_is_normalized_and_respects_wu_floor(self):
         distribution = forecast_error_distribution(
             range(22, 29),
@@ -188,6 +223,85 @@ class TestForecastErrorModel(unittest.TestCase):
 
         self.assertLess(score["learned_brier"], score["cap_brier"])
         self.assertLess(score["learned_logloss"], score["cap_logloss"])
+
+    def test_artifact_records_market_coverage_and_downweights_noisy_source(self):
+        stable_rows = [
+            {
+                "target_date": f"2026-06-{day:02d}",
+                "year": 2026,
+                "source": "weather_forecast",
+                "source_kind": "snapshot",
+                "capture_hour": 12,
+                "horizon_bucket": "same_day_snapshot",
+                "forecast_high_c": 88.0,
+                "observed_high_c": 89.0,
+                "observed_bucket": 89,
+                "market_id": "nyc",
+                "regime_id": "marine",
+            }
+            for day in range(1, 8)
+        ]
+        noisy_errors = [-8, 8, -7, 7, -6, 6, 0]
+        noisy_rows = [
+            {
+                **stable_rows[index],
+                "source": "global_ensemble",
+                "forecast_high_c": 89.0 - error,
+            }
+            for index, error in enumerate(noisy_errors)
+        ]
+        artifact = build_artifact(
+            stable_rows + noisy_rows,
+            [],
+            market_id="nyc",
+            regime_id="marine",
+            expected_sources=["weather_forecast", "global_ensemble"],
+        )
+
+        self.assertEqual(artifact["schema_version"], "forecast_error_model_v0.2")
+        self.assertEqual(artifact["market_id"], "nyc")
+        self.assertEqual(artifact["source_coverage"]["status"], "PASS")
+        stable = artifact["source_stats"]["weather_forecast"]
+        noisy = artifact["source_stats"]["global_ensemble"]
+        self.assertGreater(stable["learned_reliability"], noisy["learned_reliability"])
+        self.assertGreater(noisy["source_weight_shrink_k"], stable["source_weight_shrink_k"])
+        self.assertLess(noisy["effective_weight"], stable["effective_weight"])
+
+    def test_nws_forecast_alias_uses_nws_hourly_runtime_stats(self):
+        artifact = {
+            "source_aliases": {"nws_forecast": "nws_hourly"},
+            "component": {
+                "enabled": True,
+                "min_sigma": 0.75,
+                "max_sigma": 3.0,
+                "source_weight_shrink_k": 20.0,
+                "disagreement_sigma_per_c": 0.20,
+            },
+            "global_stats": {},
+            "source_stats": {
+                "nws_hourly": {
+                    "n": 50,
+                    "bias_observed_minus_forecast": 2.0,
+                    "mae": 0.75,
+                    "rmse": 0.75,
+                }
+            },
+            "hour_stats": {},
+        }
+
+        distribution = runtime_forecast_error_distribution(
+            range(83, 92),
+            [{"source": "nws_forecast", "value": 86.0}],
+            artifact,
+        )
+
+        self.assertIsNotNone(distribution)
+        self.assertEqual(max(distribution, key=distribution.get), 88)
+
+    def test_forecast_component_sources_follow_registered_runtime_ids(self):
+        self.assertIn("global_ensemble", forecast_component_sources_for_spec(NYC))
+        self.assertIn("nws_hourly", forecast_component_sources_for_spec(NYC))
+        self.assertEqual(regime_for_spec(NYC), "marine")
 
     def test_model_uses_forecast_error_artifact_for_forecast_component(self):
         model = TorontoHighTempModel(target_date="2026-05-28")

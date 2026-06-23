@@ -76,7 +76,8 @@ def artifact_trust_field_summary(artifact: dict[str, Any]) -> dict[str, Any]:
     for hour, bundle in sorted(models.items(), key=lambda item: int(item[0])):
         names = set(bundle.get("feature_names") or [])
         ordered_names = list(bundle.get("feature_names") or [])
-        imputer_stats = list(getattr(bundle.get("imputer"), "statistics_", []) or [])
+        imputer_statistics = getattr(bundle.get("imputer"), "statistics_", None)
+        imputer_stats = list(imputer_statistics) if imputer_statistics is not None else []
         missing = [field for field in TRUST_FIELDS if field not in names]
         missing_value_statistics = []
         present_value_statistics = []
@@ -147,6 +148,9 @@ def transform_current_max_row(row: dict[str, Any], mode: str) -> dict[str, Any]:
             "current_max_quarantined_flag",
         ):
             copy_row[flag] = 0.0
+        copy_row["current_max_state"] = "missing_current_max"
+        copy_row["current_max_disposition"] = "missing"
+        copy_row["current_max_quarantine_reason"] = ""
         return copy_row
 
     raw_value = raw_current_max_value(row)
@@ -156,6 +160,11 @@ def transform_current_max_row(row: dict[str, Any], mode: str) -> dict[str, Any]:
     copy_row["current_max_trusted_flag"] = 1.0 if raw_value is not None else 0.0
     copy_row["current_max_support_only_flag"] = 0.0
     copy_row["current_max_quarantined_flag"] = 0.0
+    copy_row["current_max_state"] = (
+        "raw_current_max_promoted" if raw_value is not None else "missing_current_max"
+    )
+    copy_row["current_max_disposition"] = "validated" if raw_value is not None else "missing"
+    copy_row["current_max_quarantine_reason"] = ""
     return copy_row
 
 

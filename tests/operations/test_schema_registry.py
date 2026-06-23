@@ -37,6 +37,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "proper_scoring_reliability_scorecard_v0.1",
         )
         self.assertEqual(schema_version("winner_rank_parity"), "winner_rank_parity_v0.1")
+        self.assertEqual(schema_version("afternoon_residual_centering"), "afternoon_residual_centering_v0.1")
         self.assertEqual(
             schema_version("weather_only_model_proof_packet"),
             "weather_only_model_proof_packet_v0.1",

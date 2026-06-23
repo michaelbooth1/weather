@@ -161,6 +161,9 @@ def test_current_max_treatments_remove_or_promote_raw_values():
         "current_max_quarantined_flag": 1.0,
         "current_max_gap_to_history": 8.0,
         "current_max_gap_to_current_temp": 10.0,
+        "current_max_state": "current_max_history_gap",
+        "current_max_disposition": "quarantined",
+        "current_max_quarantine_reason": "large_gap_to_wu_history",
     }
 
     assert raw_current_max_value(row) == 91.0
@@ -171,6 +174,8 @@ def test_current_max_treatments_remove_or_promote_raw_values():
     assert no_current["quarantined_current_max"] is None
     assert no_current["current_max_trusted_flag"] == 0.0
     assert no_current["current_max_gap_to_history"] is None
+    assert no_current["current_max_state"] == "missing_current_max"
+    assert no_current["current_max_disposition"] == "missing"
 
     raw = transform_current_max_row(row, "raw_current_max")
     assert raw["trusted_current_max"] == 91.0
@@ -179,6 +184,8 @@ def test_current_max_treatments_remove_or_promote_raw_values():
     assert raw["current_max_trusted_flag"] == 1.0
     assert raw["current_max_support_only_flag"] == 0.0
     assert raw["current_max_quarantined_flag"] == 0.0
+    assert raw["current_max_state"] == "raw_current_max_promoted"
+    assert raw["current_max_disposition"] == "validated"
 
 
 def test_artifact_trust_field_summary_requires_trainable_trust_values():

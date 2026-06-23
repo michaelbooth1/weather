@@ -195,10 +195,13 @@ def train_family_probability_artifact(specs, family_unit, snapshots_root, qualit
 def train_forecast_error_artifact(spec, snapshots_root):
     paths = artifact_paths(spec)["forecast_error"]
     folders = forecast_error.discover_default_folders(snapshots_root, market_id=spec.id)
+    regime_id = forecast_error.regime_for_spec(spec)
     rows = forecast_error.read_training_rows(
         daily_path_for(spec),
         spec.data_root / "daily" / "daily_summary.csv",
         folders,
+        market_id=spec.id,
+        regime_id=regime_id,
     )
     if not rows:
         return {
@@ -208,7 +211,13 @@ def train_forecast_error_artifact(spec, snapshots_root):
             "report": _relative(paths["report"]),
             "folder_count": len(folders),
         }
-    artifact = forecast_error.build_artifact(rows, folders)
+    artifact = forecast_error.build_artifact(
+        rows,
+        folders,
+        market_id=spec.id,
+        regime_id=regime_id,
+        expected_sources=forecast_error.forecast_component_sources_for_spec(spec),
+    )
     _write_json(paths["artifact"], artifact)
     forecast_error.write_report(paths["report"], artifact)
     replay = (artifact.get("evaluation") or {}).get("artifact_replay") or {}
@@ -229,6 +238,8 @@ def forecast_error_training_rows(spec, snapshots_root):
         daily_path_for(spec),
         spec.data_root / "daily" / "daily_summary.csv",
         folders,
+        market_id=spec.id,
+        regime_id=forecast_error.regime_for_spec(spec),
     )
     return rows, folders
 
@@ -251,7 +262,16 @@ def train_family_forecast_error_artifact(specs, family_unit, snapshots_root):
             "report": _relative(paths["report"]),
             "folder_count": len(folders),
         }
-    artifact = forecast_error.build_artifact(rows, folders)
+    artifact = forecast_error.build_artifact(
+        rows,
+        folders,
+        family_unit=family_unit,
+        expected_sources=sorted({
+            source
+            for spec in specs
+            for source in forecast_error.forecast_component_sources_for_spec(spec)
+        }),
+    )
     artifact["family_unit"] = family_unit
     artifact["training"]["market_rows"] = market_rows
     _write_json(paths["artifact"], artifact)

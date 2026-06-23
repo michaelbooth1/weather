@@ -783,6 +783,7 @@ def build_market_records(
                 cloud_group_fn=model.cloud_group,
                 microclimate_feature_fn=model.microclimate_features,
                 wall_minute=int(hour) * 60 + offset,
+                unit=spec.display_unit,
             )
             if not record or record.get("final_bucket") is None:
                 continue

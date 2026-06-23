@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.artifacts import resolve_artifact_path
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
 from weather.schema_registry import schema_version
@@ -24,6 +25,7 @@ DEFAULT_TEN_MINUTE = DEFAULT_BACKTEST_ROOT / "ten_minute_model_performance.json"
 DEFAULT_SERVED_DISTRIBUTION = DEFAULT_BACKTEST_ROOT / "served_distribution_calibration_contract.json"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "proper_scoring_reliability_scorecard.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "proper_scoring_reliability_scorecard.md"
+DEFAULT_FORECAST_ERROR_ROOT = resolve_artifact_path("forecast_error_model.json").parent
 DEFAULT_ECE_WARN = 0.12
 DEFAULT_PARITY_WARN_MAE = 0.02
 
@@ -282,6 +284,64 @@ def _distribution_diagnostics(rows):
     }
 
 
+def _afternoon_post_ramp_slice(rows):
+    groups = defaultdict(list)
+    for row in rows:
+        hour = _float(_first(row, ("local_cutoff_hour", "cutoff_hour", "capture_hour_local", "capture_hour")))
+        if hour is None or hour < 15 or hour > 18:
+            continue
+        if row.get("lane") == "market_only":
+            continue
+        groups[_group_key(row)].append(row)
+    snapshot_rows = []
+    for group_rows in groups.values():
+        winners = [row for row in group_rows if row["_outcome"] >= 0.5]
+        if len(group_rows) < 2 or len(winners) != 1:
+            continue
+        total = sum(row["_probability"] for row in group_rows)
+        if total <= 0:
+            continue
+        expected = sum(_ordered_value(row) * row["_probability"] for row in group_rows) / total
+        winner = winners[0]
+        settlement = _ordered_value(winner)
+        probabilities = [row["_probability"] / total for row in group_rows]
+        values = [_ordered_value(row) for row in group_rows]
+        variance = sum(((value - expected) ** 2) * probability for value, probability in zip(values, probabilities))
+        snapshot_rows.append({
+            "lane": winner.get("lane"),
+            "market_id": winner.get("market_id") or "unknown",
+            "expected_high_bias": expected - settlement,
+            "winner_probability": winner["_probability"] / total,
+            "effective_spread": math.sqrt(max(0.0, variance)),
+            "forecast_disagreement": _float(winner.get("forecast_disagreement")),
+        })
+    by_market = defaultdict(list)
+    for row in snapshot_rows:
+        by_market[(row["lane"], row["market_id"])].append(row)
+    return {
+        "hour_window": "15-18",
+        "snapshot_count": len(snapshot_rows),
+        "mean_expected_high_bias": _mean(row["expected_high_bias"] for row in snapshot_rows),
+        "hot_share": _mean(1.0 if row["expected_high_bias"] > 0 else 0.0 for row in snapshot_rows),
+        "mean_winner_probability": _mean(row["winner_probability"] for row in snapshot_rows),
+        "mean_effective_spread": _mean(row["effective_spread"] for row in snapshot_rows),
+        "mean_forecast_disagreement": _mean(row["forecast_disagreement"] for row in snapshot_rows),
+        "by_market": [
+            {
+                "lane": lane,
+                "market_id": market_id,
+                "snapshot_count": len(group_rows),
+                "mean_expected_high_bias": _mean(row["expected_high_bias"] for row in group_rows),
+                "hot_share": _mean(1.0 if row["expected_high_bias"] > 0 else 0.0 for row in group_rows),
+                "mean_winner_probability": _mean(row["winner_probability"] for row in group_rows),
+                "mean_effective_spread": _mean(row["effective_spread"] for row in group_rows),
+                "mean_forecast_disagreement": _mean(row["forecast_disagreement"] for row in group_rows),
+            }
+            for (lane, market_id), group_rows in sorted(by_market.items())
+        ],
+    }
+
+
 def _slice_value(row, name):
     if name == "cutoff_regime":
         hour = _float(_first(row, ("local_cutoff_hour", "cutoff_hour", "capture_hour_local")), default=None)
@@ -404,6 +464,56 @@ def _artifact_status(path, status_path=()):
     }
 
 
+def _forecast_source_bias_summary(root=DEFAULT_FORECAST_ERROR_ROOT):
+    root = Path(root)
+    artifacts = []
+    sources = []
+    if not root.exists():
+        return {
+            "status": "MISSING",
+            "artifact_count": 0,
+            "source_count": 0,
+            "artifacts": artifacts,
+            "sources": sources,
+        }
+    for path in sorted(root.glob("forecast_error_model*.json")):
+        payload = _read_json(path) or {}
+        coverage = payload.get("source_coverage") or {}
+        artifact_row = {
+            "artifact": str(path),
+            "schema_version": payload.get("schema_version"),
+            "version": payload.get("version"),
+            "market_id": payload.get("market_id"),
+            "regime_id": payload.get("regime_id"),
+            "family_unit": payload.get("family_unit"),
+            "coverage_status": coverage.get("status"),
+            "missing_sources": coverage.get("missing_sources") or [],
+            "target_date_max": ((payload.get("training") or {}).get("target_date_max")),
+        }
+        artifacts.append(artifact_row)
+        for source, stats in sorted((payload.get("source_stats") or {}).items()):
+            sources.append({
+                "artifact": path.name,
+                "market_id": payload.get("market_id") or payload.get("family_unit") or "unknown",
+                "source": source,
+                "n": stats.get("n"),
+                "bias_observed_minus_forecast": stats.get("bias_observed_minus_forecast"),
+                "mae": stats.get("mae"),
+                "rmse": stats.get("rmse"),
+                "learned_reliability": stats.get("learned_reliability"),
+                "effective_weight": stats.get("effective_weight"),
+            })
+    missing = [artifact for artifact in artifacts if artifact.get("missing_sources")]
+    status = "WARN" if missing else ("PASS" if artifacts else "MISSING")
+    return {
+        "status": status,
+        "artifact_count": len(artifacts),
+        "source_count": len(sources),
+        "artifacts": artifacts,
+        "sources": sources,
+    }
+
+
 def build_scorecard(
     *,
     active_shadow_long=DEFAULT_ACTIVE_SHADOW_LONG,
@@ -411,6 +521,7 @@ def build_scorecard(
     hourly=DEFAULT_HOURLY,
     ten_minute=DEFAULT_TEN_MINUTE,
     served_distribution=DEFAULT_SERVED_DISTRIBUTION,
+    forecast_error_root=DEFAULT_FORECAST_ERROR_ROOT,
     generated_at_utc=None,
 ):
     source_rows = _read_csv(active_shadow_long)
@@ -429,8 +540,12 @@ def build_scorecard(
         ],
     }
     parity = _served_parity(scored_rows)
+    forecast_source_bias = _forecast_source_bias_summary(forecast_error_root)
+    afternoon_slice = _afternoon_post_ramp_slice(scored_rows)
     blocker_count = sum(len(row.get("blockers") or []) for row in lanes)
     if parity["status"] == "WARN":
+        blocker_count += 1
+    if forecast_source_bias["status"] == "WARN":
         blocker_count += 1
     status = "MISSING" if not scored_rows else ("WARN" if blocker_count else "PASS")
     return {
@@ -444,6 +559,8 @@ def build_scorecard(
             "blocker_count": blocker_count,
             "lane_statuses": lane_statuses,
             "served_validated_parity_status": parity["status"],
+            "forecast_source_bias_status": forecast_source_bias["status"],
+            "afternoon_post_ramp_snapshot_count": afternoon_slice["snapshot_count"],
         },
         "inputs": {
             "active_shadow_long": str(active_shadow_long),
@@ -455,6 +572,8 @@ def build_scorecard(
         "lane_sections": lane_sections,
         "lanes": lanes,
         "served_vs_validated_distribution_parity": parity,
+        "forecast_source_bias": forecast_source_bias,
+        "afternoon_post_ramp_slice": afternoon_slice,
         "density_crps": {
             "status": "SKIP",
             "skip_reason": "continuous_density_payload_not_found; bucket ranked_probability_score reported when distribution groups exist",
@@ -517,6 +636,51 @@ def render_report(payload):
         f"Mean absolute probability delta: `{fmt_num(parity.get('mean_absolute_probability_delta'), 6)}`",
         f"Skip reason: `{parity.get('skip_reason') or '-'}`",
         "",
+        "## Forecast Source Bias",
+        "",
+    ]
+    source_bias = payload.get("forecast_source_bias") or {}
+    lines += markdown_table(
+        ["Artifact", "Market", "Source", "N", "Bias", "MAE", "RMSE", "Reliability", "Weight"],
+        [
+            [
+                row.get("artifact"),
+                row.get("market_id"),
+                row.get("source"),
+                row.get("n"),
+                fmt_num(row.get("bias_observed_minus_forecast"), 4),
+                fmt_num(row.get("mae"), 4),
+                fmt_num(row.get("rmse"), 4),
+                fmt_num(row.get("learned_reliability"), 6),
+                fmt_num(row.get("effective_weight"), 6),
+            ]
+            for row in (source_bias.get("sources") or [])[:40]
+        ],
+    )
+    lines += [
+        "",
+        "## Afternoon Post-Ramp Slice",
+        "",
+    ]
+    afternoon = payload.get("afternoon_post_ramp_slice") or {}
+    lines += markdown_table(
+        ["Lane", "Market", "Snapshots", "Bias", "Hot Share", "Winner P", "Spread", "Disagreement"],
+        [
+            [
+                row.get("lane"),
+                row.get("market_id"),
+                row.get("snapshot_count"),
+                fmt_num(row.get("mean_expected_high_bias"), 4),
+                fmt_num(row.get("hot_share"), 4),
+                fmt_num(row.get("mean_winner_probability"), 4),
+                fmt_num(row.get("mean_effective_spread"), 4),
+                fmt_num(row.get("mean_forecast_disagreement"), 4),
+            ]
+            for row in afternoon.get("by_market") or []
+        ],
+    )
+    lines += [
+        "",
         "## Literature Appendix",
         "",
     ]
@@ -548,6 +712,7 @@ def build_parser():
     parser.add_argument("--hourly", default=str(DEFAULT_HOURLY))
     parser.add_argument("--ten-minute", default=str(DEFAULT_TEN_MINUTE))
     parser.add_argument("--served-distribution", default=str(DEFAULT_SERVED_DISTRIBUTION))
+    parser.add_argument("--forecast-error-root", default=str(DEFAULT_FORECAST_ERROR_ROOT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     return parser
@@ -561,6 +726,7 @@ def main(argv=None):
         hourly=args.hourly,
         ten_minute=args.ten_minute,
         served_distribution=args.served_distribution,
+        forecast_error_root=args.forecast_error_root,
     )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Proper-scoring reliability scorecard: {payload.get('status')}")

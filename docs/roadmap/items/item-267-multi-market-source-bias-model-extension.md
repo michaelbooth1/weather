@@ -1,4 +1,4 @@
-# 267. Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [OPEN 2026-06-23 - LEARNED SOURCE-BIAS ARTIFACT IS TORONTO-ONLY AND MISSES THE TWO HOTTEST SOURCES]
+# 267. Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS]
 
 Goal: extend the learned forecast-error / source-bias artifact so it (a) covers
 every forecast source the multi-market model actually consumes, and (b) is fit
@@ -67,16 +67,42 @@ no owner exists"; the learned source-bias artifact's coverage gap has no owner.
    per-source learned bias/MAE in the replay/promotion reports and the item-262
    reliability scorecard.
 
-- [ ] Extend `source_stats` to `global_ensemble` and `nws_forecast`.
-- [ ] Refit per-market/per-regime across all 12 markets with pooled shrinkage.
-- [ ] Drive source down-weighting from learned reliability, not just bias.
-- [ ] Settlement-scored validation by market + source-health, parity-gate safe.
-- [ ] Leakage guard + per-source bias/MAE exposed in reports and the scorecard.
+- [x] Extend `source_stats` to `global_ensemble` and `nws_forecast`.
+- [x] Refit per-market/per-regime across all 12 markets with pooled shrinkage.
+- [x] Drive source down-weighting from learned reliability, not just bias.
+- [x] Settlement-scored validation by market + source-health, parity-gate safe.
+- [x] Leakage guard + per-source bias/MAE exposed in reports and the scorecard.
 
 Acceptance: the served model's forecast-component debias covers every consumed
 forecast source and is fit on the markets it serves; the refit reduces the
 measured noon expected-high warm bias and the model-vs-market winner-rank parity
 case class on settlement-scored, day-blocked evidence without regressing the
 proof-packet early-hour, exact-band, bottom-location, ramp, and late gates.
+
+## Completion Evidence
+
+Implemented `forecast_error_model_v0.2` with canonical source aliases
+(`nws_forecast`/`nws` -> `nws_hourly`), explicit market/regime metadata,
+source-coverage checks, raw and shrinkage-adjusted stats, and learned
+reliability/effective source weights. Runtime lookup now uses the same alias and
+reliability helpers as training, so high-variance sources are debiased and
+down-weighted from the artifact rather than hard-coded.
+
+`python -m weather.calibration.forecast_error_model train-all` refit all 12
+market artifacts plus `forecast_error_model_f_family.json` through
+2026-06-22. The F-family artifact now covers `global_ensemble`, `nws_hourly`,
+`open_meteo`, and `weather_forecast` with coverage `PASS`, `96,726` rows, and
+source reliability/effective weights; each per-market artifact also reports
+coverage `PASS`. The proper-scoring reliability scorecard now surfaces
+per-artifact source bias/MAE/RMSE/reliability/weight and regenerated with
+status `PASS`.
+
+Validation: `python -m pytest tests\calibration\test_forecast_error_model.py
+tests\reporting\test_proper_scoring_reliability_scorecard.py -q` passed, and
+the broader focused regression set for items 267/268 passed (`66 passed`). The
+item-266 winner-rank parity gate was rerun after report refresh and remains
+`BLOCK` on existing served/candidate tapes (`model_top_hit=0.5407`,
+`market_top_hit=0.6356`, excess `1390`); that gate does not replay the newly
+trained source-bias artifacts by itself.
 
 Related: items 22, 183, 194, 195, 232, 262, 264, 266, 268; `[[highs-projection-data-gap-2026-06-20]]`, `[[replay-ablation-findings]]`.

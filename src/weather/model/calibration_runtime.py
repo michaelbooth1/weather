@@ -29,9 +29,14 @@ SETTLEMENT_CUTOFF_HOURS = tuple(range(8, 21))
 
 DEFAULT_PROBABILITY_ARTIFACT = resolve_artifact_path("probability_calibration.json")
 DEFAULT_FORECAST_ERROR_ARTIFACT = resolve_artifact_path("forecast_error_model.json")
+DEFAULT_AFTERNOON_CENTERING_ARTIFACT = resolve_artifact_path("afternoon_residual_centering.json")
 DEFAULT_SETTLEMENT_LAG_ARTIFACT = resolve_artifact_path("settlement_lag_model.json")
 DEFAULT_FAMILY_SECONDARY_MANIFEST = resolve_artifact_path("f_family_secondary_artifacts.json")
 logger = logging.getLogger(__name__)
+FORECAST_SOURCE_ALIASES = {
+    "nws": "nws_hourly",
+    "nws_forecast": "nws_hourly",
+}
 
 
 def _load_json_artifact(path, label):
@@ -51,6 +56,10 @@ def load_probability_calibration(path=DEFAULT_PROBABILITY_ARTIFACT):
 
 def load_forecast_error_model(path=DEFAULT_FORECAST_ERROR_ARTIFACT):
     return _load_json_artifact(path, "forecast error model")
+
+
+def load_afternoon_residual_centering(path=DEFAULT_AFTERNOON_CENTERING_ARTIFACT):
+    return _load_json_artifact(path, "afternoon residual centering")
 
 
 def load_settlement_lag_model(path=DEFAULT_SETTLEMENT_LAG_ARTIFACT):
@@ -108,6 +117,161 @@ def temperature_scale_distribution(probabilities, temperature=1.0):
         for bucket, probability in distribution.items()
     }
     return normalize_distribution(scaled)
+
+
+def distribution_mean(distribution):
+    normalized = normalize_distribution(distribution)
+    if not normalized:
+        return None
+    return sum(float(bucket) * probability for bucket, probability in normalized.items())
+
+
+def shift_bucket_distribution(distribution, shift):
+    normalized = normalize_distribution(distribution)
+    if not normalized or abs(float(shift or 0.0)) <= 1e-12:
+        return normalized
+    shifted = {}
+    for bucket, probability in normalized.items():
+        target = float(bucket) + float(shift)
+        low = math.floor(target)
+        high = math.ceil(target)
+        if low == high:
+            shifted[int(low)] = shifted.get(int(low), 0.0) + probability
+            continue
+        high_weight = target - low
+        low_weight = 1.0 - high_weight
+        shifted[int(low)] = shifted.get(int(low), 0.0) + probability * low_weight
+        shifted[int(high)] = shifted.get(int(high), 0.0) + probability * high_weight
+    return normalize_distribution(shifted)
+
+
+def ordinal_smooth_distribution(distribution, sigma=0.75, blend_weight=0.0):
+    base = normalize_distribution(distribution)
+    if not base or sigma <= 0 or blend_weight <= 0:
+        return base
+    smoothed = {}
+    for bucket in base:
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for other_bucket, probability in base.items():
+            distance = bucket - other_bucket
+            weight = math.exp(-0.5 * (distance / float(sigma)) ** 2)
+            weighted_sum += probability * weight
+            weight_total += weight
+        smoothed[bucket] = weighted_sum / weight_total if weight_total else 0.0
+    keys = set(base) | set(smoothed)
+    return normalize_distribution({
+        key: (1.0 - blend_weight) * base.get(key, 0.0) + blend_weight * smoothed.get(key, 0.0)
+        for key in keys
+    })
+
+
+def afternoon_centering_context_keys(market_id, regime_id, hour):
+    market = market_id or "unknown"
+    regime = regime_id or "unknown"
+    hour = str(int(hour)) if hour is not None else "unknown"
+    return [
+        f"market={market}|hour={hour}",
+        f"market={market}|afternoon",
+        f"regime={regime}|hour={hour}",
+        f"regime={regime}|afternoon",
+        f"global|hour={hour}",
+        "global",
+    ]
+
+
+def select_afternoon_centering_context(artifact, market_id, regime_id, hour):
+    cfg = (artifact or {}).get("component") or {}
+    contexts = (artifact or {}).get("contexts") or {}
+    min_n = int(cfg.get("min_context_n", 4))
+    allow_global = bool(cfg.get("allow_global_fallback", False))
+    for key in afternoon_centering_context_keys(market_id, regime_id, hour):
+        if key.startswith("global") and not allow_global:
+            continue
+        row = contexts.get(key)
+        if row and int(row.get("n", 0)) >= min_n:
+            return key, row
+    return None, None
+
+
+def apply_afternoon_residual_centering(
+    distribution,
+    artifact,
+    *,
+    market_id,
+    regime_id,
+    hour,
+    forecast_disagreement=None,
+):
+    normalized = normalize_distribution(distribution)
+    context = {
+        "active": False,
+        "reason": "inactive",
+        "market_id": market_id,
+        "regime_id": regime_id,
+        "hour": hour,
+        "context_key": None,
+        "shift": 0.0,
+        "mean_before": distribution_mean(normalized),
+        "mean_after": None,
+        "forecast_disagreement": forecast_disagreement,
+        "spread_blend_weight": 0.0,
+    }
+    if not normalized:
+        context["reason"] = "empty_distribution"
+        return normalized, context
+    if not artifact:
+        context["reason"] = "missing_artifact"
+        context["mean_after"] = context["mean_before"]
+        return normalized, context
+    cfg = artifact.get("component") or {}
+    if not cfg.get("enabled", True):
+        context["reason"] = "artifact_disabled"
+        context["mean_after"] = context["mean_before"]
+        return normalized, context
+    try:
+        hour_int = int(hour)
+    except (TypeError, ValueError):
+        context["reason"] = "missing_hour"
+        context["mean_after"] = context["mean_before"]
+        return normalized, context
+    if hour_int < int(cfg.get("start_hour", 15)) or hour_int > int(cfg.get("end_hour", 18)):
+        context["reason"] = "outside_hour_window"
+        context["mean_after"] = context["mean_before"]
+        return normalized, context
+    key, row = select_afternoon_centering_context(artifact, market_id, regime_id, hour_int)
+    if not row:
+        context["reason"] = "no_context"
+        context["mean_after"] = context["mean_before"]
+        return normalized, context
+
+    max_abs_shift = float(cfg.get("max_abs_shift", 2.0))
+    shift = max(-max_abs_shift, min(max_abs_shift, float(row.get("mean_residual") or 0.0)))
+    adjusted = shift_bucket_distribution(normalized, shift)
+    disagreement = safe_float(forecast_disagreement)
+    if disagreement is not None:
+        reference = float(cfg.get("disagreement_reference", 3.0))
+        excess = max(0.0, disagreement - reference)
+        blend = min(
+            float(cfg.get("spread_blend_max", 0.35)),
+            float(cfg.get("spread_blend_base", 0.0)) + excess * float(cfg.get("spread_blend_per_unit", 0.05)),
+        )
+        sigma = float(cfg.get("spread_sigma_base", 0.75)) + excess * float(cfg.get("spread_sigma_per_unit", 0.05))
+        if blend > 0:
+            adjusted = ordinal_smooth_distribution(adjusted, sigma=sigma, blend_weight=blend)
+            context["spread_blend_weight"] = blend
+
+    context.update({
+        "active": abs(shift) > 1e-12 or context["spread_blend_weight"] > 0,
+        "reason": "afternoon_residual_centering_applied",
+        "context_key": key,
+        "shift": shift,
+        "mean_after": distribution_mean(adjusted),
+        "context_n": row.get("n"),
+        "mean_residual": row.get("mean_residual"),
+        "mean_expected_minus_settlement": row.get("mean_expected_minus_settlement"),
+    })
+    return adjusted, context
 
 
 def floor_distance_bucket(bin_value, floor_bucket):
@@ -408,19 +572,62 @@ def normal_bucket_distribution(support, mean, sigma, floor_bucket=None):
     return normalize_distribution(scores)
 
 
-def _forecast_error_stats_for_source(artifact, source, capture_hour):
+def canonical_forecast_source(source, artifact=None):
+    if source is None:
+        return None
+    source = str(source)
+    aliases = {}
+    aliases.update(FORECAST_SOURCE_ALIASES)
+    aliases.update((artifact or {}).get("source_aliases") or {})
+    return aliases.get(source, source)
+
+
+def forecast_error_stats_for_source(artifact, source, capture_hour):
     source_stats = artifact.get("source_stats") or {}
     global_stats = artifact.get("global_stats") or {}
+    canonical_source = canonical_forecast_source(source, artifact)
     if capture_hour is not None:
         try:
             hour = int(float(capture_hour))
         except (TypeError, ValueError):
             hour = None
         if hour is not None:
-            stats = (artifact.get("hour_stats") or {}).get(f"{source}|hour={hour}")
+            hour_stats = artifact.get("hour_stats") or {}
+            stats = hour_stats.get(f"{canonical_source}|hour={hour}") or hour_stats.get(f"{source}|hour={hour}")
             if stats:
                 return stats
-    return source_stats.get(source) or global_stats
+    return source_stats.get(canonical_source) or source_stats.get(source) or global_stats
+
+
+def forecast_source_reliability(stats):
+    if not stats:
+        return 0.0
+    learned = safe_float(stats.get("learned_reliability"))
+    if learned is not None:
+        return max(0.0, learned)
+    sigma = safe_float(stats.get("rmse"))
+    if sigma is None:
+        sigma = safe_float(stats.get("mae"))
+    if sigma is None:
+        return 0.0
+    return 1.0 / max(sigma * sigma, 0.01)
+
+
+def forecast_source_weight(stats, component_config=None):
+    component_config = component_config or {}
+    reliability = forecast_source_reliability(stats)
+    if reliability <= 0:
+        return 0.0
+    n = int(safe_float(stats.get("n")) or 0)
+    shrink_k = safe_float(stats.get("source_weight_shrink_k"))
+    if shrink_k is None:
+        by_source = component_config.get("source_weight_shrink_k_by_source") or {}
+        shrink_k = safe_float(by_source.get(stats.get("source")))
+    if shrink_k is None:
+        shrink_k = safe_float(component_config.get("source_weight_shrink_k"))
+    if shrink_k is None:
+        shrink_k = 20.0
+    return reliability * (n / (n + shrink_k) if n > 0 else 0.25)
 
 
 def forecast_error_distribution(
@@ -437,7 +644,6 @@ def forecast_error_distribution(
         return None
     min_sigma = float(cfg.get("min_sigma", 0.75))
     max_sigma = float(cfg.get("max_sigma", 3.0))
-    shrink_k = float(cfg.get("source_weight_shrink_k", 20.0))
 
     cleaned = []
     legacy_forecast_key = "forecast_high" + "_c"
@@ -446,7 +652,7 @@ def forecast_error_distribution(
         source = item.get("source")
         if value is None or not source:
             continue
-        stats = _forecast_error_stats_for_source(artifact, source, capture_hour)
+        stats = forecast_error_stats_for_source(artifact, source, capture_hour)
         if not stats:
             continue
         cleaned.append((source, value, stats))
@@ -465,9 +671,7 @@ def forecast_error_distribution(
     for (_, value, stats), center in zip(cleaned, centers):
         sigma = max(min_sigma, float(stats.get("rmse") or stats.get("mae") or min_sigma))
         sigma = min(max_sigma, sigma + disagreement_widen)
-        n = int(stats.get("n", 0))
-        reliability = 1.0 / max(sigma * sigma, 0.01)
-        weight = reliability * (n / (n + shrink_k) if n > 0 else 0.25)
+        weight = forecast_source_weight(stats, cfg)
         distribution = normal_bucket_distribution(support, center, sigma, floor_bucket)
         for bucket, probability in distribution.items():
             combined[bucket] = combined.get(bucket, 0.0) + weight * probability
