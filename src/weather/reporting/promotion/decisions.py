@@ -979,6 +979,7 @@ def promotion_readiness(
     ten_minute_performance=None,
     candidate_ten_minute_performance=None,
     source_family_inventory=None,
+    physical_feature_family_ratchet=None,
     fleet_observability=None,
     runtime_identity_evidence=None,
     evidence_freshness=None,
@@ -1138,6 +1139,28 @@ def promotion_readiness(
                 + (f": {', '.join(blocked_families)}" if blocked_families else "")
             ),
             "evidence": source_preflight,
+        })
+    physical_ratchet = physical_feature_family_ratchet or {}
+    if physical_feature_family_ratchet is not None and physical_ratchet.get("status") != "PASS":
+        summary = physical_ratchet.get("summary") or {}
+        first = physical_ratchet.get("first_blocker") or {}
+        blocked_families = ((physical_ratchet.get("rollup") or {}).get("evidence_blocked") or [])
+        blockers.append({
+            "category": "physical_feature_family_ratchet",
+            "severity": "block",
+            "detail": (
+                "physical feature-family ratchet is "
+                f"{physical_ratchet.get('status') or 'MISSING'}; "
+                f"blocked families={summary.get('blocking_family_count')}; "
+                + (first.get("detail") or "inspect physical_feature_family_ratchet")
+            ),
+            "evidence": {
+                "path": physical_ratchet.get("path"),
+                "status": physical_ratchet.get("status"),
+                "summary": summary,
+                "blocked_families": blocked_families[:20],
+                "first_blocker": first,
+            },
         })
     fleet_summary = (fleet_observability or {}).get("summary") or {}
     live_forward_status = fleet_summary.get("live_forward_slo_status")

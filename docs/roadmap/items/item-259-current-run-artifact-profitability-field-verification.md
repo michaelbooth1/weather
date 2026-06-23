@@ -1,4 +1,4 @@
-# 259. Current-Run Artifact Profitability Field Verification [OPEN 2026-06-23 - ITEM 240/241 FIELDS ABSENT FROM JUNE 19-22 TAKER TAPES]
+# 259. Current-Run Artifact Profitability Field Verification [COMPLETE 2026-06-23 - CURRENT-RUN PROFITABILITY VERIFIER GATES PROMOTION]
 
 Goal: extend item 240 and item 241 verification from code/tests to current run
 artifacts, so taker orders and strategy reports must actually contain
@@ -30,17 +30,27 @@ the fields exist in the tapes being used for the claim.
 5. Make item 240/241 evidence require a current run artifact pass, not only
    implementation proof.
 
-- [ ] Add a current-run artifact verifier for taker order tapes, strategy
+- [x] Add a current-run artifact verifier for taker order tapes, strategy
   summaries, and finalization payloads.
-- [ ] Include after-fee, after-slippage, executable-depth, avoided-loss,
+- [x] Include after-fee, after-slippage, executable-depth, avoided-loss,
   missed-gain, and market-smarter/no-trade fields in the verifier contract.
-- [ ] Add fixtures showing June 19-22 legacy artifacts fail the verifier.
-- [ ] Block live-profitability evidence and promotion when the verifier fails.
+- [x] Add fixtures showing June 19-22 legacy artifacts fail the verifier.
+- [x] Block live-profitability evidence and promotion when the verifier fails.
 
 Acceptance: current taker artifacts used for any live-profitability claim
 include after-fee, after-slippage, executable-depth, avoided-loss, missed-gain,
 and market-smarter/no-trade fields. The verifier fails June 19-22 legacy-style
 artifacts and passes a fresh post-fix run whose finalization payloads mark
 after-fee and after-slippage scoring true.
+
+Completion note 2026-06-23: added
+`taker_profitability_artifact_verification_v0.1` with fail-closed checks for
+order-tape fee/slippage/executable-depth fields, strategy benchmark/no-trade
+fields, and finalization after-fee/after-slippage booleans. Strategy bakeoff
+payloads now record the verifier result and block promotion gates on verifier
+failure; daily trading evidence reports the verifier status and returns BLOCK
+for legacy current-run profitability artifacts. Verification:
+`python -m pytest tests\market\test_taker_bot.py -q`;
+`python -m pytest tests\reporting\test_trading_evidence.py tests\operations\test_schema_registry.py -q`.
 
 Related: items 240, 241, 256.

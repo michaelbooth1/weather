@@ -28,7 +28,7 @@ def discover_inputs(
         )
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
         source_rows = source_status_for_snapshot(folder, snapshot_id)
-        book_rows = latest_book_rows(folder)
+        book_rows = latest_book_rows(folder, outcomes={"", "yes", "no"})
         clob_feature_rows = latest_clob_feature_rows(
             folder,
             snapshot_id,

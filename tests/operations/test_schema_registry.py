@@ -29,6 +29,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("model_variant_registry_audit"), "model_variant_registry_audit_v0.1")
         self.assertEqual(schema_version("roadmap_backlog"), "roadmap_backlog_v0.1")
         self.assertEqual(
+            schema_version("settlement_source_revision_audit"),
+            "settlement_source_revision_audit_v0.1",
+        )
+        self.assertEqual(
+            schema_version("proper_scoring_reliability_scorecard"),
+            "proper_scoring_reliability_scorecard_v0.1",
+        )
+        self.assertEqual(
             schema_version("weather_only_model_proof_packet"),
             "weather_only_model_proof_packet_v0.1",
         )
@@ -139,6 +147,14 @@ class TestSchemaRegistry(unittest.TestCase):
             "early_hour_positive_daily_first_gate_v0.1",
         )
         self.assertEqual(
+            schema_version("physical_feature_family_ratchet"),
+            "physical_feature_family_ratchet_v0.1",
+        )
+        self.assertEqual(
+            schema_version("market_benchmark_residual_edge"),
+            "market_benchmark_residual_edge_v0.1",
+        )
+        self.assertEqual(
             schema_version("item147_winner_centering_disposition"),
             "item147_winner_centering_disposition_v0.1",
         )
@@ -159,6 +175,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
         self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
         self.assertEqual(schema_version("taker_strategy_bakeoff"), "taker_strategy_bakeoff_v0.1")
+        self.assertEqual(
+            schema_version("taker_profitability_artifact_verification"),
+            "taker_profitability_artifact_verification_v0.1",
+        )
         self.assertEqual(
             schema_version("taker_champion_challenger_ledger"),
             "taker_champion_challenger_ledger_v0.1",

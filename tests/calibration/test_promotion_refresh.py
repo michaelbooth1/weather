@@ -580,6 +580,30 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("tape_backup_sla", blockers)
         self.assertIn("100 bytes short", blockers["tape_backup_sla"]["detail"])
 
+    def test_promotion_readiness_blocks_on_physical_family_ratchet(self):
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            physical_feature_family_ratchet={
+                "path": "physical_feature_family_ratchet.json",
+                "status": "BLOCK",
+                "summary": {"blocking_family_count": 2, "settlement_slice_row_count": 0},
+                "rollup": {"evidence_blocked": ["forecast_baseline", "reanalysis_synoptic"]},
+                "first_blocker": {
+                    "family_id": "forecast_baseline",
+                    "status": "ISOLATED_REPLAY_BLOCK",
+                    "detail": "missing settlement-sliced ablation rows",
+                },
+            },
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("physical_feature_family_ratchet", blockers)
+        self.assertIn("blocked families=2", blockers["physical_feature_family_ratchet"]["detail"])
+        self.assertIn("missing settlement-sliced ablation rows", blockers["physical_feature_family_ratchet"]["detail"])
+
     def test_evidence_freshness_blocks_location_countability(self):
         freshness = build_evidence_freshness_gate(
             settled_day_freshness={
@@ -1474,6 +1498,12 @@ class TestPromotionRefresh(unittest.TestCase):
                 "path": "source_family_inventory.json",
                 "promotion_preflight": {"status": "PASS", "blocked_families": []},
             },
+            "physical_feature_family_ratchet": {
+                "path": "physical_feature_family_ratchet.json",
+                "status": "BLOCK",
+                "summary": {"blocking_family_count": 2, "settlement_slice_row_count": 0},
+                "first_blocker": {"family_id": "forecast_baseline", "status": "ISOLATED_REPLAY_BLOCK"},
+            },
             "fleet_observability": {
                 "path": "fleet_observability.json",
                 "status": "CRITICAL",
@@ -1538,6 +1568,7 @@ class TestPromotionRefresh(unittest.TestCase):
 
         self.assertIn("## Operational Promotion Gates", text)
         self.assertIn("Source family preflight", text)
+        self.assertIn("Physical family ratchet", text)
         self.assertIn("Tape backup SLA", text)
         self.assertIn("Hourly gate mitigation", text)
         self.assertIn("10-minute gate mitigation", text)
@@ -1557,6 +1588,7 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("Bottom-Market Feature Missingness Slices", text)
         self.assertIn("casebook_taxonomy, clob_midpoint", text)
         self.assertIn("f_family_promotion_allowlist.json", text)
+        self.assertIn("physical_feature_family_ratchet.json", text)
         self.assertIn("candidate trails market by +0.0148", text)
         self.assertIn("candidate hourly gate must PASS with matching lineage", text)
         self.assertIn("settled_day_freshness.json", text)

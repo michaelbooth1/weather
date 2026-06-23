@@ -6,7 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from weather.market.live_forward_gate import build_live_forward_gate
-from weather.market.mm_paper import build_known_edge_map, build_paper_payload, run_folder_eligibility, write_outputs
+from weather.market.mm_paper import (
+    build_known_edge_map,
+    build_paper_payload,
+    maker_paper_score_freshness_from_report,
+    run_folder_eligibility,
+    write_outputs,
+)
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -221,6 +227,16 @@ def write_minimal_run(root, run_id, schema_version, target_date, gate_counts=Tru
     return runs_root, run_folder
 
 
+def mark_active_day(run_folder, counts=True):
+    path = Path(run_folder) / "run_summary.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["evidence_mode"] = "active_day_live_forward"
+    payload["counts_toward_live_forward_gate"] = counts
+    payload["generated_at_utc"] = f"{payload['target_date']}T20:00:00+00:00"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return payload
+
+
 LIVE_FORWARD_MARKETS = [
     "atlanta",
     "austin",
@@ -414,6 +430,69 @@ def write_snapshot_fixture(root):
 
 
 class TestMMPaper(unittest.TestCase):
+    def test_paper_score_freshness_passes_when_report_covers_latest_active_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, old_run = write_minimal_run(root, "old-active", "mm_run_v0.2", "2026-06-18")
+            _runs_root, new_run = write_minimal_run(root, "new-active", "mm_run_v0.2", "2026-06-19")
+            mark_active_day(old_run)
+            mark_active_day(new_run)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+            )
+            payload, _known = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        freshness = payload["summary"]["paper_score_freshness"]
+        self.assertEqual(freshness["status"], "PASS")
+        self.assertEqual(freshness["latest_completed_active_day"], "2026-06-19")
+        self.assertEqual(freshness["latest_covered_active_day"], "2026-06-19")
+        self.assertEqual(freshness["live_forward_day_count"], 2)
+        self.assertIn("Paper-score freshness", report)
+        self.assertIn("PASS", report)
+
+    def test_paper_score_freshness_from_report_blocks_stale_standard_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, old_run = write_minimal_run(root, "old-active", "mm_run_v0.2", "2026-06-18")
+            mark_active_day(old_run)
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[old_run],
+            )
+            write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            _runs_root, new_run = write_minimal_run(root, "new-active", "mm_run_v0.2", "2026-06-19")
+            mark_active_day(new_run)
+
+            freshness = maker_paper_score_freshness_from_report(
+                runs_root,
+                root / "backtest" / "mm_paper_report.json",
+            )
+
+        self.assertEqual(freshness["status"], "STALE")
+        self.assertTrue(freshness["blocks_maker_evidence_countability"])
+        self.assertEqual(freshness["latest_completed_active_day"], "2026-06-19")
+        self.assertEqual(freshness["latest_covered_active_day"], "2026-06-18")
+
     def test_known_edge_map_prefers_promotion_allowlist_over_legacy_decisions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

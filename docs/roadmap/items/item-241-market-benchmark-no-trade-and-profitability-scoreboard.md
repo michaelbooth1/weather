@@ -34,4 +34,8 @@ Acceptance: taker strategy reports identify market-smarter slices, block or
 downsize those fills, and profitability claims show traded PnL alongside
 avoided-loss and missed-gain accounting.
 
+Follow-up hardening 2026-06-23: item 259 adds a current-run artifact verifier
+that must find benchmark, avoided-loss, missed-gain, and no-trade fields before
+item 241 reports can support live-profitability or promotion evidence.
+
 Related: items 202, 214, 235, 238, 240.

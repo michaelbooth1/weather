@@ -122,6 +122,43 @@ def clean_band_row(row):
     return {key: clean_row_value(value) for key, value in row.items()}
 
 
+def settlement_distance_bucket(band, settlement_bucket):
+    bucket = safe_float(settlement_bucket)
+    if bucket is None:
+        return "unknown"
+    value = safe_float(band.get("bin_value_c") or band.get("bin_value"))
+    value_hi = band_value_hi(band.get("range_label"), band.get("bin_value_c") or band.get("bin_value"))
+    kind = str(band.get("bin_kind") or "").lower()
+    if kind == "eq" and value is not None:
+        distance = abs(value - bucket)
+    elif kind == "lte" and value is not None:
+        distance = max(0.0, bucket - value)
+    elif kind == "gte" and value is not None:
+        distance = max(0.0, value - bucket)
+    elif value is not None and value_hi is not None:
+        if value <= bucket <= value_hi:
+            distance = 0.0
+        else:
+            distance = min(abs(value - bucket), abs(value_hi - bucket))
+    else:
+        return "unknown"
+    if distance < 0.5:
+        return "exact"
+    if distance <= 1.5:
+        return "adjacent"
+    return "far"
+
+
+def cutoff_regime(hour):
+    if hour is None:
+        return "unknown"
+    if hour < 10:
+        return "early"
+    if hour < 14:
+        return "midday"
+    return "late"
+
+
 def run_ablation(folders, requested_sources, include_reconstructed=False):
     models = {}
     daily_indexes = {}
@@ -221,6 +258,8 @@ def run_ablation(folders, requested_sources, include_reconstructed=False):
                         "family": family,
                         "variant": variant,
                         "hour": hour,
+                        "cutoff_regime": cutoff_regime(hour),
+                        "settlement_distance": settlement_distance_bucket(band, bucket),
                         "y": outcome,
                         "base_p": base_p,
                         "variant_p": variant_p,
@@ -283,6 +322,53 @@ def summarize(data):
         })
     summaries.sort(key=lambda row: row["delta"], reverse=True)
     return summaries, day_tables
+
+
+def market_from_day(day):
+    text = str(day or "").strip()
+    return text.split()[0] if text else "unknown"
+
+
+def summarize_slice_effects(data):
+    if data.empty:
+        return []
+    rows = []
+    slices = [
+        ("market", ["market_id"]),
+        ("cutoff_regime", ["cutoff_regime"]),
+        ("market_cutoff_regime", ["market_id", "cutoff_regime"]),
+        ("settlement_distance", ["settlement_distance"]),
+    ]
+    data = data.copy()
+    data["market_id"] = data["day"].map(market_from_day)
+    if "cutoff_regime" not in data:
+        data["cutoff_regime"] = "unknown"
+    else:
+        data["cutoff_regime"] = data["cutoff_regime"].fillna("unknown")
+    if "settlement_distance" not in data:
+        data["settlement_distance"] = "unknown"
+    else:
+        data["settlement_distance"] = data["settlement_distance"].fillna("unknown")
+    for variant, variant_rows in data.groupby("variant"):
+        for slice_name, columns in slices:
+            for key, sub in variant_rows.groupby(columns):
+                if not isinstance(key, tuple):
+                    key = (key,)
+                base_brier = ((sub["base_p"] - sub["y"]) ** 2).mean()
+                variant_brier = ((sub["variant_p"] - sub["y"]) ** 2).mean()
+                row = {
+                    "variant": variant,
+                    "slice": slice_name,
+                    "n": int(len(sub)),
+                    "days": int(sub["day"].nunique()),
+                    "base_brier": base_brier,
+                    "variant_brier": variant_brier,
+                    "delta": variant_brier - base_brier,
+                }
+                row.update({column: value for column, value in zip(columns, key)})
+                rows.append(row)
+    rows.sort(key=lambda row: (str(row["variant"]), str(row["slice"]), str(row.get("market_id", "")), str(row.get("cutoff_regime", ""))))
+    return rows
 
 
 def fmt(value, decimals=4):
@@ -373,7 +459,7 @@ def json_ready(value):
     return value
 
 
-def build_payload(summaries, day_tables, day_meta, requested_sources, include_reconstructed):
+def build_payload(summaries, day_tables, day_meta, requested_sources, include_reconstructed, slice_effects=None):
     variants = []
     for summary in summaries:
         variant = summary.get("variant")
@@ -390,9 +476,11 @@ def build_payload(summaries, day_tables, day_meta, requested_sources, include_re
             "variant_count": len(variants),
             "days_scored": len(day_meta),
             "rows_scored": int(sum(row.get("n", 0) for row in variants)),
+            "slice_effect_count": len(slice_effects or []),
         },
         "variants": variants,
         "day_effects": json_ready(day_tables),
+        "slice_effects": json_ready(slice_effects or []),
         "days": json_ready(day_meta),
     }
 
@@ -444,7 +532,14 @@ def main():
         return
     summaries, day_tables = summarize(data)
     write_report(args.out, summaries, day_tables, day_meta, args.include_reconstructed)
-    json_payload = build_payload(summaries, day_tables, day_meta, requested, args.include_reconstructed)
+    json_payload = build_payload(
+        summaries,
+        day_tables,
+        day_meta,
+        requested,
+        args.include_reconstructed,
+        summarize_slice_effects(data),
+    )
     write_json_report(args.json_out, json_payload)
     print(f"\nReport written to {args.out}\n")
     print(f"JSON written to {args.json_out}\n")

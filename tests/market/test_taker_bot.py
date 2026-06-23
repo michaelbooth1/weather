@@ -16,11 +16,13 @@ from weather.market.taker_bot import (
     build_pnl_payload,
     build_run_once,
     candidate_skip_reason,
+    current_high_trust_config_warnings,
     enrich_taker_risk_fields,
     finalization_watchdog,
     finalize_taker_run,
     next_run_policy_gate,
     run_taker_strategy_bakeoff,
+    verify_taker_profitability_artifacts,
 )
 
 
@@ -54,6 +56,12 @@ def write_market_fixture(
     cadence_fields=None,
     ask_size_at_best="40",
     ask_depth_1pct="40",
+    include_no_book=False,
+    no_best_bid="0.38",
+    no_best_ask="0.40",
+    no_bid_size_at_best="25",
+    no_ask_size_at_best="25",
+    no_ask_depth_1pct="25",
 ):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / EVENT
@@ -65,6 +73,7 @@ def write_market_fixture(
     bands = bands or [(80, "0.70", "0.60"), (82, "0.52", "0.51")]
     for value, fair, ask in bands:
         token = "" if blank_tokens or (missing_token and value == 80) else f"token-{value}"
+        no_token = f"no-token-{value}" if include_no_book and token else ""
         condition = "" if blank_tokens else f"condition-{value}"
         label = f"{value}-{value + 1} F"
         snapshot = {
@@ -75,6 +84,7 @@ def write_market_fixture(
             "range_label": label,
             "condition_id": condition,
             "clob_yes_token_id": token,
+            "clob_no_token_id": no_token,
             "bin_kind": "eq",
             "bin_value_c": str(value),
             "model_probability": fair,
@@ -95,6 +105,7 @@ def write_market_fixture(
             "bin_value": str(value),
             "bin_value_hi": str(value + 1),
             "clob_token_id": token,
+            "clob_no_token_id": no_token,
             "clob_book_captured_at_utc": book_captured_at,
             "clob_book_age_seconds": "10",
             "clob_midpoint": "0.55",
@@ -123,6 +134,28 @@ def write_market_fixture(
             "min_order_size": "1",
             "tick_size": "0.001",
         })
+        if no_token:
+            book_rows.append({
+                "captured_at_utc": book_captured_at,
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "range_label": label,
+                "bin_kind": "eq",
+                "bin_value": str(value),
+                "bin_value_hi": str(value + 1),
+                "condition_id": condition,
+                "clob_token_id": no_token,
+                "outcome": "no",
+                "best_bid": no_best_bid,
+                "best_ask": no_best_ask,
+                "midpoint": "0.39",
+                "ask_size_at_best": no_ask_size_at_best,
+                "bid_size_at_best": no_bid_size_at_best,
+                "ask_depth_1pct": no_ask_depth_1pct,
+                "bid_depth_1pct": no_bid_size_at_best,
+                "min_order_size": "1",
+                "tick_size": "0.001",
+            })
         token_rows.append({
             "event_slug": EVENT,
             "market_id": "atlanta",
@@ -136,6 +169,20 @@ def write_market_fixture(
             "active": "true",
             "closed": "false",
         })
+        if no_token:
+            token_rows.append({
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "condition_id": condition,
+                "range_label": label,
+                "bin_kind": "eq",
+                "bin_value": str(value),
+                "bin_value_hi": str(value + 1),
+                "outcome": "no",
+                "clob_token_id": no_token,
+                "active": "true",
+                "closed": "false",
+            })
     if duplicate_first_snapshot and snapshot_rows:
         snapshot_rows.append(dict(snapshot_rows[0]))
     write_csv(folder / "snapshots_long.csv", list(snapshot_rows[0].keys()), snapshot_rows)
@@ -322,6 +369,55 @@ class TestTakerBot(unittest.TestCase):
             self.assertTrue(Path(payload["daily_pnl_path"]).exists())
             self.assertTrue(Path(payload["run_report_path"]).exists())
             self.assertIn("Tape integrity", Path(payload["run_report_path"]).read_text(encoding="utf-8"))
+
+    def test_two_sided_taker_captures_real_no_book_depth_in_order_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.60")],
+                include_no_book=True,
+                no_best_bid="0.38",
+                no_best_ask="0.40",
+                no_ask_size_at_best="25",
+                no_ask_depth_1pct="25",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                strategies="fade_overpriced",
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+            filled_no = [
+                row
+                for row in orders
+                if row["order_status"] == "FILLED" and row["side"] == "NO_BUY"
+            ]
+
+        self.assertEqual(len(filled_no), 1)
+        row = filled_no[0]
+        self.assertEqual(row["clob_token_id"], "no-token-80")
+        self.assertEqual(row["clob_yes_token_id"], "token-80")
+        self.assertEqual(row["clob_no_token_id"], "no-token-80")
+        self.assertEqual(row["no_book_source"], "no_token_book")
+        self.assertEqual(row["no_book_fresh"], "True")
+        self.assertEqual(row["real_no_book_depth_eligible"], "True")
+        self.assertAlmostEqual(float(row["best_ask"]), 0.40)
+        self.assertAlmostEqual(float(row["no_ask_size_at_best"]), 25.0)
+        self.assertAlmostEqual(float(row["no_ask_depth_1pct"]), 25.0)
 
     def test_depth_aware_fill_records_slippage_when_size_exceeds_top_of_book(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -665,6 +761,50 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(enriched["current_high_trust_gate_action"], "deny_missing_trust_state")
         self.assertIn("missing_current_high_trust_state", detail)
 
+    def test_current_high_trust_gate_start_hour_drift_still_blocks_aggressive_taker(self):
+        row = {
+            "market_id": "atlanta",
+            "event_slug": EVENT,
+            "snapshot_id": "s1",
+            "captured_at_utc": "2026-06-14T13:30:00+00:00",
+            "capture_hour_local": "9",
+            "range_label": "84-85 F",
+            "bin_kind": "eq",
+            "bin_value": "84",
+            "bin_value_hi": "85",
+            "clob_token_id": "token-84",
+            "fair_probability": "0.30",
+            "best_ask": "0.10",
+            "best_bid": "0.09",
+            "edge": "0.20",
+            "ask_size_at_best": "50",
+            "book_age_seconds": "10",
+            "model_age_seconds": "10",
+            "source_fresh": "True",
+            "source_freshness_state": "all_fresh",
+            "snapshot_cadence": "scheduled",
+            "current_high_trust_state_present": "True",
+            "current_high_trusted": "False",
+            "current_max_state": "current_max_history_gap",
+        }
+        config = {
+            **DEFAULT_CONFIG,
+            "min_edge": 0.03,
+            "current_high_trust_gate_start_hour_local": 15,
+        }
+
+        enriched = enrich_taker_risk_fields(row, config)
+        reason, detail = candidate_skip_reason(enriched, config)
+        warnings = current_high_trust_config_warnings(config)
+
+        self.assertEqual(reason, "NO_TRADE_CURRENT_HIGH_TRUST_GATE")
+        self.assertEqual(enriched["current_high_trust_gate_status"], "blocked")
+        self.assertEqual(enriched["current_high_trust_gate_action"], "deny_aggressive")
+        self.assertTrue(enriched["current_high_trust_gate_aggressive"])
+        self.assertIn("hour:9", detail)
+        self.assertEqual(warnings[0]["code"], "CURRENT_HIGH_TRUST_GATE_DELAYED_START")
+        self.assertEqual(warnings[0]["effective_aggressive_start_hour_local"], 0.0)
+
     def test_low_price_tail_strategy_caps_tail_lottery_size(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -787,6 +927,127 @@ class TestTakerBot(unittest.TestCase):
         )
         self.assertIsNone(payload["strategy_comparison"]["best_settlement_scored_strategy_id"])
         self.assertFalse(payload["strategy_comparison"]["mtm_promotion_allowed"])
+
+    def test_profitability_artifact_verifier_blocks_legacy_taker_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "legacy",
+                [
+                    order_row(
+                        "seattle",
+                        "highest-temperature-in-seattle-on-june-19-2026",
+                        "82-83 F",
+                        82,
+                        83,
+                        10.0,
+                        1.0,
+                        fair_probability=0.95,
+                        mark_pnl=3.0,
+                    )
+                ],
+                reported_net=3.0,
+                reported_mtm=3.0,
+                reported_unsettled=1,
+            )
+            (run / "settled_pnl.json").write_text(json.dumps({
+                "schema_version": FINALIZATION_SCHEMA_VERSION,
+                "summary": {
+                    "live_profitability_evidence_basis": "paper_no_fee",
+                    "after_fee_pnl_scored": False,
+                    "after_slippage_pnl_scored": False,
+                    "filled_order_count": 1,
+                },
+                "pnl": {
+                    "summary": {
+                        "live_profitability_evidence_basis": "paper_no_fee",
+                        "after_fee_pnl_scored": False,
+                        "after_slippage_pnl_scored": False,
+                        "filled_order_count": 1,
+                    },
+                    "by_strategy": [
+                        {
+                            "strategy_id": "legacy",
+                            "filled_order_count": 1,
+                            "after_fee_pnl_scored": False,
+                            "after_slippage_pnl_scored": False,
+                        }
+                    ],
+                },
+            }), encoding="utf-8")
+
+            verification = verify_taker_profitability_artifacts(run)
+
+        failed_codes = {
+            row["code"]
+            for row in verification["checks"]
+            if row.get("status") == "FAIL"
+        }
+        self.assertEqual(verification["status"], "BLOCK")
+        self.assertTrue({
+            "orders_executable_depth_model_version_missing",
+            "orders_executable_depth_model_version_null_only",
+        } & failed_codes)
+        self.assertIn("strategy_rows_missing", failed_codes)
+        self.assertTrue({
+            "market_benchmark_no_trade_recommendation_count_missing",
+            "market_benchmark_no_trade_recommendation_count_null_only",
+        } & failed_codes)
+        self.assertIn("finalization_after_fee_pnl_not_scored", failed_codes)
+        self.assertIn("finalization_after_slippage_pnl_not_scored", failed_codes)
+
+    def test_profitability_artifact_verifier_passes_fresh_finalized_run_and_bakeoff_records_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True)
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"min_edge": 0.05, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "complete",
+                }
+            ])
+
+            run_folder = Path(payload["run_folder"])
+            finalized = finalize_taker_run(run_folder, labels_csv=labels, now="2026-06-20T12:10:00+00:00")
+            verification = verify_taker_profitability_artifacts(run_folder)
+            bakeoff = run_taker_strategy_bakeoff(
+                run_folder,
+                labels_csv=labels,
+                strategies="raw_edge_control",
+                budget_usdc=12,
+                out_json=root / "bakeoff.json",
+                out_report=root / "bakeoff.md",
+                now="2026-06-20T12:20:00+00:00",
+            )
+
+        self.assertTrue(finalized["summary"]["after_fee_pnl_scored"])
+        self.assertTrue(finalized["summary"]["after_slippage_pnl_scored"])
+        self.assertEqual(
+            finalized["summary"]["live_profitability_evidence_basis"],
+            "executable_after_fee_after_slippage",
+        )
+        self.assertEqual(verification["status"], "PASS", verification["checks"])
+        self.assertEqual(bakeoff["profitability_artifact_verification"]["status"], "PASS")
+        self.assertNotIn(
+            "profitability_artifact_verification_failed",
+            {row["code"] for row in bakeoff["blockers"]},
+        )
 
     def test_strategy_bakeoff_replays_shared_tape_and_writes_promotion_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1009,7 +1270,9 @@ class TestTakerBot(unittest.TestCase):
         gate = next_run_policy_gate(
             {
                 "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 0.0}],
-                "comparison": {},
+                "comparison": {
+                    "countable_strategy_quality_candidate_status": "MISSING_SETTLED_SAMPLE",
+                },
             },
             run_config={
                 "active_strategy_id": "low_price_tail_capped",
@@ -1034,6 +1297,7 @@ class TestTakerBot(unittest.TestCase):
                         "unsettled_order_count": 50,
                         "unscored_order_count": 0,
                         "low_price_tail_fill_fraction": 0.62,
+                        "tail_fill_quality_status": "WARN_HIGH_TAIL_SHARE",
                         "failed_gates": [
                             "min_settled_sample",
                             "no_unresolved_orders",
@@ -1048,10 +1312,13 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(gate["active_strategy_lifecycle_status"], "blocked")
         self.assertFalse(gate["promotion_eligible"])
         self.assertTrue(gate["paper_only"])
+        self.assertEqual(gate["paper_only_reason"], "warn_high_tail_share_missing_settled_sample")
         self.assertTrue(gate["requalification_required"])
-        self.assertEqual(gate["next_action"], "rollback_or_block_canary")
-        self.assertIn("unresolved_or_unscored_orders", gate["reason"])
-        self.assertIn("excessive_low_tail_fraction", gate["reason"])
+        self.assertEqual(gate["requalification_route"], "post_fix_taker_campaign")
+        self.assertEqual(gate["demotion_code"], "WARN_HIGH_TAIL_SHARE_MISSING_SETTLED_SAMPLE")
+        self.assertEqual(gate["next_action"], "route_to_post_fix_requalification_campaign")
+        self.assertIn("WARN_HIGH_TAIL_SHARE", gate["reason"])
+        self.assertIn("MISSING_SETTLED_SAMPLE", gate["reason"])
 
     def test_finalize_low_price_tail_partial_label_report_stays_candidate_canary(self):
         with tempfile.TemporaryDirectory() as tmp:

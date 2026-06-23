@@ -1,4 +1,4 @@
-# 263. Physical Feature-Family Isolated Replay Ratchet [OPEN 2026-06-23 - PHYSICAL INPUTS NEED FAMILY-LEVEL PROOF]
+# 263. Physical Feature-Family Isolated Replay Ratchet [COMPLETE 2026-06-23 - FAIL-CLOSED PHYSICAL FAMILY RATCHET LIVE]
 
 Goal: require every physical-weather feature family to produce isolated,
 lineage-clean, settlement-scored replay evidence before it can influence a
@@ -39,15 +39,47 @@ movement where the causal contribution is unclear.
    retraining, which are diagnostic-only, and which are blocked by evidence
    rather than implementation.
 
-- [ ] Add the physical-family evidence contract and report.
-- [ ] Backfill or link lineage evidence for each candidate physical family.
-- [ ] Add isolated replay or ablation rows for every family that is active in a
+- [x] Add the physical-family evidence contract and report.
+- [x] Backfill or link lineage evidence for each candidate physical family.
+- [x] Add isolated replay or ablation rows for every family that is active in a
   candidate artifact.
-- [ ] Add explicit skip/block reasons for live-only or payload-missing
+- [x] Add explicit skip/block reasons for live-only or payload-missing
   families.
-- [ ] Add settlement-sliced lift/harm tables by market and cutoff regime.
-- [ ] Update individual physical-family item notes only from the rollup
+- [x] Add settlement-sliced lift/harm tables by market and cutoff regime.
+- [x] Update individual physical-family item notes only from the rollup
   evidence, not from broad candidate movement alone.
+
+## Completion Notes
+
+Implemented `weather.reporting.physical_feature_family_ratchet` with schema
+`physical_feature_family_ratchet_v0.1` and canonical outputs at
+`data/backtest/physical_feature_family_ratchet.json` and
+`data/backtest/physical_feature_family_ratchet.md`.
+
+The report consumes `source_family_inventory.json` and
+`source_family_ablation.json`, excludes CLOB/market-overlay families from the
+physical-weather rollup, and maps each physical family to the item-263 status
+vocabulary: `LIVE_ONLY`, `LINEAGE_BLOCKED`, `MISSING_ACTIVE_ARTIFACT`,
+`MISSING_SETTLED_REPLAY`, `ISOLATED_REPLAY_BLOCK`, `SHADOW_PASS`, and
+`PROMOTION_ELIGIBLE`.
+
+`source_family_ablation` now carries optional settlement-sliced effects by
+market, cutoff regime, market/cutoff regime, and settlement distance. Older
+ablation artifacts without those rows fail closed as
+`ISOLATED_REPLAY_BLOCK`, which is the current state of the generated ratchet:
+10 physical families are evidence-blocked and the CLOB microstructure overlay
+is explicitly excluded.
+
+Promotion readiness now reads `physical_feature_family_ratchet.json` and emits
+a `physical_feature_family_ratchet` blocker whenever the ratchet is missing or
+not `PASS`. The promotion report lists the ratchet in operational gates and
+refresh artifacts, so broad candidate movement cannot bypass family-level
+lineage, active-column, missingness, and isolated settlement-scored evidence.
+
+Verification:
+
+- `python -m weather.reporting.physical_feature_family_ratchet --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md`
+- `python -m pytest tests\reporting\test_physical_feature_family_ratchet.py tests\backtesting\test_replay_ablation.py tests\operations\test_schema_registry.py tests\calibration\test_promotion_refresh.py -q`
 
 Acceptance: no pressure-level, boundary-layer, soil, radiation, smoke, marine,
 snow, ECMWF/AIFS, NBM, analog, or ensemble post-processing feature can support a

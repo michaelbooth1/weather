@@ -1,4 +1,4 @@
-# 262. Proper-Scoring And Reliability Scorecard [OPEN 2026-06-23 - SCHOLARLY VERIFICATION NOT CANONICAL]
+# 262. Proper-Scoring And Reliability Scorecard [COMPLETE 2026-06-23 - CANONICAL SCORECARD AND DAILY REFRESH STEP LIVE]
 
 Goal: make proper probabilistic verification a first-class model-review
 artifact, separate from but comparable with the existing Brier/log-loss
@@ -40,16 +40,43 @@ or promotion claims.
    concepts used, so future reviewers can distinguish repo-specific heuristics
    from standard forecast-verification methods.
 
-- [ ] Add the scorecard schema and Markdown/JSON report.
-- [ ] Wire the report to existing proof-packet inputs without retraining models.
-- [ ] Add density/continuous CRPS support for item-35 style payloads when
+- [x] Add the scorecard schema and Markdown/JSON report.
+- [x] Wire the report to existing proof-packet inputs without retraining models.
+- [x] Add density/continuous CRPS support for item-35 style payloads when
   present, with graceful skip reasons for bucket-only artifacts.
-- [ ] Add PIT/rank reliability and sharpness diagnostics for bucket
+- [x] Add PIT/rank reliability and sharpness diagnostics for bucket
   distributions.
-- [ ] Add served-versus-validated distribution parity checks by lane and cutoff
+- [x] Add served-versus-validated distribution parity checks by lane and cutoff
   regime.
-- [ ] Add a literature appendix with stable links to the verification methods
+- [x] Add a literature appendix with stable links to the verification methods
   used by the report.
+
+## Completion Notes
+
+Implemented `weather.reporting.proper_scoring_reliability_scorecard`, registered
+`proper_scoring_reliability_scorecard_v0.1`, and generated canonical outputs at
+`data/backtest/proper_scoring_reliability_scorecard.json` and
+`data/backtest/proper_scoring_reliability_scorecard.md`.
+
+Daily refresh now runs `proper_scoring_reliability_scorecard` after
+`active_variant_shadow` and before frozen-baseline replay trend, with
+`--skip-proper-scoring-reliability-scorecard` for explicit bypasses. The
+pipeline summary and Markdown report expose scored rows, lane count, blockers,
+lane statuses, and served-versus-validated parity status.
+
+The scorecard reports lane-separated Brier, log-loss, ECE/reliability,
+sharpness/effective spread, rank/PIT-style bucket diagnostics, winner-rank and
+ranked-probability score diagnostics, settlement-distance/source/runtime/weak
+slot/distribution-family slices, market-only benchmark rows, and
+served-versus-validated parity. Continuous-density CRPS is present as a
+diagnostic section with an explicit skip reason when bucket-only artifacts are
+the only available payload.
+
+Verification:
+
+- `python -m weather.reporting.proper_scoring_reliability_scorecard --json-out data\backtest\proper_scoring_reliability_scorecard.json --report-out data\backtest\proper_scoring_reliability_scorecard.md`
+- `python -m pytest tests\reporting\test_proper_scoring_reliability_scorecard.py tests\operations\test_schema_registry.py -q`
+- `python -m pytest tests\operations\test_daily_refresh.py -q`
 
 Acceptance: each promotion review can show whether the active candidate is
 better, calibrated, and sharp enough under proper probabilistic verification,

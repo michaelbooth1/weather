@@ -8,6 +8,7 @@ from weather.market.taker_bot_strategy_evaluation import *  # noqa: F403
 from weather.market.taker_bot_sizing import *  # noqa: F403
 from weather.market.taker_bot_scoring import *  # noqa: F403
 from weather.market.taker_bot_reporting import *  # noqa: F403
+from weather.market.taker_profitability_artifact_verification import *  # noqa: F403
 from weather.market.taker_bot_bakeoff import *  # noqa: F403
 from weather.market.taker_bot_finalization import *  # noqa: F403
 from weather.market.taker_bot_cli import *  # noqa: F403

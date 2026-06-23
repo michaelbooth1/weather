@@ -49,6 +49,7 @@ def build_parser():
         help="Optional candidate 10-minute JSON that can mitigate a current-serving weak-slot gate for this candidate.",
     )
     parser.add_argument("--source-family-inventory", default=str(DEFAULT_SOURCE_FAMILY_INVENTORY))
+    parser.add_argument("--physical-feature-family-ratchet", default=str(DEFAULT_PHYSICAL_FEATURE_FAMILY_RATCHET))
     parser.add_argument("--fleet-observability-report", default=str(DEFAULT_FLEET_OBSERVABILITY))
     parser.add_argument("--settled-day-freshness-report", default=str(DEFAULT_SETTLED_DAY_FRESHNESS))
     parser.add_argument("--data-layer-audit-report", default=str(DEFAULT_DATA_LAYER_AUDIT))

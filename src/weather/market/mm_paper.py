@@ -38,6 +38,8 @@ from weather.market.mm_paper_evidence import (
     split_run_folders_by_eligibility,
     summarize_per_market_evidence,
 )
+
+ACTIVE_DAY_EVIDENCE_MODE = "active_day_live_forward"
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
 from weather.market.mm_paper_constants import (  # noqa: E402
     DEFAULT_BACKTEST_ROOT,
@@ -230,6 +232,114 @@ def discover_run_folders(runs_root=DEFAULT_RUNS_ROOT, run_folders=None):
         [folder for folder in root.glob("*/*") if folder.is_dir() and (folder / "quote_intents_long.csv").exists()],
         key=lambda path: str(path),
     )
+
+
+def _path_mtime_iso(path):
+    try:
+        return datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return ""
+
+
+def _run_folder_freshness_row(folder):
+    folder = Path(folder)
+    summary_path = folder / "run_summary.json"
+    summary = read_json(summary_path, {}) or {}
+    run_config = read_json(folder / "run_config.json", {}) or {}
+    live_gate = summary.get("live_forward_gate") or {}
+    evidence_mode = summary.get("evidence_mode") or live_gate.get("evidence_mode")
+    target_date = summary.get("target_date") or run_config.get("target_date") or folder.parent.name
+    run_id = summary.get("run_id") or run_config.get("run_id") or folder.name
+    completed = summary_path.exists() and (folder / "quote_intents_long.csv").exists()
+    return {
+        "run_folder": str(folder),
+        "run_id": run_id,
+        "target_date": target_date,
+        "mode": summary.get("mode") or run_config.get("mode"),
+        "evidence_mode": evidence_mode,
+        "completed": completed,
+        "active_day": evidence_mode == ACTIVE_DAY_EVIDENCE_MODE,
+        "counts_toward_live_forward_gate": bool_value(
+            summary.get("counts_toward_live_forward_gate")
+            if summary.get("counts_toward_live_forward_gate") is not None
+            else live_gate.get("counts_toward_live_forward_gate"),
+            False,
+        ),
+        "generated_at_utc": summary.get("generated_at_utc") or summary.get("started_at_utc") or "",
+        "run_summary_mtime_utc": _path_mtime_iso(summary_path),
+    }
+
+
+def _run_freshness_sort_key(row):
+    return (
+        str(row.get("target_date") or ""),
+        str(row.get("generated_at_utc") or ""),
+        str(row.get("run_summary_mtime_utc") or ""),
+        str(row.get("run_id") or ""),
+        str(row.get("run_folder") or ""),
+    )
+
+
+def maker_paper_score_freshness(candidate_run_folders, covered_run_folders=None, *, report_generated_at_utc=None):
+    covered = {str(Path(folder)) for folder in covered_run_folders or []}
+    rows = [_run_folder_freshness_row(folder) for folder in candidate_run_folders or []]
+    active_completed = [
+        row for row in rows
+        if row.get("active_day") and row.get("completed")
+    ]
+    covered_active = [
+        row for row in active_completed
+        if row.get("run_folder") in covered
+    ]
+    latest_completed = max(active_completed, key=_run_freshness_sort_key, default={})
+    latest_covered = max(covered_active, key=_run_freshness_sort_key, default={})
+    if not latest_completed:
+        status = "NO_ACTIVE_DAY"
+        reason = "no completed active-day maker run found"
+    elif latest_covered.get("run_folder") == latest_completed.get("run_folder"):
+        status = "PASS"
+        reason = "standard maker paper score covers the latest completed active day"
+    else:
+        status = "STALE"
+        reason = "standard maker paper score does not cover the latest completed active day"
+    return {
+        "status": status,
+        "reason": reason,
+        "report_generated_at_utc": report_generated_at_utc,
+        "latest_completed_active_day": latest_completed.get("target_date"),
+        "latest_completed_active_run_id": latest_completed.get("run_id"),
+        "latest_completed_active_run_folder": latest_completed.get("run_folder"),
+        "latest_covered_active_day": latest_covered.get("target_date"),
+        "latest_covered_active_run_id": latest_covered.get("run_id"),
+        "latest_covered_active_run_folder": latest_covered.get("run_folder"),
+        "completed_active_run_count": len(active_completed),
+        "covered_active_run_count": len(covered_active),
+        "live_forward_day_count": len({row.get("target_date") for row in covered_active if row.get("target_date")}),
+        "blocks_maker_evidence_countability": status == "STALE",
+        "covered_run_folders": sorted(covered),
+    }
+
+
+def maker_paper_score_freshness_from_report(runs_root=DEFAULT_RUNS_ROOT, report_json=DEFAULT_JSON_OUT):
+    candidate_run_folders = discover_run_folders(runs_root)
+    payload = read_json(report_json, {}) or {}
+    summary = payload.get("summary") or {}
+    freshness = summary.get("paper_score_freshness") or {}
+    covered = freshness.get("covered_run_folders")
+    if covered is None:
+        covered = list((payload.get("run_configs") or {}).keys())
+    result = maker_paper_score_freshness(
+        candidate_run_folders,
+        covered,
+        report_generated_at_utc=payload.get("generated_at_utc"),
+    )
+    result["report_json"] = str(Path(report_json))
+    result["report_exists"] = Path(report_json).exists()
+    if not result["report_exists"] and result.get("status") == "PASS":
+        result["status"] = "STALE"
+        result["reason"] = "standard maker paper score JSON is missing"
+        result["blocks_maker_evidence_countability"] = True
+    return result
 
 
 def quote_id(row, index):
@@ -1370,6 +1480,7 @@ def build_paper_payload(
     clob_recon_path=DEFAULT_CLOB_RECON,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
+    generated_at = generated_at_iso(now)
     candidate_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
     run_folders, eligibility_by_folder, excluded_run_folders = split_run_folders_by_eligibility(candidate_run_folders)
     quote_rows, run_configs = load_quote_rows(run_folders, eligibility_by_folder=eligibility_by_folder)
@@ -1399,6 +1510,11 @@ def build_paper_payload(
         for row in item.get("per_market_evidence_credits") or []
     ]
     per_market_evidence_summary = summarize_per_market_evidence(per_market_evidence_credits)
+    paper_score_freshness = maker_paper_score_freshness(
+        candidate_run_folders,
+        run_folders,
+        report_generated_at_utc=generated_at,
+    )
     summary = {
         "run_folders": len(run_folders),
         "candidate_run_folders": len(candidate_run_folders),
@@ -1419,6 +1535,10 @@ def build_paper_payload(
         "pnl": summarize_pnl(fill_rows),
         "early_hour_guardrail_shadow": early_hour_guardrail_shadow.get("summary") or {},
         "anti_overfit": anti_overfit,
+        "paper_score_freshness": paper_score_freshness,
+        "paper_score_freshness_status": paper_score_freshness.get("status"),
+        "latest_completed_active_day": paper_score_freshness.get("latest_completed_active_day"),
+        "latest_covered_active_day": paper_score_freshness.get("latest_covered_active_day"),
         "per_market_live_forward_evidence": per_market_evidence_summary,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
         "event_gate_score": event_gate_score,
@@ -1428,7 +1548,7 @@ def build_paper_payload(
     }
     return {
         "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": generated_at_iso(now),
+        "generated_at_utc": generated_at,
         "runs_root": str(runs_root),
         "snapshots_root": str(snapshots_root),
         "backtest_root": str(backtest_root),

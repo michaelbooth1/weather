@@ -235,7 +235,10 @@ def render_settlement_report(payload):
                 ["Lifecycle", next_gate.get("active_strategy_lifecycle")],
                 ["Lifecycle status", next_gate.get("active_strategy_lifecycle_status")],
                 ["Paper-only", next_gate.get("paper_only")],
+                ["Paper-only reason", next_gate.get("paper_only_reason") or "-"],
                 ["Requalification required", next_gate.get("requalification_required")],
+                ["Requalification route", next_gate.get("requalification_route") or "-"],
+                ["Demotion code", next_gate.get("demotion_code") or "-"],
                 ["After-fee required", next_gate.get("canary_after_fee_required")],
                 ["After-fee evidence", next_gate.get("canary_after_fee_evidence")],
                 ["Recommended strategy", next_gate.get("recommended_strategy_id") or "-"],
@@ -307,11 +310,13 @@ def _after_fee_pnl_evidence(active_gate):
     )
 
 
-def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
+def _canary_gate_status(active_id, active_gate, bakeoff, run_config, strategy_row=None, strategy_comparison=None):
     label_summary = (bakeoff or {}).get("label_summary") or {}
     blockers = _blocker_codes(bakeoff)
     policy = run_config.get("policy_config") or {}
     canary = run_config.get("active_strategy_canary") or {}
+    strategy_row = strategy_row or {}
+    strategy_comparison = strategy_comparison or {}
     min_settled = int(
         policy.get("canary_min_settled_orders")
         or canary.get("min_settled_orders")
@@ -333,6 +338,16 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
     if max_tail_fraction is None:
         max_tail_fraction = DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION
     tail_fraction = maybe_float((active_gate or {}).get("low_price_tail_fill_fraction")) or 0.0
+    tail_summary = strategy_row.get("tail_fill_quality_summary") or {}
+    tail_status = str(
+        (active_gate or {}).get("tail_fill_quality_status")
+        or tail_summary.get("status")
+        or strategy_row.get("tail_fill_quality_status")
+        or ""
+    ).strip()
+    strategy_quality_status = str(
+        strategy_comparison.get("countable_strategy_quality_candidate_status") or ""
+    ).strip()
     age_days = int(canary.get("age_days") or 0)
     missing_settlement_block_age = int(policy.get("canary_missing_settlement_blocks_after_age_days") or 1)
     hard_demotion_gates = {
@@ -348,6 +363,20 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
         hard_reasons.append("excessive_low_tail_fraction")
     if failed_gate_set & {"non_negative_settled_roi", "no_resolved_stale_mark_sign_flips"}:
         hard_reasons.extend(sorted(failed_gate_set & {"non_negative_settled_roi", "no_resolved_stale_mark_sign_flips"}))
+    high_tail_missing_settlement = (
+        age_days >= missing_settlement_block_age
+        and
+        (
+            tail_status == "WARN_HIGH_TAIL_SHARE"
+            or tail_fraction > float(max_tail_fraction)
+            or "max_tail_fill_fraction" in failed_gate_set
+        )
+        and (
+            active_settled == 0
+            or "min_settled_sample" in failed_gate_set
+            or strategy_quality_status == "MISSING_SETTLED_SAMPLE"
+        )
+    )
     complete_label_gate = bool(
         total_labels > 0
         and complete_labels >= total_labels
@@ -377,6 +406,22 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
             "requalification_required": True,
             "reason": "active canary has no settlement-scored bakeoff yet",
         }
+    if high_tail_missing_settlement:
+        return {
+            "status": "BLOCK",
+            "active_strategy_lifecycle_status": "blocked",
+            "promotion_eligible": False,
+            "next_action": "route_to_post_fix_requalification_campaign",
+            "paper_only": True,
+            "paper_only_reason": "warn_high_tail_share_missing_settled_sample",
+            "requalification_required": True,
+            "requalification_route": "post_fix_taker_campaign",
+            "demotion_code": "WARN_HIGH_TAIL_SHARE_MISSING_SETTLED_SAMPLE",
+            "reason": (
+                "active canary demoted: WARN_HIGH_TAIL_SHARE with MISSING_SETTLED_SAMPLE; "
+                "requires settled after-fee requalification and acceptable tail exposure"
+            ),
+        }
     if hard_reasons and age_days >= missing_settlement_block_age:
         return {
             "status": "BLOCK",
@@ -384,6 +429,7 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
             "promotion_eligible": False,
             "next_action": "rollback_or_block_canary",
             "paper_only": True,
+            "paper_only_reason": "hard_demotion_gate",
             "requalification_required": True,
             "reason": "active canary violated demotion gates: " + ", ".join(dict.fromkeys(hard_reasons)),
         }
@@ -394,6 +440,7 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config):
             "promotion_eligible": False,
             "next_action": "rollback_or_block_canary",
             "paper_only": True,
+            "paper_only_reason": "missing_settlement_scored_evidence",
             "requalification_required": True,
             "reason": "active canary has no settlement-scored evidence after canary cutover",
         }
@@ -499,6 +546,8 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
             gates_by_strategy.get(active_id) or {},
             bakeoff,
             run_config,
+            strategy_row=strategies.get(active_id) or {},
+            strategy_comparison=comparison,
         )
         status = canary_decision["status"]
         reason = canary_decision["reason"]
@@ -538,7 +587,10 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
         ),
         "promotion_eligible": bool((canary_decision or {}).get("promotion_eligible")),
         "paper_only": bool((canary_decision or {}).get("paper_only")),
+        "paper_only_reason": (canary_decision or {}).get("paper_only_reason") or "",
         "requalification_required": bool((canary_decision or {}).get("requalification_required")),
+        "requalification_route": (canary_decision or {}).get("requalification_route") or "",
+        "demotion_code": (canary_decision or {}).get("demotion_code") or "",
         "next_action": (canary_decision or {}).get("next_action") or ("keep_active_strategy" if status == "PASS" else "operator_review"),
         "recommended_strategy_id": recommended_id,
         "active_net_pnl_usdc": compact_float(active_net),
@@ -1072,7 +1124,10 @@ def finalize_taker_run(
         "active_strategy_lifecycle_status": next_gate.get("active_strategy_lifecycle_status"),
         "active_strategy_promotion_eligible": next_gate.get("promotion_eligible"),
         "active_strategy_paper_only": next_gate.get("paper_only"),
+        "active_strategy_paper_only_reason": next_gate.get("paper_only_reason"),
         "active_strategy_requalification_required": next_gate.get("requalification_required"),
+        "active_strategy_requalification_route": next_gate.get("requalification_route"),
+        "active_strategy_demotion_code": next_gate.get("demotion_code"),
         "active_strategy_next_action": next_gate.get("next_action"),
         "active_strategy_complete_label_sample_count": next_gate.get("complete_label_sample_count"),
         "active_strategy_total_label_sample_count": next_gate.get("total_label_sample_count"),

@@ -64,6 +64,7 @@ def render_paper_report(payload):
     guardrail_exposure = guardrail.get("quote_exposure") or {}
     evidence = summary.get("trade_evidence_gaps") or {}
     anti = summary.get("anti_overfit") or {}
+    freshness = summary.get("paper_score_freshness") or {}
     event_gate = summary.get("event_gate_score") or {}
     clob_recon = summary.get("clob_recon") or {}
     live_forward_evidence = summary.get("per_market_live_forward_evidence") or {}
@@ -87,6 +88,9 @@ def render_paper_report(payload):
             ["Queue-estimated fill legs", summary.get("queue_estimated_fill_legs")],
             ["Queue-estimated shares", fmt_num(summary.get("queue_estimated_filled_shares"), 3)],
             ["Gate status", summary.get("gate_status")],
+            ["Paper-score freshness", freshness.get("status") or "-"],
+            ["Latest completed active day", freshness.get("latest_completed_active_day") or "-"],
+            ["Latest covered active day", freshness.get("latest_covered_active_day") or "-"],
             ["Locked policy params", anti.get("locked_policy_params")],
             ["Live-forward paper days", len(anti.get("live_forward_days") or [])],
             ["Missing-size trade rows", evidence.get("missing_size_trade_rows")],

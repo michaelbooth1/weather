@@ -15,6 +15,7 @@ from weather.backtesting.settlement_ledger import (
     DEFAULT_LEDGER_ROOT,
     finalize_folders,
 )
+from weather.market import mm_paper
 from weather.market import taker_bot
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
@@ -44,11 +45,13 @@ from weather.reporting import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import price_free_model_learning
+from weather.reporting import proper_scoring_reliability_scorecard
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
 from weather.reporting import settled_day_root_cause
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
+from weather.reporting import settlement_source_audit
 from weather.reporting import taker_tail_casebook
 from weather.reporting import ten_minute_model_performance
 from weather.reporting import trading_evidence
@@ -63,6 +66,8 @@ STEP_ORDER = (
     "market_day_labels_finalize",
     "taker_finalization_watchdog",
     "taker_tail_casebook",
+    "maker_paper_score",
+    "settlement_source_audit",
     "trading_evidence",
     "clob_order_book_tiering",
     "replay_status_backfill",
@@ -72,6 +77,7 @@ STEP_ORDER = (
     "promotion_refresh",
     "shadow_ab_monitor",
     "active_variant_shadow",
+    "proper_scoring_reliability_scorecard",
     "frozen_baseline_replay_trend",
     "model_variant_evidence_growth",
     "progress_audit",
@@ -403,12 +409,89 @@ def run_taker_tail_casebook_step(args):
     }
 
 
+def run_maker_paper_score_step(args):
+    if getattr(args, "skip_maker_paper_score", False):
+        return {"status": "SKIPPED", "reason": "skip_maker_paper_score"}
+    backtest_root = Path(args.backtest_root)
+    payload = mm_paper.build_paper_payload(
+        runs_root=getattr(args, "mm_root", mm_paper.DEFAULT_RUNS_ROOT),
+        snapshots_root=getattr(args, "snapshots_root", mm_paper.DEFAULT_SNAPSHOTS_ROOT),
+        backtest_root=backtest_root,
+        casebook_path=backtest_path(args, "disagreement_casebook.json"),
+        promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
+        now=utc_iso(),
+        ledger_root=getattr(args, "ledger_root", None),
+    )
+    payload, _known_edge = mm_paper.write_outputs(
+        payload,
+        json_out=backtest_path(args, "mm_paper_report.json"),
+        report_out=backtest_path(args, "mm_paper_report.md"),
+        fills_out=backtest_path(args, "mm_paper_fills_long.csv"),
+        known_edge_out=backtest_path(args, "mm_known_edge_map.json"),
+        known_edge_report_out=backtest_path(args, "mm_known_edge_map.md"),
+        promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
+    )
+    summary = payload.get("summary") or {}
+    freshness = summary.get("paper_score_freshness") or {}
+    pnl = summary.get("pnl") or {}
+    return {
+        "status": "BLOCK" if freshness.get("status") == "STALE" else "PASS",
+        "json_out": as_path(backtest_path(args, "mm_paper_report.json")),
+        "report_out": as_path(backtest_path(args, "mm_paper_report.md")),
+        "fills_out": as_path(backtest_path(args, "mm_paper_fills_long.csv")),
+        "known_edge_out": as_path(backtest_path(args, "mm_known_edge_map.json")),
+        "known_edge_report_out": as_path(backtest_path(args, "mm_known_edge_map.md")),
+        "paper_score_freshness_status": freshness.get("status"),
+        "paper_score_freshness_reason": freshness.get("reason"),
+        "latest_completed_active_day": freshness.get("latest_completed_active_day"),
+        "latest_covered_active_day": freshness.get("latest_covered_active_day"),
+        "completed_active_run_count": freshness.get("completed_active_run_count"),
+        "covered_active_run_count": freshness.get("covered_active_run_count"),
+        "live_forward_day_count": freshness.get("live_forward_day_count"),
+        "conservative_fills": summary.get("conservative_fills"),
+        "net_pnl_after_fees_incentives_usdc": pnl.get("net_pnl_after_fees_incentives_usdc"),
+        "gate_status": summary.get("gate_status"),
+        "blocks_maker_evidence_countability": freshness.get("blocks_maker_evidence_countability"),
+    }
+
+
+def run_settlement_source_audit_step(args):
+    if getattr(args, "skip_settlement_source_audit", False):
+        return {"status": "SKIPPED", "reason": "skip_settlement_source_audit"}
+    payload = settlement_source_audit.build_settlement_source_audit(
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out = settlement_source_audit.write_outputs(
+        payload,
+        json_out=backtest_path(args, "settlement_source_revision_audit.json"),
+        report_out=backtest_path(args, "settlement_source_revision_audit.md"),
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "label_count": summary.get("label_count"),
+        "finalized_label_count": summary.get("finalized_label_count"),
+        "provisional_label_count": summary.get("provisional_label_count"),
+        "revised_label_count": summary.get("revised_label_count"),
+        "source_disagreement_label_count": summary.get("source_disagreement_label_count"),
+        "unreconciled_label_count": summary.get("unreconciled_label_count"),
+        "promotion_blocked_label_count": summary.get("promotion_blocked_label_count"),
+        "proof_grade_label_count": summary.get("proof_grade_label_count"),
+    }
+
+
 def run_trading_evidence_step(args):
     if getattr(args, "skip_trading_evidence", False):
         return {"status": "SKIPPED", "reason": "skip_trading_evidence"}
     payload = trading_evidence.build_trading_evidence_summary(
         mm_runs_root=getattr(args, "mm_root", trading_evidence.DEFAULT_MM_RUNS_ROOT),
         taker_runs_root=getattr(args, "taker_root", trading_evidence.DEFAULT_TAKER_RUNS_ROOT),
+        mm_paper_json=backtest_path(args, "mm_paper_report.json"),
+        settlement_audit_json=backtest_path(args, "settlement_source_revision_audit.json"),
         generated_at_utc=utc_iso(),
     )
     status = trading_evidence._summary_status(payload)
@@ -427,9 +510,16 @@ def run_trading_evidence_step(args):
         "mm_evidence_mode": mm.get("evidence_mode"),
         "mm_counts_toward_live_forward": mm.get("counts_toward_live_forward_gate"),
         "mm_evidence_starvation_status": mm.get("evidence_starvation_status"),
+        "mm_paper_score_freshness_status": mm.get("paper_score_freshness_status"),
+        "mm_paper_latest_completed_active_day": mm.get("paper_score_latest_completed_active_day"),
+        "mm_paper_latest_covered_active_day": mm.get("paper_score_latest_covered_active_day"),
+        "mm_paper_conservative_fills": mm.get("paper_score_conservative_fills"),
+        "mm_paper_gate_status": mm.get("paper_score_gate_status"),
         "taker_run_id": taker.get("run_id"),
         "taker_quality_status": (taker.get("quality_gate") or {}).get("status"),
         "taker_pnl_evidence_status": taker.get("pnl_evidence_status"),
+        "taker_settlement_source_audit_status": taker.get("settlement_source_audit_status"),
+        "taker_settlement_source_audit_blockers": taker.get("settlement_source_audit_blockers") or [],
         "taker_net_pnl_usdc": taker.get("net_pnl_usdc"),
         "taker_settled_order_count": taker.get("settled_order_count"),
         "taker_unsettled_order_count": taker.get("unsettled_order_count"),
@@ -791,6 +881,36 @@ def run_active_variant_shadow_step(args):
         "blockers": payload.get("blockers") or [],
         "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
         "execution": execution,
+    }
+
+
+def run_proper_scoring_reliability_scorecard_step(args):
+    if getattr(args, "skip_proper_scoring_reliability_scorecard", False):
+        return {"status": "SKIPPED", "reason": "skip_proper_scoring_reliability_scorecard"}
+    payload = proper_scoring_reliability_scorecard.build_scorecard(
+        active_shadow_long=backtest_path(args, "active_variant_shadow_long.csv"),
+        promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
+        hourly=backtest_path(args, "hourly_model_performance.json"),
+        ten_minute=backtest_path(args, "ten_minute_model_performance.json"),
+        served_distribution=backtest_path(args, "served_distribution_calibration_contract.json"),
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out = proper_scoring_reliability_scorecard.write_outputs(
+        payload,
+        json_out=backtest_path(args, "proper_scoring_reliability_scorecard.json"),
+        report_out=backtest_path(args, "proper_scoring_reliability_scorecard.md"),
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "source_row_count": summary.get("source_row_count"),
+        "scored_probability_row_count": summary.get("scored_probability_row_count"),
+        "lane_count": summary.get("lane_count"),
+        "blocker_count": summary.get("blocker_count"),
+        "lane_statuses": summary.get("lane_statuses") or {},
+        "served_validated_parity_status": summary.get("served_validated_parity_status"),
     }
 
 
@@ -1311,6 +1431,8 @@ DEFAULT_RUNNERS = (
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
     ("taker_tail_casebook", run_taker_tail_casebook_step),
+    ("maker_paper_score", run_maker_paper_score_step),
+    ("settlement_source_audit", run_settlement_source_audit_step),
     ("trading_evidence", run_trading_evidence_step),
     ("clob_order_book_tiering", run_clob_order_book_tiering_step),
     ("replay_status_backfill", run_replay_status_backfill_step),
@@ -1320,6 +1442,7 @@ DEFAULT_RUNNERS = (
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("active_variant_shadow", run_active_variant_shadow_step),
+    ("proper_scoring_reliability_scorecard", run_proper_scoring_reliability_scorecard_step),
     ("frozen_baseline_replay_trend", run_frozen_baseline_replay_trend_step),
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
@@ -1368,6 +1491,8 @@ def pipeline_summary(steps):
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
     taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
+    maker_paper = ((by_name.get("maker_paper_score") or {}).get("result") or {})
+    truth_audit = ((by_name.get("settlement_source_audit") or {}).get("result") or {})
     trading = ((by_name.get("trading_evidence") or {}).get("result") or {})
     clob_tiering = ((by_name.get("clob_order_book_tiering") or {}).get("result") or {})
     replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
@@ -1377,6 +1502,7 @@ def pipeline_summary(steps):
     price_free = ((by_name.get("price_free_model_learning") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
+    proper_scorecard = ((by_name.get("proper_scoring_reliability_scorecard") or {}).get("result") or {})
     frozen_baseline = ((by_name.get("frozen_baseline_replay_trend") or {}).get("result") or {})
     variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
@@ -1428,14 +1554,45 @@ def pipeline_summary(steps):
             "warm_tail_fill_count": taker_tail.get("warm_tail_fill_count"),
             "no_go_candidate_count": taker_tail.get("no_go_candidate_count"),
         },
+        "maker_paper_score": {
+            "status": maker_paper.get("status"),
+            "paper_score_freshness_status": maker_paper.get("paper_score_freshness_status"),
+            "latest_completed_active_day": maker_paper.get("latest_completed_active_day"),
+            "latest_covered_active_day": maker_paper.get("latest_covered_active_day"),
+            "completed_active_run_count": maker_paper.get("completed_active_run_count"),
+            "covered_active_run_count": maker_paper.get("covered_active_run_count"),
+            "live_forward_day_count": maker_paper.get("live_forward_day_count"),
+            "conservative_fills": maker_paper.get("conservative_fills"),
+            "net_pnl_after_fees_incentives_usdc": maker_paper.get("net_pnl_after_fees_incentives_usdc"),
+            "gate_status": maker_paper.get("gate_status"),
+            "blocks_maker_evidence_countability": maker_paper.get("blocks_maker_evidence_countability"),
+        },
+        "settlement_source_audit": {
+            "status": truth_audit.get("status"),
+            "label_count": truth_audit.get("label_count"),
+            "finalized_label_count": truth_audit.get("finalized_label_count"),
+            "provisional_label_count": truth_audit.get("provisional_label_count"),
+            "revised_label_count": truth_audit.get("revised_label_count"),
+            "source_disagreement_label_count": truth_audit.get("source_disagreement_label_count"),
+            "unreconciled_label_count": truth_audit.get("unreconciled_label_count"),
+            "proof_grade_label_count": truth_audit.get("proof_grade_label_count"),
+            "promotion_blocked_label_count": truth_audit.get("promotion_blocked_label_count"),
+        },
         "trading_evidence": {
             "status": trading.get("status"),
             "mm_evidence_mode": trading.get("mm_evidence_mode"),
             "mm_counts_toward_live_forward": trading.get("mm_counts_toward_live_forward"),
             "mm_evidence_starvation_status": trading.get("mm_evidence_starvation_status"),
+            "mm_paper_score_freshness_status": trading.get("mm_paper_score_freshness_status"),
+            "mm_paper_latest_completed_active_day": trading.get("mm_paper_latest_completed_active_day"),
+            "mm_paper_latest_covered_active_day": trading.get("mm_paper_latest_covered_active_day"),
+            "mm_paper_conservative_fills": trading.get("mm_paper_conservative_fills"),
+            "mm_paper_gate_status": trading.get("mm_paper_gate_status"),
             "taker_run_id": trading.get("taker_run_id"),
             "taker_quality_status": trading.get("taker_quality_status"),
             "taker_pnl_evidence_status": trading.get("taker_pnl_evidence_status"),
+            "taker_settlement_source_audit_status": trading.get("taker_settlement_source_audit_status"),
+            "taker_settlement_source_audit_blockers": trading.get("taker_settlement_source_audit_blockers") or [],
             "taker_net_pnl_usdc": trading.get("taker_net_pnl_usdc"),
             "taker_settled_order_count": trading.get("taker_settled_order_count"),
             "taker_unsettled_order_count": trading.get("taker_unsettled_order_count"),
@@ -1488,6 +1645,15 @@ def pipeline_summary(steps):
             "summary": active_variant_shadow.get("summary") or {},
             "missing_active_variant_ids": active_variant_shadow.get("missing_active_variant_ids") or [],
             "blockers": active_variant_shadow.get("blockers") or [],
+        },
+        "proper_scoring_reliability_scorecard": {
+            "status": proper_scorecard.get("status"),
+            "source_row_count": proper_scorecard.get("source_row_count"),
+            "scored_probability_row_count": proper_scorecard.get("scored_probability_row_count"),
+            "lane_count": proper_scorecard.get("lane_count"),
+            "blocker_count": proper_scorecard.get("blocker_count"),
+            "lane_statuses": proper_scorecard.get("lane_statuses") or {},
+            "served_validated_parity_status": proper_scorecard.get("served_validated_parity_status"),
         },
         "frozen_baseline_replay_trend": {
             "status": frozen_baseline.get("status"),

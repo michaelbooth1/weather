@@ -251,6 +251,9 @@ class TestDailyProgressLedger(unittest.TestCase):
                         "active_strategy_lifecycle_status": "candidate_canary",
                         "promotion_eligible": False,
                         "next_action": "continue_canary_until_complete_labels",
+                        "paper_only_reason": "partial_complete_label_sample",
+                        "requalification_route": "post_fix_taker_campaign",
+                        "demotion_code": "",
                         "complete_label_sample_count": 0,
                         "total_label_sample_count": 1,
                         "canary_settled_order_count": 4,
@@ -322,6 +325,9 @@ class TestDailyProgressLedger(unittest.TestCase):
             row["trading_taker_active_strategy_next_action"],
             "continue_canary_until_complete_labels",
         )
+        self.assertEqual(row["trading_taker_active_strategy_paper_only_reason"], "partial_complete_label_sample")
+        self.assertEqual(row["trading_taker_active_strategy_requalification_route"], "post_fix_taker_campaign")
+        self.assertEqual(row["trading_taker_active_strategy_demotion_code"], "")
         self.assertEqual(row["trading_taker_active_strategy_complete_label_sample_count"], 0)
         self.assertEqual(row["trading_taker_active_strategy_total_label_sample_count"], 1)
         self.assertEqual(row["trading_taker_active_strategy_canary_settled_order_count"], 4)

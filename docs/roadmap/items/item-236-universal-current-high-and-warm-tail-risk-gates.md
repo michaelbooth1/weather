@@ -61,3 +61,10 @@ Verification:
 
 - `python -m pytest tests\market\test_taker_bot.py tests\operations\test_taker_bot_daily_roll.py tests\operations\test_schema_registry.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_learning.py tests\reporting\test_daily_progress_ledger.py -q`
   - 76 passed, 5 subtests passed.
+
+## Follow-Up Hardening 2026-06-23
+
+Item 255 closed the remaining config-drift loophole: delayed
+`current_high_trust_gate_start_hour_local` overrides now emit a daily-roll
+warning, but aggressive untrusted-current-high taker rows still deny from local
+hour `0`.

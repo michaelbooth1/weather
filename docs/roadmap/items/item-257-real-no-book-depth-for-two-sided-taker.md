@@ -1,4 +1,4 @@
-# 257. Real NO-Book Depth For Two-Sided Taker [OPEN 2026-06-23 - SYNTHETIC COMPLEMENT DEPTH LIMITS SCALE]
+# 257. Real NO-Book Depth For Two-Sided Taker [COMPLETE 2026-06-23 - REAL NO-BOOK DEPTH GATES LIVE]
 
 Goal: replace synthetic NO-book complement sizing with real captured NO-token
 book depth before scaling the two-sided/fade-overpriced taker arm.
@@ -24,11 +24,11 @@ slippage/depth accounting.
 4. Add settlement replay comparing YES-only, synthetic NO, and real-NO-depth
    two-sided variants.
 
-- [ ] Add real NO-token depth fields to the taker candidate tape.
-- [ ] Gate two-sided live scale on real NO-book freshness and displayed depth.
-- [ ] Add replay diagnostics separating synthetic-complement fills from
+- [x] Add real NO-token depth fields to the taker candidate tape.
+- [x] Gate two-sided live scale on real NO-book freshness and displayed depth.
+- [x] Add replay diagnostics separating synthetic-complement fills from
   real-NO-book fills.
-- [ ] Add tests for stale/missing NO-book depth and synthetic-only
+- [x] Add tests for stale/missing NO-book depth and synthetic-only
   non-promotable status.
 
 Acceptance: the two-sided taker arm can still run in paper with synthetic
@@ -36,3 +36,25 @@ complement evidence, but live promotion or size increases require real NO-token
 book depth, freshness, fee, and slippage evidence.
 
 Related: items 202, 238, 240, 241, 253, 256.
+
+## Completion Evidence
+
+Completed on 2026-06-23:
+
+- Taker discovery now loads both YES and NO order-book outcomes, while
+  market-making keeps its YES-only default loader behavior.
+- Candidate/order tapes carry real NO-token best bid/ask, displayed depth,
+  freshness, provenance, and real-depth eligibility fields.
+- Two-sided strategy scoring records real, synthetic, stale, and missing-depth
+  NO-side fill counts, and promotion gates block two-sided scale when NO fills
+  lack fresh real NO-book depth.
+- Coverage added for real NO-book order-tape capture, synthetic-only
+  non-promotable status, stale NO-book non-promotable status, and missing-depth
+  non-promotable status.
+
+Verification:
+
+- `python -m pytest tests\market\test_taker_bot_two_sided.py tests\market\test_taker_bot.py -q`
+  passed with `59 passed, 5 subtests`.
+- `python -m pytest tests\market\test_market_making_run.py -q` passed with
+  `26 passed`.

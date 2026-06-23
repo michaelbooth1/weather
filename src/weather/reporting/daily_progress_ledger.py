@@ -402,6 +402,11 @@ def build_progress_row(
         "trading_taker_active_strategy_lifecycle_status": taker.get("active_strategy_lifecycle_status"),
         "trading_taker_active_strategy_promotion_eligible": taker.get("active_strategy_promotion_eligible"),
         "trading_taker_active_strategy_next_action": taker.get("active_strategy_next_action"),
+        "trading_taker_active_strategy_paper_only_reason": taker.get("active_strategy_paper_only_reason"),
+        "trading_taker_active_strategy_requalification_route": taker.get(
+            "active_strategy_requalification_route"
+        ),
+        "trading_taker_active_strategy_demotion_code": taker.get("active_strategy_demotion_code"),
         "trading_taker_active_strategy_complete_label_sample_count": taker.get(
             "active_strategy_complete_label_sample_count"
         ),
@@ -583,6 +588,8 @@ def render_report(rows):
             ["Taker active strategy", latest.get("trading_taker_active_strategy_id") or "-"],
             ["Taker active lifecycle", latest.get("trading_taker_active_strategy_lifecycle_status") or "-"],
             ["Taker active next action", latest.get("trading_taker_active_strategy_next_action") or "-"],
+            ["Taker active paper-only reason", latest.get("trading_taker_active_strategy_paper_only_reason") or "-"],
+            ["Taker active demotion code", latest.get("trading_taker_active_strategy_demotion_code") or "-"],
             [
                 "Taker canary complete labels",
                 (

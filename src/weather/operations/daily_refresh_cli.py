@@ -104,6 +104,7 @@ def build_run_parser(parser, dependencies=None):
         default="",
         help="Comma-separated current active variant row paths used to build active_variant_shadow_long.csv.",
     )
+    parser.add_argument("--skip-proper-scoring-reliability-scorecard", action="store_true")
     parser.add_argument("--variant-registry", default=str(active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
     parser.add_argument(
         "--variant-evidence-current",
@@ -215,6 +216,8 @@ def build_run_parser(parser, dependencies=None):
         default=0,
         help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
     )
+    parser.add_argument("--skip-maker-paper-score", action="store_true")
+    parser.add_argument("--skip-settlement-source-audit", action="store_true")
     parser.add_argument("--skip-trading-evidence", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
     parser.add_argument(

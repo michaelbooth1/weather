@@ -332,6 +332,7 @@ def write_report(path, payload, min_free_bytes=0):
             ["10-minute performance", (payload.get("ten_minute_performance") or {}).get("path") or "-"],
             ["Candidate 10-minute performance", (payload.get("candidate_ten_minute_performance") or {}).get("path") or "-"],
             ["Source family inventory", (payload.get("source_family_inventory") or {}).get("path") or "-"],
+            ["Physical family ratchet", (payload.get("physical_feature_family_ratchet") or {}).get("path") or "-"],
             ["Fleet observability", (payload.get("fleet_observability") or {}).get("path") or "-"],
             ["Settled-day freshness", (payload.get("settled_day_freshness") or {}).get("path") or "-"],
             ["Data-layer audit", (payload.get("data_layer_audit") or {}).get("path") or "-"],

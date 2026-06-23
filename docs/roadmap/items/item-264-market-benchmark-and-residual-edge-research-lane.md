@@ -1,4 +1,4 @@
-# 264. Market Benchmark And Residual Edge Research Lane [OPEN 2026-06-23 - MARKET SIGNAL MUST NOT CONFUSE WEATHER SKILL]
+# 264. Market Benchmark And Residual Edge Research Lane [COMPLETE 2026-06-23 - MARKET RESIDUAL LANE FAIL-CLOSED]
 
 Goal: evaluate market prices as a probabilistic benchmark and residual-edge
 input without allowing market-informed skill to clear weather-only promotion
@@ -36,14 +36,43 @@ non-executable prices.
 6. Report residual edge by market, cutoff hour, liquidity state, source-health
    state, and tail-risk bucket.
 
-- [ ] Add a market benchmark/residual-edge research report.
-- [ ] Add frozen CLOB freshness and executable-depth fields to the research
+- [x] Add a market benchmark/residual-edge research report.
+- [x] Add frozen CLOB freshness and executable-depth fields to the research
   input contract.
-- [ ] Add weather-only, market-only, overlay, and residual model comparisons.
-- [ ] Add no-trade and fees/slippage baselines to every trading-facing result.
-- [ ] Add MTM-versus-settlement reconciliation by strategy and tail bucket.
-- [ ] Add a guard that this lane cannot satisfy weather-only proof-packet
+- [x] Add weather-only, market-only, overlay, and residual model comparisons.
+- [x] Add no-trade and fees/slippage baselines to every trading-facing result.
+- [x] Add MTM-versus-settlement reconciliation by strategy and tail bucket.
+- [x] Add a guard that this lane cannot satisfy weather-only proof-packet
   blockers.
+
+## Completion Notes
+
+Implemented `weather.reporting.market_benchmark_residual_edge` with schema
+`market_benchmark_residual_edge_v0.1` and canonical outputs at
+`data/backtest/market_benchmark_residual_edge.json` and
+`data/backtest/market_benchmark_residual_edge.md`.
+
+The report reads the active shadow long table and trading evidence, then keeps
+settlement probability skill separate from executable trading evidence. It
+reports weather-only versus market-only Brier, market-informed overlay rows,
+residual model-minus-market edge slices, frozen CLOB contract fields, fees,
+slippage, no-trade benchmark fields, and MTM-versus-settlement reconciliation
+by strategy.
+
+The generated artifact is intentionally `BLOCK`: current rows show the market
+benchmark beating weather-only settlement Brier by `+0.0089`, but frozen CLOB
+fields are incomplete for timestamp/book-age/token/bid/ask/executable-depth
+contract fields, and trading evidence still lacks complete market-benchmark
+and no-trade fields. That is the expected fail-closed result for this lane.
+
+The payload includes `proof_guard.counts_toward_weather_model_promotion=false`
+and `BLOCKED_FROM_WEATHER_PROOF`, so market-only, market-informed overlay, and
+residual-edge evidence cannot satisfy weather-only proof-packet blockers.
+
+Verification:
+
+- `python -m weather.reporting.market_benchmark_residual_edge --json-out data\backtest\market_benchmark_residual_edge.json --report-out data\backtest\market_benchmark_residual_edge.md`
+- `python -m pytest tests\reporting\test_market_benchmark_residual_edge.py tests\reporting\test_market_residual_repair_program.py tests\operations\test_schema_registry.py -q`
 
 Acceptance: the repo can answer two different questions with separate evidence:
 whether market prices improve settlement probability forecasts, and whether

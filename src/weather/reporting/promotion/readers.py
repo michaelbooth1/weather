@@ -58,6 +58,7 @@ DEFAULT_CANDIDATE_HOURLY_PERFORMANCE = ""
 DEFAULT_TEN_MINUTE_PERFORMANCE = data_path() / "backtest" / "ten_minute_model_performance.json"
 DEFAULT_CANDIDATE_TEN_MINUTE_PERFORMANCE = DEFAULT_TEN_MINUTE_PERFORMANCE
 DEFAULT_SOURCE_FAMILY_INVENTORY = data_path() / "backtest" / "source_family_inventory.json"
+DEFAULT_PHYSICAL_FEATURE_FAMILY_RATCHET = data_path() / "backtest" / "physical_feature_family_ratchet.json"
 DEFAULT_FLEET_OBSERVABILITY = data_path() / "backtest" / "fleet_observability.json"
 DEFAULT_SETTLED_DAY_FRESHNESS = data_path() / "backtest" / "settled_day_freshness.json"
 DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
@@ -469,6 +470,54 @@ def _read_source_family_inventory(path):
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
         "promotion_preflight": preflight,
+    }
+
+
+def _read_physical_feature_family_ratchet(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+            "summary": {
+                "blocking_family_count": None,
+                "status_counts": {},
+            },
+            "rollup": {
+                "evidence_blocked": [],
+                "diagnostic_only": [],
+                "ready_for_retraining": [],
+            },
+            "first_blocker": {
+                "detail": "physical feature-family ratchet artifact is missing",
+            },
+        }
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    families = payload.get("families") or []
+    first_blocker = next(
+        (
+            {
+                "family_id": row.get("family_id"),
+                "status": row.get("status"),
+                "detail": "; ".join(row.get("blockers") or []) or row.get("status"),
+            }
+            for row in families
+            if row.get("rollup_bucket") == "evidence_blocked"
+        ),
+        {},
+    )
+    return {
+        "path": str(path),
+        "exists": True,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "summary": payload.get("summary") or {},
+        "rollup": payload.get("rollup") or {},
+        "first_blocker": first_blocker,
     }
 
 

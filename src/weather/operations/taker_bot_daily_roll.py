@@ -16,7 +16,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
-from weather.market.taker_bot import DEFAULT_BAKEOFF_STRATEGIES, DEFAULT_RUNS_ROOT, DEFAULT_CONFIG
+from weather.market.taker_bot import (
+    DEFAULT_BAKEOFF_STRATEGIES,
+    DEFAULT_RUNS_ROOT,
+    DEFAULT_CONFIG,
+    current_high_trust_config_warnings,
+    parse_config_overrides,
+)
 from weather.operations.bot_run_liveness import (
     DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
@@ -245,8 +251,10 @@ def _base_payload(
     runs_root,
     command,
     disk_preflight=None,
+    config_warnings=None,
     now=None,
 ):
+    config_warnings = list(config_warnings or [])
     return {
         "schema_version": SCHEMA_VERSION,
         "runner": "taker_bot_daily_roll",
@@ -261,6 +269,8 @@ def _base_payload(
         "console_log_path": str(console_log_path),
         "command": list(command),
         "policy_defaults": dict(DEFAULT_CONFIG),
+        "config_warning_count": len(config_warnings),
+        "config_warnings": config_warnings,
         "runtime_identity": get_runtime_identity(),
         "disk_capacity_preflight": disk_preflight or {},
     }
@@ -307,6 +317,8 @@ def start_for_date(
         strategies=strategies,
         experiment_id=experiment_id,
     )
+    effective_config = {**DEFAULT_CONFIG, **parse_config_overrides(config_overrides or [])}
+    config_warnings = current_high_trust_config_warnings(effective_config)
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
     if existing.get("target_date") == target_date and existing.get("status") in {"started", "already_running"}:
@@ -335,6 +347,7 @@ def start_for_date(
                 runs_root=runs_root,
                 command=existing.get("command") or command,
                 disk_preflight=existing.get("disk_capacity_preflight") or {},
+                config_warnings=config_warnings,
                 now=now,
             )
             payload.update(refreshed)
@@ -357,6 +370,7 @@ def start_for_date(
             runs_root=runs_root,
             command=existing.get("command") or command,
             disk_preflight=existing.get("disk_capacity_preflight") or {},
+            config_warnings=config_warnings,
             now=now,
         )
         payload.update({
@@ -385,6 +399,7 @@ def start_for_date(
         runs_root=runs_root,
         command=command,
         disk_preflight=disk_preflight,
+        config_warnings=config_warnings,
         now=now,
     )
     if not disk_preflight.get("ok"):

@@ -1,4 +1,4 @@
-# 255. Taker Current-High Deny Regression Proof [OPEN 2026-06-23 - PRE-LATE BYPASS STILL CONFIG-REOPENABLE]
+# 255. Taker Current-High Deny Regression Proof [COMPLETE 2026-06-23 - CONFIG-DRIFT CURRENT-HIGH DENY RATIFIED]
 
 Goal: make aggressive untrusted-current-high taker denial impossible to reopen
 through `current_high_trust_gate_start_hour_local` config drift.
@@ -24,16 +24,39 @@ depends on not changing a start-hour value is too fragile for live readiness.
 4. Surface a config warning when a taker config tries to delay the current-high
    trust gate beyond local hour `0`.
 
-- [ ] Remove config-reopenable pre-late allowance for aggressive untrusted
+- [x] Remove config-reopenable pre-late allowance for aggressive untrusted
   current-high taker fills.
-- [ ] Add tests with `current_high_trust_gate_start_hour_local=15` proving
+- [x] Add tests with `current_high_trust_gate_start_hour_local=15` proving
   aggressive rows block from the start of day.
-- [ ] Add daily-roll/config diagnostics for delayed current-high trust starts.
-- [ ] Update item 236 closeout notes or link this follow-up as the remaining
+- [x] Add daily-roll/config diagnostics for delayed current-high trust starts.
+- [x] Update item 236 closeout notes or link this follow-up as the remaining
   hardening step.
 
 Acceptance: an aggressive untrusted-current-high taker candidate is blocked
 from local hour `0` even if config sets a later start hour, unless it belongs to
 a non-promotable diagnostic-only arm.
+
+## 2026-06-23 Completion Note
+
+Implemented in `weather.market.taker_bot_strategy_evaluation` and
+`weather.operations.taker_bot_daily_roll`.
+
+- `current_high_trust_gate_state` now denies aggressive untrusted-current-high
+  taker rows before the pre-late observe branch, so
+  `current_high_trust_gate_start_hour_local=15` cannot reopen early fills.
+- Non-promotable diagnostic-only arms can still use the observe/cap path when
+  they are explicitly configured away from `deny_aggressive`.
+- `current_high_trust_config_warnings` emits
+  `CURRENT_HIGH_TRUST_GATE_DELAYED_START` and the taker daily-roll status JSON
+  records `config_warning_count` plus `config_warnings` when an override tries
+  to delay the gate.
+- Regression coverage now proves an aggressive untrusted row at local hour `9`
+  still returns `NO_TRADE_CURRENT_HIGH_TRUST_GATE` under a delayed start-hour
+  config.
+
+Verification:
+
+- `python -m pytest tests\market\test_taker_bot.py tests\operations\test_taker_bot_daily_roll.py -q`
+  - `52 passed, 5 subtests passed`
 
 Related: items 215, 236, 237.

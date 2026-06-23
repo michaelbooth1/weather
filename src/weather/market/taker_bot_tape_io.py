@@ -69,6 +69,18 @@ def _book_for_snapshot(snapshot_row, by_token, by_band):
     )
 
 
+def _book_for_token(snapshot_row, by_token, token):
+    if not token:
+        return {}
+    kind, value, value_hi = snapshot_band_key(snapshot_row)
+    snapshot_id = snapshot_row.get("snapshot_id") or ""
+    return (
+        by_token.get((snapshot_id, kind, value, value_hi, str(token)))
+        or by_token.get(("", kind, value, value_hi, str(token)))
+        or {}
+    )
+
+
 def age_seconds(timestamp, now):
     parsed = parse_time(timestamp)
     if parsed is None:
@@ -342,9 +354,37 @@ def assemble_taker_inputs_for_market(
         token_key = (snapshot_id, kind, value, value_hi, str(token))
         clob_row = clob_by_token.get(token_key) or clob_by_band.get(band_key) or {}
         book_row = _book_for_snapshot({**snapshot_row, **clob_row}, book_by_token, book_by_band)
+        no_token = snapshot_row.get("clob_no_token_id") or clob_row.get("clob_no_token_id") or ""
+        no_book_row = _book_for_token({**snapshot_row, **clob_row}, book_by_token, no_token)
         merged = dict(snapshot_row)
         merged.update({key: value for key, value in clob_row.items() if value not in (None, "")})
         merged.update({key: value for key, value in book_row.items() if value not in (None, "")})
+        if no_token:
+            merged["clob_no_token_id"] = no_token
+        if no_book_row:
+            merged.update({
+                "clob_no_best_bid": no_book_row.get("best_bid"),
+                "clob_no_best_ask": no_book_row.get("best_ask"),
+                "clob_no_bid_size_at_best": no_book_row.get("bid_size_at_best"),
+                "clob_no_ask_size_at_best": no_book_row.get("ask_size_at_best"),
+                "clob_no_ask_depth_1pct": no_book_row.get("ask_depth_1pct"),
+                "clob_no_book_captured_at_utc": (
+                    no_book_row.get("book_time_utc")
+                    or no_book_row.get("clob_book_captured_at_utc")
+                    or no_book_row.get("captured_at_utc")
+                ),
+                "no_best_bid": no_book_row.get("best_bid"),
+                "no_best_ask": no_book_row.get("best_ask"),
+                "no_bid_size_at_best": no_book_row.get("bid_size_at_best"),
+                "no_ask_size_at_best": no_book_row.get("ask_size_at_best"),
+                "no_ask_depth_1pct": no_book_row.get("ask_depth_1pct"),
+                "no_book_source": "no_token_book",
+                "no_book_captured_at_utc": (
+                    no_book_row.get("book_time_utc")
+                    or no_book_row.get("clob_book_captured_at_utc")
+                    or no_book_row.get("captured_at_utc")
+                ),
+            })
         merged["market_id"] = market_id
         merged["folder"] = str(folder)
         merged["fair_probability"] = first_present(merged, "fair_probability", "model_probability", "candidate_p")

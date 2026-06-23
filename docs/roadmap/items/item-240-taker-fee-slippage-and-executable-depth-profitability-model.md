@@ -34,4 +34,8 @@ Acceptance: taker reports and promotion gates use after-fee,
 after-slippage, executable-depth net PnL, or explicitly mark the run as
 paper-no-fee evidence that cannot justify live profitability.
 
+Follow-up hardening 2026-06-23: item 259 adds a current-run artifact verifier
+that must pass before item 240 fields can support live-profitability or
+promotion evidence.
+
 Related: items 202, 214, 234, 237, 238, 241.

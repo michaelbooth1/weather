@@ -78,6 +78,30 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertIn("exp-1", command)
         self.assertEqual(command[-2:], ["--config", "min_edge=0.05"])
 
+    def test_start_for_date_records_current_high_trust_delayed_start_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            payload = start_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                config_overrides=["current_high_trust_gate_start_hour_local=15"],
+                launcher=lambda command, repo_root, console_log_path: 7654,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["config_warning_count"], 1)
+        self.assertEqual(
+            payload["config_warnings"][0]["code"],
+            "CURRENT_HIGH_TRUST_GATE_DELAYED_START",
+        )
+        self.assertEqual(saved["config_warnings"], payload["config_warnings"])
+
     def test_start_for_date_records_child_pid_and_avoids_duplicate_same_day_run(self):
         calls = []
 

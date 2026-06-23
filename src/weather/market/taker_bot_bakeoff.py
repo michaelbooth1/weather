@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.market.taker_bot_reporting import *  # noqa: F403
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
@@ -186,6 +187,7 @@ def strategy_gate_for_bakeoff(
     max_top_market_spend_share=1.0,
     max_repeated_opinion_count=0,
     max_tail_fill_fraction=DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
+    require_real_no_book_for_two_sided=True,
 ):
     strategy_id = strategy_row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
     filled = strategy_filled_rows(scored_rows, strategy_id)
@@ -207,6 +209,12 @@ def strategy_gate_for_bakeoff(
     repeated_opinions = int(concentration.get("repeated_opinion_count") or 0)
     settlement_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
     tail_fraction = maybe_float(strategy_row.get("low_price_tail_fill_fraction")) or 0.0
+    no_side_status = strategy_row.get("no_side_live_scale_book_status") or "PASS"
+    two_sided_book_ok = (
+        not bool_value(require_real_no_book_for_two_sided, True)
+        or strategy_row.get("strategy_family") != "two_sided"
+        or no_side_status == "PASS"
+    )
     gates = [
         {
             "name": "min_settled_sample",
@@ -237,6 +245,12 @@ def strategy_gate_for_bakeoff(
             "ok": after_slippage_scored,
             "value": after_slippage_scored,
             "threshold": True,
+        },
+        {
+            "name": "real_no_book_depth_for_two_sided",
+            "ok": two_sided_book_ok,
+            "value": no_side_status,
+            "threshold": "PASS",
         },
         {
             "name": "non_negative_settled_roi",
@@ -309,6 +323,12 @@ def strategy_gate_for_bakeoff(
         "pnl_fee_basis": strategy_row.get("pnl_fee_basis") or "",
         "after_fee_pnl_basis": strategy_row.get("after_fee_pnl_basis") or strategy_row.get("pnl_fee_basis") or "",
         "live_profitability_evidence_basis": strategy_row.get("live_profitability_evidence_basis") or "",
+        "no_side_fill_count": int(strategy_row.get("no_side_fill_count") or 0),
+        "no_side_real_book_fill_count": int(strategy_row.get("no_side_real_book_fill_count") or 0),
+        "no_side_synthetic_book_fill_count": int(strategy_row.get("no_side_synthetic_book_fill_count") or 0),
+        "no_side_stale_book_fill_count": int(strategy_row.get("no_side_stale_book_fill_count") or 0),
+        "no_side_missing_depth_fill_count": int(strategy_row.get("no_side_missing_depth_fill_count") or 0),
+        "no_side_live_scale_book_status": no_side_status,
         "spent_usdc": compact_float(spent),
         "net_pnl_usdc": compact_float(net),
         "settlement_scored_expected_pnl_usdc": compact_float(settlement_expected),
@@ -386,6 +406,10 @@ def render_bakeoff_report(payload):
             ["Replay ticks", summary.get("replay_tick_count")],
             ["Scored order rows", summary.get("scored_order_rows")],
             ["Label rows for date", (payload.get("label_summary") or {}).get("label_rows")],
+            [
+                "Profitability artifact verification",
+                (payload.get("profitability_artifact_verification") or {}).get("status") or "-",
+            ],
             ["Blockers", len(blockers)],
         ],
     ))
@@ -602,6 +626,10 @@ def run_taker_strategy_bakeoff(
                 "promotion_max_tail_fill_fraction",
                 DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
             ),
+            require_real_no_book_for_two_sided=base_config.get(
+                "two_sided_real_no_book_required_for_promotion",
+                True,
+            ),
         )
         for row in pnl_payload.get("by_strategy") or []
     ]
@@ -637,6 +665,28 @@ def run_taker_strategy_bakeoff(
                 f"{score_summary['unmatched_filled_orders']} filled replay orders had no settlement label"
             ),
         })
+    profitability_verification = verify_taker_profitability_artifacts(run_folder)
+    if profitability_verification.get("status") == "BLOCK":
+        failed_codes = [
+            row.get("code")
+            for row in profitability_verification.get("checks") or []
+            if row.get("status") == "FAIL" and row.get("code")
+        ]
+        blockers.append({
+            "code": "profitability_artifact_verification_failed",
+            "detail": (
+                "Source taker run lacks current fee/slippage/executable-depth/"
+                "benchmark/no-trade profitability fields"
+            ),
+            "failed_check_count": profitability_verification.get("failed_check_count"),
+            "failed_checks": failed_codes[:10],
+        })
+        for gate in promotion_gates:
+            failed_gates = list(gate.get("failed_gates") or [])
+            if "profitability_artifact_verification" not in failed_gates:
+                failed_gates.append("profitability_artifact_verification")
+            gate["failed_gates"] = failed_gates
+            gate["status"] = "BLOCK"
     out_json = Path(out_json) if out_json else run_folder / "strategy_bakeoff.json"
     out_report = Path(out_report) if out_report else run_folder / "strategy_bakeoff.md"
     disk_preflight = disk_capacity_preflight(
@@ -687,6 +737,7 @@ def run_taker_strategy_bakeoff(
             "promotion_block_count": sum(1 for row in promotion_gates if row.get("status") != "PASS"),
         },
         "pnl": pnl_payload,
+        "profitability_artifact_verification": profitability_verification,
         "promotion_gates": promotion_gates,
         "paired_comparisons": paired,
         "budget_ledger": budget_ledger,

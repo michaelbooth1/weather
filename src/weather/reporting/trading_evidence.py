@@ -9,8 +9,11 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market import mm_paper
+from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting import settlement_source_audit
 
 
 DEFAULT_DATA_ROOT = data_path()
@@ -19,6 +22,8 @@ DEFAULT_TAKER_RUNS_ROOT = DEFAULT_DATA_ROOT / "taker_runs"
 DEFAULT_BACKTEST_ROOT = DEFAULT_DATA_ROOT / "backtest"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "trading_evidence.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "trading_evidence_report.md"
+DEFAULT_MM_PAPER_JSON = DEFAULT_BACKTEST_ROOT / "mm_paper_report.json"
+DEFAULT_SETTLEMENT_AUDIT_JSON = settlement_source_audit.DEFAULT_JSON_OUT
 TAKER_QUALITY_MIN_ROLLING_RUNS = 5
 TAKER_QUALITY_MIN_FILLS = 100
 TAKER_QUALITY_MIN_NET_PNL_USDC = 0.0
@@ -713,6 +718,18 @@ def _taker_summary_fields(payload, settled_payload=None):
                 next_gate.get("next_action")
                 or settled_summary.get("active_strategy_next_action")
             ),
+            "active_strategy_paper_only_reason": _first_present(
+                next_gate.get("paper_only_reason"),
+                settled_summary.get("active_strategy_paper_only_reason"),
+            ),
+            "active_strategy_requalification_route": _first_present(
+                next_gate.get("requalification_route"),
+                settled_summary.get("active_strategy_requalification_route"),
+            ),
+            "active_strategy_demotion_code": _first_present(
+                next_gate.get("demotion_code"),
+                settled_summary.get("active_strategy_demotion_code"),
+            ),
             "active_strategy_complete_label_sample_count": _int_value(_first_present(
                 next_gate.get("complete_label_sample_count"),
                 settled_summary.get("active_strategy_complete_label_sample_count"),
@@ -795,6 +812,9 @@ def _taker_summary_fields(payload, settled_payload=None):
         "active_strategy_lifecycle_status": summary.get("active_strategy_lifecycle"),
         "active_strategy_promotion_eligible": False,
         "active_strategy_next_action": None,
+        "active_strategy_paper_only_reason": None,
+        "active_strategy_requalification_route": None,
+        "active_strategy_demotion_code": None,
         "active_strategy_complete_label_sample_count": 0,
         "active_strategy_total_label_sample_count": 0,
         "active_strategy_canary_settled_order_count": 0,
@@ -892,10 +912,52 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
     }
 
 
+def _taker_profitability_verification(path):
+    if not path:
+        return {
+            "status": "SKIP",
+            "check_count": 0,
+            "failed_check_count": 0,
+            "checks": [],
+        }
+    return verify_taker_profitability_artifacts(Path(path).parent)
+
+
+def _settlement_scored_target_dates(taker_payloads):
+    dates = set()
+    for payload, settled_payload in taker_payloads or []:
+        effective = settled_payload or payload or {}
+        summary = effective.get("summary") or {}
+        pnl_summary = ((effective.get("pnl") or {}).get("summary") or {})
+        settled_count = _int_value(_first_present(
+            pnl_summary.get("settled_order_count"),
+            summary.get("settled_order_count"),
+        ))
+        if settled_count <= 0:
+            continue
+        target_date = effective.get("target_date") or (payload or {}).get("target_date")
+        if target_date:
+            dates.add(str(target_date))
+    return sorted(dates)
+
+
+def _settlement_source_audit_gate(path, taker_payloads):
+    target_dates = _settlement_scored_target_dates(taker_payloads)
+    if not target_dates:
+        return settlement_source_audit.settlement_label_gate_for_target_dates({}, [])
+    audit_payload = _read_json(path) if path else None
+    gate = settlement_source_audit.settlement_label_gate_for_target_dates(audit_payload or {}, target_dates)
+    gate["path"] = str(path) if path else None
+    gate["audit_status"] = (audit_payload or {}).get("status") if audit_payload else "MISSING"
+    return gate
+
+
 def build_trading_evidence_summary(
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
     *,
+    mm_paper_json=DEFAULT_MM_PAPER_JSON,
+    settlement_audit_json=DEFAULT_SETTLEMENT_AUDIT_JSON,
     generated_at_utc=None,
 ):
     mm_path, mm_payload = _latest_run_summary(mm_runs_root)
@@ -907,11 +969,57 @@ def build_trading_evidence_summary(
     ]
     mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
     market_making = summarize_market_making_run(mm_path, mm_payload)
+    mm_paper_payload = _read_json(mm_paper_json) or {}
+    mm_paper_summary = mm_paper_payload.get("summary") or {}
+    paper_score_freshness = mm_paper.maker_paper_score_freshness_from_report(
+        mm_runs_root,
+        mm_paper_json,
+    )
+    taker = summarize_taker_run(
+        taker_path,
+        taker_payload,
+        taker_payloads,
+        settled_payload=taker_settled_payload,
+    )
+    taker_profitability_verification = _taker_profitability_verification(taker_path)
+    settlement_audit_gate = _settlement_source_audit_gate(settlement_audit_json, taker_payloads)
+    taker["profitability_artifact_verification"] = taker_profitability_verification
+    taker["profitability_artifact_verification_status"] = taker_profitability_verification.get("status")
+    taker["profitability_artifact_failed_check_count"] = taker_profitability_verification.get(
+        "failed_check_count"
+    )
+    taker["settlement_source_audit"] = settlement_audit_gate
+    taker["settlement_source_audit_status"] = settlement_audit_gate.get("status")
+    taker["settlement_source_audit_blockers"] = settlement_audit_gate.get("blockers") or []
     market_making["evidence_starvation"] = mm_starvation
     latest_starvation = mm_starvation.get("latest") or {}
     market_making["evidence_starvation_status"] = mm_starvation.get("status")
     market_making["starved_active_day_streak"] = mm_starvation.get("starved_active_day_streak")
     market_making["countable_paper_market_day_count"] = mm_starvation.get("countable_paper_market_day_count")
+    market_making["paper_score_freshness"] = paper_score_freshness
+    market_making["paper_score_freshness_status"] = paper_score_freshness.get("status")
+    market_making["paper_score_latest_completed_active_day"] = paper_score_freshness.get(
+        "latest_completed_active_day"
+    )
+    market_making["paper_score_latest_covered_active_day"] = paper_score_freshness.get(
+        "latest_covered_active_day"
+    )
+    market_making["paper_score_blocks_evidence_countability"] = paper_score_freshness.get(
+        "blocks_maker_evidence_countability"
+    )
+    market_making["paper_score_conservative_fills"] = mm_paper_summary.get("conservative_fills")
+    market_making["paper_score_gate_status"] = mm_paper_summary.get("gate_status")
+    market_making["paper_score_live_forward_day_count"] = (
+        (mm_paper_summary.get("paper_score_freshness") or {}).get("live_forward_day_count")
+    )
+    market_making["paper_score_net_pnl_after_fees_incentives_usdc"] = (
+        (mm_paper_summary.get("pnl") or {}).get("net_pnl_after_fees_incentives_usdc")
+    )
+    if paper_score_freshness.get("status") == "STALE":
+        blockers = list(market_making.get("countability_blockers") or [])
+        blockers.append("paper_score_freshness=STALE")
+        market_making["countability_blockers"] = blockers
+        market_making["countability_status"] = "NON_COUNTABLE"
     routed_starvation = mm_starvation.get("latest_starved") or latest_starvation
     market_making["latest_preflight_blocked_market_fraction"] = latest_starvation.get(
         "preflight_blocked_market_fraction"
@@ -922,13 +1030,10 @@ def build_trading_evidence_summary(
         "generated_at_utc": generated_at_utc or utc_iso(),
         "mm_runs_root": str(mm_runs_root),
         "taker_runs_root": str(taker_runs_root),
+        "mm_paper_json": str(mm_paper_json),
+        "settlement_audit_json": str(settlement_audit_json) if settlement_audit_json else None,
         "market_making": market_making,
-        "taker": summarize_taker_run(
-            taker_path,
-            taker_payload,
-            taker_payloads,
-            settled_payload=taker_settled_payload,
-        ),
+        "taker": taker,
     }
 
 
@@ -938,6 +1043,12 @@ def _summary_status(payload):
     taker_quality = taker.get("quality_gate") or {}
     if mm.get("evidence_starvation_status") == "CRITICAL":
         return "CRITICAL"
+    if mm.get("paper_score_freshness_status") == "STALE":
+        return "BLOCK"
+    if taker.get("profitability_artifact_verification_status") == "BLOCK":
+        return "BLOCK"
+    if taker.get("settlement_source_audit_status") == "BLOCK":
+        return "BLOCK"
     if taker_quality.get("status") == "BLOCK":
         return "BLOCK"
     if (
@@ -974,6 +1085,14 @@ def render_report(payload):
             ["Live-trade permission rows", mm.get("live_trade_permission_rows")],
             ["Evidence starvation", mm.get("evidence_starvation_status") or "-"],
             ["Starved active-day streak", mm.get("starved_active_day_streak")],
+            ["Paper-score freshness", mm.get("paper_score_freshness_status") or "-"],
+            ["Paper-score latest completed active day", mm.get("paper_score_latest_completed_active_day") or "-"],
+            ["Paper-score latest covered active day", mm.get("paper_score_latest_covered_active_day") or "-"],
+            ["Paper-score conservative fills", mm.get("paper_score_conservative_fills")],
+            [
+                "Paper-score net after fees/incentives",
+                fmt_signed(mm.get("paper_score_net_pnl_after_fees_incentives_usdc"), 4),
+            ],
             ["Blockers", ", ".join(mm.get("countability_blockers") or []) or "-"],
         ],
     )
@@ -994,6 +1113,13 @@ def render_report(payload):
             ["Promotion eligible", taker.get("active_strategy_promotion_eligible")],
             ["Low-price tail fills", taker.get("low_price_tail_fill_count")],
             ["Tail-fill status", taker.get("tail_fill_quality_status") or "-"],
+            [
+                "Profitability artifact verification",
+                taker.get("profitability_artifact_verification_status") or "-",
+            ],
+            ["Profitability artifact failed checks", taker.get("profitability_artifact_failed_check_count")],
+            ["Settlement source audit", taker.get("settlement_source_audit_status") or "-"],
+            ["Settlement source blockers", ", ".join(taker.get("settlement_source_audit_blockers") or []) or "-"],
             ["Quality status", quality.get("status") or "-"],
             ["Quality interpretation", quality.get("interpretation") or "-"],
         ],
@@ -1035,6 +1161,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Build market-making and taker trading evidence summary.")
     parser.add_argument("--mm-runs-root", default=str(DEFAULT_MM_RUNS_ROOT))
     parser.add_argument("--taker-runs-root", default=str(DEFAULT_TAKER_RUNS_ROOT))
+    parser.add_argument("--settlement-audit-json", default=str(DEFAULT_SETTLEMENT_AUDIT_JSON))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     return parser
@@ -1045,6 +1172,7 @@ def main(argv=None):
     payload = build_trading_evidence_summary(
         mm_runs_root=args.mm_runs_root,
         taker_runs_root=args.taker_runs_root,
+        settlement_audit_json=args.settlement_audit_json,
     )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Trading evidence: {payload.get('status') or _summary_status(payload)}")

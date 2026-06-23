@@ -413,6 +413,34 @@ REGISTERED_SCHEMAS = (
         "Parsed numbered roadmap item inventory, active backlog report, active-item docs lint, and ROADMAP.md index ownership lint.",
     ),
     SchemaSpec(
+        "settlement_source_revision_audit",
+        "settlement_source_revision_audit_v0.1",
+        "weather.reporting.settlement_source_audit",
+        "active",
+        "Truth-label source revision, disagreement, raw-lineage, finalization-lag, and promotion blocker audit.",
+    ),
+    SchemaSpec(
+        "proper_scoring_reliability_scorecard",
+        "proper_scoring_reliability_scorecard_v0.1",
+        "weather.reporting.proper_scoring_reliability_scorecard",
+        "active",
+        "Canonical proper-scoring, calibration, sharpness, CRPS/ranked-probability, and lane-separated reliability scorecard.",
+    ),
+    SchemaSpec(
+        "physical_feature_family_ratchet",
+        "physical_feature_family_ratchet_v0.1",
+        "weather.reporting.physical_feature_family_ratchet",
+        "active",
+        "Physical-weather feature-family lineage, missingness, active-column, isolated replay, and settlement-sliced promotion ratchet.",
+    ),
+    SchemaSpec(
+        "market_benchmark_residual_edge",
+        "market_benchmark_residual_edge_v0.1",
+        "weather.reporting.market_benchmark_residual_edge",
+        "active",
+        "Market-only benchmark, market-informed overlay, residual-edge, frozen CLOB contract, and executable trading evidence research lane.",
+    ),
+    SchemaSpec(
         "weather_only_model_proof_packet",
         "weather_only_model_proof_packet_v0.1",
         "weather.reporting.weather_only_model_proof_packet",
@@ -1203,6 +1231,13 @@ REGISTERED_SCHEMAS = (
         "weather.market.taker_bot",
         "active",
         "Settlement-scored replay bakeoff for taker strategy arms and promotion gates.",
+    ),
+    SchemaSpec(
+        "taker_profitability_artifact_verification",
+        "taker_profitability_artifact_verification_v0.1",
+        "weather.market.taker_profitability_artifact_verification",
+        "active",
+        "Current-run verifier for taker fee, slippage, executable-depth, benchmark, and no-trade evidence fields.",
     ),
     SchemaSpec(
         "taker_champion_challenger_ledger",

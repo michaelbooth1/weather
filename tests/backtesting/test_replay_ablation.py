@@ -8,7 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import band_model_probability
-from weather.backtesting.replay_ablation import ablate_sources, build_payload, run_ablation, summarize, variant_names_for_spec
+from weather.backtesting.replay_ablation import (
+    ablate_sources,
+    build_payload,
+    run_ablation,
+    summarize,
+    summarize_slice_effects,
+    variant_names_for_spec,
+)
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
@@ -155,10 +162,13 @@ class TestRunAblationEndToEnd(unittest.TestCase):
             self.assertIn("toronto", summary["by_family"])
         self.assertIn("all_forecasts", day_tables)
 
-        payload = build_payload(summaries, day_tables, day_meta, ["open_meteo", "all_forecasts"], False)
+        slices = summarize_slice_effects(data)
+        payload = build_payload(summaries, day_tables, day_meta, ["open_meteo", "all_forecasts"], False, slices)
         self.assertEqual(payload["schema_version"], "source_family_ablation_v0.1")
         self.assertEqual(payload["summary"]["variant_count"], 2)
+        self.assertGreater(payload["summary"]["slice_effect_count"], 0)
         self.assertIn("variants", payload)
+        self.assertTrue(any(row["slice"] == "market_cutoff_regime" for row in payload["slice_effects"]))
         self.assertEqual(
             next(row for row in payload["variants"] if row["variant"] == "all_forecasts")["ablated_sources"],
             ["open_meteo", "weather_forecast", "eccc_citypage"],

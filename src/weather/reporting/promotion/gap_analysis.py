@@ -266,6 +266,19 @@ def _operational_gate_rows(payload):
             preflight.get("status") or source_family.get("status") or "-",
             ", ".join(preflight.get("blocked_families") or []) or "no blocked active input families",
         ])
+    physical_ratchet = payload.get("physical_feature_family_ratchet") or {}
+    if physical_ratchet:
+        summary = physical_ratchet.get("summary") or {}
+        first = physical_ratchet.get("first_blocker") or {}
+        rows.append([
+            "Physical family ratchet",
+            physical_ratchet.get("status") or "-",
+            (
+                f"blocked={summary.get('blocking_family_count')}; "
+                f"slices={summary.get('settlement_slice_row_count')}; "
+                f"first={first.get('family_id') or '-'} {first.get('status') or ''}"
+            ),
+        ])
     fleet = payload.get("fleet_observability") or {}
     if fleet:
         summary = fleet.get("summary") or {}

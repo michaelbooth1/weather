@@ -46,13 +46,20 @@ def no_book_fields(row):
     """
     captured_ask = clamp_probability(first_present(row, "no_best_ask", "clob_no_best_ask"))
     if captured_ask is not None:
+        captured_bid = clamp_probability(first_present(row, "no_best_bid", "clob_no_best_bid"))
+        ask_size = maybe_float(first_present(row, "no_ask_size_at_best", "no_ask_size", "clob_no_ask_size_at_best"))
+        bid_size = maybe_float(first_present(row, "no_bid_size_at_best", "clob_no_bid_size_at_best"))
+        ask_depth_1pct = maybe_float(first_present(row, "no_ask_depth_1pct", "clob_no_ask_depth_1pct"))
+        age = maybe_float(first_present(row, "no_book_age_seconds", "clob_no_book_age_seconds"))
         return {
-            "no_best_bid": compact_float(clamp_probability(first_present(row, "no_best_bid", "clob_no_best_bid"))),
+            "no_best_bid": compact_float(captured_bid),
             "no_best_ask": compact_float(captured_ask),
-            "no_ask_size_at_best": compact_float(
-                maybe_float(first_present(row, "no_ask_size_at_best", "no_ask_size", "clob_no_ask_size_at_best"))
-            ),
+            "no_bid_size_at_best": compact_float(bid_size),
+            "no_ask_size_at_best": compact_float(ask_size),
+            "no_ask_depth_1pct": compact_float(ask_depth_1pct),
             "no_book_source": "no_token_book",
+            "no_book_captured_at_utc": first_present(row, "no_book_captured_at_utc", "clob_no_book_captured_at_utc") or "",
+            "no_book_age_seconds": compact_float(age),
         }
     yes_bid = clamp_probability(first_present(row, "clob_best_bid", "best_bid", "gamma_best_bid"))
     yes_ask = clamp_probability(first_present(row, "clob_best_ask", "best_ask", "gamma_best_ask"))
@@ -68,11 +75,17 @@ def no_book_fields(row):
     # Buying NO at ``no_ask`` means hitting the YES bid, so the available size is
     # the YES bid depth (when the tape carries it).
     yes_bid_size = maybe_float(first_present(row, "bid_size_at_best", "clob_bid_size_at_best", "clob_best_bid_size"))
+    yes_bid_depth_1pct = maybe_float(first_present(row, "bid_depth_1pct", "clob_bid_depth_1pct"))
+    yes_book_age = maybe_float(first_present(row, "book_age_seconds", "clob_book_age_seconds"))
     return {
         "no_best_bid": compact_float(no_bid),
         "no_best_ask": compact_float(no_ask),
+        "no_bid_size_at_best": None,
         "no_ask_size_at_best": compact_float(yes_bid_size),
+        "no_ask_depth_1pct": compact_float(yes_bid_depth_1pct),
         "no_book_source": "synthetic_from_yes_bid",
+        "no_book_captured_at_utc": "",
+        "no_book_age_seconds": compact_float(yes_book_age),
     }
 
 
@@ -101,6 +114,13 @@ def no_side_input_row(input_row, config=None):
     no_ask = maybe_float(book.get("no_best_ask"))
     if fair_yes is None or token is None or no_ask is None:
         return None
+    max_age = float((config or {}).get("two_sided_real_no_book_max_age_seconds") or 120.0)
+    min_depth = float((config or {}).get("two_sided_real_no_book_min_ask_size") or 0.0)
+    age = maybe_float(book.get("no_book_age_seconds"))
+    ask_size = maybe_float(book.get("no_ask_size_at_best")) or 0.0
+    real_book = book.get("no_book_source") == "no_token_book"
+    fresh = bool(real_book and age is not None and age <= max_age)
+    depth_ok = ask_size > 0 and ask_size >= min_depth
     out = dict(input_row)
     out["taker_side"] = NO_SIDE
     out["yes_fair_probability"] = compact_float(fair_yes)
@@ -113,6 +133,17 @@ def no_side_input_row(input_row, config=None):
     out["best_bid"] = book.get("no_best_bid")
     out["ask_size_at_best"] = book.get("no_ask_size_at_best")
     out["clob_ask_size_at_best"] = book.get("no_ask_size_at_best")
+    out["ask_depth_1pct"] = book.get("no_ask_depth_1pct")
+    out["clob_ask_depth_1pct"] = book.get("no_ask_depth_1pct")
+    out["clob_no_best_bid"] = book.get("no_best_bid")
+    out["clob_no_best_ask"] = book.get("no_best_ask")
+    out["clob_no_ask_size_at_best"] = book.get("no_ask_size_at_best")
+    out["clob_no_bid_size_at_best"] = book.get("no_bid_size_at_best")
+    out["clob_no_ask_depth_1pct"] = book.get("no_ask_depth_1pct")
+    out["clob_no_book_captured_at_utc"] = book.get("no_book_captured_at_utc")
+    out["clob_no_book_age_seconds"] = book.get("no_book_age_seconds")
+    out["no_book_fresh"] = fresh
+    out["real_no_book_depth_eligible"] = bool(real_book and fresh and depth_ok)
     # Recompute the mid from the NO book downstream rather than reuse the YES mid.
     out["market_mid"] = None
     out["market_yes"] = None

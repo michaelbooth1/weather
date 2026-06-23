@@ -101,10 +101,10 @@ as the YES-buy arms.
   (`NO_TRADE_EDGE_TOO_SMALL`) while the NO side is bought (`BUY_EDGE`, fair_no
   0.70 / no_ask 0.45 / edge +0.25) — exactly the edge the YES-only bot discarded.
 
-Follow-on (not blocking): the NO book is currently the YES-book complement;
-attaching the **real** captured NO-token book (separate depth) upstream in the
-order-book join would improve NO-side sizing fidelity. The synthetic complement
-is correct under no-arbitrage and sufficient to evaluate the edge.
+Follow-on closed by item 257: the taker candidate tape now carries real captured
+NO-token best bid/ask/depth provenance when available, and two-sided promotion
+or scale-up requires fresh real NO-book depth rather than synthetic complement
+depth alone.
 
 Acceptance: the taker can evaluate and (when settlement-scored evidence supports
 it) take the NO side of over-priced bands; the NO-token book is captured for

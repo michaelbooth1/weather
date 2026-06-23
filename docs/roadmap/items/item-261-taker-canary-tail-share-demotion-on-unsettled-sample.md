@@ -1,4 +1,4 @@
-# 261. Taker Canary Tail-Share Demotion On Unsettled Sample [OPEN 2026-06-23 - WARN_HIGH_TAIL_SHARE PLUS MISSING SETTLED SAMPLE MUST PAPER-ONLY]
+# 261. Taker Canary Tail-Share Demotion On Unsettled Sample [COMPLETE 2026-06-23 - HIGH-TAIL UNSETTLED CANARY DEMOTION LIVE]
 
 Goal: enforce canary demotion and paper-only status whenever the active taker
 canary has both `WARN_HIGH_TAIL_SHARE` and a missing settled sample, until it
@@ -28,14 +28,41 @@ is an unresolved risk signal.
 5. Route requalification back through the post-fix taker campaign instead of
    allowing ad hoc live-size restoration.
 
-- [ ] Add a demotion decision for `WARN_HIGH_TAIL_SHARE` plus
+- [x] Add a demotion decision for `WARN_HIGH_TAIL_SHARE` plus
   `MISSING_SETTLED_SAMPLE`.
-- [ ] Expose the paper-only reason in next-run and daily roll status.
-- [ ] Add a June 22-style fixture or replay test that produces the demotion.
-- [ ] Require requalification before promotion or live-size restoration.
+- [x] Expose the paper-only reason in next-run and daily roll status.
+- [x] Add a June 22-style fixture or replay test that produces the demotion.
+- [x] Require requalification before promotion or live-size restoration.
 
 Acceptance: a June 22-style active canary state produces a paper-only demotion
 decision, and the canary cannot promote or live-size until settled after-fee
 evidence passes and low-price-tail fill fraction is at or below `0.50`.
+
+## 2026-06-23 Completion Note
+
+Implemented in `weather.market.taker_bot_finalization`,
+`weather.reporting.trading_evidence`, and
+`weather.reporting.daily_progress_ledger`.
+
+- `next_run_policy_gate` now emits
+  `WARN_HIGH_TAIL_SHARE_MISSING_SETTLED_SAMPLE` when a post-cutover active
+  canary combines high low-price-tail exposure with missing settlement-scored
+  evidence.
+- The demotion keeps the canary paper-only, sets
+  `paper_only_reason=warn_high_tail_share_missing_settled_sample`, routes
+  requalification through `post_fix_taker_campaign`, and prevents promotion or
+  live-size restoration.
+- Settlement finalization, trading evidence, and the daily progress ledger now
+  preserve the paper-only reason, demotion code, and requalification route.
+- Regression coverage uses a June-22-style `low_price_tail_capped` shape with
+  `WARN_HIGH_TAIL_SHARE`, `MISSING_SETTLED_SAMPLE`, zero settled orders, and
+  tail fraction above `0.50`.
+
+Verification:
+
+- `python -m pytest tests\market\test_taker_bot.py tests\operations\test_taker_bot_daily_roll.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_progress_ledger.py -q`
+  - `61 passed, 5 subtests passed`
+- `python -m pytest tests\operations\test_schema_registry.py -q`
+  - `3 passed`
 
 Related: items 237, 256.

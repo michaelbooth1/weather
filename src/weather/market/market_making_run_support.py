@@ -178,11 +178,12 @@ def latest_rows_for_snapshot(rows, snapshot_id):
     return [row for row in rows if row.get("snapshot_id") == latest.get("snapshot_id")]
 
 
-def latest_book_rows(folder):
+def latest_book_rows(folder, outcomes=None):
+    allowed_outcomes = {str(value).lower() for value in (outcomes or {"yes", ""})}
     rows = [
         row
         for row in read_csv_rows(Path(folder) / "order_books_summary.csv")
-        if str(row.get("outcome") or "").lower() in {"yes", ""}
+        if str(row.get("outcome") or "").lower() in allowed_outcomes
     ]
     if not rows:
         return []

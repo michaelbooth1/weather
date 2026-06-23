@@ -86,6 +86,28 @@ def render_report(payload):
                     f"losing {result.get('losing_tail_fill_count')}; "
                     f"no_go {result.get('no_go_candidate_count')}"
                 )
+        elif step.get("name") == "maker_paper_score":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('paper_score_freshness_status')}; "
+                    f"latest {result.get('latest_completed_active_day') or '-'}; "
+                    f"covered {result.get('latest_covered_active_day') or '-'}; "
+                    f"fills {result.get('conservative_fills')}; "
+                    f"gate {result.get('gate_status')}"
+                )
+        elif step.get("name") == "settlement_source_audit":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; labels {result.get('label_count')}; "
+                    f"proof {result.get('proof_grade_label_count')}; "
+                    f"blocked {result.get('promotion_blocked_label_count')}; "
+                    f"revised {result.get('revised_label_count')}; "
+                    f"unreconciled {result.get('unreconciled_label_count')}"
+                )
         elif step.get("name") == "trading_evidence":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -94,7 +116,8 @@ def render_report(payload):
                     f"{result.get('status')}; taker {result.get('taker_quality_status')} "
                     f"{result.get('taker_pnl_evidence_status')}; "
                     f"mm_counts {result.get('mm_counts_toward_live_forward')}; "
-                    f"starvation {result.get('mm_evidence_starvation_status')}"
+                    f"starvation {result.get('mm_evidence_starvation_status')}; "
+                    f"paper_score {result.get('mm_paper_score_freshness_status')}"
                 )
         elif step.get("name") == "promotion_refresh":
             disk = result.get("disk_preflight") or {}
@@ -150,6 +173,17 @@ def render_report(payload):
                     f"{result.get('status')} "
                     f"{(result.get('summary') or {}).get('canonical_rows')} rows; "
                     f"missing {len(result.get('missing_active_variant_ids') or [])}"
+                )
+        elif step.get("name") == "proper_scoring_reliability_scorecard":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; "
+                    f"scored {result.get('scored_probability_row_count')}; "
+                    f"lanes {result.get('lane_count')}; "
+                    f"blockers {result.get('blocker_count')}; "
+                    f"parity {result.get('served_validated_parity_status')}"
                 )
         elif step.get("name") == "frozen_baseline_replay_trend":
             if result.get("status") == "SKIPPED":
@@ -301,13 +335,34 @@ def render_report(payload):
             f"Remediation: `{first.get('remediation_command') or '-'}`",
             "",
         ]
-    taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}
-    taker_tail = (payload.get("summary") or {}).get("taker_tail_casebook") or {}
-    trading = (payload.get("summary") or {}).get("trading_evidence") or {}
-    if taker_finalization.get("status") or taker_tail.get("status") or trading.get("status"):
+    scorecard = (payload.get("summary") or {}).get("proper_scoring_reliability_scorecard") or {}
+    if scorecard.get("status"):
         lines += [
             "",
-            "## Taker And Trading Evidence",
+            "## Proper-Scoring Reliability",
+            "",
+            f"Status: `{scorecard.get('status')}`",
+            f"Scored probability rows: `{scorecard.get('scored_probability_row_count')}`",
+            f"Lanes: `{scorecard.get('lane_count')}`",
+            f"Blockers: `{scorecard.get('blocker_count')}`",
+            f"Served-vs-validated parity: `{scorecard.get('served_validated_parity_status')}`",
+            "",
+        ]
+    taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}
+    taker_tail = (payload.get("summary") or {}).get("taker_tail_casebook") or {}
+    maker_paper = (payload.get("summary") or {}).get("maker_paper_score") or {}
+    truth_audit = (payload.get("summary") or {}).get("settlement_source_audit") or {}
+    trading = (payload.get("summary") or {}).get("trading_evidence") or {}
+    if (
+        taker_finalization.get("status")
+        or taker_tail.get("status")
+        or maker_paper.get("status")
+        or truth_audit.get("status")
+        or trading.get("status")
+    ):
+        lines += [
+            "",
+            "## Maker, Taker, And Trading Evidence",
             "",
             "| Artifact | Status | Detail |",
             "| :--- | :--- | :--- |",
@@ -331,14 +386,36 @@ def render_report(payload):
                 f"losing={taker_tail.get('losing_tail_fill_count')}; "
                 f"no_go={taker_tail.get('no_go_candidate_count')} |"
             )
+        if maker_paper.get("status"):
+            lines.append(
+                "| Maker paper score | "
+                f"{maker_paper.get('status')} | "
+                f"freshness={maker_paper.get('paper_score_freshness_status')}; "
+                f"latest={maker_paper.get('latest_completed_active_day') or '-'}; "
+                f"covered={maker_paper.get('latest_covered_active_day') or '-'}; "
+                f"fills={maker_paper.get('conservative_fills')}; "
+                f"gate={maker_paper.get('gate_status')} |"
+            )
+        if truth_audit.get("status"):
+            lines.append(
+                "| Settlement source audit | "
+                f"{truth_audit.get('status')} | "
+                f"labels={truth_audit.get('label_count')}; "
+                f"proof={truth_audit.get('proof_grade_label_count')}; "
+                f"blocked={truth_audit.get('promotion_blocked_label_count')}; "
+                f"revised={truth_audit.get('revised_label_count')}; "
+                f"unreconciled={truth_audit.get('unreconciled_label_count')} |"
+            )
         if trading.get("status"):
             lines.append(
                 "| Trading evidence | "
                 f"{trading.get('status')} | "
                 f"taker={trading.get('taker_quality_status')} "
                 f"{trading.get('taker_pnl_evidence_status')}; "
+                f"truth={trading.get('taker_settlement_source_audit_status')}; "
                 f"mm_counts={trading.get('mm_counts_toward_live_forward')}; "
-                f"starvation={trading.get('mm_evidence_starvation_status')} |"
+                f"starvation={trading.get('mm_evidence_starvation_status')}; "
+                f"paper_score={trading.get('mm_paper_score_freshness_status')} |"
             )
     disk_preflights = (payload.get("summary") or {}).get("disk_preflight") or {}
     if disk_preflights:

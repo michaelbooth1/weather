@@ -1,4 +1,4 @@
-# 265. Settlement-Source Revision And Truth-Label Audit [OPEN 2026-06-23 - LABEL FINALIZATION RISK NEEDS COUNTABLE PROOF]
+# 265. Settlement-Source Revision And Truth-Label Audit [COMPLETE 2026-06-23 - TRUTH-LABEL AUDIT AND BLOCKER LIVE]
 
 Goal: measure how often WU final high, Weather.com max-since-7, market
 resolution labels, and the canonical settlement ledger disagree or revise after
@@ -35,13 +35,13 @@ learn a false edge or reject a valid signal.
 6. Add proof-packet counts for finalized labels, provisional labels, revised
    labels, unreconciled labels, and rows excluded from promotion-grade evidence.
 
-- [ ] Add the settlement-source revision audit schema and report.
-- [ ] Add source-finalization lag and disagreement counts by market and date.
-- [ ] Add raw-payload lineage or explicit missing-lineage reasons for each
+- [x] Add the settlement-source revision audit schema and report.
+- [x] Add source-finalization lag and disagreement counts by market and date.
+- [x] Add raw-payload lineage or explicit missing-lineage reasons for each
   audited label.
-- [ ] Add alternate-label sensitivity for promotion and trading reports where
+- [x] Add alternate-label sensitivity for promotion and trading reports where
   label disagreement changes the result.
-- [ ] Add a promotion blocker when proof-grade evidence depends on provisional
+- [x] Add a promotion blocker when proof-grade evidence depends on provisional
   or unreconciled labels.
 
 Acceptance: any promotion, backtest, or trading report that relies on settled
@@ -50,3 +50,42 @@ manually overridden, or unreconciled. Promotion-grade evidence must exclude or
 explicitly block on unresolved truth-label uncertainty.
 
 Related: items 25, 153, 166, 193, 201, 215, 232, 242.
+
+## Completion Evidence
+
+Completed on 2026-06-23:
+
+- Added `weather.reporting.settlement_source_audit`, schema
+  `settlement_source_revision_audit_v0.1`, with JSON and Markdown outputs at
+  `data/backtest/settlement_source_revision_audit.json` and
+  `data/backtest/settlement_source_revision_audit.md`.
+- The audit classifies labels as `FINALIZED`, `PROVISIONAL`, `SOURCE_STALE`,
+  `SOURCE_REVISION`, `SOURCE_DISAGREEMENT`, `MANUAL_OVERRIDE`, or
+  `UNRECONCILED`; records finalization lag by market/date; records source
+  bucket disagreements; and stores raw lineage hashes or explicit
+  missing-payload reasons for WU daily summary, snapshot tape, settlement
+  ledger, Weather.com max-since-7, and market resolution evidence.
+- Alternate-label sensitivity now marks rows where another plausible source
+  bucket would change the result, and the target-date gate blocks
+  promotion-grade/trading evidence when settled target dates have provisional,
+  revised, disagreed, manually overridden, unreconciled, or missing audit rows.
+- Daily refresh now runs `settlement_source_audit` after maker paper score and
+  before trading evidence. Trading evidence consumes the audit JSON and reports
+  `settlement_source_audit_status` plus blockers.
+
+Current generated audit snapshot:
+
+- `201` labels audited.
+- `54` proof-grade finalized labels.
+- `147` labels block promotion-grade use.
+- `143` provisional labels, `2` source-revision labels, `2` source-disagreement
+  labels, and `3` alternate-label result-change rows.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_settlement_source_audit.py tests\reporting\test_trading_evidence.py tests\operations\test_schema_registry.py -q`
+  passed with `13 passed`.
+- `python -m pytest tests\operations\test_daily_refresh.py -q` passed with
+  `46 passed`.
+- `python -m weather.reporting.settlement_source_audit --json-out data\backtest\settlement_source_revision_audit.json --report-out data\backtest\settlement_source_revision_audit.md`
+  generated status `BLOCK`, reflecting current non-proof-grade label rows.

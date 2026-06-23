@@ -329,13 +329,16 @@ def current_high_trust_gate_state(row, config):
         reason_bits.append(f"guard:{row.get('current_high_guard_reason')}")
     state["current_high_trust_gate_aggressive"] = bool(aggressive)
     state["current_high_trust_gate_reason"] = ";".join(reason_bits)
+    gate_action = str(config.get("current_high_trust_gate_action") or "deny_aggressive")
+    strategy_status = str(row.get("strategy_status") or "").strip().lower()
+    diagnostic_only = strategy_status in {"shadow", "diagnostic"} and gate_action != "deny_aggressive"
+    if aggressive and not diagnostic_only:
+        state["current_high_trust_gate_status"] = "blocked"
+        state["current_high_trust_gate_action"] = "deny_aggressive"
+        return state
     if not late_window:
         state["current_high_trust_gate_status"] = "observe"
         state["current_high_trust_gate_action"] = "allow_pre_late_window"
-        return state
-    if aggressive and str(config.get("current_high_trust_gate_action") or "deny_aggressive") == "deny_aggressive":
-        state["current_high_trust_gate_status"] = "blocked"
-        state["current_high_trust_gate_action"] = "deny_aggressive"
         return state
     state["current_high_trust_gate_status"] = "capped"
     state["current_high_trust_gate_action"] = "cap_size"
@@ -344,6 +347,23 @@ def current_high_trust_gate_state(row, config):
         min(1.0, float(config.get("current_high_trust_gate_size_multiplier") or 0.25)),
     )
     return state
+
+
+def current_high_trust_config_warnings(config):
+    config = config or {}
+    start_hour = maybe_float(config.get("current_high_trust_gate_start_hour_local"))
+    if start_hour is None or start_hour <= 0:
+        return []
+    return [{
+        "code": "CURRENT_HIGH_TRUST_GATE_DELAYED_START",
+        "severity": "WARN",
+        "configured_start_hour_local": start_hour,
+        "effective_aggressive_start_hour_local": 0.0,
+        "detail": (
+            "current_high_trust_gate_start_hour_local is greater than 0; "
+            "aggressive untrusted-current-high taker rows still deny from local hour 0"
+        ),
+    }]
 
 
 def strategy_risk_gate_allowlisted(row, config, *, family_key, id_key):
@@ -648,6 +668,22 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
     fair = clamp_probability(input_row.get("fair_probability"))
     best_bid = clamp_probability(first_present(input_row, "clob_best_bid", "best_bid", "gamma_best_bid"))
     best_ask = clamp_probability(first_present(input_row, "clob_best_ask", "best_ask", "gamma_best_ask"))
+    no_best_bid = clamp_probability(first_present(input_row, "no_best_bid", "clob_no_best_bid"))
+    no_best_ask = clamp_probability(first_present(input_row, "no_best_ask", "clob_no_best_ask"))
+    no_ask_size = maybe_float(first_present(input_row, "no_ask_size_at_best", "clob_no_ask_size_at_best"))
+    no_bid_size = maybe_float(first_present(input_row, "no_bid_size_at_best", "clob_no_bid_size_at_best"))
+    no_book_age = maybe_float(first_present(input_row, "no_book_age_seconds", "clob_no_book_age_seconds"))
+    if no_book_age is None:
+        no_book_age = age_seconds(
+            first_present(input_row, "no_book_captured_at_utc", "clob_no_book_captured_at_utc"),
+            now,
+        )
+    no_book_source = input_row.get("no_book_source") or ""
+    no_book_max_age = float(config.get("two_sided_real_no_book_max_age_seconds") or 120.0)
+    no_book_min_depth = float(config.get("two_sided_real_no_book_min_ask_size") or 0.0)
+    no_book_real = no_book_source == "no_token_book"
+    no_book_fresh = bool(no_book_real and no_book_age is not None and no_book_age <= no_book_max_age)
+    real_no_depth_eligible = bool(no_book_fresh and (no_ask_size or 0.0) > 0 and (no_ask_size or 0.0) >= no_book_min_depth)
     mid = market_mid(input_row)
     edge = fair - best_ask if fair is not None and best_ask is not None else None
     ask_size = maybe_float(first_present(input_row, "ask_size_at_best", "clob_ask_size_at_best", "ask_depth_1pct"))
@@ -694,6 +730,8 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "bin_value": input_row.get("bin_value") or input_row.get("bin_value_c") or value or "",
         "bin_value_hi": input_row.get("bin_value_hi") or value_hi or "",
         "condition_id": input_row.get("condition_id") or "",
+        "clob_yes_token_id": input_row.get("clob_yes_token_id") or "",
+        "clob_no_token_id": input_row.get("clob_no_token_id") or "",
         "clob_token_id": token,
         # Two-sided taker (item 253): NO-side candidates carry taker_side=NO_BUY;
         # default stays YES_BUY so YES-only behaviour is unchanged.
@@ -705,6 +743,16 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "fair_probability": compact_float(fair),
         "best_bid": compact_float(best_bid),
         "best_ask": compact_float(best_ask),
+        "no_best_bid": compact_float(no_best_bid),
+        "no_best_ask": compact_float(no_best_ask),
+        "no_bid_size_at_best": compact_float(no_bid_size),
+        "no_ask_size_at_best": compact_float(no_ask_size),
+        "no_ask_depth_1pct": compact_float(first_present(input_row, "no_ask_depth_1pct", "clob_no_ask_depth_1pct")),
+        "no_book_source": no_book_source,
+        "no_book_captured_at_utc": input_row.get("no_book_captured_at_utc") or input_row.get("clob_no_book_captured_at_utc") or "",
+        "no_book_age_seconds": compact_float(no_book_age),
+        "no_book_fresh": no_book_fresh,
+        "real_no_book_depth_eligible": real_no_depth_eligible,
         "market_mid": compact_float(mid),
         "edge": compact_float(edge),
         "expected_profit_per_share": compact_float(edge),

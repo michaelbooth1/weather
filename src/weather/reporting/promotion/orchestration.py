@@ -262,6 +262,9 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
     source_family_inventory = _read_source_family_inventory(
         getattr(args, "source_family_inventory", DEFAULT_SOURCE_FAMILY_INVENTORY)
     )
+    physical_feature_family_ratchet = _read_physical_feature_family_ratchet(
+        getattr(args, "physical_feature_family_ratchet", DEFAULT_PHYSICAL_FEATURE_FAMILY_RATCHET)
+    )
     fleet_observability = _read_fleet_observability(
         getattr(args, "fleet_observability_report", DEFAULT_FLEET_OBSERVABILITY)
     )
@@ -352,6 +355,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         ten_minute_performance=ten_minute_performance,
         candidate_ten_minute_performance=candidate_ten_minute_performance,
         source_family_inventory=source_family_inventory,
+        physical_feature_family_ratchet=physical_feature_family_ratchet,
         fleet_observability=fleet_observability,
         runtime_identity_evidence=runtime_identity_evidence,
         evidence_freshness=evidence_freshness,
@@ -376,6 +380,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         "ten_minute_performance": ten_minute_performance,
         "candidate_ten_minute_performance": candidate_ten_minute_performance,
         "source_family_inventory": source_family_inventory,
+        "physical_feature_family_ratchet": physical_feature_family_ratchet,
         "fleet_observability": fleet_observability,
         "settled_day_freshness": settled_day_freshness,
         "data_layer_audit": data_layer_audit,

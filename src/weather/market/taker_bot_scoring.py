@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_sizing import *  # noqa: F403
+from weather.market.taker_bot_two_sided import NO_SIDE, order_side
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -310,6 +311,10 @@ def promotion_thresholds(policy_config=None):
             "promotion_max_tail_fill_fraction",
             DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
         ),
+        "require_real_no_book_for_two_sided": bool_value(
+            policy_config.get("two_sided_real_no_book_required_for_promotion"),
+            True,
+        ),
     }
 
 
@@ -562,6 +567,13 @@ def settlement_promotion_gate(strategy_row, thresholds):
     after_fee_scored = bool_value(strategy_row.get("after_fee_pnl_scored"), False)
     after_slippage_scored = bool_value(strategy_row.get("after_slippage_pnl_scored"), False)
     market_benchmark_status = strategy_row.get("market_benchmark_status") or "PASS"
+    require_real_no_book = bool_value(thresholds.get("require_real_no_book_for_two_sided"), True)
+    no_side_status = strategy_row.get("no_side_live_scale_book_status") or "PASS"
+    two_sided_book_ok = (
+        not require_real_no_book
+        or strategy_row.get("strategy_family") != "two_sided"
+        or no_side_status == "PASS"
+    )
     tail_summary = strategy_row.get("tail_fill_quality_summary") or {}
     max_tail_fraction = maybe_float(thresholds.get("max_tail_fill_fraction")) or 0.0
     tail_fraction = maybe_float(tail_summary.get("low_price_tail_fill_fraction")) or 0.0
@@ -606,6 +618,12 @@ def settlement_promotion_gate(strategy_row, thresholds):
             "name": "market_benchmark_beats_model",
             "ok": market_benchmark_status != "BLOCK_MARKET_SMARTER",
             "value": market_benchmark_status,
+            "threshold": "PASS",
+        },
+        {
+            "name": "real_no_book_depth_for_two_sided",
+            "ok": two_sided_book_ok,
+            "value": no_side_status,
             "threshold": "PASS",
         },
         {
@@ -683,6 +701,11 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
         "unscored_order_count": 0,
         "win_count": 0,
         "loss_count": 0,
+        "no_side_fill_count": 0,
+        "no_side_real_book_fill_count": 0,
+        "no_side_synthetic_book_fill_count": 0,
+        "no_side_stale_book_fill_count": 0,
+        "no_side_missing_depth_fill_count": 0,
         "low_price_tail_fill_count": 0,
         "low_price_tail_spent_usdc": 0.0,
         "low_price_tail_settled_count": 0,
@@ -757,6 +780,16 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
             strat["after_slippage_pnl_scored_count"] += 1
         if row.get("pnl_fee_basis") == "paper_no_fee":
             strat["paper_no_fee_count"] += 1
+        if order_side(row) == NO_SIDE:
+            strat["no_side_fill_count"] += 1
+            if row.get("no_book_source") == "no_token_book" and bool_value(row.get("real_no_book_depth_eligible"), False):
+                strat["no_side_real_book_fill_count"] += 1
+            elif str(row.get("no_book_source") or "").startswith("synthetic"):
+                strat["no_side_synthetic_book_fill_count"] += 1
+            elif row.get("no_book_source") == "no_token_book" and not bool_value(row.get("no_book_fresh"), False):
+                strat["no_side_stale_book_fill_count"] += 1
+            else:
+                strat["no_side_missing_depth_fill_count"] += 1
         edge = maybe_float(row.get("expected_profit_after_friction_per_share"))
         edge_after_friction = edge is not None
         if edge is None:
@@ -919,6 +952,20 @@ def build_pnl_payload(order_rows, budget_usdc, run_id, target_date, now=None, po
                 and value["after_slippage_pnl_scored_count"] == value["filled_order_count"]
             ),
             "paper_no_fee_count": value["paper_no_fee_count"],
+            "no_side_fill_count": value["no_side_fill_count"],
+            "no_side_real_book_fill_count": value["no_side_real_book_fill_count"],
+            "no_side_synthetic_book_fill_count": value["no_side_synthetic_book_fill_count"],
+            "no_side_stale_book_fill_count": value["no_side_stale_book_fill_count"],
+            "no_side_missing_depth_fill_count": value["no_side_missing_depth_fill_count"],
+            "no_side_real_book_fill_fraction": compact_float(
+                value["no_side_real_book_fill_count"] / value["no_side_fill_count"]
+                if value["no_side_fill_count"] else 0.0
+            ),
+            "no_side_live_scale_book_status": (
+                "PASS"
+                if value["no_side_fill_count"] == value["no_side_real_book_fill_count"]
+                else "BLOCK_SYNTHETIC_OR_STALE_NO_BOOK"
+            ),
             "pnl_fee_basis": (
                 "after_fee"
                 if value["filled_order_count"] > 0

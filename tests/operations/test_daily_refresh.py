@@ -24,11 +24,14 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_distribution_stage_attribution_step,
     run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
+    run_maker_paper_score_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
+    run_proper_scoring_reliability_scorecard_step,
     run_reanalysis_recent_refresh_step,
     run_settled_day_root_cause_step,
+    run_settlement_source_audit_step,
     run_taker_finalization_watchdog_step,
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
@@ -68,6 +71,7 @@ def _args(tmp, **overrides):
         "ab_market_tol": 0.003,
         "skip_active_variant_shadow": False,
         "active_variant_shadow_sources": "",
+        "skip_proper_scoring_reliability_scorecard": False,
         "variant_registry": str(root / "config" / "model_variant_registry.json"),
         "skip_frozen_baseline_replay_trend": False,
         "frozen_baseline_current_predictions": "",
@@ -122,6 +126,8 @@ def _args(tmp, **overrides):
         "skip_taker_tail_casebook": False,
         "taker_tail_casebook_date": "",
         "taker_tail_casebook_max_runs": 0,
+        "skip_maker_paper_score": False,
+        "skip_settlement_source_audit": False,
         "skip_trading_evidence": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
@@ -167,6 +173,59 @@ def _write_order_tape(path, rows):
             full = {column: "" for column in ORDER_COLUMNS}
             full.update(row)
             writer.writerow(full)
+
+
+def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
+    run = Path(root) / "mm_runs" / target_date / run_id
+    run.mkdir(parents=True)
+    run_config = {
+        "schema_version": "mm_run_v0.2",
+        "run_id": run_id,
+        "mode": "paper-live-forward",
+        "target_date": target_date,
+        "policy_hash": f"policy-{run_id}",
+    }
+    (run / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+    summary = {
+        **run_config,
+        "evidence_mode": "active_day_live_forward",
+        "counts_toward_live_forward_gate": True,
+        "preflight_status": "PASS",
+        "generated_at_utc": f"{target_date}T20:00:00+00:00",
+    }
+    (run / "run_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    quote_row = {
+        "run_id": run_id,
+        "target_date": target_date,
+        "run_mode": "paper-live-forward",
+        "generated_at_utc": f"{target_date}T16:00:00+00:00",
+        "captured_at_utc": f"{target_date}T15:59:30+00:00",
+        "policy_hash": f"policy-{run_id}",
+        "quote_permission": "True",
+        "market_id": "atlanta",
+        "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+        "range_label": "80-81 F",
+        "bin_kind": "eq",
+        "bin_value": "80",
+        "bin_value_hi": "81",
+        "clob_token_id": f"token-{run_id}",
+        "fair_probability": "0.50",
+        "market_mid": "0.50",
+        "bid_price": "0.49",
+        "bid_size": "5",
+        "ask_price": "0.51",
+        "ask_size": "5",
+        "regime": "harvest",
+        "source_fresh": "True",
+        "book_imbalance_1pct": "0.10",
+        "min_order_size": "1",
+        "reason_code": "QUOTE_HARVEST_MID",
+    }
+    with (run / "quote_intents_long.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(quote_row.keys()))
+        writer.writeheader()
+        writer.writerow(quote_row)
+    return run
 
 
 class TestDailyRefresh(unittest.TestCase):
@@ -405,7 +464,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("taker_finalization_watchdog"))
         self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_tail_casebook"))
-        self.assertLess(names.index("taker_tail_casebook"), names.index("trading_evidence"))
+        self.assertLess(names.index("taker_tail_casebook"), names.index("maker_paper_score"))
+        self.assertLess(names.index("maker_paper_score"), names.index("settlement_source_audit"))
+        self.assertLess(names.index("settlement_source_audit"), names.index("trading_evidence"))
         self.assertLess(names.index("trading_evidence"), names.index("daily_learning"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
@@ -420,7 +481,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
         self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
-        self.assertLess(names.index("active_variant_shadow"), names.index("frozen_baseline_replay_trend"))
+        self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
+        self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
 
     def test_promotion_refresh_disk_preflight_blocks_before_candidate_export(self):
@@ -1148,6 +1210,64 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["taker"]["run_id"], "taker-1")
         self.assertTrue(report_exists)
 
+    def test_settlement_source_audit_step_writes_truth_label_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            daily = root / "daily_summary.csv"
+            snapshot = root / "snapshots_long.csv"
+            ledger = root / "settlements" / "atlanta" / "ledger.jsonl"
+            daily.write_text("local_date,row_count,max_temp_bucket_c\n2026-06-19,24,84\n", encoding="utf-8")
+            snapshot.write_text("snapshot_id,wu_history_high_c\ns1,84\n", encoding="utf-8")
+            row = {
+                "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                "market_id": "atlanta",
+                "target_date": "2026-06-19",
+                "settlement_bucket": "84",
+                "settlement_source": "daily_summary",
+                "quality_grade": "complete",
+                "reconciliation_status": "match",
+                "daily_summary_path": str(daily),
+                "snapshot_tape_path": str(snapshot),
+                "ledger_path": str(ledger),
+                "resolution_timezone": "America/New_York",
+                "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+            }
+            labels = root / "labels.csv"
+            labels.write_text(
+                ",".join(row.keys()) + "\n" + ",".join(row.values()) + "\n",
+                encoding="utf-8",
+            )
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+            result = run_settlement_source_audit_step(_args(tmp, labels_csv=str(labels), ledger_root=str(root / "settlements")))
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            report_exists = Path(result["report_out"]).exists()
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["label_count"], 1)
+        self.assertEqual(result["finalized_label_count"], 1)
+        self.assertEqual(result["proof_grade_label_count"], 1)
+        self.assertEqual(payload["summary"]["promotion_blocked_label_count"], 0)
+        self.assertTrue(report_exists)
+
+    def test_maker_paper_score_step_writes_fresh_standard_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _run = _write_active_mm_run(tmp)
+
+            result = run_maker_paper_score_step(_args(tmp))
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            report = Path(result["report_out"]).read_text(encoding="utf-8")
+            fills_exists = Path(result["fills_out"]).exists()
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["paper_score_freshness_status"], "PASS")
+        self.assertEqual(result["latest_completed_active_day"], "2026-06-19")
+        self.assertEqual(result["latest_covered_active_day"], "2026-06-19")
+        self.assertTrue(fills_exists)
+        self.assertEqual(payload["summary"]["paper_score_freshness_status"], "PASS")
+        self.assertIn("Paper-score freshness", report)
+
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (
             "variant_id,variant_family,uses_market_features,is_control,market_id,"
@@ -1196,6 +1316,69 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(report_exists)
         self.assertIn("Claim Lane Separation", report_text)
         self.assertIn("weather_only_core_model", report_text)
+
+    def test_proper_scoring_reliability_scorecard_step_writes_model_review_artifacts(self):
+        rows = [
+            {
+                "lane": "weather_only",
+                "market_id": "atlanta",
+                "target_date": "2026-06-19",
+                "snapshot_id": "s1",
+                "band_key": "eq:84",
+                "bin_value": "84",
+                "probability": "0.95",
+                "market_yes": "0.90",
+                "outcome": "1",
+                "settlement_distance": "0",
+                "cutoff_hour": "9",
+                "source_freshness_state": "all_fresh",
+                "runtime_identity": "desktop",
+                "weak_slot_state": "normal",
+                "distribution_family": "bucket",
+                "served_probability": "0.94",
+                "validated_probability": "0.95",
+            },
+            {
+                "lane": "weather_only",
+                "market_id": "atlanta",
+                "target_date": "2026-06-19",
+                "snapshot_id": "s1",
+                "band_key": "eq:85",
+                "bin_value": "85",
+                "probability": "0.05",
+                "market_yes": "0.10",
+                "outcome": "0",
+                "settlement_distance": "1",
+                "cutoff_hour": "9",
+                "source_freshness_state": "all_fresh",
+                "runtime_identity": "desktop",
+                "weak_slot_state": "normal",
+                "distribution_family": "bucket",
+                "served_probability": "0.04",
+                "validated_probability": "0.05",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            source = backtest / "active_variant_shadow_long.csv"
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=sorted({key for row in rows for key in row}))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            result = run_proper_scoring_reliability_scorecard_step(_args(tmp))
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            report = Path(result["report_out"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["source_row_count"], 2)
+        self.assertEqual(result["scored_probability_row_count"], 4)
+        self.assertEqual(result["lane_count"], 2)
+        self.assertEqual(result["served_validated_parity_status"], "PASS")
+        self.assertEqual(payload["schema_version"], "proper_scoring_reliability_scorecard_v0.1")
+        self.assertIn("Literature Appendix", report)
 
     def test_active_variant_shadow_uses_registry_export_paths_by_default(self):
         header = (
