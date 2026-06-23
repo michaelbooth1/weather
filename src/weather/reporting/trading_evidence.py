@@ -528,6 +528,8 @@ def summarize_market_making_run(path, payload):
     cumulative = payload.get("cumulative") or {}
     live_gate = payload.get("live_forward_gate") or {}
     gate_summary = live_gate.get("summary") or {}
+    useful_work = payload.get("useful_work_liveness") or live_gate.get("useful_work_liveness") or {}
+    model_variant = payload.get("model_variant_bakeoff") or {}
     evidence_mode = payload.get("evidence_mode")
     evidence_mode_reason = (
         payload.get("evidence_mode_reason")
@@ -563,6 +565,15 @@ def summarize_market_making_run(path, payload):
             or payload.get("live_trade_permission_rows")
             or 0
         ),
+        "useful_work_liveness_status": useful_work.get("status"),
+        "useful_work_liveness_enforced": bool(useful_work.get("enforced")),
+        "useful_work_liveness_root_cause_counts": useful_work.get("root_cause_counts") or {},
+        "useful_work_liveness_blocker_count": useful_work.get("blocker_count", 0),
+        "model_variant_bakeoff_status": model_variant.get("status"),
+        "model_variant_bakeoff_basket_id": model_variant.get("basket_id"),
+        "model_variant_bakeoff_row_count": payload.get("model_variant_row_count"),
+        "model_variant_bakeoff_variant_ids": model_variant.get("emitted_variant_ids") or [],
+        "model_variant_bakeoff_family_size": model_variant.get("multiple_testing_family_size"),
         "reason_counts": reason_counts,
         "current_high_trust_no_quote_count": _int_value(
             reason_counts.get("NO_QUOTE_CURRENT_HIGH_TRUST_GATE")
@@ -575,6 +586,11 @@ def summarize_market_making_run(path, payload):
                 None if countable_mode else f"evidence_mode={evidence_mode}",
                 None if live_gate.get("status") in {"PASS", None} else f"live_forward_gate={live_gate.get('status')}",
                 None if payload.get("preflight_status") in {"PASS", None} else f"preflight={payload.get('preflight_status')}",
+                (
+                    None
+                    if useful_work.get("status") in {"PASS", "SKIPPED", None}
+                    else f"useful_work_liveness={useful_work.get('status')}"
+                ),
             ]
             if blocker
         ],
@@ -1009,6 +1025,31 @@ def build_trading_evidence_summary(
     )
     market_making["paper_score_conservative_fills"] = mm_paper_summary.get("conservative_fills")
     market_making["paper_score_gate_status"] = mm_paper_summary.get("gate_status")
+    paper_fill_evidence = mm_paper_summary.get("fill_evidence_completeness") or {}
+    market_making["paper_fill_evidence_completeness_status"] = paper_fill_evidence.get("status")
+    market_making["paper_fill_evidence_completeness_blockers"] = paper_fill_evidence.get("blockers") or []
+    market_making["paper_fill_evidence_missing_size_trade_rows"] = paper_fill_evidence.get(
+        "missing_size_trade_rows"
+    )
+    market_making["paper_fill_evidence_missing_book_queue_legs"] = paper_fill_evidence.get(
+        "missing_book_queue_legs"
+    )
+    market_making["paper_fill_evidence_missing_trade_size_queue_legs"] = paper_fill_evidence.get(
+        "missing_trade_size_queue_legs"
+    )
+    market_making["paper_fill_evidence_unresolved_resting_quote_count"] = paper_fill_evidence.get(
+        "unresolved_resting_quote_count"
+    )
+    paper_model_variant = mm_paper_summary.get("model_variant_bakeoff") or {}
+    market_making["paper_model_variant_bakeoff_status"] = paper_model_variant.get("status")
+    market_making["paper_model_variant_promotion_gate_status"] = paper_model_variant.get("promotion_gate_status")
+    market_making["paper_model_variant_promotion_gate_method"] = paper_model_variant.get("promotion_gate_method")
+    market_making["paper_model_variant_promotion_gate_pair_count"] = paper_model_variant.get(
+        "promotion_gate_pair_count"
+    )
+    market_making["paper_model_variant_promotion_gate_pass_pair_count"] = paper_model_variant.get(
+        "promotion_gate_pass_pair_count"
+    )
     market_making["paper_score_live_forward_day_count"] = (
         (mm_paper_summary.get("paper_score_freshness") or {}).get("live_forward_day_count")
     )
@@ -1018,6 +1059,11 @@ def build_trading_evidence_summary(
     if paper_score_freshness.get("status") == "STALE":
         blockers = list(market_making.get("countability_blockers") or [])
         blockers.append("paper_score_freshness=STALE")
+        market_making["countability_blockers"] = blockers
+        market_making["countability_status"] = "NON_COUNTABLE"
+    if paper_fill_evidence.get("status") == "BLOCK":
+        blockers = list(market_making.get("countability_blockers") or [])
+        blockers.append("fill_evidence_completeness=BLOCK")
         market_making["countability_blockers"] = blockers
         market_making["countability_status"] = "NON_COUNTABLE"
     routed_starvation = mm_starvation.get("latest_starved") or latest_starvation

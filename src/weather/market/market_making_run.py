@@ -109,12 +109,17 @@ from weather.market.market_making_run_support import (  # noqa: E402
     write_json,
 )
 from weather.market.live_forward_gate import build_live_forward_gate
+from weather.market.market_making_model_variants import (
+    build_model_variant_quote_rows,
+    render_model_variant_report,
+)
 from weather.market.live_observation_normalization import (
     current_high_probability_summary,
     normalized_high_for_market,
 )
 from weather.market.market_making_evidence import (
     EVIDENCE_MODE_AUTO,
+    EVIDENCE_MODE_ACTIVE_DAY,
     EVIDENCE_MODE_CHOICES,
     classify_market_making_evidence,
 )
@@ -143,9 +148,11 @@ from weather.market.market_making_preflight import (  # noqa: E402
 
 SNAPSHOT_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "loop_status.json"
 CLOB_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "clob_loop_status.json"
+USEFUL_WORK_LIVENESS_SCHEMA_VERSION = "mm_useful_work_liveness_v0.1"
+USEFUL_WORK_STARTUP_GRACE_SECONDS = 180.0
 
 
-def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS):
+def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
     current = get_runtime_identity()
 
     def loop_row(name, path):
@@ -172,8 +179,8 @@ def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS
         }
 
     loops = [
-        loop_row("weather_snapshots", SNAPSHOT_LOOP_STATUS_PATH),
-        loop_row("clob_books", CLOB_LOOP_STATUS_PATH),
+        loop_row("weather_snapshots", Path(snapshots_root) / "loop_status.json"),
+        loop_row("clob_books", Path(snapshots_root) / "clob_loop_status.json"),
         loop_row("observation_triggers", observation_status_path),
     ]
     return {
@@ -182,6 +189,442 @@ def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS
         "current_identity_text": format_runtime_identity(current),
         "loops": loops,
         "drift_count": sum(1 for row in loops if row.get("runtime_identity_matches_current") is False),
+    }
+
+
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _age_seconds_at(value, now):
+    parsed = parse_time(value)
+    if parsed is None:
+        return None
+    return round(max(0.0, (now - parsed).total_seconds()), 1)
+
+
+def _first_present_mapping(row, *keys):
+    row = row or {}
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _nested_has_status(value, status):
+    if isinstance(value, dict):
+        for key in ("status", "state", "runtime_code_state"):
+            if str(value.get(key) or "").lower() == status:
+                return True
+        return any(_nested_has_status(item, status) for item in value.values())
+    if isinstance(value, list):
+        return any(_nested_has_status(item, status) for item in value)
+    return False
+
+
+def _nested_has_blocked(value):
+    if isinstance(value, dict):
+        if value.get("blocked") is True:
+            return True
+        return any(_nested_has_blocked(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_nested_has_blocked(item) for item in value)
+    return False
+
+
+def _market_result_count(results, predicate):
+    if not isinstance(results, dict):
+        return 0
+    return sum(1 for row in results.values() if isinstance(row, dict) and predicate(row))
+
+
+def _positive_numeric(value):
+    number = maybe_float(value)
+    return number is not None and number > 0
+
+
+def _loop_row(name, path, status, now, useful_keys, useful_count_fn=None):
+    status = status or {}
+    useful_at = _first_present_mapping(status, *useful_keys)
+    started_at = _first_present_mapping(status, "started_at", "started_at_utc")
+    startup_age = _age_seconds_at(started_at, now)
+    within_startup_grace = startup_age is not None and startup_age < USEFUL_WORK_STARTUP_GRACE_SECONDS
+    results = status.get("last_market_results") or status.get("last_poll_results") or {}
+    if useful_count_fn:
+        useful_count = useful_count_fn(results)
+    elif isinstance(results, dict):
+        useful_count = len(results)
+    else:
+        useful_count = 0
+    result_items = results.items() if isinstance(results, dict) else []
+    stale_code_markets = sorted(
+        market_id
+        for market_id, result in result_items
+        if isinstance(result, dict) and _nested_has_status(result, "stale_code")
+    )
+    result_items = results.items() if isinstance(results, dict) else []
+    blocked_markets = sorted(
+        market_id
+        for market_id, result in result_items
+        if isinstance(result, dict) and _nested_has_blocked(result)
+    )
+    return {
+        "name": name,
+        "status_path": str(path),
+        "exists": bool(status),
+        "pid": status.get("pid"),
+        "iterations": _safe_int(status.get("iterations")),
+        "last_heartbeat": status.get("last_heartbeat"),
+        "heartbeat_age_seconds": _age_seconds_at(status.get("last_heartbeat"), now),
+        "last_useful_write_at": parse_time(useful_at).isoformat() if parse_time(useful_at) else None,
+        "useful_write_age_seconds": _age_seconds_at(useful_at, now),
+        "useful_iteration_count": useful_count,
+        "last_error": status.get("last_error"),
+        "consecutive_errors": _safe_int(status.get("consecutive_errors")) or 0,
+        "started_at": parse_time(started_at).isoformat() if parse_time(started_at) else started_at,
+        "startup_age_seconds": startup_age,
+        "within_startup_grace": within_startup_grace,
+        "stale_code_market_count": len(stale_code_markets),
+        "stale_code_markets": stale_code_markets,
+        "blocked_market_count": len(blocked_markets),
+        "blocked_markets": blocked_markets,
+    }
+
+
+def _blocker(gate, root_cause, owner, detail, suggested_command, **extra):
+    payload = {
+        "gate": gate,
+        "root_cause": root_cause,
+        "owner": owner,
+        "detail": detail,
+        "suggested_command": suggested_command,
+        "severity": "block",
+        "market_id": extra.pop("market_id", "*"),
+        "recoverable_same_day": bool(extra.pop("recoverable_same_day", True)),
+        "can_still_count_live_forward_day": False,
+    }
+    payload.update(extra)
+    return payload
+
+
+def _all_market_scope(specs):
+    selected = {spec.id for spec in specs or []}
+    known = {spec.id for spec in all_specs()}
+    return bool(selected) and selected == known
+
+
+def _gate_failed(market, names):
+    names = set(names)
+    return any((gate.get("name") in names and not gate.get("ok")) for gate in market.get("gates") or [])
+
+
+def build_useful_work_liveness(
+    preflight_rows,
+    *,
+    runtime_identity,
+    observation_status_path,
+    snapshots_root,
+    runs_root,
+    policy_config,
+    now,
+    all_market_scope,
+    evidence_mode,
+    mode,
+    snapshot_loop_status=None,
+    clob_loop_status=None,
+    observation_status_raw=None,
+    daily_roll_status=None,
+):
+    """Run-level all-market useful-write SLA for maker evidence countability."""
+    now = utc_now(now)
+    snapshots_root = Path(snapshots_root)
+    runs_root = Path(runs_root)
+    snapshot_status_path = snapshots_root / "loop_status.json"
+    clob_status_path = snapshots_root / "clob_loop_status.json"
+    observation_status_path = Path(observation_status_path)
+    daily_roll_status_path = runs_root / "daily_roll_status.json"
+    if snapshot_loop_status is None:
+        snapshot_loop_status = read_json(snapshot_status_path, {}) or {}
+    if clob_loop_status is None:
+        clob_loop_status = read_json(clob_status_path, {}) or {}
+    if observation_status_raw is None:
+        observation_status_raw = read_json(observation_status_path, {}) or {}
+    if daily_roll_status is None:
+        daily_roll_status = read_json(daily_roll_status_path, {}) or {}
+
+    loops = [
+        _loop_row(
+            "weather_snapshots",
+            snapshot_status_path,
+            snapshot_loop_status,
+            now,
+            ("last_snapshot_written_at",),
+            useful_count_fn=lambda results: _market_result_count(results, lambda row: bool(row.get("written"))),
+        ),
+        _loop_row(
+            "clob_books",
+            clob_status_path,
+            clob_loop_status,
+            now,
+            ("last_books_captured_at",),
+            useful_count_fn=lambda results: _market_result_count(
+                results,
+                lambda row: (
+                    _positive_numeric(row.get("books"))
+                    or _positive_numeric(row.get("captured_books"))
+                    or _positive_numeric(row.get("captured_tokens"))
+                ),
+            ),
+        ),
+        _loop_row(
+            "observation_triggers",
+            observation_status_path,
+            observation_status_raw,
+            now,
+            ("last_poll_at_utc", "last_heartbeat"),
+            useful_count_fn=lambda results: _market_result_count(results, lambda row: not row.get("error")),
+        ),
+    ]
+    active_day_scope = (
+        bool(all_market_scope)
+        and evidence_mode == EVIDENCE_MODE_ACTIVE_DAY
+        and mode == "paper-live-forward"
+    )
+    blockers = []
+    if active_day_scope:
+        for row in (runtime_identity or {}).get("loops") or []:
+            if row.get("runtime_identity_matches_current") is False:
+                blockers.append(_blocker(
+                    "runtime_identity",
+                    "stale_runtime_identity",
+                    row.get("name") or "maker supervisor",
+                    f"{row.get('name') or 'loop'} runtime identity differs from current source tree",
+                    "restart the stale supervisor process so it reloads current source",
+                    loop=row.get("name"),
+                    status_path=row.get("status_path"),
+                ))
+
+        snapshot_loop = loops[0]
+        model_threshold = maybe_float(policy_config.get("max_model_age_seconds")) or 0.0
+        if not snapshot_loop["exists"]:
+            blockers.append(_blocker(
+                "snapshot_loop_activity",
+                "snapshot_loop_status_missing",
+                "weather snapshot/model loop",
+                "snapshot loop status file is missing",
+                "python -m weather.collection.snapshot_tracker --status",
+                status_path=snapshot_loop["status_path"],
+            ))
+        elif snapshot_loop.get("last_useful_write_at") is None:
+            blockers.append(_blocker(
+                "snapshot_loop_activity",
+                "snapshot_loop_no_useful_write",
+                "weather snapshot/model loop",
+                "snapshot loop has no last_snapshot_written_at useful-write timestamp",
+                "python -m weather.collection.snapshot_tracker --status",
+                status_path=snapshot_loop["status_path"],
+            ))
+        elif snapshot_loop.get("useful_write_age_seconds") is not None and snapshot_loop["useful_write_age_seconds"] > model_threshold:
+            blockers.append(_blocker(
+                "snapshot_loop_activity",
+                "snapshot_loop_stale_useful_write",
+                "weather snapshot/model loop",
+                f"snapshot loop last useful write age {snapshot_loop['useful_write_age_seconds']}s exceeds {model_threshold}s",
+                "python -m weather.collection.snapshot_tracker --status",
+                last_good_timestamp=snapshot_loop.get("last_useful_write_at"),
+                age_seconds=snapshot_loop.get("useful_write_age_seconds"),
+                stale_threshold_seconds=model_threshold,
+            ))
+
+        clob_loop = loops[1]
+        book_threshold = maybe_float(policy_config.get("max_book_age_seconds")) or 0.0
+        if not clob_loop["exists"]:
+            blockers.append(_blocker(
+                "clob_loop_activity",
+                "clob_loop_status_missing",
+                "CLOB book supervisor",
+                "CLOB loop status file is missing",
+                "python -m weather.market.market_microstructure status",
+                status_path=clob_loop["status_path"],
+            ))
+        elif clob_loop.get("iterations") == 0 and not clob_loop.get("within_startup_grace"):
+            blockers.append(_blocker(
+                "clob_loop_activity",
+                "clob_loop_zero_iterations",
+                "CLOB book supervisor",
+                "CLOB loop has zero iterations after startup grace",
+                "python -m weather.market.market_microstructure ensure",
+                status_path=clob_loop["status_path"],
+            ))
+        elif clob_loop.get("last_useful_write_at") is None and not clob_loop.get("within_startup_grace"):
+            blockers.append(_blocker(
+                "clob_loop_activity",
+                "clob_loop_no_useful_write",
+                "CLOB book supervisor",
+                "CLOB loop has no last_books_captured_at useful-write timestamp",
+                "python -m weather.market.market_microstructure status",
+                status_path=clob_loop["status_path"],
+            ))
+        elif clob_loop.get("useful_write_age_seconds") is not None and clob_loop["useful_write_age_seconds"] > book_threshold:
+            blockers.append(_blocker(
+                "clob_loop_activity",
+                "clob_loop_stale_useful_write",
+                "CLOB book supervisor",
+                f"CLOB loop last useful write age {clob_loop['useful_write_age_seconds']}s exceeds {book_threshold}s",
+                "python -m weather.market.market_microstructure ensure",
+                last_good_timestamp=clob_loop.get("last_useful_write_at"),
+                age_seconds=clob_loop.get("useful_write_age_seconds"),
+                stale_threshold_seconds=book_threshold,
+            ))
+
+        observation_loop = loops[2]
+        if not observation_loop["exists"]:
+            blockers.append(_blocker(
+                "observation_loop_activity",
+                "observation_status_missing",
+                "observation-trigger supervisor",
+                "observation trigger status file is missing",
+                "python -m weather.operations.observation_trigger ensure",
+                status_path=observation_loop["status_path"],
+            ))
+        elif not (observation_status_raw or {}).get("last_poll_results"):
+            blockers.append(_blocker(
+                "observation_loop_activity",
+                "observation_trigger_no_poll_results",
+                "observation-trigger supervisor",
+                "observation trigger has no per-market last_poll_results",
+                "python -m weather.operations.observation_trigger ensure",
+                status_path=observation_loop["status_path"],
+            ))
+        if observation_loop.get("stale_code_market_count"):
+            blockers.append(_blocker(
+                "observation_trigger_runtime",
+                "observation_trigger_stale_code_markets",
+                "observation-trigger supervisor",
+                (
+                    f"{observation_loop['stale_code_market_count']} observation-trigger market(s) "
+                    "reported stale_code"
+                ),
+                "python -m weather.operations.observation_trigger ensure --force",
+                market_count=observation_loop["stale_code_market_count"],
+                markets=observation_loop.get("stale_code_markets") or [],
+            ))
+        if observation_loop.get("blocked_market_count"):
+            blockers.append(_blocker(
+                "observation_trigger_runtime",
+                "observation_trigger_blocked_markets",
+                "observation-trigger supervisor",
+                f"{observation_loop['blocked_market_count']} observation-trigger market(s) returned blocked results",
+                "python -m weather.operations.observation_trigger ensure",
+                market_count=observation_loop["blocked_market_count"],
+                markets=observation_loop.get("blocked_markets") or [],
+            ))
+
+        stale_model_markets = sorted(
+            row.get("market_id") for row in preflight_rows
+            if _gate_failed(row, {"snapshot_model_rows", "model_freshness"})
+        )
+        stale_clob_markets = sorted(
+            row.get("market_id") for row in preflight_rows
+            if _gate_failed(row, {"clob_books", "clob_features", "clob_freshness"})
+        )
+        if stale_model_markets:
+            blockers.append(_blocker(
+                "snapshot_model_useful_write",
+                "stale_or_missing_snapshot_model_rows",
+                "weather snapshot/model loop",
+                f"{len(stale_model_markets)} selected market(s) have stale or missing snapshot/model rows",
+                "python -m weather.collection.snapshot_tracker --status",
+                market_count=len(stale_model_markets),
+                markets=stale_model_markets,
+            ))
+        if stale_clob_markets:
+            blockers.append(_blocker(
+                "clob_book_useful_write",
+                "stale_or_missing_clob_book_rows",
+                "CLOB book supervisor",
+                f"{len(stale_clob_markets)} selected market(s) have stale or missing CLOB book evidence",
+                "python -m weather.market.market_microstructure ensure",
+                market_count=len(stale_clob_markets),
+                markets=stale_clob_markets,
+            ))
+
+        encoding_markets = sorted(
+            row.get("market_id") for row in preflight_rows
+            if int(((row.get("csv_encoding") or {}).get("issue_count")) or 0) > 0
+        )
+        if encoding_markets:
+            blockers.append(_blocker(
+                "clob_csv_encoding",
+                "clob_csv_encoding_issue",
+                "CLOB book/token artifact writer",
+                f"{len(encoding_markets)} selected market(s) have CLOB CSV encoding diagnostics",
+                "inspect quarantined CSV rows and rerun CLOB capture",
+                market_count=len(encoding_markets),
+                markets=encoding_markets,
+            ))
+
+        disk_preflight = (daily_roll_status or {}).get("disk_capacity_preflight") or {}
+        if daily_roll_status and (
+            daily_roll_status.get("status") == "disk_full"
+            or disk_preflight.get("ok") is False
+        ):
+            blockers.append(_blocker(
+                "daily_roll_disk",
+                "disk_full_or_low_space",
+                "market-making daily roll",
+                disk_preflight.get("reason") or daily_roll_status.get("error") or "daily roll disk preflight failed",
+                disk_preflight.get("remediation_command") or "free local disk space, then restart daily roll with --force",
+                status_path=str(daily_roll_status_path),
+                disk_capacity_preflight=disk_preflight,
+            ))
+
+    root_counts = Counter(row.get("root_cause") for row in blockers)
+    owner_counts = Counter(row.get("owner") for row in blockers)
+    status = "SKIPPED"
+    reason = "not all-market active-day paper-live-forward evidence"
+    if active_day_scope:
+        status = "PASS" if not blockers else "BLOCK"
+        reason = "all-market active-day useful-write SLA passed" if not blockers else "all-market active-day useful-write SLA blocked"
+    artifact_checks = {
+        "selected_market_count": len(preflight_rows or []),
+        "all_market_scope": bool(all_market_scope),
+        "active_day_scope": active_day_scope,
+        "stale_model_market_count": sum(
+            1 for row in preflight_rows if _gate_failed(row, {"snapshot_model_rows", "model_freshness"})
+        ),
+        "stale_clob_market_count": sum(
+            1 for row in preflight_rows if _gate_failed(row, {"clob_books", "clob_features", "clob_freshness"})
+        ),
+        "csv_encoding_issue_count": sum(
+            int(((row.get("csv_encoding") or {}).get("issue_count")) or 0)
+            for row in preflight_rows
+        ),
+        "daily_roll_status": daily_roll_status.get("status") if daily_roll_status else None,
+        "daily_roll_status_path": str(daily_roll_status_path),
+        "disk_capacity_status": ((daily_roll_status or {}).get("disk_capacity_preflight") or {}).get("status"),
+    }
+    return {
+        "schema_version": USEFUL_WORK_LIVENESS_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "status": status,
+        "ok": not active_day_scope or not blockers,
+        "enforced": active_day_scope,
+        "reason": reason,
+        "all_market_scope": bool(all_market_scope),
+        "evidence_mode": evidence_mode,
+        "mode": mode,
+        "startup_grace_seconds": USEFUL_WORK_STARTUP_GRACE_SECONDS,
+        "blocker_count": len(blockers),
+        "root_cause_counts": dict(sorted(root_counts.items())),
+        "owner_counts": dict(sorted(owner_counts.items())),
+        "blockers": blockers,
+        "loops": loops,
+        "artifact_checks": artifact_checks,
     }
 
 
@@ -332,6 +775,7 @@ def build_report(
     live_forward_gate=None,
     evidence_classification=None,
     tape_integrity=None,
+    model_variant_bakeoff=None,
 ):
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
     quote_rows_count = sum(1 for row in quote_rows if row.get("quote_permission"))
@@ -342,6 +786,8 @@ def build_report(
     live_forward_gate = live_forward_gate or {}
     evidence_classification = evidence_classification or {}
     tape_integrity = tape_integrity or {}
+    model_variant_bakeoff = model_variant_bakeoff or {}
+    useful_work = preflight.get("useful_work_liveness") or live_forward_gate.get("useful_work_liveness") or {}
     evidence_counts = bool(evidence_classification.get("counts_toward_live_forward_gate"))
     live_gate_counts = bool(live_forward_gate.get("counts_toward_live_forward_gate"))
     final_counts = bool(evidence_counts and live_gate_counts)
@@ -435,6 +881,59 @@ def build_report(
             f"| {row.get('market_id')} | {row.get('status')} | {row.get('event_slug')} | "
             f"{row.get('snapshot_rows', 0)} | {encoding_text} | {'; '.join(details)} |"
         )
+    if useful_work:
+        artifact_checks = useful_work.get("artifact_checks") or {}
+        root_counts = useful_work.get("root_cause_counts") or {}
+        lines.extend([
+            "",
+            "## Useful Work Liveness",
+            "",
+            "| Metric | Value |",
+            "| :--- | :--- |",
+            f"| Status | {useful_work.get('status') or '-'} |",
+            f"| Enforced | {str(useful_work.get('enforced', False)).lower()} |",
+            f"| All-market scope | {str(useful_work.get('all_market_scope', False)).lower()} |",
+            f"| Reason | {useful_work.get('reason') or '-'} |",
+            f"| Blockers | {useful_work.get('blocker_count', 0)} |",
+            f"| Stale-code markets | {root_counts.get('observation_trigger_stale_code_markets', 0)} |",
+            f"| Stale/missing model markets | {artifact_checks.get('stale_model_market_count', 0)} |",
+            f"| Stale/missing CLOB markets | {artifact_checks.get('stale_clob_market_count', 0)} |",
+            f"| CSV encoding issues | {artifact_checks.get('csv_encoding_issue_count', 0)} |",
+            f"| Disk capacity status | {artifact_checks.get('disk_capacity_status') or '-'} |",
+            "",
+            "| Loop | Last useful write | Age seconds | Useful iterations | Status | Detail |",
+            "| :--- | :--- | ---: | ---: | :--- | :--- |",
+        ])
+        for loop in useful_work.get("loops") or []:
+            loop_status = "missing"
+            if loop.get("exists"):
+                if loop.get("last_useful_write_at"):
+                    loop_status = "useful_write_seen"
+                elif loop.get("within_startup_grace"):
+                    loop_status = "startup_grace"
+                else:
+                    loop_status = "no_useful_write"
+            detail = loop.get("last_error") or "-"
+            if loop.get("stale_code_market_count"):
+                detail = f"stale_code markets={','.join(loop.get('stale_code_markets') or [])}"
+            elif loop.get("blocked_market_count"):
+                detail = f"blocked markets={','.join(loop.get('blocked_markets') or [])}"
+            lines.append(
+                f"| {loop.get('name')} | {loop.get('last_useful_write_at') or '-'} | "
+                f"{loop.get('useful_write_age_seconds') if loop.get('useful_write_age_seconds') is not None else '-'} | "
+                f"{loop.get('useful_iteration_count', 0)} | {loop_status} | {detail} |"
+            )
+        if useful_work.get("blockers"):
+            lines.extend([
+                "",
+                "| Gate | Root cause | Owner | Detail |",
+                "| :--- | :--- | :--- | :--- |",
+            ])
+            for blocker in useful_work.get("blockers")[:20]:
+                lines.append(
+                    f"| {blocker.get('gate')} | {blocker.get('root_cause')} | "
+                    f"{blocker.get('owner')} | {blocker.get('detail')} |"
+                )
     high_rows = [
         (row.get("market_id"), row.get("current_high_assessment") or {})
         for row in preflight.get("markets", [])
@@ -465,6 +964,30 @@ def build_report(
     ])
     for reason, count in sorted(reason_counts.items()):
         lines.append(f"| {reason or '-'} | {count} |")
+    if model_variant_bakeoff:
+        lines.extend([
+            "",
+            "## Model-Variant Bakeoff",
+            "",
+            "| Metric | Value |",
+            "| :--- | :--- |",
+            f"| Status | {model_variant_bakeoff.get('status') or '-'} |",
+            f"| Basket | {model_variant_bakeoff.get('basket_id') or '-'} |",
+            f"| Base input rows | {model_variant_bakeoff.get('base_input_rows', 0)} |",
+            f"| Materialized variant rows | {model_variant_bakeoff.get('materialized_input_rows', 0)} |",
+            f"| Emitted variants | {', '.join(model_variant_bakeoff.get('emitted_variant_ids') or []) or '-'} |",
+            f"| Multiple-testing family size | {model_variant_bakeoff.get('multiple_testing_family_size', 0)} |",
+            "",
+            "| Variant | Policy | Rows | Quote rows | Quote rate | Delta vs served |",
+            "| :--- | :--- | ---: | ---: | ---: | ---: |",
+        ])
+        for row in (model_variant_bakeoff.get("model_variant_by_policy") or [])[:20]:
+            lines.append(
+                f"| {row.get('model_variant_id')} | {row.get('policy_id')} | "
+                f"{row.get('row_count', 0)} | {row.get('quote_permission_rows', 0)} | "
+                f"{row.get('quote_permission_rate', 0.0)} | "
+                f"{row.get('delta_quote_permission_rate_vs_served_current', 0.0)} |"
+            )
     if cumulative:
         lines.extend([
             "",
@@ -645,7 +1168,7 @@ def build_run_once(
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
     observation = load_observation_status(observation_status_path, now=now, config=policy_config)
-    runtime_identity = runtime_identity_snapshot(observation_status_path)
+    runtime_identity = runtime_identity_snapshot(observation_status_path, snapshots_root=snapshots_root)
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
@@ -672,6 +1195,7 @@ def build_run_once(
     write_json(run_folder / "run_config.json", run_config)
 
     raw_quote_rows = []
+    model_variant_policy_inputs = []
     preflight_rows = []
     risk_events = []
     for spec in specs:
@@ -753,6 +1277,7 @@ def build_run_once(
             )
             if preflight["status"] == "PASS":
                 raw_quote_rows.extend(decide_quote(row, config=policy_config, now=now) for row in policy_inputs)
+                model_variant_policy_inputs.extend(policy_inputs)
             else:
                 details = preflight.get("blocking_reasons") or preflight.get("stale_reasons") or [preflight["status"]]
                 raw_quote_rows.extend(
@@ -775,6 +1300,18 @@ def build_run_once(
         preflight_status = "BLOCK" if all(row.get("status") != "PASS" for row in preflight_rows) else "WARN"
     elif any(row.get("status") == "STALE" for row in preflight_rows):
         preflight_status = "STALE" if all(row.get("status") != "PASS" for row in preflight_rows) else "WARN"
+    useful_work_liveness = build_useful_work_liveness(
+        preflight_rows,
+        runtime_identity=runtime_identity,
+        observation_status_path=observation_status_path,
+        snapshots_root=snapshots_root,
+        runs_root=runs_root,
+        policy_config=policy_config,
+        now=now,
+        all_market_scope=_all_market_scope(specs),
+        evidence_mode=evidence_classification.get("evidence_mode"),
+        mode=mode,
+    )
     preflight_payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -789,6 +1326,7 @@ def build_run_once(
         "clob_recon": clob_recon_diag,
         "observation_status": observation,
         "runtime_identity": runtime_identity,
+        "useful_work_liveness": useful_work_liveness,
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
@@ -802,6 +1340,13 @@ def build_run_once(
     live_forward_gate_payload = apply_evidence_mode_to_live_forward_gate(
         live_forward_gate_payload,
         evidence_classification=evidence_classification,
+    )
+    raw_model_variant_rows, model_variant_bakeoff = build_model_variant_quote_rows(
+        model_variant_policy_inputs,
+        policy_config,
+        target_date=target.isoformat(),
+        runtime_identity=runtime_identity,
+        now=now,
     )
     live_forward_gate_path = run_folder / "live_forward_gate.json"
     preflight_payload["live_forward_gate_path"] = str(live_forward_gate_path)
@@ -833,6 +1378,22 @@ def build_run_once(
         cancel_all=cancel_all,
     )
     risk_events.extend(budget_risk_events)
+    model_variant_quote_rows = [
+        add_run_columns(
+            row,
+            run_id,
+            target,
+            mode,
+            budget_usdc,
+            0.0,
+            quote_risk_usdc(row),
+            "model_variant_shadow",
+            preflight_status,
+            reason="model_variant_shadow",
+            quote_ttl_seconds=float(policy_config.get("quote_ttl_seconds") or DEFAULT_QUOTE_TTL_SECONDS),
+        )
+        for row in raw_model_variant_rows
+    ]
     if any(row.get("live_trade_permission") for row in quote_rows) and mode != "live-pilot":
         raise RuntimeError("shadow/paper run attempted to emit live-trade permission")
     event_gate_summary = summarize_event_gate_rows(quote_rows)
@@ -857,10 +1418,17 @@ def build_run_once(
     )
 
     quote_path = run_folder / "quote_intents_long.csv"
+    model_variant_quote_path = run_folder / "model_variant_quote_intents_long.csv"
     if append:
         append_csv(quote_path, RUN_QUOTE_COLUMNS, quote_rows)
+        append_csv(model_variant_quote_path, RUN_QUOTE_COLUMNS, model_variant_quote_rows)
     else:
         write_csv(quote_path, RUN_QUOTE_COLUMNS, quote_rows)
+        write_csv(model_variant_quote_path, RUN_QUOTE_COLUMNS, model_variant_quote_rows)
+    model_variant_bakeoff_path = run_folder / "model_variant_bakeoff.json"
+    model_variant_report_path = run_folder / "model_variant_bakeoff.md"
+    write_json(model_variant_bakeoff_path, model_variant_bakeoff)
+    model_variant_report_path.write_text(render_model_variant_report(model_variant_bakeoff), encoding="utf-8")
     append_jsonl(run_folder / "budget_ledger.jsonl", budget_ledger)
     append_jsonl(lifecycle_path, lifecycle_events)
     append_jsonl(run_folder / "risk_events.jsonl", risk_events)
@@ -880,6 +1448,7 @@ def build_run_once(
         live_forward_gate=live_forward_gate_payload,
         evidence_classification=evidence_classification,
         tape_integrity=tape_integrity,
+        model_variant_bakeoff=model_variant_bakeoff,
     )
     (run_folder / "run_report.md").write_text(report, encoding="utf-8")
 
@@ -892,6 +1461,9 @@ def build_run_once(
         "run_config_path": str(run_folder / "run_config.json"),
         "preflight_path": str(run_folder / "preflight.json"),
         "quote_intents_path": str(quote_path),
+        "model_variant_quote_intents_path": str(model_variant_quote_path),
+        "model_variant_bakeoff_path": str(model_variant_bakeoff_path),
+        "model_variant_bakeoff_report_path": str(model_variant_report_path),
         "budget_ledger_path": str(run_folder / "budget_ledger.jsonl"),
         "order_lifecycle_path": str(lifecycle_path),
         "preflight_remediation_path": str(remediation_path),
@@ -925,12 +1497,14 @@ def build_run_once(
         },
         "live_forward_gate_status": live_forward_gate_payload.get("status"),
         "counts_toward_live_forward_gate": live_forward_gate_payload.get("counts_toward_live_forward_gate"),
+        "useful_work_liveness": useful_work_liveness,
         "evidence_mode": evidence_classification.get("evidence_mode"),
         "evidence_classification": evidence_classification,
         "live_forward_gate_counts_without_evidence_mode": live_forward_gate_payload.get(
             "counts_toward_live_forward_gate_without_evidence_mode"
         ),
         "row_count": len(quote_rows),
+        "model_variant_row_count": len(model_variant_quote_rows),
         "quote_permission_rows": quote_permission_count,
         "live_trade_permission_rows": live_trade_permission_count,
         "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
@@ -941,6 +1515,7 @@ def build_run_once(
         "budget_usdc": float(budget_usdc),
         "latest_tick": {
             "row_count": len(quote_rows),
+            "model_variant_row_count": len(model_variant_quote_rows),
             "quote_permission_rows": quote_permission_count,
             "live_trade_permission_rows": live_trade_permission_count,
             "reason_counts": dict(sorted(Counter(row.get("reason_code") for row in quote_rows).items())),
@@ -955,6 +1530,16 @@ def build_run_once(
         "cumulative_paper_posted_count": cumulative.get("paper_posted_count", 0),
         "cumulative_lifecycle_transition_counts": cumulative.get("order_lifecycle_transition_counts", {}),
         "runtime_identity": runtime_identity,
+        "model_variant_bakeoff": {
+            "status": model_variant_bakeoff.get("status"),
+            "basket_id": model_variant_bakeoff.get("basket_id"),
+            "base_input_rows": model_variant_bakeoff.get("base_input_rows", 0),
+            "materialized_input_rows": model_variant_bakeoff.get("materialized_input_rows", 0),
+            "emitted_variant_ids": model_variant_bakeoff.get("emitted_variant_ids") or [],
+            "multiple_testing_family_size": model_variant_bakeoff.get("multiple_testing_family_size", 0),
+            "model_variant_by_policy": model_variant_bakeoff.get("model_variant_by_policy") or [],
+            "skipped_variants": model_variant_bakeoff.get("skipped_variants") or [],
+        },
         "order_lifecycle": lifecycle,
         "clob_recon": clob_recon_diag,
         "preflight_remediation": {
@@ -976,6 +1561,7 @@ def build_run_once(
             ),
             "evidence_mode_gate": live_forward_gate_payload.get("evidence_mode_gate"),
             "evidence": live_forward_gate_payload.get("evidence"),
+            "useful_work_liveness": live_forward_gate_payload.get("useful_work_liveness"),
             "summary": live_forward_gate_payload.get("summary"),
         },
         "markets": preflight_rows,

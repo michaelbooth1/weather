@@ -190,6 +190,7 @@ def evidence_summary(markets, evidence_key):
 
 def build_live_forward_gate(preflight, policy_config=None, now=None):
     now = utc_now(now or (preflight or {}).get("generated_at_utc"))
+    useful_work_liveness = (preflight or {}).get("useful_work_liveness") or {}
     markets = [
         market_gate_row(market, preflight or {}, policy_config or {}, now)
         for market in (preflight or {}).get("markets") or []
@@ -204,7 +205,20 @@ def build_live_forward_gate(preflight, policy_config=None, now=None):
         "paper_trading_evidence": evidence_summary(markets, "paper_trading_evidence"),
         "live_trade_permission_evidence": evidence_summary(markets, "live_trade_permission_evidence"),
     }
-    counts_toward_live_forward_gate = evidence["paper_trading_evidence"]["all_selected_markets_count"]
+    run_level_ok = (
+        not useful_work_liveness.get("enforced")
+        or bool(useful_work_liveness.get("ok"))
+    )
+    counts_toward_live_forward_gate = (
+        evidence["paper_trading_evidence"]["all_selected_markets_count"]
+        and run_level_ok
+    )
+    run_level_failures = {}
+    if not run_level_ok:
+        run_level_failures["useful_work_liveness"] = int(useful_work_liveness.get("blocker_count") or 1)
+        first_failure_counts["useful_work_liveness"] = (
+            first_failure_counts.get("useful_work_liveness", 0) + 1
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -214,10 +228,13 @@ def build_live_forward_gate(preflight, policy_config=None, now=None):
         "status": "PASS" if counts_toward_live_forward_gate else "BLOCK",
         "counts_toward_live_forward_gate": counts_toward_live_forward_gate,
         "evidence": evidence,
+        "useful_work_liveness": useful_work_liveness,
         "summary": {
             "market_count": len(markets),
             "first_failing_gate_counts": dict(sorted(first_failure_counts.items())),
             "blocked_market_count": sum(1 for row in markets if row.get("first_failing_gate")),
+            "run_level_ok": run_level_ok,
+            "run_level_failure_counts": dict(sorted(run_level_failures.items())),
         },
         "markets": markets,
     }

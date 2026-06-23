@@ -20,6 +20,7 @@ import csv
 import hashlib
 import json
 import math
+import random
 import statistics
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -27,7 +28,11 @@ from pathlib import Path
 
 from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.market.info_event_calendar import score_event_gate_decisions
-from weather.market.clob_recon import DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON, load_recon_payload
+from weather.market.clob_recon import (
+    DEFAULT_JSON_OUT as DEFAULT_CLOB_RECON,
+    build_recon_payload,
+    load_recon_payload,
+)
 from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
 from weather.market.mm_paper_evidence import (
     COMPATIBLE_RUN_SCHEMA_VERSIONS,
@@ -356,7 +361,7 @@ def quote_id(row, index):
     return f"quote_{digest}"
 
 
-def load_quote_rows(run_folders, eligibility_by_folder=None):
+def load_quote_rows(run_folders, eligibility_by_folder=None, quote_filename="quote_intents_long.csv"):
     rows = []
     run_configs = {}
     eligibility_by_folder = eligibility_by_folder or {}
@@ -365,7 +370,7 @@ def load_quote_rows(run_folders, eligibility_by_folder=None):
         run_config = read_json(folder / "run_config.json", {}) or {}
         run_configs[str(folder)] = run_config
         eligibility = eligibility_by_folder.get(str(folder)) or run_folder_eligibility(folder)
-        for index, row in enumerate(read_csv_rows(folder / "quote_intents_long.csv")):
+        for index, row in enumerate(read_csv_rows(folder / quote_filename)):
             row = dict(row)
             row["_run_folder"] = str(folder)
             row["_quote_row_index"] = index
@@ -375,6 +380,14 @@ def load_quote_rows(run_folders, eligibility_by_folder=None):
             row["_run_live_forward_gate_counts"] = eligibility.get("live_forward_gate_counts", True)
             rows.append(row)
     return rows, run_configs
+
+
+def load_model_variant_quote_rows(run_folders, eligibility_by_folder=None):
+    return load_quote_rows(
+        run_folders,
+        eligibility_by_folder=eligibility_by_folder,
+        quote_filename="model_variant_quote_intents_long.csv",
+    )
 
 
 def quote_permission(row):
@@ -402,6 +415,13 @@ def quote_legs(quote_rows, config):
             "run_folder": row.get("_run_folder") or "",
             "run_mode": row.get("run_mode") or (row.get("_run_config") or {}).get("mode") or "",
             "policy_hash": row.get("policy_hash") or (row.get("_run_config") or {}).get("policy_hash") or "",
+            "model_variant_id": row.get("model_variant_id") or "served_current",
+            "model_variant_family": row.get("model_variant_family") or "served_current",
+            "model_variant_role": row.get("model_variant_role") or "served",
+            "model_variant_basket_id": row.get("model_variant_basket_id") or "",
+            "model_variant_probability_source": row.get("model_variant_probability_source") or "",
+            "model_variant_counterfactual": bool_value(row.get("model_variant_counterfactual"), False),
+            "served_model_version": row.get("served_model_version") or row.get("model_version") or "",
             "event_slug": row.get("event_slug") or "",
             "market_id": row.get("market_id") or "",
             "target_date": row.get("target_date") or (row.get("_run_config") or {}).get("target_date") or "",
@@ -569,15 +589,34 @@ def load_trade_rows(folder):
 
     def add_trade(raw, source, index):
         nonlocal missing_size_count
+        trade = raw.get("trade") if isinstance(raw.get("trade"), dict) else {}
+        payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
         ts = parse_time(
             raw.get("trade_time_utc")
             or raw.get("timestamp_utc")
             or raw.get("received_at_utc")
             or raw.get("captured_at_utc")
             or raw.get("time")
+            or trade.get("trade_time_utc")
+            or trade.get("timestamp")
+            or payload.get("timestamp_utc")
         )
-        token = raw.get("clob_token_id") or raw.get("asset_id") or raw.get("token_id") or raw.get("assetId")
-        price = clamp01(raw.get("price") or raw.get("trade_price") or raw.get("last_trade_price"))
+        token = (
+            raw.get("clob_token_id")
+            or raw.get("asset_id")
+            or raw.get("token_id")
+            or raw.get("assetId")
+            or trade.get("asset_id")
+            or trade.get("token_id")
+            or payload.get("asset_id")
+        )
+        price = clamp01(
+            raw.get("price")
+            or raw.get("trade_price")
+            or raw.get("last_trade_price")
+            or trade.get("price")
+            or payload.get("price")
+        )
         size = finite_float(
             raw.get("size")
             or raw.get("trade_size")
@@ -585,6 +624,15 @@ def load_trade_rows(folder):
             or raw.get("amount")
             or raw.get("matched_amount")
             or raw.get("maker_amount")
+            or raw.get("matched_size")
+            or raw.get("size_matched")
+            or raw.get("quantity")
+            or trade.get("size")
+            or trade.get("trade_size")
+            or trade.get("shares")
+            or trade.get("amount")
+            or payload.get("size")
+            or payload.get("trade_size")
         )
         if ts is None or not token or price is None:
             return
@@ -1054,6 +1102,13 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
                 "run_folder": leg["run_folder"],
                 "run_mode": leg["run_mode"],
                 "policy_hash": leg["policy_hash"],
+                "model_variant_id": leg.get("model_variant_id") or "served_current",
+                "model_variant_family": leg.get("model_variant_family") or "served_current",
+                "model_variant_role": leg.get("model_variant_role") or "served",
+                "model_variant_basket_id": leg.get("model_variant_basket_id") or "",
+                "model_variant_probability_source": leg.get("model_variant_probability_source") or "",
+                "model_variant_counterfactual": bool(leg.get("model_variant_counterfactual")),
+                "served_model_version": leg.get("served_model_version") or "",
                 "quote_id": leg["quote_id"],
                 "leg_id": leg["leg_id"],
                 "fill_id": fill_id,
@@ -1164,6 +1219,328 @@ def summarize_pnl(fill_rows):
         "liquidity_reward_estimate_usdc": compact_float(sum_field(fill_rows, "liquidity_reward_estimate_usdc")),
         "flattening_fee_estimate_usdc": compact_float(sum_field(fill_rows, "flattening_fee_estimate_usdc")),
         "net_pnl_after_fees_incentives_usdc": compact_float(sum_field(fill_rows, "net_pnl_after_fees_incentives_usdc")),
+    }
+
+
+def _model_variant_pair_key(row):
+    return (
+        row.get("model_variant_id") or "served_current",
+        row.get("policy_hash") or row.get("policy_id") or "",
+    )
+
+
+def _market_day_key(row):
+    target_date = str(row.get("target_date") or "").strip()
+    market_id = str(row.get("market_id") or "").strip()
+    if not target_date or not market_id:
+        return None
+    return target_date, market_id
+
+
+def _blank_model_variant_cluster(target_date, market_id):
+    return {
+        "target_date": target_date,
+        "market_id": market_id,
+        "quote_rows": 0,
+        "quote_permission_rows": 0,
+        "quote_legs": 0,
+        "quoted_shares": 0.0,
+        "conservative_fills": 0,
+        "filled_shares": 0.0,
+        "spread_capture_usdc": 0.0,
+        "adverse_selection_30m_usdc": 0.0,
+        "settlement_pnl_usdc": 0.0,
+        "net_pnl_after_fees_incentives_usdc": 0.0,
+        "queue_companion_legs": 0,
+        "queue_estimated_fill_legs": 0,
+        "queue_estimated_filled_shares": 0.0,
+    }
+
+
+def _cluster_for(clusters, row):
+    key = _market_day_key(row)
+    if key is None:
+        return None
+    return clusters[key]
+
+
+def _cluster_rate(numerator, denominator):
+    denominator = float(denominator or 0.0)
+    if denominator <= 0:
+        return 0.0
+    return float(numerator or 0.0) / denominator
+
+
+def _bootstrap_mean_ci(values, *, alpha=0.05, iterations=1000, seed_text=""):
+    values = [float(value or 0.0) for value in values]
+    n = len(values)
+    total = sum(values)
+    mean_value = total / n if n else None
+    if not n:
+        lower = None
+        upper = None
+    elif n == 1:
+        lower = mean_value
+        upper = mean_value
+    else:
+        digest = hashlib.sha1(seed_text.encode("utf-8")).hexdigest()
+        rng = random.Random(int(digest[:16], 16))
+        reps = max(100, int(iterations or 1000))
+        means = []
+        for _ in range(reps):
+            means.append(sum(values[rng.randrange(n)] for _index in range(n)) / n)
+        means.sort()
+        lower_index = max(0, min(len(means) - 1, int(math.floor((float(alpha) / 2.0) * len(means)))))
+        upper_index = max(
+            0,
+            min(len(means) - 1, int(math.ceil((1.0 - float(alpha) / 2.0) * len(means))) - 1),
+        )
+        lower = means[lower_index]
+        upper = means[upper_index]
+    return {
+        "n": n,
+        "total": compact_float(total),
+        "mean": compact_float(mean_value),
+        "mean_lower": compact_float(lower),
+        "mean_upper": compact_float(upper),
+        "total_lower": compact_float(lower * n if lower is not None else None),
+        "total_upper": compact_float(upper * n if upper is not None else None),
+        "alpha": compact_float(alpha, digits=8),
+        "bootstrap_iterations": int(iterations or 0),
+    }
+
+
+def _cluster_metric_value(cluster, metric):
+    if metric == "fill_rate":
+        return _cluster_rate(cluster.get("conservative_fills"), cluster.get("quote_legs"))
+    if metric == "queue_estimated_fill_quality":
+        return _cluster_rate(cluster.get("queue_estimated_filled_shares"), cluster.get("quoted_shares"))
+    return float(cluster.get(metric) or 0.0)
+
+
+def _model_variant_claim_scope(status, market_count, all_market_min_markets):
+    if status != "PASS":
+        return "blocked_no_promotion_claim"
+    if int(market_count or 0) >= int(all_market_min_markets or 0):
+        return "all_market_evidence"
+    if int(market_count or 0) == 1:
+        return "market_specific_permission"
+    return "live_pilot_readiness"
+
+
+def _collect_model_variant_clusters(variant_quote_rows, variant_legs, variant_fill_rows, variant_queue_rows):
+    clusters_by_pair = defaultdict(lambda: defaultdict(lambda: _blank_model_variant_cluster("", "")))
+    leg_by_id = {}
+
+    def get_cluster(pair_key, market_day_key):
+        target_date, market_id = market_day_key
+        cluster = clusters_by_pair[pair_key][market_day_key]
+        cluster["target_date"] = target_date
+        cluster["market_id"] = market_id
+        return cluster
+
+    for row in variant_quote_rows or []:
+        market_day = _market_day_key(row)
+        if market_day is None:
+            continue
+        cluster = get_cluster(_model_variant_pair_key(row), market_day)
+        cluster["quote_rows"] += 1
+        if quote_permission(row):
+            cluster["quote_permission_rows"] += 1
+
+    for leg in variant_legs or []:
+        leg_by_id[leg.get("leg_id")] = leg
+        market_day = _market_day_key(leg)
+        if market_day is None:
+            continue
+        cluster = get_cluster(_model_variant_pair_key(leg), market_day)
+        cluster["quote_legs"] += 1
+        cluster["quoted_shares"] += finite_float(leg.get("quote_size"), 0.0) or 0.0
+
+    for fill in variant_fill_rows or []:
+        market_day = _market_day_key(fill)
+        if market_day is None:
+            continue
+        cluster = get_cluster(_model_variant_pair_key(fill), market_day)
+        cluster["conservative_fills"] += 1
+        cluster["filled_shares"] += finite_float(fill.get("fill_size"), 0.0) or 0.0
+        cluster["spread_capture_usdc"] += finite_float(fill.get("spread_capture_usdc"), 0.0) or 0.0
+        cluster["adverse_selection_30m_usdc"] += finite_float(fill.get("adverse_selection_30m_usdc"), 0.0) or 0.0
+        cluster["settlement_pnl_usdc"] += finite_float(fill.get("settlement_pnl_usdc"), 0.0) or 0.0
+        cluster["net_pnl_after_fees_incentives_usdc"] += (
+            finite_float(fill.get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0
+        )
+
+    for queue in variant_queue_rows or []:
+        leg = leg_by_id.get(queue.get("leg_id")) or queue
+        market_day = _market_day_key(leg)
+        if market_day is None:
+            continue
+        cluster = get_cluster(_model_variant_pair_key(leg), market_day)
+        estimated = finite_float(queue.get("estimated_fill_size"), 0.0) or 0.0
+        cluster["queue_companion_legs"] += 1
+        if estimated > 0:
+            cluster["queue_estimated_fill_legs"] += 1
+        cluster["queue_estimated_filled_shares"] += estimated
+
+    return {
+        key: {
+            cluster_key: {
+                **cluster,
+                "quoted_shares": compact_float(cluster.get("quoted_shares")),
+                "filled_shares": compact_float(cluster.get("filled_shares")),
+                "spread_capture_usdc": compact_float(cluster.get("spread_capture_usdc")),
+                "adverse_selection_30m_usdc": compact_float(cluster.get("adverse_selection_30m_usdc")),
+                "settlement_pnl_usdc": compact_float(cluster.get("settlement_pnl_usdc")),
+                "net_pnl_after_fees_incentives_usdc": compact_float(
+                    cluster.get("net_pnl_after_fees_incentives_usdc")
+                ),
+                "queue_estimated_filled_shares": compact_float(cluster.get("queue_estimated_filled_shares")),
+            }
+            for cluster_key, cluster in pair_clusters.items()
+        }
+        for key, pair_clusters in clusters_by_pair.items()
+    }
+
+
+def model_variant_clustered_promotion_gate(
+    variant_quote_rows,
+    variant_legs,
+    variant_fill_rows,
+    variant_queue_rows,
+    *,
+    config=None,
+):
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    alpha = float(config.get("model_variant_promotion_alpha", 0.05))
+    iterations = int(config.get("model_variant_promotion_bootstrap_iterations", 1000))
+    min_clusters = int(config.get("model_variant_promotion_min_market_day_clusters", 10))
+    min_target_days = int(config.get("model_variant_promotion_min_target_days", 3))
+    min_markets = int(config.get("model_variant_promotion_min_markets", 3))
+    all_market_min_markets = int(config.get("model_variant_promotion_all_market_min_markets", 10))
+    clusters_by_pair = _collect_model_variant_clusters(
+        variant_quote_rows,
+        variant_legs,
+        variant_fill_rows,
+        variant_queue_rows,
+    )
+    served_by_policy = {
+        policy_id: clusters
+        for (variant_id, policy_id), clusters in clusters_by_pair.items()
+        if variant_id == "served_current"
+    }
+    comparison_keys = [
+        key for key in clusters_by_pair
+        if key[0] != "served_current"
+    ]
+    comparison_count = len(comparison_keys)
+    adjusted_alpha = alpha / comparison_count if comparison_count else alpha
+    metrics = [
+        "net_pnl_after_fees_incentives_usdc",
+        "adverse_selection_30m_usdc",
+        "settlement_pnl_usdc",
+        "fill_rate",
+        "queue_estimated_fill_quality",
+    ]
+    rows = []
+    for (variant_id, policy_id), clusters in sorted(clusters_by_pair.items()):
+        cluster_rows = [clusters[key] for key in sorted(clusters)]
+        target_days = {row.get("target_date") for row in cluster_rows if row.get("target_date")}
+        markets = {row.get("market_id") for row in cluster_rows if row.get("market_id")}
+        metric_stats = {
+            metric: _bootstrap_mean_ci(
+                [_cluster_metric_value(row, metric) for row in cluster_rows],
+                alpha=adjusted_alpha,
+                iterations=iterations,
+                seed_text=f"maker-model-variant|{variant_id}|{policy_id}|{metric}",
+            )
+            for metric in metrics
+        }
+        served_clusters = served_by_policy.get(policy_id) or {}
+        paired_keys = sorted(set(clusters) | set(served_clusters))
+        delta_stats = {}
+        if variant_id != "served_current":
+            for metric in metrics:
+                deltas = []
+                for key in paired_keys:
+                    candidate_cluster = clusters.get(key) or _blank_model_variant_cluster(key[0], key[1])
+                    served_cluster = served_clusters.get(key) or _blank_model_variant_cluster(key[0], key[1])
+                    deltas.append(
+                        _cluster_metric_value(candidate_cluster, metric)
+                        - _cluster_metric_value(served_cluster, metric)
+                    )
+                delta_stats[metric] = _bootstrap_mean_ci(
+                    deltas,
+                    alpha=adjusted_alpha,
+                    iterations=iterations,
+                    seed_text=f"maker-model-variant-delta|{variant_id}|{policy_id}|{metric}",
+                )
+        failed = []
+        status = "CONTROL" if variant_id == "served_current" else "PASS"
+        if variant_id != "served_current":
+            paired_target_days = {key[0] for key in paired_keys if key[0]}
+            paired_markets = {key[1] for key in paired_keys if key[1]}
+            if not served_clusters:
+                failed.append("served_current_baseline_required")
+            if len(paired_keys) < min_clusters:
+                failed.append("min_market_day_clusters")
+            if len(paired_target_days) < min_target_days:
+                failed.append("min_independent_target_days")
+            if len(paired_markets) < min_markets:
+                failed.append("min_independent_markets")
+            net_lower = (
+                delta_stats.get("net_pnl_after_fees_incentives_usdc") or {}
+            ).get("mean_lower")
+            if (finite_float(net_lower, 0.0) or 0.0) <= 0:
+                failed.append("positive_delta_net_pnl_lower_bound")
+            status = "BLOCK" if failed else "PASS"
+            target_days = paired_target_days
+            markets = paired_markets
+        row = {
+            "model_variant_id": variant_id,
+            "policy_id": policy_id,
+            "status": status,
+            "failed_gates": failed,
+            "claim_scope": _model_variant_claim_scope(status, len(markets), all_market_min_markets),
+            "cluster_key": "target_date,market_id",
+            "cluster_count": len(paired_keys) if variant_id != "served_current" else len(cluster_rows),
+            "independent_target_day_count": len(target_days),
+            "independent_market_count": len(markets),
+            "quote_rows": sum(int(row.get("quote_rows") or 0) for row in cluster_rows),
+            "quote_permission_rows": sum(int(row.get("quote_permission_rows") or 0) for row in cluster_rows),
+            "quote_legs": sum(int(row.get("quote_legs") or 0) for row in cluster_rows),
+            "conservative_fills": sum(int(row.get("conservative_fills") or 0) for row in cluster_rows),
+            "filled_shares": compact_float(sum(finite_float(row.get("filled_shares"), 0.0) or 0.0 for row in cluster_rows)),
+            "queue_estimated_fill_legs": sum(
+                int(row.get("queue_estimated_fill_legs") or 0) for row in cluster_rows
+            ),
+            "queue_estimated_filled_shares": compact_float(
+                sum(finite_float(row.get("queue_estimated_filled_shares"), 0.0) or 0.0 for row in cluster_rows)
+            ),
+            "cluster_metrics": metric_stats,
+            "delta_vs_served_current_cluster_metrics": delta_stats,
+            "clusters": cluster_rows,
+        }
+        rows.append(row)
+    pass_rows = [row for row in rows if row.get("status") == "PASS"]
+    return {
+        "schema_version": "mm_model_variant_clustered_promotion_gate_v0.1",
+        "status": "PASS" if pass_rows else "BLOCK",
+        "method": "clustered_market_day_bootstrap",
+        "score_basis": "paired_market_day_delta_vs_served_current",
+        "cluster_key": "target_date,market_id",
+        "alpha": compact_float(alpha, digits=8),
+        "multiple_testing_method": "bonferroni_pre_registered_model_variant_policy_pairs",
+        "comparison_count": comparison_count,
+        "adjusted_alpha": compact_float(adjusted_alpha, digits=8),
+        "bootstrap_iterations": iterations,
+        "min_market_day_clusters": min_clusters,
+        "min_independent_target_days": min_target_days,
+        "min_independent_markets": min_markets,
+        "all_market_min_markets": all_market_min_markets,
+        "pass_pair_count": len(pass_rows),
+        "pair_count": len(rows),
+        "pairs": rows,
     }
 
 
@@ -1448,6 +1825,116 @@ def quote_uptime_summary(quote_rows, legs):
     }
 
 
+def model_variant_paper_bakeoff_summary(
+    variant_quote_rows,
+    variant_legs,
+    variant_fill_rows,
+    variant_queue_rows,
+    *,
+    config=None,
+):
+    quote_groups = defaultdict(list)
+    leg_groups = defaultdict(list)
+    fill_groups = defaultdict(list)
+    queue_by_leg_id = {row.get("leg_id"): row for row in variant_queue_rows or []}
+    for row in variant_quote_rows or []:
+        key = (row.get("model_variant_id") or "unknown", row.get("policy_hash") or "")
+        quote_groups[key].append(row)
+    for leg in variant_legs or []:
+        key = (leg.get("model_variant_id") or "unknown", leg.get("policy_hash") or "")
+        leg_groups[key].append(leg)
+    for fill in variant_fill_rows or []:
+        key = (fill.get("model_variant_id") or "unknown", fill.get("policy_hash") or "")
+        fill_groups[key].append(fill)
+    rows = []
+    all_keys = sorted(set(quote_groups) | set(leg_groups) | set(fill_groups))
+    for key in all_keys:
+        variant_id, policy_id = key
+        quotes = quote_groups.get(key, [])
+        legs = leg_groups.get(key, [])
+        fills = fill_groups.get(key, [])
+        queue_rows = [
+            queue_by_leg_id.get(leg.get("leg_id")) or {}
+            for leg in legs
+            if queue_by_leg_id.get(leg.get("leg_id"))
+        ]
+        quote_permission_rows = sum(1 for row in quotes if quote_permission(row))
+        pnl = summarize_pnl(fills)
+        row = {
+            "model_variant_id": variant_id,
+            "model_variant_family": (
+                (quotes[0].get("model_variant_family") if quotes else None)
+                or (legs[0].get("model_variant_family") if legs else None)
+                or (fills[0].get("model_variant_family") if fills else None)
+                or ""
+            ),
+            "model_variant_role": (
+                (quotes[0].get("model_variant_role") if quotes else None)
+                or (legs[0].get("model_variant_role") if legs else None)
+                or (fills[0].get("model_variant_role") if fills else None)
+                or ""
+            ),
+            "policy_id": policy_id,
+            "quote_rows": len(quotes),
+            "quote_permission_rows": quote_permission_rows,
+            "quote_permission_rate": compact_float(quote_permission_rows / len(quotes)) if quotes else 0.0,
+            "quote_legs": len(legs),
+            "conservative_fills": len(fills),
+            "queue_estimated_fill_legs": sum(
+                1 for row in queue_rows
+                if (finite_float(row.get("estimated_fill_size"), 0.0) or 0.0) > 0
+            ),
+            "net_pnl_after_fees_incentives_usdc": pnl.get("net_pnl_after_fees_incentives_usdc"),
+            "settlement_pnl_usdc": pnl.get("settlement_pnl_usdc"),
+            "spread_capture_usdc": pnl.get("spread_capture_usdc"),
+            "adverse_selection_30m_usdc": pnl.get("adverse_selection_30m_usdc"),
+        }
+        rows.append(row)
+    served_by_policy = {
+        row["policy_id"]: row
+        for row in rows
+        if row.get("model_variant_id") == "served_current"
+    }
+    for row in rows:
+        served = served_by_policy.get(row["policy_id"])
+        row["delta_net_pnl_vs_served_current_usdc"] = (
+            compact_float(
+                (finite_float(row.get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0)
+                - (finite_float(served.get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0)
+            )
+            if served and row.get("model_variant_id") != "served_current"
+            else 0.0
+        )
+        row["delta_conservative_fills_vs_served_current"] = (
+            int(row.get("conservative_fills") or 0) - int(served.get("conservative_fills") or 0)
+            if served and row.get("model_variant_id") != "served_current"
+            else 0
+        )
+    promotion_gate = model_variant_clustered_promotion_gate(
+        variant_quote_rows,
+        variant_legs,
+        variant_fill_rows,
+        variant_queue_rows,
+        config=config,
+    )
+    return {
+        "schema_version": "mm_model_variant_paper_bakeoff_v0.1",
+        "status": "PASS" if rows else "NO_VARIANT_ROWS",
+        "score_basis": "conservative_fill_markout_settlement_counterfactual",
+        "quote_rows": len(variant_quote_rows or []),
+        "quote_legs": len(variant_legs or []),
+        "conservative_fills": len(variant_fill_rows or []),
+        "queue_estimated_fill_legs": sum(
+            1 for row in variant_queue_rows or []
+            if (finite_float(row.get("estimated_fill_size"), 0.0) or 0.0) > 0
+        ),
+        "policy_pair_count": len(rows),
+        "model_variant_by_policy": rows,
+        "clustered_promotion_gate": promotion_gate,
+        "promotion_gate": promotion_gate,
+    }
+
+
 def decisive_resting_check(legs, diagnostics):
     unresolved = []
     for leg in legs:
@@ -1464,6 +1951,172 @@ def decisive_resting_check(legs, diagnostics):
     return {
         "unresolved_resting_quote_count": len(unresolved),
         "unresolved_resting_quotes": unresolved[:50],
+    }
+
+
+def _clob_recon_has_coverage(payload):
+    summary = (payload or {}).get("summary") or {}
+    return int(summary.get("book_rows") or 0) > 0 and int(summary.get("slice_rows") or 0) > 0
+
+
+def load_or_build_clob_recon(clob_recon_path, snapshots_root, event_slugs, now=None):
+    payload = load_recon_payload(clob_recon_path)
+    if _clob_recon_has_coverage(payload):
+        payload["coverage_source"] = "precomputed_clob_recon"
+        return payload
+    folders = [
+        Path(snapshots_root) / slug
+        for slug in sorted({str(item) for item in event_slugs or [] if item})
+        if (Path(snapshots_root) / slug / "order_books_summary.csv").exists()
+    ]
+    if not folders:
+        payload["coverage_source"] = "missing_precomputed_recon_no_active_book_folders"
+        return payload
+    try:
+        built = build_recon_payload(snapshots_root=snapshots_root, folders=folders, now=now)
+    except Exception as exc:  # noqa: BLE001 - paper scoring should still report fill evidence blockers
+        payload["coverage_source"] = "auto_recon_failed"
+        payload["auto_recon_error"] = f"{type(exc).__name__}: {exc}"
+        return payload
+    built["coverage_source"] = "auto_built_from_active_maker_snapshot_folders"
+    built["precomputed_recon_path"] = str(clob_recon_path)
+    built["auto_recon_folder_count"] = len(folders)
+    return built
+
+
+def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics, decisive_resting, clob_recon, config):
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    leg_by_id = {leg.get("leg_id"): leg for leg in legs or []}
+    queue_by_leg = {row.get("leg_id"): row for row in queue_rows or []}
+    queue_counts = Counter(row.get("status") or "unknown" for row in queue_rows or [])
+    missing_size_trade_rows = sum(int(row.get("missing_size_trade_rows") or 0) for row in diagnostics.values())
+    missing_book_queue_legs = queue_counts.get("missing_book", 0)
+    missing_trade_size_queue_legs = queue_counts.get("missed_missing_trade_size", 0)
+    clob_summary = (clob_recon or {}).get("summary") or {}
+    unresolved_count = int((decisive_resting or {}).get("unresolved_resting_quote_count") or 0)
+    by_slice = defaultdict(lambda: {
+        "quote_legs": 0,
+        "strict_trade_through_fills": 0,
+        "strict_trade_through_filled_shares": 0.0,
+        "missing_book_queue_legs": 0,
+        "missing_trade_size_queue_legs": 0,
+        "missed_queue_ahead_legs": 0,
+        "no_touch_queue_legs": 0,
+        "queue_estimated_fill_legs": 0,
+        "queue_estimated_filled_shares": 0.0,
+    })
+
+    def key_for_leg(leg):
+        quote_time = leg.get("quote_time")
+        hour = f"{quote_time.hour:02d}:00Z" if quote_time else "unknown"
+        return (
+            leg.get("market_id") or "",
+            hour,
+            leg.get("clob_token_id") or "",
+        )
+
+    for leg in legs or []:
+        key = key_for_leg(leg)
+        item = by_slice[key]
+        item["market_id"], item["hour_utc"], item["clob_token_id"] = key
+        item["quote_legs"] += 1
+        queue = queue_by_leg.get(leg.get("leg_id")) or {}
+        status = queue.get("status") or "unknown"
+        estimated = finite_float(queue.get("estimated_fill_size"), 0.0) or 0.0
+        if status == "missing_book":
+            item["missing_book_queue_legs"] += 1
+        elif status == "missed_missing_trade_size":
+            item["missing_trade_size_queue_legs"] += 1
+        elif status == "missed_queue_ahead":
+            item["missed_queue_ahead_legs"] += 1
+        elif status == "no_touch":
+            item["no_touch_queue_legs"] += 1
+        if estimated > 0:
+            item["queue_estimated_fill_legs"] += 1
+            item["queue_estimated_filled_shares"] += estimated
+
+    for fill in fill_rows or []:
+        fill_hour = hour_bucket(fill.get("fill_time_utc"))
+        key = (
+            fill.get("market_id") or "",
+            fill_hour,
+            fill.get("clob_token_id") or "",
+        )
+        item = by_slice[key]
+        item["market_id"], item["hour_utc"], item["clob_token_id"] = key
+        item["strict_trade_through_fills"] += 1
+        item["strict_trade_through_filled_shares"] += finite_float(fill.get("fill_size"), 0.0) or 0.0
+
+    slice_rows = []
+    for key, row in sorted(by_slice.items()):
+        quote_legs = int(row.get("quote_legs") or 0)
+        incomplete = (
+            int(row.get("missing_book_queue_legs") or 0)
+            + int(row.get("missing_trade_size_queue_legs") or 0)
+        )
+        slice_rows.append({
+            **row,
+            "strict_trade_through_filled_shares": compact_float(row.get("strict_trade_through_filled_shares")),
+            "queue_estimated_filled_shares": compact_float(row.get("queue_estimated_filled_shares")),
+            "incomplete_market_data_leg_fraction": compact_float(incomplete / quote_legs if quote_legs else 0.0),
+        })
+
+    event_rows = []
+    for event_slug, row in sorted((diagnostics or {}).items()):
+        event_rows.append({
+            "event_slug": event_slug,
+            "trade_rows": int(row.get("trade_rows") or 0),
+            "missing_size_trade_rows": int(row.get("missing_size_trade_rows") or 0),
+            "book_rows": int(row.get("book_rows") or 0),
+            "mark_rows": int(row.get("mark_rows") or 0),
+            "settlement_available": bool(row.get("settlement_available")),
+        })
+
+    blockers = []
+    if missing_size_trade_rows > int(config.get("fill_evidence_max_missing_size_trade_rows", 0)):
+        blockers.append("missing_size_trade_rows")
+    if missing_book_queue_legs > int(config.get("fill_evidence_max_missing_book_queue_legs", 0)):
+        blockers.append("missing_book_queue_legs")
+    if missing_trade_size_queue_legs > int(config.get("fill_evidence_max_missing_trade_size_queue_legs", 0)):
+        blockers.append("missing_trade_size_queue_legs")
+    if unresolved_count > int(config.get("fill_evidence_max_unresolved_resting_quotes", 0)):
+        blockers.append("unresolved_resting_quotes")
+    if (
+        bool(config.get("fill_evidence_require_clob_recon_coverage", True))
+        and legs
+        and (
+            int(clob_summary.get("book_rows") or 0) <= 0
+            or int(clob_summary.get("slice_rows") or 0) <= 0
+        )
+    ):
+        blockers.append("clob_recon_coverage")
+
+    return {
+        "schema_version": "mm_fill_evidence_completeness_v0.1",
+        "status": "PASS" if not blockers else "BLOCK",
+        "promotion_grade": not blockers,
+        "blockers": blockers,
+        "quote_legs": len(legs or []),
+        "strict_trade_through_fill_count": len(fill_rows or []),
+        "strict_trade_through_filled_shares": compact_float(sum_field(fill_rows or [], "fill_size")),
+        "queue_status_counts": dict(sorted(queue_counts.items())),
+        "missing_size_trade_rows": missing_size_trade_rows,
+        "missing_book_queue_legs": missing_book_queue_legs,
+        "missing_trade_size_queue_legs": missing_trade_size_queue_legs,
+        "unresolved_resting_quote_count": unresolved_count,
+        "events_without_trade_rows": sorted(
+            event_slug for event_slug, row in (diagnostics or {}).items()
+            if int(row.get("trade_rows") or 0) == 0
+        ),
+        "events_without_book_rows": sorted(
+            event_slug for event_slug, row in (diagnostics or {}).items()
+            if int(row.get("book_rows") or 0) == 0
+        ),
+        "clob_recon_book_rows": int(clob_summary.get("book_rows") or 0),
+        "clob_recon_slice_rows": int(clob_summary.get("slice_rows") or 0),
+        "clob_recon_coverage_source": (clob_recon or {}).get("coverage_source"),
+        "by_market_hour_token": slice_rows,
+        "event_diagnostics": event_rows,
     }
 
 
@@ -1484,7 +2137,12 @@ def build_paper_payload(
     candidate_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
     run_folders, eligibility_by_folder, excluded_run_folders = split_run_folders_by_eligibility(candidate_run_folders)
     quote_rows, run_configs = load_quote_rows(run_folders, eligibility_by_folder=eligibility_by_folder)
+    model_variant_quote_rows, _model_variant_run_configs = load_model_variant_quote_rows(
+        run_folders,
+        eligibility_by_folder=eligibility_by_folder,
+    )
     legs = quote_legs(quote_rows, config)
+    model_variant_legs = quote_legs(model_variant_quote_rows, config)
     casebook_index = load_casebook_index(casebook_path)
     fill_rows, queue_rows, diagnostics, leg_fill_sizes = simulate_conservative_fills(
         legs,
@@ -1492,6 +2150,20 @@ def build_paper_payload(
         casebook_index,
         config,
         ledger_root=ledger_root,
+    )
+    model_variant_fill_rows, model_variant_queue_rows, model_variant_diagnostics, _model_variant_leg_fill_sizes = simulate_conservative_fills(
+        model_variant_legs,
+        snapshots_root,
+        casebook_index,
+        config,
+        ledger_root=ledger_root,
+    )
+    model_variant_bakeoff = model_variant_paper_bakeoff_summary(
+        model_variant_quote_rows,
+        model_variant_legs,
+        model_variant_fill_rows,
+        model_variant_queue_rows,
+        config=config,
     )
     queue_summary = Counter(row.get("status") for row in queue_rows)
     slices = build_markout_slices(fill_rows, config)
@@ -1502,7 +2174,23 @@ def build_paper_payload(
     )
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
-    clob_recon = load_recon_payload(clob_recon_path)
+    active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
+    clob_recon = load_or_build_clob_recon(
+        clob_recon_path,
+        snapshots_root,
+        active_event_slugs,
+        now=now,
+    )
+    decisive_resting = decisive_resting_check(legs, diagnostics)
+    fill_evidence_completeness = fill_evidence_completeness_summary(
+        legs,
+        fill_rows,
+        queue_rows,
+        diagnostics,
+        decisive_resting,
+        clob_recon,
+        config,
+    )
     per_market_evidence_credits = [
         row
         for item in eligibility_by_folder.values()
@@ -1521,6 +2209,8 @@ def build_paper_payload(
         "excluded_run_folders": len(excluded_run_folders),
         "quote_rows": len(quote_rows),
         "quote_legs": len(legs),
+        "model_variant_quote_rows": len(model_variant_quote_rows),
+        "model_variant_quote_legs": len(model_variant_legs),
         "conservative_fills": len(fill_rows),
         "conservative_filled_shares": compact_float(sum_field(fill_rows, "fill_size")),
         "queue_estimated_fill_legs": sum(1 for row in queue_rows if (finite_float(row.get("estimated_fill_size"), 0.0) or 0.0) > 0),
@@ -1531,6 +2221,23 @@ def build_paper_payload(
             "events_without_trade_rows": sorted(
                 key for key, row in diagnostics.items() if row.get("trade_rows", 0) == 0
             ),
+        },
+        "fill_evidence_completeness": {
+            "status": fill_evidence_completeness.get("status"),
+            "promotion_grade": fill_evidence_completeness.get("promotion_grade"),
+            "blockers": fill_evidence_completeness.get("blockers") or [],
+            "missing_size_trade_rows": fill_evidence_completeness.get("missing_size_trade_rows", 0),
+            "missing_book_queue_legs": fill_evidence_completeness.get("missing_book_queue_legs", 0),
+            "missing_trade_size_queue_legs": fill_evidence_completeness.get(
+                "missing_trade_size_queue_legs",
+                0,
+            ),
+            "unresolved_resting_quote_count": fill_evidence_completeness.get(
+                "unresolved_resting_quote_count",
+                0,
+            ),
+            "clob_recon_book_rows": fill_evidence_completeness.get("clob_recon_book_rows", 0),
+            "clob_recon_slice_rows": fill_evidence_completeness.get("clob_recon_slice_rows", 0),
         },
         "pnl": summarize_pnl(fill_rows),
         "early_hour_guardrail_shadow": early_hour_guardrail_shadow.get("summary") or {},
@@ -1543,7 +2250,19 @@ def build_paper_payload(
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
         "event_gate_score": event_gate_score,
         "clob_recon": clob_recon.get("summary") or {},
-        "decisive_resting_audit": decisive_resting_check(legs, diagnostics),
+        "decisive_resting_audit": decisive_resting,
+        "model_variant_bakeoff": {
+            "status": model_variant_bakeoff.get("status"),
+            "quote_rows": model_variant_bakeoff.get("quote_rows", 0),
+            "conservative_fills": model_variant_bakeoff.get("conservative_fills", 0),
+            "policy_pair_count": model_variant_bakeoff.get("policy_pair_count", 0),
+            "promotion_gate_status": (model_variant_bakeoff.get("promotion_gate") or {}).get("status"),
+            "promotion_gate_method": (model_variant_bakeoff.get("promotion_gate") or {}).get("method"),
+            "promotion_gate_pair_count": (model_variant_bakeoff.get("promotion_gate") or {}).get("pair_count"),
+            "promotion_gate_pass_pair_count": (model_variant_bakeoff.get("promotion_gate") or {}).get(
+                "pass_pair_count"
+            ),
+        },
         "gate_status": "OPEN" if len(anti_overfit.get("live_forward_days") or []) < int(config["min_edge_allowed_live_days"]) else "PAPER_DAYS_READY",
     }
     return {
@@ -1557,6 +2276,7 @@ def build_paper_payload(
         "config": config,
         "summary": summary,
         "clob_recon": clob_recon,
+        "fill_evidence_completeness": fill_evidence_completeness,
         "event_diagnostics": diagnostics,
         "run_configs": run_configs,
         "run_folder_eligibility": eligibility_by_folder,
@@ -1564,6 +2284,10 @@ def build_paper_payload(
         "excluded_run_folders": excluded_run_folders,
         "markout_slices": slices,
         "early_hour_guardrail_shadow": early_hour_guardrail_shadow,
+        "model_variant_bakeoff": model_variant_bakeoff,
+        "model_variant_event_diagnostics": model_variant_diagnostics,
+        "model_variant_fills": model_variant_fill_rows,
+        "model_variant_queue_companion": model_variant_queue_rows,
         "queue_companion": queue_rows,
         "fills": fill_rows,
     }

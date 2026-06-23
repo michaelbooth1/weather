@@ -312,10 +312,10 @@ infrastructure work remains.
 | 274 | [Taker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23]](items/item-274-taker-model-version-shadow-bakeoff.md) |
 | 275 | [Taker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23]](items/item-275-taker-clustered-statistical-promotion-gate.md) |
 | 276 | [NO-Side Taker Data Collection Campaign [COMPLETE 2026-06-23 - REAL NO-SIDE COUNTERFACTUAL CAMPAIGN LIVE]](items/item-276-no-side-taker-data-collection-campaign.md) |
-| 277 | [Maker All-Market Liveness And Fresh Data SLA [OPEN 2026-06-23 - SELECTED PROOF PASSED BUT ALL-MARKET ROLL STILL STALE]](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
-| 278 | [Maker Model-Version Shadow Bakeoff [OPEN 2026-06-23 - MAKER TAPES SHOW ONE SERVED MODEL VERSION]](items/item-278-maker-model-version-shadow-bakeoff.md) |
-| 279 | [Maker Clustered Statistical Promotion Gate [OPEN 2026-06-23 - 34 FILLS ACROSS 3 MARKET-DAYS CANNOT PROVE IMPROVEMENT]](items/item-279-maker-clustered-statistical-promotion-gate.md) |
-| 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [OPEN 2026-06-23 - MISSING SIZE AND ZERO RECON ROWS WEAKEN FILL SCORING]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
+| 277 | [Maker All-Market Liveness And Fresh Data SLA [PARTIAL 2026-06-23 - LIVENESS GATE LIVE, ALL-MARKET SESSIONS PENDING]](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
+| 278 | [Maker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23 - MAKER MODEL-VARIANT BAKEOFF LIVE]](items/item-278-maker-model-version-shadow-bakeoff.md) |
+| 279 | [Maker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23 - MARKET-DAY CLUSTER GATE LIVE]](items/item-279-maker-clustered-statistical-promotion-gate.md) |
+| 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [COMPLETE 2026-06-23 - FILL-EVIDENCE COMPLETENESS GATE LIVE]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
 
 ### Architecture And Maintainability
 

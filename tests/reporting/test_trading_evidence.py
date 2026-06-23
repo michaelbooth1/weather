@@ -32,6 +32,69 @@ def _write_active_mm_run(root, target_date, run_id):
 
 
 class TestTradingEvidence(unittest.TestCase):
+    def test_market_making_useful_work_liveness_blocks_countability_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "mm_runs" / "2026-06-19" / "run-1"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "mm_run_v0.2",
+                        "run_id": "run-1",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-live-forward",
+                        "evidence_mode": "active_day_live_forward",
+                        "counts_toward_live_forward_gate": False,
+                        "preflight_status": "PASS",
+                        "markets": [{"market_id": "atlanta"}],
+                        "live_forward_gate": {
+                            "status": "BLOCK",
+                            "summary": {
+                                "run_level_failure_counts": {"useful_work_liveness": 1},
+                            },
+                        },
+                        "useful_work_liveness": {
+                            "status": "BLOCK",
+                            "ok": False,
+                            "enforced": True,
+                            "blocker_count": 1,
+                            "root_cause_counts": {
+                                "snapshot_loop_no_useful_write": 1,
+                            },
+                        },
+                        "model_variant_row_count": 8,
+                        "model_variant_bakeoff": {
+                            "status": "PASS",
+                            "basket_id": "maker_default_v0",
+                            "emitted_variant_ids": [
+                                "served_current",
+                                "conservative_no_market_baseline",
+                            ],
+                            "multiple_testing_family_size": 1,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+            )
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["useful_work_liveness_status"], "BLOCK")
+        self.assertEqual(mm["useful_work_liveness_blocker_count"], 1)
+        self.assertIn("useful_work_liveness=BLOCK", mm["countability_blockers"])
+        self.assertEqual(
+            mm["useful_work_liveness_root_cause_counts"]["snapshot_loop_no_useful_write"],
+            1,
+        )
+        self.assertEqual(mm["model_variant_bakeoff_status"], "PASS")
+        self.assertEqual(mm["model_variant_bakeoff_row_count"], 8)
+        self.assertIn("served_current", mm["model_variant_bakeoff_variant_ids"])
+
     def test_operator_drill_market_making_run_remains_non_countable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -10,6 +10,7 @@ from weather.market.mm_paper import (
     build_known_edge_map,
     build_paper_payload,
     maker_paper_score_freshness_from_report,
+    model_variant_clustered_promotion_gate,
     run_folder_eligibility,
     write_outputs,
 )
@@ -430,6 +431,111 @@ def write_snapshot_fixture(root):
 
 
 class TestMMPaper(unittest.TestCase):
+    def test_model_variant_clustered_gate_blocks_many_rows_from_one_market_day(self):
+        quote_rows = []
+        for _index in range(40):
+            quote_rows.append({
+                "target_date": "2026-06-14",
+                "market_id": "atlanta",
+                "model_variant_id": "served_current",
+                "policy_hash": "locked-policy",
+                "quote_permission": "True",
+            })
+            quote_rows.append({
+                "target_date": "2026-06-14",
+                "market_id": "atlanta",
+                "model_variant_id": "candidate_shadow",
+                "policy_hash": "locked-policy",
+                "quote_permission": "True",
+            })
+        gate = model_variant_clustered_promotion_gate(
+            quote_rows,
+            [],
+            [],
+            [],
+            config={
+                "model_variant_promotion_min_market_day_clusters": 3,
+                "model_variant_promotion_min_target_days": 2,
+                "model_variant_promotion_min_markets": 2,
+                "model_variant_promotion_bootstrap_iterations": 100,
+            },
+        )
+        candidate = [
+            row for row in gate["pairs"]
+            if row["model_variant_id"] == "candidate_shadow"
+        ][0]
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(candidate["cluster_count"], 1)
+        self.assertEqual(candidate["quote_rows"], 40)
+        self.assertIn("min_market_day_clusters", candidate["failed_gates"])
+        self.assertIn("min_independent_target_days", candidate["failed_gates"])
+        self.assertIn("min_independent_markets", candidate["failed_gates"])
+
+    def test_model_variant_clustered_gate_can_pass_paired_market_day_delta(self):
+        quote_rows = []
+        legs = []
+        fills = []
+        clusters = [
+            ("2026-06-14", "atlanta"),
+            ("2026-06-15", "atlanta"),
+            ("2026-06-16", "dallas"),
+        ]
+        for index, (target_date, market_id) in enumerate(clusters):
+            for variant_id, net in [("served_current", 0.0), ("candidate_shadow", 1.0)]:
+                leg_id = f"{variant_id}-{index}"
+                quote_rows.append({
+                    "target_date": target_date,
+                    "market_id": market_id,
+                    "model_variant_id": variant_id,
+                    "policy_hash": "locked-policy",
+                    "quote_permission": "True",
+                })
+                legs.append({
+                    "target_date": target_date,
+                    "market_id": market_id,
+                    "model_variant_id": variant_id,
+                    "policy_hash": "locked-policy",
+                    "leg_id": leg_id,
+                    "quote_size": 10,
+                })
+                fills.append({
+                    "target_date": target_date,
+                    "market_id": market_id,
+                    "model_variant_id": variant_id,
+                    "policy_hash": "locked-policy",
+                    "fill_size": 1,
+                    "net_pnl_after_fees_incentives_usdc": net,
+                    "settlement_pnl_usdc": net,
+                    "adverse_selection_30m_usdc": net,
+                })
+        gate = model_variant_clustered_promotion_gate(
+            quote_rows,
+            legs,
+            fills,
+            [],
+            config={
+                "model_variant_promotion_min_market_day_clusters": 3,
+                "model_variant_promotion_min_target_days": 3,
+                "model_variant_promotion_min_markets": 2,
+                "model_variant_promotion_bootstrap_iterations": 100,
+            },
+        )
+        candidate = [
+            row for row in gate["pairs"]
+            if row["model_variant_id"] == "candidate_shadow"
+        ][0]
+        delta_net = candidate["delta_vs_served_current_cluster_metrics"][
+            "net_pnl_after_fees_incentives_usdc"
+        ]
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(candidate["status"], "PASS")
+        self.assertEqual(candidate["cluster_count"], 3)
+        self.assertEqual(candidate["independent_target_day_count"], 3)
+        self.assertEqual(candidate["independent_market_count"], 2)
+        self.assertGreater(delta_net["mean_lower"], 0.0)
+
     def test_paper_score_freshness_passes_when_report_covers_latest_active_day(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -561,6 +667,35 @@ class TestMMPaper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             runs_root, run_folder = write_run_fixture(root)
+            base_quote = read_csv(run_folder / "quote_intents_long.csv")[0]
+            served_variant = {
+                **base_quote,
+                "model_variant_id": "served_current",
+                "model_variant_family": "served_current",
+                "model_variant_role": "served",
+                "model_variant_basket_id": "test_basket",
+                "model_variant_probability_source": "served_fair_probability",
+                "model_variant_counterfactual": "False",
+                "served_model_version": "candidate",
+                "edge": "0.0",
+            }
+            shadow_variant = {
+                **base_quote,
+                "model_variant_id": "external_dynamic",
+                "model_variant_family": "dynamic_source_freshness",
+                "model_variant_role": "shadow",
+                "model_variant_basket_id": "test_basket",
+                "model_variant_probability_source": "external_variant_row",
+                "model_variant_counterfactual": "True",
+                "served_model_version": "candidate",
+                "fair_probability": "0.62",
+                "edge": "0.12",
+            }
+            write_csv(
+                run_folder / "model_variant_quote_intents_long.csv",
+                list(served_variant.keys()),
+                [served_variant, shadow_variant],
+            )
             snapshots_root = write_snapshot_fixture(root)
             backtest_root = root / "backtest"
             promotion = backtest_root / "promotion.json"
@@ -595,7 +730,26 @@ class TestMMPaper(unittest.TestCase):
             )
 
             self.assertEqual(payload["summary"]["conservative_fills"], 1)
+            self.assertEqual(payload["summary"]["model_variant_bakeoff"]["status"], "PASS")
+            self.assertGreaterEqual(payload["model_variant_bakeoff"]["conservative_fills"], 1)
+            variant_rows = {
+                row["model_variant_id"]: row
+                for row in payload["model_variant_bakeoff"]["model_variant_by_policy"]
+            }
+            self.assertIn("served_current", variant_rows)
+            self.assertIn("external_dynamic", variant_rows)
+            self.assertEqual(
+                payload["model_variant_bakeoff"]["promotion_gate"]["method"],
+                "clustered_market_day_bootstrap",
+            )
+            self.assertEqual(payload["model_variant_bakeoff"]["promotion_gate"]["status"], "BLOCK")
             self.assertEqual(payload["summary"]["trade_evidence_gaps"]["missing_size_trade_rows"], 1)
+            fill_gate = payload["fill_evidence_completeness"]
+            self.assertEqual(fill_gate["status"], "BLOCK")
+            self.assertIn("missing_size_trade_rows", fill_gate["blockers"])
+            self.assertGreater(fill_gate["clob_recon_book_rows"], 0)
+            self.assertGreater(fill_gate["clob_recon_slice_rows"], 0)
+            self.assertTrue(fill_gate["by_market_hour_token"])
             fill = payload["fills"][0]
             self.assertEqual(fill["side"], "YES_BID")
             self.assertEqual(float(fill["fill_price"]), 0.49)
@@ -620,6 +774,10 @@ class TestMMPaper(unittest.TestCase):
             self.assertTrue(Path(files["known_edge_json"]).exists())
             csv_rows = read_csv(files["fills_csv"])
             self.assertEqual(len(csv_rows), 1)
+            report = Path(files["report"]).read_text(encoding="utf-8")
+            self.assertIn("## Model-Variant Bakeoff", report)
+            self.assertIn("## Fill Evidence Completeness", report)
+            self.assertIn("external_dynamic", report)
 
             permissions = {(row["market_id"], row["permission"]) for row in known_edge["records"]}
             self.assertIn(("atlanta", "edge_research"), permissions)

@@ -400,6 +400,12 @@ def build_preflight_remediation(preflight, now, previous=None):
     incidents = []
     owner_counts = Counter()
     root_counts = Counter()
+
+    def append_incident(incident):
+        incidents.append(incident)
+        owner_counts[incident["owner"]] += 1
+        root_counts[incident["root_cause"]] += 1
+
     for market in preflight.get("markets", []):
         for gate in market.get("gates") or []:
             if gate.get("ok"):
@@ -440,9 +446,49 @@ def build_preflight_remediation(preflight, now, previous=None):
                 "alert_within_seconds": 60,
                 "last_good_artifact": remediation_last_good_artifact(market, gate.get("name") or ""),
             }
-            incidents.append(incident)
-            owner_counts[incident["owner"]] += 1
-            root_counts[incident["root_cause"]] += 1
+            append_incident(incident)
+    useful_work = preflight.get("useful_work_liveness") or {}
+    if useful_work.get("enforced"):
+        for blocker in useful_work.get("blockers") or []:
+            gate_name = blocker.get("gate") or "useful_work_liveness"
+            root_cause = blocker.get("root_cause") or gate_name
+            detail = blocker.get("detail") or ""
+            key = "|".join([
+                "run",
+                str(blocker.get("market_id") or "*"),
+                str(gate_name),
+                str(root_cause),
+                detail,
+            ])
+            prior = previous_by_key.get(key) or {}
+            incident = {
+                "incident_key": key,
+                "run_id": preflight.get("run_id"),
+                "generated_at_utc": now.isoformat(),
+                "first_seen_utc": prior.get("first_seen_utc") or now.isoformat(),
+                "last_seen_utc": now.isoformat(),
+                "market_id": blocker.get("market_id") or "*",
+                "event_slug": None,
+                "status": useful_work.get("status"),
+                "gate": gate_name,
+                "severity": blocker.get("severity") or "block",
+                "root_cause": root_cause,
+                "owner": blocker.get("owner") or "unknown",
+                "roadmap_owner_items": list(blocker.get("roadmap_owner_items") or []),
+                "detail": detail,
+                "suggested_command": blocker.get("suggested_command") or "inspect preflight.json",
+                "recoverable_same_day": bool(blocker.get("recoverable_same_day", True)),
+                "can_still_count_live_forward_day": bool(blocker.get("can_still_count_live_forward_day", False)),
+                "alert_within_seconds": 60,
+                "last_good_artifact": {
+                    "artifact": blocker.get("status_path") or blocker.get("last_good_artifact") or "",
+                    "last_good_timestamp": blocker.get("last_good_timestamp"),
+                    "age_seconds": blocker.get("age_seconds"),
+                    "stale_threshold_seconds": blocker.get("stale_threshold_seconds"),
+                    "markets": blocker.get("markets") or [],
+                },
+            }
+            append_incident(incident)
     has_missing = any(row.get("severity") != "stale" for row in incidents)
     status = "PASS" if not incidents else ("BLOCK" if has_missing else "WARN")
     non_countable = [

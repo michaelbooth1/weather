@@ -360,3 +360,138 @@ bottom-market all-fresh/two-source slices and the exact-band
 settlement-distance-0 early rows. The existing predawn repair remains useful
 for weak slots, but its row-export surrogate still trails market broadly and
 cannot satisfy the active replay/export contract by itself.
+
+## 2026-06-23 bottom-market basket no-go diagnostic
+
+The full all-variant basket validation was too large for a foreground pass, so
+the same candidate families were filtered to the hard bottom markets
+(`miami`, `nyc`, `seattle`) and rerun as an item-specific diagnostic.
+
+Filtered row inputs are under:
+
+- `data/backtest/item224_basket_inputs/`
+
+Generated diagnostics:
+
+- `data/backtest/item224_bottom_variant_basket_selection_validation.json`
+- `data/backtest/item224_bottom_variant_basket_selection_validation_report.md`
+- `data/backtest/item224_bottom_variant_basket_no_go.json`
+- `data/backtest/item224_bottom_blocked_market_repair_diagnostics.json`
+- `data/backtest/item224_bottom_blocked_market_repair_diagnostics_report.md`
+
+Basket result: `blocked`.
+
+- Selected bottom-market basket delta vs market: `+0.0207`, above the
+  `+0.0030` tolerance.
+- Miami selected `item147_time_split_alpha` and passed later-date eval
+  (`delta_vs_market -0.0033`).
+- NYC selected `current_max_trust_retrain_v0_1` and blocked
+  (`delta_vs_market +0.0287`); even the diagnostic oracle only reached
+  `+0.0141`.
+- Seattle selected the predawn-repair branch and blocked
+  (`delta_vs_market +0.0368`); even the diagnostic oracle only reached
+  `+0.0165`.
+- Slice-level basket policies also blocked; the best settlement-distance
+  oracle was still `+0.0054` versus market.
+
+Repair diagnostic classification:
+
+- Miami: `market_gap_without_clear_winner_signal`; top repair slice is
+  `bin_type=eq`, with all-fresh and settlement-distance-0 also contributing.
+- NYC: `winner_underpricing_vs_market`; top repair is winner probability mass
+  on `settlement_distance_bucket=0` and EQ rows.
+- Seattle: `winner_underpricing_vs_market`; top repair is winner probability
+  mass on EQ and `settlement_distance_bucket=0` rows.
+
+This rules out a promotion-safe basket of existing no-market branches for the
+hard bottom markets. The next aligned unblock is a new retrained or calibrated
+candidate that specifically adds winner mass for NYC/Seattle exact-band
+settlement-distance-0 rows and repairs Miami EQ/all-fresh market-gap slices,
+then replays through the active candidate export contract.
+
+## 2026-06-23 bottom-market winner-mass logistic repair diagnostic
+
+Built a no-market logistic winner-mass repair diagnostic over the hard bottom
+markets (`miami`, `nyc`, `seattle`) using only model probabilities and
+inference-available slice fields from the aligned current-max, Item 187,
+Item 147, Item 32, and predawn candidate rows. The diagnostic trained on
+`2026-06-07` and `2026-06-08`, evaluated on `2026-06-12` and `2026-06-13`,
+and wrote:
+
+- `data/backtest/item224_bottom_winner_mass_logistic_repair_rows.csv`
+- `data/backtest/item224_bottom_winner_mass_logistic_repair.json`
+- `data/backtest/item224_bottom_winner_mass_logistic_repair_report.md`
+- `data/backtest/item224_bottom_winner_mass_logistic_bottom_location.json`
+- `data/backtest/item224_bottom_winner_mass_logistic_bottom_location_report.md`
+- `data/backtest/item224_bottom_winner_mass_logistic_exact_band_distance_zero.json`
+- `data/backtest/item224_bottom_winner_mass_logistic_exact_band_distance_zero_report.md`
+
+Result: useful lift versus current, but still not a gate-clearing unblock.
+
+- Eval candidate Brier `0.0303` versus current `0.0551`, improving current by
+  `-0.0248`.
+- Eval candidate still trails market `0.0188` by `+0.0115`.
+- Miami eval nearly clears the market tolerance (`+0.0022`), but NYC
+  (`+0.0164`) and Seattle (`+0.0181`) remain blocked.
+- Bottom-location gate remains `BLOCK` with `6` blockers; Seattle weak-slot,
+  early, and midday trail market, NYC weak-slot has no candidate rows, and
+  NYC/Miami midday still trail market.
+- Exact-band/distance-0 gate remains `BLOCK` with `3` aggregate blockers:
+  exact-band early `+0.0059` vs market, settlement-distance-0 early `+0.0642`
+  vs market, and one-above early current regression `+0.0278`.
+
+This narrows the next unblock: a winner-mass repair is directionally correct,
+but it needs market-competitive NYC/Seattle exact-band settlement-distance-0
+performance and a one-above guardrail fix before the active pooled-F export can
+clear Item 224.
+
+## 2026-06-23 bottom-market residual manifest and composite no-go
+
+Ran the reusable market residual repair program over the item-specific bottom
+market candidate exports and the existing basket no-go registry:
+
+- `data/backtest/item224_bottom_market_residual_repair_program.json`
+- `data/backtest/item224_bottom_market_residual_repair_program_report.md`
+- `data/backtest/item224_bottom_market_residual_rejected_registry.json`
+- `data/backtest/item224_bottom_market_residual_manifests/item231_miami_early_residual_v0_1.json`
+- `data/backtest/item224_bottom_market_residual_manifests/item231_nyc_early_residual_v0_1.json`
+- `data/backtest/item224_bottom_market_residual_manifests/item231_seattle_early_residual_v0_1.json`
+
+Result: `BLOCK`.
+
+- manifests: `3`.
+- passing manifests: `1`.
+- blocked manifests: `2`.
+- shadow/keep candidate: Miami with `item147_time_split_alpha`
+  (`delta_vs_market -0.0059`).
+- blocked candidates: NYC with `item147_time_split_alpha`
+  (`delta_vs_market +0.0035`, blocker `+0.0037 > +0.0030` on target
+  Brier) and Seattle with the predawn/current-fallback repair
+  (`delta_vs_market +0.0020`, blocker current regression `+0.0016`).
+- rejected registry entries: `23`, including the existing variant basket no-go
+  and all current bottom-market candidate families for at least one hard
+  market.
+
+Also tested a market-scoped composite export:
+
+- `data/backtest/item224_bottom_market_residual_composite_rows.csv`
+- `data/backtest/item224_bottom_market_residual_composite_bottom_location.json`
+- `data/backtest/item224_bottom_market_residual_composite_bottom_location_report.md`
+- `data/backtest/item224_bottom_market_residual_composite_exact_band_distance_zero.json`
+- `data/backtest/item224_bottom_market_residual_composite_exact_band_distance_zero_report.md`
+
+Composite policy: Item 147 for Miami/NYC plus a current-holdout candidate for
+Seattle. Result: still `BLOCK`.
+
+- bottom-location gate: `7` blockers. Seattle weak/early/midday still trails
+  market by `+0.0104`, `+0.0375`, and `+0.0360`; NYC weak/early/midday trails
+  by `+0.0073`, `+0.0033`, and `+0.0068`; Miami midday trails by `+0.0138`.
+- exact-band/distance-0 gate: `5` blockers. Aggregate exact-band early trails
+  market by `+0.0150`, settlement-distance-0 early trails by `+0.1218`, and
+  adjacent guardrails regress current.
+
+This rules out market-scoped routing across the existing no-market candidates.
+The remaining Item 224 unblock is a genuinely new NYC/Seattle winner-mass and
+midday repair that is competitive with market on exact-band,
+settlement-distance-0, weak-slot, early, and midday slices while preserving
+Miami's Item 147 gains.

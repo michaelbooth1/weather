@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from weather.market.market_making_run import (
+    build_useful_work_liveness,
     build_run_once,
     lifecycle_summary,
     load_data_layer_live_gate,
@@ -14,6 +15,10 @@ from weather.market.market_making_run import (
     load_platform_verification_gate,
     utc_now,
 )
+from weather.market.live_forward_gate import build_live_forward_gate
+from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
+from weather.market.market_making_model_variants import build_model_variant_quote_rows
+from weather.market.market_making_preflight import build_preflight_remediation
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
 
@@ -403,6 +408,255 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
 
 
 class TestMarketMakingRun(unittest.TestCase):
+    def test_useful_work_liveness_blocks_all_market_active_day_stale_work(self):
+        now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
+        preflight_rows = [{
+            "market_id": "atlanta",
+            "latest_capture_utc": "2026-06-14T15:00:00+00:00",
+            "model_age_seconds": 3600.0,
+            "book_audit": {
+                "last_capture_utc": "2026-06-14T15:00:00+00:00",
+                "trailing_age_seconds": 3600.0,
+            },
+            "gates": [
+                {"name": "snapshot_model_rows", "ok": True, "severity": "missing", "detail": "ok"},
+                {"name": "model_freshness", "ok": False, "severity": "stale", "detail": "stale model"},
+                {"name": "clob_books", "ok": True, "severity": "missing", "detail": "ok"},
+                {"name": "clob_features", "ok": True, "severity": "missing", "detail": "ok"},
+                {"name": "clob_freshness", "ok": False, "severity": "stale", "detail": "stale CLOB"},
+            ],
+            "csv_encoding": {"issue_count": 1, "quarantined_row_count": 2},
+        }]
+        payload = build_useful_work_liveness(
+            preflight_rows,
+            runtime_identity={
+                "loops": [{
+                    "name": "weather_snapshots",
+                    "status_path": "snapshot-loop.json",
+                    "runtime_identity_matches_current": False,
+                }]
+            },
+            observation_status_path=Path("observation_status.json"),
+            snapshots_root=Path("snapshots"),
+            runs_root=Path("mm_runs"),
+            policy_config={"max_model_age_seconds": 120.0, "max_book_age_seconds": 120.0},
+            now=now,
+            all_market_scope=True,
+            evidence_mode=EVIDENCE_MODE_ACTIVE_DAY,
+            mode="paper-live-forward",
+            snapshot_loop_status={
+                "iterations": 1,
+                "last_market_results": {"atlanta": {"written": False}},
+            },
+            clob_loop_status={
+                "iterations": 0,
+                "started_at": "2026-06-14T15:00:00+00:00",
+            },
+            observation_status_raw={
+                "last_heartbeat": "2026-06-14T15:59:50+00:00",
+                "last_poll_at_utc": "2026-06-14T15:59:50+00:00",
+                "last_poll_results": {
+                    "atlanta": {
+                        "snapshot": {
+                            "status": "stale_code",
+                            "blocked": True,
+                        }
+                    }
+                },
+            },
+            daily_roll_status={
+                "status": "disk_full",
+                "disk_capacity_preflight": {
+                    "ok": False,
+                    "status": "LOW_SPACE",
+                    "remediation_command": "free disk",
+                },
+            },
+        )
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertFalse(payload["ok"])
+        roots = payload["root_cause_counts"]
+        self.assertIn("stale_runtime_identity", roots)
+        self.assertIn("snapshot_loop_no_useful_write", roots)
+        self.assertIn("clob_loop_zero_iterations", roots)
+        self.assertIn("observation_trigger_stale_code_markets", roots)
+        self.assertIn("stale_or_missing_snapshot_model_rows", roots)
+        self.assertIn("stale_or_missing_clob_book_rows", roots)
+        self.assertIn("clob_csv_encoding_issue", roots)
+        self.assertIn("disk_full_or_low_space", roots)
+
+        remediation = build_preflight_remediation(
+            {
+                "run_id": "run-1",
+                "target_date": TARGET_DATE,
+                "mode": "paper-live-forward",
+                "status": "PASS",
+                "markets": [],
+                "useful_work_liveness": payload,
+            },
+            now,
+        )
+        self.assertEqual(remediation["status"], "BLOCK")
+        self.assertFalse(remediation["counts_toward_live_forward_gate"])
+        self.assertIn("stale_runtime_identity", remediation["root_cause_counts"])
+
+    def test_live_forward_gate_blocks_when_run_level_liveness_fails(self):
+        gates = [
+            "active_event",
+            "snapshot_model_rows",
+            "model_freshness",
+            "source_status_rows",
+            "source_status_fresh",
+            "clob_discovery",
+            "clob_tokens",
+            "clob_books",
+            "clob_features",
+            "clob_freshness",
+            "observation_trigger",
+            "promotion_state",
+            "reward_metadata",
+        ]
+        preflight = {
+            "run_id": "run-1",
+            "target_date": TARGET_DATE,
+            "mode": "paper-live-forward",
+            "generated_at_utc": NOW,
+            "observation_status": {"fresh": True, "last_heartbeat": "2026-06-14T15:59:50+00:00"},
+            "useful_work_liveness": {
+                "status": "BLOCK",
+                "ok": False,
+                "enforced": True,
+                "blocker_count": 1,
+                "blockers": [{
+                    "gate": "snapshot_loop_activity",
+                    "root_cause": "snapshot_loop_no_useful_write",
+                }],
+            },
+            "markets": [{
+                "market_id": "atlanta",
+                "city": "Atlanta",
+                "target_date": TARGET_DATE,
+                "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                "status": "PASS",
+                "latest_capture_utc": "2026-06-14T15:59:50+00:00",
+                "model_age_seconds": 10.0,
+                "book_audit": {
+                    "last_capture_utc": "2026-06-14T15:59:50+00:00",
+                    "trailing_age_seconds": 10.0,
+                },
+                "gates": [
+                    {"name": name, "ok": True, "severity": "missing", "detail": "ok"}
+                    for name in gates
+                ],
+            }],
+        }
+
+        gate = build_live_forward_gate(
+            preflight,
+            policy_config={"max_model_age_seconds": 120.0, "max_book_age_seconds": 120.0},
+            now=NOW,
+        )
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertFalse(gate["counts_toward_live_forward_gate"])
+        self.assertTrue(gate["evidence"]["paper_trading_evidence"]["all_selected_markets_count"])
+        self.assertEqual(gate["summary"]["run_level_failure_counts"]["useful_work_liveness"], 1)
+
+    def test_model_variant_bakeoff_loads_configured_external_variant_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            variants = root / "variants.csv"
+            variants.write_text(
+                "variant_id,variant_family,market_id,target_date,snapshot_id,band_key,probability,"
+                "artifact_hash,postprocess_config_hash,feature_schema_version\n"
+                "external_dynamic,dynamic_source_freshness,atlanta,2026-06-14,s1,eq:80.0-81.0,0.62,"
+                "hash1,post1,schema1\n",
+                encoding="utf-8",
+            )
+            inputs = [{
+                "market_id": "atlanta",
+                "target_date": "2026-06-14",
+                "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                "snapshot_id": "s1",
+                "captured_at_utc": "2026-06-14T15:59:50+00:00",
+                "model_version": "candidate",
+                "range_label": "80-81 F",
+                "bin_kind": "eq",
+                "bin_value": "80",
+                "bin_value_hi": "81",
+                "fair_probability": "0.50",
+                "model_probability": "0.50",
+                "market_yes": "0.50",
+                "clob_midpoint": "0.50",
+                "clob_spread": "0.02",
+                "clob_book_age_seconds": "10",
+                "book_depth_1pct_total": "100",
+                "model_age_seconds": "10",
+                "watcher_age_seconds": "10",
+                "heartbeat_ok": True,
+                "source_fresh": True,
+                "market_status": "active",
+                "promotion_state": "PASS",
+            }]
+
+            rows, payload = build_model_variant_quote_rows(
+                inputs,
+                {
+                    "maker_model_variant_paths": str(variants),
+                    "maker_model_variant_basket_id": "test_basket",
+                    "max_book_age_seconds": 120.0,
+                    "max_model_age_seconds": 120.0,
+                    "max_watcher_age_seconds": 120.0,
+                    "min_depth_1pct_total": 1.0,
+                    "tick_size": 0.001,
+                    "min_price": 0.001,
+                    "max_price": 0.999,
+                    "quote_size": 5.0,
+                    "harvest_half_spread": 0.01,
+                    "max_harvest_spread": 0.08,
+                    "max_edge_spread": 0.12,
+                    "shadow_disagreement_stand_down": 0.08,
+                    "edge_min_advantage": 0.03,
+                    "edge_fee_buffer": 0.005,
+                    "adverse_selection_buffer": 0.01,
+                    "max_event_notional": 25.0,
+                    "max_band_notional": 10.0,
+                    "max_daily_loss": 25.0,
+                    "information_event_calendar_enabled": False,
+                    "event_gate_exception_enabled": False,
+                    "event_gate_exception_event_classes": "",
+                    "event_gate_exception_evidence_status": "",
+                    "event_gate_exception_evidence_id": "",
+                    "event_gate_exception_risk_cap_usdc": 0.0,
+                    "early_hour_guardrail_enabled": False,
+                    "early_hour_guardrail_market_weight": 0.35,
+                    "early_hour_guardrail_size_multiplier": 1.0,
+                    "early_hour_guardrail_quote_widen_buffer": 0.0,
+                    "early_hour_guardrail_min_edge_multiplier": 1.0,
+                    "snapshot_cadence_quality_enabled": False,
+                    "snapshot_cadence_degraded_permission": "allow",
+                    "snapshot_cadence_confidence_haircut": 1.0,
+                    "snapshot_cadence_quote_size_multiplier": 1.0,
+                    "snapshot_cadence_quote_widen_buffer": 0.0,
+                    "max_snapshot_cadence_gap_seconds": 900.0,
+                    "snapshot_cadence_stale_model_seconds": 900.0,
+                    "current_high_trust_gate_enabled": False,
+                },
+                target_date="2026-06-14",
+                runtime_identity={"current_identity": {"git_commit": "abc"}},
+                now=NOW,
+            )
+
+        variant_ids = {row["model_variant_id"] for row in rows}
+        self.assertIn("served_current", variant_ids)
+        self.assertIn("external_dynamic", variant_ids)
+        external = next(row for row in rows if row["model_variant_id"] == "external_dynamic")
+        self.assertEqual(external["model_variant_artifact_hash"], "hash1")
+        self.assertEqual(external["model_variant_feature_schema"], "schema1")
+        self.assertIn("external_dynamic", payload["emitted_variant_ids"])
+        self.assertEqual(payload["basket_id"], "test_basket")
+
     def test_data_layer_live_gate_requires_target_day_clob_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -587,6 +841,9 @@ class TestMarketMakingRun(unittest.TestCase):
                 "preflight.json",
                 "preflight_remediation.json",
                 "quote_intents_long.csv",
+                "model_variant_quote_intents_long.csv",
+                "model_variant_bakeoff.json",
+                "model_variant_bakeoff.md",
                 "budget_ledger.jsonl",
                 "order_lifecycle.jsonl",
                 "risk_events.jsonl",
@@ -604,10 +861,19 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(payload["tape_integrity"]["actual_rows"], payload["cumulative_row_count"])
             rows = read_csv(run_folder / "quote_intents_long.csv")
             self.assertEqual({row["run_id"] for row in rows}, {"run-1"})
+            self.assertEqual({row["model_variant_id"] for row in rows}, {"served_current"})
+            self.assertTrue(all(row["served_model_version"] == "candidate" for row in rows))
             self.assertTrue(all(row["event_gate_status"] for row in rows))
             self.assertTrue(all(row["live_trade_permission"] in {"False", "False"} for row in rows))
+            variant_rows = read_csv(run_folder / "model_variant_quote_intents_long.csv")
+            self.assertEqual(payload["model_variant_row_count"], len(variant_rows))
+            self.assertIn("served_current", {row["model_variant_id"] for row in variant_rows})
+            self.assertIn("conservative_no_market_baseline", {row["model_variant_id"] for row in variant_rows})
+            self.assertIn("model_variant_bakeoff", payload)
+            self.assertIn("model_variant_by_policy", payload["model_variant_bakeoff"])
             report = (run_folder / "run_report.md").read_text(encoding="utf-8")
             self.assertIn("## Information Event Gate", report)
+            self.assertIn("## Model-Variant Bakeoff", report)
             self.assertIn("Quote tape integrity", report)
             budget_events = [
                 json.loads(line)

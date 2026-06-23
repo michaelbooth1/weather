@@ -1,4 +1,4 @@
-# 279. Maker Clustered Statistical Promotion Gate [OPEN 2026-06-23 - 34 FILLS ACROSS 3 MARKET-DAYS CANNOT PROVE IMPROVEMENT]
+# 279. Maker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23 - MARKET-DAY CLUSTER GATE LIVE]
 
 Goal: make maker improvement and promotion claims use independent market-day
 clusters instead of raw quote-row or fill-row counts.
@@ -29,16 +29,37 @@ pre-registered.
 5. Record the claim scope explicitly: selected-market proof, all-market
    evidence, market-specific permission, or live-pilot readiness.
 
-- [ ] Add cluster-count and cluster-bootstrap fields to maker paper JSON and
+- [x] Add cluster-count and cluster-bootstrap fields to maker paper JSON and
   Markdown reports.
-- [ ] Block maker improvement claims when independent market-day cluster count
+- [x] Block maker improvement claims when independent market-day cluster count
   is below the configured minimum.
-- [ ] Add multiple-testing-aware summaries for maker model/policy bakeoffs.
-- [ ] Add tests showing raw quote-row growth cannot by itself open promotion.
+- [x] Add multiple-testing-aware summaries for maker model/policy bakeoffs.
+- [x] Add tests showing raw quote-row growth cannot by itself open promotion.
 
 Acceptance: maker paper reports and trading evidence can say whether the
 current maker evidence is statistically countable, using market-day clusters and
 confidence intervals. A positive raw P&L or large quote-row count cannot open a
 promotion gate without sufficient independent clusters.
+
+Completion evidence (2026-06-23):
+
+- Added `model_variant_clustered_promotion_gate`, which groups maker
+  model-version evidence by independent `(target_date, market_id)` clusters.
+- The gate reports deterministic cluster-bootstrap intervals for net P&L,
+  adverse-selection markout, settlement P&L, fill rate, and queue-estimated fill
+  quality.
+- Candidate model/policy pairs are compared against `served_current` on paired
+  market-day clusters with a Bonferroni-adjusted alpha over the pre-registered
+  model/policy family.
+- Maker paper JSON, Markdown, and trading-evidence summaries now expose the
+  clustered gate status, method, pair counts, pass counts, adjusted alpha, and
+  failed gates.
+- Tests prove 40 quote rows from one market-day still block promotion, while a
+  paired positive candidate can pass only when evidence repeats across
+  independent market-days.
+
+Validation:
+
+- `python -m pytest tests\market\test_mm_paper.py -q`
 
 Related: items 44, 117, 163, 260, 275, 278.

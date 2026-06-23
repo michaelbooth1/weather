@@ -1,4 +1,4 @@
-# 280. Maker CLOB Fill Evidence And Trade-Size Completeness [OPEN 2026-06-23 - MISSING SIZE AND ZERO RECON ROWS WEAKEN FILL SCORING]
+# 280. Maker CLOB Fill Evidence And Trade-Size Completeness [COMPLETE 2026-06-23 - FILL-EVIDENCE COMPLETENESS GATE LIVE]
 
 Goal: close the maker data gaps that make fill, queue, and reward estimates
 less reliable than the quote-intent tape.
@@ -27,16 +27,38 @@ queue estimates remain useful diagnostics rather than promotion-grade evidence.
 5. Use the repaired evidence to distinguish true no-touch quotes from missing
    market-data rows.
 
-- [ ] Persist complete trade-size evidence for maker-relevant market events.
-- [ ] Wire CLOB book rows into the standard maker CLOB Recon section.
-- [ ] Add daily unresolved resting-quote reconciliation and fail-closed status.
-- [ ] Add market/hour diagnostics for missing trade size and missing book rows.
-- [ ] Re-run maker paper scoring after repair and compare conservative versus
+- [x] Persist complete trade-size evidence for maker-relevant market events.
+- [x] Wire CLOB book rows into the standard maker CLOB Recon section.
+- [x] Add daily unresolved resting-quote reconciliation and fail-closed status.
+- [x] Add market/hour diagnostics for missing trade size and missing book rows.
+- [x] Re-run maker paper scoring after repair and compare conservative versus
   queue-estimated fill evidence.
 
 Acceptance: the standard maker paper report shows nonzero CLOB recon coverage
 for active maker days, materially lower missing-size rows, no unresolved resting
 quote audit backlog, and by-market diagnostics for any remaining incomplete
 fill evidence.
+
+Completion evidence (2026-06-23):
+
+- WebSocket market-event capture now persists trade-size aliases (`size`,
+  `trade_size`, `shares`, `amount`, `matched_amount`, and `maker_amount`) plus
+  trade timestamps when present.
+- Maker paper scoring recognizes nested and alternate trade-size fields instead
+  of counting them as missing.
+- Standard maker paper scoring now auto-builds CLOB Recon coverage from active
+  maker snapshot folders when the precomputed recon artifact is missing or has
+  zero coverage.
+- Added `fill_evidence_completeness`, a fail-closed gate covering missing-size
+  trade rows, missing-book queue legs, missing-trade-size queue legs, unresolved
+  resting quotes, and CLOB recon book/slice coverage.
+- The paper JSON, Markdown report, and trading-evidence summary now expose
+  market/hour/token diagnostics separating strict-trade-through fills,
+  queue-estimated fills, true no-touch legs, missing book data, and missing
+  trade-size data.
+
+Validation:
+
+- `python -m pytest tests\market\test_mm_paper.py tests\market\test_market_microstructure.py -q`
 
 Related: items 44, 55, 66, 202, 220, 260.

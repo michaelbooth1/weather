@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T21:26:09.626367+00:00
+Generated: 2026-06-23T22:09:39.772641+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 280 |
-| Active items | 39 |
-| OPEN | 10 |
-| PARTIAL | 29 |
-| COMPLETE | 241 |
+| Active items | 36 |
+| OPEN | 6 |
+| PARTIAL | 30 |
+| COMPLETE | 244 |
 | ROADMAP rows | 280 |
 | ROADMAP primary rows | 280 |
 | Metadata manifest rows | 280 |
@@ -60,10 +60,7 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | PARTIAL | 2026-06-23 | CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 277 | OPEN | 2026-06-23 | SELECTED PROOF PASSED BUT ALL-MARKET ROLL STILL STALE | [Maker All-Market Liveness And Fresh Data SLA](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
-| 278 | OPEN | 2026-06-23 | MAKER TAPES SHOW ONE SERVED MODEL VERSION | [Maker Model-Version Shadow Bakeoff](items/item-278-maker-model-version-shadow-bakeoff.md) |
-| 279 | OPEN | 2026-06-23 | 34 FILLS ACROSS 3 MARKET-DAYS CANNOT PROVE IMPROVEMENT | [Maker Clustered Statistical Promotion Gate](items/item-279-maker-clustered-statistical-promotion-gate.md) |
-| 280 | OPEN | 2026-06-23 | MISSING SIZE AND ZERO RECON ROWS WEAKEN FILL SCORING | [Maker CLOB Fill Evidence And Trade-Size Completeness](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
+| 277 | PARTIAL | 2026-06-23 | LIVENESS GATE LIVE, ALL-MARKET SESSIONS PENDING | [Maker All-Market Liveness And Fresh Data SLA](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
 
 ## Lint Issues
 

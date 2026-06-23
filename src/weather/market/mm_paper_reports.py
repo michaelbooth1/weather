@@ -68,6 +68,9 @@ def render_paper_report(payload):
     event_gate = summary.get("event_gate_score") or {}
     clob_recon = summary.get("clob_recon") or {}
     live_forward_evidence = summary.get("per_market_live_forward_evidence") or {}
+    fill_evidence = payload.get("fill_evidence_completeness") or summary.get("fill_evidence_completeness") or {}
+    model_variant = payload.get("model_variant_bakeoff") or {}
+    model_variant_summary = summary.get("model_variant_bakeoff") or {}
     lines = [
         "# Market-Making Paper Report",
         "",
@@ -83,12 +86,17 @@ def render_paper_report(payload):
             ["Candidate run folders", summary.get("candidate_run_folders")],
             ["Excluded run folders", summary.get("excluded_run_folders")],
             ["Quote rows / legs", f"{summary.get('quote_rows')} / {summary.get('quote_legs')}"],
+            [
+                "Model-variant quote rows / legs",
+                f"{summary.get('model_variant_quote_rows', 0)} / {summary.get('model_variant_quote_legs', 0)}",
+            ],
             ["Conservative fills", summary.get("conservative_fills")],
             ["Conservative filled shares", fmt_num(summary.get("conservative_filled_shares"), 3)],
             ["Queue-estimated fill legs", summary.get("queue_estimated_fill_legs")],
             ["Queue-estimated shares", fmt_num(summary.get("queue_estimated_filled_shares"), 3)],
             ["Gate status", summary.get("gate_status")],
             ["Paper-score freshness", freshness.get("status") or "-"],
+            ["Fill evidence completeness", fill_evidence.get("status") or "-"],
             ["Latest completed active day", freshness.get("latest_completed_active_day") or "-"],
             ["Latest covered active day", freshness.get("latest_covered_active_day") or "-"],
             ["Locked policy params", anti.get("locked_policy_params")],
@@ -116,6 +124,60 @@ def render_paper_report(payload):
             ["Net after fees/incentives", fmt_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4)],
         ],
     ))
+    if model_variant:
+        gate = model_variant.get("promotion_gate") or {}
+        lines.extend([
+            "",
+            "## Model-Variant Bakeoff",
+            "",
+            "Counterfactual model-version rows are scored through the same conservative fill simulator as served maker quotes.",
+            "",
+        ])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", model_variant.get("status") or "-"],
+                ["Quote rows", model_variant.get("quote_rows", 0)],
+                ["Conservative fills", model_variant.get("conservative_fills", 0)],
+                ["Policy pairs", model_variant.get("policy_pair_count", 0)],
+                ["Promotion gate", gate.get("status") or model_variant_summary.get("promotion_gate_status") or "-"],
+                ["Promotion gate method", gate.get("method") or model_variant_summary.get("promotion_gate_method") or "-"],
+                ["Promotion pass pairs", gate.get("pass_pair_count") or model_variant_summary.get("promotion_gate_pass_pair_count") or 0],
+                ["Adjusted alpha", gate.get("adjusted_alpha") or "-"],
+                ["Min market-day clusters", gate.get("min_market_day_clusters") or "-"],
+            ],
+        ))
+        if gate:
+            lines.extend([
+                "",
+                "| Variant | Policy | Gate | Scope | Clusters | Days | Markets | Fills | Delta net mean | Delta net lower | Failed gates |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            ])
+            for row in gate.get("pairs") or []:
+                delta_net = (
+                    row.get("delta_vs_served_current_cluster_metrics") or {}
+                ).get("net_pnl_after_fees_incentives_usdc") or {}
+                lines.append(
+                    f"| {row.get('model_variant_id')} | {row.get('policy_id')} | "
+                    f"{row.get('status')} | {row.get('claim_scope')} | "
+                    f"{row.get('cluster_count', 0)} | {row.get('independent_target_day_count', 0)} | "
+                    f"{row.get('independent_market_count', 0)} | {row.get('conservative_fills', 0)} | "
+                    f"{fmt_num(delta_net.get('mean'), 4)} | {fmt_num(delta_net.get('mean_lower'), 4)} | "
+                    f"{', '.join(row.get('failed_gates') or []) or '-'} |"
+                )
+        lines.extend([
+            "",
+            "| Variant | Policy | Quote rows | Fills | Net P&L | Delta net vs served | Settlement P&L |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ])
+        for row in model_variant.get("model_variant_by_policy") or []:
+            lines.append(
+                f"| {row.get('model_variant_id')} | {row.get('policy_id')} | "
+                f"{row.get('quote_rows', 0)} | {row.get('conservative_fills', 0)} | "
+                f"{fmt_num(row.get('net_pnl_after_fees_incentives_usdc'), 4)} | "
+                f"{fmt_num(row.get('delta_net_pnl_vs_served_current_usdc'), 4)} | "
+                f"{fmt_num(row.get('settlement_pnl_usdc'), 4)} |"
+            )
     lines.extend([
         "",
         "## Early-Hour Market-Aware Guardrail",
@@ -161,6 +223,36 @@ def render_paper_report(payload):
         ["Status", "Legs"],
         [[key, value] for key, value in sorted((summary.get("queue_status_counts") or {}).items())],
     ))
+    lines.extend(["", "## Fill Evidence Completeness", ""])
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Status", fill_evidence.get("status") or "-"],
+            ["Promotion grade", fill_evidence.get("promotion_grade")],
+            ["Blockers", ", ".join(fill_evidence.get("blockers") or []) or "-"],
+            ["Missing-size trade rows", fill_evidence.get("missing_size_trade_rows", 0)],
+            ["Missing-book queue legs", fill_evidence.get("missing_book_queue_legs", 0)],
+            ["Missing-trade-size queue legs", fill_evidence.get("missing_trade_size_queue_legs", 0)],
+            ["Unresolved resting quotes", fill_evidence.get("unresolved_resting_quote_count", 0)],
+            ["CLOB recon book rows", fill_evidence.get("clob_recon_book_rows", 0)],
+            ["CLOB recon slices", fill_evidence.get("clob_recon_slice_rows", 0)],
+            ["CLOB recon source", fill_evidence.get("clob_recon_coverage_source") or "-"],
+        ],
+    ))
+    if fill_evidence.get("by_market_hour_token"):
+        lines.extend([
+            "",
+            "| Market | Hour | Token | Quote legs | Strict fills | Missing book | Missing size | Queue fill legs | No touch | Incomplete frac |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ])
+        for row in (fill_evidence.get("by_market_hour_token") or [])[:30]:
+            lines.append(
+                f"| {row.get('market_id')} | {row.get('hour_utc')} | {row.get('clob_token_id')} | "
+                f"{row.get('quote_legs', 0)} | {row.get('strict_trade_through_fills', 0)} | "
+                f"{row.get('missing_book_queue_legs', 0)} | {row.get('missing_trade_size_queue_legs', 0)} | "
+                f"{row.get('queue_estimated_fill_legs', 0)} | {row.get('no_touch_queue_legs', 0)} | "
+                f"{fmt_num(row.get('incomplete_market_data_leg_fraction'), 3)} |"
+            )
     lines.extend(["", "## CLOB Recon", ""])
     lines.extend(markdown_table(
         ["Metric", "Value"],

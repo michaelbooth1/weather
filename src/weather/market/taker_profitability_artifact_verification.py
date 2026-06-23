@@ -10,16 +10,18 @@ from weather.schema_registry import schema_version
 
 SCHEMA_VERSION = schema_version("taker_profitability_artifact_verification")
 
-ORDER_FIELDS = (
+ORDER_OPPORTUNITY_FIELDS = (
     "fee_usdc",
     "pnl_fee_basis",
-    "fee_pnl_usdc",
     "executable_depth_model_version",
     "executable_depth_mode",
     "executable_depth_size",
+    "expected_profit_after_friction_per_share",
+)
+FILLED_ORDER_FIELDS = (
+    "fee_pnl_usdc",
     "slippage_usdc",
     "executable_net_pnl_usdc",
-    "expected_profit_after_friction_per_share",
 )
 STRATEGY_FIELDS = (
     "after_fee_pnl_scored",
@@ -157,7 +159,15 @@ def verify_taker_profitability_artifacts(run_folder):
     if not orders_path.exists():
         checks.append(_check("orders_tape_missing", "FAIL", f"Missing orders tape: {orders_path}"))
     else:
-        checks.extend(_field_checks(order_scope, ORDER_FIELDS, scope="orders"))
+        checks.extend(_field_checks(order_scope, ORDER_OPPORTUNITY_FIELDS, scope="orders"))
+        if filled_orders:
+            checks.extend(_field_checks(filled_orders, FILLED_ORDER_FIELDS, scope="orders"))
+        else:
+            checks.append(_check(
+                "orders_realized_profitability_fields_skipped_no_fills",
+                "SKIP",
+                "No filled orders are present; realized fee/slippage/net-P&L fields are not required.",
+            ))
     if not daily_pnl_path.exists() and not strategy_summary_path.exists():
         checks.append(_check(
             "strategy_summary_missing",

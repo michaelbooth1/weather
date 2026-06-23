@@ -429,6 +429,286 @@ def build_run_once(
     return payload
 
 
+def _infer_order_tape_budget(rows, default=0.0):
+    for row in rows or []:
+        value = maybe_float(row.get("budget_usdc"))
+        if value is not None:
+            return value
+    return float(default)
+
+
+def _infer_order_tape_strategies(rows):
+    strategy_ids = []
+    seen = set()
+    for row in rows or []:
+        strategy_id = strategy_id_for_row(row)
+        if strategy_id and strategy_id not in seen:
+            seen.add(strategy_id)
+            strategy_ids.append(strategy_id)
+    return ",".join(strategy_ids) or None
+
+
+def recover_run_artifacts_from_orders(
+    run_folder,
+    *,
+    budget_usdc=None,
+    markets=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    observation_status_path=DEFAULT_OBSERVATION_STATUS,
+    config=None,
+    strategies=None,
+    experiment_id=None,
+    strategy_registry=None,
+    now=None,
+):
+    """Rebuild summary artifacts for a run folder with a complete order tape."""
+    now = utc_now(now)
+    run_folder = Path(run_folder)
+    order_path = run_folder / "orders_long.csv"
+    if not order_path.exists():
+        raise FileNotFoundError(f"missing taker orders tape: {order_path}")
+    all_rows = read_order_rows(order_path)
+    if not all_rows:
+        raise ValueError(f"taker orders tape has no rows: {order_path}")
+
+    first = all_rows[0]
+    target = ensure_date(first.get("target_date") or run_folder.parent.name)
+    run_id = first.get("run_id") or run_folder.name
+    budget = float(budget_usdc if budget_usdc is not None else _infer_order_tape_budget(all_rows))
+    strategy_arg = strategies or _infer_order_tape_strategies(all_rows)
+    config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
+    strategy_specs = selected_strategy_specs(strategy_arg, base_config=config, registry=strategy_registry)
+    strategy_ids = [item["strategy_id"] for item in strategy_specs]
+    experiment_id = experiment_id or first.get("experiment_id") or default_experiment_id(target, strategy_ids)
+    if markets in (None, "", "all"):
+        market_arg = ",".join(sorted({row.get("market_id") for row in all_rows if row.get("market_id")})) or markets
+    else:
+        market_arg = markets
+
+    generated_times = [row.get("generated_at_utc") for row in all_rows if row.get("generated_at_utc")]
+    latest_generated = max(generated_times) if generated_times else None
+    latest_rows = [
+        row for row in all_rows
+        if latest_generated is None or row.get("generated_at_utc") == latest_generated
+    ]
+    tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
+    total_budget_usdc = sum(float(item.get("budget_usdc") or budget) for item in strategy_specs)
+    runtime_identity = get_runtime_identity()
+    run_config = build_run_config_payload(
+        run_id,
+        target,
+        budget,
+        market_arg,
+        run_folder,
+        snapshots_root,
+        config,
+        now,
+        observation_status_path=observation_status_path,
+        experiment_id=experiment_id,
+        strategy_specs=strategy_specs,
+        registry=strategy_registry,
+        runtime_identity=runtime_identity,
+    )
+    pnl_payload = build_pnl_payload(
+        all_rows,
+        total_budget_usdc,
+        run_id,
+        target,
+        now=now,
+        policy_config=run_config.get("policy_config") or config,
+    )
+    no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
+    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
+    counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
+    counterfactual_tape_integrity = {
+        "status": "MISSING",
+        "path": str(counterfactual_path),
+        "row_kind": "counterfactual_orders_long",
+        "expected_rows": 0,
+        "actual_rows": 0,
+        "detail": "counterfactual tape was not present when recovering run artifacts",
+    }
+    if counterfactual_path.exists():
+        counterfactual_rows = read_order_rows(counterfactual_path)
+        counterfactual_tape_integrity = tape_integrity_summary(
+            counterfactual_path,
+            len(counterfactual_rows),
+            "counterfactual_orders_long",
+        )
+    else:
+        counterfactual_rows = []
+    counterfactual_no_side_campaign = no_side_campaign_summary(counterfactual_rows)
+
+    write_json(run_folder / "daily_pnl.json", pnl_payload)
+    write_json(run_folder / "run_config.json", run_config)
+    strategy_summary = build_strategy_summary_payload(
+        pnl_payload,
+        run_config=run_config,
+        run_id=run_id,
+        target_date=target,
+        now=now,
+    )
+    write_json(run_folder / "strategy_summary.json", strategy_summary)
+    strategy_report_path = run_folder / "strategy_report.md"
+    strategy_report_path.write_text(render_strategy_report(strategy_summary), encoding="utf-8")
+
+    reason_counts = Counter(row.get("reason_code") or "unknown" for row in latest_rows)
+    latest_filled = [row for row in latest_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    weak_slot_rows = [row for row in latest_rows if row.get("weak_slot_gate_status") == "blocked"]
+    warm_tail_rows = [row for row in latest_rows if bool_value(row.get("market_centered_warm_tail"), False)]
+    warm_tail_blocked = [
+        row for row in latest_rows
+        if row.get("reason_code") in {"NO_TRADE_MARKET_CENTERED_WARM_TAIL", "NO_TRADE_MARKET_CENTERED_WARM_TAIL_CAP"}
+    ]
+    zero_trade_diagnosis = classify_zero_trade_root_cause(
+        [],
+        permission_rows=len(latest_filled),
+        output_rows=len(latest_rows),
+    )
+    if len(latest_filled) <= 0 and latest_rows:
+        zero_trade_diagnosis = {
+            **zero_trade_diagnosis,
+            "root_cause_class": "policy_no_edge",
+            "first_failing_gate": "policy",
+            "zero_trades_expected": True,
+        }
+    summary = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "target_date": target.isoformat(),
+        "runtime_identity": runtime_identity,
+        "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
+        "experiment_id": experiment_id,
+        "active_strategy_id": run_config.get("active_strategy_id"),
+        "active_strategy_lifecycle": run_config.get("active_strategy_lifecycle"),
+        "active_strategy_canary": run_config.get("active_strategy_canary"),
+        "strategy_count": len(strategy_specs),
+        "strategy_ids": strategy_ids,
+        "budget_usdc": round(total_budget_usdc, 6),
+        "budget_per_strategy_usdc": round(float(budget), 6),
+        "budget_scope": "per_strategy",
+        "budget_spent_usdc": pnl_payload["summary"]["budget_spent_usdc"],
+        "budget_remaining_usdc": pnl_payload["summary"]["budget_remaining_usdc"],
+        "latest_tick_rows": len(latest_rows),
+        "latest_tick_filled_orders": len(latest_filled),
+        "latest_tick_spent_usdc": sum_field(latest_filled, "total_spent_usdc"),
+        "latest_tick_counterfactual_rows": 0,
+        "latest_tick_counterfactual_would_buy_count": 0,
+        "cumulative_counterfactual_rows": len(counterfactual_rows),
+        "cumulative_counterfactual_would_buy_count": sum(
+            1 for row in counterfactual_rows
+            if str(row.get("order_status") or "").upper() == "FILLED"
+        ),
+        "counterfactual_strategy_ids": [],
+        "counterfactual_model_variant_manifest": {
+            "requested_variant_ids": [],
+            "materialized_variant_ids": [],
+            "missing_variant_ids": [],
+            "materialized_row_count": 0,
+        },
+        "no_side_campaign": no_side_campaign,
+        "counterfactual_no_side_campaign": counterfactual_no_side_campaign,
+        "no_side_campaign_status": no_side_campaign.get("status"),
+        "counterfactual_no_side_campaign_status": counterfactual_no_side_campaign.get("status"),
+        "counterfactual_no_side_rows": counterfactual_no_side_campaign.get("no_side_row_count"),
+        "counterfactual_no_side_would_buy_count": counterfactual_no_side_campaign.get("no_side_would_buy_count"),
+        "counterfactual_countable_no_side_would_buy_count": counterfactual_no_side_campaign.get("countable_no_side_would_buy_count"),
+        "cumulative_order_rows": len(all_rows),
+        "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
+        "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "weak_slot_gate_status": config.get("_weak_slot_gate_status"),
+        "weak_slot_gate_source": config.get("_weak_slot_gate_source"),
+        "weak_slot_blocked_rows": len(weak_slot_rows),
+        "market_centered_warm_tail_rows": len(warm_tail_rows),
+        "market_centered_warm_tail_blocked_rows": len(warm_tail_blocked),
+        "next_run_policy_status": "UNKNOWN",
+        "market_status_counts": {},
+        "tape_integrity": tape_integrity,
+        "counterfactual_tape_integrity": counterfactual_tape_integrity,
+        "artifact_recovery": {
+            "status": "RECOVERED_FROM_ORDERS_TAPE",
+            "source_orders_path": str(order_path),
+            "latest_generated_at_utc": latest_generated,
+        },
+        **zero_trade_diagnosis,
+    }
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "run_id": run_id,
+        "target_date": target.isoformat(),
+        "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
+        "experiment_id": experiment_id,
+        "runtime_identity": runtime_identity,
+        "run_folder": str(run_folder),
+        "run_config_path": str(run_folder / "run_config.json"),
+        "orders_path": str(order_path),
+        "counterfactual_orders_path": str(counterfactual_path),
+        "budget_ledger_path": str(run_folder / "budget_ledger.jsonl"),
+        "counterfactual_budget_ledger_path": str(counterfactual_ledger_path),
+        "daily_pnl_path": str(run_folder / "daily_pnl.json"),
+        "run_report_path": str(run_folder / "run_report.md"),
+        "strategy_summary_path": str(run_folder / "strategy_summary.json"),
+        "strategy_report_path": str(strategy_report_path),
+        "summary": summary,
+        "config": config,
+        "strategy_registry": strategy_registry_payload(strategy_registry),
+        "strategies": run_config.get("strategies"),
+        "strategy_summary": strategy_summary,
+        "observation_status": {},
+        "markets": [],
+        "pnl": pnl_payload,
+        "latest_orders": latest_rows,
+        "latest_counterfactual_orders": [],
+        "tape_integrity": tape_integrity,
+        "counterfactual_tape_integrity": counterfactual_tape_integrity,
+        "counterfactual_model_variant_manifest": summary["counterfactual_model_variant_manifest"],
+        "operator_alert": {
+            "run_folder": str(run_folder),
+            "clob_status_command": "python -m weather.market.market_microstructure status",
+            "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
+            "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
+            "remediation_command": "python -m weather.market.market_microstructure ensure",
+        },
+    }
+    write_json(run_folder / "run_summary.json", payload)
+    (run_folder / "run_report.md").write_text(render_report(payload), encoding="utf-8")
+    return payload
+
+
+def recover_main(argv=None):
+    parser = argparse.ArgumentParser(description="Recover taker run summary artifacts from an existing orders_long.csv.")
+    parser.add_argument("--run-folder", required=True, help="Taker run folder containing orders_long.csv.")
+    parser.add_argument("--budget-usdc", type=float, default=None)
+    parser.add_argument("--markets", default=None)
+    parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--observation-status", default=str(DEFAULT_OBSERVATION_STATUS))
+    parser.add_argument("--strategies", default=None)
+    parser.add_argument("--experiment-id", default=None)
+    parser.add_argument("--now", default=None)
+    parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
+    args = parser.parse_args(argv)
+    payload = recover_run_artifacts_from_orders(
+        Path(args.run_folder),
+        budget_usdc=args.budget_usdc,
+        markets=args.markets,
+        snapshots_root=Path(args.snapshots_root),
+        observation_status_path=Path(args.observation_status),
+        config=parse_config_overrides(args.config),
+        strategies=args.strategies,
+        experiment_id=args.experiment_id,
+        now=args.now,
+    )
+    summary = payload.get("summary") or {}
+    print(
+        "Taker bot recovery: "
+        f"{summary.get('cumulative_order_rows')} order rows, "
+        f"{summary.get('cumulative_filled_orders')} cumulative buys -> {payload.get('run_folder')}"
+    )
+    return payload
+
+
 def paper_until_utc(target_date, markets=None):
     target = ensure_date(target_date)
     specs = selected_specs(markets)
@@ -616,6 +896,8 @@ def main(argv=None):
         return finalize_main(raw_argv[1:])
     if raw_argv and raw_argv[0] == "bakeoff":
         return bakeoff_main(raw_argv[1:])
+    if raw_argv and raw_argv[0] == "recover":
+        return recover_main(raw_argv[1:])
     parser = argparse.ArgumentParser(description="Run the daily paper taker-bot simulator.")
     parser.add_argument("--date", required=True, help="Target market date, YYYY-MM-DD.")
     parser.add_argument("--budget-usdc", type=float, required=True, help="Daily simulated spend budget.")

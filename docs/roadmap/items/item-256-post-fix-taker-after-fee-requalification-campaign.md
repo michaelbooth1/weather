@@ -158,11 +158,103 @@ Loop tick evidence:
   `NO_TRADE_MARKET_CENTERED_WARM_TAIL` (`57`), `NO_TRADE_BAD_TAIL_NO_GO`
   (`32`), `NO_TRADE_STALE_BOOK` (`22`), and `NO_TRADE_STALE_MODEL` (`11`).
 
-The daily-roll status still has PID `29952` alive. Its latest operator report
-recommended microstructure freshness remediation for stale-model input; the
-managed microstructure capture process is already running, so the remaining
-action is to let the collector accumulate a fresh market tape rather than
-starting duplicate taker workers.
+The daily-roll status then classified that loop tick as stale-model-input and
+terminal. Ran the recommended microstructure supervisor check:
+
+```powershell
+python -m weather.market.market_microstructure ensure
+```
+
+It returned `action=noop` because capture was already running with matching
+runtime identity and fresh books. The stale taker run folder was then retired
+with a forced restart:
+
+```powershell
+python -m weather.operations.taker_bot_daily_roll start --force --date 2026-06-23 --budget-usdc 100 --markets all --interval-seconds 60 --strategies raw_edge_control,calibrated_edge,low_price_tail_capped,winner_centered_or_adjacent,current_high_lockin,late_day_liquidity_filtered --experiment-id item256-postfix-20260623-full-bakeoff --startup-grace-seconds 1800 --max-activity-age-seconds 1800
+```
+
+Restart evidence:
+
+- retired folder:
+  `data/taker_runs/2026-06-23/_quarantine/taker-20260623-10261355__20260623T212745Z`.
+- new roll PID: `29580`.
+- new run folder: `data/taker_runs/2026-06-23/taker-20260623-83df0edc`.
+- stale taker PID `29952` was stopped after confirming its command line was the
+  retired `weather.market.taker_bot` process.
+- status after restart: `started`, `pid_alive=true`, target date
+  `2026-06-23`.
+
+Follow-up operator refresh:
+
+- patched `weather.operations.taker_bot_daily_roll` so stale activity from an
+  older run folder cannot terminalize a live taker process when the latest run
+  folder is still empty inside startup grace and artifact liveness is healthy.
+- added regression coverage in
+  `tests/operations/test_taker_bot_daily_roll.py`.
+- reran `python -m weather.market.market_microstructure ensure`; the supervisor
+  stopped mixed-runtime capture processes and the final check reports
+  `state=RUNNING`, `action=noop`, and `runtime_identity_matches_current=true`.
+- refreshed status reports `already_running`, `pid_alive=true`, artifact
+  liveness `STARTUP_GRACE`, and latest run folder
+  `data/taker_runs/2026-06-23/taker-20260623-83df0edc`.
+- the latest run folder has written `orders_long.csv` and
+  `budget_ledger.jsonl`; `run_summary.json` and `strategy_summary.json` are
+  still pending, so this tick is not yet eligible for a bakeoff/ledger refresh.
+
+The real order tape was complete enough to salvage into an item-specific
+bakeoff while the loop remained stuck before summary artifacts:
+
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_83df0edc.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_83df0edc.md`
+
+Salvaged bakeoff result:
+
+- source run: `taker-20260623-83df0edc`.
+- replay input rows: `132`.
+- replay ticks: `12`.
+- scored order rows: `792`.
+- strategy arms: `6`.
+- filled buys: `0`.
+- blockers: `missing_target_date_labels` and
+  `profitability_artifact_verification_failed` before the recovery verifier
+  refresh below.
+- all strategy promotion gates remain `BLOCK`.
+
+A counterfactual-disabled diagnostic one-shot was attempted with run id
+`item256-postfix-full-nocf-20260623`, but it also exceeded a two-minute
+foreground timeout before producing artifacts. The diagnostic process and its
+empty run folder were removed to avoid confusing daily-roll liveness.
+
+After the default startup/activity thresholds elapsed, daily-roll status
+classified PID `29580` as terminal `idle_process` with root cause
+`missing_heartbeat_metadata` because the latest run folder still lacked
+`run_summary.json` and `strategy_summary.json`. The stale PID was stopped after
+the salvage bakeoff was written. The next operator unblock is to fix or bound
+the all-market post-order summary path before relaunching the continuous
+collector; starting another identical worker would likely repeat the same
+partial-artifact failure.
+
+The immediate artifact unblock was implemented with a tape-preserving recovery
+path:
+
+```powershell
+python -m weather.market.taker_bot recover --run-folder data\taker_runs\2026-06-23\taker-20260623-83df0edc --budget-usdc 100 --markets all --strategies raw_edge_control,calibrated_edge,low_price_tail_capped,winner_centered_or_adjacent,current_high_lockin,late_day_liquidity_filtered --experiment-id item256-postfix-20260623-full-bakeoff
+```
+
+Recovered artifacts for `taker-20260623-83df0edc`:
+
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/daily_pnl.json`
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/run_config.json`
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/run_summary.json`
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/run_report.md`
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/strategy_summary.json`
+- `data/taker_runs/2026-06-23/taker-20260623-83df0edc/strategy_report.md`
+
+The profitability verifier now treats no-fill opportunity tapes separately
+from executed-order realized PnL checks. The three June 23 bakeoffs were
+refreshed and all now report profitability artifact verification `PASS`; each
+is blocked only by `missing_target_date_labels` because no settlement labels
+exist yet for `2026-06-23`.
 
 Added the fresh run to the bakeoff and ledger evidence:
 
@@ -170,22 +262,23 @@ Added the fresh run to the bakeoff and ledger evidence:
 - `data/backtest/taker_strategy_bakeoff_2026-06-23_item256_postfix_full.md`
 - `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_10261355.json`
 - `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_10261355.md`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_83df0edc.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_83df0edc.md`
 - `data/backtest/item256_taker_champion_challenger_ledger.json`
 - `data/backtest/item256_taker_champion_challenger_ledger_report.md`
 
 Refreshed ledger result:
 
-- bakeoff artifacts: `7`.
-- loaded bakeoffs: `7`.
+- bakeoff artifacts: `8`.
+- loaded bakeoffs: `8`.
+- strategies: `6`.
 - complete-label days: `0`.
 - promotion pass count: `0`.
 - decision: `KEEP_CHAMPION`.
 - recommended strategy: `low_price_tail_capped`.
-- June 23 blockers: `missing_target_date_labels` and
-  `profitability_artifact_verification_failed`; no settlement labels exist yet
-  for the current target date.
+- June 23 blockers: `missing_target_date_labels`; no settlement labels exist
+  yet for the current target date.
 
-Item 256 remains `PARTIAL`: the fresh campaign is now running and represented
-in the ledger, but no strategy can be live-qualified until future post-fix days
-settle with complete labels, enough fills, and positive after-fee/after-slippage
-results.
+Item 256 remains `PARTIAL`: the fresh campaign is represented in the ledger,
+but no strategy can be live-qualified until future post-fix days settle with
+complete labels, enough fills, and positive after-fee/after-slippage results.

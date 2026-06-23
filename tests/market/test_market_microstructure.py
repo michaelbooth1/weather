@@ -106,11 +106,13 @@ class FakeWebSocket:
                 {
                     "asset_id": "yes-token",
                     "price": "0.46",
+                    "size": "12.5",
                     "side": "BUY",
                 },
                 {
                     "asset_id": "no-token",
                     "price": "0.54",
+                    "trade_size": "7",
                     "side": "SELL",
                 },
             ],
@@ -357,7 +359,9 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(rows[0]["event_type"], "price_change")
         self.assertEqual(rows[0]["asset_id"], "yes-token")
         self.assertEqual(rows[0]["price"], "0.46")
+        self.assertEqual(rows[0]["size"], "12.5")
         self.assertEqual(rows[1]["asset_id"], "no-token")
+        self.assertEqual(rows[1]["trade_size"], "7")
 
     def test_fast_interval_triggers_on_large_midpoint_change(self):
         config = config_for_date("2026-06-12", "toronto")

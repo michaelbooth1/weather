@@ -318,6 +318,41 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(saved["status"], "idle_process")
         self.assertEqual(calls, [])
 
+    def test_fresh_empty_latest_run_inside_startup_grace_suppresses_stale_old_activity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-18T04:19:00+00:00")
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-old",
+                timestamp=_ts("2026-06-18T04:00:00+00:00"),
+                summary={"latest_tick_rows": 12, "latest_tick_filled_orders": 0},
+            )
+            old_run = tmp / "taker_runs" / "2026-06-18" / "taker-old"
+            os.utime(
+                old_run,
+                (_ts("2026-06-18T04:00:00+00:00"), _ts("2026-06-18T04:00:00+00:00")),
+            )
+            empty_run = tmp / "taker_runs" / "2026-06-18" / "taker-new-empty"
+            empty_run.mkdir(parents=True, exist_ok=True)
+            os.utime(
+                empty_run,
+                (_ts("2026-06-18T04:19:30+00:00"), _ts("2026-06-18T04:19:30+00:00")),
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=120,
+            )
+
+        self.assertEqual(payload["status"], "started")
+        self.assertEqual(payload["activity_liveness"]["status"], "STALE_ACTIVITY")
+        self.assertEqual(payload["artifact_liveness"]["status"], "STARTUP_GRACE")
+        self.assertFalse(payload["terminal"])
+
     def test_fresh_console_log_does_not_satisfy_taker_artifact_liveness(self):
         calls = []
 

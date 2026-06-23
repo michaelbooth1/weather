@@ -24,6 +24,7 @@ from weather.market.taker_bot import (
     finalize_taker_run,
     no_side_campaign_summary,
     next_run_policy_gate,
+    recover_run_artifacts_from_orders,
     run_taker_strategy_bakeoff,
     verify_taker_profitability_artifacts,
 )
@@ -1385,6 +1386,109 @@ class TestTakerBot(unittest.TestCase):
             "profitability_artifact_verification_failed",
             {row["code"] for row in bakeoff["blockers"]},
         )
+
+    def test_profitability_artifact_verifier_allows_no_fill_opportunity_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "run"
+            run.mkdir()
+            write_csv(run / "orders_long.csv", [
+                "order_status",
+                "fee_usdc",
+                "pnl_fee_basis",
+                "fee_pnl_usdc",
+                "executable_depth_model_version",
+                "executable_depth_mode",
+                "executable_depth_size",
+                "slippage_usdc",
+                "executable_net_pnl_usdc",
+                "expected_profit_after_friction_per_share",
+            ], [
+                {
+                    "order_status": "SKIPPED",
+                    "fee_usdc": 0.0,
+                    "pnl_fee_basis": "paper_no_fee",
+                    "fee_pnl_usdc": "",
+                    "executable_depth_model_version": "top_of_book_only_v1",
+                    "executable_depth_mode": "top_of_book",
+                    "executable_depth_size": 15.0,
+                    "slippage_usdc": "",
+                    "executable_net_pnl_usdc": "",
+                    "expected_profit_after_friction_per_share": 0.02,
+                }
+            ])
+            (run / "daily_pnl.json").write_text(json.dumps({
+                "summary": {"filled_order_count": 0},
+                "by_strategy": [
+                    {
+                        "strategy_id": "raw_edge_control",
+                        "filled_order_count": 0,
+                        "after_fee_pnl_scored": False,
+                        "after_slippage_pnl_scored": False,
+                        "live_profitability_evidence_basis": "paper_no_fee",
+                        "market_benchmark_status": "PASS",
+                        "market_smarter_slice_count": 0,
+                        "market_benchmark_no_trade_net_pnl_usdc": 0.0,
+                        "market_benchmark_avoided_loss_usdc": 0.0,
+                        "market_benchmark_missed_gain_usdc": 0.0,
+                    }
+                ],
+                "strategy_comparison": {
+                    "market_benchmark_summary": {
+                        "market_smarter_slice_count": 0,
+                        "no_trade_recommendation_count": 1,
+                        "avoided_loss_usdc": 0.0,
+                        "missed_gain_usdc": 0.0,
+                    }
+                },
+            }), encoding="utf-8")
+
+            verification = verify_taker_profitability_artifacts(run)
+
+        self.assertEqual(verification["status"], "PASS", verification["checks"])
+        self.assertIn(
+            "orders_realized_profitability_fields_skipped_no_fills",
+            {row["code"] for row in verification["checks"] if row.get("status") == "SKIP"},
+        )
+
+    def test_recover_run_artifacts_from_orders_preserves_tape_and_passes_profitability_verifier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=False)
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"min_edge": 0.05, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+            )
+            run_folder = Path(payload["run_folder"])
+            orders_path = run_folder / "orders_long.csv"
+            original_tape = orders_path.read_text(encoding="utf-8")
+            for name in ("daily_pnl.json", "run_config.json", "run_summary.json", "run_report.md", "strategy_summary.json", "strategy_report.md"):
+                path = run_folder / name
+                if path.exists():
+                    path.unlink()
+
+            recovered = recover_run_artifacts_from_orders(
+                run_folder,
+                budget_usdc=12,
+                markets="atlanta",
+                snapshots_root=snapshots_root,
+                now="2026-06-14T16:05:00+00:00",
+                config={"min_edge": 0.05, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+                strategies="raw_edge_control",
+            )
+            verification = verify_taker_profitability_artifacts(run_folder)
+
+            self.assertEqual(orders_path.read_text(encoding="utf-8"), original_tape)
+            self.assertEqual(recovered["summary"]["artifact_recovery"]["status"], "RECOVERED_FROM_ORDERS_TAPE")
+            self.assertTrue((run_folder / "daily_pnl.json").exists())
+            self.assertTrue((run_folder / "strategy_summary.json").exists())
+            self.assertTrue((run_folder / "run_summary.json").exists())
+            self.assertEqual(verification["status"], "PASS", verification["checks"])
 
     def test_strategy_bakeoff_replays_shared_tape_and_writes_promotion_report(self):
         with tempfile.TemporaryDirectory() as tmp:

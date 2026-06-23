@@ -536,6 +536,15 @@ def taker_terminal_status_for_inactive_process(
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     stat_fn=None,
 ):
+    original = dict(payload or {})
+    original_status = original.get("status")
+    original_action = original.get("action")
+    alive = original.get("pid_alive")
+    if pid_alive and original.get("pid"):
+        try:
+            alive = bool(pid_alive(original.get("pid"), target_date or original.get("target_date")))
+        except (OSError, ValueError, TypeError):
+            alive = False
     target = target_date or (payload or {}).get("target_date")
     root = runs_root or (payload or {}).get("runs_root") or DEFAULT_RUNS_ROOT
     payload = terminal_status_for_inactive_process(
@@ -547,13 +556,35 @@ def taker_terminal_status_for_inactive_process(
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
     )
-    return enrich_taker_liveness_status(
+    payload = enrich_taker_liveness_status(
         payload,
         now=now,
         max_activity_age_seconds=max_activity_age_seconds,
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
     )
+    health = payload.get("artifact_liveness") or {}
+    if (
+        payload.get("status") == "idle_process"
+        and payload.get("first_failing_gate") == "activity_liveness"
+        and health.get("ok")
+        and alive
+    ):
+        restored_status = original_status if original_status in {"started", "already_running"} else "already_running"
+        payload.update({
+            "status": restored_status,
+            "action": original_action or ("noop" if restored_status == "already_running" else "start"),
+            "terminal": False,
+            "pid_alive": True,
+            "zero_trades_expected": health.get("status") == "POLICY_NO_EDGE",
+        })
+        if health.get("root_cause_class"):
+            payload["root_cause_class"] = health.get("root_cause_class")
+        else:
+            payload.pop("root_cause_class", None)
+        for key in ("completed_at_utc", "first_failing_gate", "remediation_command"):
+            payload.pop(key, None)
+    return payload
 
 
 def quarantine_unhealthy_taker_run_folder(
