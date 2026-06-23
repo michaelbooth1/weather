@@ -1,4 +1,4 @@
-# 245. Parquet-First Historical Analysis Readers [OPEN 2026-06-22 - ANALYSIS READS TEXT TAPES BY DEFAULT]
+# 245. Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]
 
 Goal: make historical analysis, reporting, and backtest readers prefer the
 validated Parquet archive for closed market-days while preserving existing
@@ -34,18 +34,44 @@ and expose identical rows to downstream model, replay, and audit code.
 6. Add parity tests comparing Parquet and text results on representative
    market-days.
 
-- [ ] Add archive-aware reader helpers for normalized snapshot/CLOB tables.
-- [ ] Add provenance/fallback reporting for Parquet versus text reads.
-- [ ] Update high-byte historical reports to use the shared readers.
-- [ ] Add parity tests for Parquet-backed and text-backed rows.
-- [ ] Decide whether DuckDB is an optional local tool, a pinned dependency, or
+- [x] Add archive-aware reader helpers for normalized snapshot/CLOB tables.
+- [x] Add provenance/fallback reporting for Parquet versus text reads.
+- [x] Update high-byte historical reports to use the shared readers.
+- [x] Add parity tests for Parquet-backed and text-backed rows.
+- [x] Decide whether DuckDB is an optional local tool, a pinned dependency, or
   only documented operator tooling.
-- [ ] Add an operator query example for historical Parquet analysis without
+- [x] Add an operator query example for historical Parquet analysis without
   loading the full snapshot tree into memory.
 
 Acceptance: closed historical analyses can run from Parquet by default with
 matching row-level results versus text fixtures; live and unarchived days still
 read from the existing `data/snapshots` layout; reports expose which source
 mode was used; and dependency policy for DuckDB-style querying is documented.
+
+## Completion Notes
+
+Completed 2026-06-23:
+
+- Added `read_market_day_artifact` and `read_artifact_frame` in
+  `weather.operations.closed_market_day_archive`. The reader validates manifest
+  hash, manifest shape, `PASS` validation status, Parquet file hash, and row
+  count before returning `validated_parquet`; otherwise it falls back through
+  `gzip_tiered_text` and `text_tape`.
+- Added `ArtifactReadProvenance` with source mode, manifest path/hash, source
+  hash, Parquet hash, row count, and fallback reason.
+- Migrated `weather.reporting.source_family_inventory` to the shared reader for
+  `source_status_long`, `forecast_payloads_long`, `features_long`, and
+  `clob_features_long`, preserving CSV-shaped rows for the existing inventory
+  logic. The JSON/Markdown report now exposes `historical_reader_summary` /
+  "Historical Reader Sources".
+- Documented DuckDB as optional operator tooling, not a pinned runtime
+  dependency, with a partitioned Parquet query example in
+  `docs/operations/closed-market-day-parquet-archive-contract.md`.
+
+Verification:
+
+- `python -m pytest tests/operations/test_closed_market_day_archive.py -q`
+- `python -m pytest tests/reporting/test_source_family_inventory.py -q`
+- `python -m py_compile src/weather/operations/closed_market_day_archive.py src/weather/reporting/source_family_inventory.py tests/operations/test_closed_market_day_archive.py tests/reporting/test_source_family_inventory.py`
 
 Related: items 124, 146, 154, 203, 239, 243, 244.

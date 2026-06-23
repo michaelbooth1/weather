@@ -4,20 +4,20 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T00:46:11.814025+00:00
+Generated: 2026-06-23T00:59:07.133749+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 252 |
+| Items | 253 |
 | Active items | 37 |
 | OPEN | 6 |
 | PARTIAL | 31 |
-| COMPLETE | 215 |
-| ROADMAP rows | 252 |
-| ROADMAP primary rows | 252 |
+| COMPLETE | 216 |
+| ROADMAP rows | 253 |
+| ROADMAP primary rows | 253 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -58,9 +58,9 @@ Status: `OK`
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 232 | PARTIAL | 2026-06-22 | GATE REFRESHED, RETRAIN/ABLATION BLOCKED | [Current-Max Trust Retrain And Warm-Tail Replay](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 245 | OPEN | 2026-06-22 | ANALYSIS READS TEXT TAPES BY DEFAULT | [Parquet-First Historical Analysis Readers](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
+| 253 | OPEN | - | - | [Two-Sided (NO-Side) Taker Edge And Book Capture](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 
 ## Lint Issues
 

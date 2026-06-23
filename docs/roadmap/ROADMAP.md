@@ -137,7 +137,7 @@ infrastructure work remains.
 | 208 | [Historical Feature-Quality Quarantine And Training Exclusion [COMPLETE 2026-06-21 - FEATURE-QUALITY QUARANTINE EXCLUDES LEGACY BAD ROWS]](items/item-208-historical-feature-quality-quarantine-and-training-exclusion.md) |
 | 243 | [Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
-| 245 | [Parquet-First Historical Analysis Readers [OPEN 2026-06-22 - ANALYSIS READS TEXT TAPES BY DEFAULT]](items/item-245-parquet-first-historical-analysis-readers.md) |
+| 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-22 - UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 
@@ -286,6 +286,7 @@ infrastructure work remains.
 | 250 | [Austin HGB Per-Location Requalification [COMPLETE 2026-06-22 - AUSTIN HGB FAIL-CLOSED REQUALIFICATION PACKET LIVE]](items/item-250-austin-hgb-per-location-requalification.md) |
 | 251 | [Standing-High Partial Lock-In Dampener [COMPLETE 2026-06-22 - PARTIAL DAMPENER GATED]](items/item-251-standing-high-partial-lockin-dampener.md) |
 | 252 | [Impossible Guidance Feature Quarantine [COMPLETE 2026-06-22 - FRESH-BUT-IMPOSSIBLE GUIDANCE QUARANTINED]](items/item-252-impossible-guidance-feature-quarantine.md) |
+| 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [OPEN]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 
 ### Architecture And Maintainability
 

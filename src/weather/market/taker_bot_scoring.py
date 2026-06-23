@@ -55,9 +55,13 @@ def settlement_outcome_for_order(row, settlement):
     if bucket is None or value is None:
         return None
     try:
-        return 1.0 if resolve_outcome(kind, value, bucket, value_hi=value_hi) else 0.0
+        yes_outcome = 1.0 if resolve_outcome(kind, value, bucket, value_hi=value_hi) else 0.0
     except TypeError:
-        return 1.0 if resolve_outcome(kind, value, bucket, value_hi) else 0.0
+        yes_outcome = 1.0 if resolve_outcome(kind, value, bucket, value_hi) else 0.0
+    # A NO buy on a band wins when the band loses (item 253 two-sided taker).
+    if str(row.get("side") or "").strip().upper() == "NO_BUY":
+        return 1.0 - yes_outcome
+    return yes_outcome
 
 
 def load_settlement_labels(labels_csv=DEFAULT_LABELS_CSV):

@@ -1,6 +1,6 @@
 # Closed Market-Day Parquet Archive Contract
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
 
 This contract defines the historical Parquet surface for closed market-days.
 It does not change live collectors, current serving code, or active
@@ -162,6 +162,58 @@ Live, active, current-day, missing-manifest, invalid-manifest, and unknown
 artifact-family reads must fall back to the existing text layout. Reader
 summaries should expose `source_mode`, manifest path or hash, source hash,
 row count, and fallback reason.
+
+The shared reader entry points live in
+`weather.operations.closed_market_day_archive`:
+
+- `read_market_day_artifact(...)` returns an `ArtifactReadResult` with a
+  pandas frame and `ArtifactReadProvenance`.
+- `read_artifact_frame(..., include_provenance=False)` preserves the common
+  frame-only call style; callers can opt into the full result by setting
+  `include_provenance=True`.
+
+For `validated_parquet`, the reader verifies the manifest hash, manifest shape,
+manifest `PASS` validation status, Parquet file hash, and Parquet row count
+before returning rows. For fallbacks, provenance reports
+`gzip_tiered_text` or `text_tape`, source hash, row count, and a reason such as
+`active_or_future_target_date`, `missing_archive_manifest`,
+`archive_disabled`, or `parquet_family_unavailable`.
+
+`weather.reporting.source_family_inventory` is the first high-byte report
+migrated to this boundary. Its JSON and Markdown outputs include
+`historical_reader_summary` / "Historical Reader Sources" so operators can see
+which artifact families came from validated Parquet versus fallback text.
+
+## DuckDB Operator Queries
+
+DuckDB is optional operator tooling for this archive version. It is not a
+pinned project dependency and production/reporting code must continue to use
+the pandas/pyarrow reader boundary above unless a later roadmap item updates
+the packaging policy. Operators who already have DuckDB installed can query
+partitioned Parquet directly without loading the whole snapshot tree:
+
+```python
+import duckdb
+
+con = duckdb.connect()
+rows = con.sql("""
+    SELECT
+      event_slug,
+      market_id,
+      count(*) AS book_rows,
+      avg(CAST(bid AS DOUBLE)) AS avg_bid,
+      avg(CAST(ask AS DOUBLE)) AS avg_ask
+    FROM read_parquet(
+      'data/archive/closed_market_days/v0.1/local_date=*/market_id=*/event_slug=*/artifact_family=order_books_long/data.parquet',
+      hive_partitioning = true
+    )
+    WHERE local_date >= '2026-06-01'
+    GROUP BY event_slug, market_id
+    ORDER BY book_rows DESC
+    LIMIT 20
+""").df()
+print(rows)
+```
 
 ## Forensic Evidence
 

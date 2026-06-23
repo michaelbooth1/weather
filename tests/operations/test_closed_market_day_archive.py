@@ -1,8 +1,11 @@
 import unittest
+import gzip
 import json
 from pathlib import Path
 
+import pandas as pd
 import pyarrow.parquet as pq
+from pandas.testing import assert_frame_equal
 
 from weather.operations.closed_market_day_archive import (
     ARCHIVE_ROOT_VERSION,
@@ -19,6 +22,7 @@ from weather.operations.closed_market_day_archive import (
     manifest_path_for_partition,
     parquet_reader_allowed,
     plan_market_day,
+    read_market_day_artifact,
     render_backfill_report,
     sha256_file,
     validate_manifest_shape,
@@ -280,6 +284,99 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
                 {path.name: sha256_file(path) for path in folder.iterdir() if path.is_file()},
                 source_hashes,
             )
+
+    def test_reader_prefers_validated_parquet_with_text_parity_and_provenance(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            payload = build_backfill_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                apply=True,
+                as_of_date="2026-06-23",
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            manifest_hash = payload["market_days"][0]["manifest_hash"]
+
+            parquet_result = read_market_day_artifact(
+                folder,
+                "order_books_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+            text_result = read_market_day_artifact(
+                folder,
+                "order_books_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+                prefer_archive=False,
+            )
+
+            self.assertEqual(parquet_result.provenance.source_mode, "validated_parquet")
+            self.assertEqual(parquet_result.provenance.manifest_hash, manifest_hash)
+            self.assertEqual(parquet_result.provenance.row_count, 2)
+            self.assertEqual(parquet_result.provenance.source_file_hash, sha256_file(folder / "order_books_long.csv"))
+            self.assertIsNone(parquet_result.provenance.fallback_reason)
+            self.assertEqual(text_result.provenance.source_mode, "text_tape")
+            self.assertEqual(text_result.provenance.fallback_reason, "archive_disabled")
+            assert_frame_equal(parquet_result.frame, text_result.frame, check_dtype=False)
+
+    def test_reader_falls_back_to_text_for_active_or_unarchived_days(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+
+            active_result = read_market_day_artifact(
+                folder,
+                "order_books_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-22",
+            )
+            closed_unarchived_result = read_market_day_artifact(
+                folder,
+                "order_books_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+
+            self.assertEqual(active_result.provenance.source_mode, "text_tape")
+            self.assertEqual(active_result.provenance.fallback_reason, "active_or_future_target_date")
+            self.assertEqual(active_result.provenance.row_count, 2)
+            self.assertEqual(closed_unarchived_result.provenance.source_mode, "text_tape")
+            self.assertEqual(closed_unarchived_result.provenance.fallback_reason, "missing_archive_manifest")
+
+    def test_reader_prefers_gzip_tiered_text_when_parquet_is_unavailable(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            csv_text = (folder / "snapshots_long.csv").read_text(encoding="utf-8")
+            (folder / "snapshots_long.csv").unlink()
+            with gzip.open(folder / "snapshots_long.csv.gz", "wt", encoding="utf-8", newline="") as handle:
+                handle.write(csv_text)
+
+            result = read_market_day_artifact(
+                folder,
+                "snapshots_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+
+            expected = pd.read_csv(folder / "snapshots_long.csv.gz")
+            self.assertEqual(result.provenance.source_mode, "gzip_tiered_text")
+            self.assertEqual(result.provenance.fallback_reason, "missing_archive_manifest")
+            self.assertEqual(result.provenance.row_count, 2)
+            assert_frame_equal(result.frame, expected, check_dtype=False)
 
     def test_apply_is_idempotent_and_rewrites_stale_source_hashes(self):
         from tempfile import TemporaryDirectory

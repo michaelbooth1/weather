@@ -10,15 +10,19 @@ import argparse
 import csv
 import math
 import pickle
-from collections import defaultdict
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.backtesting.settled_days import folder_market_id
-from weather.io import read_csv_rows, read_json, write_json_atomic
+from weather.io import read_json, write_json_atomic
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import REGISTRY
+from weather.operations.closed_market_day_archive import (
+    DEFAULT_ARCHIVE_ROOT,
+    read_market_day_artifact,
+)
 from weather.model.feature_store import (
     ECCC_GRIDDED_FEATURE_COLUMNS,
     FEATURE_COLUMNS,
@@ -399,15 +403,115 @@ def read_csv_stream(path):
         return rows, list(reader.fieldnames or [])
 
 
-def scan_source_status(folder, market_id, stats_by_family):
-    path = folder / "source_status_long.csv"
-    rows = read_csv_rows(path)
+def _reader_cell(value):
+    if value is None:
+        return ""
+    try:
+        if math.isnan(value):
+            return ""
+    except TypeError:
+        pass
+    return str(value)
+
+
+def frame_to_csv_rows(frame):
+    if frame is None or frame.empty:
+        return [], list(getattr(frame, "columns", []))
+    rows = [
+        {column: _reader_cell(value) for column, value in row.items()}
+        for row in frame.to_dict(orient="records")
+    ]
+    return rows, list(frame.columns)
+
+
+def read_snapshot_artifact_rows(
+    folder,
+    artifact_family,
+    *,
+    provenance_rows=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    result = read_market_day_artifact(
+        folder,
+        artifact_family,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
+    if provenance_rows is not None:
+        provenance_rows.append(asdict(result.provenance))
+    return frame_to_csv_rows(result.frame)
+
+
+def summarize_reader_provenance(rows):
+    modes = Counter(str(row.get("source_mode") or "unknown") for row in rows)
+    fallback_reasons = Counter(
+        str(row.get("fallback_reason"))
+        for row in rows
+        if row.get("fallback_reason")
+    )
+    by_family: dict[str, dict[str, object]] = {}
+    for row in rows:
+        family = str(row.get("artifact_family") or "unknown")
+        item = by_family.setdefault(
+            family,
+            {"reads": 0, "rows": 0, "source_modes": Counter(), "fallback_reasons": Counter()},
+        )
+        item["reads"] += 1
+        item["rows"] += int(row.get("row_count") or 0)
+        item["source_modes"][str(row.get("source_mode") or "unknown")] += 1
+        if row.get("fallback_reason"):
+            item["fallback_reasons"][str(row.get("fallback_reason"))] += 1
+
+    family_rows = {}
+    for family, item in sorted(by_family.items()):
+        family_rows[family] = {
+            "reads": item["reads"],
+            "rows": item["rows"],
+            "source_modes": dict(sorted(item["source_modes"].items())),
+            "fallback_reasons": dict(sorted(item["fallback_reasons"].items())),
+        }
+    return {
+        "read_count": len(rows),
+        "source_modes": dict(sorted(modes.items())),
+        "fallback_reasons": dict(sorted(fallback_reasons.items())),
+        "families": family_rows,
+        "samples": rows[:10],
+    }
+
+
+def scan_source_status(
+    folder,
+    market_id,
+    stats_by_family,
+    *,
+    rows=None,
+    provenance_rows=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    if rows is None:
+        rows, _fieldnames = read_snapshot_artifact_rows(
+            folder,
+            "source_status_long",
+            provenance_rows=provenance_rows,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+        )
     for spec in FAMILY_SPECS:
         if not spec.source_keys or not family_applicable_to_market(spec, market_id):
             continue
         relevant = [row for row in rows if family_matches_source(spec, row)]
         stats = stats_by_family[spec.family_id]
-        if not path.exists() or not relevant:
+        if not relevant:
             stats["missing_source_status_folders"].add(str(folder))
             continue
         stats["source_status_folders"].add(str(folder))
@@ -419,15 +523,32 @@ def scan_source_status(folder, market_id, stats_by_family):
                 stats["source_status_ok_rows"] += 1
 
 
-def scan_forecast_payloads(folder, market_id, stats_by_family):
-    path = folder / "forecast_payloads_long.csv"
-    rows = read_csv_rows(path)
+def scan_forecast_payloads(
+    folder,
+    market_id,
+    stats_by_family,
+    *,
+    provenance_rows=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    rows, _fieldnames = read_snapshot_artifact_rows(
+        folder,
+        "forecast_payloads_long",
+        provenance_rows=provenance_rows,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        archive_as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
     for spec in FAMILY_SPECS:
         if not spec.source_keys or not requires_forecast_payload(spec) or not family_applicable_to_market(spec, market_id):
             continue
         relevant = [row for row in rows if family_matches_source(spec, row)]
         stats = stats_by_family[spec.family_id]
-        if not path.exists() or not relevant:
+        if not relevant:
             stats["missing_forecast_payload_folders"].add(str(folder))
             continue
         stats["forecast_payload_folders"].add(str(folder))
@@ -437,9 +558,26 @@ def scan_forecast_payloads(folder, market_id, stats_by_family):
             stats["forecast_payload_sources"].add(str(row.get("source") or ""))
 
 
-def scan_features(folder, market_id, stats_by_family):
-    path = folder / "features_long.csv"
-    rows, fieldnames = read_csv_stream(path)
+def scan_features(
+    folder,
+    market_id,
+    stats_by_family,
+    *,
+    provenance_rows=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    rows, fieldnames = read_snapshot_artifact_rows(
+        folder,
+        "features_long",
+        provenance_rows=provenance_rows,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        archive_as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
     if not rows:
         return
     field_set = set(fieldnames)
@@ -493,15 +631,32 @@ def clob_raw_tape_present(folder):
     return [name for name in names if (folder / name).exists()]
 
 
-def scan_clob(folder, market_id, stats_by_family):
+def scan_clob(
+    folder,
+    market_id,
+    stats_by_family,
+    *,
+    provenance_rows=None,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
     stats = stats_by_family["clob_microstructure"]
     raw_tapes = clob_raw_tape_present(folder)
     if raw_tapes:
         stats["clob_raw_tape_folders"].add(str(folder))
         stats["artifact_folders"].add(str(folder))
         stats["sample_folders"].add(str(folder))
-    path = folder / "clob_features_long.csv"
-    rows, fieldnames = read_csv_stream(path)
+    rows, fieldnames = read_snapshot_artifact_rows(
+        folder,
+        "clob_features_long",
+        provenance_rows=provenance_rows,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        archive_as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
     if not rows:
         return
     present = [column for column in CLOB_MODEL_FEATURE_COLUMNS if column in set(fieldnames)]
@@ -1207,6 +1362,7 @@ def promotion_preflight(
     rows,
     *,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
     backtest_root=DEFAULT_BACKTEST_ROOT,
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
@@ -1244,6 +1400,7 @@ def promotion_preflight(
         "inventory_command": (
             "python -m weather.reporting.source_family_inventory "
             f"--snapshots-root {Path(snapshots_root).as_posix()} "
+            f"--archive-root {Path(archive_root).as_posix()} "
             f"--backtest-root {Path(backtest_root).as_posix()} "
             f"--ablation-json {Path(ablation_json).as_posix()} "
             f"--candidate-replay-json {Path(candidate_replay_json).as_posix()}"
@@ -1264,6 +1421,9 @@ def build_source_family_inventory(
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
     locations_config=DEFAULT_LOCATIONS_CONFIG,
     location_events_config=DEFAULT_LOCATION_MARKET_EVENTS_CONFIG,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
     item27_reanalysis_paths=None,
     item27_required_markets=None,
     generated_at_utc=None,
@@ -1271,14 +1431,55 @@ def build_source_family_inventory(
     stats_by_family = {spec.family_id: stats_template() for spec in FAMILY_SPECS}
     folders = iter_snapshot_folders(snapshots_root)
     market_folder_counts = defaultdict(int)
+    reader_provenance_rows = []
     for folder in folders:
-        initial_rows = read_csv_rows(folder / "source_status_long.csv")
+        initial_rows, _fieldnames = read_snapshot_artifact_rows(
+            folder,
+            "source_status_long",
+            provenance_rows=reader_provenance_rows,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+        )
         market_id = folder_market(folder, initial_rows)
         market_folder_counts[market_id] += 1
-        scan_source_status(folder, market_id, stats_by_family)
-        scan_forecast_payloads(folder, market_id, stats_by_family)
-        scan_features(folder, market_id, stats_by_family)
-        scan_clob(folder, market_id, stats_by_family)
+        scan_source_status(
+            folder,
+            market_id,
+            stats_by_family,
+            rows=initial_rows,
+        )
+        scan_forecast_payloads(
+            folder,
+            market_id,
+            stats_by_family,
+            provenance_rows=reader_provenance_rows,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+        )
+        scan_features(
+            folder,
+            market_id,
+            stats_by_family,
+            provenance_rows=reader_provenance_rows,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+        )
+        scan_clob(
+            folder,
+            market_id,
+            stats_by_family,
+            provenance_rows=reader_provenance_rows,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+        )
     scan_reanalysis_sidecars(reanalysis_root, stats_by_family)
     ablation_payload = read_json(ablation_json, default={}) or {}
     candidate_replay_payload = read_json(candidate_replay_json, default={}) or {}
@@ -1301,6 +1502,7 @@ def build_source_family_inventory(
     preflight = promotion_preflight(
         rows,
         snapshots_root=snapshots_root,
+        archive_root=archive_root,
         backtest_root=backtest_root,
         ablation_json=ablation_json,
         candidate_replay_json=candidate_replay_json,
@@ -1310,10 +1512,12 @@ def build_source_family_inventory(
         location_events_config=location_events_config,
     )
     blocked = preflight["blocked_family_count"]
+    reader_summary = summarize_reader_provenance(reader_provenance_rows)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
         "snapshots_root": str(Path(snapshots_root)),
+        "archive_root": str(Path(archive_root)),
         "reanalysis_root": str(Path(reanalysis_root)),
         "backtest_root": str(Path(backtest_root)),
         "ablation_json": str(Path(ablation_json)),
@@ -1325,6 +1529,7 @@ def build_source_family_inventory(
             "family_count": len(rows),
             "blocking_family_count": blocked,
             "snapshot_folder_count": len(folders),
+            "historical_reader_modes": reader_summary["source_modes"],
             "market_folder_counts": dict(sorted(market_folder_counts.items())),
             "ablation_variant_count": merged_ablation_count,
             "market_expansion_status": expansion["status"],
@@ -1333,6 +1538,7 @@ def build_source_family_inventory(
             "active_model_feature_count": model_usage["feature_count"],
             "active_overlay_families": model_usage["active_overlay_families"],
         },
+        "historical_reader_summary": reader_summary,
         "inventory": rows,
         "active_model_usage": model_usage,
         "promotion_preflight": preflight,
@@ -1344,6 +1550,11 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
     report_out = Path(report_out)
     report_out.parent.mkdir(parents=True, exist_ok=True)
     rows = payload.get("inventory") or []
+    reader_summary = payload.get("historical_reader_summary") or {}
+
+    def fmt_counts(mapping):
+        return ", ".join(f"{key}: {value}" for key, value in (mapping or {}).items()) or "-"
+
     lines = [
         "# Source Family Inventory",
         "",
@@ -1360,6 +1571,7 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ["Families", summary.get("family_count")],
             ["Blocking families", summary.get("blocking_family_count")],
             ["Snapshot folders", summary.get("snapshot_folder_count")],
+            ["Historical reader modes", fmt_counts(summary.get("historical_reader_modes"))],
             ["Ablation variants", summary.get("ablation_variant_count")],
             ["Active model usage", summary.get("active_model_usage_status")],
             ["Active model features", summary.get("active_model_feature_count")],
@@ -1367,6 +1579,22 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ["Market expansion status", summary.get("market_expansion_status")],
         ],
     )
+    if reader_summary:
+        lines += ["", "## Historical Reader Sources", ""]
+        families = reader_summary.get("families") or {}
+        lines += markdown_table(
+            ["Artifact Family", "Reads", "Rows", "Source Modes", "Fallback Reasons"],
+            [
+                [
+                    family,
+                    item.get("reads"),
+                    item.get("rows"),
+                    fmt_counts(item.get("source_modes")),
+                    fmt_counts(item.get("fallback_reasons")),
+                ]
+                for family, item in families.items()
+            ],
+        )
     lines += ["", "## Inventory", ""]
     lines += markdown_table(
         [
@@ -1490,6 +1718,9 @@ def write_outputs(payload, *, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPO
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Build weather-input source-family inventory and promotion preflight.")
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
+    parser.add_argument("--archive-as-of-date", default=None)
+    parser.add_argument("--no-archive-reader", action="store_true")
     parser.add_argument("--reanalysis-root", default=str(DEFAULT_REANALYSIS_ROOT))
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--ablation-json", default=str(DEFAULT_ABLATION_JSON))
@@ -1501,6 +1732,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     payload = build_source_family_inventory(
         snapshots_root=args.snapshots_root,
+        archive_root=args.archive_root,
+        archive_as_of_date=args.archive_as_of_date,
+        prefer_archive=not args.no_archive_reader,
         reanalysis_root=args.reanalysis_root,
         backtest_root=args.backtest_root,
         ablation_json=args.ablation_json,

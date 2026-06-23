@@ -695,7 +695,9 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "bin_value_hi": input_row.get("bin_value_hi") or value_hi or "",
         "condition_id": input_row.get("condition_id") or "",
         "clob_token_id": token,
-        "side": "YES_BUY",
+        # Two-sided taker (item 253): NO-side candidates carry taker_side=NO_BUY;
+        # default stays YES_BUY so YES-only behaviour is unchanged.
+        "side": str(input_row.get("taker_side") or "YES_BUY").upper(),
         "action": "NO_TRADE",
         "order_status": "SKIPPED",
         "reason_code": "",

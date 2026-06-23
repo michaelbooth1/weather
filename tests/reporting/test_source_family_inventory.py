@@ -15,6 +15,7 @@ from weather.reporting.source_family_inventory import (
 )
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.model.feature_store import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
+from weather.operations.closed_market_day_archive import build_backfill_payload
 
 
 def write_csv(path, rows):
@@ -211,6 +212,96 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertGreater(payload["promotion_preflight"]["blocked_family_count"], 0)
         self.assertTrue(json_exists)
         self.assertIn("Source Family Inventory", report_text)
+
+    def test_inventory_reports_parquet_reader_modes_for_closed_days(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            archive_root = root / "archive"
+            backtest_root = root / "backtest"
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "open_meteo",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "features_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "market_id": "nyc",
+                        "forecast_high": "91",
+                        "forecast_gap": "2",
+                    }
+                ],
+            )
+            (folder / "settlement.json").write_text(
+                json.dumps(
+                    {
+                        "event_slug": folder.name,
+                        "market_id": "nyc",
+                        "target_date": "2026-06-18",
+                        "settlement_bucket": 91,
+                        "settlement_source": "test",
+                        "quality_grade": "complete",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            archive_payload = build_backfill_payload(
+                snapshots_root=snapshots_root,
+                archive_root=archive_root,
+                apply=True,
+                as_of_date="2026-06-19",
+                generated_at_utc="2026-06-19T00:00:00+00:00",
+            )
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                archive_root=archive_root,
+                archive_as_of_date="2026-06-19",
+                backtest_root=backtest_root,
+                candidate_replay_json=backtest_root / "missing_candidate_replay.json",
+                locations_config=locations_config,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-19T01:00:00+00:00",
+            )
+            _json_out, report_out = write_outputs(
+                payload,
+                json_out=backtest_root / "source_family_inventory.json",
+                report_out=backtest_root / "source_family_inventory_report.md",
+            )
+            report_text = Path(report_out).read_text(encoding="utf-8")
+
+        self.assertEqual(archive_payload["summary"]["converted"], 1)
+        reader_summary = payload["historical_reader_summary"]
+        self.assertEqual(
+            reader_summary["families"]["source_status_long"]["source_modes"],
+            {"validated_parquet": 1},
+        )
+        self.assertEqual(
+            reader_summary["families"]["features_long"]["source_modes"],
+            {"validated_parquet": 1},
+        )
+        self.assertGreaterEqual(reader_summary["source_modes"].get("validated_parquet", 0), 2)
+        self.assertIn("Historical Reader Sources", report_text)
+        self.assertIn("validated_parquet", report_text)
 
     def test_market_expansion_scorecard_blocks_incomplete_locations(self):
         with tempfile.TemporaryDirectory() as tmp:

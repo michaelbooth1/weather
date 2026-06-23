@@ -59,6 +59,27 @@ class ArtifactFamilyContract:
     notes: str = ""
 
 
+@dataclass(frozen=True)
+class ArtifactReadProvenance:
+    artifact_family: str
+    source_mode: str
+    row_count: int
+    path: str | None = None
+    snapshots_root: str | None = None
+    archive_root: str | None = None
+    manifest_path: str | None = None
+    manifest_hash: str | None = None
+    source_file_hash: str | None = None
+    parquet_file_hash: str | None = None
+    fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactReadResult:
+    frame: pd.DataFrame
+    provenance: ArtifactReadProvenance
+
+
 ARTIFACT_FAMILIES = (
     ArtifactFamilyContract(
         "snapshots_long",
@@ -292,6 +313,315 @@ def parquet_reader_allowed(manifest: dict[str, Any]) -> bool:
     """Return whether a reader may prefer this manifest over text tapes."""
 
     return not validate_manifest_shape(manifest) and (manifest.get("validation") or {}).get("status") == "PASS"
+
+
+def archive_partition_for_folder(
+    folder: str | Path,
+    *,
+    archive_root: str | Path = DEFAULT_ARCHIVE_ROOT,
+) -> Path | None:
+    """Return the archive partition for a snapshot folder, if its slug is known."""
+
+    event_slug = Path(folder).name
+    target_date = date_from_event_slug(event_slug)
+    market_id = market_id_from_slug(event_slug)
+    if target_date is None or market_id is None:
+        return None
+    return archive_partition_path(
+        target_date.isoformat(),
+        market_id,
+        event_slug,
+        root=archive_root,
+    )
+
+
+def _combine_fallback_reasons(*reasons: str | None) -> str | None:
+    parts = [str(reason) for reason in reasons if reason]
+    return ";".join(parts) if parts else None
+
+
+def _family_manifest(manifest: dict[str, Any], artifact_family: str) -> dict[str, Any] | None:
+    return next(
+        (
+            family
+            for family in manifest.get("artifact_families") or []
+            if family.get("artifact_family") == artifact_family
+        ),
+        None,
+    )
+
+
+def _analysis_source_record(family_manifest: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not family_manifest:
+        return None
+    sources = family_manifest.get("source_files") or []
+    return next(
+        (
+            source
+            for source in sources
+            if "analysis_source" in str(source.get("role") or "")
+        ),
+        sources[0] if sources else None,
+    )
+
+
+def _source_paths_for_family(folder: Path, family: ArtifactFamilyContract) -> tuple[list[Path], list[Path]]:
+    paths = _find_paths(folder, family.source_patterns)
+    gzip_paths = [path for path in paths if path.name.lower().endswith(".csv.gz")]
+    text_paths = [path for path in paths if path not in gzip_paths]
+    return gzip_paths, text_paths
+
+
+def _read_source_artifact_result(
+    folder: Path,
+    family: ArtifactFamilyContract,
+    *,
+    snapshots_root: Path,
+    archive_root: Path,
+    fallback_reason: str | None,
+    manifest_path: Path | None = None,
+    manifest_hash: str | None = None,
+) -> ArtifactReadResult:
+    gzip_paths, text_paths = _source_paths_for_family(folder, family)
+    if gzip_paths:
+        source_path = gzip_paths[0]
+        source_mode = "gzip_tiered_text"
+    elif text_paths:
+        source_path = text_paths[0]
+        source_mode = "text_tape"
+    else:
+        reason = _combine_fallback_reasons(fallback_reason, "source_missing")
+        frame = pd.DataFrame()
+        return ArtifactReadResult(
+            frame=frame,
+            provenance=ArtifactReadProvenance(
+                artifact_family=family.name,
+                source_mode="text_tape",
+                row_count=0,
+                snapshots_root=str(snapshots_root),
+                archive_root=str(archive_root),
+                manifest_path=str(manifest_path) if manifest_path else None,
+                manifest_hash=manifest_hash,
+                fallback_reason=reason,
+            ),
+        )
+
+    frame = _read_source_frame(source_path)
+    return ArtifactReadResult(
+        frame=frame,
+        provenance=ArtifactReadProvenance(
+            artifact_family=family.name,
+            source_mode=source_mode,
+            row_count=len(frame),
+            path=str(source_path),
+            snapshots_root=str(snapshots_root),
+            archive_root=str(archive_root),
+            manifest_path=str(manifest_path) if manifest_path else None,
+            manifest_hash=manifest_hash,
+            source_file_hash=sha256_file(source_path),
+            fallback_reason=fallback_reason,
+        ),
+    )
+
+
+def _archive_read_blocker(
+    folder: Path,
+    *,
+    prefer_archive: bool,
+    as_of_date: str | date | datetime | None,
+) -> str | None:
+    if not prefer_archive:
+        return "archive_disabled"
+    target_date = date_from_event_slug(folder.name)
+    market_id = market_id_from_slug(folder.name)
+    if target_date is None or market_id is None:
+        return "unknown_event_slug"
+    if target_date >= _parse_date(as_of_date):
+        return "active_or_future_target_date"
+    return None
+
+
+def read_market_day_artifact(
+    folder: str | Path,
+    artifact_family: str,
+    *,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    archive_root: str | Path = DEFAULT_ARCHIVE_ROOT,
+    as_of_date: str | date | datetime | None = None,
+    prefer_archive: bool = True,
+) -> ArtifactReadResult:
+    """Read a market-day artifact with closed-day Parquet preference.
+
+    The returned frame is safe for existing pandas-based reports. Provenance
+    tells callers whether the rows came from validated Parquet, gzip-tiered
+    text, or the original CSV/JSONL tape.
+    """
+
+    if artifact_family not in ARTIFACT_FAMILIES_BY_NAME:
+        raise KeyError(f"unknown archive artifact family: {artifact_family}")
+
+    folder = Path(folder)
+    snapshots_root = Path(snapshots_root)
+    archive_root = Path(archive_root)
+    family = ARTIFACT_FAMILIES_BY_NAME[artifact_family]
+
+    blocker = _archive_read_blocker(
+        folder,
+        prefer_archive=prefer_archive,
+        as_of_date=as_of_date,
+    )
+    partition_root = archive_partition_for_folder(folder, archive_root=archive_root)
+    manifest_path = manifest_path_for_partition(partition_root) if partition_root else None
+    if blocker:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason=blocker,
+            manifest_path=manifest_path,
+        )
+
+    if manifest_path is None:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="unknown_archive_partition",
+        )
+
+    manifest = _read_json(manifest_path)
+    if not manifest:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="missing_archive_manifest",
+            manifest_path=manifest_path,
+        )
+    manifest_hash = str(manifest.get("manifest_hash") or "")
+
+    if not manifest_hash_valid(manifest):
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="invalid_manifest_hash",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+    if not parquet_reader_allowed(manifest):
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="manifest_validation_not_pass",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+
+    family_manifest = _family_manifest(manifest, artifact_family)
+    parquet = (family_manifest or {}).get("parquet") or {}
+    if not family_manifest or family_manifest.get("status") != "parquet" or not parquet:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="parquet_family_unavailable",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+
+    parquet_path = Path(manifest_path).parent / str(parquet.get("path") or "")
+    if not parquet_path.exists():
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="missing_parquet_dataset",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+    parquet_hash = sha256_file(parquet_path)
+    if parquet.get("sha256") != parquet_hash:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="parquet_hash_mismatch",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+    parquet_rows = int(pq.ParquetFile(parquet_path).metadata.num_rows)
+    expected_rows = int(parquet.get("row_count") or -1)
+    if parquet_rows != expected_rows:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="parquet_row_count_mismatch",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+
+    frame = pd.read_parquet(parquet_path)
+    if len(frame) != expected_rows:
+        return _read_source_artifact_result(
+            folder,
+            family,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            fallback_reason="parquet_frame_row_count_mismatch",
+            manifest_path=manifest_path,
+            manifest_hash=manifest_hash,
+        )
+    source_record = _analysis_source_record(family_manifest)
+    return ArtifactReadResult(
+        frame=frame,
+        provenance=ArtifactReadProvenance(
+            artifact_family=family.name,
+            source_mode="validated_parquet",
+            row_count=len(frame),
+            path=str(parquet_path),
+            snapshots_root=str(snapshots_root),
+            archive_root=str(archive_root),
+            manifest_path=str(manifest_path),
+            manifest_hash=manifest_hash,
+            source_file_hash=(source_record or {}).get("sha256"),
+            parquet_file_hash=parquet_hash,
+        ),
+    )
+
+
+def read_artifact_frame(
+    folder: str | Path,
+    artifact_family: str,
+    *,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    archive_root: str | Path = DEFAULT_ARCHIVE_ROOT,
+    as_of_date: str | date | datetime | None = None,
+    prefer_archive: bool = True,
+    include_provenance: bool = False,
+) -> pd.DataFrame | ArtifactReadResult:
+    """Compatibility wrapper returning only the frame unless provenance is requested."""
+
+    result = read_market_day_artifact(
+        folder,
+        artifact_family,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        as_of_date=as_of_date,
+        prefer_archive=prefer_archive,
+    )
+    return result if include_provenance else result.frame
 
 
 def utc_iso() -> str:
