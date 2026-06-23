@@ -1,4 +1,4 @@
-# 256. Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED]
+# 256. Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED]
 
 Goal: collect a fresh paper-only champion/challenger campaign under current
 taker defaults and require complete-label, after-fee, after-slippage evidence
@@ -276,7 +276,7 @@ Added the fresh run to the bakeoff and ledger evidence:
 - `data/backtest/item256_taker_champion_challenger_ledger.json`
 - `data/backtest/item256_taker_champion_challenger_ledger_report.md`
 
-Refreshed ledger result:
+Initial refreshed ledger result:
 
 - bakeoff artifacts: `8`.
 - loaded bakeoffs: `8`.
@@ -291,3 +291,56 @@ Refreshed ledger result:
 Item 256 remains `PARTIAL`: the fresh campaign is represented in the ledger,
 but no strategy can be live-qualified until future post-fix days settle with
 complete labels, enough fills, and positive after-fee/after-slippage results.
+
+## 2026-06-23 Settlement-Complete Label Refresh
+
+Backfilled Weather.com/Wunderground daily summaries for all registered markets
+from `2026-06-19` through `2026-06-22`, then regenerated the settlement ledger
+and campaign bakeoffs. The generic market-day label quality remains `partial`
+because the snapshot tapes still have collection gaps, but each refreshed
+`2026-06-19` through `2026-06-22` label row now uses canonical
+`settlement_source=daily_summary` and reconciles with Polymarket (`match`).
+The taker bakeoff gate now distinguishes this settlement-complete state from
+true partial snapshot-derived labels.
+
+Updated artifacts:
+
+- `data/backtest/market_day_labels.csv`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_221a357c.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-20_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-21_bbe63642.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-22_3d74b86b.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_item256_postfix_full.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_10261355.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-23_taker_83df0edc.json`
+- `data/backtest/item256_taker_finalization_watchdog.json`
+- `data/backtest/item256_taker_finalization_watchdog_report.md`
+- `data/backtest/item256_taker_champion_challenger_ledger.json`
+- `data/backtest/item256_taker_champion_challenger_ledger_report.md`
+
+Updated ledger result:
+
+- bakeoff artifacts: `8`.
+- loaded bakeoffs: `8`.
+- strategies: `7`.
+- settlement-complete bakeoff days: `5` (two June 19 bakeoffs plus June 20,
+  June 21, and June 22).
+- true partial-quality days: `0`.
+- missing-label days in strategy rows: `2` from June 23 bakeoffs.
+- promotion pass count: `0`.
+- decision: `KEEP_CHAMPION`.
+- recommended strategy remains `low_price_tail_capped`.
+
+Remaining promotion blockers are no longer the June 19-22 settlement labels.
+They are:
+
+- June 23 still has no target-date settlement labels.
+- No strategy passes every complete-day promotion gate
+  (`all_complete_days_pass_strategy_gate`).
+- Several strategies still have insufficient settled order samples.
+- Challengers with enough settled orders do not beat the current champion after
+  fees across the campaign ledger.
+
+Item 256 remains `PARTIAL`: settlement labels for the completed target dates
+are now unblocked for taker PnL scoring, but no strategy is live-qualified.
