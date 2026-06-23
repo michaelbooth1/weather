@@ -176,33 +176,37 @@ class DistributionMixin(DistributionSignalMixin):
         nws_forecast_max = self.forecast_day_max(nws_hourly)
         global_ensemble_max = self.forecast_day_max(global_ensemble)
         eccc_forecast_high = self.row_forecast_high_native(eccc_city)
+        guidance_floor = self.guidance_physical_floor(
+            high_so_far=history_max,
+            current_temp=current_temp,
+            live_reading=current_temp,
+            current_max=trusted_current_max,
+            sources=sources,
+        )
         forecast_ensemble = self.forecast_ensemble_metrics(
             open_meteo,
             weather_forecast,
             eccc_city,
             nws_hourly=nws_hourly,
             global_ensemble=global_ensemble,
+            observed_floor_native=guidance_floor,
         )
-        weather_forecast_signal = self.robust_forecast_signal_value(
-            weather_forecast_max,
-            forecast_ensemble,
+        guidance_states = self.guidance_physical_states(
+            sources,
+            observed_floor_native=guidance_floor,
         )
-        open_meteo_signal = self.robust_forecast_signal_value(
-            open_meteo_max,
-            forecast_ensemble,
-        )
-        nws_forecast_signal = self.robust_forecast_signal_value(
-            nws_forecast_max,
-            forecast_ensemble,
-        )
-        global_ensemble_signal = self.robust_forecast_signal_value(
-            global_ensemble_max,
-            forecast_ensemble,
-        )
-        eccc_forecast_signal = self.robust_forecast_signal_value(
-            eccc_forecast_high,
-            forecast_ensemble,
-        )
+
+        def forecast_signal(source, value):
+            state = guidance_states.get(source) or {}
+            if str(state.get("physical_validity_status") or "") == "fresh_but_impossible":
+                return None
+            return self.robust_forecast_signal_value(value, forecast_ensemble)
+
+        weather_forecast_signal = forecast_signal("weather_forecast", weather_forecast_max)
+        open_meteo_signal = forecast_signal("open_meteo", open_meteo_max)
+        nws_forecast_signal = forecast_signal("nws_hourly", nws_forecast_max)
+        global_ensemble_signal = forecast_signal("global_ensemble", global_ensemble_max)
+        eccc_forecast_signal = forecast_signal("eccc_citypage", eccc_forecast_high)
         forecast_signal_values = {
             "weather_forecast": weather_forecast_signal,
             "open_meteo": open_meteo_signal,
@@ -301,6 +305,12 @@ class DistributionMixin(DistributionSignalMixin):
             "forecast_warm_outlier_flag": forecast_ensemble.get("forecast_warm_outlier_flag"),
             "forecast_warm_outlier_gap": forecast_ensemble.get("forecast_warm_outlier_gap"),
             "forecast_source_count": forecast_ensemble.get("forecast_source_count"),
+            "forecast_source_values": forecast_ensemble.get("forecast_source_values"),
+            "forecast_raw_source_values": forecast_ensemble.get("forecast_raw_source_values"),
+            "forecast_raw_max": forecast_ensemble.get("forecast_raw_max"),
+            "forecast_impossible_sources": forecast_ensemble.get("forecast_impossible_sources"),
+            "forecast_impossible_features": forecast_ensemble.get("forecast_impossible_features"),
+            "guidance_physical_floor": guidance_floor,
             "forecast_signal_values": forecast_signal_values,
             "target_date": getattr(self, "target_date_str", TARGET_DATE_STR),
         }
@@ -367,6 +377,7 @@ class DistributionMixin(DistributionSignalMixin):
             global_ensemble_max=global_ensemble_signal,
             eccc_forecast_high=eccc_forecast_signal,
             observed_bucket=observed_bucket,
+            forecast_context=forecast_ensemble,
         )
         scores = self.distribution_apply_live_signals_stage(
             scores,
@@ -453,6 +464,7 @@ class DistributionMixin(DistributionSignalMixin):
             nws_hourly=nws_hourly,
             global_ensemble=global_ensemble,
             eccc_city=eccc_city,
+            official_current_stale=bool((sources.get("metar") or {}).get("stale")),
             pipeline=pipeline,
         )
 
@@ -1066,6 +1078,7 @@ class DistributionMixin(DistributionSignalMixin):
         global_ensemble,
         eccc_city,
         pipeline,
+        official_current_stale=False,
     ):
         """Apply late-day lock-in and return the metadata needed downstream."""
         current_reading = current_temp if current_temp is not None else metar_temp
@@ -1085,6 +1098,9 @@ class DistributionMixin(DistributionSignalMixin):
             nws_hourly,
             global_ensemble,
             eccc_city,
+            official_current_reading=metar_temp,
+            official_source="metar",
+            official_current_stale=official_current_stale,
         )
         high_has_stood_strength = high_has_stood_context.get("strength") or 0.0
         expanded_lockin_context = self.expanded_late_day_lockin_context(
@@ -1097,6 +1113,9 @@ class DistributionMixin(DistributionSignalMixin):
             nws_hourly,
             global_ensemble,
             eccc_city,
+            official_current_reading=metar_temp,
+            official_source="metar",
+            official_current_stale=official_current_stale,
         )
         expanded_lockin_strength = expanded_lockin_context.get("strength") or 0.0
         lockin_strength = max(
@@ -1144,6 +1163,7 @@ class DistributionMixin(DistributionSignalMixin):
         global_ensemble_max,
         eccc_forecast_high,
         observed_bucket,
+        forecast_context=None,
     ):
         """Return the live-signal stage inputs for the current model path."""
         current_max_live_signal = None if hour is not None and int(hour) < 7 else current_max
@@ -1154,25 +1174,27 @@ class DistributionMixin(DistributionSignalMixin):
                 observed_bucket is None or current_max_bucket > observed_bucket
             ):
                 current_max_signal = current_max_live_signal
-            peak_cluster_values = [
-                current_max_signal,
-                weather_forecast_max,
-                self.round_half_up(open_meteo_max)
-                if open_meteo_max is not None else None,
-                self.round_half_up(nws_forecast_max)
-                if nws_forecast_max is not None else None,
-                self.round_half_up(global_ensemble_max)
-                if global_ensemble_max is not None else None,
-            ]
-            peak_cluster_signal = self.max_value(*peak_cluster_values)
-            peak_cluster_count = sum(
-                1 for value in peak_cluster_values if value is not None
+            forecast_cluster_signal = self.forecast_source_cluster_signal(
+                hour,
+                weather_forecast_max=weather_forecast_max,
+                open_meteo_max=open_meteo_max,
+                nws_forecast_max=nws_forecast_max,
+                global_ensemble_max=global_ensemble_max,
+                eccc_forecast_high=eccc_forecast_high,
+                forecast_context=forecast_context,
             )
-            peak_cluster_weight = 1.1 if peak_cluster_count <= 1 else 1.6
+            peak_cluster_signal = self.max_value(
+                current_max_signal,
+                forecast_cluster_signal[0],
+            )
+            if forecast_cluster_signal[0] is None:
+                peak_cluster_weight = 1.1
+            else:
+                peak_cluster_weight = min(1.6, max(1.1, forecast_cluster_signal[1]))
             return [
                 # Current max, Weather.com forecast, and Open-Meteo often share
-                # the same weather-family signal. Treat them as one peak cluster
-                # so a single bucket does not get triple-counted.
+                # the same weather-family signal. Treat them as one robust peak
+                # cluster so a lone warm source cannot own the feature path.
                 (peak_cluster_signal, peak_cluster_weight, 1.0),
                 (eccc_max, 0.6, 0.8),
                 (eccc_forecast_high, 0.5, 1.2),
@@ -1194,6 +1216,7 @@ class DistributionMixin(DistributionSignalMixin):
             nws_forecast_max=nws_forecast_max,
             global_ensemble_max=global_ensemble_max,
             eccc_forecast_high=eccc_forecast_high,
+            forecast_context=forecast_context,
         )
         return [
             (history_max, self.history_signal_weight(hour), 0.65),
@@ -1417,6 +1440,7 @@ class DistributionMixin(DistributionSignalMixin):
         nws_forecast_max,
         global_ensemble_max,
         eccc_forecast_high,
+        forecast_context=None,
     ):
         values = [
             weather_forecast_max,
@@ -1428,13 +1452,19 @@ class DistributionMixin(DistributionSignalMixin):
         values = [value for value in values if value is not None]
         if not values:
             return (None, 0.0, 1.1)
+        forecast_context = forecast_context or {}
+        raw_values = list(values)
+        robust_high = self.to_number(forecast_context.get("forecast_robust_high"))
+        if robust_high is not None and forecast_context.get("forecast_warm_outlier_flag"):
+            cap = robust_high + self.spec.scale_delta(RAMP_WARM_TAIL_SOURCE_CAP_MARGIN)
+            values = [min(value, cap) for value in values]
         ordered = sorted(values)
         midpoint = len(ordered) // 2
         if len(ordered) % 2:
             cluster_value = ordered[midpoint]
         else:
             cluster_value = (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
-        spread = max(values) - min(values)
+        spread = max(raw_values) - min(raw_values)
         agreement = max(0.1, self.spec.scale_delta(FORECAST_AGREEMENT_SPREAD))
         agreement_factor = max(0.5, 1.0 - spread / (2.0 * agreement))
         base_weight = self.forecast_signal_weight(hour)

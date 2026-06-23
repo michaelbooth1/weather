@@ -1028,6 +1028,45 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(values["weather_forecast_max_c"], 93.0)
         self.assertEqual(values["eccc_forecast_high_c"], 94.0)
 
+    def test_source_status_rows_include_physical_validity(self):
+        store = SnapshotStore(root=Path("."), event_slug="event")
+        model = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
+        captured_at = datetime(2026, 6, 22, 14, 57, tzinfo=model.spec.tz)
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "status": "fresh",
+                "data": {
+                    "rows": [{"time": "14:00", "temp_native": 94.0}],
+                    "max_native": 94.0,
+                },
+            },
+            "nbm_probabilistic_tmax": {
+                "ok": True,
+                "status": "fresh",
+                "data": {
+                    "percentiles": {"10": 75.0, "50": 77.0, "90": 79.0},
+                    "mean_native": 77.0,
+                },
+            },
+        }
+
+        rows = store.source_status_rows(
+            sources,
+            model,
+            snapshot_id="snap-1",
+            captured_at=captured_at,
+            model_version="test",
+        )
+        by_source = {row["source"]: row for row in rows}
+
+        self.assertEqual(
+            by_source["nbm_probabilistic_tmax"]["physical_validity_status"],
+            "fresh_but_impossible",
+        )
+        self.assertEqual(by_source["nbm_probabilistic_tmax"]["physical_validity_floor"], 94.0)
+        self.assertIn("nbm_prob_tmax_p90", by_source["nbm_probabilistic_tmax"]["impossible_features"])
+
 
 if __name__ == "__main__":
     unittest.main()

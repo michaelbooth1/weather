@@ -14,7 +14,7 @@ from weather.schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
-        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.14")
+        self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.15")
         self.assertEqual(schema_version("feature_quality_quarantine"), "feature_quality_quarantine_v0.1")
         self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.5")
         self.assertEqual(schema_version("pressure_level_cache_status"), "pressure_level_cache_status_v0.1")
@@ -35,6 +35,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("austin_hgb_requalification"),
             "austin_hgb_requalification_v0.1",
+        )
+        self.assertEqual(
+            schema_version("austin_weather_model_hardening"),
+            "austin_weather_model_hardening_v0.1",
         )
         self.assertEqual(schema_version("local_generated_state_cleanup"), "local_generated_state_cleanup_v0.1")
         self.assertEqual(schema_version("hourly_model_performance"), "hourly_model_performance_v0.3")
@@ -111,6 +115,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("clob_coverage_audit"), "clob_coverage_audit_v0.3")
         self.assertEqual(schema_version("clob_capture_status"), "clob_capture_status_v0.1")
         self.assertEqual(schema_version("data_retention_inventory"), "data_retention_inventory_v0.1")
+        self.assertEqual(
+            schema_version("closed_market_day_archive_manifest"),
+            "closed_market_day_archive_manifest_v0.1",
+        )
         self.assertEqual(schema_version("model_artifact_externalization"), "model_artifact_externalization_v0.1")
         self.assertEqual(schema_version("model_artifact_promotion_preflight"), "model_artifact_promotion_preflight_v0.1")
         self.assertEqual(schema_version("module_size_audit"), "module_size_audit_v0.1")
@@ -160,6 +168,7 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(schema_version("settled_day_root_cause"), "settled_day_root_cause_v0.1")
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")
+        self.assertTrue(validate_schema_version("feature_store_legacy_v1_14", "toronto_feature_store_v1.14"))
         self.assertTrue(validate_schema_version("feature_store_legacy_v1_11", "toronto_feature_store_v1.11"))
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))

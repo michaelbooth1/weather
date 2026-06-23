@@ -53,6 +53,11 @@ one fail-closed step.
   and live-forward window.
 - `source_manifests` and `operational_status`: retain with the backed-up data
   to prove provenance and last known operational state.
+- Closed market-day Parquet archive partitions and
+  `closed_market_day_archive_manifest_v0.1` manifests: retain with their raw
+  source evidence after Item 244 begins writing them. The archive contract is
+  documented in
+  [Closed Market-Day Parquet Archive Contract](closed-market-day-parquet-archive-contract.md).
 
 Markdown reports, lock files, PID files, temp files, and clearly rebuildable
 scratch outputs are excluded.

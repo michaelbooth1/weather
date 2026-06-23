@@ -322,9 +322,36 @@ class TestDistributionHelpers(unittest.TestCase):
             observed_bucket=24,
         )
 
-        self.assertEqual(signals[0], (27.2, 1.6, 1.0))
+        self.assertLess(signals[0][0], 27.2)
+        self.assertEqual(signals[0][0], 27.0)
+        self.assertLessEqual(signals[0][1], 1.6)
+        self.assertEqual(signals[0][2], 1.0)
         self.assertEqual(signals[1], (25.0, 0.6, 0.8))
         self.assertEqual(signals[2], (26.0, 0.5, 1.2))
+
+    def test_feature_model_live_signal_uses_robust_forecast_cluster(self):
+        model = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
+
+        signals = model.distribution_live_signals(
+            using_feature_model=True,
+            using_calibrated_empirical=False,
+            hour=14,
+            history_max=94.0,
+            current_temp=94.0,
+            current_max=94.0,
+            eccc_max=None,
+            metar_live_signal=None,
+            weather_forecast_max=94.0,
+            open_meteo_max=93.0,
+            nws_forecast_max=95.0,
+            global_ensemble_max=95.9,
+            eccc_forecast_high=None,
+            observed_bucket=94,
+        )
+
+        self.assertEqual(signals[0][0], 94.5)
+        self.assertLess(signals[0][0], 96.0)
+        self.assertLessEqual(signals[0][1], 1.6)
 
     def test_live_signal_stage_nulls_pre_reset_current_max(self):
         feature_signals = self.model.distribution_live_signals(

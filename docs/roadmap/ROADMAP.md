@@ -135,7 +135,7 @@ infrastructure work remains.
 | 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |
 | 203 | [Historical Snapshot Sidecar Coverage Closure [COMPLETE 2026-06-21 - SIDECAR ELIGIBILITY AND PROMOTION EXCLUSIONS LIVE]](items/item-203-historical-snapshot-sidecar-coverage-closure.md) |
 | 208 | [Historical Feature-Quality Quarantine And Training Exclusion [COMPLETE 2026-06-21 - FEATURE-QUALITY QUARANTINE EXCLUDES LEGACY BAD ROWS]](items/item-208-historical-feature-quality-quarantine-and-training-exclusion.md) |
-| 243 | [Closed Market-Day Parquet Archive Contract [OPEN 2026-06-22 - COLUMNAR ARCHIVE CONTRACT MISSING]](items/item-243-closed-market-day-parquet-archive-contract.md) |
+| 243 | [Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [OPEN 2026-06-22 - CLOSED-DAY CONVERSION PIPELINE MISSING]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [OPEN 2026-06-22 - ANALYSIS READS TEXT TAPES BY DEFAULT]](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
@@ -281,11 +281,11 @@ infrastructure work remains.
 | 240 | [Taker Fee, Slippage, And Executable-Depth Profitability Model [COMPLETE 2026-06-22]](items/item-240-taker-fee-slippage-and-executable-depth-profitability-model.md) |
 | 241 | [Market Benchmark No-Trade And Profitability Scoreboard [COMPLETE 2026-06-22]](items/item-241-market-benchmark-no-trade-and-profitability-scoreboard.md) |
 | 242 | [Decisive Model Proof Packet And Gate Stack Ratchet [COMPLETE 2026-06-22 - WEATHER-ONLY PROOF PACKET AND RATCHET LIVE]](items/item-242-decisive-model-proof-packet-and-gate-stack-ratchet.md) |
-| 248 | [Austin Robust Forecast-Cluster Signal [OPEN 2026-06-22 - FEATURE-PATH MAX CLUSTER OVERHEATS]](items/item-248-austin-robust-forecast-cluster-signal.md) |
-| 249 | [Official METAR Rollover Lock-In Signal [OPEN 2026-06-22 - LATE ROLLOVER IGNORED WHEN WU CURRENT IS FLAT]](items/item-249-official-metar-rollover-lockin-signal.md) |
+| 248 | [Austin Robust Forecast-Cluster Signal [COMPLETE 2026-06-22 - ROBUST FORECAST CLUSTER HARD-SLICE GATE LIVE]](items/item-248-austin-robust-forecast-cluster-signal.md) |
+| 249 | [Official METAR Rollover Lock-In Signal [COMPLETE 2026-06-22 - OFFICIAL ROLLOVER LOCK-IN LIVE]](items/item-249-official-metar-rollover-lockin-signal.md) |
 | 250 | [Austin HGB Per-Location Requalification [COMPLETE 2026-06-22 - AUSTIN HGB FAIL-CLOSED REQUALIFICATION PACKET LIVE]](items/item-250-austin-hgb-per-location-requalification.md) |
 | 251 | [Standing-High Partial Lock-In Dampener [OPEN 2026-06-22 - HIGH STOOD BUT FORECAST CEILING BLOCKS LOCK-IN]](items/item-251-standing-high-partial-lockin-dampener.md) |
-| 252 | [Impossible Guidance Feature Quarantine [OPEN 2026-06-22 - GUIDANCE CAN BE FRESH BUT PHYSICALLY IMPOSSIBLE]](items/item-252-impossible-guidance-feature-quarantine.md) |
+| 252 | [Impossible Guidance Feature Quarantine [COMPLETE 2026-06-22 - FRESH-BUT-IMPOSSIBLE GUIDANCE QUARANTINED]](items/item-252-impossible-guidance-feature-quarantine.md) |
 
 ### Architecture And Maintainability
 

@@ -586,6 +586,13 @@ class SourceFetchMixin:
         ttl_minutes, error} so one failing or stale feed is visible rather than
         silently blended away. ``status`` is fresh / stale_cache / failed."""
         diagnostics = []
+        physical_states = {}
+        physical_state_method = getattr(self, "guidance_physical_states", None)
+        if callable(physical_state_method):
+            try:
+                physical_states = physical_state_method(blended)
+            except Exception:
+                physical_states = {}
         for name in sorted(blended):
             item = blended.get(name) or {}
             status = item.get("status")
@@ -616,6 +623,13 @@ class SourceFetchMixin:
             if name in TORONTO_OFFICIAL_CANADIAN_SOURCES:
                 diagnostic["official_canadian_source"] = True
                 diagnostic["official_canadian_role"] = TORONTO_OFFICIAL_CANADIAN_SOURCES[name]
+            physical_state = physical_states.get(name) or {}
+            if physical_state:
+                diagnostic["physical_validity_status"] = physical_state.get("physical_validity_status")
+                diagnostic["physical_validity_floor"] = physical_state.get("observed_floor")
+                diagnostic["physical_validity_gap"] = physical_state.get("floor_gap")
+                diagnostic["impossible_feature_count"] = physical_state.get("impossible_feature_count")
+                diagnostic["impossible_features"] = ",".join(physical_state.get("impossible_features") or [])
             if name == "marine_context":
                 marine_state = active_marine_context_state(item.get("data") or {})
                 if marine_state:

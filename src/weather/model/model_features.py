@@ -154,6 +154,152 @@ class FeatureModelMixin:
             f"median_of_{len(values)}",
         )
 
+    def guidance_physical_margin(self):
+        return max(0.1, self.spec.scale_delta(0.5))
+
+    def guidance_physical_floor(
+        self,
+        *,
+        high_so_far=None,
+        current_temp=None,
+        live_reading=None,
+        current_max=None,
+        sources=None,
+    ):
+        candidates = [
+            self.to_number(high_so_far),
+            self.to_number(current_temp),
+            self.to_number(live_reading),
+            self.to_number(current_max),
+        ]
+        if sources:
+            for source in ("wu_history", "wu_current", "metar", "eccc_swob"):
+                data = self.source_data(sources, source)
+                if not data:
+                    continue
+                candidates.extend([
+                    self.row_temp_native(data),
+                    self.row_max_native(data),
+                    self.row_same_day_max_native(data),
+                    self.row_air_temp_native(data.get("latest") or {}),
+                ])
+                rows = data.get("rows") or []
+                if rows:
+                    candidates.append(self.max_row_temp(rows))
+        candidates = [value for value in candidates if value is not None]
+        return max(candidates) if candidates else None
+
+    def guidance_physical_state(
+        self,
+        source,
+        representative_high,
+        observed_floor_native,
+        feature_values=None,
+    ):
+        observed_floor_native = self.to_number(observed_floor_native)
+        cleaned = {
+            name: self.to_number(value)
+            for name, value in (feature_values or {}).items()
+            if name and self.to_number(value) is not None
+        }
+        representative_high = self.to_number(representative_high)
+        if representative_high is None and cleaned:
+            representative_high = max(cleaned.values())
+        floor_gap = (
+            representative_high - observed_floor_native
+            if representative_high is not None and observed_floor_native is not None
+            else None
+        )
+        margin = self.guidance_physical_margin()
+        impossible_features = []
+        if observed_floor_native is not None:
+            impossible_features = sorted(
+                name
+                for name, value in cleaned.items()
+                if value < observed_floor_native - margin
+            )
+        representative_impossible = (
+            floor_gap is not None
+            and floor_gap < -margin
+        )
+        if representative_high is None:
+            status = "missing_guidance_value"
+        elif representative_impossible or (
+            impossible_features and len(impossible_features) == len(cleaned)
+        ):
+            status = "fresh_but_impossible"
+        elif impossible_features:
+            status = "fresh_but_partially_impossible"
+        else:
+            status = "valid"
+        return {
+            "physical_validity_status": status,
+            "representative_high": representative_high,
+            "observed_floor": observed_floor_native,
+            "floor_gap": floor_gap,
+            "impossible_feature_count": len(impossible_features),
+            "impossible_features": impossible_features,
+            "reason": (
+                f"{source}_guidance_below_observed_floor"
+                if status.startswith("fresh_but")
+                else ""
+            ),
+        }
+
+    def guidance_physical_states(self, sources, observed_floor_native=None):
+        sources = sources or {}
+        if observed_floor_native is None:
+            observed_floor_native = self.guidance_physical_floor(sources=sources)
+        states = {}
+        for source, feature_name in (
+            ("open_meteo", "forecast_high"),
+            ("weather_forecast", "forecast_high"),
+            ("eccc_citypage", "forecast_high"),
+            ("nws_hourly", "forecast_high"),
+            ("global_ensemble", "forecast_high"),
+            ("open_meteo_global_models", "forecast_high"),
+            ("nws_grid", "nws_grid_high"),
+        ):
+            data = self.source_data(sources, source)
+            if not data:
+                continue
+            value = self.forecast_day_max(data)
+            if source == "weather_forecast":
+                value = self.max_row_temp(data.get("rows"))
+            elif source == "eccc_citypage":
+                value = self.row_forecast_high_native(data)
+            states[source] = self.guidance_physical_state(
+                source,
+                value,
+                observed_floor_native,
+                {feature_name: value},
+            )
+        nbm = self.source_data(sources, "nbm_probabilistic_tmax")
+        if nbm:
+            percentiles = nbm.get("percentiles") or {}
+            feature_values = {
+                f"nbm_prob_tmax_p{percentile}": row_value(percentiles, str(percentile), percentile)
+                for percentile in (10, 25, 50, 75, 90)
+            }
+            feature_values["nbm_prob_tmax_mean"] = row_value(
+                nbm,
+                "mean_native",
+                "day_max_native",
+                "day_max_c",
+            )
+            representative = (
+                feature_values.get("nbm_prob_tmax_p90")
+                or feature_values.get("nbm_prob_tmax_mean")
+                or feature_values.get("nbm_prob_tmax_p50")
+            )
+            states["nbm_probabilistic_tmax"] = self.guidance_physical_state(
+                "nbm_probabilistic_tmax",
+                representative,
+                observed_floor_native,
+                feature_values,
+            )
+        return states
+
     def forecast_ensemble_metrics(
         self,
         open_meteo,
@@ -162,26 +308,48 @@ class FeatureModelMixin:
         nws_hourly=None,
         global_ensemble=None,
         open_meteo_global_models=None,
+        observed_floor_native=None,
     ):
         values = []
+        raw_source_values = {}
+        impossible_sources = []
+        impossible_features = []
+
+        def add_value(source, value):
+            value = self.to_number(value)
+            if value is None:
+                return
+            raw_source_values[source] = value
+            state = self.guidance_physical_state(
+                source,
+                value,
+                observed_floor_native,
+                {"forecast_high": value},
+            )
+            if state.get("physical_validity_status") == "fresh_but_impossible":
+                impossible_sources.append(source)
+                impossible_features.extend(state.get("impossible_features") or [])
+                return
+            values.append((source, value))
+
         day_max = self.forecast_day_max(open_meteo)
         if day_max is not None:
-            values.append(("open_meteo", day_max))
+            add_value("open_meteo", day_max)
         weather_com = self.max_row_temp(weather_forecast.get("rows"))
         if weather_com is not None:
-            values.append(("weather_forecast", weather_com))
+            add_value("weather_forecast", weather_com)
         eccc_high = self.row_forecast_high_native(eccc_city)
         if eccc_high is not None:
-            values.append(("eccc_citypage", eccc_high))
+            add_value("eccc_citypage", eccc_high)
         nws_high = self.forecast_day_max(nws_hourly or {})
         if nws_high is not None:
-            values.append(("nws_hourly", nws_high))
+            add_value("nws_hourly", nws_high)
         global_high = self.forecast_day_max(global_ensemble or {})
         if global_high is not None:
-            values.append(("global_ensemble", global_high))
+            add_value("global_ensemble", global_high)
         global_model_high = self.forecast_day_max(open_meteo_global_models or {})
         if global_model_high is not None:
-            values.append(("open_meteo_global_models", global_model_high))
+            add_value("open_meteo_global_models", global_model_high)
         if not values:
             return {
                 "forecast_high": None,
@@ -194,6 +362,11 @@ class FeatureModelMixin:
                 "forecast_warm_outlier_gap": None,
                 "forecast_source_family_count": 0,
                 "forecast_source_values": {},
+                "forecast_raw_source_values": raw_source_values,
+                "forecast_raw_max": max(raw_source_values.values()) if raw_source_values else None,
+                "forecast_impossible_sources": impossible_sources,
+                "forecast_impossible_features": sorted(set(impossible_features)),
+                "guidance_physical_floor": observed_floor_native,
             }
         highs = [value for _, value in values]
         sorted_highs = sorted(highs)
@@ -226,6 +399,11 @@ class FeatureModelMixin:
             "forecast_warm_outlier_gap": warm_outlier_gap,
             "forecast_source_family_count": len(values),
             "forecast_source_values": {name: value for name, value in values},
+            "forecast_raw_source_values": raw_source_values,
+            "forecast_raw_max": max(raw_source_values.values()) if raw_source_values else None,
+            "forecast_impossible_sources": impossible_sources,
+            "forecast_impossible_features": sorted(set(impossible_features)),
+            "guidance_physical_floor": observed_floor_native,
         }
 
     def us_guidance_features(
@@ -237,15 +415,28 @@ class FeatureModelMixin:
         forecast_high=None,
         cutoff_hour=None,
         wall_minute=None,
+        observed_floor_native=None,
     ):
         features = empty_us_guidance_features()
+        impossible_sources = []
+        impossible_features = []
         cutoff_minute = int(cutoff_hour) * 60 if cutoff_hour is not None else 0
         remaining_start = max(int(wall_minute), cutoff_minute) if wall_minute is not None else cutoff_minute
 
         nws_grid = nws_grid or {}
         nws_high = self.forecast_day_max(nws_grid)
-        features["nws_grid_high"] = nws_high
-        if nws_high is not None and forecast_high is not None:
+        nws_state = self.guidance_physical_state(
+            "nws_grid",
+            nws_high,
+            observed_floor_native,
+            {"nws_grid_high": nws_high},
+        )
+        if nws_state.get("physical_validity_status") == "fresh_but_impossible":
+            impossible_sources.append("nws_grid")
+            impossible_features.extend(nws_state.get("impossible_features") or [])
+        else:
+            features["nws_grid_high"] = nws_high
+        if features.get("nws_grid_high") is not None and forecast_high is not None:
             features["nws_grid_vs_forecast_high"] = nws_high - forecast_high
         remaining_rows = [
             row for row in (nws_grid.get("day_rows") or nws_grid.get("rows") or [])
@@ -286,13 +477,45 @@ class FeatureModelMixin:
 
         nbm_prob = nbm_probabilistic_tmax or {}
         percentiles = nbm_prob.get("percentiles") or {}
+        nbm_feature_values = {
+            f"nbm_prob_tmax_p{percentile}": row_value(percentiles, str(percentile), percentile)
+            for percentile in (10, 25, 50, 75, 90)
+        }
+        nbm_feature_values["nbm_prob_tmax_mean"] = row_value(
+            nbm_prob,
+            "mean_native",
+            "day_max_native",
+            "day_max_c",
+        )
+        nbm_representative = (
+            nbm_feature_values.get("nbm_prob_tmax_p90")
+            or nbm_feature_values.get("nbm_prob_tmax_mean")
+            or nbm_feature_values.get("nbm_prob_tmax_p50")
+        )
+        nbm_state = self.guidance_physical_state(
+            "nbm_probabilistic_tmax",
+            nbm_representative,
+            observed_floor_native,
+            nbm_feature_values,
+        )
+        nbm_present = bool(nbm_prob)
+        if nbm_present:
+            valid = nbm_state.get("physical_validity_status") == "valid"
+            features["nbm_prob_tmax_physical_valid_flag"] = 1.0 if valid else 0.0
+            features["nbm_prob_tmax_impossible_flag"] = 0.0 if valid else 1.0
+            features["nbm_prob_tmax_floor_gap"] = nbm_state.get("floor_gap")
+            if not valid:
+                impossible_sources.append("nbm_probabilistic_tmax")
+                impossible_features.extend(nbm_state.get("impossible_features") or [])
+        nbm_impossible_features = set(nbm_state.get("impossible_features") or [])
         for percentile in (10, 25, 50, 75, 90):
-            value = row_value(percentiles, str(percentile), percentile)
-            if value is not None:
-                features[f"nbm_prob_tmax_p{percentile}"] = value
-        mean_native = row_value(nbm_prob, "mean_native", "day_max_native", "day_max_c")
+            key = f"nbm_prob_tmax_p{percentile}"
+            value = nbm_feature_values.get(key)
+            if value is not None and key not in nbm_impossible_features:
+                features[key] = value
+        mean_native = nbm_feature_values.get("nbm_prob_tmax_mean")
         stddev_native = row_value(nbm_prob, "stddev_native")
-        if mean_native is not None:
+        if mean_native is not None and "nbm_prob_tmax_mean" not in nbm_impossible_features:
             features["nbm_prob_tmax_mean"] = mean_native
         if stddev_native is not None:
             features["nbm_prob_tmax_stddev"] = stddev_native
@@ -316,7 +539,12 @@ class FeatureModelMixin:
                 features["nbm_prob_tmax_p50_vs_forecast_high"] = p50 - forecast_high
             if p90 is not None:
                 features["nbm_prob_tmax_p90_vs_forecast_high"] = p90 - forecast_high
-            exceedance = exceedance_probability_from_percentiles(percentiles, forecast_high)
+            usable_percentiles = {
+                key: value
+                for key, value in (percentiles or {}).items()
+                if f"nbm_prob_tmax_p{key}" not in nbm_impossible_features
+            }
+            exceedance = exceedance_probability_from_percentiles(usable_percentiles, forecast_high)
             if exceedance is not None:
                 features["nbm_prob_tmax_exceed_forecast_high"] = exceedance
 
@@ -422,6 +650,8 @@ class FeatureModelMixin:
                 global_next_spreads.append(max(model_values) - min(model_values))
         if global_next_spreads:
             features["open_meteo_global_models_next_3h_spread"] = sum(global_next_spreads) / len(global_next_spreads)
+        features["_guidance_impossible_sources"] = sorted(set(impossible_sources))
+        features["_guidance_impossible_features"] = sorted(set(impossible_features))
         return features
 
     def marine_context_features(
@@ -651,6 +881,15 @@ class FeatureModelMixin:
         marine_context_source = self.source_data(sources, "marine_context")
         mrms_precip_source = self.source_data(sources, "mrms_precip")
         eccc_gem = self.source_data(sources, "eccc_gem")
+        live_reading = self.row_temp_native(current)
+        if startup_guard.get("startup_feature_quarantined_flag"):
+            live_reading = None
+        guidance_floor = self.guidance_physical_floor(
+            high_so_far=high_so_far,
+            current_temp=current_temp,
+            live_reading=live_reading,
+            sources=sources,
+        )
         forecast_ensemble = self.forecast_ensemble_metrics(
             open_meteo,
             weather_forecast,
@@ -658,6 +897,7 @@ class FeatureModelMixin:
             nws_hourly=nws_hourly,
             global_ensemble=global_ensemble,
             open_meteo_global_models=open_meteo_global_models,
+            observed_floor_native=guidance_floor,
         )
         forecast_high = forecast_ensemble["forecast_high"]
         forecast_gap = (
@@ -682,9 +922,6 @@ class FeatureModelMixin:
             except (AttributeError, TypeError):
                 minutes_since_cutoff = 0.0
         wall_minute = int(cutoff_hour * 60 + minutes_since_cutoff)
-        live_reading = self.row_temp_native(current)
-        if startup_guard.get("startup_feature_quarantined_flag"):
-            live_reading = None
         current_max_features = current_max_trust_features(
             self.row_max_since_7am_native(current),
             history_max=high_so_far,
@@ -719,7 +956,32 @@ class FeatureModelMixin:
             forecast_high=forecast_high,
             cutoff_hour=cutoff_hour,
             wall_minute=wall_minute,
+            observed_floor_native=guidance_floor,
         )
+        us_guidance_impossible_sources = us_guidance.pop("_guidance_impossible_sources", [])
+        us_guidance_impossible_features = us_guidance.pop("_guidance_impossible_features", [])
+        guidance_states = self.guidance_physical_states(
+            sources,
+            observed_floor_native=guidance_floor,
+        )
+        guidance_impossible_sources = sorted(set(
+            list(forecast_ensemble.get("forecast_impossible_sources") or [])
+            + list(us_guidance_impossible_sources or [])
+            + [
+                source
+                for source, state in guidance_states.items()
+                if str(state.get("physical_validity_status") or "").startswith("fresh_but")
+            ]
+        ))
+        guidance_impossible_features = sorted(set(
+            list(forecast_ensemble.get("forecast_impossible_features") or [])
+            + list(us_guidance_impossible_features or [])
+            + [
+                feature
+                for state in guidance_states.values()
+                for feature in (state.get("impossible_features") or [])
+            ]
+        ))
         marine_context = self.marine_context_features(
             marine_context=marine_context_source,
             current_temp_native=current_temp,
@@ -779,6 +1041,10 @@ class FeatureModelMixin:
             "forecast_warm_outlier_gap": forecast_ensemble["forecast_warm_outlier_gap"],
             "forecast_source_family_count": forecast_ensemble["forecast_source_family_count"],
             "forecast_source_values": forecast_ensemble["forecast_source_values"],
+            "guidance_physical_floor": guidance_floor,
+            "guidance_impossible_source_count": len(guidance_impossible_sources),
+            "guidance_impossible_sources": ",".join(guidance_impossible_sources),
+            "guidance_impossible_features": ",".join(guidance_impossible_features),
             **forecast_profile,
             **us_guidance,
             **marine_context,

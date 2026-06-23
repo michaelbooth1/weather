@@ -301,6 +301,9 @@ class DistributionSignalMixin:
         current_reading,
         now,
         *forecast_sources,
+        official_current_reading=None,
+        official_source=None,
+        official_current_stale=False,
     ):
         context = {
             "active": False,
@@ -308,6 +311,14 @@ class DistributionSignalMixin:
             "reason": "inactive",
             "stood_minutes": None,
             "current_minus_high": None,
+            "third_party_current_reading": self.to_number(current_reading),
+            "third_party_current_minus_high": None,
+            "official_current_reading": self.to_number(official_current_reading),
+            "official_current_minus_high": None,
+            "official_source": official_source,
+            "official_current_stale": bool(official_current_stale),
+            "official_rollover_signal": False,
+            "current_source_for_rollover": None,
             "remaining_forecast_ceiling": None,
             "remaining_degree_hours_above_high": None,
             "forecast_source_count": 0,
@@ -331,13 +342,42 @@ class DistributionSignalMixin:
             context["reason"] = "high_not_stood_long_enough"
             return context
         current_value = self.to_number(current_reading)
-        if current_value is None:
+        official_value = self.to_number(official_current_reading)
+        if current_value is None and official_value is None:
             context["reason"] = "missing_current_reading"
             return context
-        current_minus_high = current_value - history_max
+        current_minus_high = current_value - history_max if current_value is not None else None
+        official_minus_high = official_value - history_max if official_value is not None else None
+        context["third_party_current_minus_high"] = current_minus_high
+        context["official_current_minus_high"] = official_minus_high
+        rollover_threshold = -self.spec.scale_delta(HIGH_HAS_STOOD_ROLLOVER_MARGIN)
+        third_party_rollover = (
+            current_minus_high is not None
+            and current_minus_high <= rollover_threshold
+        )
+        official_rollover = (
+            not official_current_stale
+            and official_minus_high is not None
+            and official_minus_high <= rollover_threshold
+        )
+        stale_official_rollover = (
+            bool(official_current_stale)
+            and official_minus_high is not None
+            and official_minus_high <= rollover_threshold
+        )
+        used_official_rollover = False
+        if third_party_rollover:
+            context["current_source_for_rollover"] = "third_party_current"
+        elif official_rollover:
+            current_minus_high = official_minus_high
+            used_official_rollover = True
+            context["official_rollover_signal"] = True
+            context["current_source_for_rollover"] = official_source or "official"
+        else:
+            context["current_source_for_rollover"] = "third_party_current" if current_value is not None else (official_source or "official")
         context["current_minus_high"] = current_minus_high
-        if current_minus_high > -self.spec.scale_delta(HIGH_HAS_STOOD_ROLLOVER_MARGIN):
-            context["reason"] = "current_not_below_high"
+        if not third_party_rollover and not official_rollover:
+            context["reason"] = "official_current_stale" if stale_official_rollover else "current_not_below_high"
             return context
         forecast_context = self.remaining_forecast_context(now, history_max, *forecast_sources)
         context.update(forecast_context)
@@ -352,7 +392,11 @@ class DistributionSignalMixin:
         context["revision_up_rate"] = revision_rate
         context["active"] = True
         context["strength"] = 1.0
-        context["reason"] = "high_stood_current_rolled_forecasts_below"
+        context["reason"] = (
+            "high_stood_official_rollover_forecasts_below"
+            if used_official_rollover
+            else "high_stood_current_rolled_forecasts_below"
+        )
         return context
 
     def expanded_late_day_lockin_context(
@@ -362,6 +406,9 @@ class DistributionSignalMixin:
         current_reading,
         now,
         *forecast_sources,
+        official_current_reading=None,
+        official_source=None,
+        official_current_stale=False,
     ):
         """Broader late-day lock-in coverage for a high that has stood.
 
@@ -376,6 +423,14 @@ class DistributionSignalMixin:
             "reason": "inactive",
             "stood_minutes": None,
             "current_minus_high": None,
+            "third_party_current_reading": self.to_number(current_reading),
+            "third_party_current_minus_high": None,
+            "official_current_reading": self.to_number(official_current_reading),
+            "official_current_minus_high": None,
+            "official_source": official_source,
+            "official_current_stale": bool(official_current_stale),
+            "official_rollover_signal": False,
+            "current_source_for_rollover": None,
             "remaining_forecast_ceiling": None,
             "remaining_degree_hours_above_high": None,
             "forecast_source_count": 0,
@@ -398,14 +453,43 @@ class DistributionSignalMixin:
             context["reason"] = "high_not_stood_long_enough"
             return context
         current_value = self.to_number(current_reading)
-        if current_value is None:
+        official_value = self.to_number(official_current_reading)
+        if current_value is None and official_value is None:
             context["reason"] = "missing_current_reading"
             return context
-        current_minus_high = current_value - history_max
-        context["current_minus_high"] = current_minus_high
         rollover_margin = self.spec.scale_delta(EXPANDED_LOCKIN_ROLLOVER_MARGIN)
-        if current_minus_high > -rollover_margin:
-            context["reason"] = "current_not_below_high"
+        rollover_threshold = -rollover_margin
+        current_minus_high = current_value - history_max if current_value is not None else None
+        official_minus_high = official_value - history_max if official_value is not None else None
+        context["third_party_current_minus_high"] = current_minus_high
+        context["official_current_minus_high"] = official_minus_high
+        third_party_rollover = (
+            current_minus_high is not None
+            and current_minus_high <= rollover_threshold
+        )
+        official_rollover = (
+            not official_current_stale
+            and official_minus_high is not None
+            and official_minus_high <= rollover_threshold
+        )
+        stale_official_rollover = (
+            bool(official_current_stale)
+            and official_minus_high is not None
+            and official_minus_high <= rollover_threshold
+        )
+        used_official_rollover = False
+        if third_party_rollover:
+            context["current_source_for_rollover"] = "third_party_current"
+        elif official_rollover:
+            current_minus_high = official_minus_high
+            used_official_rollover = True
+            context["official_rollover_signal"] = True
+            context["current_source_for_rollover"] = official_source or "official"
+        else:
+            context["current_source_for_rollover"] = "third_party_current" if current_value is not None else (official_source or "official")
+        context["current_minus_high"] = current_minus_high
+        if not third_party_rollover and not official_rollover:
+            context["reason"] = "official_current_stale" if stale_official_rollover else "current_not_below_high"
             return context
 
         forecast_context = self.remaining_forecast_context(now, history_max, *forecast_sources)
@@ -436,7 +520,11 @@ class DistributionSignalMixin:
         strength = 0.25 + 0.35 * time_progress + 0.15 * stood_progress + 0.25 * drop_progress
         context["active"] = True
         context["strength"] = max(0.0, min(EXPANDED_LOCKIN_MAX_STRENGTH, strength))
-        context["reason"] = "expanded_late_day_current_below_high"
+        context["reason"] = (
+            "expanded_late_day_official_rollover"
+            if used_official_rollover
+            else "expanded_late_day_current_below_high"
+        )
         return context
 
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):

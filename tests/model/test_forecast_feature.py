@@ -198,6 +198,65 @@ class TestForecastFeatureExtraction(unittest.TestCase):
         regular_call = next(call for call in calls if "nws_grid" in call[0])
         self.assertIn("nbm_probabilistic_tmax", regular_call[0])
 
+    def test_impossible_nbm_probabilistic_tmax_is_quarantined_before_features(self):
+        model = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
+        rows = [
+            {"time": "13:00", "temp_native": 93.0, "dewpoint_native": 70.0, "humidity": 55.0, "pressure": 1012.0},
+            {"time": "14:00", "temp_native": 94.0, "dewpoint_native": 70.0, "humidity": 55.0, "pressure": 1012.0},
+        ]
+        sources = {
+            "wu_history": {"ok": True, "status": "fresh", "data": {"rows": rows, "latest": rows[-1], "max_native": 94.0}},
+            "wu_current": {"ok": True, "status": "fresh", "data": {"temp_native": 94.0, "max_since_7am_native": 94.0}},
+            "metar": {"ok": True, "status": "fresh", "data": {"temp_native": 94.0}},
+            "open_meteo": {"ok": True, "status": "fresh", "data": {"day_max_native": 95.0, "rows": []}},
+            "nbm_probabilistic_tmax": {"ok": True, "status": "fresh", "data": {
+                "percentiles": {"10": 75.0, "25": 76.0, "50": 77.0, "75": 78.0, "90": 79.0},
+                "mean_native": 77.0,
+                "stddev_native": 2.0,
+            }},
+        }
+
+        feats = model.extract_live_features(sources, cutoff_hour=14)
+        diagnostics = {row["source"]: row for row in model.source_diagnostics(sources)}
+
+        self.assertEqual(feats["guidance_physical_floor"], 94.0)
+        for percentile in (10, 25, 50, 75, 90):
+            self.assertIsNone(feats[f"nbm_prob_tmax_p{percentile}"])
+        self.assertEqual(feats["nbm_prob_tmax_physical_valid_flag"], 0.0)
+        self.assertEqual(feats["nbm_prob_tmax_impossible_flag"], 1.0)
+        self.assertAlmostEqual(feats["nbm_prob_tmax_floor_gap"], -15.0)
+        self.assertIn("nbm_probabilistic_tmax", feats["guidance_impossible_sources"])
+        self.assertIn("nbm_prob_tmax_p90", feats["guidance_impossible_features"])
+        self.assertEqual(
+            diagnostics["nbm_probabilistic_tmax"]["physical_validity_status"],
+            "fresh_but_impossible",
+        )
+        self.assertEqual(diagnostics["nbm_probabilistic_tmax"]["status"], "fresh")
+
+    def test_valid_nbm_probabilistic_tmax_rows_are_not_quarantined(self):
+        model = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
+        rows = [
+            {"time": "14:00", "temp_native": 94.0, "dewpoint_native": 70.0, "humidity": 55.0, "pressure": 1012.0},
+        ]
+        sources = {
+            "wu_history": {"ok": True, "data": {"rows": rows, "latest": rows[-1], "max_native": 94.0}},
+            "wu_current": {"ok": True, "data": {"temp_native": 94.0}},
+            "metar": {"ok": True, "data": {"temp_native": 93.0}},
+            "open_meteo": {"ok": True, "data": {"day_max_native": 95.0, "rows": []}},
+            "nbm_probabilistic_tmax": {"ok": True, "data": {
+                "percentiles": {"10": 94.0, "25": 95.0, "50": 96.0, "75": 97.0, "90": 98.0},
+                "mean_native": 96.0,
+            }},
+        }
+
+        feats = model.extract_live_features(sources, cutoff_hour=14)
+
+        self.assertEqual(feats["nbm_prob_tmax_physical_valid_flag"], 1.0)
+        self.assertEqual(feats["nbm_prob_tmax_impossible_flag"], 0.0)
+        self.assertEqual(feats["nbm_prob_tmax_p10"], 94.0)
+        self.assertEqual(feats["nbm_prob_tmax_p90"], 98.0)
+        self.assertEqual(feats["guidance_impossible_source_count"], 0)
+
     def test_nbm_probabilistic_tmax_fetch_parses_station_bulletin(self):
         model = TorontoHighTempModel(target_date="2026-05-30", market_id="nyc")
         sample = """

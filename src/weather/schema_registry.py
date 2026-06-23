@@ -36,11 +36,11 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "feature_store",
-        "toronto_feature_store_v1.14",
+        "toronto_feature_store_v1.15",
         "weather.model.feature_store",
         "active",
         "Shared train/serve feature vector schema.",
-        supersedes=("toronto_feature_store_v1.13",),
+        supersedes=("toronto_feature_store_v1.14",),
         migration_notes="Predictors must select by trained feature_names, not by newest column order.",
     ),
     SchemaSpec(
@@ -427,6 +427,13 @@ REGISTERED_SCHEMAS = (
         "Austin-local HGB requalification packet and fail-closed serving disposition for the 2026-06-22 hard slice.",
     ),
     SchemaSpec(
+        "austin_weather_model_hardening",
+        "austin_weather_model_hardening_v0.1",
+        "weather.reporting.austin_weather_model_hardening",
+        "active",
+        "Austin hard-slice evidence packet for impossible guidance quarantine, official METAR rollover, and robust forecast-cluster candidate gates.",
+    ),
+    SchemaSpec(
         "local_generated_state_cleanup",
         "local_generated_state_cleanup_v0.1",
         "weather.operations.local_generated_state_cleanup",
@@ -504,6 +511,13 @@ REGISTERED_SCHEMAS = (
         "weather.reporting.data_retention_inventory",
         "active",
         "Data-tree ownership, retention, restore-gate, and disk-growth inventory.",
+    ),
+    SchemaSpec(
+        "closed_market_day_archive_manifest",
+        "closed_market_day_archive_manifest_v0.1",
+        "weather.operations.closed_market_day_archive",
+        "active",
+        "Versioned manifest contract for closed market-day Parquet archive partitions.",
     ),
     SchemaSpec(
         "daily_learning",
@@ -1263,6 +1277,7 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("reanalysis_synoptic_features_legacy_v0_3", "reanalysis_synoptic_features_v0.3", "weather.sources.reanalysis_synoptic", "legacy"),
     SchemaSpec("reanalysis_synoptic_features_legacy_v0_2", "reanalysis_synoptic_features_v0.2", "weather.sources.reanalysis_synoptic", "legacy"),
     SchemaSpec("reanalysis_synoptic_features_legacy", "reanalysis_synoptic_features_v0.1", "weather.sources.reanalysis_synoptic", "legacy"),
+    SchemaSpec("feature_store_legacy_v1_14", "toronto_feature_store_v1.14", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_13", "toronto_feature_store_v1.13", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_12", "toronto_feature_store_v1.12", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_11", "toronto_feature_store_v1.11", "weather.model.feature_store", "legacy"),

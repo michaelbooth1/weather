@@ -231,6 +231,47 @@ class TestHighHasStoodLockin(unittest.TestCase):
         self.assertFalse(context["active"])
         self.assertEqual(context["reason"], "current_not_below_high")
 
+    def test_official_rollover_activates_when_third_party_current_is_flat(self):
+        context = self.m.high_has_stood_lockin_context(
+            14,
+            self.history,
+            93.0,
+            self.now,
+            self._forecast(90.0),
+            self._forecast(92.1),
+            self._forecast(90.0),
+            {},
+            {},
+            official_current_reading=92.3,
+            official_source="metar",
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(context["reason"], "high_stood_official_rollover_forecasts_below")
+        self.assertEqual(context["current_source_for_rollover"], "metar")
+        self.assertTrue(context["official_rollover_signal"])
+        self.assertAlmostEqual(context["third_party_current_minus_high"], 0.0)
+        self.assertAlmostEqual(context["official_current_minus_high"], -0.7)
+        self.assertAlmostEqual(context["current_minus_high"], -0.7)
+
+    def test_stale_official_rollover_is_diagnostic_not_active(self):
+        context = self.m.high_has_stood_lockin_context(
+            14,
+            self.history,
+            93.0,
+            self.now,
+            self._forecast(90.0),
+            self._forecast(92.1),
+            official_current_reading=92.3,
+            official_source="metar",
+            official_current_stale=True,
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["reason"], "official_current_stale")
+        self.assertFalse(context["official_rollover_signal"])
+        self.assertTrue(context["official_current_stale"])
+
 
 class TestExpandedLateDayLockin(unittest.TestCase):
     def setUp(self):
@@ -270,6 +311,23 @@ class TestExpandedLateDayLockin(unittest.TestCase):
 
         self.assertFalse(context["active"])
         self.assertEqual(context["reason"], "forecast_ceiling_above_high")
+
+    def test_expanded_lockin_uses_official_rollover_when_current_flat(self):
+        context = self.m.expanded_late_day_lockin_context(
+            16,
+            self.history,
+            24.0,
+            self.now,
+            self._forecast(24.0),
+            self._forecast(23.5),
+            official_current_reading=23.4,
+            official_source="metar",
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(context["reason"], "expanded_late_day_official_rollover")
+        self.assertEqual(context["current_source_for_rollover"], "metar")
+        self.assertTrue(context["official_rollover_signal"])
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# 243. Closed Market-Day Parquet Archive Contract [OPEN 2026-06-22 - COLUMNAR ARCHIVE CONTRACT MISSING]
+# 243. Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]
 
 Goal: define the canonical Parquet archive contract for closed market-days while
 leaving live `data/snapshots` text tapes unchanged for current collectors and
@@ -39,15 +39,15 @@ normal historical path compact and queryable.
    market-days whose manifest validates, and must fall back to the current text
    tapes for live, active, missing, or invalid archive partitions.
 
-- [ ] Define the Parquet archive root, partition keys, and naming convention.
-- [ ] Register a schema version for closed-market-day archive manifests.
-- [ ] Specify artifact-family mappings from current CSV/JSONL files to Parquet
+- [x] Define the Parquet archive root, partition keys, and naming convention.
+- [x] Register a schema version for closed-market-day archive manifests.
+- [x] Specify artifact-family mappings from current CSV/JSONL files to Parquet
   datasets and raw-evidence references.
-- [ ] Add validation requirements for row counts, source hashes, schemas, and
+- [x] Add validation requirements for row counts, source hashes, schemas, and
   closed-day eligibility.
-- [ ] Document reader fallback rules so live snapshot compatibility is not
+- [x] Document reader fallback rules so live snapshot compatibility is not
   broken.
-- [ ] Add roadmap/runbook guidance for which files remain raw forensic evidence
+- [x] Add roadmap/runbook guidance for which files remain raw forensic evidence
   versus Parquet analysis tables.
 
 Acceptance: a versioned closed-market-day Parquet archive contract exists; it
@@ -57,3 +57,36 @@ fall back to the current text layout when an archive partition is absent or
 invalid.
 
 Related: items 124, 146, 154, 203, 239, 244, 245.
+
+## 2026-06-22 contract implementation
+
+The closed market-day Parquet archive contract is now explicit and
+code-backed:
+
+- `docs/operations/closed-market-day-parquet-archive-contract.md` defines the
+  v0.1 archive root, Hive-style partition keys, eligibility states, manifest
+  requirements, artifact-family mappings, validation rules, reader fallback
+  order, and raw forensic evidence boundaries.
+- `weather.operations.closed_market_day_archive` owns the contract constants
+  for `data/archive/closed_market_days/v0.1`, per-family `data.parquet`
+  paths, manifest path construction, artifact-family mapping, manifest shape
+  validation, and Parquet-reader eligibility.
+- `closed_market_day_archive_manifest_v0.1` is registered in
+  `weather.schema_registry` as `closed_market_day_archive_manifest`.
+- `docs/operations/data-retention-policy.md` and
+  `docs/operations/TAPE_BACKUP_RUNBOOK.md` now point operators at the contract
+  and preserve the rule that Parquet is an analysis copy, not a replacement for
+  raw JSONL/order-book/settlement evidence.
+
+Verification:
+
+- `python -m pytest tests\operations\test_closed_market_day_archive.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q`
+  passed with `17 passed`.
+- `python -m compileall src\weather\operations\closed_market_day_archive.py`
+  passed.
+- `python -m pytest tests\operations\test_closed_market_day_archive.py tests\operations\test_schema_registry.py -q`
+  passed with `9 passed`.
+- `python -m pytest tests\operations\test_closed_market_day_archive.py -q`
+  passed with `6 passed`.
+- `python -m weather.schema_registry audit --paths src\weather\operations\closed_market_day_archive.py --strict`
+  passed with `unregistered_versions=0`.

@@ -34,6 +34,9 @@ NBM_PROB_TMAX_FEATURE_COLUMNS = [
     "nbm_prob_tmax_p50_vs_forecast_high",
     "nbm_prob_tmax_p90_vs_forecast_high",
     "nbm_prob_tmax_exceed_forecast_high",
+    "nbm_prob_tmax_physical_valid_flag",
+    "nbm_prob_tmax_impossible_flag",
+    "nbm_prob_tmax_floor_gap",
 ]
 
 

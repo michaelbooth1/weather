@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-22T22:41:41.293695+00:00
+Generated: 2026-06-23T00:31:26.016335+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 252 |
-| Active items | 43 |
-| OPEN | 12 |
+| Active items | 39 |
+| OPEN | 8 |
 | PARTIAL | 31 |
-| COMPLETE | 209 |
+| COMPLETE | 213 |
 | ROADMAP rows | 252 |
 | ROADMAP primary rows | 252 |
 | Lint errors | 0 |
@@ -58,15 +58,11 @@ Status: `OK`
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 232 | PARTIAL | 2026-06-22 | GATE REFRESHED, RETRAIN/ABLATION BLOCKED | [Current-Max Trust Retrain And Warm-Tail Replay](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 243 | OPEN | 2026-06-22 | COLUMNAR ARCHIVE CONTRACT MISSING | [Closed Market-Day Parquet Archive Contract](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | OPEN | 2026-06-22 | CLOSED-DAY CONVERSION PIPELINE MISSING | [Historical Snapshot Parquet Backfill And Validation Harness](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | OPEN | 2026-06-22 | ANALYSIS READS TEXT TAPES BY DEFAULT | [Parquet-First Historical Analysis Readers](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 248 | OPEN | 2026-06-22 | FEATURE-PATH MAX CLUSTER OVERHEATS | [Austin Robust Forecast-Cluster Signal](items/item-248-austin-robust-forecast-cluster-signal.md) |
-| 249 | OPEN | 2026-06-22 | LATE ROLLOVER IGNORED WHEN WU CURRENT IS FLAT | [Official METAR Rollover Lock-In Signal](items/item-249-official-metar-rollover-lockin-signal.md) |
 | 251 | OPEN | 2026-06-22 | HIGH STOOD BUT FORECAST CEILING BLOCKS LOCK-IN | [Standing-High Partial Lock-In Dampener](items/item-251-standing-high-partial-lockin-dampener.md) |
-| 252 | OPEN | 2026-06-22 | GUIDANCE CAN BE FRESH BUT PHYSICALLY IMPOSSIBLE | [Impossible Guidance Feature Quarantine](items/item-252-impossible-guidance-feature-quarantine.md) |
 
 ## Lint Issues
 

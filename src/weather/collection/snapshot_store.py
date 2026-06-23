@@ -174,6 +174,11 @@ SOURCE_STATUS_COLUMNS = [
     "age_minutes",
     "ttl_minutes",
     "latency_ms",
+    "physical_validity_status",
+    "physical_validity_floor",
+    "physical_validity_gap",
+    "impossible_feature_count",
+    "impossible_features",
     "payload_hash",
     "row_count",
     "source_url",
@@ -674,12 +679,17 @@ class SnapshotStore:
         nws_hourly = model_client.source_data(sources, "nws_hourly")
         global_ensemble = model_client.source_data(sources, "global_ensemble")
         eccc_city = model_client.source_data(sources, "eccc_citypage")
+        guidance_floor = None
+        physical_floor_method = getattr(model_client, "guidance_physical_floor", None)
+        if callable(physical_floor_method):
+            guidance_floor = physical_floor_method(sources=sources)
         forecast_ensemble = model_client.forecast_ensemble_metrics(
             open_meteo,
             weather_forecast,
             eccc_city,
             nws_hourly=nws_hourly,
             global_ensemble=global_ensemble,
+            observed_floor_native=guidance_floor,
         )
         return {
             "wu_history_high_c": row_max_native(history),
@@ -725,6 +735,13 @@ class SnapshotStore:
         rows = []
         captured_utc = captured_at.astimezone(timezone.utc).isoformat()
         captured_local = captured_at.isoformat()
+        physical_states = {}
+        physical_state_method = getattr(model_client, "guidance_physical_states", None)
+        if callable(physical_state_method):
+            try:
+                physical_states = physical_state_method(sources)
+            except Exception:
+                physical_states = {}
         for source, item in sorted((sources or {}).items()):
             item = item or {}
             data = item.get("data")
@@ -737,6 +754,7 @@ class SnapshotStore:
             age_minutes = item.get("cache_age_minutes")
             if age_minutes is None:
                 age_minutes = self.source_age_minutes(item.get("fetched_at"), captured_at, model_client)
+            physical_state = physical_states.get(source) or {}
             rows.append({
                 "snapshot_id": snapshot_id,
                 "captured_at_utc": captured_utc,
@@ -757,6 +775,11 @@ class SnapshotStore:
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
                 "latency_ms": item.get("latency_ms"),
+                "physical_validity_status": physical_state.get("physical_validity_status"),
+                "physical_validity_floor": physical_state.get("observed_floor"),
+                "physical_validity_gap": physical_state.get("floor_gap"),
+                "impossible_feature_count": physical_state.get("impossible_feature_count"),
+                "impossible_features": ",".join(physical_state.get("impossible_features") or []),
                 "payload_hash": self.payload_hash(data),
                 "row_count": self.source_row_count(data),
                 "source_url": data.get("url") if isinstance(data, dict) else None,

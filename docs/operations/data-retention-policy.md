@@ -22,6 +22,12 @@ The normal daily refresh also writes the same artifacts:
 - Do not delete `snapshots`, `mm_runs`, `taker_runs`, or canonical historical
   source rows unless the inventory restore gate is `PASS` and a reviewed
   cleanup manifest names the exact files.
+- Closed market-day Parquet partitions live under
+  `data/archive/closed_market_days/v0.1` and are analysis copies, not raw
+  evidence replacements. Follow
+  [Closed Market-Day Parquet Archive Contract](closed-market-day-parquet-archive-contract.md)
+  for eligibility, manifest validation, reader fallback, and raw-evidence
+  boundaries.
 - Use `python -m weather.operations.tape_backup status --verify-checksums`
   and a restore drill as deletion proof for irreplaceable classes.
 - Use `python -m weather.reporting.backtest_artifact_retention` for large

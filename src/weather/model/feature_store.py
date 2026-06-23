@@ -10,6 +10,10 @@ from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
+# v1.15 (ROADMAP item 252): physical-validity diagnostics and NBM
+# probabilistic Tmax quarantine flags for timestamp-fresh but impossible
+# guidance rows.
+#
 # v1.14 (ROADMAP item 186): gated reanalysis antecedent precipitation and
 # precipitation-minus-ET0 water-balance windows for soil/land-surface dryness.
 #
@@ -297,6 +301,10 @@ FEATURE_DIAGNOSTIC_COLUMNS = [
     "current_max_disposition",
     "current_max_quarantine_reason",
     "startup_feature_quarantine_reason",
+    "guidance_physical_floor",
+    "guidance_impossible_source_count",
+    "guidance_impossible_sources",
+    "guidance_impossible_features",
 ]
 
 FEATURE_AUDIT_COLUMNS = [
