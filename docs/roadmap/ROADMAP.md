@@ -306,6 +306,7 @@ infrastructure work remains.
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 | 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [COMPLETE 2026-06-23 - NORTH-STAR SCOREBOARD LIVE]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 | 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [OPEN 2026-06-23 - 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY]](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 271 | [Audit Analysis Operator Loop [OPEN 2026-06-23 - DASHBOARD AND TRIAGE ROUTING NEEDED]](items/item-271-audit-analysis-operator-loop.md) |
 
 ### Architecture And Maintainability
 

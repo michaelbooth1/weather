@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T20:06:30.250460+00:00
+Generated: 2026-06-23T20:23:37.000956+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 270 |
-| Active items | 35 |
-| OPEN | 7 |
+| Items | 271 |
+| Active items | 36 |
+| OPEN | 8 |
 | PARTIAL | 28 |
 | COMPLETE | 235 |
-| ROADMAP rows | 270 |
-| ROADMAP primary rows | 270 |
-| Metadata manifest rows | 270 |
+| ROADMAP rows | 271 |
+| ROADMAP primary rows | 271 |
+| Metadata manifest rows | 271 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -60,6 +60,7 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 271 | OPEN | 2026-06-23 | DASHBOARD AND TRIAGE ROUTING NEEDED | [Audit Analysis Operator Loop](items/item-271-audit-analysis-operator-loop.md) |
 
 ## Lint Issues
 

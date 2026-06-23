@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -18,8 +19,54 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("model_market_disagreement_analysis")
+REVIEW_QUEUE_SCHEMA_VERSION = schema_version("model_market_disagreement_review_queue")
 DEFAULT_JSON_OUT = data_path("backtest", "model_market_disagreement_analysis.json")
 DEFAULT_REPORT_OUT = data_path("backtest", "model_market_disagreement_analysis.md")
+DEFAULT_REVIEW_QUEUE_OUT = data_path("backtest", "model_market_disagreement_review_queue.json")
+
+
+REPAIR_LANES = {
+    "exact_band_winner_centering": {
+        "repair_lane": "exact-band/winner-centering",
+        "owner": "exact-band winner-centering repair",
+        "roadmap_owner": "Items 70, 147, 230",
+        "next_experiment": "audit_exact_band_winner_centering_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_exact_band_winner_centering_replay.json",
+        "counts_toward_repair_evidence": True,
+    },
+    "warm_tail_dampening": {
+        "repair_lane": "warm-tail dampening",
+        "owner": "warm-tail spread repair",
+        "roadmap_owner": "Items 195, 232, 236",
+        "next_experiment": "audit_warm_tail_dampening_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_warm_tail_dampening_replay.json",
+        "counts_toward_repair_evidence": True,
+    },
+    "source_state_reliability": {
+        "repair_lane": "source-state reliability",
+        "owner": "source-state reliability repair",
+        "roadmap_owner": "Items 105, 136",
+        "next_experiment": "audit_source_state_reliability_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_source_state_reliability_replay.json",
+        "counts_toward_repair_evidence": True,
+    },
+    "market_specific_residual_repair": {
+        "repair_lane": "market-specific residual repair",
+        "owner": "market residual repair",
+        "roadmap_owner": "Items 231, 264",
+        "next_experiment": "audit_market_residual_repair_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_market_residual_repair_replay.json",
+        "counts_toward_repair_evidence": True,
+    },
+    "settlement_watchlist": {
+        "repair_lane": "settlement watchlist",
+        "owner": "audit analysis operator",
+        "roadmap_owner": "Item 271",
+        "next_experiment": None,
+        "experiment_artifact": None,
+        "counts_toward_repair_evidence": False,
+    },
+}
 
 
 def utc_now_iso() -> str:
@@ -185,10 +232,72 @@ def priority_patterns(records: list[dict[str, Any]], *, min_cases: int = 1) -> l
     return output
 
 
+def _lane_with_overrides(lane_id: str, **overrides) -> dict[str, Any]:
+    route = dict(REPAIR_LANES[lane_id])
+    route["route_id"] = lane_id
+    route.update({key: value for key, value in overrides.items() if value is not None})
+    route["automatic_model_or_trading_change_allowed"] = False
+    return route
+
+
+def route_for_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
+    """Map an audit pattern to the operator-owned repair lane."""
+    if int(pattern.get("market_closer_count") or 0) <= 0:
+        return _lane_with_overrides(
+            "settlement_watchlist",
+            evidence_policy="Pending settlement only; do not count toward repair evidence yet.",
+        )
+    direction = pattern.get("direction")
+    band_key = str(pattern.get("band_key") or "")
+    range_label = str(pattern.get("range_label") or "")
+    market_id = str(pattern.get("market_id") or "market")
+    if direction == "market_higher_than_model" and band_key.startswith("eq:"):
+        return _lane_with_overrides(
+            "exact_band_winner_centering",
+            evidence_policy="Resolved market-closer exact-band evidence; route to winner-centering replay.",
+        )
+    if direction == "model_higher_than_market":
+        return _lane_with_overrides(
+            "warm_tail_dampening",
+            evidence_policy="Resolved market-closer over-allocation evidence; route to warm-tail/spread replay.",
+        )
+    if direction == "market_higher_than_model":
+        return _lane_with_overrides(
+            "source_state_reliability",
+            evidence_policy=(
+                "Resolved market-closer under-allocation evidence; check source-state/current-high "
+                "support before candidate changes."
+            ),
+        )
+    experiment = f"audit_{market_id}_residual_repair_replay"
+    return _lane_with_overrides(
+        "market_specific_residual_repair",
+        owner=f"{market_id} market residual repair",
+        next_experiment=experiment,
+        experiment_artifact=f"data/backtest/experiments/{experiment}.json",
+        evidence_policy=f"Resolved market-closer evidence for {market_id}; route to market-specific residual repair.",
+    )
+
+
+def review_queue_id(recommendation: dict[str, Any]) -> str:
+    evidence = recommendation.get("evidence") or {}
+    source = "|".join([
+        str(recommendation.get("category") or ""),
+        str(recommendation.get("market_id") or ""),
+        str(recommendation.get("range_label") or ""),
+        str(recommendation.get("direction") or ""),
+        ",".join(str(key) for key in evidence.get("sample_audit_keys") or []),
+    ])
+    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:10]
+    market_id = str(recommendation.get("market_id") or "market").replace(" ", "-")
+    return f"audit-review-{market_id}-{digest}"
+
+
 def recommendation_for_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
     direction = pattern.get("direction")
     market_id = pattern.get("market_id")
     label = pattern.get("range_label") or pattern.get("band_key")
+    route = route_for_pattern(pattern)
     if pattern.get("market_closer_count", 0) > 0:
         if direction == "market_higher_than_model":
             action = (
@@ -217,10 +326,62 @@ def recommendation_for_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
             "resolved_count": pattern.get("resolved_count"),
             "pending_count": pattern.get("pending_count"),
             "market_closer_count": pattern.get("market_closer_count"),
+            "model_closer_count": pattern.get("model_closer_count"),
             "avg_brier_gap_market_minus_model": pattern.get("avg_brier_gap_market_minus_model"),
             "sample_audit_keys": pattern.get("sample_audit_keys"),
         },
+        "route": route,
         "action": action,
+    }
+
+
+def operator_review_queue(payload: dict[str, Any]) -> dict[str, Any]:
+    rows = []
+    for recommendation in payload.get("recommendations") or []:
+        route = recommendation.get("route") or {}
+        evidence = recommendation.get("evidence") or {}
+        queue_id = review_queue_id(recommendation)
+        ready_for_repair = recommendation.get("category") == "model_repair_candidate"
+        rows.append({
+            "review_queue_id": queue_id,
+            "status": "READY_FOR_OPERATOR_REVIEW" if ready_for_repair else "WATCHLIST_PENDING_SETTLEMENT",
+            "priority": recommendation.get("priority"),
+            "category": recommendation.get("category"),
+            "market_id": recommendation.get("market_id"),
+            "range_label": recommendation.get("range_label"),
+            "direction": recommendation.get("direction"),
+            "repair_lane": route.get("repair_lane"),
+            "owner": route.get("owner"),
+            "roadmap_owner": route.get("roadmap_owner"),
+            "next_experiment": route.get("next_experiment"),
+            "experiment_artifact": route.get("experiment_artifact"),
+            "counts_toward_repair_evidence": bool(route.get("counts_toward_repair_evidence")),
+            "automatic_model_or_trading_change_allowed": False,
+            "case_count": evidence.get("case_count"),
+            "resolved_count": evidence.get("resolved_count"),
+            "pending_count": evidence.get("pending_count"),
+            "market_closer_count": evidence.get("market_closer_count"),
+            "model_closer_count": evidence.get("model_closer_count"),
+            "sample_audit_keys": evidence.get("sample_audit_keys") or [],
+            "suggested_backlog_note": (
+                f"{recommendation.get('priority')} {recommendation.get('market_id')} "
+                f"{recommendation.get('range_label')} {recommendation.get('direction')} -> "
+                f"{route.get('repair_lane')} ({route.get('roadmap_owner')}). "
+                f"{route.get('evidence_policy')}"
+            ),
+            "action": recommendation.get("action"),
+        })
+    return {
+        "schema_version": REVIEW_QUEUE_SCHEMA_VERSION,
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "source_schema_version": payload.get("schema_version"),
+        "source_audit_log_path": (payload.get("summary") or {}).get("audit_log_path"),
+        "policy": {
+            "pending_cases_count_as_repair_evidence": False,
+            "automatic_model_or_trading_change_allowed": False,
+            "automatic_trade_policy_change_allowed": False,
+        },
+        "rows": rows,
     }
 
 
@@ -236,6 +397,7 @@ def build_payload(
     min_pattern_cases: int = 1,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
+    generated_at = generated_at_utc or utc_now_iso()
     raw_rows = read_audit_log(log_path)
     latest, revision_counts = latest_records(raw_rows)
     records = [enrich_record(row) for row in latest]
@@ -245,6 +407,8 @@ def build_payload(
     model_closer = [row for row in resolved if row.get("closer_source") == "model"]
     patterns = priority_patterns(records, min_cases=min_pattern_cases)
     recommendations = [recommendation_for_pattern(row) for row in patterns[:20]]
+    ready_for_review_count = sum(1 for row in recommendations if row.get("category") == "model_repair_candidate")
+    watchlist_recommendation_count = sum(1 for row in recommendations if row.get("category") == "settlement_watchlist")
     summary = {
         "audit_log_path": str(log_path),
         "raw_log_rows": len(raw_rows),
@@ -259,6 +423,8 @@ def build_payload(
         "avg_brier_gap_market_minus_model": compact_float(mean(row.get("brier_gap_market_minus_model") for row in resolved)),
         "market_ids": sorted({str(row.get("market_id")) for row in records if row.get("market_id")}),
         "recommendation_count": len(recommendations),
+        "ready_for_operator_review_count": ready_for_review_count,
+        "settlement_watchlist_recommendation_count": watchlist_recommendation_count,
     }
     return {
         "schema_version": SCHEMA_VERSION,

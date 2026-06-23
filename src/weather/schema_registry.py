@@ -612,6 +612,13 @@ REGISTERED_SCHEMAS = (
         "Periodic rollup over model-market disagreement audit rows for recurring patterns, trend slices, and repair recommendations.",
     ),
     SchemaSpec(
+        "model_market_disagreement_review_queue",
+        "model_market_disagreement_review_queue_v0.1",
+        "weather.reporting.model_market_disagreement_analysis",
+        "active",
+        "Operator review queue exported from model-market disagreement recommendations; no automatic model or trading changes.",
+    ),
+    SchemaSpec(
         "distribution_stage_attribution",
         "distribution_stage_attribution_v0.1",
         "weather.reporting.distribution_stage_attribution",
