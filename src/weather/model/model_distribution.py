@@ -1118,6 +1118,20 @@ class DistributionMixin(DistributionSignalMixin):
             official_current_stale=official_current_stale,
         )
         expanded_lockin_strength = expanded_lockin_context.get("strength") or 0.0
+        partial_lockin_context = self.standing_high_partial_lockin_context(
+            now.hour,
+            history,
+            current_reading,
+            now,
+            weather_forecast,
+            open_meteo,
+            nws_hourly,
+            global_ensemble,
+            eccc_city,
+            official_current_reading=metar_temp,
+            official_source="metar",
+            official_current_stale=official_current_stale,
+        )
         lockin_strength = max(
             heuristic_lockin_strength,
             learned_lockin_strength,
@@ -1131,6 +1145,7 @@ class DistributionMixin(DistributionSignalMixin):
             now.hour,
             strength=lockin_strength,
         )
+        hard_lockin_active = lockin_strength > 0.0
         if high_has_stood_strength > max(heuristic_lockin_strength, learned_lockin_strength):
             pipeline.snapshot_normalized("high_has_stood_lockin", scores, self.normalize_scores)
         if expanded_lockin_strength > max(
@@ -1139,12 +1154,48 @@ class DistributionMixin(DistributionSignalMixin):
             high_has_stood_strength,
         ):
             pipeline.snapshot_normalized("expanded_late_day_lockin", scores, self.normalize_scores)
+        if hard_lockin_active:
+            partial_lockin_context = deepcopy(partial_lockin_context)
+            partial_lockin_context.update({
+                "active": False,
+                "stage": "hard_lockin",
+                "reason": "hard_lockin_already_active",
+                "hard_lockin_strength": lockin_strength,
+            })
+        else:
+            scores, partial_lockin_context = self.apply_standing_high_partial_lockin(
+                scores,
+                history_max,
+                partial_lockin_context,
+            )
+            if partial_lockin_context.get("active"):
+                pipeline.snapshot_normalized(
+                    "standing_high_partial_lockin",
+                    scores,
+                    self.normalize_scores,
+                )
         high_has_stood_context = deepcopy(high_has_stood_context)
         high_has_stood_context["expanded_late_day_lockin"] = expanded_lockin_context
+        high_has_stood_context["standing_high_partial_lockin"] = partial_lockin_context
         high_has_stood_context["heuristic_lockin_strength"] = heuristic_lockin_strength
         high_has_stood_context["learned_lockin_strength"] = learned_lockin_strength
+        partial_strength = (
+            partial_lockin_context.get("strength") or 0.0
+            if partial_lockin_context.get("active")
+            else 0.0
+        )
+        effective_lockin_strength = max(lockin_strength, partial_strength)
+        high_has_stood_context["stage_attribution"] = {
+            "hard_lockin_strength": lockin_strength,
+            "partial_dampener_strength": partial_strength,
+            "final_stage": (
+                "hard_lockin"
+                if hard_lockin_active
+                else "partial_dampening" if partial_strength > 0 else "no_action"
+            ),
+        }
         pipeline.snapshot_normalized("late_day_lockin", scores, self.normalize_scores)
-        return scores, lockin_strength, high_has_stood_context
+        return scores, effective_lockin_strength, high_has_stood_context
 
     def distribution_live_signals(
         self,

@@ -1,4 +1,4 @@
-"""Austin hard-slice evidence for roadmap items 248, 249, and 252."""
+"""Austin hard-slice evidence for roadmap items 248, 249, 251, and 252."""
 
 from __future__ import annotations
 
@@ -358,6 +358,183 @@ def item249_evidence(model: TorontoHighTempModel) -> dict[str, Any]:
     }
 
 
+def item251_evidence(model: TorontoHighTempModel) -> dict[str, Any]:
+    history = {"max_native": 93.9, "max_times": ["13:53"]}
+    now = datetime(2026, 6, 22, 14, 53)
+    warm_forecasts = (_forecast(95.5), _forecast(95.8))
+    rebound_forecasts = (_forecast(98.0), _forecast(98.5))
+    hard_context = model.high_has_stood_lockin_context(
+        14,
+        history,
+        93.9,
+        now,
+        *warm_forecasts,
+        official_current_reading=93.0,
+        official_source="metar",
+    )
+    partial_context = model.standing_high_partial_lockin_context(
+        14,
+        history,
+        93.9,
+        now,
+        *warm_forecasts,
+        official_current_reading=93.0,
+        official_source="metar",
+    )
+    stale_context = model.standing_high_partial_lockin_context(
+        14,
+        history,
+        93.9,
+        now,
+        *warm_forecasts,
+        official_current_reading=93.0,
+        official_source="metar",
+        official_current_stale=True,
+    )
+    rebound_context = model.standing_high_partial_lockin_context(
+        14,
+        history,
+        93.9,
+        now,
+        *rebound_forecasts,
+        official_current_reading=93.0,
+        official_source="metar",
+    )
+    base_scores = {93: 0.08, 94: 0.25, 95: 0.24, 96: 0.25, 97: 0.18}
+    before = model.normalize_scores(dict(base_scores))
+    after, partial_context = model.apply_standing_high_partial_lockin(
+        dict(base_scores),
+        history["max_native"],
+        partial_context,
+    )
+    rebound_after, rebound_context = model.apply_standing_high_partial_lockin(
+        dict(base_scores),
+        history["max_native"],
+        rebound_context,
+    )
+    tail_buckets = {96, 97}
+    tail_before = _tail_mass(before, tail_buckets)
+    tail_after = _tail_mass(after, tail_buckets)
+    over_warm_before = _distribution_metrics(
+        before,
+        settlement_bucket=94,
+        market_distribution={93: 0.08, 94: 0.38, 95: 0.30, 96: 0.16, 97: 0.08},
+    )
+    over_warm_after = _distribution_metrics(
+        after,
+        settlement_bucket=94,
+        market_distribution={93: 0.08, 94: 0.38, 95: 0.30, 96: 0.16, 97: 0.08},
+    )
+    revision_up_before = _distribution_metrics(
+        before,
+        settlement_bucket=96,
+        market_distribution={93: 0.05, 94: 0.16, 95: 0.26, 96: 0.34, 97: 0.19},
+    )
+    revision_up_after = _distribution_metrics(
+        rebound_after,
+        settlement_bucket=96,
+        market_distribution={93: 0.05, 94: 0.16, 95: 0.26, 96: 0.34, 97: 0.19},
+    )
+    gates = [
+        _gate(
+            251,
+            "austin_partial_dampener_activates_after_official_rollover",
+            _status_from_checks([
+                hard_context.get("active") is False,
+                hard_context.get("reason") == "forecast_ceiling_above_high",
+                partial_context.get("active") is True,
+                partial_context.get("stage") == "partial_dampening",
+                partial_context.get("official_current_minus_high", 0.0) < 0.0,
+                (partial_context.get("stood_minutes") or 0) >= 60,
+            ]),
+            "Austin activates partial dampening when official rollover exists but the hard lock-in ceiling gate blocks.",
+            {
+                "hard_lockin_context": hard_context,
+                "partial_context": partial_context,
+            },
+        ),
+        _gate(
+            251,
+            "warm_tail_reduced_without_zeroing_rebound_buckets",
+            _status_from_checks([
+                tail_after < tail_before,
+                after.get(95, 0.0) > 0.0,
+                after.get(96, 0.0) > 0.0,
+                partial_context.get("one_up_tail_preserved") is True,
+                partial_context.get("two_up_tail_preserved") is True,
+            ]),
+            "The partial dampener reduces 96-97F concentration while preserving one/two-up probability.",
+            {
+                "tail_buckets": sorted(tail_buckets),
+                "tail_before": tail_before,
+                "tail_after": tail_after,
+                "distribution_before": before,
+                "distribution_after": after,
+            },
+        ),
+        _gate(
+            251,
+            "stale_official_current_is_diagnostic_only",
+            _status_from_checks([
+                stale_context.get("active") is False,
+                stale_context.get("reason") == "official_current_stale",
+            ]),
+            "Stale official readings do not activate partial dampening.",
+            stale_context,
+        ),
+        _gate(
+            251,
+            "late_rebound_ceiling_not_partially_locked",
+            _status_from_checks([
+                rebound_context.get("active") is False,
+                rebound_context.get("reason") == "forecast_ceiling_too_high_for_partial",
+                rebound_after == before,
+            ]),
+            "Positive late-climb examples with materially higher forecast ceilings are not damped.",
+            {
+                "rebound_context": rebound_context,
+                "distribution_after_rebound_case": rebound_after,
+            },
+        ),
+        _gate(
+            251,
+            "promotion_gate_improves_rollover_and_does_not_degrade_revision_up",
+            _status_from_checks([
+                over_warm_after["exact_band_brier"] < over_warm_before["exact_band_brier"],
+                over_warm_after["exact_band_logloss"] < over_warm_before["exact_band_logloss"],
+                revision_up_after["exact_band_brier"] <= revision_up_before["exact_band_brier"],
+                revision_up_after["exact_band_logloss"] <= revision_up_before["exact_band_logloss"],
+            ]),
+            "Deterministic replay improves the over-warm rollover case and leaves the revision-up case unchanged.",
+            {
+                "over_warm_before": over_warm_before,
+                "over_warm_after": over_warm_after,
+                "revision_up_before": revision_up_before,
+                "revision_up_after": revision_up_after,
+            },
+        ),
+    ]
+    return {
+        "item": 251,
+        "status": "PASS" if all(gate["status"] == "PASS" for gate in gates) else "BLOCK",
+        "gates": gates,
+        "summary": {
+            "partial_strength": partial_context.get("strength"),
+            "moved_probability": partial_context.get("moved_probability"),
+            "tail_before": tail_before,
+            "tail_after": tail_after,
+            "revision_up_brier_delta": (
+                revision_up_after["exact_band_brier"]
+                - revision_up_before["exact_band_brier"]
+            ),
+            "over_warm_brier_delta": (
+                over_warm_after["exact_band_brier"]
+                - over_warm_before["exact_band_brier"]
+            ),
+        },
+    }
+
+
 def _austin_cluster_signal(model: TorontoHighTempModel) -> tuple[float | None, float, float]:
     signal = model.distribution_live_signals(
         using_feature_model=True,
@@ -581,6 +758,7 @@ def build_payload(
         "252": item252_evidence(model),
         "249": item249_evidence(model),
         "248": item248_evidence(model, austin_requalification=austin_requalification),
+        "251": item251_evidence(model),
     }
     gates = [
         gate
@@ -594,7 +772,7 @@ def build_payload(
         "status": "PASS" if not blockers else "BLOCK",
         "target_date": AUDIT_TARGET_DATE,
         "market_id": AUDIT_MARKET_ID,
-        "item_order": [252, 249, 248],
+        "item_order": [252, 249, 248, 251],
         "summary": {
             "items_passed": [int(number) for number, item in items.items() if item.get("status") == "PASS"],
             "items_blocked": [int(number) for number, item in items.items() if item.get("status") != "PASS"],
@@ -632,7 +810,7 @@ def render_report(payload: dict[str, Any]) -> str:
     )
     lines += ["", "## Item Status", ""]
     rows = []
-    for number in ("252", "249", "248"):
+    for number in ("252", "249", "248", "251"):
         item = (payload.get("items") or {}).get(number) or {}
         item_summary = item.get("summary") or {}
         if number == "252":
@@ -645,7 +823,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"official delta {fmt_signed(item_summary.get('official_current_minus_high'))}; "
                 f"tail {fmt_num(item_summary.get('tail_before'))} -> {fmt_num(item_summary.get('tail_after'))}"
             )
-        else:
+        elif number == "248":
             detail = (
                 f"cluster {fmt_num(item_summary.get('raw_max_signal'))} -> "
                 f"{fmt_num(item_summary.get('robust_cluster_signal'))}; "
@@ -653,6 +831,15 @@ def render_report(payload: dict[str, Any]) -> str:
                 f"{fmt_num(item_summary.get('robust_tail_96_97'))}; "
                 f"serving {item_summary.get('serving_disposition')}"
             )
+        elif number == "251":
+            detail = (
+                f"partial strength {fmt_num(item_summary.get('partial_strength'))}; "
+                f"moved {fmt_num(item_summary.get('moved_probability'))}; "
+                f"96-97F tail {fmt_num(item_summary.get('tail_before'))} -> "
+                f"{fmt_num(item_summary.get('tail_after'))}"
+            )
+        else:
+            detail = "-"
         rows.append([number, item.get("status"), detail])
     lines += markdown_table(["Item", "Status", "Evidence"], rows)
     lines += ["", "## Gates", ""]
@@ -677,7 +864,7 @@ def render_report(payload: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = argparse.ArgumentParser(
-        description="Build Austin hard-slice evidence for roadmap items 252, 249, and 248."
+        description="Build Austin hard-slice evidence for roadmap items 252, 249, 248, and 251."
     )
     parser.add_argument("--austin-requalification", default=str(DEFAULT_AUSTIN_REQUALIFICATION))
     parser.add_argument("--out", default=str(DEFAULT_OUT))

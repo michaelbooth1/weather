@@ -19,7 +19,7 @@ def requalification_payload(*, status="PASS", serving="SHADOW", verdict="BLOCK")
     }
 
 
-def test_hardening_report_proves_all_three_item_gates(tmp_path):
+def test_hardening_report_proves_all_four_item_gates(tmp_path):
     requalification = write_json(
         tmp_path / "austin_hgb_requalification.json",
         requalification_payload(),
@@ -32,11 +32,12 @@ def test_hardening_report_proves_all_three_item_gates(tmp_path):
     report = render_report(payload)
 
     assert payload["status"] == "PASS"
-    assert payload["summary"]["items_passed"] == [252, 249, 248]
+    assert payload["summary"]["items_passed"] == [252, 249, 248, 251]
     assert not payload["blockers"]
     item252 = payload["items"]["252"]
     item249 = payload["items"]["249"]
     item248 = payload["items"]["248"]
+    item251 = payload["items"]["251"]
     assert item252["summary"]["physical_validity_status"] == "fresh_but_impossible"
     assert item252["summary"]["valid_guidance_preserved"] is True
     first_gate = item252["gates"][0]
@@ -46,6 +47,15 @@ def test_hardening_report_proves_all_three_item_gates(tmp_path):
     assert item249["summary"]["tail_after"] < item249["summary"]["tail_before"]
     assert item248["summary"]["robust_cluster_signal"] < item248["summary"]["raw_max_signal"]
     assert item248["summary"]["robust_tail_96_97"] < item248["summary"]["raw_tail_96_97"]
+    assert item251["summary"]["tail_after"] < item251["summary"]["tail_before"]
+    assert item251["summary"]["moved_probability"] > 0.0
+    assert item251["summary"]["revision_up_brier_delta"] <= 0.0
+    partial_gate = [
+        gate for gate in item251["gates"]
+        if gate["gate"] == "austin_partial_dampener_activates_after_official_rollover"
+    ][0]
+    assert partial_gate["evidence"]["hard_lockin_context"]["reason"] == "forecast_ceiling_above_high"
+    assert partial_gate["evidence"]["partial_context"]["stage"] == "partial_dampening"
     metric_gate = [
         gate for gate in item248["gates"]
         if gate["gate"] == "variant_metric_comparison"

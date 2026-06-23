@@ -1,4 +1,4 @@
-# 244. Historical Snapshot Parquet Backfill And Validation Harness [OPEN 2026-06-22 - CLOSED-DAY CONVERSION PIPELINE MISSING]
+# 244. Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]
 
 Goal: build the guarded conversion pipeline that backfills closed
 `data/snapshots` market-days into the Parquet archive without deleting source
@@ -37,15 +37,15 @@ reclaimed.
    skipped, blocked, and failed market-days, with no source deletion in this
    item.
 
-- [ ] Add a closed-day Parquet backfill dry-run planner.
-- [ ] Add an apply mode that writes validated Parquet partitions and manifests.
-- [ ] Cover `order_books_long.csv`, `price_history.csv`, `clob_tokens.csv`,
+- [x] Add a closed-day Parquet backfill dry-run planner.
+- [x] Add an apply mode that writes validated Parquet partitions and manifests.
+- [x] Cover `order_books_long.csv`, `price_history.csv`, `clob_tokens.csv`,
   `snapshots_long.csv`, and replay inputs where schemas are stable.
-- [ ] Add tests for idempotent reruns, stale-manifest rewrite, source-hash
+- [x] Add tests for idempotent reruns, stale-manifest rewrite, source-hash
   mismatch handling, and invalid/active-day exclusion.
-- [ ] Produce a representative backfill report for existing closed
+- [x] Produce a representative backfill report for existing closed
   market-days.
-- [ ] Confirm the command never deletes or rewrites source snapshot tapes.
+- [x] Confirm the command never deletes or rewrites source snapshot tapes.
 
 Acceptance: closed market-days can be converted into validated Parquet
 partitions through a dry-run/apply workflow; every partition has a manifest
@@ -53,3 +53,29 @@ with source hashes and row-count checks; reruns are idempotent; active days are
 excluded; and original CSV/JSONL source tapes remain untouched.
 
 Related: items 124, 146, 154, 203, 239, 243, 245.
+
+## 2026-06-22 completion
+
+`weather.operations.closed_market_day_archive` now owns the guarded backfill
+harness for the item 243 archive contract. The CLI supports `plan` and `apply`
+modes, filters out active/future days and writer-locked folders, writes Parquet
+through a temporary partition, validates row counts and schema fingerprints,
+attaches source SHA-256 hashes, writes a v0.1 manifest, and skips reruns when
+the existing manifest still matches the source files.
+
+Evidence:
+
+- Backfill schema: `closed_market_day_parquet_backfill_v0.1`.
+- Representative apply:
+  `python -m weather.operations.closed_market_day_archive apply --event-slug
+  highest-temperature-in-atlanta-on-june-10-2026 --as-of-date 2026-06-23`.
+- Report: `data/backtest/closed_market_day_parquet_backfill_report.md`
+  (`PASS`, `converted=1`, `converted_family_count=8`,
+  `source_deleted_count=0`).
+- Manifest validation for the representative partition passed shape checks,
+  manifest-hash verification, and `parquet_reader_allowed`.
+- Idempotent rerun report:
+  `data/backtest/closed_market_day_parquet_backfill_idempotent_report.md`
+  (`PASS`, `skipped=1`, `source_deleted_count=0`).
+- Tests: `python -m pytest tests/operations/test_closed_market_day_archive.py
+  tests/operations/test_schema_registry.py -q`.

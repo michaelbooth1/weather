@@ -51,6 +51,16 @@ from weather.model.model_distribution_constants import (
     METAR_LIVE_SIGNAL_MAX_WEIGHT,
     METAR_LIVE_SIGNAL_REACHED_BASELINE,
     METAR_LIVE_SIGNAL_SIGMA,
+    STANDING_HIGH_PARTIAL_BASE,
+    STANDING_HIGH_PARTIAL_END_HOUR,
+    STANDING_HIGH_PARTIAL_FORECAST_AGREEMENT_SPREAD,
+    STANDING_HIGH_PARTIAL_FORECAST_UPSIDE_MAX,
+    STANDING_HIGH_PARTIAL_MAX_STRENGTH,
+    STANDING_HIGH_PARTIAL_MIN_MINUTES,
+    STANDING_HIGH_PARTIAL_ONE_UP_RETAINED,
+    STANDING_HIGH_PARTIAL_ROLLOVER_MARGIN,
+    STANDING_HIGH_PARTIAL_START_HOUR,
+    STANDING_HIGH_PARTIAL_TWO_UP_RETAINED,
     VALIDATED_WU_MAX_HARD_FLOOR_MARKETS,
     WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL,
 )
@@ -290,7 +300,24 @@ class DistributionSignalMixin:
                 degree_hours_above_high += sum(max(0.0, value - history_max) for value in values)
         return {
             "forecast_source_count": len(source_maxes),
+            "remaining_forecast_values": sorted(source_maxes),
             "remaining_forecast_ceiling": max(source_maxes) if source_maxes else None,
+            "remaining_forecast_floor": min(source_maxes) if source_maxes else None,
+            "remaining_forecast_spread": (
+                max(source_maxes) - min(source_maxes)
+                if len(source_maxes) >= 2
+                else 0.0 if source_maxes else None
+            ),
+            "remaining_forecast_robust_high": (
+                sorted(source_maxes)[len(source_maxes) // 2]
+                if len(source_maxes) % 2 == 1
+                else (
+                    sorted(source_maxes)[len(source_maxes) // 2 - 1]
+                    + sorted(source_maxes)[len(source_maxes) // 2]
+                ) / 2.0
+                if source_maxes
+                else None
+            ),
             "remaining_degree_hours_above_high": degree_hours_above_high,
         }
 
@@ -527,6 +554,177 @@ class DistributionSignalMixin:
         )
         return context
 
+    def standing_high_partial_lockin_context(
+        self,
+        hour,
+        history,
+        current_reading,
+        now,
+        *forecast_sources,
+        official_current_reading=None,
+        official_source=None,
+        official_current_stale=False,
+    ):
+        """Soft late-day dampener for a stood high with fresh official rollover.
+
+        This stage is deliberately weaker than the hard high-has-stood gates:
+        modest warm forecast ceilings reduce the strength instead of blocking
+        the stage outright, and the apply helper keeps one/two-up rebound
+        buckets alive.
+        """
+
+        context = {
+            "active": False,
+            "stage": "no_action",
+            "strength": 0.0,
+            "reason": "inactive",
+            "stood_minutes": None,
+            "current_minus_high": None,
+            "third_party_current_reading": self.to_number(current_reading),
+            "third_party_current_minus_high": None,
+            "official_current_reading": self.to_number(official_current_reading),
+            "official_current_minus_high": None,
+            "official_source": official_source,
+            "official_current_stale": bool(official_current_stale),
+            "remaining_forecast_ceiling": None,
+            "remaining_forecast_robust_high": None,
+            "remaining_forecast_spread": None,
+            "remaining_forecast_values": [],
+            "forecast_source_count": 0,
+            "forecast_upside": None,
+            "forecast_agreement_factor": None,
+            "forecast_upside_factor": None,
+            "time_factor": None,
+            "stood_factor": None,
+            "official_drop_factor": None,
+            "live_source_consistency_factor": None,
+            "live_source_consistency": None,
+        }
+        if hour < STANDING_HIGH_PARTIAL_START_HOUR or hour > STANDING_HIGH_PARTIAL_END_HOUR:
+            context["reason"] = "outside_hour_window"
+            return context
+        history_max = self.row_max_native(history)
+        max_times = history.get("max_times") or []
+        if history_max is None or not max_times:
+            context["reason"] = "missing_history_high"
+            return context
+        first_at_max = self.minute_of_day(max_times[0])
+        if first_at_max is None:
+            context["reason"] = "missing_first_high_time"
+            return context
+        stood_minutes = (now.hour * 60 + now.minute) - first_at_max
+        context["stood_minutes"] = stood_minutes
+        if stood_minutes < STANDING_HIGH_PARTIAL_MIN_MINUTES:
+            context["reason"] = "high_not_stood_long_enough"
+            return context
+
+        official_value = self.to_number(official_current_reading)
+        if official_value is None:
+            context["reason"] = "missing_official_current"
+            return context
+        official_minus_high = official_value - history_max
+        context["official_current_minus_high"] = official_minus_high
+        rollover_threshold = -self.spec.scale_delta(STANDING_HIGH_PARTIAL_ROLLOVER_MARGIN)
+        if official_current_stale and official_minus_high <= rollover_threshold:
+            context["reason"] = "official_current_stale"
+            return context
+        if official_current_stale:
+            context["reason"] = "official_current_stale"
+            return context
+        if official_minus_high > rollover_threshold:
+            context["reason"] = "official_current_not_below_high"
+            return context
+
+        current_value = self.to_number(current_reading)
+        current_minus_high = current_value - history_max if current_value is not None else None
+        context["third_party_current_minus_high"] = current_minus_high
+        context["current_minus_high"] = official_minus_high
+        live_margin = self.spec.scale_delta(STANDING_HIGH_PARTIAL_ROLLOVER_MARGIN)
+        if current_minus_high is None:
+            consistency_factor = 0.85
+            consistency = "missing_third_party_current"
+        elif current_minus_high > live_margin:
+            consistency_factor = 0.35
+            consistency = "third_party_current_above_high"
+        elif current_minus_high > 0:
+            consistency_factor = 0.65
+            consistency = "third_party_current_slightly_above_high"
+        else:
+            consistency_factor = 1.0
+            consistency = "third_party_current_consistent_or_flat"
+        context["live_source_consistency_factor"] = consistency_factor
+        context["live_source_consistency"] = consistency
+
+        forecast_context = self.remaining_forecast_context(now, history_max, *forecast_sources)
+        context.update(forecast_context)
+        if forecast_context["forecast_source_count"] <= 0:
+            context["reason"] = "missing_remaining_forecasts"
+            return context
+        ceiling = forecast_context["remaining_forecast_ceiling"]
+        upside = max(0.0, ceiling - history_max) if ceiling is not None else 0.0
+        context["forecast_upside"] = upside
+        max_upside = self.spec.scale_delta(STANDING_HIGH_PARTIAL_FORECAST_UPSIDE_MAX)
+        if ceiling is not None and ceiling > history_max + max_upside:
+            context["reason"] = "forecast_ceiling_too_high_for_partial"
+            return context
+        spread = forecast_context.get("remaining_forecast_spread")
+        agreement_margin = self.spec.scale_delta(STANDING_HIGH_PARTIAL_FORECAST_AGREEMENT_SPREAD)
+        if spread is None:
+            agreement_factor = 0.80
+        elif spread <= agreement_margin:
+            agreement_factor = 1.0
+        else:
+            agreement_factor = max(
+                0.45,
+                1.0 - 0.40 * min(1.0, (spread - agreement_margin) / max(agreement_margin, 0.1)),
+            )
+        upside_factor = 1.0 - 0.40 * min(1.0, upside / max(max_upside, 0.1))
+        context["forecast_agreement_factor"] = agreement_factor
+        context["forecast_upside_factor"] = upside_factor
+
+        hour_span = max(1, STANDING_HIGH_PARTIAL_END_HOUR - STANDING_HIGH_PARTIAL_START_HOUR)
+        time_factor = max(0.0, min(1.0, (hour - STANDING_HIGH_PARTIAL_START_HOUR) / hour_span))
+        stood_factor = max(
+            0.0,
+            min(1.0, stood_minutes / max(1, STANDING_HIGH_PARTIAL_MIN_MINUTES * 2)),
+        )
+        drop_factor = max(
+            0.0,
+            min(
+                1.0,
+                (-official_minus_high)
+                / max(self.spec.scale_delta(LATE_LOCKIN_PEAK_DROP), 0.1),
+            ),
+        )
+        context["time_factor"] = time_factor
+        context["stood_factor"] = stood_factor
+        context["official_drop_factor"] = drop_factor
+        raw_strength = (
+            STANDING_HIGH_PARTIAL_BASE
+            + 0.14 * time_factor
+            + 0.16 * stood_factor
+            + 0.20 * drop_factor
+        )
+        strength = (
+            raw_strength
+            * agreement_factor
+            * upside_factor
+            * consistency_factor
+        )
+        strength = max(0.0, min(STANDING_HIGH_PARTIAL_MAX_STRENGTH, strength))
+        if strength <= 0:
+            context["reason"] = "strength_zero"
+            return context
+        context["active"] = True
+        context["stage"] = "partial_dampening"
+        context["strength"] = strength
+        context["reason"] = (
+            "standing_high_partial_official_rollover_warm_forecast"
+            if upside > self.spec.scale_delta(STANDING_HIGH_PARTIAL_ROLLOVER_MARGIN)
+            else "standing_high_partial_official_rollover"
+        )
+        return context
+
     def apply_late_day_lockin(self, scores, history_max, current_reading, hour, strength=None):
         """Suppress buckets above the observed high as the day locks in. Soft one
         bucket up (WU history can still revise up a degree), strong further up.
@@ -550,6 +748,61 @@ class DistributionSignalMixin:
                 factor = (1.0 - strength) + strength * full_retained
                 adjusted[temp] = score * factor
         return self.normalize_scores(adjusted)
+
+    def apply_standing_high_partial_lockin(self, scores, history_max, context):
+        """Apply the stood-high partial dampener and annotate tail movement."""
+
+        context = dict(context or {})
+        normalized = self.normalize_scores(scores)
+        observed_bucket = self.round_half_up(history_max)
+        if not context.get("active") or observed_bucket is None:
+            context.setdefault("stage", "no_action")
+            return normalized, context
+        strength = max(0.0, min(1.0, float(context.get("strength") or 0.0)))
+        before_above = sum(
+            probability for bucket, probability in normalized.items()
+            if bucket > observed_bucket
+        )
+        before_one_up = float(normalized.get(observed_bucket + 1, 0.0))
+        before_two_up = float(normalized.get(observed_bucket + 2, 0.0))
+        adjusted = {}
+        for temp, score in normalized.items():
+            if temp <= observed_bucket:
+                adjusted[temp] = score
+                continue
+            above = temp - observed_bucket
+            if above == 1:
+                full_retained = STANDING_HIGH_PARTIAL_ONE_UP_RETAINED
+            elif above == 2:
+                full_retained = STANDING_HIGH_PARTIAL_TWO_UP_RETAINED
+            else:
+                full_retained = STANDING_HIGH_PARTIAL_TWO_UP_RETAINED * (
+                    STANDING_HIGH_PARTIAL_BASE ** (above - 2)
+                )
+            factor = (1.0 - strength) + strength * full_retained
+            adjusted[temp] = score * factor
+        out = self.normalize_scores(adjusted)
+        after_above = sum(
+            probability for bucket, probability in out.items()
+            if bucket > observed_bucket
+        )
+        after_one_up = float(out.get(observed_bucket + 1, 0.0))
+        after_two_up = float(out.get(observed_bucket + 2, 0.0))
+        context.update({
+            "stage": "partial_dampening",
+            "observed_bucket": observed_bucket,
+            "tail_mass_above_high_before": before_above,
+            "tail_mass_above_high_after": after_above,
+            "tail_mass_above_high_delta": after_above - before_above,
+            "moved_probability": max(0.0, before_above - after_above),
+            "one_up_tail_before": before_one_up,
+            "one_up_tail_after": after_one_up,
+            "two_up_tail_before": before_two_up,
+            "two_up_tail_after": after_two_up,
+            "one_up_tail_preserved": after_one_up > 0.0,
+            "two_up_tail_preserved": after_two_up > 0.0,
+        })
+        return out, context
 
     def unfalsified_forecasts(self, forecasts, history, now):
         """Drop forecast values the observed day has falsified, for the

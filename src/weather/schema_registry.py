@@ -431,7 +431,7 @@ REGISTERED_SCHEMAS = (
         "austin_weather_model_hardening_v0.1",
         "weather.reporting.austin_weather_model_hardening",
         "active",
-        "Austin hard-slice evidence packet for impossible guidance quarantine, official METAR rollover, and robust forecast-cluster candidate gates.",
+        "Austin hard-slice evidence packet for impossible guidance quarantine, official METAR rollover, robust forecast-cluster candidate gates, and standing-high partial dampening.",
     ),
     SchemaSpec(
         "local_generated_state_cleanup",
@@ -518,6 +518,13 @@ REGISTERED_SCHEMAS = (
         "weather.operations.closed_market_day_archive",
         "active",
         "Versioned manifest contract for closed market-day Parquet archive partitions.",
+    ),
+    SchemaSpec(
+        "closed_market_day_parquet_backfill",
+        "closed_market_day_parquet_backfill_v0.1",
+        "weather.operations.closed_market_day_archive",
+        "active",
+        "Dry-run/apply report for guarded closed market-day snapshot Parquet backfills.",
     ),
     SchemaSpec(
         "daily_learning",

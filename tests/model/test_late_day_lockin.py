@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from weather.model.model_distribution import DistributionPipelineState
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -271,6 +272,131 @@ class TestHighHasStoodLockin(unittest.TestCase):
         self.assertEqual(context["reason"], "official_current_stale")
         self.assertFalse(context["official_rollover_signal"])
         self.assertTrue(context["official_current_stale"])
+
+
+class TestStandingHighPartialLockin(unittest.TestCase):
+    def setUp(self):
+        self.m = TorontoHighTempModel(target_date="2026-06-22", market_id="austin")
+        self.history = {"max_native": 93.9, "max_times": ["13:53"]}
+        self.now = datetime(2026, 6, 22, 14, 53)
+
+    def _forecast(self, value):
+        return {"rows": [{"time": "15:30", "temp_native": value}]}
+
+    def test_activates_when_official_rollover_and_warm_ceiling_blocks_hard_lockin(self):
+        context = self.m.standing_high_partial_lockin_context(
+            14,
+            self.history,
+            93.9,
+            self.now,
+            self._forecast(95.5),
+            self._forecast(95.8),
+            official_current_reading=93.0,
+            official_source="metar",
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(
+            context["reason"],
+            "standing_high_partial_official_rollover_warm_forecast",
+        )
+        self.assertEqual(context["stage"], "partial_dampening")
+        self.assertGreater(context["strength"], 0.0)
+        self.assertLessEqual(context["strength"], 0.55)
+        self.assertEqual(context["stood_minutes"], 60)
+        self.assertAlmostEqual(context["official_current_minus_high"], -0.9)
+        self.assertAlmostEqual(context["forecast_upside"], 1.9)
+
+    def test_apply_reduces_warm_tail_but_preserves_one_and_two_up_rebound(self):
+        scores = {93: 0.08, 94: 0.25, 95: 0.24, 96: 0.25, 97: 0.18}
+        context = self.m.standing_high_partial_lockin_context(
+            14,
+            self.history,
+            93.9,
+            self.now,
+            self._forecast(95.5),
+            self._forecast(95.8),
+            official_current_reading=93.0,
+            official_source="metar",
+        )
+
+        out, context = self.m.apply_standing_high_partial_lockin(
+            scores,
+            self.history["max_native"],
+            context,
+        )
+
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=9)
+        self.assertLess(
+            context["tail_mass_above_high_after"],
+            context["tail_mass_above_high_before"],
+        )
+        self.assertGreater(out[95], 0.0)
+        self.assertGreater(out[96], 0.0)
+        self.assertTrue(context["one_up_tail_preserved"])
+        self.assertTrue(context["two_up_tail_preserved"])
+        self.assertGreater(context["moved_probability"], 0.0)
+
+    def test_partial_stage_is_recorded_when_hard_lockin_is_blocked_by_ceiling(self):
+        pipeline = DistributionPipelineState()
+        scores = {93: 0.08, 94: 0.25, 95: 0.24, 96: 0.25, 97: 0.18}
+
+        out, strength, context = self.m.distribution_late_day_lockin_stage(
+            scores,
+            history=self.history,
+            current_temp=93.9,
+            metar_temp=93.0,
+            history_max=self.history["max_native"],
+            now=self.now,
+            weather_forecast=self._forecast(95.5),
+            open_meteo=self._forecast(95.8),
+            nws_hourly={},
+            global_ensemble={},
+            eccc_city={},
+            pipeline=pipeline,
+        )
+
+        partial = context["standing_high_partial_lockin"]
+        self.assertEqual(context["stage_attribution"]["final_stage"], "partial_dampening")
+        self.assertGreater(strength, 0.0)
+        self.assertTrue(partial["active"])
+        self.assertIn("standing_high_partial_lockin", pipeline.components)
+        self.assertLess(
+            partial["tail_mass_above_high_after"],
+            partial["tail_mass_above_high_before"],
+        )
+        self.assertLess(out[97], scores[97])
+
+    def test_stale_official_rollover_is_not_an_active_partial_dampener(self):
+        context = self.m.standing_high_partial_lockin_context(
+            14,
+            self.history,
+            93.9,
+            self.now,
+            self._forecast(95.5),
+            official_current_reading=93.0,
+            official_source="metar",
+            official_current_stale=True,
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["stage"], "no_action")
+        self.assertEqual(context["reason"], "official_current_stale")
+
+    def test_late_rebound_ceiling_is_not_partially_locked(self):
+        context = self.m.standing_high_partial_lockin_context(
+            14,
+            self.history,
+            93.9,
+            self.now,
+            self._forecast(98.0),
+            self._forecast(98.5),
+            official_current_reading=93.0,
+            official_source="metar",
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["reason"], "forecast_ceiling_too_high_for_partial")
 
 
 class TestExpandedLateDayLockin(unittest.TestCase):

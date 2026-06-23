@@ -49,6 +49,7 @@ DRIVER_WATERFALL_STAGES = (
     ("settlement_lag_adjusted", "Settlement-lag (SWOB) floor"),
     ("current_observed_floor", "Current-observed floor"),
     ("high_has_stood_lockin", "High-has-stood lock-in"),
+    ("standing_high_partial_lockin", "Standing-high partial dampener"),
     ("late_day_lockin", "Late-day lock-in"),
     ("final_model", "Overconfidence calibration"),
 )
