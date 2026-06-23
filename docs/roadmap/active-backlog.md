@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T15:26:44.847708+00:00
+Generated: 2026-06-23T16:56:25.907482+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 268 |
+| Items | 269 |
 | Active items | 38 |
-| OPEN | 7 |
-| PARTIAL | 31 |
-| COMPLETE | 230 |
-| ROADMAP rows | 268 |
-| ROADMAP primary rows | 268 |
-| Metadata manifest rows | 268 |
+| OPEN | 8 |
+| PARTIAL | 30 |
+| COMPLETE | 231 |
+| ROADMAP rows | 269 |
+| ROADMAP primary rows | 269 |
+| Metadata manifest rows | 269 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -57,12 +57,12 @@ Status: `OK`
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
-| 232 | PARTIAL | 2026-06-22 | GATE REFRESHED, RETRAIN/ABLATION BLOCKED | [Current-Max Trust Retrain And Warm-Tail Replay](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 269 | OPEN | 2026-06-23 | NORTH-STAR SCOREBOARD NEEDED | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 
 ## Lint Issues
 

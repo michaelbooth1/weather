@@ -272,7 +272,7 @@ infrastructure work remains.
 | 229 | [Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-22 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration [PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 231 | [Market-Specific Early-Hour Residual Repair Program [COMPLETE 2026-06-22 - MARKET MANIFESTS AND REJECTED-FAMILY REGISTRY LIVE]](items/item-231-market-specific-early-hour-residual-repair-program.md) |
-| 232 | [Current-Max Trust Retrain And Warm-Tail Replay [PARTIAL 2026-06-22 - GATE REFRESHED, RETRAIN/ABLATION BLOCKED]](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
+| 232 | [Current-Max Trust Retrain And Warm-Tail Replay [COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS]](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
 | 233 | [Validate-What-You-Serve Early-Hour Calibration Head [PARTIAL 2026-06-22 - CONTRACT REFRESHED, HEAD TRAINING BLOCKED]](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 234 | [Settlement-Only Taker Quality Gate [COMPLETE 2026-06-22 - MTM-ONLY QUALITY FAILS CLOSED]](items/item-234-settlement-only-taker-quality-gate.md) |
 | 235 | [Bad-Tail No-Go And Tail Calibration Repair [COMPLETE 2026-06-22 - BAD TAIL SLICES FAIL CLOSED]](items/item-235-bad-tail-no-go-and-tail-calibration-repair.md) |
@@ -304,6 +304,7 @@ infrastructure work remains.
 | 266 | [Winner-Rank Parity And Market-Top-Miss Repair Gate [COMPLETE 2026-06-23 - PARITY GATE LIVE, CURRENT MODEL BLOCKED]](items/item-266-winner-rank-parity-and-market-top-miss-repair-gate.md) |
 | 267 | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS]](items/item-267-multi-market-source-bias-model-extension.md) |
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
+| 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [OPEN 2026-06-23 - NORTH-STAR SCOREBOARD NEEDED]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 
 ### Architecture And Maintainability
 

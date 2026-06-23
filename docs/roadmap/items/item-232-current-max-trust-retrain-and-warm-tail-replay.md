@@ -1,4 +1,4 @@
-# 232. Current-Max Trust Retrain And Warm-Tail Replay [PARTIAL 2026-06-22 - GATE REFRESHED, RETRAIN/ABLATION BLOCKED]
+# 232. Current-Max Trust Retrain And Warm-Tail Replay [COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS]
 
 Goal: prove that current-max trust/quarantine fields improve early-hour and
 warm-tail behavior after a retrain, not only as serving-time risk guards.
@@ -26,11 +26,11 @@ observation behavior in early hours.
 5. Keep untrusted current-max values unavailable to aggressive trading even if
    diagnostic features are present.
 
-- [ ] Retrain or shadow-retrain with current-max trust fields under the active
+- [x] Retrain or shadow-retrain with current-max trust fields under the active
   feature schema.
-- [ ] Run June 20 root-cause replay and early-hour slice replay.
-- [ ] Add trust-field ablation output to the training or validation report.
-- [ ] Regenerate hourly, 10-minute, ramp, late, and lock-in gates from the
+- [x] Run June 20 root-cause replay and early-hour slice replay.
+- [x] Add trust-field ablation output to the training or validation report.
+- [x] Regenerate hourly, 10-minute, ramp, late, and lock-in gates from the
   retrained artifact.
 
 Acceptance: trust-weighted current-max features reduce anomaly and warm-tail
@@ -122,3 +122,57 @@ Prerequisite evidence still passes and is pinned in the generated report:
 No promotion or artifact retrain was performed from this item because the
 required retrain report and trust-field ablation are still absent; the item
 stays partial with a reproducible gate instead of open-ended manual acceptance.
+
+## 2026-06-23 completion
+
+Retrained and re-exported `data/backtest/current_max_trust_retrain_merged_candidate.pkl`
+with active feature schema `toronto_feature_store_v1.15`, 14 hourly models, and
+the `item232_current_max_trust_warm_tail_backoff_v0_1` postprocess policy. The
+policy keeps current-max trust diagnostics trainable while backing off candidate
+weight in warm-tail and risky current-max contexts.
+
+Generated item-specific acceptance evidence:
+
+- `data/backtest/current_max_trust_retrain_evidence.json`
+- `data/backtest/current_max_trust_retrain_evidence_report.md`
+- `data/backtest/current_max_trust_retrain_gate.json`
+- `data/backtest/current_max_trust_retrain_gate_report.md`
+
+The current-max trust retrain evidence is `PASS` with zero blockers. The
+trust-weighted artifact improves daily-first Brier versus both raw current-max
+and no-current-max ablations (`-0.0022` each), improves risky current-max Brier
+versus current (`-0.0058`), improves warm-tail Brier versus current (`-0.0019`),
+improves early-hour Brier/log-loss versus current (`-0.0044` and `-0.0129`),
+and improves late lock-in Brier versus current (`-0.0009`). The top-level
+`current_max_trust_retrain_gate` now passes all prerequisite and retrain gates.
+
+Regenerated downstream candidate evidence from the retrained artifact:
+
+- `data/backtest/current_max_trust_candidate_replay.json`
+- `data/backtest/current_max_trust_candidate_replay_report.md`
+- `data/backtest/current_max_trust_variant_rows.csv`
+- `data/backtest/current_max_trust_hourly_candidate_performance.json`
+- `data/backtest/current_max_trust_hourly_candidate_performance_report.md`
+- `data/backtest/current_max_trust_ten_minute_performance.json`
+- `data/backtest/current_max_trust_ten_minute_performance_report.md`
+
+The generic candidate replay/hourly/10-minute promotion gates remain blocked
+because the weather-only candidate still trails market prices beyond those
+promotion tolerances. That is not an item-232 blocker: the item acceptance is
+current-max trust treatment versus current/raw/no-current-max behavior, and the
+dedicated current-max gate covers warm-tail, early-hour, risky-current-max, and
+late-lock-in slices. The exported shadow rows also remain quote-risk ineligible
+(`quote_risk_eligible=False`, `quote_risk_gate_reason=weather_only_core_model`),
+so this completion does not promote untrusted current-max evidence into
+aggressive trading.
+
+Verification:
+
+```powershell
+python -m weather.reporting.current_max_trust_retrain_evidence --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_retrain_evidence.json --report data\backtest\current_max_trust_retrain_evidence_report.md
+python -m weather.reporting.current_max_trust_retrain_gate --retrain-report-json data\backtest\current_max_trust_retrain_evidence.json --out data\backtest\current_max_trust_retrain_gate.json --report data\backtest\current_max_trust_retrain_gate_report.md
+python -m weather.calibration.pooled_candidate_replay --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_candidate_replay_report.md --json-out data\backtest\current_max_trust_candidate_replay.json --replay-report=data\backtest\current_max_trust_candidate_current_replay_report.md --candidate-variant-out data\backtest\current_max_trust_variant_rows.csv --candidate-variant-id current_max_trust_retrain_v0_1 --candidate-variant-family pooled_f_current_max_trust --skip-microstructure-overlay --source-state-ablation-variant-out= --bridge-variant-out= --min-artifact-free-bytes 0
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\current_max_trust_variant_rows.csv --json-out data\backtest\current_max_trust_hourly_candidate_performance.json --report-out data\backtest\current_max_trust_hourly_candidate_performance_report.md
+python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\current_max_trust_variant_rows.csv --json-out data\backtest\current_max_trust_ten_minute_performance.json --report-out data\backtest\current_max_trust_ten_minute_performance_report.md --slot-csv-out data\backtest\current_max_trust_ten_minute_by_slot.csv --candidate-csv-out data\backtest\current_max_trust_ten_minute_candidate_by_slot.csv
+python -m pytest tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_current_max_trust_retrain_gate.py tests\model\test_feature_store.py tests\model\test_feature_skew.py -q
+```
