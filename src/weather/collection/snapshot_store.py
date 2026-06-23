@@ -320,6 +320,9 @@ class SnapshotStore:
                     "path": str(self.long_path),
                     "next_due_at": self.next_due_at(cadence=cadence),
                 }
+            runtime_guard = self.runtime_identity_guard()
+            if not runtime_guard.get("ok"):
+                return self.runtime_identity_blocked_result(runtime_guard, cadence=cadence)
             return self.write(
                 event,
                 model,
@@ -327,17 +330,27 @@ class SnapshotStore:
                 now,
                 cadence=cadence,
                 trigger_context=trigger_context,
+                runtime_guard=runtime_guard,
             )
         finally:
             self.release_lock(lock_handle)
 
-    def write(self, event, model, model_client, captured_at, cadence="scheduled", trigger_context=None):
+    def write(
+        self,
+        event,
+        model,
+        model_client,
+        captured_at,
+        cadence="scheduled",
+        trigger_context=None,
+        runtime_guard=None,
+    ):
         event_config = config_from_event(event)
         if not self.fixed_root and event_config.event_slug != self.event_slug:
             self._set_paths(None, event_config.event_slug)
         self.root.mkdir(parents=True, exist_ok=True)
         snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
-        runtime_guard = self.runtime_identity_guard()
+        runtime_guard = runtime_guard or self.runtime_identity_guard()
         if not runtime_guard.get("ok"):
             raise RuntimeError(runtime_guard.get("detail") or "stale snapshot runtime identity")
         runtime_identity = runtime_guard.get("process_identity") or {}
@@ -1178,6 +1191,17 @@ class SnapshotStore:
                 f"process={format_runtime_identity(process_identity)}; "
                 f"current={format_runtime_identity(current_identity)}"
             ),
+        }
+
+    def runtime_identity_blocked_result(self, runtime_guard, cadence="scheduled"):
+        return {
+            "written": False,
+            "blocked": True,
+            "status": runtime_guard.get("state") or "stale_code",
+            "path": str(self.long_path),
+            "next_due_at": self.next_due_at(cadence=cadence),
+            "runtime_guard": runtime_guard,
+            "detail": runtime_guard.get("detail"),
         }
 
     def runtime_identity_fields(self, identity, code_state="current"):

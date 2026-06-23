@@ -275,6 +275,11 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 f"Saved snapshot {snapshot_result.get('snapshot_id')} "
                 f"({snapshot_result.get('bands')} bands)."
             )
+        elif snapshot_result.get("status") == "stale_code":
+            st.warning(
+                "Snapshot write skipped because the running Streamlit process is using stale code. "
+                "Restart the app process to resume snapshot capture."
+            )
         else:
             st.caption(
                 "Next odds snapshot due: "

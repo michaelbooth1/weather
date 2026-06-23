@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T17:14:39.081095+00:00
+Generated: 2026-06-23T17:32:00.080037+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 269 |
-| Active items | 36 |
-| OPEN | 7 |
+| Items | 270 |
+| Active items | 37 |
+| OPEN | 8 |
 | PARTIAL | 29 |
 | COMPLETE | 233 |
-| ROADMAP rows | 269 |
-| ROADMAP primary rows | 269 |
-| Metadata manifest rows | 269 |
+| ROADMAP rows | 270 |
+| ROADMAP primary rows | 270 |
+| Metadata manifest rows | 270 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -61,6 +61,7 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 
 ## Lint Issues
 

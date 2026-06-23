@@ -131,6 +131,64 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(written["last_market_in_progress"], None)
 
 
+class TestSnapshotStoreRuntimeGuard(unittest.TestCase):
+    def test_maybe_write_returns_stale_code_result_without_writing(self):
+        stale_guard = {
+            "ok": False,
+            "state": "stale_code",
+            "detail": "snapshot process code identity differs from current source tree",
+            "process_identity": {"source_fingerprint": "old"},
+            "current_identity": {"source_fingerprint": "new"},
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(
+                root=tmp,
+                event_slug="highest-temperature-in-toronto-on-june-13-2026",
+            )
+
+            def fail_write(*args, **kwargs):
+                raise AssertionError("write should not run")
+
+            store.runtime_identity_guard = lambda: stale_guard
+            store.write = fail_write
+
+            result = store.maybe_write(
+                {"slug": "highest-temperature-in-toronto-on-june-13-2026", "markets": []},
+                {},
+                SimpleNamespace(target_date=datetime(2026, 6, 13).date()),
+                force=True,
+            )
+
+            self.assertFalse(result["written"])
+            self.assertTrue(result["blocked"])
+            self.assertEqual(result["status"], "stale_code")
+            self.assertEqual(result["detail"], stale_guard["detail"])
+            self.assertFalse((Path(tmp) / "snapshots_long.csv").exists())
+
+    def test_write_still_rejects_stale_code_guard(self):
+        stale_guard = {
+            "ok": False,
+            "state": "stale_code",
+            "detail": "snapshot process code identity differs from current source tree",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(
+                root=tmp,
+                event_slug="highest-temperature-in-toronto-on-june-13-2026",
+            )
+
+            with self.assertRaises(RuntimeError):
+                store.write(
+                    {"slug": "highest-temperature-in-toronto-on-june-13-2026", "markets": []},
+                    {},
+                    SimpleNamespace(target_date=datetime(2026, 6, 13).date()),
+                    datetime(2026, 6, 13, 12, 0),
+                    runtime_guard=stale_guard,
+                )
+
+
 class TestGapDetection(unittest.TestCase):
     def _times(self, *hhmm):
         return parse_times([f"2026-05-30T{t}:00" for t in hhmm])
