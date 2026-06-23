@@ -1,4 +1,4 @@
-# 253. Two-Sided (NO-Side) Taker Edge And Book Capture [OPEN]
+# 253. Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]
 
 Goal: stop the taker bot from ignoring half of its model's tradeable edge. The
 bot is structurally **buy-YES only**; it never takes the NO side of a band the
@@ -57,11 +57,54 @@ decision rows so the bakeoff and settlement scoring can evaluate the NO side.
    day where the YES side loses but the NO-side fade of the same overpriced bands
    wins.
 
-- [ ] Surface the NO-token book into the taker candidate tape.
-- [ ] Add the gated two-sided/`fade_overpriced` strategy arm.
-- [ ] Wire it into the daily bakeoff and the benchmark/no-trade scoreboard.
-- [ ] Tiny-budget probe + per-band caps + settlement-only promotion.
-- [ ] Tests including a YES-loses/NO-wins fixture.
+- [x] Surface the NO-token book into the taker candidate tape.
+- [x] Add the gated two-sided/`fade_overpriced` strategy arm.
+- [x] Wire it into the daily bakeoff and the benchmark/no-trade scoreboard.
+- [x] Tiny-budget probe + per-band caps + settlement-only promotion.
+- [x] Tests including a YES-loses/NO-wins fixture.
+
+## Completion 2026-06-22
+
+Implemented and verified. The taker can now evaluate and (paper) take the NO side
+of an over-priced band, scored under the same gates and settlement-only promotion
+as the YES-buy arms.
+
+- New module `weather.market.taker_bot_two_sided`:
+  - `no_book_fields` captures the NO-token book — a real captured NO book when
+    present, else the no-arbitrage complement of the YES book
+    (`no_ask = 1 - yes_bid`, `no_bid = 1 - yes_ask`), with a `no_book_source`
+    provenance tag.
+  - `no_side_input_row` synthesizes a NO-side candidate (`fair -> 1 - fair_yes`,
+    book -> NO book, traded token -> NO token, `taker_side=NO_BUY`) that flows
+    through the **existing** YES decision/gate pipeline unchanged, so the band
+    identity and every current-high / source / warm-tail / continuity gate apply.
+  - `no_edge`, `no_buy_settlement_outcome`, `two_sided_enabled` helpers.
+- Settlement correctness: `settlement_outcome_for_order` now **inverts** the
+  outcome for `side == NO_BUY` (a NO buy on band X wins when settlement is not in
+  X). This is the critical payout fix.
+- `base_order_row` reads `side` from `input_row.taker_side` (default `YES_BUY`),
+  so YES-only behaviour is byte-identical unless an arm enables two-sided.
+- `apply_taker_budget` augments the candidate set with synthesized NO-side rows
+  only when `two_sided_enabled` is set; the NO rows carry the NO book in their
+  standard book columns, so the NO side lands on the candidate tape.
+- New gated registry arm `fade_overpriced` (family `two_sided`, status `shadow`,
+  `two_sided_enabled=True`, `min_edge=0.08`, tiny per-order/per-token/per-market
+  caps, `risk_adjusted_entry_enabled`). As a registry arm it is automatically
+  scored by the daily champion/challenger bakeoff (item 238) and the
+  market-benchmark/no-trade scoreboard (item 241), and is promotable only on the
+  settlement-only quality gate (item 234).
+- Tests: `tests/market/test_taker_bot_two_sided.py` (9 cases incl. synthetic vs
+  captured NO book, NO-edge sign, candidate synthesis, settlement inversion, the
+  YES-loses/NO-wins fixture, and the registered arm). Full `tests/market`
+  suite green (183 passed). An end-to-end `apply_taker_budget` check confirms an
+  over-priced YES-24 band (fair 0.30 / ask 0.60) is skipped on YES
+  (`NO_TRADE_EDGE_TOO_SMALL`) while the NO side is bought (`BUY_EDGE`, fair_no
+  0.70 / no_ask 0.45 / edge +0.25) — exactly the edge the YES-only bot discarded.
+
+Follow-on (not blocking): the NO book is currently the YES-book complement;
+attaching the **real** captured NO-token book (separate depth) upstream in the
+order-book join would improve NO-side sizing fidelity. The synthetic complement
+is correct under no-arbitrage and sufficient to evaluate the edge.
 
 Acceptance: the taker can evaluate and (when settlement-scored evidence supports
 it) take the NO side of over-priced bands; the NO-token book is captured for

@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_strategy_evaluation import *  # noqa: F403
+from weather.market.taker_bot_two_sided import no_side_input_row, two_sided_enabled
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -257,9 +258,18 @@ def apply_taker_budget(
     existing_keys = {row.get("intent_key") for row in existing_rows or [] if row.get("intent_key")}
     seen_keys = set(existing_keys)
     modal_contexts = market_modal_contexts(input_rows)
+    # Two-sided taker (item 253): a gated arm (two_sided_enabled) also evaluates
+    # the NO side of each band as a synthesized candidate, so an over-priced band
+    # the model dislikes can be faded. YES-only arms leave evaluated_rows == input_rows.
+    evaluated_rows = list(input_rows)
+    if two_sided_enabled(config):
+        for input_row in list(input_rows):
+            no_row = no_side_input_row(input_row, config)
+            if no_row is not None:
+                evaluated_rows.append(no_row)
     rows = []
     candidates = []
-    for input_row in input_rows:
+    for input_row in evaluated_rows:
         row = base_order_row(
             input_row,
             run_id,

@@ -266,6 +266,30 @@ DEFAULT_STRATEGY_REGISTRY = {
             "max_repeated_opinion_fills": 1,
         },
     },
+    "fade_overpriced": {
+        "strategy_id": "fade_overpriced",
+        "strategy_family": "two_sided",
+        "status": "shadow",
+        "owner": "weather.market.taker_bot",
+        "assignment_rule": "shared_inputs_full_shadow",
+        "control_strategy_id": DEFAULT_CONTROL_STRATEGY_ID,
+        "description": (
+            "Two-sided probe (item 253): also buys the NO token of an over-priced "
+            "band (fair_no - no_ask >= min_edge) under the same gates as the YES "
+            "side, as a tiny settlement-scored shadow arm."
+        ),
+        "config_overrides": {
+            "two_sided_enabled": True,
+            "min_edge": 0.08,
+            "max_order_usdc": 1.0,
+            "max_position_per_token_usdc": 1.0,
+            "max_daily_positions": 12,
+            "max_market_notional_usdc": 5.0,
+            "max_repeated_opinion_fills": 1,
+            "risk_adjusted_entry_enabled": True,
+            "min_risk_adjusted_edge": 0.03,
+        },
+    },
     "winner_centered_or_adjacent": {
         "strategy_id": "winner_centered_or_adjacent",
         "strategy_family": "current_high_context",

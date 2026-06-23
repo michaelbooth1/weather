@@ -286,7 +286,7 @@ infrastructure work remains.
 | 250 | [Austin HGB Per-Location Requalification [COMPLETE 2026-06-22 - AUSTIN HGB FAIL-CLOSED REQUALIFICATION PACKET LIVE]](items/item-250-austin-hgb-per-location-requalification.md) |
 | 251 | [Standing-High Partial Lock-In Dampener [COMPLETE 2026-06-22 - PARTIAL DAMPENER GATED]](items/item-251-standing-high-partial-lockin-dampener.md) |
 | 252 | [Impossible Guidance Feature Quarantine [COMPLETE 2026-06-22 - FRESH-BUT-IMPOSSIBLE GUIDANCE QUARANTINED]](items/item-252-impossible-guidance-feature-quarantine.md) |
-| 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [OPEN]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
+| 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 
 ### Architecture And Maintainability
 
