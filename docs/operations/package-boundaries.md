@@ -62,15 +62,6 @@ have not yet been split into cleaner owner modules:
   location trust, promotion-corpus, and source-redundancy helpers.
 - `collection -> backtesting`: forecast tracking still reuses settlement and
   tape-scoring helpers.
-- `collection -> calibration`: live variant-prediction capture
-  (`weather.collection.live_variant_predictions`) still imports serving-time
-  prediction helpers (`band_prediction_record`, `apply_band_postprocessing`,
-  `predict_band_rows_for_bundle`, `apply_continuous_density_calibration`,
-  `density_band_probability_from_distribution`, `microstructure_feature_frame`)
-  from `pooled_feature_model` / `pooled_candidate_replay`. Removal route: extract
-  serving-safe prediction helpers into a runtime owner module (e.g.
-  `weather.model.variant_prediction_runtime`) and have both collection and
-  calibration import them from there. Tracked by item 254.
 - `market -> backtesting`: market-day labels and paper scoring still reuse
   settlement helpers.
 - `market -> collection`: market-microstructure features still locate latest
@@ -105,7 +96,6 @@ Current removal routes:
 | `calibration -> operations` | Low | Extract long-job guard usage behind an owner-neutral runtime utility if more calibration jobs need it. |
 | `calibration -> reporting` | Medium | Move formatting, location trust, promotion corpus, and source-redundancy primitives that calibration needs into shared owner modules. |
 | `collection -> backtesting` | Low | Move settlement/tape-scoring read contracts used by live collection into shared backtesting-neutral IO helpers. |
-| `collection -> calibration` | Low but high-risk | Item 254 owns extracting serving-safe variant prediction helpers into a runtime owner such as `weather.model.variant_prediction_runtime`. |
 | `market -> backtesting` | Medium | Extract settlement label/tape-scoring contracts used by market-day labels and paper scoring into shared settlement IO helpers. |
 | `market -> collection` | Medium | Stop locating latest snapshot folders from market features directly; consume a collection inventory/manifest contract instead. |
 | `market -> model` | Medium | Move request/source helper reuse out of model serving modules into a shared provider-request utility. |

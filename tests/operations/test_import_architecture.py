@@ -394,7 +394,6 @@ TRANSITIONAL_PACKAGE_EDGES = {
     ("calibration", "operations"),
     ("calibration", "reporting"),
     ("collection", "backtesting"),
-    ("collection", "calibration"),
     ("market", "backtesting"),
     ("market", "collection"),
     ("market", "model"),

@@ -1048,6 +1048,26 @@ def build_band_rows(records, support):
         rows.extend(synthetic_band_rows_for_record(record, support))
     return rows
 
+
+from weather.model.variant_prediction_runtime import (  # noqa: E402
+    band_feature_frame,
+    band_outcome,
+    band_prediction_record,
+    canonical_density_record,
+    canonical_density_records,
+    feature_frame,
+    feature_names_need_dynamic_source_state,
+    finite_float,
+    hard_floor_probability,
+    late_lockin_strength_from_features,
+    late_lockin_target,
+    native_delta_to_f,
+    native_value_to_f,
+    record_unit,
+    support_floor_cap,
+    temperature_scale_probability,
+)
+
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]

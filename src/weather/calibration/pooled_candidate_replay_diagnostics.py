@@ -753,3 +753,13 @@ def sidecar_eligibility_summary_from_audit(
     })
     return base
 
+
+from weather.model.variant_prediction_runtime import (  # noqa: E402
+    MICROSTRUCTURE_CATEGORICAL_FEATURES,
+    MICROSTRUCTURE_NUMERIC_FEATURES,
+    _micro_float,
+    cutoff_hour_bucket,
+    microstructure_feature_frame,
+    microstructure_feature_record,
+    probability_logit,
+)

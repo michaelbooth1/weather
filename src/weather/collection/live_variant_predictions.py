@@ -348,7 +348,7 @@ def _band_value(band: dict[str, Any], key: str) -> Any:
 
 
 def _band_prediction_records(feature_vector: dict[str, Any], band_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from weather.calibration.pooled_feature_model import band_prediction_record
+    from weather.model.variant_prediction_runtime import band_prediction_record
 
     records = []
     for band in band_rows:
@@ -451,7 +451,7 @@ def _band_binary_probabilities(
     band_rows: list[dict[str, Any]],
     context: dict[str, Any],
 ) -> dict[str, float]:
-    from weather.calibration.pooled_feature_model import apply_band_postprocessing, predict_band_rows_for_bundle
+    from weather.model.variant_prediction_runtime import apply_band_postprocessing, predict_band_rows_for_bundle
 
     records = _band_prediction_records(feature_vector, band_rows)
     if not records:
@@ -489,7 +489,7 @@ def _density_probabilities(
     feature_vector: dict[str, Any],
     band_rows: list[dict[str, Any]],
 ) -> dict[str, float]:
-    from weather.calibration.pooled_candidate_replay import (
+    from weather.model.variant_prediction_runtime import (
         apply_continuous_density_calibration,
         density_band_probability_from_distribution,
         density_projection_index,
@@ -581,7 +581,7 @@ def _microstructure_shadow_payload(variant: dict[str, Any], context: dict[str, A
             "live CLOB overlay requires serving probability and market probability",
         )
     try:
-        from weather.calibration.pooled_candidate_replay import microstructure_feature_frame
+        from weather.model.variant_prediction_runtime import microstructure_feature_frame
 
         feature_names = artifact.get("feature_names") or []
         frame = microstructure_feature_frame(records, feature_names=feature_names)

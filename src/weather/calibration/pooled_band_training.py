@@ -988,6 +988,29 @@ def tune_temperature(rows, raw_probabilities):
             best = (temperature, score)
     return best[0], best[1]
 
+
+from weather.model.variant_prediction_runtime import (  # noqa: E402
+    adjacent_calibration_contexts,
+    adjacent_calibration_factor,
+    apply_adjacent_calibration,
+    apply_band_postprocessing,
+    apply_exact_winner_catchup,
+    apply_forecast_centering,
+    apply_market_bias_calibration,
+    calibration_gap_bucket,
+    calibration_hour_bucket,
+    exact_winner_catchup_contexts,
+    exact_winner_catchup_factor,
+    forecast_anchor_probability,
+    forecast_centering_alpha,
+    market_bias_calibration_contexts,
+    market_bias_calibration_factor,
+    normal_cdf,
+    predict_band_probabilities,
+    predict_band_rows_for_bundle,
+    source_trust_bucket,
+)
+
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]

@@ -669,6 +669,9 @@ def train_pooled_band_models(
         }
     return artifact, validation_rows
 
+
+from weather.model.variant_prediction_runtime import predict_density_rows_for_bundle  # noqa: E402
+
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]

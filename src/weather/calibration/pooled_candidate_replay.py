@@ -23,7 +23,6 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 
-from weather.calibration.probability_calibration import apply_continuous_density_calibration
 from weather.scoring.metrics import (
     expected_calibration_error,
     group_sort_key,
@@ -41,6 +40,7 @@ from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
 )
+from weather.model.variant_prediction_runtime import apply_continuous_density_calibration
 from weather.reporting.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
@@ -1353,6 +1353,12 @@ def main():
         print(f"Current replay report written to {args.replay_report}")
     if args.fail_on_block and report["verdict"] == "BLOCK":
         sys.exit(1)
+
+
+from weather.model.variant_prediction_runtime import (  # noqa: E402
+    density_projection_index,
+    density_projection_probability,
+)
 
 
 if __name__ == "__main__":

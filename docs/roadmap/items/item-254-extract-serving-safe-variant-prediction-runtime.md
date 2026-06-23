@@ -1,4 +1,4 @@
-# 254. Extract Serving-Safe Variant-Prediction Runtime From Calibration [OPEN]
+# 254. Extract Serving-Safe Variant-Prediction Runtime From Calibration [DONE]
 
 Goal: remove the transitional `collection -> calibration` package edge by moving
 serving-safe prediction helpers into a runtime owner module, so live capture no
@@ -9,8 +9,8 @@ Source: `docs/roadmap/project-structure-action-plan-2026-06-22.md` Step 1.2
 (`tests/operations/test_import_architecture.py`). The ratchet is currently green
 because the edge is **documented as transitional**, not because it is clean.
 
-`weather.collection.live_variant_predictions` imports serving-time prediction
-helpers from calibration modules:
+Previous state: `weather.collection.live_variant_predictions` imported
+serving-time prediction helpers from calibration modules:
 
 - from `weather.calibration.pooled_feature_model`: `band_prediction_record`,
   `apply_band_postprocessing`, `predict_band_rows_for_bundle`
@@ -25,24 +25,21 @@ capture path importing calibration couples the runtime to heavy training modules
 fallback documents the edge with a named removal route rather than blessing it as
 permanent.
 
-## Design
+## Implementation
 
-1. Create a runtime owner module, e.g. `weather.model.variant_prediction_runtime`
-   (or `weather.model.pooled_candidate_runtime`).
-2. Move only the serving-safe, pure prediction helpers listed above into it.
-3. Update `weather.collection.live_variant_predictions` to import from the new
-   runtime module.
-4. Update the calibration modules to import those helpers from the runtime module
-   instead of defining runtime behaviour themselves.
-5. Keep CLI, replay orchestration, training, artifact writing, and report
+1. Added `weather.model.variant_prediction_runtime` as the runtime owner for
+   pooled live variant prediction helpers.
+2. Repointed `weather.collection.live_variant_predictions` to the runtime owner.
+3. Re-exported the same helpers from calibration facades so existing callers keep
+   stable imports while sharing the model-owned runtime implementation.
+4. Removed `("collection", "calibration")` from `TRANSITIONAL_PACKAGE_EDGES` and
+   from `docs/operations/package-boundaries.md`.
+5. Kept CLI, replay orchestration, training, artifact writing, and report
    generation in `weather.calibration`.
-6. Remove `("collection", "calibration")` from `TRANSITIONAL_PACKAGE_EDGES` in
-   the architecture test and from the transitional list in
-   `docs/operations/package-boundaries.md`.
 
-- [ ] Add the serving-safe runtime module and move the six helpers.
-- [ ] Repoint collection and calibration imports to the runtime module.
-- [ ] Remove the transitional edge from the test and the boundaries doc.
+- [x] Add the serving-safe runtime module and move the six helpers.
+- [x] Repoint collection and calibration imports to the runtime module.
+- [x] Remove the transitional edge from the test and the boundaries doc.
 - [ ] Run `tests/collection/test_live_variant_predictions.py`,
   `tests/calibration/test_pooled_candidate_replay.py`, and
   `tests/operations/test_import_architecture.py`.
