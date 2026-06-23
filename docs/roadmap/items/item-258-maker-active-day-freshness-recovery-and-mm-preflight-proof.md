@@ -1,4 +1,4 @@
-# 258. Maker Active-Day Freshness Recovery And MM Preflight Proof [OPEN 2026-06-23 - JUNE 19-22 MAKER RUNS NON-COUNTABLE]
+# 258. Maker Active-Day Freshness Recovery And MM Preflight Proof [COMPLETE 2026-06-23 - SELECTED PAPER PROOF PASS]
 
 Goal: make active-day freshness recovery for snapshot/model rows, CLOB books,
 and observation-trigger state a first-class maker workflow, then rerun
@@ -34,12 +34,12 @@ markets, `2` model-stale markets, and zero quote rows.
 5. Require every selected market to either produce countable paper evidence or
    have a documented fail-closed exclusion before the run can count.
 
-- [ ] Define the operator recovery sequence for snapshot, CLOB, and watcher
+- [x] Define the operator recovery sequence for snapshot, CLOB, and watcher
   freshness.
-- [ ] Add a preflight proof packet that records all freshness checks before
+- [x] Add a preflight proof packet that records all freshness checks before
   rerunning maker sessions.
-- [ ] Rerun a selected-market maker paper-live-forward session after recovery.
-- [ ] Verify the live-forward gate counts the run and has no stale blockers.
+- [x] Rerun a selected-market maker paper-live-forward session after recovery.
+- [x] Verify the live-forward gate counts the run and has no stale blockers.
 
 Acceptance: a post-recovery `market_making_run --mode paper-live-forward
 --once` over the selected markets passes preflight, produces countable paper
@@ -48,3 +48,41 @@ writes `preflight.json`, `live_forward_gate.json`, and `run_report.md` showing
 no stale model, CLOB, or watcher blockers.
 
 Related: items 57, 157, 210, 211.
+
+## 2026-06-23 Selected-Market Proof
+
+Recovery sequence used for the countable proof:
+
+1. Force fresh snapshot/model rows for the selected markets with
+   `weather.collection.snapshot_tracker.capture_snapshot(force=True,
+   market_id=...)`.
+2. Refresh selected CLOB books with
+   `python -m weather.market.market_microstructure capture --market <market>
+   --no-price-history --no-websocket-events`.
+3. Rerun paper-live-forward maker once the selected model and CLOB timestamps
+   are in the same freshness window.
+
+Proof run:
+
+- `data/mm_runs/2026-06-23/item258-selected-20260623T1605/preflight.json`
+- `data/mm_runs/2026-06-23/item258-selected-20260623T1605/live_forward_gate.json`
+- `data/mm_runs/2026-06-23/item258-selected-20260623T1605/run_report.md`
+
+Result:
+
+- selected markets: `austin`, `chicago`, `dallas`.
+- preflight status: `PASS`.
+- live-forward gate status: `PASS`.
+- counts toward live-forward gate: `true`.
+- quote rows: `2`; no-quote rows: `31`.
+- preflight remediation incidents: `0`.
+- selected-market model-review evidence: `3/3` countable.
+- selected-market paper-trading evidence: `3/3` countable.
+
+Earlier same-day attempts documented the blocker and the fix:
+
+- `item258-selected-20260623T1600`: `STALE`, blocked by stale CLOB books.
+- `item258-selected-20260623T1603`: `WARN`, CLOB was fresh but Chicago and
+  Dallas model rows were stale.
+- `item258-selected-20260623T1605`: `PASS`, after targeted model and CLOB
+  refresh.

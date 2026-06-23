@@ -127,7 +127,7 @@ infrastructure work remains.
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 | 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
-| 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-22 - GATE REFRESHED, ISOLATED REPLAY BLOCKED]](items/item-187-forecast-shortwave-insolation-features.md) |
+| 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-22 - GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-22 - GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
@@ -293,7 +293,7 @@ infrastructure work remains.
 | 255 | [Taker Current-High Deny Regression Proof [COMPLETE 2026-06-23 - CONFIG-DRIFT CURRENT-HIGH DENY RATIFIED]](items/item-255-taker-current-high-deny-regression-proof.md) |
 | 256 | [Post-Fix Taker After-Fee Requalification Campaign [OPEN 2026-06-23 - NO FRESH COMPLETE-LABEL PROFIT SAMPLE]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 257 | [Real NO-Book Depth For Two-Sided Taker [COMPLETE 2026-06-23 - REAL NO-BOOK DEPTH GATES LIVE]](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
-| 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [OPEN 2026-06-23 - JUNE 19-22 MAKER RUNS NON-COUNTABLE]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
+| 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [COMPLETE 2026-06-23 - SELECTED PAPER PROOF PASS]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
 | 259 | [Current-Run Artifact Profitability Field Verification [COMPLETE 2026-06-23 - CURRENT-RUN PROFITABILITY VERIFIER GATES PROMOTION]](items/item-259-current-run-artifact-profitability-field-verification.md) |
 | 260 | [Daily Maker Paper-Score Freshness SLA [COMPLETE 2026-06-23 - STANDARD MM PAPER SCORE FRESHNESS GATED]](items/item-260-daily-maker-paper-score-freshness-sla.md) |
 | 261 | [Taker Canary Tail-Share Demotion On Unsettled Sample [COMPLETE 2026-06-23 - HIGH-TAIL UNSETTLED CANARY DEMOTION LIVE]](items/item-261-taker-canary-tail-share-demotion-on-unsettled-sample.md) |

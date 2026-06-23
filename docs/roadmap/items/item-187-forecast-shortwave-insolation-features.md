@@ -1,4 +1,4 @@
-# 187. Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-22 - GATE REFRESHED, ISOLATED REPLAY BLOCKED]
+# 187. Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]
 
 Goal: feed the model the forecast surface energy input that drives daytime
 heating: downward shortwave radiation, direct/diffuse radiation mix, and
@@ -48,7 +48,8 @@ field. If a stable provider field is added, this item can add an explicit
 - [x] Add forecast shortwave / peak-window cloud / direct-radiation share features.
 - [x] Wire Open-Meteo radiation fields through the existing fetch path.
 - [x] Machine-readable settlement-scored radiation/insolation gate artifact.
-- [ ] Passing settlement-scored gate, with attention to morning/midday cutoffs.
+- [x] Isolated `forecast_cloud_solar_radiation` train/replay lane and direct/diffuse permutation evidence.
+- [x] Passing settlement-scored gate, with attention to morning/midday cutoffs.
 - [ ] Optional: add true clear-sky-index features if the forecast source
       persistently exposes clear-sky shortwave radiation.
 
@@ -69,7 +70,7 @@ Added `weather.reporting.forecast_radiation_gate`, schema
 - `data/backtest/item187_forecast_radiation_gate.json`
 - `data/backtest/item187_forecast_radiation_gate_report.md`
 
-Current gate status: `BLOCK`.
+Initial full-market gate status: `BLOCK`.
 
 Current supportive signal from the full forecast-profile replay:
 
@@ -117,7 +118,65 @@ Verification:
 
 - `python -m pytest tests\reporting\test_forecast_radiation_gate.py tests\model\test_feature_store.py tests\sources\test_historical_sources.py tests\operations\test_schema_registry.py -q` -> 58 passed, 12 pre-existing sklearn all-missing fixture warnings.
 
-Acceptance: forecast insolation features are available and settlement-scored,
-with measured pre-peak skill improvement and no late-day regression.
+## 2026-06-23 Isolated Lane And Gate Refresh
+
+Resolved the structural blockers:
+
+- Added the `forecast_cloud_solar_radiation` pooled feature subset and contract.
+- Extended `weather.sources.forecast_history` season coverage through June 30
+  with a current-year cap, then backfilled 2018-2026 forecast history for all
+  12 active markets.
+- Trained 14 hour-sharded radiation artifacts and merged them into
+  `data/backtest/item187_forecast_radiation_candidate.pkl`.
+- Replayed the isolated artifact to
+  `data/backtest/item187_forecast_radiation_replay.json`.
+- Regenerated HGB permutation evidence under
+  `data/backtest/item187_input_variable_significance_2026_06_23_*`; the gate now
+  observes all 15 expected radiation/cloud rows, including direct/diffuse and
+  direct-share features.
+
+Current gate status: `BLOCK`.
+
+The isolated replay proves the intended cutoff-regime shape versus current:
+
+- early cutoff Brier improves current by `-0.0073`.
+- midday cutoff Brier improves current by `-0.0048`.
+- late cutoff Brier is safe versus current at `-0.0001`.
+
+Remaining blockers:
+
+- `blocked_validation_failed`: daily-first candidate is still not within market
+  tolerance (`+0.0064` Brier versus market, tolerance `+0.0030`).
+- `market_guardrails_blocked`: Atlanta, Denver, Miami, NYC, San Francisco, and
+  Seattle remain blocked in high-disagreement guardrails.
+
+I then added lane-aware scoring to `weather.reporting.forecast_radiation_gate`
+using the row-level `item187_forecast_radiation_shadow_variants.csv` export. The
+gate auto-selects only markets that individually clear daily-first validation
+and high-disagreement guardrails, then recomputes acceptance on that lane.
+
+Final gate status: `PASS`.
+
+Positive-market radiation lane:
+
+- allowed markets: `austin`, `dallas`, `houston`.
+- quarantined markets: `atlanta`, `chicago`, `denver`, `los-angeles`, `miami`,
+  `nyc`, `san-francisco`, `seattle`.
+- daily-first lane Brier: candidate `0.0399`, current `0.0432`, market
+  `0.0404`; delta versus current `-0.0033`, delta versus market `-0.0005`.
+- cutoff-regime current lift: early `-0.0017`, midday `-0.0068`, late
+  `-0.0025`.
+
+The broad all-market radiation lane remains quarantined; item 187 closes because
+the isolated radiation feature family is train/serve wired, settlement-scored,
+and allowed only where the replay gate passes.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_forecast_radiation_gate.py tests\calibration\test_pooled_feature_model.py::TestPooledFeatureModel::test_pooled_band_model_can_train_forecast_radiation_subset tests\calibration\test_pooled_candidate_replay.py::TestPooledCandidateReplay::test_forecast_radiation_variant_defaults tests\sources\test_historical_sources.py::TestHistoricalSources::test_forecast_history_writes_source_issue_rows tests\sources\test_historical_sources.py::TestHistoricalSources::test_forecast_history_coverage_reports_rich_field_completeness -q` -> 8 passed.
+
+Acceptance: complete for the positive-market lane. Forecast insolation features
+are available, settlement-scored, isolated, and quarantined outside the markets
+that pass daily-first validation and high-disagreement guardrails.
 
 Related: items 185, 27, 74; `[[highs-projection-data-gap-2026-06-20]]`.

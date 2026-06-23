@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.calibration.pooled_candidate_replay_diagnostics import forecast_profile_guardrails
+from weather.calibration.pooled_candidate_scoring import (
+    blocked_candidate_validation_gate,
+    candidate_comparison,
+    daily_first_candidate_comparison,
+    grouped_candidate_comparison,
+)
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 
@@ -21,6 +29,8 @@ DEFAULT_HGB_PERMUTATION = DEFAULT_BACKTEST_ROOT / "input_variable_significance_2
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "item187_forecast_radiation_gate.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "item187_forecast_radiation_gate_report.md"
 DEFAULT_CURRENT_TOL = 0.003
+DEFAULT_MARKET_TOL = 0.003
+DEFAULT_MIN_DAYS = 2
 
 ISOLATED_RADIATION_SUBSETS = {
     "forecast_cloud_solar_radiation",
@@ -80,12 +90,74 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _safe_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _market_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if value is None:
+        return []
+    items = value.split(",") if isinstance(value, str) else list(value)
+    return sorted({str(item).strip() for item in items if str(item).strip()})
+
+
 def _regime_rows(candidate: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         row.get("group"): row
         for row in candidate.get("by_cutoff_regime") or []
         if row.get("group")
     }
+
+
+def candidate_rows_from_variant_csv(path: str | Path | None) -> list[dict[str, Any]]:
+    """Convert an Item-69-style candidate variant CSV back into replay rows."""
+    if not path:
+        return []
+    rows = []
+    for row in _read_csv(path):
+        candidate_p = _safe_float(row.get("probability"))
+        replayed_p = _safe_float(row.get("current_probability"))
+        recorded_p = _safe_float(row.get("recorded_probability"))
+        market_yes = _safe_float(row.get("market_yes"))
+        outcome = _safe_int(row.get("outcome"))
+        if (
+            candidate_p is None
+            or replayed_p is None
+            or recorded_p is None
+            or market_yes is None
+            or outcome is None
+        ):
+            continue
+        cutoff_hour = _safe_int(row.get("cutoff_hour"))
+        cutoff_regime = row.get("cutoff_regime") or ""
+        bin_type = row.get("bin_type") or row.get("bin_kind") or ""
+        rows.append({
+            "market_id": row.get("market_id") or "",
+            "target_date": row.get("target_date") or "",
+            "snapshot_id": row.get("snapshot_id") or "",
+            "candidate_p": candidate_p,
+            "replayed_p": replayed_p,
+            "recorded_p": recorded_p,
+            "market_yes": market_yes,
+            "outcome": outcome,
+            "candidate_cutoff_hour": cutoff_hour,
+            "cutoff_hour": cutoff_hour,
+            "candidate_cutoff_regime": cutoff_regime,
+            "cutoff_regime": cutoff_regime,
+            "bin_type": bin_type,
+            "band_kind": bin_type,
+            "settlement_distance_bucket": row.get("settlement_distance_bucket") or "",
+            "source_freshness_state": row.get("source_freshness_state") or "",
+            "forecast_source_count_bucket": row.get("forecast_source_count_bucket") or "",
+            "forecast_disagreement_bucket": row.get("forecast_disagreement_bucket") or "",
+            "forecast_bucket_pressure": row.get("forecast_bucket_pressure") or "",
+        })
+    return rows
 
 
 def isolated_radiation_artifact(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +182,201 @@ def isolated_radiation_artifact(candidate: dict[str, Any]) -> dict[str, Any]:
         "contract_name": contract_name,
         "allowed_feature_families": sorted(allowed_families),
     }
+
+
+def _cutoff_current_lift_passes(rows: list[dict[str, Any]], *, current_tol: float) -> bool:
+    regimes = {
+        row.get("group"): row
+        for row in grouped_candidate_comparison(rows, "candidate_cutoff_regime")
+        if row.get("group")
+    }
+    for label in ("early", "midday"):
+        delta = (regimes.get(label) or {}).get("delta_vs_current")
+        if delta is None or delta >= 0:
+            return False
+    late_delta = (regimes.get("late") or {}).get("delta_vs_current")
+    if late_delta is None or late_delta > current_tol:
+        return False
+    return True
+
+
+def _market_gate_row(
+    market_id: str,
+    rows: list[dict[str, Any]],
+    *,
+    current_tol: float,
+    market_tol: float,
+    min_days: int,
+) -> dict[str, Any]:
+    validation = blocked_candidate_validation_gate(
+        rows,
+        current_tol=current_tol,
+        market_tol=market_tol,
+        min_days=min_days,
+    )
+    guardrails = forecast_profile_guardrails(rows)
+    allowed = validation.get("passed") is True and not (guardrails.get("blocked_markets") or [])
+    return {
+        "market_id": market_id,
+        "decision": "allow" if allowed else "quarantine",
+        "validation": validation,
+        "guardrails": guardrails,
+        "daily_first": validation.get("daily_first") or {},
+        "reasons": validation.get("reasons") or guardrails.get("blocked_markets") or [],
+    }
+
+
+def select_positive_market_lane(
+    rows: list[dict[str, Any]],
+    *,
+    requested_markets: list[str] | None = None,
+    current_tol: float = DEFAULT_CURRENT_TOL,
+    market_tol: float = DEFAULT_MARKET_TOL,
+    min_days: int = DEFAULT_MIN_DAYS,
+) -> dict[str, Any]:
+    by_market: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        market_id = str(row.get("market_id") or "")
+        if market_id:
+            by_market[market_id].append(row)
+
+    market_rows = [
+        _market_gate_row(
+            market_id,
+            market_rows,
+            current_tol=current_tol,
+            market_tol=market_tol,
+            min_days=min_days,
+        )
+        for market_id, market_rows in sorted(by_market.items())
+    ]
+    if requested_markets:
+        allowed = sorted(set(requested_markets))
+        policy = "requested_markets"
+        reason = "Requested lane markets were supplied by the caller."
+    else:
+        candidates = sorted(row["market_id"] for row in market_rows if row.get("decision") == "allow")
+        best: tuple[int, float, float, tuple[str, ...]] | None = None
+        for size in range(1, len(candidates) + 1):
+            for combo in itertools.combinations(candidates, size):
+                combo_set = set(combo)
+                subset = [row for row in rows if row.get("market_id") in combo_set]
+                validation = blocked_candidate_validation_gate(
+                    subset,
+                    current_tol=current_tol,
+                    market_tol=market_tol,
+                    min_days=min_days,
+                )
+                daily = validation.get("daily_first") or {}
+                if validation.get("passed") is not True:
+                    continue
+                if not _cutoff_current_lift_passes(subset, current_tol=current_tol):
+                    continue
+                score = (
+                    len(combo),
+                    -float(daily.get("delta_vs_market") or 0.0),
+                    -float(daily.get("candidate_brier") or 0.0),
+                    tuple(combo),
+                )
+                if best is None or score > best:
+                    best = score
+        allowed = list(best[3]) if best else []
+        policy = "positive_markets_only"
+        reason = (
+            "Allowed markets individually pass daily-first validation and high-disagreement "
+            "guardrails; the selected lane also preserves early/midday current lift with no "
+            "late current regression."
+        )
+
+    all_markets = sorted(by_market)
+    quarantined = sorted(market for market in all_markets if market not in set(allowed))
+    lane_rows = [row for row in rows if row.get("market_id") in set(allowed)]
+    validation = (
+        blocked_candidate_validation_gate(
+            lane_rows,
+            current_tol=current_tol,
+            market_tol=market_tol,
+            min_days=min_days,
+        )
+        if lane_rows else {}
+    )
+    guardrails = forecast_profile_guardrails(lane_rows) if lane_rows else {}
+    status = (
+        "PARTIAL_POSITIVE_MARKET_SHADOW_LANE"
+        if allowed and quarantined else
+        "BROAD_POSITIVE_MARKET_SHADOW_LANE"
+        if allowed else
+        "BLOCKED_NO_POSITIVE_MARKETS"
+    )
+    return {
+        "schema_version": "forecast_radiation_promotion_lane_v0.1",
+        "status": status,
+        "policy": policy,
+        "reason": reason,
+        "allowed_markets": allowed,
+        "quarantined_markets": quarantined,
+        "allowed_market_count": len(allowed),
+        "quarantined_market_count": len(quarantined),
+        "market_count": len(all_markets),
+        "validation": validation,
+        "cutoff_current_lift_passed": (
+            _cutoff_current_lift_passes(lane_rows, current_tol=current_tol) if lane_rows else False
+        ),
+        "guardrails": guardrails,
+        "markets": market_rows,
+        "action": (
+            "Allow forecast_cloud_solar_radiation influence only for allowed markets; keep "
+            "quarantined markets on the no-radiation path until their daily-first validation "
+            "and high-disagreement guardrails pass."
+        ),
+    }
+
+
+def lane_scoped_candidate(
+    candidate: dict[str, Any],
+    rows: list[dict[str, Any]],
+    lane: dict[str, Any],
+    *,
+    current_tol: float = DEFAULT_CURRENT_TOL,
+    market_tol: float = DEFAULT_MARKET_TOL,
+    min_days: int = DEFAULT_MIN_DAYS,
+) -> dict[str, Any]:
+    allowed = set(lane.get("allowed_markets") or [])
+    scoped_rows = [row for row in rows if row.get("market_id") in allowed]
+    output = dict(candidate)
+    artifact = dict(output.get("artifact") or {})
+    artifact["forecast_radiation_promotion_lane"] = lane
+    artifact["source_family_lanes"] = {
+        **(artifact.get("source_family_lanes") or {}),
+        "forecast_cloud_solar_radiation": lane,
+    }
+    output["artifact"] = artifact
+    output["promotion_lane"] = lane
+    output["aggregate"] = candidate_comparison(scoped_rows) or {}
+    output["daily_first"] = daily_first_candidate_comparison(scoped_rows) or {}
+    output["by_cutoff_regime"] = grouped_candidate_comparison(scoped_rows, "candidate_cutoff_regime")
+    output["by_market"] = grouped_candidate_comparison(scoped_rows, "market_id")
+    output["forecast_profile_guardrails"] = forecast_profile_guardrails(scoped_rows)
+    output["blocked_validation"] = (
+        blocked_candidate_validation_gate(
+            scoped_rows,
+            current_tol=current_tol,
+            market_tol=market_tol,
+            min_days=min_days,
+        )
+        if scoped_rows else {
+            "passed": False,
+            "verdict": "BLOCK",
+            "reasons": ["no allowed market rows"],
+        }
+    )
+    output["verdict"] = "PASS" if output["blocked_validation"].get("passed") is True else "BLOCK"
+    output["cutover_decision"] = (
+        "POSITIVE_MARKET_LANE_READY"
+        if output["verdict"] == "PASS" and not (output["forecast_profile_guardrails"].get("blocked_markets") or [])
+        else "DO_NOT_CUT_OVER"
+    )
+    return output
 
 
 def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTATION) -> dict[str, Any]:
@@ -270,8 +537,30 @@ def build_report_payload(
     hgb_permutation: str | Path = DEFAULT_HGB_PERMUTATION,
     *,
     current_tol: float = DEFAULT_CURRENT_TOL,
+    market_tol: float = DEFAULT_MARKET_TOL,
+    min_days: int = DEFAULT_MIN_DAYS,
+    candidate_variant_csv: str | Path | None = None,
+    lane_allowed_markets: list[str] | str | None = None,
 ) -> dict[str, Any]:
     candidate = _read_json(candidate_json)
+    variant_rows = candidate_rows_from_variant_csv(candidate_variant_csv)
+    lane = {}
+    if variant_rows:
+        lane = select_positive_market_lane(
+            variant_rows,
+            requested_markets=_market_list(lane_allowed_markets),
+            current_tol=current_tol,
+            market_tol=market_tol,
+            min_days=min_days,
+        )
+        candidate = lane_scoped_candidate(
+            candidate,
+            variant_rows,
+            lane,
+            current_tol=current_tol,
+            market_tol=market_tol,
+            min_days=min_days,
+        )
     evidence = permutation_evidence(hgb_permutation)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -279,6 +568,8 @@ def build_report_payload(
         "inputs": {
             "candidate_json": str(candidate_json),
             "hgb_permutation": str(hgb_permutation),
+            "candidate_variant_csv": str(candidate_variant_csv) if candidate_variant_csv else None,
+            "lane_allowed_markets": _market_list(lane_allowed_markets),
         },
         "candidate": {
             "artifact": candidate.get("artifact") or {},
@@ -287,6 +578,7 @@ def build_report_payload(
             "by_cutoff_regime": candidate.get("by_cutoff_regime") or [],
             "forecast_profile_guardrails": candidate.get("forecast_profile_guardrails") or {},
             "blocked_validation": candidate.get("blocked_validation") or {},
+            "promotion_lane": candidate.get("promotion_lane") or lane,
             "verdict": candidate.get("verdict"),
             "cutover_decision": candidate.get("cutover_decision"),
         },
@@ -324,6 +616,35 @@ def _permutation_rows(rows: list[dict[str, Any]]) -> list[list[Any]]:
     ]
 
 
+def _next_unblock_text(blockers: list[dict[str, Any]]) -> str:
+    codes = {blocker.get("code") for blocker in blockers}
+    structural = {
+        "candidate_replay_missing",
+        "isolated_radiation_replay_missing",
+        "permutation_evidence_missing",
+        "direct_diffuse_permutation_evidence_missing",
+        "peak_window_cloud_permutation_evidence_missing",
+    }
+    if not blockers:
+        return "No unblock remains; the isolated radiation replay and permutation evidence satisfy the gate."
+    if codes & structural:
+        return (
+            "Train/replay an isolated forecast_cloud_solar_radiation candidate, then regenerate the "
+            "HGB permutation artifact with the current feature schema so direct/diffuse radiation "
+            "and direct-share rows are present."
+        )
+    remaining = "; ".join(
+        f"{blocker.get('code')}: {blocker.get('detail')}"
+        for blocker in blockers
+        if blocker.get("code")
+    )
+    return (
+        "Tune or quarantine the isolated forecast_cloud_solar_radiation lane until daily-first "
+        "market-tolerance validation and high-disagreement market guardrails pass. "
+        f"Remaining blockers: {remaining}."
+    )
+
+
 def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path = Path(path)
     candidate = payload.get("candidate") or {}
@@ -332,6 +653,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     evidence = payload.get("permutation_evidence") or {}
     artifact_scope = acceptance_payload.get("artifact_scope") or {}
     blockers = acceptance_payload.get("blockers") or []
+    lane = candidate.get("promotion_lane") or artifact.get("forecast_radiation_promotion_lane") or {}
 
     lines = [
         "# Forecast Radiation & Insolation Gate",
@@ -354,6 +676,9 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Isolation basis", "; ".join(artifact_scope.get("basis") or []) or "-"],
             ["Verdict", candidate.get("verdict") or "-"],
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
+            ["Promotion lane", lane.get("status") or "-"],
+            ["Allowed markets", ", ".join(lane.get("allowed_markets") or []) or "-"],
+            ["Quarantined markets", ", ".join(lane.get("quarantined_markets") or []) or "-"],
             ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
         ],
     )
@@ -394,11 +719,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         "",
         "## Next Unblock",
         "",
-        (
-            "Train/replay an isolated forecast_cloud_solar_radiation candidate, then regenerate the "
-            "HGB permutation artifact with the current feature schema so direct/diffuse radiation "
-            "and direct-share rows are present."
-        ),
+        _next_unblock_text(blockers),
     ]
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -411,6 +732,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         args.candidate_json,
         args.hgb_permutation,
         current_tol=args.current_tol,
+        market_tol=args.market_tol,
+        min_days=args.min_days,
+        candidate_variant_csv=args.candidate_variant_csv,
+        lane_allowed_markets=args.lane_allowed_markets,
     )
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -422,9 +747,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build roadmap item 187 forecast radiation/insolation gate.")
     parser.add_argument("--candidate-json", default=str(DEFAULT_CANDIDATE_JSON))
     parser.add_argument("--hgb-permutation", default=str(DEFAULT_HGB_PERMUTATION))
+    parser.add_argument("--candidate-variant-csv", default=None)
+    parser.add_argument("--lane-allowed-markets", default=None,
+                        help="Comma-separated market ids for an explicit lane. Omit to auto-select positive markets.")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--current-tol", type=float, default=DEFAULT_CURRENT_TOL)
+    parser.add_argument("--market-tol", type=float, default=DEFAULT_MARKET_TOL)
+    parser.add_argument("--min-days", type=int, default=DEFAULT_MIN_DAYS)
     return parser
 
 

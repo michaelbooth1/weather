@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T17:32:00.080037+00:00
+Generated: 2026-06-23T20:06:30.250460+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 270 |
-| Active items | 37 |
-| OPEN | 8 |
-| PARTIAL | 29 |
-| COMPLETE | 233 |
+| Active items | 35 |
+| OPEN | 7 |
+| PARTIAL | 28 |
+| COMPLETE | 235 |
 | ROADMAP rows | 270 |
 | ROADMAP primary rows | 270 |
 | Metadata manifest rows | 270 |
@@ -45,7 +45,6 @@ Status: `OK`
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 178 | PARTIAL | 2026-06-22 | GATE REFRESHED, VALIDATION BLOCKED | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 187 | PARTIAL | 2026-06-22 | GATE REFRESHED, ISOLATED REPLAY BLOCKED | [Forecast Shortwave-Radiation & Peak-Window Insolation Features](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | PARTIAL | 2026-06-22 | GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-22 | GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | PARTIAL | 2026-06-22 | GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
@@ -60,7 +59,6 @@ Status: `OK`
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
-| 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 
 ## Lint Issues
