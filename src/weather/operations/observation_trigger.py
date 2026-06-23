@@ -38,7 +38,7 @@ from weather.model.feature_store import (
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT, data_path
 from weather.operations.power import keep_system_awake
-from weather.operations.runtime_identity import get_runtime_identity
+from weather.runtime_identity import get_runtime_identity
 from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,

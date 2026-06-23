@@ -22,7 +22,7 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
 from weather.operations.power import keep_system_awake
-from weather.operations.runtime_identity import get_runtime_identity, identities_match
+from weather.runtime_identity import get_runtime_identity, identities_match
 from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,

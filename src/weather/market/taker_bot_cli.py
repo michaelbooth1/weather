@@ -1,7 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_finalization import *  # noqa: F403
-from weather.operations.runtime_identity import get_runtime_identity
+from weather.runtime_identity import get_runtime_identity
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.

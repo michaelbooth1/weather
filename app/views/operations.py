@@ -21,7 +21,7 @@ def render_operations_page():
         stop_clob_book_loop,
         stop_weather_loop,
     )
-    from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity
+    from weather.runtime_identity import format_runtime_identity, get_runtime_identity
 
     @st.cache_data(ttl=15, show_spinner=False)
     def cached_ops_snapshot():

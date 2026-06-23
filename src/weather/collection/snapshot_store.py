@@ -38,7 +38,7 @@ from weather.model.feature_store import (
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
-from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()

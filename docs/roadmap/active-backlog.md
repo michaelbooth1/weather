@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T02:03:50.498880+00:00
+Generated: 2026-06-23T02:15:07.248374+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 261 |
-| Active items | 44 |
-| OPEN | 13 |
-| PARTIAL | 31 |
+| Items | 265 |
+| Active items | 48 |
+| OPEN | 16 |
+| PARTIAL | 32 |
 | COMPLETE | 217 |
-| ROADMAP rows | 261 |
-| ROADMAP primary rows | 261 |
-| Metadata manifest rows | 261 |
+| ROADMAP rows | 265 |
+| ROADMAP primary rows | 265 |
+| Metadata manifest rows | 265 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -61,7 +61,7 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 254 | OPEN | - | - | [Extract Serving-Safe Variant-Prediction Runtime From Calibration](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
+| 254 | PARTIAL | 2026-06-23 | IMPLEMENTED, VERIFICATION BLOCKED BY UNTRACKED RUNTIME IDENTITY FILE | [Extract Serving-Safe Variant-Prediction Runtime From Calibration](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
 | 255 | OPEN | 2026-06-23 | PRE-LATE BYPASS STILL CONFIG-REOPENABLE | [Taker Current-High Deny Regression Proof](items/item-255-taker-current-high-deny-regression-proof.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 257 | OPEN | 2026-06-23 | SYNTHETIC COMPLEMENT DEPTH LIMITS SCALE | [Real NO-Book Depth For Two-Sided Taker](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
@@ -69,6 +69,10 @@ Status: `OK`
 | 259 | OPEN | 2026-06-23 | ITEM 240/241 FIELDS ABSENT FROM JUNE 19-22 TAKER TAPES | [Current-Run Artifact Profitability Field Verification](items/item-259-current-run-artifact-profitability-field-verification.md) |
 | 260 | OPEN | 2026-06-23 | MM PAPER REPORT STALE UNTIL MANUAL JUNE 19-22 REFRESH | [Daily Maker Paper-Score Freshness SLA](items/item-260-daily-maker-paper-score-freshness-sla.md) |
 | 261 | OPEN | 2026-06-23 | WARN_HIGH_TAIL_SHARE PLUS MISSING SETTLED SAMPLE MUST PAPER-ONLY | [Taker Canary Tail-Share Demotion On Unsettled Sample](items/item-261-taker-canary-tail-share-demotion-on-unsettled-sample.md) |
+| 262 | OPEN | 2026-06-23 | SCHOLARLY VERIFICATION NOT CANONICAL | [Proper-Scoring And Reliability Scorecard](items/item-262-proper-scoring-and-reliability-scorecard.md) |
+| 263 | OPEN | 2026-06-23 | PHYSICAL INPUTS NEED FAMILY-LEVEL PROOF | [Physical Feature-Family Isolated Replay Ratchet](items/item-263-physical-feature-family-isolated-replay-ratchet.md) |
+| 264 | OPEN | 2026-06-23 | MARKET SIGNAL MUST NOT CONFUSE WEATHER SKILL | [Market Benchmark And Residual Edge Research Lane](items/item-264-market-benchmark-and-residual-edge-research-lane.md) |
+| 265 | OPEN | 2026-06-23 | LABEL FINALIZATION RISK NEEDS COUNTABLE PROOF | [Settlement-Source Revision And Truth-Label Audit](items/item-265-settlement-source-revision-and-truth-label-audit.md) |
 
 ## Lint Issues
 

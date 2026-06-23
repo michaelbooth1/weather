@@ -1145,7 +1145,7 @@ REGISTERED_SCHEMAS = (
         "active",
         "Per-market skill-gap experiment ownership artifact emitted by promotion refresh.",
     ),
-    SchemaSpec("runtime_identity", "runtime_identity_v0.1", "weather.operations.runtime_identity", "active"),
+    SchemaSpec("runtime_identity", "runtime_identity_v0.1", "weather.runtime_identity", "active"),
     SchemaSpec("long_job_guard", "long_job_guard_v0.1", "weather.operations.long_job_guard", "active"),
     SchemaSpec(
         "replay_input_status",

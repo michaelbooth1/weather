@@ -352,6 +352,7 @@ SHARED_PACKAGE_ROOTS = {
     "artifacts",
     "io",
     "paths",
+    "runtime_identity",
     "schema_registry",
     "scoring",
     "time",

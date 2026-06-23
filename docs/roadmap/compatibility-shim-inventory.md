@@ -147,7 +147,7 @@ On or after 2026-07-18:
 | `src/replay.py` | `weather.backtesting.replay` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/replay_ablation.py` | `weather.backtesting.replay_ablation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/replay_backtest.py` | `weather.backtesting.replay_backtest` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/runtime_identity.py` | `weather.operations.runtime_identity` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/runtime_identity.py` | `weather.runtime_identity` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/schema_registry.py` | `weather.schema_registry` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/settled_days.py` | `weather.backtesting.settled_days` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/settlement_lag_model.py` | `weather.calibration.settlement_lag_model` | External/local legacy commands only | No first-party callers for one migration window |

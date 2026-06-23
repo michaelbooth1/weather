@@ -14,6 +14,7 @@ These packages are intentionally importable by any owner package:
 - `weather.artifacts`
 - `weather.io`
 - `weather.paths`
+- `weather.runtime_identity`
 - `weather.schema_registry`
 - `weather.scoring`
 - `weather.time`
@@ -43,8 +44,8 @@ module that needed them.
 - `weather.reporting` owns durable reports, dashboards, promotion summaries,
   and audit rendering.
 - `weather.operations` owns orchestration entrypoints, scheduled jobs,
-  supervisors, runtime identity, long-job guards, and architecture/ownership
-  audits that are operational rather than domain-specific.
+  supervisors, long-job guards, and architecture/ownership audits that are
+  operational rather than domain-specific.
 
 ## Transitional Edges
 

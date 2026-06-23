@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.operations.runtime_identity import get_runtime_identity, source_tree_fingerprint
+from weather.runtime_identity import get_runtime_identity, source_tree_fingerprint
 
 
 class TestRuntimeIdentity(unittest.TestCase):

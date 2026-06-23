@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.model.model_presentation import DRIVER_WATERFALL_STAGES
-from weather.operations.runtime_identity import (
+from weather.runtime_identity import (
     format_runtime_identity,
     get_runtime_identity,
     identities_match,

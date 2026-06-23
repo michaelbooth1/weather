@@ -30,7 +30,7 @@ from weather.operations.bot_run_liveness import (
     is_disk_full_error,
     terminal_status_for_dead_pid,
 )
-from weather.operations.runtime_identity import get_runtime_identity
+from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
 

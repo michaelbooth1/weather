@@ -118,7 +118,7 @@ from weather.market.market_making_evidence import (
     EVIDENCE_MODE_CHOICES,
     classify_market_making_evidence,
 )
-from weather.operations.runtime_identity import (  # noqa: E402
+from weather.runtime_identity import (  # noqa: E402
     format_runtime_identity,
     get_runtime_identity,
     identities_match,

@@ -1,4 +1,4 @@
-# 254. Extract Serving-Safe Variant-Prediction Runtime From Calibration [DONE]
+# 254. Extract Serving-Safe Variant-Prediction Runtime From Calibration [PARTIAL 2026-06-23 - IMPLEMENTED, VERIFICATION BLOCKED BY UNTRACKED RUNTIME IDENTITY FILE]
 
 Goal: remove the transitional `collection -> calibration` package edge by moving
 serving-safe prediction helpers into a runtime owner module, so live capture no
@@ -40,12 +40,24 @@ permanent.
 - [x] Add the serving-safe runtime module and move the six helpers.
 - [x] Repoint collection and calibration imports to the runtime module.
 - [x] Remove the transitional edge from the test and the boundaries doc.
-- [ ] Run `tests/collection/test_live_variant_predictions.py`,
+- [x] Run `tests/collection/test_live_variant_predictions.py`,
   `tests/calibration/test_pooled_candidate_replay.py`, and
   `tests/operations/test_import_architecture.py`.
 
 Acceptance: `collection -> calibration` no longer appears in observed package
 edges, the architecture ratchet stays green without the transitional entry, and
 serving prediction helpers are owned by a runtime module rather than calibration.
+
+## 2026-06-23 Verification Status
+
+The named verification command was run:
+
+`python -m pytest tests\collection\test_live_variant_predictions.py tests\calibration\test_pooled_candidate_replay.py tests\operations\test_import_architecture.py -q`
+
+Result: `72` tests passed and
+`tests/operations/test_import_architecture.py::test_project_critical_files_are_tracked_or_ignored`
+failed because `src/weather/runtime_identity.py` is currently untracked. The
+implementation therefore stays `PARTIAL` until the checkout-level architecture
+ratchet is green.
 
 Related: items 96, 51; `docs/roadmap/project-structure-action-plan-2026-06-22.md`.

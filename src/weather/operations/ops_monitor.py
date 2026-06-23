@@ -48,7 +48,7 @@ from weather.operations.observation_trigger import (
     stop_watcher_loop,
     watcher_health,
 )
-from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from weather.operations.nightly_retrain import (
     DEFAULT_REPORT_OUT as NIGHTLY_RETRAIN_REPORT_OUT,
     DEFAULT_STATUS_OUT as NIGHTLY_RETRAIN_STATUS_OUT,

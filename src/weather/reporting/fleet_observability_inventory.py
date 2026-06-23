@@ -32,7 +32,7 @@ from weather.market.market_microstructure import (
     read_clob_loop_status,
 )
 from weather.market.market_registry import all_specs
-from weather.operations.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
 from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
 from weather.operations.observation_trigger import read_status as read_observation_status
 from weather.operations.observation_trigger import watcher_health
