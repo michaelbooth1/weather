@@ -399,6 +399,13 @@ REGISTERED_SCHEMAS = (
         "Fail-closed gate for Item 186 soil-dryness, antecedent water-balance, and isolated settlement-scored promotion readiness.",
     ),
     SchemaSpec(
+        "item186_soil_antecedent_settlement_gate",
+        "item186_soil_antecedent_settlement_gate_v0.1",
+        "weather.reporting.item186_soil_antecedent_settlement_gate",
+        "active",
+        "Settlement-scored Item 186 soil/antecedent-water positive-market lane built from per-market Item 27 reanalysis gates and sidecar coverage.",
+    ),
+    SchemaSpec(
         "active_variant_shadow_refresh",
         "active_variant_shadow_refresh_v0.1",
         "weather.reporting.active_variant_shadow_refresh",
@@ -453,6 +460,13 @@ REGISTERED_SCHEMAS = (
         "weather.reporting.market_benchmark_residual_edge",
         "active",
         "Market-only benchmark, market-informed overlay, residual-edge, frozen CLOB contract, and executable trading evidence research lane.",
+    ),
+    SchemaSpec(
+        "market_beating_objective_scoreboard",
+        "market_beating_objective_scoreboard_v0.1",
+        "weather.reporting.market_beating_objective_scoreboard",
+        "active",
+        "Daily north-star scoreboard for independent weather-only market beating, residual edge, executable profitability, and anti-anchoring gates.",
     ),
     SchemaSpec(
         "weather_only_model_proof_packet",

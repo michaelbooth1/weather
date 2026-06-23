@@ -292,6 +292,8 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertIn("promotion_grade_market_days_below_84", failures)
         self.assertIn("live_forward_slo_not_pass", failures)
         self.assertIn("independent_baseline_missing", failures)
+        self.assertIn("market_beating_objective_not_pass", failures)
+        self.assertEqual(row["market_beating_objective_status"], "MISSING")
         self.assertEqual(row["ops_disk_preflight_status"], "BLOCK")
         self.assertEqual(row["ops_disk_free_bytes"], 485441536)
         self.assertEqual(row["ops_disk_required_free_bytes"], 1069048320)
@@ -446,6 +448,7 @@ class TestDailyProgressLedger(unittest.TestCase):
                 "evidence_independent_baseline_status": "MISSING",
                 "trading_mm_evidence_mode": "operator_drill",
                 "trading_taker_net_pnl_usdc": -1.0,
+                "runtime_identity_segments": "x" * 140000,
             }
 
             result = write_progress_outputs(

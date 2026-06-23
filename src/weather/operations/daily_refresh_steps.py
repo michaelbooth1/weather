@@ -44,6 +44,7 @@ from weather.reporting import distribution_stage_attribution
 from weather.reporting import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
+from weather.reporting import market_beating_objective_scoreboard
 from weather.reporting import price_free_model_learning
 from weather.reporting import proper_scoring_reliability_scorecard
 from weather.reporting import progress_audit
@@ -91,6 +92,7 @@ STEP_ORDER = (
     "winner_rank_parity",
     "data_retention_inventory",
     "daily_learning",
+    "market_beating_objective_scoreboard",
     "daily_flow_analysis",
 )
 
@@ -1408,6 +1410,36 @@ def run_daily_learning_step(args):
     }
 
 
+def run_market_beating_objective_scoreboard_step(args):
+    if getattr(args, "skip_market_beating_objective_scoreboard", False):
+        return {"status": "SKIPPED", "reason": "skip_market_beating_objective_scoreboard"}
+    payload = market_beating_objective_scoreboard.build_scoreboard(
+        backtest_root=args.backtest_root,
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out = market_beating_objective_scoreboard.write_outputs(
+        payload,
+        json_out=backtest_path(args, "market_beating_objective_scoreboard.json"),
+        report_out=backtest_path(args, "market_beating_objective_scoreboard.md"),
+    )
+    headline = payload.get("headline") or {}
+    summary = payload.get("summary") or {}
+    decisions = payload.get("decisions") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "headline_status": headline.get("status"),
+        "first_success_lane": headline.get("first_success_lane"),
+        "first_blocker": headline.get("first_blocker") or {},
+        "weather_only_status": (decisions.get("weather_only_market_beating") or {}).get("status"),
+        "residual_edge_status": (decisions.get("residual_edge") or {}).get("status"),
+        "executable_profitability_status": (decisions.get("executable_profitability") or {}).get("status"),
+        "anti_anchoring_status": ((payload.get("anti_anchoring") or {}).get("status")),
+        "blocker_count": summary.get("blocker_count"),
+    }
+
+
 def run_daily_flow_analysis_step(args):
     if getattr(args, "skip_daily_flow_analysis", False):
         return {"status": "SKIPPED", "reason": "skip_daily_flow_analysis"}
@@ -1498,6 +1530,7 @@ DEFAULT_RUNNERS = (
     ("winner_rank_parity", run_winner_rank_parity_step),
     ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
+    ("market_beating_objective_scoreboard", run_market_beating_objective_scoreboard_step),
     ("daily_flow_analysis", run_daily_flow_analysis_step),
 )
 
@@ -1558,6 +1591,7 @@ def pipeline_summary(steps):
     root_cause = ((by_name.get("settled_day_root_cause") or {}).get("result") or {})
     parity = ((by_name.get("winner_rank_parity") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
+    market_objective = ((by_name.get("market_beating_objective_scoreboard") or {}).get("result") or {})
     flow = ((by_name.get("daily_flow_analysis") or {}).get("result") or {})
     variant_learning_gate = variant_learning_gate_from_steps(steps)
     disk_preflights = {
@@ -1778,6 +1812,17 @@ def pipeline_summary(steps):
             "winner_probability_gap_market_minus_model": parity.get("winner_probability_gap_market_minus_model"),
             "brier_contribution": parity.get("brier_contribution"),
             "candidate_guardrail_block_count": parity.get("candidate_guardrail_block_count"),
+        },
+        "market_beating_objective_scoreboard": {
+            "status": market_objective.get("status"),
+            "headline_status": market_objective.get("headline_status"),
+            "first_success_lane": market_objective.get("first_success_lane"),
+            "first_blocker": market_objective.get("first_blocker") or {},
+            "weather_only_status": market_objective.get("weather_only_status"),
+            "residual_edge_status": market_objective.get("residual_edge_status"),
+            "executable_profitability_status": market_objective.get("executable_profitability_status"),
+            "anti_anchoring_status": market_objective.get("anti_anchoring_status"),
+            "blocker_count": market_objective.get("blocker_count"),
         },
         "daily_learning": {
             "status": learning.get("status"),

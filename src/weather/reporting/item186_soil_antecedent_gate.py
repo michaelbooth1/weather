@@ -423,6 +423,16 @@ def build_payload(
         min_markets=min_markets,
     )
     blockers = [gate for gate in gates if gate.get("status") == "BLOCK"]
+    next_action = (
+        "Allow only the settlement-positive soil/antecedent-water markets into the scoped lane; "
+        "keep blocked markets quarantined until their market gates turn positive."
+        if not blockers
+        else (
+            "Backfill Open-Meteo/ERA5 precipitation into the reanalysis history cache, rebuild all "
+            "reanalysis sidecars, then run an isolated soil/antecedent-water settlement gate before "
+            "allowing any market into promotion."
+        )
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
@@ -442,11 +452,7 @@ def build_payload(
         "settlement_gate": settlement,
         "gates": gates,
         "blockers": blockers,
-        "next_action": (
-            "Backfill Open-Meteo/ERA5 precipitation into the reanalysis history cache, rebuild all "
-            "reanalysis sidecars, then run an isolated soil/antecedent-water settlement gate before "
-            "allowing any market into promotion."
-        ),
+        "next_action": next_action,
     }
 
 

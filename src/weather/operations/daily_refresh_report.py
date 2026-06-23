@@ -270,6 +270,18 @@ def render_report(payload):
                     f"blockers {result.get('blocker_count')}; "
                     f"training_ready {result.get('training_ready')}"
                 )
+        elif step.get("name") == "market_beating_objective_scoreboard":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                first = result.get("first_blocker") or {}
+                detail = (
+                    f"{result.get('headline_status')}; "
+                    f"weather {result.get('weather_only_status')}; "
+                    f"residual {result.get('residual_edge_status')}; "
+                    f"profit {result.get('executable_profitability_status')}; "
+                    f"first {first.get('detail') or '-'}"
+                )
         elif step.get("name") == "daily_flow_analysis":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -374,6 +386,22 @@ def render_report(payload):
             f"Market-top/model-miss excess: `{parity.get('market_top_model_miss_excess')}`",
             f"Brier contribution: `{parity.get('brier_contribution')}`",
             f"Candidate guardrail blockers: `{parity.get('candidate_guardrail_block_count')}`",
+            f"First blocker: {first.get('detail') or '-'}",
+            "",
+        ]
+    objective = (payload.get("summary") or {}).get("market_beating_objective_scoreboard") or {}
+    if objective.get("status"):
+        first = objective.get("first_blocker") or {}
+        lines += [
+            "",
+            "## Market-Beating Objective",
+            "",
+            f"Status: `{objective.get('headline_status') or objective.get('status')}`",
+            f"First success lane: `{objective.get('first_success_lane') or '-'}`",
+            f"Weather-only: `{objective.get('weather_only_status') or '-'}`",
+            f"Residual edge: `{objective.get('residual_edge_status') or '-'}`",
+            f"Executable profitability: `{objective.get('executable_profitability_status') or '-'}`",
+            f"Anti-anchoring: `{objective.get('anti_anchoring_status') or '-'}`",
             f"First blocker: {first.get('detail') or '-'}",
             "",
         ]
@@ -501,6 +529,14 @@ def render_report(payload):
             "## Daily Progress Ledger",
             "",
             f"Status: `{progress_ledger.get('status')}`",
+            (
+                "Market-beating objective: "
+                f"`{progress_ledger.get('market_beating_objective_status') or '-'}`"
+            ),
+            (
+                "Market-beating first blocker: "
+                f"{progress_ledger.get('market_beating_objective_first_blocker') or '-'}"
+            ),
             f"Broad improvement claim allowed: `{progress_ledger.get('broad_improvement_claim_allowed')}`",
             (
                 "Claim failures: "

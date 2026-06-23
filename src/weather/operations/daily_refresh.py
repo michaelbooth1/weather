@@ -41,6 +41,7 @@ from weather.reporting import daily_rollup_freshness
 from weather.reporting import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
+from weather.reporting import market_beating_objective_scoreboard
 from weather.reporting import ten_minute_model_performance
 from weather.reporting import price_free_model_learning
 from weather.reporting import progress_audit
@@ -121,6 +122,7 @@ from weather.operations.daily_refresh_steps import (
     run_hourly_model_performance_step,
     run_ingest_quality_gate_step,
     run_market_day_labels_finalize,
+    run_market_beating_objective_scoreboard_step,
     run_maker_paper_score_step,
     run_model_variant_evidence_growth_step,
     run_price_free_model_learning_step,

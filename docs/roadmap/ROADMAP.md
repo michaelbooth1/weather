@@ -126,7 +126,7 @@ infrastructure work remains.
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 | 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [PARTIAL 2026-06-22 - GATE LIVE, PRECIP/SETTLEMENT BLOCKED]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
+| 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [PARTIAL 2026-06-22 - GATE REFRESHED, ISOLATED REPLAY BLOCKED]](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-22 - GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
@@ -304,7 +304,7 @@ infrastructure work remains.
 | 266 | [Winner-Rank Parity And Market-Top-Miss Repair Gate [COMPLETE 2026-06-23 - PARITY GATE LIVE, CURRENT MODEL BLOCKED]](items/item-266-winner-rank-parity-and-market-top-miss-repair-gate.md) |
 | 267 | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS]](items/item-267-multi-market-source-bias-model-extension.md) |
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
-| 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [OPEN 2026-06-23 - NORTH-STAR SCOREBOARD NEEDED]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
+| 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [COMPLETE 2026-06-23 - NORTH-STAR SCOREBOARD LIVE]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 
 ### Architecture And Maintainability
 

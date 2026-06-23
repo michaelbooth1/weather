@@ -1,4 +1,4 @@
-# 186. Soil-Moisture & Antecedent Land-Surface Dryness Predictor [PARTIAL 2026-06-22 - GATE LIVE, PRECIP/SETTLEMENT BLOCKED]
+# 186. Soil-Moisture & Antecedent Land-Surface Dryness Predictor [COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS]
 
 Goal: give the model the single biggest *missing* physical control on hot-day
 extremes — antecedent soil dryness — as a settlement-scored feature family.
@@ -37,8 +37,8 @@ acceptable.
 - [x] Add ERA5/Open-Meteo reanalysis root-zone soil-moisture features coordinated with item 32; NLDAS-2 remains pending.
 - [x] Add soil-moisture anomaly/percentile + dry-VPD stress proxy features.
 - [x] Add explicit antecedent-precipitation / ET0 water-balance features.
-- [ ] Run the settlement-scored family gate market-by-market.
-- [ ] Promote only the markets/subfamily that clear out-of-sample.
+- [x] Run the settlement-scored family gate market-by-market.
+- [x] Promote only the markets/subfamily that clear out-of-sample.
 
 ## Implementation
 
@@ -165,6 +165,43 @@ settlement evidence are available.
 Verification:
 
 - `python -m pytest tests\reporting\test_item186_soil_antecedent_gate.py tests\operations\test_schema_registry.py -q` -> 5 passed.
+
+## 2026-06-23 completion
+
+Backfilled bounded rich ERA5/Open-Meteo reanalysis payloads for all 12 markets
+over `2026-04-28` through `2026-06-13`, then rebuilt every
+`reanalysis_synoptic_features.csv` sidecar. The refreshed sidecars now have
+`9,324` complete soil anomaly/dry-VPD rows and `204` complete precipitation/ET0
+water-balance rows (`17` per market), enough to score the current settled
+May 28-June 13 evidence window without refreshing the full 2000-2026 archive.
+
+Added `weather.reporting.item186_soil_antecedent_settlement_gate` with schema
+`item186_soil_antecedent_settlement_gate_v0.1` and generated:
+
+- `data/backtest/item186_soil_antecedent_settlement_gate.json`
+- `data/backtest/item186_soil_antecedent_settlement_gate_report.md`
+
+The settlement gate consumes the existing per-market Item 27
+`reanalysis_synoptic` settlement-scored decisions, requires soil and
+antecedent-water sidecar coverage for each market, and emits a scoped
+positive-market lane. It is `PASS` with zero blockers: allowed markets are
+`atlanta`, `austin`, `dallas`, `houston`, `los-angeles`, `miami`, and `seattle`;
+quarantined markets are `chicago`, `denver`, `nyc`, `san-francisco`, and
+`toronto`. `seattle` is flagged as thin-margin.
+
+Regenerated the umbrella Item 186 gate:
+
+- `data/backtest/item186_soil_antecedent_gate.json`
+- `data/backtest/item186_soil_antecedent_gate_report.md`
+
+It is now `PASS` with `promotion_allowed=true` and all six checks passing:
+sidecar inventory, soil anomaly coverage, antecedent water-balance backfill,
+source-family inventory, settlement-scored family gate, and positive-market
+promotion policy.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_item186_soil_antecedent_settlement_gate.py tests\reporting\test_item186_soil_antecedent_gate.py tests\operations\test_schema_registry.py -q` -> 7 passed.
 
 Acceptance: a soil-dryness family is available as anomaly-transformed features,
 settlement-scored gates are run per market, and any promoted lane shows

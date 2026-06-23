@@ -98,6 +98,8 @@ DEFAULT_DENSITY_REPORT = data_path() / "backtest" / "pooled_continuous_density_m
 DEFAULT_DENSITY_ARTIFACT = writable_artifact_path("pooled_continuous_density_hgb_v0_7.pkl")
 DEFAULT_FORECAST_PROFILE_BAND_REPORT = data_path() / "backtest" / "item134_forecast_profile_band_model_report.md"
 DEFAULT_FORECAST_PROFILE_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_forecast_profile_v0_1.pkl")
+DEFAULT_FORECAST_RADIATION_BAND_REPORT = data_path() / "backtest" / "item187_forecast_radiation_band_model_report.md"
+DEFAULT_FORECAST_RADIATION_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_forecast_radiation_v0_1.pkl")
 DEFAULT_TRAINING_OUTPUT_ESTIMATED_BYTES = 10_000_000
 BAND_MERGE_PAYLOAD_KEY = "band_postprocess_merge_payload"
 
@@ -105,7 +107,12 @@ WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variabl
 CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
 FEATURE_SUBSET_ALL = "all"
 FEATURE_SUBSET_FORECAST_PROFILE = "forecast_profile"
-FEATURE_SUBSET_CHOICES = (FEATURE_SUBSET_ALL, FEATURE_SUBSET_FORECAST_PROFILE)
+FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION = "forecast_cloud_solar_radiation"
+FEATURE_SUBSET_CHOICES = (
+    FEATURE_SUBSET_ALL,
+    FEATURE_SUBSET_FORECAST_PROFILE,
+    FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
+)
 DENSITY_SIGMA_TUNING_SCALES = (0.35, 0.5, 0.65, 0.8, 1.0, 1.25, 1.5, 2.0)
 DENSITY_DEFAULT_SHAPE = {"shape": "gaussian", "id": "gaussian"}
 DENSITY_SHAPE_TUNING_CANDIDATES = (
@@ -153,6 +160,37 @@ FORECAST_PROFILE_BLOCKED_COLUMN_PREFIXES = (
     "wind_group_",
     "cloud_group_",
 )
+FORECAST_CLOUD_SOLAR_RADIATION_COLUMNS = {
+    "forecast_remaining_solar_sum",
+    "forecast_next_3h_solar_mean",
+    "forecast_total_cloud_mean",
+    "forecast_total_cloud_max",
+    "forecast_low_cloud_mean",
+    "forecast_low_cloud_max",
+    "forecast_mid_cloud_mean",
+    "forecast_high_cloud_mean",
+    "forecast_cloud_trend_3h",
+    "forecast_remaining_direct_radiation_sum",
+    "forecast_remaining_diffuse_radiation_sum",
+    "forecast_next_3h_direct_radiation_mean",
+    "forecast_next_3h_diffuse_radiation_mean",
+    "forecast_remaining_direct_radiation_share",
+    "forecast_next_3h_direct_radiation_share",
+}
+FORECAST_CLOUD_SOLAR_RADIATION_CONTEXT_COLUMNS = {
+    "latitude",
+    "longitude",
+    "coastal",
+    "climate_normal",
+    "climate_std",
+    "forecast_anomaly",
+    "band_value",
+    "band_value_hi",
+    "band_width",
+    "band_mid",
+    "band_mid_minus_forecast",
+    "band_mid_anomaly",
+}
 BAND_KINDS = ("eq", "lte", "gte")
 BAND_NUMERIC_COLUMNS = [
     "band_value",
@@ -284,6 +322,44 @@ def feature_subset_contract(feature_subset=FEATURE_SUBSET_ALL):
                 "guardrails."
             ),
         }
+    if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
+        return {
+            "name": FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
+            "schema_version": "pooled_feature_subset_v0.1",
+            "description": (
+                "Roadmap item 187 forecast radiation lane: forecast "
+                "shortwave/direct/diffuse radiation and peak-window cloud "
+                "features plus market/climate context and band geometry "
+                "relative to forecast_high. Observed-temperature-path and "
+                "live-reading dominance columns are excluded from the model "
+                "matrix."
+            ),
+            "allowed_feature_families": [
+                "forecast_cloud_solar_radiation",
+                "market_climate_context",
+                "forecast_relative_band_geometry",
+            ],
+            "blocked_feature_families": [
+                "observed_temp_path",
+                "live_reading_path",
+                "surface_weather",
+                "marine_microclimate",
+                "official_guidance",
+                "clob_microstructure",
+                "dynamic_source_state",
+                "forecast_profile_temperature",
+                "forecast_gap",
+                "forecast_ensemble_spread",
+                "forecast_source_state_guardrail",
+            ],
+            "anchor_feature": "forecast_high",
+            "postprocess_policy": (
+                "Auxiliary radiation and cloud fields may only change "
+                "confidence around forecast-relative band geometry; promotion "
+                "still requires daily-first blocked replay and cutoff-regime "
+                "guardrails."
+            ),
+        }
     raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
 
 
@@ -292,6 +368,16 @@ def feature_names_for_subset(columns, feature_subset=FEATURE_SUBSET_ALL):
     feature_subset = feature_subset or FEATURE_SUBSET_ALL
     if feature_subset == FEATURE_SUBSET_ALL:
         return columns
+    if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
+        selected = []
+        allowed = FORECAST_CLOUD_SOLAR_RADIATION_COLUMNS | FORECAST_CLOUD_SOLAR_RADIATION_CONTEXT_COLUMNS
+        for column in columns:
+            if column in allowed:
+                selected.append(column)
+                continue
+            if column.startswith("market_id_") or column.startswith("band_kind_"):
+                selected.append(column)
+        return selected
     if feature_subset != FEATURE_SUBSET_FORECAST_PROFILE:
         raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
 

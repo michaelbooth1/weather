@@ -1190,6 +1190,7 @@ def run_pooled_candidate_replay(args):
             "feature_subset": artifact.get("feature_subset"),
             "feature_subset_contract": artifact.get("feature_subset_contract") or {},
             "forecast_profile_calibration": artifact.get("forecast_profile_calibration") or {},
+            "forecast_radiation_calibration": artifact.get("forecast_radiation_calibration") or {},
             "trained_at": artifact.get("trained_at"),
             "support_min": min(artifact.get("support") or []) if artifact.get("support") else None,
             "support_max": max(artifact.get("support") or []) if artifact.get("support") else None,

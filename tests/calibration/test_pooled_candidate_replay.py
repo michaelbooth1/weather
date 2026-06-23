@@ -1093,6 +1093,15 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(cutoff_regime(15), "late")
         self.assertEqual(guardrails["blocked_markets"], ["nyc"])
 
+    def test_forecast_radiation_variant_defaults(self):
+        variant_id, variant_family = candidate_variant_defaults({
+            "prediction_mode": "band_binary",
+            "feature_subset": "forecast_cloud_solar_radiation",
+        })
+
+        self.assertEqual(variant_id, "item187_forecast_radiation_v0_1")
+        self.assertEqual(variant_family, "forecast_radiation_calibration")
+
     def test_candidate_shadow_variant_rows_preserve_source_state_context(self):
         rows = [
             {

@@ -420,6 +420,9 @@ def train_pooled_band_models(
     if feature_subset == FEATURE_SUBSET_FORECAST_PROFILE:
         schema_version = "pooled_feature_band_hgb_forecast_profile_v0.1"
         objective = "binary_market_band_brier_forecast_profile_calibrated"
+    if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
+        schema_version = "pooled_feature_band_hgb_forecast_radiation_v0.1"
+        objective = "binary_market_band_brier_forecast_radiation_calibrated"
     artifact = {
         "schema_version": schema_version,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -453,6 +456,18 @@ def train_pooled_band_models(
                 "Forecast-profile weighting cannot promote unless replay "
                 "proves early-day lift, midday/late guardrails, and "
                 "per-market high-disagreement safety."
+            ),
+        }
+    if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
+        artifact["forecast_radiation_calibration"] = {
+            "schema_version": "forecast_radiation_calibration_v0.1",
+            "status": "shadow_candidate",
+            "anchor_feature": "forecast_high",
+            "feature_subset": feature_subset,
+            "daily_first_replay_required": True,
+            "promotion_blocker": (
+                "Forecast-radiation weighting cannot promote unless replay "
+                "proves early/midday lift, late guardrails, and market safety."
             ),
         }
     if dynamic_source_state:

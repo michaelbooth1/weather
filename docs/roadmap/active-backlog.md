@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T16:56:25.907482+00:00
+Generated: 2026-06-23T17:14:39.081095+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 269 |
-| Active items | 38 |
-| OPEN | 8 |
-| PARTIAL | 30 |
-| COMPLETE | 231 |
+| Active items | 36 |
+| OPEN | 7 |
+| PARTIAL | 29 |
+| COMPLETE | 233 |
 | ROADMAP rows | 269 |
 | ROADMAP primary rows | 269 |
 | Metadata manifest rows | 269 |
@@ -45,7 +45,6 @@ Status: `OK`
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 178 | PARTIAL | 2026-06-22 | GATE REFRESHED, VALIDATION BLOCKED | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 186 | PARTIAL | 2026-06-22 | GATE LIVE, PRECIP/SETTLEMENT BLOCKED | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
 | 187 | PARTIAL | 2026-06-22 | GATE REFRESHED, ISOLATED REPLAY BLOCKED | [Forecast Shortwave-Radiation & Peak-Window Insolation Features](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | PARTIAL | 2026-06-22 | GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-22 | GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
@@ -62,7 +61,6 @@ Status: `OK`
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 256 | OPEN | 2026-06-23 | NO FRESH COMPLETE-LABEL PROFIT SAMPLE | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 258 | OPEN | 2026-06-23 | JUNE 19-22 MAKER RUNS NON-COUNTABLE | [Maker Active-Day Freshness Recovery And MM Preflight Proof](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
-| 269 | OPEN | 2026-06-23 | NORTH-STAR SCOREBOARD NEEDED | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
 
 ## Lint Issues
 

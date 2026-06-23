@@ -1,7 +1,7 @@
 # Actionable Roadmap Work Order - 2026-06-23
 
 Source: `docs/roadmap/active-backlog.md` generated at
-`2026-06-23T03:35:23.822849+00:00` and the numbered roadmap item files as of
+`2026-06-23T17:14:39.081095+00:00` and the numbered roadmap item files as of
 2026-06-23.
 
 This document lists only canonical `OPEN` roadmap items. `PARTIAL` and
@@ -18,6 +18,11 @@ Audit result: `active-backlog.md` currently lists 7 `OPEN` items. No canonical
 All seven are open but
 blocked or deferred by future evidence, calendar timing, external storage, or
 an open prerequisite.
+
+Market-beating objective scoreboard:
+`data/backtest/market_beating_objective_scoreboard.json` is currently `BLOCK`.
+First blocker:
+`active artifact identity is not proof-grade: loaded=True, artifact_schema=toronto_feature_store_v1.14, active_schema=toronto_feature_store_v1.15`.
 
 ## OPEN Workable Now - Recommended Order
 
@@ -69,9 +74,14 @@ No `OPEN` item is ready for local implementation right now.
   separates weather-only, market-only, overlay, residual, and trading-facing
   evidence, records missing frozen CLOB/executable-depth blockers, and cannot
   satisfy weather-only proof-packet blockers.
+- Item `269` is complete: the market-beating objective scoreboard now writes
+  canonical JSON/Markdown artifacts, runs in daily refresh before the progress
+  ledger rollup, displays headline status and first blocker in operator
+  reports, and blocks broad claims when no countable weather-only,
+  residual-edge, or executable-profitability lane beats the market.
 - Item `254` is no longer treated as `OPEN`: its heading was normalized to
   `COMPLETE 2026-06-23 - SERVING RUNTIME EDGE REMOVED AND ARCHITECTURE RATIFIED`
   after its named verification command passed with `73 passed`.
 - Item `253` remains `COMPLETE` and is no longer in the open work order.
-- The roadmap lint passes with `265` item files, `7` `OPEN`, `31` `PARTIAL`,
-  `227` `COMPLETE`, and `0` lint errors.
+- The roadmap lint passes with `269` item files, `7` `OPEN`, `29` `PARTIAL`,
+  `233` `COMPLETE`, and `0` lint errors.

@@ -119,6 +119,10 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("item186_soil_antecedent_gate"),
             "item186_soil_antecedent_gate_v0.1",
         )
+        self.assertEqual(
+            schema_version("item186_soil_antecedent_settlement_gate"),
+            "item186_soil_antecedent_settlement_gate_v0.1",
+        )
         self.assertEqual(schema_version("forecast_radiation_gate"), "forecast_radiation_gate_v0.1")
         self.assertEqual(schema_version("forecast_smoke_gate"), "forecast_smoke_gate_v0.1")
         self.assertEqual(schema_version("global_model_guidance_gate"), "global_model_guidance_gate_v0.1")
@@ -159,6 +163,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("market_benchmark_residual_edge"),
             "market_benchmark_residual_edge_v0.1",
+        )
+        self.assertEqual(
+            schema_version("market_beating_objective_scoreboard"),
+            "market_beating_objective_scoreboard_v0.1",
         )
         self.assertEqual(
             schema_version("item147_winner_centering_disposition"),

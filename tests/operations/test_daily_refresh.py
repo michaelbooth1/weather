@@ -25,6 +25,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
     run_maker_paper_score_step,
+    run_market_beating_objective_scoreboard_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
@@ -106,6 +107,7 @@ def _args(tmp, **overrides):
         "data_retention_lookback_hours": 24.0,
         "data_retention_top_n": 25,
         "skip_daily_learning": False,
+        "skip_market_beating_objective_scoreboard": False,
         "skip_daily_flow_analysis": False,
         "skip_hourly_model_performance": False,
         "skip_ten_minute_model_performance": False,
@@ -482,7 +484,11 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("settled_day_root_cause"), names.index("winner_rank_parity"))
         self.assertLess(names.index("winner_rank_parity"), names.index("data_retention_inventory"))
         self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
-        self.assertLess(names.index("daily_learning"), names.index("daily_flow_analysis"))
+        self.assertLess(names.index("trading_evidence"), names.index("market_beating_objective_scoreboard"))
+        self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("market_beating_objective_scoreboard"))
+        self.assertLess(names.index("winner_rank_parity"), names.index("market_beating_objective_scoreboard"))
+        self.assertLess(names.index("daily_learning"), names.index("market_beating_objective_scoreboard"))
+        self.assertLess(names.index("market_beating_objective_scoreboard"), names.index("daily_flow_analysis"))
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
@@ -490,6 +496,66 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
+
+    def test_market_beating_objective_scoreboard_step_writes_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            artifacts = {
+                "weather_only_model_proof_packet.json": {
+                    "schema_version": "weather_only_model_proof_packet_v0.1",
+                    "status": "PASS",
+                    "gates": [{"gate": "weather_only_lane_separation", "status": "PASS"}],
+                },
+                "proper_scoring_reliability_scorecard.json": {
+                    "schema_version": "proper_scoring_reliability_scorecard_v0.1",
+                    "status": "PASS",
+                    "lanes": [
+                        {"lane": "weather_only", "status": "PASS", "brier": 0.02, "row_count": 2},
+                        {"lane": "market_only", "status": "PASS", "brier": 0.03, "row_count": 2},
+                        {"lane": "market_informed_overlay", "status": "PASS", "brier": 0.01, "row_count": 2},
+                    ],
+                },
+                "market_benchmark_residual_edge.json": {
+                    "schema_version": "market_benchmark_residual_edge_v0.1",
+                    "status": "BLOCK",
+                    "proof_guard": {"counts_toward_weather_model_promotion": False},
+                    "settlement_accuracy": {"weather_only_vs_market": {"residual_edge_row_count": 0}},
+                    "frozen_market_benchmark_contract": {"status": "PASS"},
+                    "trading_execution": {
+                        "status": "PASS",
+                        "summary": {"promotion_evidence_basis": "settlement_scored", "mtm_promotion_allowed": False},
+                    },
+                },
+                "winner_rank_parity.json": {
+                    "schema_version": "winner_rank_parity_v0.1",
+                    "status": "PASS",
+                    "parity_gate": {"status": "PASS"},
+                    "summary": {"parity_gate_status": "PASS"},
+                },
+                "daily_progress_latest.json": {
+                    "schema_version": "daily_progress_ledger_v0.1",
+                    "evidence_independent_baseline_status": "PRESENT",
+                },
+                "trading_evidence.json": {
+                    "schema_version": "trading_evidence_summary_v0.1",
+                    "status": "OK",
+                    "taker": {"pnl_evidence_status": "UNSCORED", "mtm_promotion_allowed": False},
+                    "market_making": {"countability_status": "NON_COUNTABLE"},
+                },
+            }
+            for filename, payload in artifacts.items():
+                (backtest / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+            result = run_market_beating_objective_scoreboard_step(args)
+            payload = json.loads((backtest / "market_beating_objective_scoreboard.json").read_text(encoding="utf-8"))
+            report_exists = (backtest / "market_beating_objective_scoreboard.md").exists()
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["headline_status"], "PASS")
+        self.assertEqual(payload["headline"]["first_success_lane"], "weather_only_market_beating")
+        self.assertTrue(report_exists)
 
     def test_winner_rank_parity_step_writes_gate_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

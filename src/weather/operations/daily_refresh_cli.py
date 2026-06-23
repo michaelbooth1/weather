@@ -348,6 +348,7 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--data-retention-top-n", type=int, default=data_retention_inventory.DEFAULT_TOP_N)
     parser.add_argument("--skip-daily-learning", action="store_true")
+    parser.add_argument("--skip-market-beating-objective-scoreboard", action="store_true")
     parser.add_argument("--skip-daily-flow-analysis", action="store_true")
     parser.add_argument("--data-layer-historical-start", default="2000-01-01")
     parser.add_argument("--data-layer-historical-end", default="")

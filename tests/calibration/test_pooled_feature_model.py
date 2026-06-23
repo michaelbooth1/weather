@@ -10,6 +10,7 @@ from weather.market.market_registry import NYC, SEATTLE, TORONTO
 from weather.calibration.feature_model import feature_model_frame
 from weather.calibration.pooled_feature_model import (
     BAND_MERGE_PAYLOAD_KEY,
+    FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
     FEATURE_SUBSET_FORECAST_PROFILE,
     add_city_features,
     add_dynamic_source_state_features,
@@ -1260,6 +1261,74 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertIn("forecast_temp_14", feature_names)
         self.assertIn("band_mid_minus_forecast", feature_names)
         self.assertIn("market_id_nyc", feature_names)
+        self.assertNotIn("high_so_far", feature_names)
+        self.assertNotIn("current_temp", feature_names)
+        self.assertNotIn("live_reading_temp", feature_names)
+        self.assertNotIn("band_mid_minus_high_so_far", feature_names)
+
+    def test_pooled_band_model_can_train_forecast_radiation_subset(self):
+        records = []
+        for idx in range(80):
+            final_bucket = 80 + (idx % 5)
+            record = {
+                **self._base_record(),
+                "market_id": "nyc",
+                "high_so_far": 74.0 + (idx % 3),
+                "current_temp": 75.0 + (idx % 3),
+                "forecast_high": final_bucket + 0.25,
+                "forecast_gap": 4.0 + (idx % 2),
+                "forecast_temp_14": final_bucket - 0.5,
+                "forecast_remaining_solar_sum": 1200.0 + idx,
+                "forecast_next_3h_solar_mean": 400.0 + (idx % 9),
+                "forecast_total_cloud_mean": 20.0 + (idx % 7),
+                "forecast_low_cloud_max": 30.0 + (idx % 5),
+                "forecast_remaining_direct_radiation_sum": 800.0 + idx,
+                "forecast_remaining_diffuse_radiation_sum": 300.0 + (idx % 11),
+                "forecast_next_3h_direct_radiation_mean": 260.0 + (idx % 13),
+                "forecast_next_3h_diffuse_radiation_mean": 90.0 + (idx % 3),
+                "forecast_remaining_direct_radiation_share": 0.70,
+                "forecast_next_3h_direct_radiation_share": 0.74,
+                "forecast_global_ensemble_spread": 1.5,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 8,
+                "year": 2024 if idx < 60 else 2025,
+            }
+            records.append(add_city_features(record, NYC, {
+                "climate_normal": 82.0,
+                "climate_std": 5.0,
+            }))
+
+        artifact, validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            feature_subset=FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
+        )
+        feature_names = set(artifact["models"]["8"]["feature_names"])
+
+        self.assertEqual(artifact["schema_version"], "pooled_feature_band_hgb_forecast_radiation_v0.1")
+        self.assertEqual(artifact["feature_subset"], FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION)
+        self.assertEqual(
+            artifact["feature_subset_contract"]["allowed_feature_families"],
+            [
+                "forecast_cloud_solar_radiation",
+                "market_climate_context",
+                "forecast_relative_band_geometry",
+            ],
+        )
+        self.assertEqual(
+            artifact["forecast_radiation_calibration"]["anchor_feature"],
+            "forecast_high",
+        )
+        self.assertTrue(validation_rows)
+        self.assertIn("forecast_remaining_solar_sum", feature_names)
+        self.assertIn("forecast_remaining_direct_radiation_sum", feature_names)
+        self.assertIn("forecast_next_3h_direct_radiation_share", feature_names)
+        self.assertIn("forecast_total_cloud_mean", feature_names)
+        self.assertIn("band_mid_minus_forecast", feature_names)
+        self.assertIn("market_id_nyc", feature_names)
+        self.assertNotIn("forecast_high", feature_names)
+        self.assertNotIn("forecast_gap", feature_names)
+        self.assertNotIn("forecast_temp_14", feature_names)
         self.assertNotIn("high_so_far", feature_names)
         self.assertNotIn("current_temp", feature_names)
         self.assertNotIn("live_reading_temp", feature_names)

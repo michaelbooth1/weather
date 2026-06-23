@@ -7,6 +7,7 @@ import csv
 import json
 import re
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ BROAD_MIN_PROMOTION_GRADE_MARKET_DAYS = 84
 DISK_HEADROOM_RE = re.compile(
     r"free_bytes=(?P<free_bytes>\d+).*?required_free_bytes=(?P<required_free_bytes>\d+)"
 )
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
 
 def utc_iso():
@@ -166,10 +168,32 @@ def _daily_refresh_status(daily_refresh):
     return daily_refresh.get("status") or "unknown"
 
 
+def _scoreboard_status(scoreboard):
+    if not scoreboard:
+        return "MISSING"
+    return ((scoreboard.get("headline") or {}).get("status") or scoreboard.get("status") or "UNKNOWN")
+
+
+def _scoreboard_first_blocker(scoreboard):
+    first = ((scoreboard.get("headline") or {}).get("first_blocker") or {})
+    if isinstance(first, dict):
+        return first.get("detail") or first.get("category") or ""
+    if first:
+        return str(first)
+    for blocker in scoreboard.get("blockers") or []:
+        if isinstance(blocker, dict):
+            return blocker.get("detail") or blocker.get("category") or ""
+        if blocker:
+            return str(blocker)
+    return ""
+
+
 def broad_claim_failures(row):
     failures = []
     if not bool(row.get("model_claim_allowed")):
         failures.append("core_model_trend_claim_not_allowed")
+    if row.get("market_beating_objective_status") != "PASS":
+        failures.append("market_beating_objective_not_pass")
     if (row.get("model_positive_skill_days") or 0) < BROAD_MIN_POSITIVE_SKILL_DAYS:
         failures.append("positive_skill_days_below_3")
     rolling = row.get("model_rolling_daily_first_brier_skill")
@@ -208,6 +232,7 @@ def build_progress_row(
     frozen_baseline = _artifact(backtest_root, "frozen_baseline_replay_trend.json")
     snapshot_eval = _artifact(backtest_root, "snapshot_evaluation.json")
     daily_learning = _artifact(backtest_root, "daily_learning.json")
+    market_objective = _artifact(backtest_root, "market_beating_objective_scoreboard.json")
     trading = build_trading_evidence_summary(
         mm_runs_root=backtest_root.parent / "mm_runs",
         taker_runs_root=backtest_root.parent / "taker_runs",
@@ -310,6 +335,21 @@ def build_progress_row(
         "runtime_identity_reconciliation_allowed": runtime_evidence.get("reconciliation_allowed"),
         "runtime_identity_segments": json_field(runtime_snapshots.get("segments") or []),
         "runtime_identity_trading_runs": json_field(runtime_evidence.get("trading_runs") or {}),
+        "market_beating_objective_status": _scoreboard_status(market_objective),
+        "market_beating_objective_first_blocker": _scoreboard_first_blocker(market_objective),
+        "market_beating_objective_first_success_lane": (
+            (market_objective.get("headline") or {}).get("first_success_lane")
+        ),
+        "market_beating_weather_only_status": (
+            ((market_objective.get("decisions") or {}).get("weather_only_market_beating") or {}).get("status")
+        ),
+        "market_beating_residual_edge_status": (
+            ((market_objective.get("decisions") or {}).get("residual_edge") or {}).get("status")
+        ),
+        "market_beating_executable_profitability_status": (
+            ((market_objective.get("decisions") or {}).get("executable_profitability") or {}).get("status")
+        ),
+        "market_beating_anti_anchoring_status": ((market_objective.get("anti_anchoring") or {}).get("status")),
         "ops_fleet_status": fleet.get("status"),
         "ops_live_forward_slo_status": live_slo.get("status"),
         "ops_live_forward_slo_counts": live_slo.get("counts_toward_live_forward_gate"),
@@ -530,6 +570,16 @@ def render_report(rows):
             ["Run date", latest.get("run_date") or "-"],
             ["Broad improvement claim allowed", latest.get("broad_improvement_claim_allowed")],
             ["Claim failures", latest.get("broad_improvement_claim_failures") or "[]"],
+            ["Market-beating objective", latest.get("market_beating_objective_status") or "-"],
+            ["Market-beating first blocker", latest.get("market_beating_objective_first_blocker") or "-"],
+            ["Market-beating success lane", latest.get("market_beating_objective_first_success_lane") or "-"],
+            ["Market-beating weather-only", latest.get("market_beating_weather_only_status") or "-"],
+            ["Market-beating residual edge", latest.get("market_beating_residual_edge_status") or "-"],
+            [
+                "Market-beating executable profitability",
+                latest.get("market_beating_executable_profitability_status") or "-",
+            ],
+            ["Market-beating anti-anchoring", latest.get("market_beating_anti_anchoring_status") or "-"],
             ["Rolling daily-first skill", fmt(latest.get("model_rolling_daily_first_brier_skill"))],
             ["Positive skill days", latest.get("model_positive_skill_days")],
             ["Promotion-grade market-days", latest.get("evidence_promotion_grade_market_days")],
@@ -645,13 +695,14 @@ def render_report(rows):
     lines += ["", "## Recent Rows", ""]
     lines += markdown_table(
         [
-            "Date", "Claim", "Rolling Skill", "Positive Days", "Promo Days",
+            "Date", "Claim", "Market Beat", "Rolling Skill", "Positive Days", "Promo Days",
             "Live SLO", "Snapshot Gaps", "MM Mode", "Taker P&L", "Taker Source",
         ],
         [
             [
                 row.get("run_date"),
                 row.get("broad_improvement_claim_allowed"),
+                row.get("market_beating_objective_status") or "-",
                 fmt(row.get("model_rolling_daily_first_brier_skill")),
                 row.get("model_positive_skill_days"),
                 row.get("evidence_promotion_grade_market_days"),
@@ -693,6 +744,8 @@ def write_progress_outputs(
         "csv_out": str(csv_path),
         "latest_out": str(latest_path),
         "report_out": str(report_path),
+        "market_beating_objective_status": row.get("market_beating_objective_status"),
+        "market_beating_objective_first_blocker": row.get("market_beating_objective_first_blocker"),
         "broad_improvement_claim_allowed": row.get("broad_improvement_claim_allowed"),
         "broad_improvement_claim_failures": json.loads(row.get("broad_improvement_claim_failures") or "[]"),
     }
