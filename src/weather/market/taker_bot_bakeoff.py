@@ -13,6 +13,9 @@ from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_cap
 CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION = "taker_champion_challenger_ledger_v0.1"
 DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS = 3
 DEFAULT_CHAMPION_MIN_SETTLED_ORDERS = 5
+TAKER_COMPLETE_QUALITY_GRADES = {"complete", "manual_override"}
+TAKER_DAILY_SETTLEMENT_SOURCES = {"daily_summary", "override"}
+TAKER_BLOCKING_RECONCILIATION_STATUSES = {"mismatch", "not_closed", "unavailable", "fetch_error"}
 
 def replay_input_key_payload(row):
     kind, value, value_hi = band_key(row)
@@ -925,6 +928,19 @@ def strategy_concentration_summary(rows, strategy_id):
     }
 
 
+def taker_settlement_label_complete(row):
+    grade = str(row.get("quality_grade") or "").strip().lower()
+    if grade in TAKER_COMPLETE_QUALITY_GRADES:
+        return True
+    source = str(row.get("settlement_source") or "").strip().lower()
+    if source not in TAKER_DAILY_SETTLEMENT_SOURCES:
+        return False
+    if row.get("settlement_bucket") in (None, ""):
+        return False
+    reconciliation = str(row.get("reconciliation_status") or "").strip().lower()
+    return reconciliation not in TAKER_BLOCKING_RECONCILIATION_STATUSES
+
+
 def label_summary_for_target(labels_csv, target_date):
     target = ensure_date(target_date).isoformat()
     rows = [
@@ -932,10 +948,13 @@ def label_summary_for_target(labels_csv, target_date):
         if row.get("target_date") == target
     ]
     quality_counts = Counter(row.get("quality_grade") or "unknown" for row in rows)
+    settlement_complete_rows = sum(1 for row in rows if taker_settlement_label_complete(row))
     return {
         "target_date": target,
         "label_rows": len(rows),
-        "complete_rows": quality_counts.get("complete", 0),
+        "complete_rows": settlement_complete_rows,
+        "settlement_complete_rows": settlement_complete_rows,
+        "snapshot_quality_complete_rows": quality_counts.get("complete", 0),
         "partial_rows": quality_counts.get("partial", 0),
         "quality_counts": dict(sorted(quality_counts.items())),
     }
@@ -1420,7 +1439,7 @@ def run_taker_strategy_bakeoff(
             "detail": (
                 f"{label_summary['label_rows'] - label_summary['complete_rows']} of "
                 f"{label_summary['label_rows']} settlement labels for {target.isoformat()} "
-                "are partial-quality labels; do not promote from this bakeoff alone"
+                "are not taker-complete settlement labels; do not promote from this bakeoff alone"
             ),
         })
     if score_summary.get("unmatched_filled_orders"):
@@ -1649,6 +1668,7 @@ def build_champion_challenger_ledger(
                 "bakeoff_day_count": 0,
                 "complete_label_day_count": 0,
                 "partial_quality_day_count": 0,
+                "missing_label_day_count": 0,
                 "gate_pass_day_count": 0,
                 "settled_order_count": 0,
                 "settled_market_count": 0,
@@ -1668,7 +1688,10 @@ def build_champion_challenger_ledger(
             if complete_day:
                 entry["complete_label_day_count"] += 1
             else:
-                entry["partial_quality_day_count"] += 1
+                if "partial_target_date_labels" in blocker_codes:
+                    entry["partial_quality_day_count"] += 1
+                if "missing_target_date_labels" in blocker_codes:
+                    entry["missing_label_day_count"] += 1
             if gate.get("status") == "PASS":
                 entry["gate_pass_day_count"] += 1
             entry["settled_order_count"] += int(strategy.get("settled_order_count") or gate.get("settled_order_count") or 0)
@@ -1702,6 +1725,8 @@ def build_champion_challenger_ledger(
             failed_gates.append("min_complete_label_days")
         if entry["partial_quality_day_count"] > 0:
             failed_gates.append("no_partial_quality_days")
+        if entry["missing_label_day_count"] > 0:
+            failed_gates.append("no_missing_label_days")
         if entry["settled_order_count"] < int(min_settled_orders):
             failed_gates.append("min_settled_orders")
         if entry["unresolved_order_count"] > 0:
@@ -1724,6 +1749,7 @@ def build_champion_challenger_ledger(
             "bakeoff_day_count": entry["bakeoff_day_count"],
             "complete_label_day_count": entry["complete_label_day_count"],
             "partial_quality_day_count": entry["partial_quality_day_count"],
+            "missing_label_day_count": entry["missing_label_day_count"],
             "gate_pass_day_count": entry["gate_pass_day_count"],
             "settled_order_count": entry["settled_order_count"],
             "settled_market_count": entry["settled_market_count"],
@@ -1810,6 +1836,7 @@ def render_champion_challenger_ledger(payload):
             "Status",
             "Failed Gates",
             "Complete Days",
+            "Missing Days",
             "Settled",
             "Unresolved",
             "After-Fee P&L",
@@ -1822,6 +1849,7 @@ def render_champion_challenger_ledger(payload):
                 row.get("promotion_status"),
                 ", ".join(row.get("failed_gates") or []) or "-",
                 row.get("complete_label_day_count"),
+                row.get("missing_label_day_count"),
                 row.get("settled_order_count"),
                 row.get("unresolved_order_count"),
                 fmt_num(row.get("after_fee_pnl_usdc"), 4),

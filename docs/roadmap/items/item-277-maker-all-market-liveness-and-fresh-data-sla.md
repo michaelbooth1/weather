@@ -1,4 +1,4 @@
-# 277. Maker All-Market Liveness And Fresh Data SLA [PARTIAL 2026-06-23 - LIVENESS GATE LIVE, ALL-MARKET SESSIONS PENDING]
+# 277. Maker All-Market Liveness And Fresh Data SLA [COMPLETE 2026-06-23 - TWO ALL-MARKET PROOF RUNS PASS]
 
 Goal: make the full all-market maker roll prove useful fresh data activity, not
 just process heartbeats, before it can count as active-day evidence.
@@ -38,7 +38,7 @@ identity still starves maker evidence.
   writes, or `iterations: 0` after startup grace.
 - [x] Surface stale-code, stale-model, stale-CLOB, UTF-8 decode, and disk-full
   root causes in the maker report and trading evidence summary.
-- [ ] Run at least two consecutive all-market active-day maker rolls with
+- [x] Run at least two consecutive all-market active-day maker rolls with
   current runtime identity and fresh data across all selected markets.
 
 Implementation note 2026-06-23: `mm_useful_work_liveness_v0.1` is now emitted
@@ -63,6 +63,28 @@ markets with first failing gate `clob_freshness`, reason counts
 runtime-identity drift: the snapshot loop is still running a different source
 fingerprint than the current code. The current process therefore cannot satisfy
 the two consecutive all-market session acceptance gate.
+
+Recovery proof 2026-06-23 18:29 America/Toronto: after restarting stale
+snapshot/observation/CLOB loops and refreshing raw CLOB books across all 12
+markets, two consecutive all-market `paper-live-forward` finite sessions passed
+the active-day gate:
+
+- `data/mm_runs/2026-06-23/item277-proof-2-20260623T2222Z`: 12 selected
+  markets, `preflight_status=PASS`, `live_forward_gate_status=PASS`,
+  `counts_toward_live_forward_gate=true`, useful-work liveness `PASS`, zero
+  blocked markets, zero stale model markets, zero stale CLOB markets, zero
+  runtime-identity drift, 132 quote-intent rows, and 396 model-variant rows.
+- `data/mm_runs/2026-06-23/item277-proof-3-20260623T2229Z`: 12 selected
+  markets, `preflight_status=PASS`, `live_forward_gate_status=PASS`,
+  `counts_toward_live_forward_gate=true`, useful-work liveness `PASS`, zero
+  blocked markets, zero stale model markets, zero stale CLOB markets, zero
+  runtime-identity drift, 132 quote-intent rows, and 396 model-variant rows.
+
+The proof also exposed a follow-up collection-speed gap: sequential all-market
+CLOB capture with derived feature refresh was too slow for the 120-second
+freshness SLA, while per-market raw-book capture with derived features disabled
+completed quickly. That operational automation gap is now tracked separately in
+item 282.
 
 Acceptance: two consecutive all-market paper-live-forward maker sessions pass
 freshness gates across all selected markets, show recent useful writes for the

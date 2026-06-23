@@ -533,7 +533,18 @@ class MarketMicrostructureStore:
         self.append_jsonl(self.capture_status_path, payload)
 
 
-def capture_status_from_result(result, outcomes, include_price_history, include_ws_events, store, captured_at, status=None, error_stage=None, error=None):
+def capture_status_from_result(
+    result,
+    outcomes,
+    include_price_history,
+    include_ws_events,
+    store,
+    captured_at,
+    status=None,
+    error_stage=None,
+    error=None,
+    include_clob_features=True,
+):
     captured_tokens = int(result.get("captured_tokens") or 0)
     books = int(result.get("books") or 0)
     if status is None:
@@ -554,6 +565,7 @@ def capture_status_from_result(result, outcomes, include_price_history, include_
         "outcomes": outcomes,
         "include_price_history": bool(include_price_history),
         "include_ws_events": bool(include_ws_events),
+        "include_clob_features": bool(include_clob_features),
         "token_rows": int(result.get("token_rows") or 0),
         "captured_tokens": captured_tokens,
         "books": books,
@@ -588,6 +600,7 @@ def capture_market_books(
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     websocket_factory=None,
+    include_clob_features=True,
     now=None,
 ):
     event_client = PolymarketClient(market_id=market_id)
@@ -609,6 +622,7 @@ def capture_market_books(
         ws_heartbeat_seconds=ws_heartbeat_seconds,
         ws_connect_timeout=ws_connect_timeout,
         websocket_factory=websocket_factory,
+        include_clob_features=include_clob_features,
         now=now,
     )
 
@@ -630,6 +644,7 @@ def capture_event_books(
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     websocket_factory=None,
+    include_clob_features=True,
     now=None,
 ):
     captured_at = now or utc_now()
@@ -724,7 +739,7 @@ def capture_event_books(
             except Exception as exc:  # noqa: BLE001 - WS capture should not drop REST book data
                 ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
 
-        if (store.root / "snapshots_long.csv").exists():
+        if include_clob_features and (store.root / "snapshots_long.csv").exists():
             try:
                 feature_result = write_clob_feature_rows(
                     store.root,
@@ -758,6 +773,7 @@ def capture_event_books(
             status="ERROR",
             error_stage=stage,
             error=f"{type(exc).__name__}: {exc}",
+            include_clob_features=include_clob_features,
         ))
         raise
 
@@ -790,6 +806,7 @@ def capture_event_books(
         include_ws_events,
         store,
         captured_at,
+        include_clob_features=include_clob_features,
     ))
     return result
 
@@ -810,6 +827,7 @@ def capture_fleet_books(
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     websocket_factory=None,
+    include_clob_features=True,
     progress_callback=None,
 ):
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
@@ -832,6 +850,7 @@ def capture_fleet_books(
                 ws_heartbeat_seconds=ws_heartbeat_seconds,
                 ws_connect_timeout=ws_connect_timeout,
                 websocket_factory=websocket_factory,
+                include_clob_features=include_clob_features,
             )
         except Exception as exc:  # noqa: BLE001 - one market should not stop the fleet
             results[item] = {"error": f"{type(exc).__name__}: {exc}"}

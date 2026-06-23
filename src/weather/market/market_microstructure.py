@@ -1150,8 +1150,13 @@ def add_capture_enrichment_options(
     parser,
     default_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     default_websocket_events=DEFAULT_INCLUDE_WS_EVENTS,
+    default_clob_features=True,
 ):
-    parser.set_defaults(price_history=default_price_history, websocket_events=default_websocket_events)
+    parser.set_defaults(
+        price_history=default_price_history,
+        websocket_events=default_websocket_events,
+        clob_features=default_clob_features,
+    )
     parser.add_argument("--price-history", dest="price_history", action="store_true",
                         help="Capture /prices-history for each token (default).")
     parser.add_argument("--no-price-history", dest="price_history", action="store_false",
@@ -1160,6 +1165,10 @@ def add_capture_enrichment_options(
                         help="Record public CLOB market WebSocket events (default).")
     parser.add_argument("--no-websocket-events", dest="websocket_events", action="store_false",
                         help="Disable market WebSocket event capture for this run.")
+    parser.add_argument("--clob-features", dest="clob_features", action="store_true",
+                        help="Refresh derived clob_features_long.csv after raw CLOB capture (default).")
+    parser.add_argument("--no-clob-features", dest="clob_features", action="store_false",
+                        help="Skip derived CLOB feature refresh; useful for fast raw book freshness repairs.")
     parser.add_argument("--websocket-seconds", type=float, default=DEFAULT_WS_SECONDS)
     parser.add_argument("--websocket-message-limit", type=int, default=DEFAULT_WS_MESSAGE_LIMIT)
     parser.add_argument("--websocket-heartbeat-seconds", type=float, default=DEFAULT_WS_HEARTBEAT_SECONDS)
@@ -1246,6 +1255,7 @@ def main():
             ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
             ws_connect_timeout=args.websocket_connect_timeout,
             batch_size=args.batch_size,
+            include_clob_features=args.clob_features,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return

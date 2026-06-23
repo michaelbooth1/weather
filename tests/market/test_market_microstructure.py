@@ -272,6 +272,35 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(status_rows[0]["captured_tokens"], 1)
         self.assertEqual(status_rows[0]["books"], 0)
 
+    def test_capture_event_books_can_skip_derived_clob_feature_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "snapshots_long.csv").write_text(
+                "snapshot_id,captured_at_utc,event_slug,range_label,bin_kind,bin_value_c,market_yes\n"
+                "snap1,2026-06-12T15:00:00+00:00,highest-temperature-in-toronto-on-june-12-2026,20 C or below,lte,20,0.12\n",
+                encoding="utf-8",
+            )
+            result = capture_event_books(
+                sample_event(),
+                market_id="toronto",
+                clob_client=FakeClobClient(),
+                root=tmp,
+                outcomes="yes",
+                include_price_history=False,
+                include_ws_events=False,
+                include_clob_features=False,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+            status_rows = [
+                json.loads(line)
+                for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(result["books"], 1)
+        self.assertEqual(result["clob_feature_rows"], 0)
+        self.assertFalse((root / "clob_features_long.csv").exists())
+        self.assertFalse(status_rows[0]["include_clob_features"])
+
     def test_websocket_failure_does_not_drop_rest_book_capture(self):
         def failing_websocket(_url, timeout=30):
             raise RuntimeError("websocket unavailable")

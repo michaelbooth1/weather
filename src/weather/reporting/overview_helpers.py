@@ -11,11 +11,14 @@ from weather.market.market_registry import all_specs
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 from weather.reporting.model_market_disagreement_audit import (
+    DEFAULT_GAP_THRESHOLD_POINTS,
     DEFAULT_LOG_PATH as DEFAULT_DISAGREEMENT_AUDIT_LOG,
+    audit_key_for_row,
     audit_saved_for_row,
     ensure_audit_record_saved,
     load_audit_index,
     read_audit_log,
+    row_gap_points,
 )
 from weather.reporting.model_market_disagreement_analysis import (
     DEFAULT_JSON_OUT as DEFAULT_DISAGREEMENT_ANALYSIS_JSON,
@@ -52,25 +55,37 @@ def compute_biggest_edges(n=10):
             # Edge is stored directly in the long dataframe
             latest_df = latest_df.copy()
             latest_df["abs_edge"] = latest_df["edge"].abs()
+            audit_status_by_key = {}
+            for _idx, candidate_row in latest_df.iterrows():
+                candidate_dict = candidate_row.to_dict()
+                if not candidate_dict.get("event_slug"):
+                    candidate_dict["event_slug"] = store.event_slug
+                gap_points = row_gap_points(candidate_dict)
+                if gap_points is None or gap_points + 1e-9 < DEFAULT_GAP_THRESHOLD_POINTS:
+                    continue
+                try:
+                    status = ensure_audit_record_saved(
+                        candidate_dict,
+                        folder=store.root,
+                        audit_index=audit_index,
+                    )
+                    audit_key = status.get("audit_key") or audit_key_for_row(candidate_dict)
+                    audit_status_by_key[audit_key] = status
+                except Exception as exc:
+                    print(f"Error saving edge audit for {spec.id}: {exc}")
             
             # Sort by absolute edge descending and pick the top one
             top_row = latest_df.sort_values("abs_edge", ascending=False).iloc[0]
             top_row_dict = top_row.to_dict()
             if not top_row_dict.get("event_slug"):
                 top_row_dict["event_slug"] = store.event_slug
+            top_audit_key = audit_key_for_row(top_row_dict)
             audit_status = {
                 "saved": audit_saved_for_row(top_row_dict, audit_index=audit_index),
                 "triggered": False,
                 "written": False,
             }
-            try:
-                audit_status = ensure_audit_record_saved(
-                    top_row_dict,
-                    folder=store.root,
-                    audit_index=audit_index,
-                )
-            except Exception as exc:
-                print(f"Error saving edge audit for {spec.id}: {exc}")
+            audit_status = audit_status_by_key.get(top_audit_key, audit_status)
             
             # Get trust score
             try:

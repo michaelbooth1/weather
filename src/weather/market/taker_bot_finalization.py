@@ -272,6 +272,9 @@ def render_settlement_report(payload):
                 ["Paper-only reason", next_gate.get("paper_only_reason") or "-"],
                 ["Requalification required", next_gate.get("requalification_required")],
                 ["Requalification route", next_gate.get("requalification_route") or "-"],
+                ["Operator review required", next_gate.get("operator_review_required")],
+                ["Operator review status", next_gate.get("operator_review_status") or "-"],
+                ["Operator review reason", next_gate.get("operator_review_reason") or "-"],
                 ["Demotion code", next_gate.get("demotion_code") or "-"],
                 ["After-fee required", next_gate.get("canary_after_fee_required")],
                 ["After-fee evidence", next_gate.get("canary_after_fee_evidence")],
@@ -342,6 +345,58 @@ def _after_fee_pnl_evidence(active_gate):
         bool_value(gate.get("after_fee_pnl_scored"), False)
         or basis in {"after_fee", "fees_included", "net_after_fee"}
     )
+
+
+def _operator_review_decision(run_config, strategy_id, action="promote_default", required=True):
+    review = (
+        (run_config or {}).get("operator_review")
+        or (run_config or {}).get("live_size_operator_review")
+        or {}
+    )
+    if not required:
+        return {
+            "operator_review_required": False,
+            "operator_review_status": "NOT_REQUIRED",
+            "operator_review_approved": True,
+            "operator_review_reason": "operator review is not required by policy",
+        }
+    status = str(review.get("status") or review.get("decision") or "").strip().upper()
+    approved = status in {"APPROVED", "PASS", "ACCEPTED"}
+    approved_strategy = (
+        review.get("approved_strategy_id")
+        or review.get("strategy_id")
+        or review.get("active_strategy_id")
+        or ""
+    )
+    approved_action = (
+        review.get("approved_action")
+        or review.get("action")
+        or review.get("change_type")
+        or ""
+    )
+    if not approved:
+        reason = "missing_operator_review" if not status else "operator_review_not_approved"
+    elif approved_strategy and approved_strategy != strategy_id:
+        approved = False
+        reason = "operator_review_strategy_mismatch"
+    elif approved_action and approved_action not in {action, "live_size_change", "increase_live_size", "enable_live"}:
+        approved = False
+        reason = "operator_review_action_mismatch"
+    elif not approved_action:
+        approved = False
+        reason = "operator_review_action_missing"
+    else:
+        reason = "operator_review_approved"
+    return {
+        "operator_review_required": True,
+        "operator_review_status": status or "MISSING",
+        "operator_review_approved": bool(approved),
+        "operator_review_reason": reason,
+        "operator_review_strategy_id": approved_strategy,
+        "operator_review_action": approved_action,
+        "operator_review_reviewer": review.get("reviewer") or review.get("operator") or "",
+        "operator_reviewed_at_utc": review.get("reviewed_at_utc") or review.get("approved_at_utc") or "",
+    }
 
 
 def _canary_gate_status(active_id, active_gate, bakeoff, run_config, strategy_row=None, strategy_comparison=None):
@@ -512,6 +567,27 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config, strategy_ro
                 "requalification_required": True,
                 "reason": "active canary passed settlement gates but lacks after-fee PnL evidence",
             }
+        operator_review = _operator_review_decision(
+            run_config,
+            active_id,
+            action="promote_default",
+            required=bool_value(
+                policy.get("canary_require_operator_review_before_live_size_change"),
+                True,
+            ),
+        )
+        if not operator_review.get("operator_review_approved"):
+            return {
+                "status": "PASS",
+                "active_strategy_lifecycle_status": "candidate_canary",
+                "promotion_eligible": False,
+                "next_action": "operator_review_live_size_change",
+                "paper_only": True,
+                "paper_only_reason": "operator_review_required",
+                "requalification_required": False,
+                "reason": "active canary passed settlement gates but needs explicit operator review before live-size change",
+                **operator_review,
+            }
         return {
             "status": "PASS",
             "active_strategy_lifecycle_status": "promoted_default",
@@ -520,6 +596,7 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config, strategy_ro
             "paper_only": False,
             "requalification_required": False,
             "reason": "active canary has complete-label sample and passed settlement gates",
+            **operator_review,
         }
     return {
         "status": "BLOCK",
@@ -624,6 +701,14 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
         "paper_only_reason": (canary_decision or {}).get("paper_only_reason") or "",
         "requalification_required": bool((canary_decision or {}).get("requalification_required")),
         "requalification_route": (canary_decision or {}).get("requalification_route") or "",
+        "operator_review_required": bool((canary_decision or {}).get("operator_review_required")),
+        "operator_review_status": (canary_decision or {}).get("operator_review_status") or "",
+        "operator_review_approved": bool((canary_decision or {}).get("operator_review_approved")),
+        "operator_review_reason": (canary_decision or {}).get("operator_review_reason") or "",
+        "operator_review_strategy_id": (canary_decision or {}).get("operator_review_strategy_id") or "",
+        "operator_review_action": (canary_decision or {}).get("operator_review_action") or "",
+        "operator_review_reviewer": (canary_decision or {}).get("operator_review_reviewer") or "",
+        "operator_reviewed_at_utc": (canary_decision or {}).get("operator_reviewed_at_utc") or "",
         "demotion_code": (canary_decision or {}).get("demotion_code") or "",
         "next_action": (canary_decision or {}).get("next_action") or ("keep_active_strategy" if status == "PASS" else "operator_review"),
         "recommended_strategy_id": recommended_id,
@@ -1473,6 +1558,13 @@ def finalize_taker_run(
         "active_strategy_paper_only_reason": next_gate.get("paper_only_reason"),
         "active_strategy_requalification_required": next_gate.get("requalification_required"),
         "active_strategy_requalification_route": next_gate.get("requalification_route"),
+        "active_strategy_operator_review_required": next_gate.get("operator_review_required"),
+        "active_strategy_operator_review_status": next_gate.get("operator_review_status"),
+        "active_strategy_operator_review_approved": next_gate.get("operator_review_approved"),
+        "active_strategy_operator_review_reason": next_gate.get("operator_review_reason"),
+        "active_strategy_operator_review_action": next_gate.get("operator_review_action"),
+        "active_strategy_operator_review_reviewer": next_gate.get("operator_review_reviewer"),
+        "active_strategy_operator_reviewed_at_utc": next_gate.get("operator_reviewed_at_utc"),
         "active_strategy_demotion_code": next_gate.get("demotion_code"),
         "active_strategy_next_action": next_gate.get("next_action"),
         "active_strategy_complete_label_sample_count": next_gate.get("complete_label_sample_count"),

@@ -160,6 +160,93 @@ def test_compute_biggest_edges_marks_auto_saved_audit(mock_read_csv, mock_load_a
     mock_ensure_audit.assert_called_once()
 
 
+@mock.patch("weather.reporting.overview_helpers.all_specs")
+@mock.patch("weather.reporting.overview_helpers.config_for_date")
+@mock.patch("weather.reporting.overview_helpers.SnapshotStore")
+@mock.patch("weather.reporting.overview_helpers.score_market")
+@mock.patch("weather.reporting.overview_helpers.ensure_audit_record_saved")
+@mock.patch("weather.reporting.overview_helpers.load_audit_index")
+@mock.patch("pandas.read_csv")
+def test_compute_biggest_edges_saves_every_latest_band_crossing_audit_threshold(mock_read_csv, mock_load_audit_index, mock_ensure_audit, mock_score_market, mock_store_cls, mock_config, mock_all_specs):
+    if hasattr(overview_helpers.compute_biggest_edges, "clear"):
+        overview_helpers.compute_biggest_edges.clear()
+
+    mock_spec = mock.Mock()
+    mock_spec.id = "san-francisco"
+    mock_spec.city_label = "San Francisco"
+    mock_all_specs.return_value = [mock_spec]
+    mock_load_audit_index.return_value = {}
+
+    mock_cfg = mock.Mock()
+    mock_cfg.event_slug = "highest-temperature-in-san-francisco-on-june-23-2099"
+    mock_config.return_value = mock_cfg
+
+    mock_store = mock.Mock()
+    mock_store.long_path.exists.return_value = True
+    mock_store.event_slug = mock_cfg.event_slug
+    mock_store.root = "data/snapshots/highest-temperature-in-san-francisco-on-june-23-2099"
+    mock_store_cls.return_value = mock_store
+
+    mock_read_csv.return_value = pd.DataFrame([
+        {
+            "snapshot_id": "snap1",
+            "range_label": "68-69 F",
+            "edge": -0.59,
+            "model_probability": 0.40,
+            "market_yes": 0.99,
+            "captured_at_local": "2099-06-23T18:00:00-04:00",
+            "event_slug": mock_cfg.event_slug,
+            "bin_kind": "eq",
+            "bin_value_c": 68,
+            "bin_value_hi_c": 69,
+        },
+        {
+            "snapshot_id": "snap1",
+            "range_label": "70-71 F",
+            "edge": 0.57,
+            "model_probability": 0.60,
+            "market_yes": 0.03,
+            "captured_at_local": "2099-06-23T18:00:00-04:00",
+            "event_slug": mock_cfg.event_slug,
+            "bin_kind": "eq",
+            "bin_value_c": 70,
+            "bin_value_hi_c": 71,
+        },
+        {
+            "snapshot_id": "snap1",
+            "range_label": "72-73 F",
+            "edge": 0.10,
+            "model_probability": 0.20,
+            "market_yes": 0.10,
+            "captured_at_local": "2099-06-23T18:00:00-04:00",
+            "event_slug": mock_cfg.event_slug,
+            "bin_kind": "eq",
+            "bin_value_c": 72,
+            "bin_value_hi_c": 73,
+        },
+    ])
+    mock_score_market.return_value = {"trust_score": 85, "settled_days": 20}
+
+    def _save_status(row, **_kwargs):
+        return {
+            "triggered": True,
+            "saved": True,
+            "written": True,
+            "audit_key": overview_helpers.audit_key_for_row(row),
+        }
+
+    mock_ensure_audit.side_effect = _save_status
+
+    edges = overview_helpers.compute_biggest_edges(n=10)
+
+    assert len(edges) == 1
+    assert edges[0]["range_label"] == "68-69 F"
+    assert edges[0]["audit_saved"] is True
+    assert mock_ensure_audit.call_count == 2
+    saved_labels = {call.args[0]["range_label"] for call in mock_ensure_audit.call_args_list}
+    assert saved_labels == {"68-69 F", "70-71 F"}
+
+
 def _write_audit_jsonl(path, audited_at):
     row = {
         "audit_key": "nyc|snap1|eq:70-71",

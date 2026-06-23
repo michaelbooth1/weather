@@ -495,3 +495,75 @@ The remaining Item 224 unblock is a genuinely new NYC/Seattle winner-mass and
 midday repair that is competitive with market on exact-band,
 settlement-distance-0, weak-slot, early, and midday slices while preserving
 Miami's Item 147 gains.
+
+## 2026-06-23 no-market ranked winner repair diagnostic
+
+Built a new bottom-market no-market ranked winner-mass repair using the existing
+bottom-market candidate exports as inputs. The diagnostic trained only on
+`2026-06-07` and `2026-06-08`, evaluated on `2026-06-12` and `2026-06-13`,
+and excluded label-derived and market-derived features from the training
+features (`outcome`, `market_yes`, and `settlement_distance_bucket`). It used
+candidate probability, rank, modal-band distance, source state, forecast-count,
+forecast-disagreement, pressure, cutoff, bin type, and market fields.
+
+Artifacts:
+
+- `data/backtest/item224_bottom_no_market_stacked_winner_repair.json`
+- `data/backtest/item224_bottom_no_market_stacked_winner_repair_rows.csv`
+- `data/backtest/item224_bottom_no_market_stacked_winner_bottom_location.json`
+- `data/backtest/item224_bottom_no_market_stacked_winner_bottom_location_report.md`
+- `data/backtest/item224_bottom_no_market_stacked_winner_exact_band_distance_zero.json`
+- `data/backtest/item224_bottom_no_market_stacked_winner_exact_band_distance_zero_report.md`
+- `data/backtest/item224_bottom_no_market_ranked_winner_repair.json`
+- `data/backtest/item224_bottom_no_market_ranked_winner_repair_rows.csv`
+- `data/backtest/item224_bottom_no_market_ranked_winner_repair_report.md`
+- `data/backtest/item224_bottom_no_market_ranked_winner_bottom_location.json`
+- `data/backtest/item224_bottom_no_market_ranked_winner_bottom_location_report.md`
+- `data/backtest/item224_bottom_no_market_ranked_winner_exact_band_distance_zero.json`
+- `data/backtest/item224_bottom_no_market_ranked_winner_exact_band_distance_zero_report.md`
+- `data/backtest/item224_bottom_no_market_ranked_winner_residual_program.json`
+- `data/backtest/item224_bottom_no_market_ranked_winner_residual_program_report.md`
+- `data/backtest/item224_bottom_market_residual_repair_program_with_ranked.json`
+- `data/backtest/item224_bottom_market_residual_repair_program_with_ranked_report.md`
+
+Reproducible command:
+
+`python -m weather.reporting.item224_no_market_ranked_winner_repair --out-rows data\backtest\item224_bottom_no_market_ranked_winner_repair_rows.csv --out-json data\backtest\item224_bottom_no_market_ranked_winner_repair.json --report data\backtest\item224_bottom_no_market_ranked_winner_repair_report.md`
+
+Ranked repair held-out result:
+
+- eval rows: `9251`.
+- aggregate eval delta vs current: `-0.0191`.
+- aggregate eval delta vs market: `+0.0134`.
+- Miami eval delta vs market: `+0.0020`, inside the `+0.0030` market
+  tolerance.
+- NYC eval delta vs market: `+0.0186`.
+- Seattle eval delta vs market: `+0.0194`.
+
+Official gates:
+
+- bottom-location gate: `BLOCK` with `5` blockers, down from `6` for the
+  simpler stack. Miami and NYC early/weak slices clear, but Seattle weak
+  (`+0.0077` vs current), Seattle early (`+0.0005` vs current), Seattle midday
+  (`+0.0221` vs market), NYC midday (`+0.0099` vs market), and Miami midday
+  (`+0.0168` vs market) still block.
+- exact-band/distance-0 gate: `BLOCK` with `4` blockers. Aggregate exact-band
+  early still trails market by `+0.0061`, settlement-distance-0 early trails
+  market by `+0.0081`, one-above early regresses current by `+0.0304`, and
+  adjacent early regresses current by `+0.0074`.
+- market residual repair program: `BLOCK`; Miami passes on
+  `item147_time_split_alpha`, but NYC selects the ranked repair and blocks on
+  one-above guardrail current regression `+0.0198`, while Seattle selects the
+  predawn/current-fallback repair and blocks because target Brier still does not
+  improve current (`+0.0016`) despite market delta `+0.0020`.
+- combined residual program with all existing bottom-market candidates plus
+  the ranked repair: `BLOCK`, with Miami passing on `item147_time_split_alpha`,
+  NYC selecting the ranked repair but blocking on one-above guardrail current
+  regression `+0.0198`, and Seattle selecting the predawn/current-fallback
+  repair but blocking because target Brier still does not improve current
+  (`+0.0016`) despite market delta `+0.0020`.
+
+This is progress but not a promotion unblock. The next aligned repair should
+add a Seattle-specific early/weak-slot signal and a midday calibration guard
+that preserves the ranked repair's Miami/NYC early gains without pushing mass
+into one-above/adjacent loser bins.

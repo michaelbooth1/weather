@@ -312,10 +312,15 @@ infrastructure work remains.
 | 274 | [Taker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23]](items/item-274-taker-model-version-shadow-bakeoff.md) |
 | 275 | [Taker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23]](items/item-275-taker-clustered-statistical-promotion-gate.md) |
 | 276 | [NO-Side Taker Data Collection Campaign [COMPLETE 2026-06-23 - REAL NO-SIDE COUNTERFACTUAL CAMPAIGN LIVE]](items/item-276-no-side-taker-data-collection-campaign.md) |
-| 277 | [Maker All-Market Liveness And Fresh Data SLA [PARTIAL 2026-06-23 - LIVENESS GATE LIVE, ALL-MARKET SESSIONS PENDING]](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
+| 277 | [Maker All-Market Liveness And Fresh Data SLA [COMPLETE 2026-06-23 - TWO ALL-MARKET PROOF RUNS PASS]](items/item-277-maker-all-market-liveness-and-fresh-data-sla.md) |
 | 278 | [Maker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23 - MAKER MODEL-VARIANT BAKEOFF LIVE]](items/item-278-maker-model-version-shadow-bakeoff.md) |
 | 279 | [Maker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23 - MARKET-DAY CLUSTER GATE LIVE]](items/item-279-maker-clustered-statistical-promotion-gate.md) |
 | 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [COMPLETE 2026-06-23 - FILL-EVIDENCE COMPLETENESS GATE LIVE]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
+| 281 | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [OPEN 2026-06-23 - AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL]](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
+| 282 | [Maker Parallel CLOB Raw-Book Refresh SLA [PARTIAL 2026-06-23 - RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN]](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
+| 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [OPEN 2026-06-23 - RAW SERVED FAIR IS UNCALIBRATED AND NOT MARKET-SHRUNK]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
+| 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [OPEN 2026-06-23 - ENTRY GATES PRE-FEE EDGE AND RANKS BY MAX DISAGREEMENT]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
+| 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [OPEN 2026-06-23 - NO PER-SLICE PROVEN-SKILL PERMISSION FOR TAKER ENTRY]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
 
 ### Architecture And Maintainability
 

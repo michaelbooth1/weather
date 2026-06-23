@@ -33,7 +33,7 @@ profitability claim can be counted.
 - [x] Finalize each labelable run through the watchdog within SLA.
 - [x] Build a campaign ledger with complete-label day count, after-fee net PnL,
   drawdown, tail exposure, and market-benchmark comparison.
-- [ ] Require explicit operator review before any live-size change.
+- [x] Require explicit operator review before any live-size change.
 
 Acceptance: no taker strategy is considered live-qualified until a fresh
 post-fix campaign has at least `3-5` complete-label days, sufficient fills,
@@ -255,6 +255,15 @@ from executed-order realized PnL checks. The three June 23 bakeoffs were
 refreshed and all now report profitability artifact verification `PASS`; each
 is blocked only by `missing_target_date_labels` because no settlement labels
 exist yet for `2026-06-23`.
+
+The live-size guard is now fail-closed on operator review. Even when a
+candidate canary has complete labels, minimum settled sample, after-fee
+evidence, and passing settlement gates, `next_run_policy_gate` keeps it
+paper-only with `next_action=operator_review_live_size_change` until
+`run_config.operator_review` explicitly approves the strategy and
+`promote_default` action. The finalization summary/report exposes
+`active_strategy_operator_review_*` fields so the review requirement is visible
+before any live-size change.
 
 Added the fresh run to the bakeoff and ledger evidence:
 

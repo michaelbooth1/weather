@@ -330,6 +330,10 @@ def write_taker_run(root, run_id, rows, reported_net, reported_mtm, reported_uns
 
 def write_labels(path, rows):
     fieldnames = ["event_slug", "market_id", "target_date", "settlement_bucket", "winning_band", "quality_grade"]
+    for row in rows:
+        for field in row:
+            if field not in fieldnames:
+                fieldnames.append(field)
     write_csv(path, fieldnames, rows)
 
 
@@ -1591,6 +1595,51 @@ class TestTakerBot(unittest.TestCase):
         )
         self.assertEqual(bakeoff["promotion_gates"][0]["status"], "PASS")
 
+    def test_strategy_bakeoff_accepts_daily_summary_settlement_complete_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True)
+            source_payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={"min_edge": 0.05, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "target_date": TARGET_DATE,
+                    "settlement_bucket": 80,
+                    "winning_band": "80-81 F",
+                    "quality_grade": "partial",
+                    "settlement_source": "daily_summary",
+                    "reconciliation_status": "match",
+                }
+            ])
+
+            bakeoff = run_taker_strategy_bakeoff(
+                source_payload["run_folder"],
+                labels_csv=labels,
+                strategies="raw_edge_control",
+                budget_usdc=12,
+                out_json=root / "daily-summary-bakeoff.json",
+                out_report=root / "daily-summary-bakeoff.md",
+                now="2026-06-20T12:00:00+00:00",
+            )
+
+        self.assertFalse(bakeoff["blockers"])
+        self.assertEqual(bakeoff["label_summary"]["complete_rows"], 1)
+        self.assertEqual(bakeoff["label_summary"]["settlement_complete_rows"], 1)
+        self.assertEqual(bakeoff["label_summary"]["snapshot_quality_complete_rows"], 0)
+        self.assertEqual(bakeoff["label_summary"]["partial_rows"], 1)
+        self.assertEqual(bakeoff["promotion_gates"][0]["status"], "PASS")
+
     def test_champion_ledger_blocks_partial_quality_winner_from_dethroning_champion(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1662,6 +1711,58 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(by_strategy["challenger"]["promotion_status"], "BLOCK")
         self.assertIn("no_partial_quality_days", by_strategy["challenger"]["failed_gates"])
         self.assertIn("min_complete_label_days", by_strategy["challenger"]["failed_gates"])
+
+    def test_champion_ledger_counts_missing_labels_separately_from_partial_quality(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bakeoff_path = root / "strategy_bakeoff.json"
+            bakeoff_path.write_text(json.dumps({
+                "schema_version": STRATEGY_BAKEOFF_SCHEMA_VERSION,
+                "generated_at_utc": "2026-06-20T12:00:00+00:00",
+                "run_id": "daily-bakeoff",
+                "source_run_id": "daily",
+                "target_date": "2026-06-19",
+                "label_summary": {"label_rows": 0, "complete_rows": 0, "partial_rows": 0},
+                "blockers": [{"code": "missing_target_date_labels"}],
+                "pnl": {
+                    "by_strategy": [
+                        {
+                            "strategy_id": "challenger",
+                            "strategy_family": "candidate",
+                            "filled_order_count": 1,
+                            "settled_order_count": 0,
+                            "unsettled_order_count": 1,
+                            "unscored_order_count": 0,
+                            "spent_usdc": 1,
+                            "settlement_pnl_usdc": 0,
+                            "net_pnl_usdc": 0,
+                        },
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "challenger",
+                        "status": "BLOCK",
+                        "settled_order_count": 0,
+                        "settled_market_count": 0,
+                        "failed_gates": ["min_settled_sample"],
+                    },
+                ],
+            }), encoding="utf-8")
+
+            ledger = build_champion_challenger_ledger(
+                bakeoff_paths=[bakeoff_path],
+                champion_strategy_id="champion",
+                now="2026-06-20T12:00:00+00:00",
+                min_complete_label_days=1,
+                min_settled_orders=1,
+            )
+            row = ledger["strategies"][0]
+
+        self.assertEqual(row["partial_quality_day_count"], 0)
+        self.assertEqual(row["missing_label_day_count"], 1)
+        self.assertIn("no_missing_label_days", row["failed_gates"])
+        self.assertNotIn("no_partial_quality_days", row["failed_gates"])
 
     def test_low_price_tail_partial_label_stays_candidate_canary(self):
         gate = next_run_policy_gate(
@@ -1820,7 +1921,7 @@ class TestTakerBot(unittest.TestCase):
         self.assertIn("candidate_canary", report)
         self.assertNotIn("promoted_default", report)
 
-    def test_low_price_tail_complete_label_promotes_after_sample(self):
+    def test_low_price_tail_complete_label_waits_for_operator_review_before_live_size(self):
         gate = next_run_policy_gate(
             {
                 "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}],
@@ -1856,13 +1957,69 @@ class TestTakerBot(unittest.TestCase):
         )
 
         self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(gate["active_strategy_lifecycle_status"], "candidate_canary")
+        self.assertFalse(gate["promotion_eligible"])
+        self.assertEqual(gate["next_action"], "operator_review_live_size_change")
+        self.assertEqual(gate["complete_label_sample_count"], 1)
+        self.assertEqual(gate["canary_settled_order_count"], 2)
+        self.assertTrue(gate["paper_only"])
+        self.assertEqual(gate["paper_only_reason"], "operator_review_required")
+        self.assertTrue(gate["canary_after_fee_evidence"])
+        self.assertTrue(gate["operator_review_required"])
+        self.assertFalse(gate["operator_review_approved"])
+        self.assertEqual(gate["operator_review_reason"], "missing_operator_review")
+
+    def test_low_price_tail_complete_label_promotes_after_operator_review(self):
+        gate = next_run_policy_gate(
+            {
+                "strategies": [{"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}],
+                "comparison": {"best_settlement_scored_strategy_id": "low_price_tail_capped"},
+            },
+            run_config={
+                "active_strategy_id": "low_price_tail_capped",
+                "active_strategy_lifecycle": "candidate_canary",
+                "active_strategy_canary": {"min_settled_orders": 2, "age_days": 1},
+                "operator_review": {
+                    "status": "APPROVED",
+                    "approved_strategy_id": "low_price_tail_capped",
+                    "approved_action": "promote_default",
+                    "reviewer": "operator",
+                    "reviewed_at_utc": "2026-06-20T12:30:00+00:00",
+                },
+                "policy_config": {
+                    "canary_min_settled_orders": 2,
+                    "canary_min_complete_label_days": 1,
+                },
+            },
+            bakeoff={
+                "label_summary": {"label_rows": 1, "complete_rows": 1, "partial_rows": 0},
+                "blockers": [],
+                "pnl": {
+                    "by_strategy": [
+                        {"strategy_id": "low_price_tail_capped", "net_pnl_usdc": 5.0}
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "low_price_tail_capped",
+                        "status": "PASS",
+                        "settled_order_count": 2,
+                        "pnl_fee_basis": "after_fee",
+                        "failed_gates": [],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(gate["status"], "PASS")
         self.assertEqual(gate["active_strategy_lifecycle_status"], "promoted_default")
         self.assertTrue(gate["promotion_eligible"])
         self.assertEqual(gate["next_action"], "promote_default")
-        self.assertEqual(gate["complete_label_sample_count"], 1)
-        self.assertEqual(gate["canary_settled_order_count"], 2)
         self.assertFalse(gate["paper_only"])
-        self.assertTrue(gate["canary_after_fee_evidence"])
+        self.assertTrue(gate["operator_review_required"])
+        self.assertTrue(gate["operator_review_approved"])
+        self.assertEqual(gate["operator_review_reason"], "operator_review_approved")
+        self.assertEqual(gate["operator_review_action"], "promote_default")
 
     def test_low_price_tail_complete_label_without_after_fee_stays_paper_only(self):
         gate = next_run_policy_gate(
