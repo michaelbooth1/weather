@@ -291,7 +291,7 @@ infrastructure work remains.
 | 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 | 254 | [Extract Serving-Safe Variant-Prediction Runtime From Calibration [COMPLETE 2026-06-23 - SERVING RUNTIME EDGE REMOVED AND ARCHITECTURE RATIFIED]](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
 | 255 | [Taker Current-High Deny Regression Proof [COMPLETE 2026-06-23 - CONFIG-DRIFT CURRENT-HIGH DENY RATIFIED]](items/item-255-taker-current-high-deny-regression-proof.md) |
-| 256 | [Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 256 | [Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 257 | [Real NO-Book Depth For Two-Sided Taker [COMPLETE 2026-06-23 - REAL NO-BOOK DEPTH GATES LIVE]](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
 | 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [COMPLETE 2026-06-23 - SELECTED PAPER PROOF PASS]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
 | 259 | [Current-Run Artifact Profitability Field Verification [COMPLETE 2026-06-23 - CURRENT-RUN PROFITABILITY VERIFIER GATES PROMOTION]](items/item-259-current-run-artifact-profitability-field-verification.md) |

@@ -336,6 +336,9 @@ Remaining promotion blockers are no longer the June 19-22 settlement labels.
 They are:
 
 - June 23 still has no target-date settlement labels.
+- June 19 through June 22 source run tapes still fail profitability artifact
+  verification because the legacy `orders_long.csv` files lack current
+  fee/slippage/executable-depth fields.
 - No strategy passes every complete-day promotion gate
   (`all_complete_days_pass_strategy_gate`).
 - Several strategies still have insufficient settled order samples.

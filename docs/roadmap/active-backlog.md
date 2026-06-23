@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T23:11:04.766751+00:00
+Generated: 2026-06-23T23:13:49.185144+00:00
 Status: `OK`
 
 ## Summary
@@ -58,7 +58,7 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 256 | PARTIAL | 2026-06-23 | CAMPAIGN STARTED, COMPLETE-LABEL DAYS BLOCKED | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 256 | PARTIAL | 2026-06-23 | SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 281 | OPEN | 2026-06-23 | AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
 | 282 | PARTIAL | 2026-06-23 | RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN | [Maker Parallel CLOB Raw-Book Refresh SLA](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
