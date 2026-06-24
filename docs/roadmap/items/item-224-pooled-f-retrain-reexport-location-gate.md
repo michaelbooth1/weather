@@ -801,3 +801,43 @@ Still blocked and how to unblock:
 - Countable location readiness: refresh settled-day freshness, physical
   feature-family ratchet, and tape backup/restore evidence so promotion
   readiness can count location validation.
+
+## 2026-06-24 active-contract fail-closed guard
+
+Hardened `weather.reporting.candidate_variant_replay_summary` so
+`validation_evidence=active_replay_contract` now requires an explicit active
+registry/export contract JSON (or equivalent in-process payload) backed by a
+registered active variant entry. The registry contract must carry a `variant_id`
+matching the row export and a `default_export_path` matching the summarized CSV,
+plus active lifecycle metadata and the core export-contract fields, before the
+replay summary will emit `candidate_shadow_variants.active_registry_contract`.
+
+This prevents promoting the v0.2 diagnostic by merely relabeling its replay
+summary. The current v0.2 artifact therefore correctly remains blocked until
+the composite repair is represented by a reproducible active export contract
+instead of only the generated same-corpus CSV.
+
+Verification:
+
+```powershell
+python -m pytest tests\reporting\test_candidate_variant_replay_summary.py tests\calibration\test_promotion_refresh.py -q
+```
+
+Result: `56 passed`.
+
+## 2026-06-24 same-corpus active-evidence rejection
+
+Tried the strict active-contract path against the existing v0.2 rows with a
+matching in-memory active registry contract. The replay summary now rejects the
+artifact before scoring active evidence:
+
+```text
+ValueError: active replay contract rows are non-countable: row export carries non-countable/same-corpus diagnostic markers: item224_repair_missingness_hgb=same_corpus_hgb_missingness_v0_2
+```
+
+This is expected and keeps the item honest. The v0.2 missingness repair is a
+same-corpus diagnostic that separates losing and winning rows too strongly to
+serve as proof-grade active replay evidence. The next real unblock is a fresh
+schema-current artifact or active policy export that clears the same
+source/missingness, exact-band, weak-slot, and promotion gates without
+same-corpus repair markers.

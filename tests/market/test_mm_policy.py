@@ -202,6 +202,25 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(quote["final_size_limiter"], "event_gate_exception_risk_cap")
         self.assertLess(float(quote["bid_size"]), 2.0)
 
+    def test_correlated_regime_cap_limits_quote_size(self):
+        quote = decide_quote(
+            fresh_row(
+                range_label="84-85 F",
+                bin_value="84",
+                bin_value_hi="85",
+                settlement_current_high="80",
+                correlated_regime_notional_before_usdc="4.5",
+                correlated_regime_joint_stress_loss_before_usdc="4.5",
+            ),
+            config={"max_correlated_regime_joint_loss_usdc": 5.0},
+            now=NOW,
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertEqual(quote["correlated_regime_group_key"], "2026-06-14|southeast|warm")
+        self.assertEqual(quote["final_size_limiter"], "correlated_regime_joint_loss_cap")
+        self.assertLess(float(quote["bid_size"]), 1.0)
+
     def test_clob_recon_policy_overrides_apply_when_artifact_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "clob_recon.json"

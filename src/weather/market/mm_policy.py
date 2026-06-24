@@ -32,6 +32,7 @@ from weather.market.info_event_calendar import (
 )
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import REGISTRY, spec_for_id, spec_for_slug
+from weather.market.mm_risk import correlated_exposure_state
 from weather.market.live_observation_normalization import (
     current_high_probability_summary,
     normalized_high_fields,
@@ -72,6 +73,9 @@ DEFAULT_POLICY_CONFIG = {
     "adverse_selection_buffer": 0.01,
     "max_event_notional": 25.0,
     "max_band_notional": 10.0,
+    "max_correlated_regime_notional_usdc": 0.0,
+    "max_correlated_regime_joint_loss_usdc": 0.0,
+    "correlated_regime_market_groups": "",
     "max_daily_loss": 25.0,
     "information_event_calendar_enabled": True,
     "information_event_calendar_path": str(DEFAULT_INFORMATION_EVENT_CALENDAR),
@@ -196,6 +200,21 @@ QUOTE_COLUMNS = [
     "event_notional",
     "band_notional",
     "event_risk_remaining",
+    "correlated_regime_group_key",
+    "correlated_regime_direction",
+    "correlated_regime_market_group",
+    "correlated_regime_notional_before_usdc",
+    "correlated_regime_notional_after_usdc",
+    "correlated_regime_signed_notional_before_usdc",
+    "correlated_regime_signed_notional_after_usdc",
+    "correlated_regime_joint_stress_loss_before_usdc",
+    "correlated_regime_joint_stress_loss_after_usdc",
+    "correlated_regime_notional_remaining_usdc",
+    "correlated_regime_joint_loss_remaining_usdc",
+    "correlated_regime_notional_cap_usdc",
+    "correlated_regime_joint_loss_cap_usdc",
+    "correlated_regime_cap_breached",
+    "correlated_regime_cap_reason",
     "book_spread",
     "book_depth_1pct_total",
     "book_imbalance_1pct",
@@ -918,15 +937,37 @@ def _book_age(row, now):
     return age_seconds(row.get("clob_book_captured_at_utc"), now)
 
 
-def _risk_limited_size(row, config, price):
+def _risk_limited_size(row, config, price, side=None):
     desired = float(config["quote_size"])
     price = max(float(config["min_price"]), min(float(config["max_price"]), float(price or 0.0)))
     current_event = maybe_float(row.get("event_notional")) or 0.0
     current_band = maybe_float(row.get("band_notional")) or 0.0
+    current_correlated = maybe_float(first_present(
+        row,
+        "correlated_regime_notional_before_usdc",
+        "correlated_regime_notional_usdc",
+    )) or 0.0
+    current_correlated_loss = maybe_float(first_present(
+        row,
+        "correlated_regime_joint_stress_loss_before_usdc",
+        "correlated_regime_joint_loss_usdc",
+    ))
+    if current_correlated_loss is None:
+        current_correlated_loss = current_correlated
     daily_loss = maybe_float(row.get("daily_loss")) or 0.0
     event_remaining = max(0.0, float(config["max_event_notional"]) - current_event)
     band_remaining = max(0.0, float(config["max_band_notional"]) - current_band)
     loss_remaining = max(0.0, float(config["max_daily_loss"]) + daily_loss)
+    correlated_before = correlated_exposure_state(
+        row,
+        current_notional_usdc=current_correlated,
+        current_joint_loss_usdc=current_correlated_loss,
+        candidate_notional_usdc=0.0,
+        max_notional_usdc=config.get("max_correlated_regime_notional_usdc"),
+        max_joint_loss_usdc=config.get("max_correlated_regime_joint_loss_usdc"),
+        market_group_overrides=config.get("correlated_regime_market_groups"),
+        side=side,
+    )
     candidates = [
         ("configured_size", desired),
         ("event_notional_cap", event_remaining / price),
@@ -937,8 +978,26 @@ def _risk_limited_size(row, config, price):
     exception_cap = maybe_float(exception.get("risk_cap_usdc"))
     if exception_cap is not None:
         candidates.append(("event_gate_exception_risk_cap", max(0.0, exception_cap) / price))
+    correlated_notional_remaining = correlated_before.get("correlated_regime_notional_remaining_usdc")
+    if correlated_notional_remaining is not None:
+        candidates.append(("correlated_regime_notional_cap", correlated_notional_remaining / price))
+    correlated_loss_remaining = correlated_before.get("correlated_regime_joint_loss_remaining_usdc")
+    if correlated_loss_remaining is not None:
+        candidates.append(("correlated_regime_joint_loss_cap", correlated_loss_remaining / price))
     limiter, size = min(candidates, key=lambda item: item[1])
-    return max(0.0, size), limiter, event_remaining
+    size = max(0.0, size)
+    correlated_after = correlated_exposure_state(
+        row,
+        current_notional_usdc=current_correlated,
+        current_joint_loss_usdc=current_correlated_loss,
+        candidate_notional_usdc=size * price,
+        candidate_joint_loss_usdc=size * price,
+        max_notional_usdc=config.get("max_correlated_regime_notional_usdc"),
+        max_joint_loss_usdc=config.get("max_correlated_regime_joint_loss_usdc"),
+        market_group_overrides=config.get("correlated_regime_market_groups"),
+        side=side,
+    )
+    return size, limiter, event_remaining, correlated_after
 
 
 def _base_output(row, config, now, reason_code, reason_detail):
@@ -964,6 +1023,24 @@ def _base_output(row, config, now, reason_code, reason_detail):
         cadence.get("snapshot_cadence_confidence_multiplier"),
     )
     current_high_gate = current_high_trust_gate_state(row, config=config, now=now, edge=edge, mode="none")
+    correlated_state = correlated_exposure_state(
+        row,
+        current_notional_usdc=maybe_float(first_present(
+            row,
+            "correlated_regime_notional_before_usdc",
+            "correlated_regime_notional_usdc",
+        )) or 0.0,
+        current_joint_loss_usdc=maybe_float(first_present(
+            row,
+            "correlated_regime_joint_stress_loss_before_usdc",
+            "correlated_regime_joint_loss_usdc",
+        )),
+        candidate_notional_usdc=0.0,
+        max_notional_usdc=config.get("max_correlated_regime_notional_usdc"),
+        max_joint_loss_usdc=config.get("max_correlated_regime_joint_loss_usdc"),
+        market_group_overrides=config.get("correlated_regime_market_groups"),
+        side=row.get("side"),
+    )
     output = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -1022,6 +1099,7 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "event_notional": maybe_float(row.get("event_notional")) or 0.0,
         "band_notional": maybe_float(row.get("band_notional")) or 0.0,
         "event_risk_remaining": max(0.0, float(config["max_event_notional"]) - (maybe_float(row.get("event_notional")) or 0.0)),
+        **correlated_state,
         "book_spread": _book_spread(row),
         "book_depth_1pct_total": maybe_float(first_present(row, "book_depth_1pct_total", "clob_depth_1pct_total")),
         "book_imbalance_1pct": maybe_float(first_present(row, "book_imbalance_1pct", "clob_imbalance_1pct")),
@@ -1109,7 +1187,12 @@ def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_pric
         price_for_size += max(0.0, 1.0 - float(ask_price))
     if price_for_size <= 0:
         price_for_size = bid_price if bid_price is not None else ask_price
-    size, limiter, event_remaining = _risk_limited_size(row, config, price_for_size)
+    size, limiter, event_remaining, correlated_state = _risk_limited_size(
+        row,
+        config,
+        price_for_size,
+        side=side,
+    )
     size_multiplier = maybe_float(output.get("early_hour_guardrail_size_multiplier")) or 1.0
     if output.get("early_hour_guardrail_status") == "active" and size_multiplier < 1.0:
         size *= max(0.0, size_multiplier)
@@ -1142,6 +1225,7 @@ def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_pric
         "ask_price": ask_price,
         "ask_size": size if ask_price is not None else 0.0,
         "event_risk_remaining": event_remaining,
+        **correlated_state,
         "latency_budget_status": "ok",
         "expected_reward_score": min(1.0, max(0.0, (output.get("book_depth_1pct_total") or 0.0) / 1000.0)),
         "final_size_limiter": limiter,

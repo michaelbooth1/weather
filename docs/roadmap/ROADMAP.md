@@ -21,6 +21,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [2026-06-22 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-22.md)
 - [2026-06-23 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-23.md)
 - [2026-06-23 trading stack performance and strategy audit](audits/trading-stack-performance-strategy-audit-2026-06-23.md)
+- [2026-06-24 system-level backlog audit](audits/system-level-backlog-audit-2026-06-24.md)
 
 ## Status Taxonomy
 
@@ -130,7 +131,7 @@ infrastructure work remains.
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
+| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-24 - ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
 | 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
@@ -140,7 +141,7 @@ infrastructure work remains.
 | 243 | [Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
-| 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
+| 246 | [Deduplicated Durable Tape Backup Repository [PARTIAL 2026-06-24 - RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
 | 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
@@ -148,6 +149,7 @@ infrastructure work remains.
 | 289 | [CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]](items/item-289-clob-price-history-dedup-content-addressed-store.md) |
 | 290 | [Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]](items/item-290-incremental-closed-day-parquet-conversion.md) |
 | 291 | [Schema Registry Reconciliation For Storage And Log Artifacts [COMPLETE 2026-06-24 - STRICT AUDIT CLEAN WITH EXPLICIT NON-SCHEMA EXCLUSIONS]](items/item-291-schema-registry-storage-log-artifact-reconciliation.md) |
+| 299 | [Polymarket Event-Metadata Rollover Gate [OPEN 2026-06-24 - DAILY EVENT DRIFT CAN BREAK COLLECTION BEFORE PREFLIGHT]](items/item-299-polymarket-event-metadata-rollover-gate.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -182,7 +184,7 @@ infrastructure work remains.
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-18 - LIVE ACCOUNT EVIDENCE BLOCKED]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-24 - LIVE CREDENTIALS ABSENT; EVIDENCE BLOCKED]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
@@ -327,13 +329,14 @@ infrastructure work remains.
 | 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [COMPLETE 2026-06-23 - CALIBRATED MARKET-SHRUNK TAKER FAIR LIVE]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
 | 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
 | 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
-| 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [OPEN 2026-06-24 - PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
-| 293 | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes [OPEN 2026-06-24 - FAIL-OPEN PROMOTION, LOSSY CSV, PRE-SORT TRUNCATION, 0-AS-MISSING]](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
+| 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [COMPLETE 2026-06-24 - CORRELATED-REGIME CAPS WIRED INTO TAKER AND MAKER RISK]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
+| 293 | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes [COMPLETE 2026-06-24 - FAIL-CLOSED PROMOTION AND STABLE DAILY LEDGERS]](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
 | 294 | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [OPEN 2026-06-24 - INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS]](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
 | 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [OPEN 2026-06-24 - LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
 | 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [OPEN 2026-06-24 - POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
 | 297 | [Calibration-Drift And Directional-Bias Daily Tracking [OPEN 2026-06-24 - NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
 | 298 | [Automatic Experiment Queue And Drift-Triggered Retrain Loop [OPEN 2026-06-24 - EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY]](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
+| 300 | [Current Exchange Economics And Rule-Drift Gate [OPEN 2026-06-24 - PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS]](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
 
 ### Architecture And Maintainability
 

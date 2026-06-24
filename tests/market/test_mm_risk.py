@@ -7,6 +7,8 @@ from weather.market.mm_risk import (  # noqa: E402
     SizingConfig,
     SizingState,
     balance_available,
+    correlated_exposure_state,
+    correlated_regime_group_key,
     event_inventory_metrics,
     reserve_order,
     risk_halt_decision,
@@ -122,6 +124,76 @@ class TestMarketMakingRisk(unittest.TestCase):
             [reason["reason"] for reason in decision["reasons"]],
             ["stale_source_halt", "stale_book_halt"],
         )
+
+    def test_correlated_regime_grouping_uses_day_region_and_side_adjusted_direction(self):
+        yes_key = correlated_regime_group_key({
+            "target_date": "2026-06-19",
+            "market_id": "austin",
+            "bin_kind": "eq",
+            "bin_value": "102",
+            "bin_value_hi": "103",
+            "settlement_current_high": "99",
+            "side": "YES_BUY",
+        })
+        no_key = correlated_regime_group_key({
+            "target_date": "2026-06-19",
+            "market_id": "dallas",
+            "bin_kind": "eq",
+            "bin_value": "102",
+            "bin_value_hi": "103",
+            "settlement_current_high": "99",
+            "side": "NO_BUY",
+        })
+
+        self.assertEqual(yes_key, "2026-06-19|texas_southern_plains|warm")
+        self.assertEqual(no_key, "2026-06-19|texas_southern_plains|cool")
+
+    def test_correlated_exposure_state_blocks_group_joint_loss_breach(self):
+        state = correlated_exposure_state(
+            {
+                "target_date": "2026-06-19",
+                "market_id": "atlanta",
+                "bin_kind": "eq",
+                "bin_value": "94",
+                "bin_value_hi": "95",
+                "settlement_current_high": "90",
+                "side": "YES_BUY",
+            },
+            current_notional_usdc=8.0,
+            current_joint_loss_usdc=8.0,
+            candidate_notional_usdc=3.0,
+            candidate_joint_loss_usdc=3.0,
+            max_notional_usdc=20.0,
+            max_joint_loss_usdc=10.0,
+        )
+
+        self.assertTrue(state["correlated_regime_cap_breached"])
+        self.assertEqual(state["correlated_regime_cap_reason"], "correlated_regime_joint_loss_cap")
+        self.assertAlmostEqual(state["correlated_regime_joint_stress_loss_after_usdc"], 11.0)
+
+    def test_sizing_stack_caps_correlated_regime_joint_loss(self):
+        decision = sizing_decision(
+            side="YES_BID",
+            price=0.50,
+            fair_probability=0.70,
+            config=SizingConfig(
+                rewards_min_size_or_target=50.0,
+                per_band_cap_usdc=100.0,
+                per_event_expected_loss_cap_usdc=100.0,
+                per_event_worst_case_cap_usdc=100.0,
+                per_correlated_regime_joint_loss_cap_usdc=5.0,
+                daily_drawdown_budget_usdc=100.0,
+                fractional_kelly=0.25,
+                available_backed_balance_usdc=100.0,
+                live_edge_is_credible=True,
+                correlated_regime_group_key="2026-06-19|southeast|warm",
+            ),
+            state=SizingState(current_correlated_regime_joint_loss_usdc=4.0),
+        )
+
+        self.assertEqual(decision["final_size_limiter"], "correlated_regime_joint_loss_cap")
+        self.assertAlmostEqual(decision["size"], 2.0)
+        self.assertEqual(decision["correlated_regime_group_key"], "2026-06-19|southeast|warm")
 
     def test_balance_reservation_accounts_for_open_orders_and_allowance(self):
         state = BalanceState(

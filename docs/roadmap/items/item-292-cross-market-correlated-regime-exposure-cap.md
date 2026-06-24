@@ -1,4 +1,4 @@
-# 292. Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [OPEN 2026-06-24 - PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE]
+# 292. Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [COMPLETE 2026-06-24 - CORRELATED-REGIME CAPS WIRED INTO TAKER AND MAKER RISK]
 
 Goal: stop the taker and maker from accumulating concentrated, positively
 correlated positions across markets that move together on a shared weather
@@ -64,15 +64,15 @@ markets as a live trading control.
    flat-fleet caps miss; keep it shadow-first and fail-closed before it changes
    any active default.
 
-- [ ] Add a per-target-day correlated-regime grouping with a documented default
+- [x] Add a per-target-day correlated-regime grouping with a documented default
   and a realized-correlation validation check.
-- [ ] Add a shared correlated-exposure risk primitive consumed by the taker
+- [x] Add a shared correlated-exposure risk primitive consumed by the taker
   sizing path and the maker risk stack.
-- [ ] Enforce a correlation-aware joint notional and joint-loss cap per regime
+- [x] Enforce a correlation-aware joint notional and joint-loss cap per regime
   group, failing closed on breach, on top of existing caps.
-- [ ] Emit regime-group exposure and joint-stress-loss fields in taker and maker
+- [x] Emit regime-group exposure and joint-stress-loss fields in taker and maker
   artifacts and run reports.
-- [ ] Prove on the item 273 counterfactual tape and item 238/275 bakeoff that the
+- [x] Prove on the item 273 counterfactual tape and item 238/275 bakeoff that the
   correlation-aware cap bounds joint drawdown that per-market and flat-fleet caps
   do not.
 
@@ -84,3 +84,25 @@ reported per run; and a settled replay shows the correlation-aware cap bounds
 joint drawdown that per-market and flat-fleet caps leave unbounded.
 
 Related: items 38, 45, 55, 167, 183, 209, 214, 253, 275, 279, 283, 284, 285.
+
+## Completion Note - 2026-06-24
+
+Implemented a shared `correlated_regime_exposure_v0.1` primitive in
+`weather.market.mm_risk`, with default market-region groups, side-adjusted
+warm/cool/center direction, configurable market-group overrides, group notional,
+signed notional, and joint-stress-loss cap fields. The maker sizing stack now
+has correlated-regime limiters, and `mm_policy` emits group exposure fields on
+quote rows.
+
+The taker budget loop now assigns every candidate/open row to a regime group,
+tracks existing filled group exposure, shrinks orders to remaining group
+capacity, and fails closed with `NO_TRADE_CORRELATED_REGIME_EXPOSURE_CAP` when a
+same-regime cap is exhausted. Taker order rows include the group key, direction,
+market group, before/after notional, signed notional, joint stress loss,
+remaining cap, cap value, and breach reason.
+
+Verification: `python -m pytest tests/market/test_mm_risk.py
+tests/market/test_mm_policy.py tests/market/test_taker_bot.py -q` covers group
+assignment, side-adjusted direction, joint-loss breach detection, maker sizing
+limiter binding, maker quote-size capping, and a two-market same-regime taker
+case where the first order is capped and the second fails closed.

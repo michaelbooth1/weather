@@ -65,7 +65,7 @@ def maybe_int(value):
     number = maybe_float(value)
     if number is None:
         return None
-    return int(number)
+    return int(round(number))
 
 
 def _artifact(backtest_root, name):
@@ -481,8 +481,21 @@ def build_progress_row(
     return row
 
 
-def ledger_columns(row):
-    return list(row.keys())
+def ledger_columns(row, rows=None, existing_fieldnames=None):
+    columns = []
+
+    def add(field):
+        if field and field not in columns:
+            columns.append(field)
+
+    for field in existing_fieldnames or []:
+        add(field)
+    for existing in rows or []:
+        for field in existing.keys():
+            add(field)
+    for field in row.keys():
+        add(field)
+    return columns
 
 
 def append_jsonl(path, row):
@@ -506,16 +519,20 @@ def append_csv(path, row):
     path.parent.mkdir(parents=True, exist_ok=True)
     run_date = row.get("run_date")
     rows = []
+    existing_fieldnames = []
     if path.exists() and path.stat().st_size > 0:
         with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            existing_fieldnames = list(reader.fieldnames or [])
             rows = [
                 existing
-                for existing in csv.DictReader(handle)
+                for existing in reader
                 if not run_date or existing.get("run_date") != str(run_date)
             ]
     rows.append(row)
+    columns = ledger_columns(row, rows=rows, existing_fieldnames=existing_fieldnames)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=ledger_columns(row), extrasaction="ignore")
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
         writer.writeheader()
         writer.writerows(rows)
     return path

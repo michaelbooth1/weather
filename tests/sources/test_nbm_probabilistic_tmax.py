@@ -8,11 +8,15 @@ from pathlib import Path
 from weather.sources.nbm_probabilistic_tmax import (
     NBPStationArchiveStore,
     exceedance_probability_from_percentiles,
+    extract_qmd_grib_tmax_point,
     nbp_station_archive_summary,
     nbp_station_archive_row,
     nbp_text_url,
     parse_nbp_station_tmax,
+    qmd_grib_idx_url,
+    qmd_grib_url,
     replay_nbp_station_archive_row,
+    select_qmd_tmax_idx_records,
     station_nbp_block,
 )
 
@@ -37,6 +41,16 @@ TXNP9  86  70| 84  72
 FHR    24  36| 48  60
 TXNP5  79  66| 82  70
 """
+
+QMD_IDX_TEXT = (
+    "1:0:d=2026053000:TMAX:2 m above ground:24 hour fcst:10% level:\n"
+    "2:100:d=2026053000:TMAX:2 m above ground:24 hour fcst:25% level:\n"
+    "3:200:d=2026053000:TMAX:2 m above ground:24 hour fcst:50% level:\n"
+    "4:300:d=2026053000:TMAX:2 m above ground:24 hour fcst:75% level:\n"
+    "5:400:d=2026053000:TMAX:2 m above ground:24 hour fcst:90% level:\n"
+    "6:500:d=2026053000:TMAX:2 m above ground:24 hour fcst:prob > 90:\n"
+    "7:600:d=2026053000:TMP:2 m above ground:24 hour fcst:50% level:\n"
+)
 
 
 class TestNbmProbabilisticTmax(unittest.TestCase):
@@ -170,6 +184,80 @@ class TestNbmProbabilisticTmax(unittest.TestCase):
         self.assertTrue(payload["available"])
         self.assertEqual(payload["forecast_hour"], 48)
         self.assertEqual(nbp_text_url(payload_datetime("2026-05-30T00:00:00+00:00")), "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.20260530/00/text/blend_nbptx.t00z")
+
+    def test_qmd_grib_url_uses_operational_blend_layout(self):
+        url = qmd_grib_url(payload_datetime("2026-05-30T00:00:00+00:00"), 24, domain="co")
+
+        self.assertEqual(
+            url,
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/"
+            "blend.20260530/00/qmd/blend.t00z.qmd.f024.co.grib2",
+        )
+        self.assertEqual(qmd_grib_idx_url(url), url + ".idx")
+
+    def test_qmd_idx_selection_finds_tmax_percentile_and_exceedance_records(self):
+        selected = select_qmd_tmax_idx_records(
+            QMD_IDX_TEXT,
+            percentiles=(10, 50, 90),
+            exceedance_thresholds=(90,),
+        )
+
+        by_kind = {(row["kind"], row.get("percentile"), row.get("threshold")) for row in selected}
+        self.assertIn(("percentile", 10, None), by_kind)
+        self.assertIn(("percentile", 50, None), by_kind)
+        self.assertIn(("percentile", 90, None), by_kind)
+        self.assertIn(("exceedance_probability", None, 90.0), by_kind)
+        self.assertFalse(any(":TMP:" in row["match"] for row in selected))
+        self.assertTrue(any("10% level" in row["match"] for row in selected))
+
+    def test_qmd_grib_point_extraction_converts_kelvin_percentiles(self):
+        values_by_match = {
+            "10% level": 299.8166667,
+            "25% level": 300.3722222,
+            "50% level": 300.9277778,
+            "75% level": 301.4833333,
+            "90% level": 302.0388889,
+            "prob > 90": 35.0,
+        }
+        captured_matches = []
+
+        def fake_extractor(grib_path, *, lon, lat, match, wgrib2_path=None):
+            captured_matches.append(match)
+            for token, value in values_by_match.items():
+                if token in match:
+                    return {
+                        "value": value,
+                        "lon": lon,
+                        "lat": lat,
+                        "match": match,
+                        "command": ["fake-wgrib2"],
+                    }
+            raise AssertionError(match)
+
+        payload = extract_qmd_grib_tmax_point(
+            "blend.t00z.qmd.f024.co.grib2",
+            QMD_IDX_TEXT,
+            lon=-73.78,
+            lat=40.64,
+            run_time=payload_datetime("2026-05-30T00:00:00+00:00"),
+            forecast_hour=24,
+            target_date=date(2026, 5, 30),
+            source_url="https://example.test/blend.t00z.qmd.f024.co.grib2",
+            percentiles=(10, 25, 50, 75, 90),
+            exceedance_thresholds=(90,),
+            extractor=fake_extractor,
+        )
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["source_kind"], "qmd_grib_point")
+        self.assertAlmostEqual(payload["percentiles"]["10"], 80.0, places=3)
+        self.assertAlmostEqual(payload["percentiles"]["50"], 82.0, places=3)
+        self.assertAlmostEqual(payload["percentiles"]["90"], 84.0, places=3)
+        self.assertAlmostEqual(payload["p10_p90_spread"], 4.0, places=3)
+        self.assertAlmostEqual(payload["iqr"], 2.0, places=3)
+        self.assertEqual(payload["exceedance_probabilities"]["90.0"], 0.35)
+        self.assertEqual(payload["exceedance_status"], "native_qmd_grib_extracted")
+        self.assertGreaterEqual(len(captured_matches), 6)
 
 
 def payload_datetime(value):

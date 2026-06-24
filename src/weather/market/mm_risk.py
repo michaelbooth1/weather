@@ -4,6 +4,7 @@ Pure calculations only: no exchange client, wallet, or order side effects.
 """
 from __future__ import annotations
 
+import json
 import math
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -11,6 +12,21 @@ from dataclasses import dataclass, field
 
 SIDES = {"YES", "NO", "YES_BID", "NO_BID", "YES_ASK"}
 NEGATIVE_RISK_SIMULATION_SCHEMA_VERSION = "mm_negative_risk_simulation_v0.1"
+CORRELATED_REGIME_EXPOSURE_SCHEMA_VERSION = "correlated_regime_exposure_v0.1"
+DEFAULT_CORRELATED_MARKET_GROUPS = {
+    "toronto": "great_lakes_northeast",
+    "nyc": "great_lakes_northeast",
+    "atlanta": "southeast",
+    "miami": "southeast",
+    "austin": "texas_southern_plains",
+    "dallas": "texas_southern_plains",
+    "houston": "texas_southern_plains",
+    "chicago": "midwest",
+    "denver": "rockies_high_plains",
+    "los-angeles": "west_coast",
+    "san-francisco": "west_coast",
+    "seattle": "pacific_northwest",
+}
 
 
 def _float(value, default=0.0):
@@ -19,6 +35,227 @@ def _float(value, default=0.0):
     except (TypeError, ValueError):
         return default
     return number if math.isfinite(number) else default
+
+
+def _first_present(row, *keys):
+    for key in keys:
+        value = (row or {}).get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _clean_token(value, default="unknown"):
+    text = str(value or "").strip().lower().replace(" ", "_")
+    return text or default
+
+
+def _parse_market_group_overrides(overrides):
+    if not overrides:
+        return {}
+    if isinstance(overrides, dict):
+        return {
+            _clean_token(key): _clean_token(value)
+            for key, value in overrides.items()
+            if key not in (None, "") and value not in (None, "")
+        }
+    text = str(overrides).strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        return _parse_market_group_overrides(parsed)
+    result = {}
+    for chunk in text.replace(";", ",").split(","):
+        if ":" not in chunk:
+            continue
+        market_id, group = chunk.split(":", 1)
+        if market_id.strip() and group.strip():
+            result[_clean_token(market_id)] = _clean_token(group)
+    return result
+
+
+def _target_day(row):
+    target = _first_present(row, "target_date", "market_date", "date")
+    if target:
+        return str(target)[:10]
+    timestamp = _first_present(row, "captured_at_utc", "generated_at_utc", "quote_time_utc", "fill_time_utc")
+    return str(timestamp)[:10] if timestamp else "unknown_date"
+
+
+def _row_market_group(row, overrides=None):
+    market_id = _clean_token(_first_present(row, "market_id"), default="unknown_market")
+    override_groups = _parse_market_group_overrides(overrides)
+    return override_groups.get(market_id) or DEFAULT_CORRELATED_MARKET_GROUPS.get(market_id) or market_id
+
+
+def _label_numbers(row):
+    numbers = []
+    text = str((row or {}).get("range_label") or "")
+    current = ""
+    for char in text:
+        if char.isdigit() or (char == "-" and not current):
+            current += char
+        elif current:
+            try:
+                numbers.append(float(current))
+            except ValueError:
+                pass
+            current = ""
+    if current:
+        try:
+            numbers.append(float(current))
+        except ValueError:
+            pass
+    return numbers
+
+
+def _band_midpoint(row):
+    value = _float(_first_present(row, "bin_value", "bin_value_c", "winning_band_value"), None)
+    value_hi = _float(_first_present(row, "bin_value_hi", "winning_band_value_hi"), None)
+    if value is None:
+        numbers = _label_numbers(row)
+        if numbers:
+            value = numbers[0]
+            value_hi = numbers[-1]
+    if value is None:
+        return None
+    kind = str(_first_present(row, "bin_kind", "winning_band_kind") or "eq").lower()
+    if kind in {"lte", "below", "under", "gte", "above"}:
+        return value
+    if value_hi is None:
+        value_hi = value
+    return (value + value_hi) / 2.0
+
+
+def _reference_temperature(row):
+    reference = _float(_first_present(
+        row,
+        "correlated_regime_reference_temperature",
+        "market_modal_band_hi",
+        "settlement_current_high",
+        "raw_current_high_bucket",
+        "raw_current_high",
+    ), None)
+    return reference
+
+
+def _base_temperature_direction(row):
+    explicit = _clean_token(_first_present(
+        row,
+        "correlated_regime_direction",
+        "regime_direction",
+        "temperature_regime_direction",
+    ), default="")
+    if explicit in {"warm", "hot", "above", "upside"}:
+        return 1
+    if explicit in {"cool", "cold", "below", "downside"}:
+        return -1
+    if explicit in {"center", "neutral", "modal"}:
+        return 0
+    kind = str(_first_present(row, "bin_kind", "winning_band_kind") or "").lower()
+    if kind in {"gte", "above"}:
+        return 1
+    if kind in {"lte", "below", "under"}:
+        return -1
+    midpoint = _band_midpoint(row)
+    reference = _reference_temperature(row)
+    if midpoint is None or reference is None:
+        return None
+    tolerance = max(0.0, _float((row or {}).get("correlated_regime_center_tolerance"), 0.5))
+    if midpoint > reference + tolerance:
+        return 1
+    if midpoint < reference - tolerance:
+        return -1
+    return 0
+
+
+def _side_direction_multiplier(side):
+    text = str(side or "").strip().upper()
+    if text in {"NO", "NO_BUY", "NO_BID", "YES_ASK"}:
+        return -1
+    return 1
+
+
+def correlated_regime_direction(row, side=None):
+    """Side-adjusted weather-regime direction for same-day joint-risk grouping."""
+    base = _base_temperature_direction(row)
+    if base is None:
+        return "unknown_direction"
+    adjusted = base * _side_direction_multiplier(side or _first_present(row, "side", "order_side"))
+    if adjusted > 0:
+        return "warm"
+    if adjusted < 0:
+        return "cool"
+    return "center"
+
+
+def correlated_regime_group_key(row, market_group_overrides=None, side=None):
+    """Stable target-day/market-cluster/direction key for correlated exposure caps."""
+    if (row or {}).get("correlated_regime_group_key"):
+        return str(row.get("correlated_regime_group_key"))
+    return "|".join([
+        _target_day(row),
+        _row_market_group(row, market_group_overrides),
+        correlated_regime_direction(row, side=side),
+    ])
+
+
+def correlated_exposure_state(
+    row,
+    *,
+    current_notional_usdc=0.0,
+    candidate_notional_usdc=0.0,
+    current_joint_loss_usdc=None,
+    candidate_joint_loss_usdc=None,
+    max_notional_usdc=0.0,
+    max_joint_loss_usdc=0.0,
+    market_group_overrides=None,
+    side=None,
+):
+    """Return group-level correlated exposure before/after a candidate fill/quote."""
+    key = correlated_regime_group_key(row, market_group_overrides=market_group_overrides, side=side)
+    direction = correlated_regime_direction(row, side=side)
+    direction_sign = {"warm": 1.0, "cool": -1.0}.get(direction, 0.0)
+    before = max(0.0, _float(current_notional_usdc))
+    candidate = max(0.0, _float(candidate_notional_usdc))
+    loss_before = before if current_joint_loss_usdc is None else max(0.0, _float(current_joint_loss_usdc))
+    loss_candidate = candidate if candidate_joint_loss_usdc is None else max(0.0, _float(candidate_joint_loss_usdc))
+    after = before + candidate
+    loss_after = loss_before + loss_candidate
+    notional_cap = max(0.0, _float(max_notional_usdc))
+    loss_cap = max(0.0, _float(max_joint_loss_usdc))
+    notional_remaining = None if notional_cap <= 0 else max(0.0, notional_cap - before)
+    loss_remaining = None if loss_cap <= 0 else max(0.0, loss_cap - loss_before)
+    notional_breach = notional_cap > 0 and after > notional_cap + 1e-9
+    loss_breach = loss_cap > 0 and loss_after > loss_cap + 1e-9
+    return {
+        "correlated_regime_schema_version": CORRELATED_REGIME_EXPOSURE_SCHEMA_VERSION,
+        "correlated_regime_group_key": key,
+        "correlated_regime_direction": direction,
+        "correlated_regime_market_group": _row_market_group(row, market_group_overrides),
+        "correlated_regime_notional_before_usdc": before,
+        "correlated_regime_notional_after_usdc": after,
+        "correlated_regime_signed_notional_before_usdc": before * direction_sign,
+        "correlated_regime_signed_notional_after_usdc": after * direction_sign,
+        "correlated_regime_joint_stress_loss_before_usdc": loss_before,
+        "correlated_regime_joint_stress_loss_after_usdc": loss_after,
+        "correlated_regime_notional_remaining_usdc": notional_remaining,
+        "correlated_regime_joint_loss_remaining_usdc": loss_remaining,
+        "correlated_regime_notional_cap_usdc": notional_cap,
+        "correlated_regime_joint_loss_cap_usdc": loss_cap,
+        "correlated_regime_cap_breached": bool(notional_breach or loss_breach),
+        "correlated_regime_cap_reason": (
+            "correlated_regime_joint_loss_cap"
+            if loss_breach
+            else "correlated_regime_notional_cap"
+            if notional_breach
+            else ""
+        ),
+    }
 
 
 def _clamp(value, low=0.0, high=1.0):
@@ -101,11 +338,14 @@ class SizingConfig:
     per_band_cap_usdc: float = 10.0
     per_event_expected_loss_cap_usdc: float = 25.0
     per_event_worst_case_cap_usdc: float = 25.0
+    per_correlated_regime_notional_cap_usdc: float = 0.0
+    per_correlated_regime_joint_loss_cap_usdc: float = 0.0
     daily_drawdown_budget_usdc: float = 25.0
     fractional_kelly: float = 0.0
     available_backed_balance_usdc: float = 0.0
     open_order_reserves_usdc: float = 0.0
     live_edge_is_credible: bool = False
+    correlated_regime_group_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -113,6 +353,8 @@ class SizingState:
     current_band_notional_usdc: float = 0.0
     current_event_expected_loss_usdc: float = 0.0
     current_event_worst_case_loss_usdc: float = 0.0
+    current_correlated_regime_notional_usdc: float = 0.0
+    current_correlated_regime_joint_loss_usdc: float = 0.0
     daily_loss_used_usdc: float = 0.0
 
 
@@ -163,6 +405,16 @@ def sizing_decision(side, price, fair_probability, config=None, state=None):
         0.0,
         _float(config.per_event_worst_case_cap_usdc) - _float(state.current_event_worst_case_loss_usdc),
     )
+    correlated_notional_cap = _float(config.per_correlated_regime_notional_cap_usdc)
+    correlated_joint_loss_cap = _float(config.per_correlated_regime_joint_loss_cap_usdc)
+    correlated_notional_remaining = max(
+        0.0,
+        correlated_notional_cap - _float(state.current_correlated_regime_notional_usdc),
+    )
+    correlated_joint_loss_remaining = max(
+        0.0,
+        correlated_joint_loss_cap - _float(state.current_correlated_regime_joint_loss_usdc),
+    )
     daily_drawdown_remaining = max(
         0.0,
         _float(config.daily_drawdown_budget_usdc) - _float(state.daily_loss_used_usdc),
@@ -193,6 +445,10 @@ def sizing_decision(side, price, fair_probability, config=None, state=None):
         ("available_backed_balance_after_reserves", available_after_reserves / risk),
         ("fractional_kelly_cap", kelly_risk_cap / risk),
     ]
+    if correlated_notional_cap > 0:
+        limiters.append(("correlated_regime_notional_cap", correlated_notional_remaining / risk))
+    if correlated_joint_loss_cap > 0:
+        limiters.append(("correlated_regime_joint_loss_cap", correlated_joint_loss_remaining / risk))
     finite = [(name, max(0.0, value)) for name, value in limiters if math.isfinite(value)]
     if not finite:
         return {
@@ -201,6 +457,7 @@ def sizing_decision(side, price, fair_probability, config=None, state=None):
             "limiters": limiters,
             "kelly_fraction": kelly_fraction,
             "available_after_reserves_usdc": available_after_reserves,
+            "correlated_regime_group_key": config.correlated_regime_group_key,
         }
     limiter, size = min(finite, key=lambda item: item[1])
     return {
@@ -210,6 +467,7 @@ def sizing_decision(side, price, fair_probability, config=None, state=None):
         "limiters": [{"name": name, "size": value} for name, value in finite],
         "kelly_fraction": kelly_fraction,
         "available_after_reserves_usdc": available_after_reserves,
+        "correlated_regime_group_key": config.correlated_regime_group_key,
     }
 
 

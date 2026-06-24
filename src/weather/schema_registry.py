@@ -1521,6 +1521,13 @@ REGISTERED_SCHEMAS = (
         "active",
         "Plan and apply report for removing unmanifested same-root backup leftovers.",
     ),
+    SchemaSpec(
+        "tape_dedup_repository",
+        "tape_dedup_repository_v0.1",
+        "weather.operations.tape_backup",
+        "active",
+        "Restic-backed deduplicated durable tape repository backup, status, and restore-drill evidence.",
+    ),
     SchemaSpec("shadow_ab_monitor", "shadow_ab_monitor_v0.1", "weather.reporting.shadow_ab_monitor", "active"),
     SchemaSpec("snapshot_evaluation", "snapshot_evaluation_v0.1", "weather.reporting.snapshot_evaluation", "active"),
     SchemaSpec(

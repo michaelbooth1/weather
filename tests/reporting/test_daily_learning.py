@@ -204,6 +204,99 @@ class TestDailyLearning(unittest.TestCase):
         self.assertFalse(payload["retrain_plan"]["training_ready"])
         self.assertGreaterEqual(payload["summary"]["blocker_count"], 1)
 
+    def test_promotion_ready_fails_closed_when_candidate_improvement_unmeasured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            del promotion["candidate"]["aggregate"]["delta_vs_current"]
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            retrain = payload["retrain_plan"]
+
+        self.assertTrue(retrain["training_ready"])
+        self.assertFalse(retrain["promotion_ready"])
+        self.assertFalse(retrain["beats_current_model"])
+        self.assertIn("candidate_delta_vs_current_measured", retrain["promotion_ready_reasons"])
+
+    def test_candidate_rows_preserves_zero_without_falling_back_to_n(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["candidate"]["aggregate"]["rows"] = 0
+            promotion["candidate"]["aggregate"]["n"] = 99
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+
+        self.assertEqual(payload["scorecard"]["candidate"]["rows"], 0)
+        self.assertFalse(payload["retrain_plan"]["promotion_ready"])
+        self.assertIn("candidate_rows_present", payload["retrain_plan"]["promotion_ready_reasons"])
+
+    def test_snapshot_fail_gate_blocks_even_when_severity_is_not_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            snapshot_path = backtest_root / "snapshot_evaluation.json"
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot["gates"] = [
+                {
+                    "name": "candidate_vs_market",
+                    "status": "FAIL",
+                    "severity": "warn",
+                    "detail": "candidate failed without fail severity",
+                    "action": "Investigate candidate gate.",
+                }
+            ]
+            snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate_learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "validation_gate"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(gate_learning["priority"], "P0")
+        self.assertTrue(gate_learning["blocker"])
+
+    def test_capped_learning_sources_sort_before_truncating_and_report_drops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            audit_path = backtest_root / "data_layer_audit.json"
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+            audit["recommendations"] = [
+                {"priority": "P2", "area": f"low-{index}", "impact": index}
+                for index in range(8)
+            ] + [
+                {
+                    "priority": "P0",
+                    "area": "late-p0",
+                    "recommendation": "Repair the late P0 recommendation first.",
+                    "impact": 0,
+                }
+            ]
+            audit_path.write_text(json.dumps(audit), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            data_learnings = [
+                row for row in payload["learnings"]
+                if row["source"] == "data_layer_audit" and row["category"] == "data_quality"
+            ]
+            truncated = payload["summary"]["truncated_sources"]
+
+        self.assertTrue(any(row["signal"] == "late-p0" for row in data_learnings))
+        self.assertTrue(any(row["source"] == "data_layer_audit.recommendations" for row in truncated))
+        self.assertEqual(
+            next(row for row in truncated if row["source"] == "data_layer_audit.recommendations")["dropped_count"],
+            1,
+        )
+
     def test_build_learning_payload_blocks_on_taker_finalization_and_tail_no_go(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

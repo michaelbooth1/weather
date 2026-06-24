@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T02:01:03.936956+00:00
+Generated: 2026-06-24T02:18:59.674007+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 298 |
+| Items | 300 |
 | Active items | 40 |
-| OPEN | 12 |
-| PARTIAL | 28 |
-| COMPLETE | 258 |
-| ROADMAP rows | 298 |
-| ROADMAP primary rows | 298 |
-| Metadata manifest rows | 298 |
+| OPEN | 11 |
+| PARTIAL | 29 |
+| COMPLETE | 260 |
+| ROADMAP rows | 300 |
+| ROADMAP primary rows | 300 |
+| Metadata manifest rows | 300 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -28,7 +28,7 @@ Status: `OK`
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
 | 48 | PARTIAL | 2026-06-20 | MARKET, SLO, AND CLOB CONTINUITY BLOCKED | [F-Family Promotion Readiness And Serving Parity](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
-| 67 | PARTIAL | 2026-06-18 | LIVE ACCOUNT EVIDENCE BLOCKED | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-06-24 | LIVE CREDENTIALS ABSENT; EVIDENCE BLOCKED | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
@@ -46,7 +46,7 @@ Status: `OK`
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | PARTIAL | 2026-06-24 | REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
+| 190 | PARTIAL | 2026-06-24 | NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | PARTIAL | 2026-06-24 | ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
@@ -55,16 +55,16 @@ Status: `OK`
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
+| 246 | PARTIAL | 2026-06-24 | RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 292 | OPEN | 2026-06-24 | PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
-| 293 | OPEN | 2026-06-24 | FAIL-OPEN PROMOTION, LOSSY CSV, PRE-SORT TRUNCATION, 0-AS-MISSING | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
 | 294 | OPEN | 2026-06-24 | INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
 | 295 | OPEN | 2026-06-24 | LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
 | 296 | OPEN | 2026-06-24 | POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
 | 297 | OPEN | 2026-06-24 | NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND | [Calibration-Drift And Directional-Bias Daily Tracking](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
 | 298 | OPEN | 2026-06-24 | EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY | [Automatic Experiment Queue And Drift-Triggered Retrain Loop](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
+| 299 | OPEN | 2026-06-24 | DAILY EVENT DRIFT CAN BREAK COLLECTION BEFORE PREFLIGHT | [Polymarket Event-Metadata Rollover Gate](items/item-299-polymarket-event-metadata-rollover-gate.md) |
+| 300 | OPEN | 2026-06-24 | PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS | [Current Exchange Economics And Rule-Drift Gate](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
 
 ## Lint Issues
 

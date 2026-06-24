@@ -1,4 +1,4 @@
-# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED]
+# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED]
 
 Goal: consume the National Blend of Models' calibrated probabilistic maximum-
 temperature distribution, instead of using only its point high.
@@ -47,8 +47,8 @@ distribution is scored against.
   family inventory, disagreement casebook, and official US guidance ablations.
 - [x] Added machine-readable NBM probabilistic Tmax gate artifact.
 - [x] Proved a replay-safe NBP station archive path for US markets.
-- [ ] Add native QMD GRIB percentile/exceedance-grid extraction for market
-  points and bucket edges if bucket-edge native exceedance grids become needed.
+- [x] Add native QMD GRIB percentile/exceedance record selection and market
+  point extraction. Bucket-edge promotion remains deferred until needed.
 - [ ] Settlement-score NBM-prob as a calibration anchor and gate promotion on
   non-regressing per-market skill.
 
@@ -151,6 +151,29 @@ Verification:
 - `python -m pytest tests\sources\test_nbm_probabilistic_tmax.py -q` -> 8 passed.
 - `python -m pytest tests\collection\test_forecast_payload_persistence.py -q` -> 1 passed.
 - `python -m pytest tests\reporting\test_source_family_inventory.py -q` -> 16 passed.
+
+## 2026-06-24 Native QMD GRIB Narrow Slice
+
+Added the requested source-module-only native QMD/GRIB slice:
+
+- `qmd_grib_url` and `qmd_grib_idx_url` build the operational NBM QMD GRIB2
+  and index paths for `blend.tCCz.qmd.fFFF.<domain>.grib2`.
+- `select_qmd_tmax_idx_records` parses NOMADS/NCEP `.idx` inventory rows and
+  identifies TMAX percentile records such as `10% level`, `25% level`, and
+  TMAX exceedance/probability rows such as `prob > 90`.
+- `extract_qmd_grib_tmax_point` wraps the existing source-neutral `wgrib2`
+  nearest-point extractor, converts native TMAX Kelvin values to Fahrenheit to
+  match the NBP station-text feature convention, and returns structured
+  provenance, selected index rows, raw extraction rows, percentile spreads,
+  IQR, and native exceedance probabilities.
+
+This is intentionally limited to `weather.sources.nbm_probabilistic_tmax` and
+focused source tests. It does not touch source-family inventory, promotion
+scoring, replay artifacts, active artifacts, or model promotion gates.
+
+Verification:
+
+- `python -m pytest -q tests\sources\test_nbm_probabilistic_tmax.py` -> 11 passed.
 
 Acceptance: NBM probabilistic MaxT is ingested for US markets, exposed as
 features, and settlement-scored, with non-regressing per-market skill and a

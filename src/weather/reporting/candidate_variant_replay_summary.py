@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from weather.paths import data_path
+from weather.paths import REPO_ROOT, data_path, relative_to_repo
 from weather.reporting.candidate_hourly_performance import (
     candidate_rows_corpus_hash,
     read_variant_rows,
@@ -18,6 +18,11 @@ from weather.reporting.candidate_hourly_performance import (
 )
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.hourly_model_scoring import HOUR_REGIME_LABELS, hour_regime
+from weather.reporting.variant_registry import (
+    DEFAULT_REGISTRY_PATH as DEFAULT_VARIANT_REGISTRY_PATH,
+    load_registry as load_variant_registry,
+    variant_export_contract,
+)
 from weather.schema_registry import schema_version
 
 
@@ -41,6 +46,8 @@ DEFAULT_CURRENT_TOL = 0.003
 DEFAULT_MARKET_TOL = 0.003
 DEFAULT_MIN_MARKET_DAYS = 2
 VALIDATION_EVIDENCE_CHOICES = ("row_export_surrogate", "active_replay_contract")
+FALSEY_TEXT = {"0", "false", "no", "n"}
+NON_COUNTABLE_ROW_MARKERS = ("same_corpus", "row_export_surrogate", "diagnostic_row_export")
 
 
 def utc_iso() -> str:
@@ -55,6 +62,186 @@ def _read_json(path: str | Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _read_required_json(path: str | Path) -> dict[str, Any]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"active registry contract JSON does not exist: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"active registry contract JSON must contain an object: {path}")
+    return payload
+
+
+def _coerce_active_registry_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(payload.get("export_contract") or payload)
+    for key in (
+        "variant_id",
+        "variant_family",
+        "track",
+        "lifecycle",
+        "active_for_headline",
+        "roles",
+        "roadmap_items",
+    ):
+        if key in payload and key not in contract:
+            contract[key] = payload.get(key)
+    return contract
+
+
+def _registry_by_id(registry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    by_id = registry.get("by_id") or {}
+    if by_id:
+        return {
+            str(variant_id): dict(row)
+            for variant_id, row in by_id.items()
+            if variant_id and isinstance(row, dict)
+        }
+    return {
+        str(row.get("variant_id")): dict(row)
+        for row in registry.get("variants") or []
+        if isinstance(row, dict) and row.get("variant_id")
+    }
+
+
+def _load_active_variant_registry(value: str | Path | dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value in (None, ""):
+        raise ValueError("active replay contract evidence requires a variant registry")
+    return load_variant_registry(value)
+
+
+def _registry_contract_for_variant(
+    registry: dict[str, Any],
+    contract_payload: dict[str, Any],
+) -> dict[str, Any]:
+    supplied_contract = _coerce_active_registry_contract(contract_payload)
+    variant_id = str(supplied_contract.get("variant_id") or "")
+    if not variant_id:
+        raise ValueError("active replay contract evidence requires contract.variant_id")
+    entry = _registry_by_id(registry).get(variant_id)
+    if not entry:
+        raise ValueError(f"active replay contract variant_id is not in the variant registry: {variant_id}")
+    registry_contract = variant_export_contract(entry)
+    for key in ("default_export_path", "prediction_function", "prediction_mode", "export_family", "live_runtime"):
+        supplied_value = supplied_contract.get(key)
+        registry_value = registry_contract.get(key)
+        if supplied_value not in (None, "") and registry_value not in (None, "") and supplied_value != registry_value:
+            raise ValueError(
+                f"active replay contract {key} does not match the variant registry: "
+                f"contract={supplied_value!r}, registry={registry_value!r}"
+            )
+    return {
+        **registry_contract,
+        "lifecycle": entry.get("lifecycle"),
+        "active_for_headline": entry.get("active_for_headline"),
+        "roles": entry.get("roles") or [],
+        "roadmap_items": entry.get("roadmap_items") or [],
+        "registry_path": registry.get("path"),
+        "registry_schema_version": registry.get("schema_version"),
+    }
+
+
+def _resolved_repo_path(value: str | Path | None) -> Path | None:
+    if value in (None, ""):
+        return None
+    text = str(value)
+    if "://" in text:
+        return None
+    path = Path(text)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
+
+
+def _active_row_export_blockers(rows: list[dict[str, Any]]) -> list[str]:
+    marker_examples: list[str] = []
+    non_countable_rows = 0
+    for row in rows:
+        counts_flag = row.get("counts_toward_weather_model_promotion")
+        if counts_flag is not None and str(counts_flag).strip().lower() in FALSEY_TEXT:
+            non_countable_rows += 1
+        for key, value in row.items():
+            text = str(value or "").strip().lower()
+            if not text:
+                continue
+            if any(marker in text for marker in NON_COUNTABLE_ROW_MARKERS):
+                example = f"{key}={value}"
+                if example not in marker_examples:
+                    marker_examples.append(example)
+                break
+    blockers = []
+    if non_countable_rows:
+        blockers.append(
+            f"{non_countable_rows} row(s) are marked counts_toward_weather_model_promotion=false"
+        )
+    if marker_examples:
+        blockers.append(
+            "row export carries non-countable/same-corpus diagnostic markers: "
+            + "; ".join(marker_examples[:5])
+        )
+    return blockers
+
+
+def _validate_active_registry_contract(
+    contract_payload: dict[str, Any],
+    rows: list[dict[str, Any]],
+    variant_rows: str | Path,
+    *,
+    variant_registry: str | Path | dict[str, Any] | None,
+) -> dict[str, Any]:
+    registry = _load_active_variant_registry(variant_registry)
+    contract = _registry_contract_for_variant(registry, contract_payload)
+    missing_fields = [
+        key
+        for key in ("prediction_function", "prediction_mode", "export_family", "live_runtime")
+        if not contract.get(key)
+    ]
+    if missing_fields:
+        raise ValueError(
+            "active replay contract evidence requires export contract fields: "
+            + ", ".join(missing_fields)
+        )
+    lifecycle = str(contract.get("lifecycle") or contract.get("registry_lifecycle") or "").lower()
+    if lifecycle != "active":
+        raise ValueError("active replay contract evidence requires lifecycle=active")
+    if contract.get("active_for_headline") is False:
+        raise ValueError("active replay contract evidence requires active_for_headline not false")
+    contract_variant_id = str(contract.get("variant_id") or "")
+    if not contract_variant_id:
+        raise ValueError("active replay contract evidence requires contract.variant_id")
+    row_variant_ids = _variant_ids(rows)
+    if row_variant_ids != [contract_variant_id]:
+        raise ValueError(
+            "active replay contract variant_id does not match variant rows: "
+            f"contract={contract_variant_id!r}, rows={row_variant_ids!r}"
+        )
+    default_export_path = contract.get("default_export_path")
+    if not default_export_path:
+        raise ValueError("active replay contract evidence requires contract.default_export_path")
+    expected_path = _resolved_repo_path(default_export_path)
+    actual_path = _resolved_repo_path(variant_rows)
+    if expected_path is None or actual_path is None or expected_path != actual_path:
+        raise ValueError(
+            "active replay contract default_export_path does not match variant rows: "
+            f"contract={default_export_path!r}, rows={str(variant_rows)!r}"
+        )
+    row_blockers = _active_row_export_blockers(rows)
+    if row_blockers:
+        raise ValueError(
+            "active replay contract rows are non-countable: " + "; ".join(row_blockers)
+        )
+    return {
+        **contract,
+        "default_export_path": relative_to_repo(actual_path),
+        "validated_at_utc": utc_iso(),
+        "validation_checks": {
+            "variant_id_matches_rows": True,
+            "default_export_path_matches_rows": True,
+        },
+    }
 
 
 def _skill(model_brier: float | None, market_brier: float | None) -> float | None:
@@ -337,10 +524,12 @@ def _candidate_shadow_variants(
     rows: list[dict[str, Any]],
     variant_rows: str | Path,
     source_candidate: dict[str, Any],
+    *,
+    active_registry_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ids = _variant_ids(rows)
     source_shadow = source_candidate.get("candidate_shadow_variants") or {}
-    return {
+    output = {
         "variant_id": ids[0] if len(ids) == 1 else None,
         "variant_ids": ids,
         "variant_family": "candidate_variant_row_export",
@@ -348,7 +537,7 @@ def _candidate_shadow_variants(
         "rows": len(rows),
         "uses_market_features": False,
         "is_control": False,
-        "registry_contract": False,
+        "registry_contract": bool(active_registry_contract),
         "derived_from": {
             "variant_id": source_shadow.get("variant_id"),
             "variant_family": source_shadow.get("variant_family"),
@@ -356,6 +545,14 @@ def _candidate_shadow_variants(
             "registry_contract": source_shadow.get("registry_contract"),
         },
     }
+    if active_registry_contract:
+        output["active_registry_contract"] = active_registry_contract
+        output["variant_family"] = (
+            active_registry_contract.get("variant_family")
+            or active_registry_contract.get("export_family")
+            or output["variant_family"]
+        )
+    return output
 
 
 def build_variant_replay_summary(
@@ -366,10 +563,33 @@ def build_variant_replay_summary(
     current_tol: float = DEFAULT_CURRENT_TOL,
     market_tol: float = DEFAULT_MARKET_TOL,
     min_market_days: int = DEFAULT_MIN_MARKET_DAYS,
+    active_registry_contract: dict[str, Any] | None = None,
+    active_registry_contract_json: str | Path | None = None,
+    variant_registry: str | Path | dict[str, Any] | None = DEFAULT_VARIANT_REGISTRY_PATH,
 ) -> dict[str, Any]:
     if validation_evidence not in VALIDATION_EVIDENCE_CHOICES:
         raise ValueError(f"unknown validation evidence mode: {validation_evidence}")
     rows = read_variant_rows(variant_rows)
+    if active_registry_contract and active_registry_contract_json:
+        raise ValueError("pass either active_registry_contract or active_registry_contract_json, not both")
+    active_contract = None
+    if active_registry_contract_json:
+        active_registry_contract = _read_required_json(active_registry_contract_json)
+    if validation_evidence == "active_replay_contract":
+        if not active_registry_contract:
+            raise ValueError(
+                "active replay contract evidence requires --active-registry-contract-json"
+            )
+        active_contract = _validate_active_registry_contract(
+            active_registry_contract,
+            rows,
+            variant_rows,
+            variant_registry=variant_registry,
+        )
+    elif active_registry_contract:
+        raise ValueError(
+            "active registry contract metadata requires validation_evidence=active_replay_contract"
+        )
     source_candidate = _read_json(source_candidate_json)
     source_corpus = source_candidate.get("corpus") or {}
     row_export_corpus_hash = candidate_rows_corpus_hash(rows)
@@ -443,7 +663,12 @@ def build_variant_replay_summary(
             "max_fidelity_l1": None,
         },
         "blocked_validation": blocked_validation,
-        "candidate_shadow_variants": _candidate_shadow_variants(rows, variant_rows, source_candidate),
+        "candidate_shadow_variants": _candidate_shadow_variants(
+            rows,
+            variant_rows,
+            source_candidate,
+            active_registry_contract=active_contract,
+        ),
         "aggregate": aggregate,
         "market_rows": markets,
         "by_hour": _summarize_by_hour(rows),
@@ -543,6 +768,10 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Validation evidence", payload.get("validation_evidence")],
                 ["Variant rows", shadow.get("path")],
                 ["Variant IDs", ", ".join(shadow.get("variant_ids") or []) or "-"],
+                [
+                    "Active registry contract",
+                    (shadow.get("active_registry_contract") or {}).get("variant_id") or "-",
+                ],
                 ["Rows", corpus.get("source_rows", 0)],
                 ["Markets", corpus.get("markets", 0)],
                 ["Market-days", corpus.get("market_days", 0)],
@@ -664,6 +893,7 @@ def main() -> None:
     parser.add_argument("--source-candidate-json", default=str(DEFAULT_SOURCE_CANDIDATE_JSON))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--variant-registry", default=str(DEFAULT_VARIANT_REGISTRY_PATH))
     parser.add_argument("--current-tol", type=float, default=DEFAULT_CURRENT_TOL)
     parser.add_argument("--market-tol", type=float, default=DEFAULT_MARKET_TOL)
     parser.add_argument("--min-market-days", type=int, default=DEFAULT_MIN_MARKET_DAYS)
@@ -671,6 +901,15 @@ def main() -> None:
         "--validation-evidence",
         default="row_export_surrogate",
         choices=VALIDATION_EVIDENCE_CHOICES,
+    )
+    parser.add_argument(
+        "--active-registry-contract-json",
+        default=None,
+        help=(
+            "Required with --validation-evidence active_replay_contract. "
+            "May be a registry variant row or export_contract object whose variant_id "
+            "and default_export_path match --variant-rows, with active lifecycle metadata."
+        ),
     )
     args = parser.parse_args()
 
@@ -681,6 +920,8 @@ def main() -> None:
         current_tol=args.current_tol,
         market_tol=args.market_tol,
         min_market_days=args.min_market_days,
+        active_registry_contract_json=args.active_registry_contract_json,
+        variant_registry=args.variant_registry,
     )
     json_path, report_path = write_outputs(payload, args.json_out, args.report_out)
     print(

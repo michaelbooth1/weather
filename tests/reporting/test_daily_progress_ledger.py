@@ -5,9 +5,12 @@ import unittest
 from pathlib import Path
 
 from weather.reporting.daily.daily_progress_ledger import (
+    append_csv,
     build_progress_row,
+    maybe_int,
     write_progress_outputs,
 )
+from weather.reporting.daily.daily_flow_analysis import maybe_int as flow_maybe_int
 
 
 def write_json(path, payload):
@@ -478,6 +481,29 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(json.loads(lines[0])["model_positive_skill_days"], 2)
         self.assertEqual(csv_rows[0]["model_positive_skill_days"], "2")
         self.assertIn("Daily Progress Ledger", report)
+
+    def test_append_csv_preserves_historical_columns_across_schema_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = root / "ledger.csv"
+
+            append_csv(csv_path, {"run_date": "2026-06-20", "old_metric": "kept"})
+            append_csv(csv_path, {"run_date": "2026-06-21", "new_metric": "added"})
+
+            with csv_path.open(encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                fieldnames = reader.fieldnames
+                rows = list(reader)
+
+        self.assertEqual(fieldnames, ["run_date", "old_metric", "new_metric"])
+        self.assertEqual(rows[0]["old_metric"], "kept")
+        self.assertEqual(rows[0]["new_metric"], "")
+        self.assertEqual(rows[1]["old_metric"], "")
+        self.assertEqual(rows[1]["new_metric"], "added")
+
+    def test_maybe_int_matches_daily_flow_rounding(self):
+        self.assertEqual(maybe_int("1.6"), flow_maybe_int("1.6"))
+        self.assertEqual(maybe_int("1.6"), 2)
 
 
 if __name__ == "__main__":

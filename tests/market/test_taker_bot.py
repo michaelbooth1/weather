@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from weather.market.taker_bot import (
     ORDER_COLUMNS,
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
     CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION,
+    apply_taker_budget,
     build_champion_challenger_ledger,
     build_pnl_payload,
     build_run_once,
@@ -3206,6 +3208,72 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(len(filled), 1)
         self.assertEqual(len({row["intent_key"] for row in orders}), len(orders))
         self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 1)
+
+    def test_correlated_regime_cap_shrinks_then_blocks_same_regime_taker_exposure(self):
+        def row_for(market_id):
+            return {
+                "market_id": market_id,
+                "event_slug": f"highest-temperature-in-{market_id}-on-june-14-2026",
+                "snapshot_id": "s1",
+                "captured_at_utc": NOW,
+                "range_label": "84-85 F",
+                "bin_kind": "eq",
+                "bin_value": "84",
+                "bin_value_hi": "85",
+                "condition_id": f"condition-{market_id}",
+                "clob_token_id": f"token-{market_id}",
+                "fair_probability": "0.80",
+                "calibrated_fair_probability": "0.80",
+                "taker_skill_weight": "1.0",
+                "clob_best_bid": "0.49",
+                "clob_best_ask": "0.50",
+                "best_ask": "0.50",
+                "market_mid": "0.50",
+                "ask_size_at_best": "20",
+                "ask_depth_1pct": "20",
+                "min_order_size": "1",
+                "market_status": "active",
+                "source_fresh": True,
+                "source_freshness_state": "all_fresh",
+                "snapshot_cadence": "scheduled",
+                "current_high_trusted": True,
+                "settlement_current_high": "80",
+            }
+
+        now = datetime.fromisoformat(NOW).astimezone(timezone.utc)
+        rows, _ledger = apply_taker_budget(
+            [row_for("atlanta"), row_for("miami")],
+            [],
+            budget_usdc=20,
+            run_id="daily",
+            target_date=TARGET_DATE,
+            now=now,
+            config={
+                **DEFAULT_CONFIG,
+                "min_edge": 0.05,
+                "max_order_usdc": 6.0,
+                "max_position_per_token_usdc": 6.0,
+                "max_correlated_regime_notional_usdc": 5.0,
+                "max_correlated_regime_joint_loss_usdc": 5.0,
+                "taker_fee_rate": 0.0,
+                "taker_edge_permission_enabled": False,
+                "calibrated_entry_enabled": False,
+                "calibrated_sizing_enabled": False,
+                "market_centered_warm_tail_guard_enabled": False,
+                "bad_tail_no_go_enabled": False,
+            },
+        )
+
+        filled = [row for row in rows if row["order_status"] == "FILLED"]
+        blocked = [row for row in rows if row["reason_code"] == "NO_TRADE_CORRELATED_REGIME_EXPOSURE_CAP"]
+
+        self.assertEqual(len(filled), 1)
+        self.assertEqual(len(blocked), 1)
+        self.assertEqual(filled[0]["correlated_regime_group_key"], "2026-06-14|southeast|warm")
+        self.assertEqual(blocked[0]["correlated_regime_group_key"], filled[0]["correlated_regime_group_key"])
+        self.assertAlmostEqual(float(filled[0]["fill_notional_usdc"]), 5.0)
+        self.assertAlmostEqual(float(filled[0]["correlated_regime_joint_stress_loss_after_usdc"]), 5.0)
+        self.assertTrue(blocked[0]["correlated_regime_cap_breached"])
 
 
 if __name__ == "__main__":

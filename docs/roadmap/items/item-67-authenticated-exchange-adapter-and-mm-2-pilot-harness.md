@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-18 - LIVE ACCOUNT EVIDENCE BLOCKED]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-24 - LIVE CREDENTIALS ABSENT; EVIDENCE BLOCKED]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -133,3 +133,24 @@ paid-vs-predicted boxes require an eligible live account, credentials kept
 outside the repo, and real exchange lifecycle/account evidence. They remain
 open deliberately; closing them without live-account artifacts would weaken the
 acceptance criteria.
+
+## 2026-06-24 evidence-only disposition
+
+No live probe was run. The current host has no eligible live credential refs in
+the environment:
+
+- Polymarket US missing: `POLYMARKET_US_KEY_ID`,
+  `POLYMARKET_US_SECRET_KEY_STORAGE_REF`.
+- Polymarket global missing: `POLYMARKET_API_KEY`,
+  `POLYMARKET_API_SECRET`, `POLYMARKET_API_PASSPHRASE`,
+  `POLYMARKET_FUNDER_ADDRESS`, `POLYMARKET_PRIVATE_KEY_STORAGE_REF`.
+- No forbidden direct secret env vars were present.
+
+The existing evidence harness remains healthy:
+
+- `python -m pytest -q tests\market\test_mm_exchange.py` -> 8 passed.
+
+Because no eligible live account or external credential material is available,
+the MM-2 heartbeat, post-only/min-size/tick, tiny two-sided quote, cancel-all,
+user WebSocket lifecycle, and paid-vs-predicted payout evidence remain blocked.
+No market-risk code changes were made.

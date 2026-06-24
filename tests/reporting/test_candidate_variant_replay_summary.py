@@ -45,8 +45,13 @@ def _row(market, date, band, probability, current, market_yes, outcome, hour=3):
 
 
 def _write_rows(path, rows):
+    fieldnames = list(FIELDNAMES)
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with Path(path).open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -67,6 +72,30 @@ def _write_source(path):
         ),
         encoding="utf-8",
     )
+
+
+def _active_contract(rows_path, *, variant_id="candidate_v1"):
+    return {
+        "variant_id": variant_id,
+        "variant_family": "candidate_variant_row_export",
+        "lifecycle": "active",
+        "active_for_headline": True,
+        "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
+        "prediction_mode": "band_binary",
+        "export_family": "candidate_variant_row_export",
+        "default_export_path": str(rows_path),
+        "live_runtime": "pooled_candidate_replay",
+    }
+
+
+def _active_registry(rows_path, *, variant_id="candidate_v1", lifecycle="active"):
+    contract = _active_contract(rows_path, variant_id=variant_id)
+    return {
+        "schema_version": "model_variant_registry_v0.1",
+        "exists": True,
+        "path": "inline",
+        "variants": [{**contract, "lifecycle": lifecycle}],
+    }
 
 
 def _passing_rows():
@@ -141,6 +170,8 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
                 rows_path,
                 source_path,
                 validation_evidence="active_replay_contract",
+                active_registry_contract=_active_contract(rows_path),
+                variant_registry=_active_registry(rows_path),
             )
             candidate = _candidate_summary(payload, root / "summary.json", root / "summary.md")
 
@@ -167,10 +198,120 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
 
         self.assertEqual(payload["blocked_validation"]["verdict"], "PASS")
         self.assertEqual(payload["verdict"], "PASS")
+        self.assertTrue(payload["candidate_shadow_variants"]["registry_contract"])
+        self.assertEqual(
+            payload["candidate_shadow_variants"]["active_registry_contract"]["variant_id"],
+            "candidate_v1",
+        )
         self.assertEqual(readiness["status"], "READY")
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["applied"])
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_matches"])
         self.assertNotIn("ten_minute_performance_gate", {row["category"] for row in readiness["blockers"]})
+
+    def test_active_replay_contract_requires_contract_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "active replay contract evidence requires"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                )
+
+    def test_active_replay_contract_rejects_mismatched_export_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "default_export_path does not match"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(root / "other_rows.csv"),
+                    variant_registry=_active_registry(rows_path),
+                )
+
+    def test_active_replay_contract_rejects_mismatched_variant_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "variant_id does not match"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(rows_path, variant_id="other_candidate"),
+                    variant_registry=_active_registry(rows_path, variant_id="other_candidate"),
+                )
+
+    def test_active_replay_contract_rejects_non_active_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+            contract = _active_contract(rows_path)
+
+            with self.assertRaisesRegex(ValueError, "lifecycle=active"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=contract,
+                    variant_registry=_active_registry(rows_path, lifecycle="shadow"),
+                )
+
+    def test_active_replay_contract_rejects_same_corpus_repair_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            rows = _passing_rows()
+            rows[0]["item224_repair_missingness_hgb"] = "same_corpus_hgb_missingness_v0_2"
+            _write_rows(rows_path, rows)
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "same-corpus diagnostic markers"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(rows_path),
+                    variant_registry=_active_registry(rows_path),
+                )
+
+    def test_active_replay_contract_rejects_non_countable_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            rows = _passing_rows()
+            rows[0]["counts_toward_weather_model_promotion"] = "false"
+            _write_rows(rows_path, rows)
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "counts_toward_weather_model_promotion=false"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(rows_path),
+                    variant_registry=_active_registry(rows_path),
+                )
 
     def test_market_regression_blocks_even_with_active_contract_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,6 +333,8 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
                 rows_path,
                 source_path,
                 validation_evidence="active_replay_contract",
+                active_registry_contract=_active_contract(rows_path),
+                variant_registry=_active_registry(rows_path),
             )
 
         self.assertFalse(payload["blocked_validation"]["passed"])

@@ -158,6 +158,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("model_artifact_promotion_preflight"), "model_artifact_promotion_preflight_v0.1")
         self.assertEqual(schema_version("module_size_audit"), "module_size_audit_v0.1")
         self.assertEqual(schema_version("structure_inventory"), "structure_inventory_v0.1")
+        self.assertEqual(schema_version("tape_dedup_repository"), "tape_dedup_repository_v0.1")
         self.assertEqual(schema_version("pooled_continuous_density_hgb"), "pooled_continuous_density_hgb_v0.7")
         self.assertEqual(schema_version("pooled_all_market_band_hgb"), "pooled_all_market_band_hgb_v0.1")
         self.assertEqual(schema_version("promotion_allowlist"), "promotion_allowlist_v0.1")

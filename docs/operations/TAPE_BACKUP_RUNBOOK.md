@@ -33,6 +33,72 @@ The scheduled task runs `weather.operations.tape_backup run`, which performs
 the export, restore drill, checksum verification, and status/report writes in
 one fail-closed step.
 
+## Deduplicated Durable Repository
+
+The supported deduplicated backend for this project is **Restic**. Restic was
+chosen over Kopia for this repository because it is a single CLI binary,
+encrypts repositories by default, supports local external disks, NAS paths, and
+object-storage repository URLs, and can be wrapped without adding a daemon or
+new Python dependency.
+
+Use the same local mirror/root above as a short-term restore cache only. The
+durable repository of record must live outside this checkout: external disk,
+NAS, or object storage with enough headroom for raw tapes, closed-day Parquet
+archives, manifests, model artifacts, and growth.
+
+Configure credentials outside git:
+
+```powershell
+$env:WEATHER_TAPE_DEDUP_REPOSITORY = "E:\weather-restic-repo"
+$env:RESTIC_PASSWORD_FILE = "C:\Users\<operator>\.weather-restic-password"
+```
+
+Object-storage targets should use Restic's normal repository URL and provider
+environment variables. Do not commit repository passwords, access keys, or
+provider tokens. The generated status artifacts record whether credential
+material was present, but never the secret values.
+
+Initialize the repository once from the repo root:
+
+```powershell
+restic -r $env:WEATHER_TAPE_DEDUP_REPOSITORY init
+python -m weather.operations.tape_backup dedup-status --no-require-restore-drill
+```
+
+Run the full durable backup, restore drill, and status refresh:
+
+```powershell
+python -m weather.operations.tape_backup dedup-run
+```
+
+The all-in-one command writes:
+
+- `data/backtest/tape_dedup_repository_backup.json`
+- `data/backtest/tape_dedup_repository_backup_report.md`
+- `data/backtest/tape_dedup_restore_drill.json`
+- `data/backtest/tape_dedup_restore_drill_report.md`
+- `data/backtest/tape_dedup_repository_status.json`
+- `data/backtest/tape_dedup_repository_status_report.md`
+
+`dedup-backup` builds the same retention manifest as the local mirror path,
+writes `data/backtest/tape_dedup_repository_manifest.json`, and backs up the
+manifest plus every retained file using Restic tags `weather-tape` and
+`tape_retention_policy_v0.1`.
+
+`dedup-restore-drill` restores the manifest first, then drills representative
+evidence classes from the latest tagged snapshot:
+
+- one raw order-book JSONL tape or critical raw JSONL fallback;
+- one closed market-day Parquet partition;
+- one archive/source manifest;
+- one replay-critical model artifact or replay input.
+
+The drill verifies SHA-256 checksums, registered JSON schema versions, and
+Parquet row counts when a closed-day archive manifest records the expected
+count. `dedup-status` fails closed when the Restic binary, repository,
+credential material, tagged snapshot, or current restore-drill evidence is
+missing.
+
 ## Retention Rules
 
 - `snapshot_tapes`: retain permanently. Includes snapshot, feature, component,
@@ -53,6 +119,10 @@ one fail-closed step.
   and live-forward window.
 - `source_manifests` and `operational_status`: retain with the backed-up data
   to prove provenance and last known operational state.
+- `closed_market_day_parquet_archives`: retain with the corresponding raw
+  source evidence. These Parquet partitions are rebuildable analysis
+  projections, but durable restore drills must recover at least one partition
+  and validate its row count.
 - Closed market-day Parquet archive partitions and
   `closed_market_day_archive_manifest_v0.1` manifests: retain with their raw
   source evidence after Item 244 begins writing them. The archive contract is

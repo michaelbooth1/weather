@@ -1,4 +1,4 @@
-# 293. Daily-Analysis Correctness And Fail-Closed Robustness Fixes [OPEN 2026-06-24 - FAIL-OPEN PROMOTION, LOSSY CSV, PRE-SORT TRUNCATION, 0-AS-MISSING]
+# 293. Daily-Analysis Correctness And Fail-Closed Robustness Fixes [COMPLETE 2026-06-24 - FAIL-CLOSED PROMOTION AND STABLE DAILY LEDGERS]
 
 Goal: fix the discrete correctness and fail-open defects in the daily analysis
 pipeline (`daily_learning`, `daily_progress_ledger`, `daily_flow_analysis`) so a
@@ -61,13 +61,13 @@ fixes.
    severity, and unify integer coercion (`round` vs truncate) across the daily
    modules.
 
-- [ ] Make `promotion_ready` require a measured improvement and expose a
+- [x] Make `promotion_ready` require a measured improvement and expose a
   `beats_market` field.
-- [ ] Make the CSV ledger schema-stable with no silent column loss across schema
+- [x] Make the CSV ledger schema-stable with no silent column loss across schema
   changes.
-- [ ] Sort-before-truncate with a `dropped_count` for each capped source list.
-- [ ] Remove numeric `x or y` zero-as-missing fallbacks in the daily modules.
-- [ ] Treat any `FAIL` gate as a blocker and unify int coercion; add regression
+- [x] Sort-before-truncate with a `dropped_count` for each capped source list.
+- [x] Remove numeric `x or y` zero-as-missing fallbacks in the daily modules.
+- [x] Treat any `FAIL` gate as a blocker and unify int coercion; add regression
   tests for each fixed defect.
 
 Acceptance: `promotion_ready` cannot be true without a measured non-positive
@@ -78,3 +78,20 @@ truncation and report a dropped count; legitimate `0` values are preserved; any
 triggered them.
 
 Related: items 36, 37, 163, 199, 205, 295.
+
+## Completion Note - 2026-06-24
+
+Implemented the scoped correctness fixes in `weather.reporting.daily`:
+`promotion_ready` now requires measured `delta_vs_current <= 0` and exposes
+`beats_current_model`, `beats_market`, measured-delta flags, and failed readiness
+checks; the candidate row count preserves legitimate `0` values; snapshot
+evaluation `FAIL` gates are P0 blockers regardless of severity; capped learning
+sources are sorted before truncation and report `dropped_count`; daily progress
+CSV writes preserve the union of historical and current columns; and ledger
+integer coercion now matches flow-analysis rounding.
+
+Verification: `python -m pytest tests/reporting/test_daily_learning.py
+tests/reporting/test_daily_progress_ledger.py
+tests/reporting/test_daily_flow_analysis.py -q` covers the missing-improvement
+fail-closed path, zero-preserving row counts, FAIL gate handling, sort before
+truncate, schema-stable CSV append, and integer rounding consistency.

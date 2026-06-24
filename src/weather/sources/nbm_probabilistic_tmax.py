@@ -14,10 +14,13 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from weather.sources.grib_probe import extract_nearest_with_wgrib2, parse_idx_lines
+
 
 NBM_PROB_TMAX_SCHEMA_VERSION = "nbm_probabilistic_tmax_v0.1"
 NBM_STATION_ARCHIVE_SCHEMA_VERSION = "nbm_probabilistic_tmax_station_archive_v0.1"
 NBM_NBP_BASE_URL = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod"
+NBM_QMD_DEFAULT_DOMAIN = "co"
 NBM_NBP_PERCENTILE_ROWS = {
     "TXNP1": 10,
     "TXNP2": 25,
@@ -82,6 +85,247 @@ def nbp_cycle_candidates(now_utc: datetime | None = None, hours_back: int = 24) 
     now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
     cursor = now_utc.replace(minute=0, second=0, microsecond=0)
     return [cursor - timedelta(hours=offset) for offset in range(max(0, int(hours_back)) + 1)]
+
+
+def qmd_grib_url(
+    run_time: datetime,
+    forecast_hour: int,
+    *,
+    domain: str = NBM_QMD_DEFAULT_DOMAIN,
+    base_url: str = NBM_NBP_BASE_URL,
+) -> str:
+    run_time = run_time.astimezone(timezone.utc)
+    day = run_time.strftime("%Y%m%d")
+    hour = run_time.strftime("%H")
+    fff = f"{int(forecast_hour):03d}"
+    domain = str(domain or NBM_QMD_DEFAULT_DOMAIN).lower().strip()
+    return f"{base_url}/blend.{day}/{hour}/qmd/blend.t{hour}z.qmd.f{fff}.{domain}.grib2"
+
+
+def qmd_grib_idx_url(grib_url: str) -> str:
+    return f"{str(grib_url).rstrip()}.idx"
+
+
+def _idx_body_match(record: dict) -> str:
+    raw_line = str((record or {}).get("raw_line") or "")
+    parts = raw_line.split(":")
+    if len(parts) <= 3:
+        return raw_line
+    return ":".join(parts[3:])
+
+
+def _qmd_record_match(record: dict) -> str:
+    body = _idx_body_match(record)
+    return f":{body}" if body and not body.startswith(":") else body
+
+
+def _qmd_record_text(record: dict) -> str:
+    return " ".join([
+        str((record or {}).get("variable") or ""),
+        str((record or {}).get("level") or ""),
+        str((record or {}).get("forecast_step") or ""),
+        str((record or {}).get("raw_line") or ""),
+    ]).lower()
+
+
+def _is_qmd_tmax_record(record: dict) -> bool:
+    text = _qmd_record_text(record)
+    variable = str((record or {}).get("variable") or "").upper()
+    return variable == "TMAX" or "maximum temperature" in text or "max temperature" in text
+
+
+def _parse_qmd_percentile(record: dict) -> int | None:
+    text = _qmd_record_text(record)
+    for pattern in (
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*%\s*level\b",
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?:st|nd|rd|th)?\s*percentile\b",
+        r"\bpercentile\s*(?P<value>\d+(?:\.\d+)?)\b",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return int(round(float(match.group("value"))))
+    return None
+
+
+def _parse_qmd_exceedance_threshold(record: dict) -> float | None:
+    text = _qmd_record_text(record)
+    for pattern in (
+        r"\bprob(?:ability)?\s*(?:of)?\s*(?:>|>=|gt|ge)\s*(?P<value>-?\d+(?:\.\d+)?)",
+        r"\b(?:>|>=)\s*(?P<value>-?\d+(?:\.\d+)?)\b",
+        r"\bexceed(?:ance|ing)?\s*(?P<value>-?\d+(?:\.\d+)?)\b",
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return float(match.group("value"))
+    return None
+
+
+def select_qmd_tmax_idx_records(
+    idx_text: str,
+    *,
+    percentiles: Iterable[int] | None = (10, 25, 50, 75, 90),
+    exceedance_thresholds: Iterable[float] | None = None,
+) -> list[dict]:
+    wanted_percentiles = {
+        int(value) for value in (percentiles or [])
+    } if percentiles is not None else None
+    wanted_thresholds = {
+        float(value) for value in (exceedance_thresholds or [])
+    } if exceedance_thresholds is not None else None
+    selected = []
+    for record in parse_idx_lines(idx_text):
+        if not _is_qmd_tmax_record(record):
+            continue
+        percentile = _parse_qmd_percentile(record)
+        threshold = _parse_qmd_exceedance_threshold(record)
+        kind = None
+        if percentile is not None and (wanted_percentiles is None or percentile in wanted_percentiles):
+            kind = "percentile"
+        elif threshold is not None and (wanted_thresholds is None or threshold in wanted_thresholds):
+            kind = "exceedance_probability"
+        if kind is None:
+            continue
+        row = dict(record)
+        row.update({
+            "source_kind": "qmd_grib_idx",
+            "kind": kind,
+            "percentile": percentile,
+            "threshold": threshold,
+            "match": _qmd_record_match(record),
+        })
+        selected.append(row)
+    selected.sort(key=lambda row: (
+        row.get("kind") or "",
+        row.get("percentile") if row.get("percentile") is not None else 9999,
+        row.get("threshold") if row.get("threshold") is not None else 9999,
+        row.get("message_number") or 0,
+    ))
+    return selected
+
+
+def _kelvin_to_fahrenheit(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return (float(value) - 273.15) * 9.0 / 5.0 + 32.0
+
+
+def _probability_unit_value(value: float | None) -> float | None:
+    if value is None:
+        return None
+    value = float(value)
+    if value > 1.0:
+        return value / 100.0
+    return value
+
+
+def extract_qmd_grib_tmax_point(
+    grib_path,
+    idx_text: str,
+    *,
+    lon: float,
+    lat: float,
+    run_time: datetime | str | None = None,
+    forecast_hour: int | None = None,
+    target_date: date | str | None = None,
+    source_url: str | None = None,
+    domain: str = NBM_QMD_DEFAULT_DOMAIN,
+    percentiles: Iterable[int] | None = (10, 25, 50, 75, 90),
+    exceedance_thresholds: Iterable[float] | None = None,
+    wgrib2_path: str | None = None,
+    extractor=None,
+) -> dict:
+    """Extract native QMD Tmax percentile/exceedance records for one point.
+
+    The extractor defaults to ``wgrib2 -lon`` through ``grib_probe`` but is
+    injectable so tests and offline callers can verify record selection without
+    a local GRIB decoder.
+    """
+    records = select_qmd_tmax_idx_records(
+        idx_text,
+        percentiles=percentiles,
+        exceedance_thresholds=exceedance_thresholds,
+    )
+    extract = extractor or extract_nearest_with_wgrib2
+    percentile_values_k = {}
+    percentile_values_f = {}
+    exceedance_probabilities = {}
+    extraction_rows = []
+    failures = []
+    for record in records:
+        try:
+            extracted = extract(
+                grib_path,
+                lon=lon,
+                lat=lat,
+                match=record["match"],
+                wgrib2_path=wgrib2_path,
+            )
+        except TypeError:
+            extracted = extract(grib_path, lon, lat, record["match"])
+        except Exception as exc:  # noqa: BLE001 - source payload should preserve extraction failure detail
+            failures.append({
+                "record": record,
+                "reason": str(exc),
+            })
+            continue
+        value = extracted.get("value") if isinstance(extracted, dict) else None
+        if record.get("kind") == "percentile":
+            percentile = str(int(record["percentile"]))
+            percentile_values_k[percentile] = value
+            percentile_values_f[percentile] = _kelvin_to_fahrenheit(value)
+        elif record.get("kind") == "exceedance_probability":
+            threshold = str(record.get("threshold"))
+            exceedance_probabilities[threshold] = _probability_unit_value(value)
+        extraction_rows.append({
+            "kind": record.get("kind"),
+            "percentile": record.get("percentile"),
+            "threshold": record.get("threshold"),
+            "match": record.get("match"),
+            "idx_line": record.get("raw_line"),
+            "value": value,
+            "extraction": extracted,
+        })
+    p10 = percentile_values_f.get("10")
+    p25 = percentile_values_f.get("25")
+    p50 = percentile_values_f.get("50")
+    p75 = percentile_values_f.get("75")
+    p90 = percentile_values_f.get("90")
+    if isinstance(run_time, datetime):
+        run_time_value = run_time.astimezone(timezone.utc).isoformat()
+    else:
+        run_time_value = run_time
+    target_date_value = target_date.isoformat() if isinstance(target_date, date) else target_date
+    available = bool(percentile_values_f or exceedance_probabilities) and not failures
+    return {
+        "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
+        "available": available,
+        "source": "nbm_probabilistic_tmax",
+        "source_kind": "qmd_grib_point",
+        "domain": domain,
+        "run_time": run_time_value,
+        "forecast_hour": forecast_hour,
+        "target_date": target_date_value,
+        "lon": lon,
+        "lat": lat,
+        "source_url": source_url,
+        "grib_path": str(grib_path),
+        "idx_record_count": len(parse_idx_lines(idx_text)),
+        "selected_record_count": len(records),
+        "extracted_record_count": len(extraction_rows),
+        "percentiles_kelvin": percentile_values_k,
+        "percentiles": percentile_values_f,
+        "exceedance_probabilities": exceedance_probabilities,
+        "mean_native": p50,
+        "day_max_native": p50,
+        "day_max_c": p50,
+        "p10_p90_spread": p90 - p10 if p10 is not None and p90 is not None else None,
+        "iqr": p75 - p25 if p25 is not None and p75 is not None else None,
+        "exceedance_grid_available": bool(exceedance_probabilities),
+        "exceedance_status": "native_qmd_grib_extracted" if exceedance_probabilities else "native_qmd_grib_percentiles_extracted",
+        "records": records,
+        "extractions": extraction_rows,
+        "failures": failures,
+    }
 
 
 def _payload_hash(text: str) -> str:

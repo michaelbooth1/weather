@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_strategy_evaluation import *  # noqa: F403
+from weather.market.mm_risk import correlated_exposure_state, correlated_regime_group_key
 from weather.market.taker_bot_two_sided import no_side_input_row, two_sided_enabled
 
 # The extracted functions below intentionally resolve globals from the
@@ -68,6 +69,14 @@ def existing_same_snapshot_cluster_counts(rows):
         if str(row.get("order_status") or "").upper() == "FILLED":
             counts[same_snapshot_adjacent_cluster_key(row)] += 1
     return counts
+
+
+def correlated_regime_key_for_row(row, config):
+    return correlated_regime_group_key(
+        row,
+        market_group_overrides=(config or {}).get("correlated_regime_market_groups"),
+        side=(row or {}).get("side"),
+    )
 
 
 def remaining_cap(cap_value, used_value):
@@ -363,6 +372,14 @@ def apply_taker_budget(
         existing_rows,
         lambda item: item.get("adjacent_bin_cluster_key") or adjacent_bin_cluster_key(item),
     )
+    correlated_regime_positions = existing_notional_by(
+        existing_rows,
+        lambda item: item.get("correlated_regime_group_key") or correlated_regime_key_for_row(item, config),
+    )
+    correlated_regime_joint_losses = existing_notional_by(
+        existing_rows,
+        lambda item: item.get("correlated_regime_group_key") or correlated_regime_key_for_row(item, config),
+    )
     tail_notional = existing_low_price_tail_notional(existing_rows)
     warm_tail_notional = existing_market_centered_warm_tail_notional(existing_rows)
     opinion_counts = existing_opinion_fill_counts(existing_rows)
@@ -386,10 +403,23 @@ def apply_taker_budget(
         position_remaining = max(0.0, float(caps["max_position_per_token_usdc"]) - position_before)
         market_key = row.get("market_id") or "unknown"
         cluster_key = row.get("adjacent_bin_cluster_key") or adjacent_bin_cluster_key(row)
+        correlated_key = correlated_regime_key_for_row(row, config)
         same_snapshot_key = same_snapshot_adjacent_cluster_key(row)
         opinion_key = independent_opinion_key(row)
         market_before = market_positions[market_key]
         cluster_before = cluster_positions[cluster_key]
+        correlated_before = correlated_regime_positions[correlated_key]
+        correlated_loss_before = correlated_regime_joint_losses[correlated_key]
+        correlated_state = correlated_exposure_state(
+            row,
+            current_notional_usdc=correlated_before,
+            current_joint_loss_usdc=correlated_loss_before,
+            candidate_notional_usdc=0.0,
+            max_notional_usdc=config.get("max_correlated_regime_notional_usdc"),
+            max_joint_loss_usdc=config.get("max_correlated_regime_joint_loss_usdc"),
+            market_group_overrides=config.get("correlated_regime_market_groups"),
+            side=row.get("side"),
+        )
         repeated_before = opinion_counts[opinion_key]
         same_snapshot_before = same_snapshot_counts[same_snapshot_key]
         row["budget_usdc"] = round(budget, 6)
@@ -397,6 +427,7 @@ def apply_taker_budget(
         row["position_notional_before_usdc"] = round(position_before, 6)
         row["market_notional_before_usdc"] = round(market_before, 6)
         row["adjacent_cluster_notional_before_usdc"] = round(cluster_before, 6)
+        row.update(correlated_state)
         row["low_price_tail_notional_before_usdc"] = round(tail_notional, 6)
         row["market_centered_warm_tail_notional_before_usdc"] = round(warm_tail_notional, 6)
         row["repeated_opinion_fill_count_before"] = int(repeated_before)
@@ -451,6 +482,34 @@ def apply_taker_budget(
                 rows.append(row)
                 continue
             position_remaining = min(position_remaining, cluster_remaining)
+        correlated_notional_remaining = remaining_cap(
+            config.get("max_correlated_regime_notional_usdc"),
+            correlated_before,
+        )
+        correlated_loss_remaining = remaining_cap(
+            config.get("max_correlated_regime_joint_loss_usdc"),
+            correlated_loss_before,
+        )
+        correlated_remaining = [
+            value for value in (correlated_notional_remaining, correlated_loss_remaining)
+            if value is not None
+        ]
+        if correlated_remaining:
+            group_remaining = min(correlated_remaining)
+            if group_remaining <= 1e-9:
+                row.update({
+                    "reason_code": "NO_TRADE_CORRELATED_REGIME_EXPOSURE_CAP",
+                    "reason_detail": "strategy correlated-regime exposure cap reached",
+                    "correlated_regime_cap_breached": True,
+                    "correlated_regime_cap_reason": (
+                        "correlated_regime_joint_loss_cap"
+                        if correlated_loss_remaining is not None and correlated_loss_remaining <= 1e-9
+                        else "correlated_regime_notional_cap"
+                    ),
+                })
+                rows.append(row)
+                continue
+            position_remaining = min(position_remaining, group_remaining)
         tail_remaining = remaining_cap(config.get("max_low_price_tail_notional_usdc"), tail_notional)
         if bool_value(row.get("low_price_tail"), False) and tail_remaining is not None:
             if tail_remaining <= 1e-9:
@@ -541,6 +600,13 @@ def apply_taker_budget(
         avg_price = maybe_float(fill_cost.get("executable_fill_price")) or price
         fee = fill_size * taker_fee_per_share(avg_price, config)
         total = notional + fee
+        if correlated_remaining and notional > group_remaining > 0:
+            fill_size = fill_size * (group_remaining / notional)
+            fill_cost = executable_fill_cost(fill_size, price, ask_size, config)
+            notional = maybe_float(fill_cost.get("fill_notional_usdc")) or 0.0
+            avg_price = maybe_float(fill_cost.get("executable_fill_price")) or price
+            fee = fill_size * taker_fee_per_share(avg_price, config)
+            total = notional + fee
         if total > remaining_budget > 0:
             fill_size = fill_size * (remaining_budget / total)
             fill_cost = executable_fill_cost(fill_size, price, ask_size, config)
@@ -567,6 +633,17 @@ def apply_taker_budget(
             continue
         spent_after = spent + total
         position_after = position_before + notional
+        correlated_after_state = correlated_exposure_state(
+            row,
+            current_notional_usdc=correlated_before,
+            current_joint_loss_usdc=correlated_loss_before,
+            candidate_notional_usdc=notional,
+            candidate_joint_loss_usdc=notional,
+            max_notional_usdc=config.get("max_correlated_regime_notional_usdc"),
+            max_joint_loss_usdc=config.get("max_correlated_regime_joint_loss_usdc"),
+            market_group_overrides=config.get("correlated_regime_market_groups"),
+            side=row.get("side"),
+        )
         slippage = maybe_float(fill_cost.get("slippage_usdc")) or 0.0
         row.update({
             "action": "BUY",
@@ -590,11 +667,14 @@ def apply_taker_budget(
             "budget_remaining_usdc": round(max(0.0, budget - spent_after), 6),
             "position_notional_after_usdc": round(position_after, 6),
         })
+        row.update(correlated_after_state)
         rows.append(row)
         spent = spent_after
         positions[token] = position_after
         market_positions[market_key] += notional
         cluster_positions[cluster_key] += notional
+        correlated_regime_positions[correlated_key] += notional
+        correlated_regime_joint_losses[correlated_key] += notional
         if bool_value(row.get("low_price_tail"), False):
             tail_notional += notional
         if bool_value(row.get("market_centered_warm_tail"), False):

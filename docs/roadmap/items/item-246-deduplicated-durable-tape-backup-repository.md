@@ -1,4 +1,4 @@
-# 246. Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]
+# 246. Deduplicated Durable Tape Backup Repository [PARTIAL 2026-06-24 - RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING]
 
 Goal: replace the same-disk `data/tape_backups/latest` mirror as the long-term
 archive with a deduplicated, encrypted, durable backup repository that can
@@ -39,14 +39,16 @@ similar files.
    permanent retention for irreplaceable raw evidence classes unless explicitly
    reclassified.
 
-- [ ] Decide Restic versus Kopia and document the selection criteria.
+- [x] Decide Restic versus Kopia and document the selection criteria.
 - [ ] Configure a durable repository outside `data/tape_backups`.
-- [ ] Add backup and status commands or wrappers for the selected repository.
-- [ ] Add restore-drill evidence for raw JSONL, Parquet, manifests, and replay
+- [x] Add backup and status commands or wrappers for the selected repository.
+- [x] Add restore-drill flow for raw JSONL, Parquet, manifests, and replay
   artifacts.
+- [ ] Add live restore-drill evidence for raw JSONL, Parquet, manifests, and
+  replay artifacts from the external repository.
 - [ ] Integrate deduplicated repository status into fleet observability and
   daily operational gates.
-- [ ] Document credentials, repository path, retention policy, and restore
+- [x] Document credentials, repository path, retention policy, and restore
   procedure without committing secrets.
 
 Acceptance: the project has a durable deduplicated backup repository outside
@@ -56,3 +58,28 @@ and `data/tape_backups/latest` is no longer treated as the long-term archive of
 record.
 
 Related: items 65, 111, 124, 146, 154, 239, 243, 247.
+
+## Implementation Notes
+
+2026-06-24:
+
+- Selected Restic as the supported deduplicated backend. The runbook documents
+  the Restic-over-Kopia decision, repository/credential environment variables,
+  initialization, backup, status, and restore-drill commands.
+- Added `weather.operations.tape_backup dedup-backup`, `dedup-status`,
+  `dedup-restore-drill`, and `dedup-run` wrappers. They fail closed when the
+  Restic binary, repository, credential material, tagged snapshot, or current
+  restore-drill evidence is missing.
+- Extended the retention manifest to include
+  `closed_market_day_parquet_archives`, covering
+  `data/archive/closed_market_days/**/*.parquet` and
+  `closed_market_day_archive_manifest.json`.
+- Added restore-drill selection for one raw order-book JSONL tape, one
+  closed-day Parquet partition, one archive/source manifest, and one
+  replay-critical artifact. The drill verifies SHA-256 checksums, registered
+  JSON schemas, and Parquet row counts when the archive manifest records them.
+
+Live acceptance remains blocked on an operator-provided external/NAS/object
+storage Restic repository and credential material. On this host, neither
+Restic nor Kopia was installed and no deduplicated repository environment was
+configured, so no external snapshot or restore evidence was generated.

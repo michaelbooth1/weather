@@ -53,6 +53,19 @@ ARTIFACT_FILES = {
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
 }
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+IMPACT_SORT_KEYS = (
+    "impact",
+    "impact_score",
+    "excess_brier_rows",
+    "delta_vs_market",
+    "code_effect",
+    "blocked_market_count",
+    "affected_market_count",
+    "row_count",
+    "rows",
+    "count",
+)
 
 
 def utc_iso():
@@ -85,6 +98,39 @@ def first_present(*values):
         if value not in (None, "", [], {}):
             return value
     return None
+
+
+def _priority_rank(value):
+    return PRIORITY_ORDER.get(str(value or "P2").upper(), PRIORITY_ORDER["P2"])
+
+
+def _impact_score(row):
+    values = []
+    for key in IMPACT_SORT_KEYS:
+        value = maybe_float((row or {}).get(key))
+        if value is not None:
+            values.append(abs(value))
+    return max(values) if values else 0.0
+
+
+def _capped_sorted_rows(rows, limit, source, truncated_sources=None, priority_func=None):
+    indexed = list(enumerate(rows or []))
+    indexed.sort(
+        key=lambda item: (
+            _priority_rank(priority_func(item[1]) if priority_func else item[1].get("priority")),
+            -_impact_score(item[1]),
+            item[0],
+        )
+    )
+    total = len(indexed)
+    if truncated_sources is not None and total > limit:
+        truncated_sources.append({
+            "source": source,
+            "limit": limit,
+            "total_count": total,
+            "dropped_count": total - limit,
+        })
+    return [row for _index, row in indexed[:limit]]
 
 
 def _count_summary(counts):
@@ -270,7 +316,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "corpus_hash": corpus.get("corpus_hash"),
         },
         "candidate": {
-            "rows": safe_int(aggregate.get("rows") or aggregate.get("n")),
+            "rows": safe_int(first_present(aggregate.get("rows"), aggregate.get("n"))),
             "candidate_brier": maybe_float(aggregate.get("candidate_brier")),
             "current_brier": maybe_float(aggregate.get("current_brier")),
             "market_brier": maybe_float(aggregate.get("market_brier")),
@@ -382,20 +428,25 @@ def _add_gate_learnings(learnings, gates):
         status = gate.get("status")
         if status not in {"FAIL", "WARN"}:
             continue
-        priority = "P0" if status == "FAIL" and gate.get("severity") == "fail" else "P2"
+        priority = "P0" if status == "FAIL" else "P2"
         learnings.append(_learning(
             priority,
             "validation_gate",
             "snapshot_evaluation",
             f"{gate.get('name')} is {status}: {gate.get('detail') or '-'}",
             gate.get("action") or "Review the failing evaluation gate before promotion.",
-            evidence={"gate": gate.get("name"), "status": status},
+            evidence={"gate": gate.get("name"), "status": status, "severity": gate.get("severity")},
             blocker=priority == "P0",
         ))
 
 
-def _add_backlog_learnings(learnings, top_slices):
-    for row in (top_slices or [])[:8]:
+def _add_backlog_learnings(learnings, top_slices, truncated_sources=None):
+    for row in _capped_sorted_rows(
+        top_slices,
+        8,
+        "snapshot_evaluation.improvement_backlog.top_slices",
+        truncated_sources,
+    ):
         delta_market = maybe_float(row.get("delta_vs_market"))
         code_effect = maybe_float(row.get("code_effect"))
         if delta_market is None and code_effect is None:
@@ -420,8 +471,18 @@ def _add_backlog_learnings(learnings, top_slices):
         ))
 
 
-def _add_gap_owner_learnings(learnings, rows):
-    for row in (rows or [])[:8]:
+def _gap_owner_priority(row):
+    return "P1" if row.get("counts_toward_core_skill_claim") else row.get("priority") or "P2"
+
+
+def _add_gap_owner_learnings(learnings, rows, truncated_sources=None):
+    for row in _capped_sorted_rows(
+        rows,
+        8,
+        "promotion_refresh.gap_owner_table",
+        truncated_sources,
+        priority_func=_gap_owner_priority,
+    ):
         priority = "P1" if row.get("counts_toward_core_skill_claim") else "P2"
         learnings.append(_learning(
             priority,
@@ -440,8 +501,13 @@ def _add_gap_owner_learnings(learnings, rows):
         ))
 
 
-def _add_data_recommendations(learnings, recommendations):
-    for item in (recommendations or [])[:8]:
+def _add_data_recommendations(learnings, recommendations, truncated_sources=None):
+    for item in _capped_sorted_rows(
+        recommendations,
+        8,
+        "data_layer_audit.recommendations",
+        truncated_sources,
+    ):
         priority = str(item.get("priority") or "P2")
         if priority not in {"P0", "P1", "P2", "P3"}:
             priority = "P2"
@@ -462,8 +528,13 @@ def _add_data_recommendations(learnings, recommendations):
         ))
 
 
-def _add_data_remediations(learnings, remediations, *, report_path=None):
-    for item in (remediations or [])[:8]:
+def _add_data_remediations(learnings, remediations, *, report_path=None, truncated_sources=None):
+    for item in _capped_sorted_rows(
+        remediations,
+        8,
+        "data_layer_audit.remediation_manifest",
+        truncated_sources,
+    ):
         priority = str(item.get("priority") or "P1")
         if priority not in {"P0", "P1", "P2", "P3"}:
             priority = "P1"
@@ -484,8 +555,14 @@ def _add_data_remediations(learnings, remediations, *, report_path=None):
         ))
 
 
-def _add_variant_alerts(learnings, variant):
-    for alert in (variant.get("alerts") or [])[:8]:
+def _add_variant_alerts(learnings, variant, truncated_sources=None):
+    for alert in _capped_sorted_rows(
+        variant.get("alerts") or [],
+        8,
+        "model_variant_evidence_growth.alerts",
+        truncated_sources,
+        priority_func=lambda row: "P1" if row.get("severity") == "alert" else "P2",
+    ):
         severity = alert.get("severity")
         priority = "P1" if severity == "alert" else "P2"
         learnings.append(_learning(
@@ -581,7 +658,7 @@ def _add_core_trend_claim_learning(learnings, claim):
         ))
 
 
-def _build_learnings(payloads, scorecard, artifacts=None):
+def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None):
     learnings = []
     artifacts = artifacts or {}
     labels_total = scorecard["labels"]["total"]
@@ -727,6 +804,7 @@ def _build_learnings(payloads, scorecard, artifacts=None):
         learnings,
         data_payload.get("remediation_manifest") or [],
         report_path=data_layer_report,
+        truncated_sources=truncated_sources,
     )
     sidecar_eligibility = data_layer.get("sidecar_eligibility") or {}
     sidecar_labels = sidecar_eligibility.get("primary_label_counts") or {}
@@ -812,10 +890,14 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             blocker=True,
         ))
 
-    _add_data_recommendations(learnings, data_payload.get("recommendations"))
+    _add_data_recommendations(learnings, data_payload.get("recommendations"), truncated_sources)
     _add_gate_learnings(learnings, snapshot_eval.get("gates") or [])
-    _add_backlog_learnings(learnings, (snapshot_eval.get("improvement_backlog") or {}).get("top_slices") or [])
-    _add_gap_owner_learnings(learnings, promotion_payload.get("gap_owner_table") or [])
+    _add_backlog_learnings(
+        learnings,
+        (snapshot_eval.get("improvement_backlog") or {}).get("top_slices") or [],
+        truncated_sources,
+    )
+    _add_gap_owner_learnings(learnings, promotion_payload.get("gap_owner_table") or [], truncated_sources)
 
     hourly_gate = hourly.get("hourly_performance_gate") or {}
     if hourly_gate.get("status") == "BLOCK":
@@ -876,7 +958,13 @@ def _build_learnings(payloads, scorecard, artifacts=None):
         ))
 
     registry = hourly_payload.get("remediation_registry") or {}
-    for row in (registry.get("rows") or [])[:12]:
+    for row in _capped_sorted_rows(
+        registry.get("rows") or [],
+        12,
+        "hourly_model_performance.remediation_registry.rows",
+        truncated_sources,
+        priority_func=lambda item: "P1" if item.get("uses_market_prices") else item.get("priority") or "P2",
+    ):
         if row.get("hour_regime") != "early_morning":
             continue
         priority = "P1" if row.get("uses_market_prices") else "P2"
@@ -1045,7 +1133,7 @@ def _build_learnings(payloads, scorecard, artifacts=None):
             evidence=shadow,
         ))
 
-    _add_variant_alerts(learnings, variant)
+    _add_variant_alerts(learnings, variant, truncated_sources)
     _add_independent_evidence_sla_learning(learnings, variant)
     _add_variant_learning_gate_blocker(learnings, variant_learning_gate)
     _add_core_trend_claim_learning(learnings, scorecard.get("core_model_trend_claim") or {})
@@ -1274,6 +1362,12 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
     data_fail = scorecard["data_layer_audit"]["gate_status"] == "FAIL"
     ingest_fail = scorecard["ingest_quality_gate"]["status"] == "FAIL"
     has_corpus = corpus.get("market_day_count", 0) > 0 or scorecard["labels"]["total"] > 0
+    candidate_rows = safe_int(candidate.get("rows"))
+    delta_vs_current = candidate.get("delta_vs_current")
+    delta_vs_market = candidate.get("delta_vs_market")
+    candidate_delta_measured = delta_vs_current is not None
+    beats_current_model = bool(candidate_delta_measured and delta_vs_current <= 0)
+    beats_market = bool(delta_vs_market is not None and delta_vs_market <= 0)
     training_ready = (
         has_corpus
         and not blockers
@@ -1281,18 +1375,30 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         and not ingest_fail
         and broad_slo_counts is not False
     )
-    promotion_ready = (
-        training_ready
-        and snapshot_status != "FAIL"
-        and not scorecard["promotion"]["blocked_markets"]
-        and candidate.get("rows", 0) > 0
-        and (candidate.get("delta_vs_current") is None or candidate.get("delta_vs_current") <= 0)
-        and candidate.get("missing_candidate_rows", 0) == 0
-        and bool(evidence_allows_broad_promotion)
-    )
+    promotion_checks = {
+        "training_ready": bool(training_ready),
+        "snapshot_evaluation_not_fail": snapshot_status != "FAIL",
+        "no_blocked_markets": not bool(scorecard["promotion"]["blocked_markets"]),
+        "candidate_rows_present": candidate_rows > 0,
+        "candidate_delta_vs_current_measured": candidate_delta_measured,
+        "beats_current_model": beats_current_model,
+        "no_missing_candidate_rows": safe_int(candidate.get("missing_candidate_rows")) == 0,
+        "broad_promotion_evidence_allowed": bool(evidence_allows_broad_promotion),
+    }
+    promotion_ready_reasons = [
+        name for name, passed in promotion_checks.items()
+        if not passed
+    ]
+    promotion_ready = not promotion_ready_reasons
     return {
         "training_ready": bool(training_ready),
         "promotion_ready": bool(promotion_ready),
+        "beats_current_model": beats_current_model,
+        "beats_market": beats_market,
+        "candidate_delta_vs_current_measured": candidate_delta_measured,
+        "candidate_delta_vs_market_measured": delta_vs_market is not None,
+        "promotion_ready_checks": promotion_checks,
+        "promotion_ready_reasons": promotion_ready_reasons,
         "blocker_count": len(blockers),
         "first_uncleared_p0_gate": first_blocker or {},
         "retrain_input_count": len(retrain_inputs),
@@ -1381,16 +1487,23 @@ def build_learning_payload(
             backtest_root,
             snapshots_root=snapshots_root,
             generated_at_overrides=rollup_overrides,
-        )
+    )
     daily_generated = (payloads.get("daily_refresh_status") or {}).get("generated_at_utc")
     scorecard = _scorecard(payloads, daily_refresh_summary=daily_refresh_summary)
-    learnings = _build_learnings(payloads, scorecard, artifacts=artifacts)
+    truncated_sources = []
+    learnings = _build_learnings(
+        payloads,
+        scorecard,
+        artifacts=artifacts,
+        truncated_sources=truncated_sources,
+    )
     status = _overall_status(learnings, artifacts)
     summary = {
         "learning_count": len(learnings),
         "blocker_count": sum(1 for row in learnings if row.get("blocker")),
         "high_priority_learning_count": sum(1 for row in learnings if row.get("priority") in {"P0", "P1"}),
         "retrain_input_count": sum(1 for row in learnings if row.get("retrain_input")),
+        "truncated_sources": truncated_sources,
     }
     retrain_plan = _retrain_plan(scorecard, learnings, artifacts, snapshots_root)
     return {
