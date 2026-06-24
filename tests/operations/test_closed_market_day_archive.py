@@ -13,10 +13,12 @@ from weather.operations.closed_market_day_archive import (
     BACKFILL_SCHEMA_VERSION,
     DEFAULT_PARQUET_CODEC,
     ELIGIBLE_FINALIZATION_STATES,
+    INCREMENTAL_SCHEMA_VERSION,
     MANIFEST_SCHEMA_VERSION,
     READER_FALLBACK_ORDER,
     archive_partition_path,
     build_backfill_payload,
+    build_incremental_payload,
     family_dataset_path,
     manifest_hash_valid,
     manifest_path_for_partition,
@@ -24,8 +26,10 @@ from weather.operations.closed_market_day_archive import (
     plan_market_day,
     read_market_day_artifact,
     render_backfill_report,
+    render_incremental_report,
     sha256_file,
     validate_manifest_shape,
+    write_incremental_outputs,
 )
 from weather.schema_registry import schema_version
 
@@ -93,6 +97,11 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
             "closed_market_day_parquet_backfill_v0.1",
         )
         self.assertEqual(BACKFILL_SCHEMA_VERSION, "closed_market_day_parquet_backfill_v0.1")
+        self.assertEqual(
+            schema_version("closed_market_day_parquet_incremental"),
+            "closed_market_day_parquet_incremental_v0.1",
+        )
+        self.assertEqual(INCREMENTAL_SCHEMA_VERSION, "closed_market_day_parquet_incremental_v0.1")
 
     def test_partition_and_family_paths_are_stable(self):
         root = Path("archive-root")
@@ -136,6 +145,9 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
         self.assertIn("order_books.jsonl", order_books.raw_evidence_patterns)
         self.assertTrue(order_books.parquet_default_for_closed_days)
         self.assertTrue(order_books.raw_evidence_permanent)
+        price_history = ARTIFACT_FAMILIES_BY_NAME["price_history"]
+        self.assertIn("price_history_raw_manifest.jsonl", price_history.raw_evidence_patterns)
+        self.assertIn("price_history_raw/*.json", price_history.raw_evidence_patterns)
 
     def test_manifest_shape_and_reader_gate_require_validated_parquet(self):
         manifest = valid_manifest()
@@ -325,6 +337,42 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(text_result.provenance.fallback_reason, "archive_disabled")
             assert_frame_equal(parquet_result.frame, text_result.frame, check_dtype=False)
 
+    def test_reader_parity_for_representative_snapshot_clob_replay_and_price_history_families(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            build_backfill_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                apply=True,
+                as_of_date="2026-06-23",
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+
+            for family in ("snapshots_long", "order_books_long", "price_history", "clob_tokens", "replay_inputs"):
+                with self.subTest(family=family):
+                    parquet_result = read_market_day_artifact(
+                        folder,
+                        family,
+                        snapshots_root=root / "snapshots",
+                        archive_root=root / "archive",
+                        as_of_date="2026-06-23",
+                    )
+                    text_result = read_market_day_artifact(
+                        folder,
+                        family,
+                        snapshots_root=root / "snapshots",
+                        archive_root=root / "archive",
+                        as_of_date="2026-06-23",
+                        prefer_archive=False,
+                    )
+
+                    self.assertEqual(parquet_result.provenance.source_mode, "validated_parquet")
+                    self.assertEqual(text_result.provenance.source_mode, "text_tape")
+                    assert_frame_equal(parquet_result.frame, text_result.frame, check_dtype=False)
+
     def test_reader_falls_back_to_text_for_active_or_unarchived_days(self):
         from tempfile import TemporaryDirectory
 
@@ -409,6 +457,99 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
                 if item["artifact_family"] == "price_history"
             ][0]
             self.assertEqual(price_history["parquet"]["row_count"], 3)
+
+    def test_incremental_payload_uses_bounded_scan_cursor_and_skips_unchanged_folders(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first_folder = self.make_closed_folder(
+                root,
+                slug="highest-temperature-in-austin-on-june-21-2026",
+            )
+            self.make_closed_folder(
+                root,
+                slug="highest-temperature-in-austin-on-june-22-2026",
+            )
+
+            first = build_incremental_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+                max_scan_folders=1,
+                cursor_path=None,
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            second = build_incremental_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+                max_scan_folders=1,
+                cursor=first["cursor"],
+                cursor_path=None,
+                generated_at_utc="2026-06-23T00:01:00+00:00",
+            )
+            third = build_incremental_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+                max_scan_folders=1,
+                cursor=second["cursor"],
+                cursor_path=None,
+                generated_at_utc="2026-06-23T00:02:00+00:00",
+            )
+
+        self.assertEqual(first["schema_version"], INCREMENTAL_SCHEMA_VERSION)
+        self.assertEqual(first["summary"]["scanned"], 1)
+        self.assertEqual(first["summary"]["changed"], 1)
+        self.assertEqual(first["summary"]["planned"], 1)
+        self.assertEqual(first["scan"]["remaining_folders"], 1)
+        self.assertEqual(second["summary"]["scanned"], 1)
+        self.assertEqual(second["scan"]["next_index"], 0)
+        self.assertEqual(third["summary"]["scanned"], 1)
+        self.assertEqual(third["summary"]["unchanged"], 1)
+        self.assertEqual(third["market_days"][0]["action"], "skip_unchanged")
+        self.assertIn(first_folder.name, third["cursor"]["folders"])
+
+    def test_incremental_apply_writes_status_report_and_cursor(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            cursor_path = root / "backtest" / "cursor.json"
+            json_path = root / "backtest" / "incremental.json"
+            report_path = root / "backtest" / "incremental.md"
+
+            payload = build_incremental_payload(
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                apply=True,
+                as_of_date="2026-06-23",
+                event_slugs=[folder.name],
+                cursor_path=cursor_path,
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            json_out, report_out, cursor_out = write_incremental_outputs(
+                payload,
+                json_path=json_path,
+                report_path=report_path,
+                cursor_path=cursor_path,
+            )
+            report = render_incremental_report(payload)
+            cursor = json.loads(Path(cursor_out).read_text(encoding="utf-8"))
+            json_exists = Path(json_out).exists()
+            report_exists = Path(report_out).exists()
+
+        self.assertEqual(payload["summary"]["converted"], 1)
+        self.assertEqual(payload["summary"]["failed"], 0)
+        self.assertEqual(payload["summary"]["source_deleted_count"], 0)
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+        self.assertEqual(cursor["schema_version"], INCREMENTAL_SCHEMA_VERSION)
+        self.assertIn(folder.name, cursor["folders"])
+        self.assertIn("Incremental Closed Market-Day Parquet Conversion", report)
+        self.assertIn("Source snapshot tapes are never deleted", report)
 
     def test_active_day_and_writer_lock_are_excluded(self):
         from tempfile import TemporaryDirectory

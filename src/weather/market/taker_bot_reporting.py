@@ -27,6 +27,7 @@ def render_report(payload):
     tape_integrity = payload.get("tape_integrity") or summary.get("tape_integrity") or {}
     no_side_campaign = summary.get("no_side_campaign") or {}
     counterfactual_no_side_campaign = summary.get("counterfactual_no_side_campaign") or {}
+    edge_permission = summary.get("taker_edge_permission_coverage") or {}
     lines = [
         "# Taker Bot Paper Report",
         "",
@@ -53,6 +54,10 @@ def render_report(payload):
             ["Next-run policy status", summary.get("next_run_policy_status") or "-"],
             ["Latest tick rows", summary.get("latest_tick_rows")],
             ["New filled buys", summary.get("latest_tick_filled_orders")],
+            ["Edge-permission allowed rows", edge_permission.get("edge_allowed_rows")],
+            ["Edge-permission denied/observe rows", edge_permission.get("not_edge_allowed_rows")],
+            ["After-cost EV skipped rows", edge_permission.get("after_cost_ev_skipped_rows")],
+            ["Adverse-selection blocked rows", edge_permission.get("adverse_selection_blocked_rows")],
             ["Counterfactual rows", summary.get("latest_tick_counterfactual_rows")],
             ["Counterfactual would-buy rows", summary.get("latest_tick_counterfactual_would_buy_count")],
             ["NO-side campaign status", counterfactual_no_side_campaign.get("status") or no_side_campaign.get("status") or "-"],
@@ -231,12 +236,14 @@ def build_strategy_summary_payload(pnl_payload, run_config=None, run_id=None, ta
         "strategies": (pnl_payload or {}).get("by_strategy") or [],
         "comparison": (pnl_payload or {}).get("strategy_comparison") or {},
         "tail_fill_quality": (pnl_payload or {}).get("tail_fill_quality") or {},
+        "taker_edge_permission_coverage": (run_config or {}).get("taker_edge_permission_coverage") or {},
     }
 
 
 def render_strategy_report(payload):
     comparison = payload.get("comparison") or {}
     strategies = payload.get("strategies") or []
+    edge_permission = payload.get("taker_edge_permission_coverage") or {}
     lines = [
         "# Taker Strategy Comparison Report",
         "",
@@ -262,6 +269,25 @@ def render_strategy_report(payload):
             ["MTM can promote", str(bool(comparison.get("mtm_promotion_allowed"))).lower()],
         ],
     ))
+    if edge_permission:
+        lines.extend(["", "## Taker Edge Permission", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Enabled", str(edge_permission.get("enabled")).lower()],
+                ["Map path", edge_permission.get("map_path") or "-"],
+                ["Latest rows", edge_permission.get("row_count")],
+                ["Edge allowed rows", edge_permission.get("edge_allowed_rows")],
+                ["Not edge allowed rows", edge_permission.get("not_edge_allowed_rows")],
+                ["Missing evidence rows", edge_permission.get("missing_evidence_rows")],
+                ["Market no-trade rows", edge_permission.get("market_no_trade_rows")],
+                ["After-cost EV skipped rows", edge_permission.get("after_cost_ev_skipped_rows")],
+                ["Adverse-selection blocked rows", edge_permission.get("adverse_selection_blocked_rows")],
+                ["Permission counts", edge_permission.get("permission_counts")],
+                ["Evidence counts", edge_permission.get("evidence_status_counts")],
+                ["Adverse-selection counts", edge_permission.get("adverse_selection_counts")],
+            ],
+        ))
     lines.extend(["", "## Strategies", ""])
     lines.extend(markdown_table(
         [

@@ -567,3 +567,100 @@ This is progress but not a promotion unblock. The next aligned repair should
 add a Seattle-specific early/weak-slot signal and a midday calibration guard
 that preserves the ranked repair's Miami/NYC early gains without pushing mass
 into one-above/adjacent loser bins.
+
+## 2026-06-23 no-market postprocess frontier no-go
+
+Ran a no-market post-processing frontier over the ranked winner repair using
+only candidate/current probabilities and cutoff regime. The searched transforms
+covered per-snapshot early/midday probability sharpening and current-model
+blending; no transform used market prices, outcomes, or settlement-distance
+features.
+
+Artifacts:
+
+- `data/backtest/item224_no_market_postprocess_frontier.json`
+- `data/backtest/item224_no_market_postprocess_frontier_report.md`
+- `data/backtest/item224_no_market_postprocess_frontier_3_ae1p2_am1p0_m0p0_mm0p0_rows.csv`
+- `data/backtest/item224_no_market_postprocess_frontier_bottom_location.json`
+- `data/backtest/item224_no_market_postprocess_frontier_bottom_location_report.md`
+- `data/backtest/item224_no_market_postprocess_frontier_exact_band_distance_zero.json`
+- `data/backtest/item224_no_market_postprocess_frontier_exact_band_distance_zero_report.md`
+
+Result: `NO_GO`.
+
+- candidate count: `23`.
+- pass count: `0`.
+- best transform: early sharpening `alpha=1.2`, no midday sharpening, no
+  current blend.
+- best bottom-location gate: `BLOCK` with `5` blockers; first blocker is
+  Seattle weak-slot current regression `+0.0095`.
+- best exact-band/distance-0 gate: `BLOCK` with `3` blockers; first blocker is
+  exact-band early market gap `+0.0046 > +0.0030`.
+
+This rules out simple probability sharpening or current blending as the Item
+224 unblock. The remaining path still requires a genuinely new no-market
+signal for Seattle weak/early and bottom-market midday, plus an exact-band
+guardrail that closes the market gap without adjacent/one-above regressions.
+
+## 2026-06-23 no-market model frontier partial unblock
+
+Ran a broader no-market model frontier over the same bottom-market candidate
+exports. The frontier trained only on `2026-06-07` and `2026-06-08`, evaluated
+on `2026-06-12` and `2026-06-13`, and reused the ranked-repair feature set
+without `outcome`, `market_yes`, or `settlement_distance_bucket` as model
+features. The best candidate was a random-forest classifier with grouped
+snapshot normalization.
+
+Artifacts:
+
+- `data/backtest/item224_no_market_model_frontier.json`
+- `data/backtest/item224_no_market_model_frontier_report.md`
+- `data/backtest/item224_no_market_model_frontier_rf_depth8_w1_rows.csv`
+- `data/backtest/item224_no_market_model_frontier_bottom_location.json`
+- `data/backtest/item224_no_market_model_frontier_bottom_location_report.md`
+- `data/backtest/item224_no_market_model_frontier_exact_band_distance_zero.json`
+- `data/backtest/item224_no_market_model_frontier_exact_band_distance_zero_report.md`
+
+Result: partial unblock, still not promotion-ready.
+
+- frontier candidates: `6`.
+- full pass count: `0`.
+- best held-out eval delta vs current: `-0.0184`.
+- best held-out eval delta vs market: `+0.0140`.
+- exact-band/distance-0 gate: `PASS` with `0` blockers.
+- bottom-location gate: `BLOCK` with `3` blockers, down from `5` for the
+  ranked logistic repair and `5` for the postprocess frontier.
+- remaining bottom-location blockers are all Seattle: weak-slot trails market
+  by `+0.0201`, early trails market by `+0.0107`, and midday trails market by
+  `+0.0177`.
+
+This isolates the remaining Item 224 technical blocker to Seattle no-market
+winner mass in weak/early/midday slices. The exact-band/distance-0 guardrail can
+be cleared by a no-market model frontier, but the Seattle location slice still
+needs a new signal or Seattle-specific repair that is competitive with market.
+
+## 2026-06-23 RF plus Seattle-route no-go
+
+Tried a hybrid no-market route that keeps the random-forest frontier candidate
+for NYC/Miami while routing Seattle rows through each existing no-market
+bottom-market candidate family.
+
+Artifacts:
+
+- `data/backtest/item224_no_market_rf_plus_seattle_route_frontier.json`
+- `data/backtest/item224_no_market_rf_plus_seattle_route_frontier_report.md`
+- `data/backtest/item224_no_market_rf_plus_seattle_bottom_current_max_trust_variant_rows_rows.csv`
+
+Result: `NO_GO`.
+
+- candidates: `8`.
+- pass count: `0`.
+- best total blockers: `3`.
+- best exact-band/distance-0 result: `PASS` with `0` blockers.
+- best bottom-location result: `BLOCK` with `3` blockers; the first blocker is
+  Seattle trailing market Brier by `+0.0228 > +0.0030`.
+
+This rules out promotion-safe Seattle routing across the existing no-market
+branches. The remaining unblock is a Seattle-specific no-market signal or
+training sample expansion that improves weak-slot, early, and midday Seattle
+winner mass while preserving the random-forest frontier's exact-band clearance.

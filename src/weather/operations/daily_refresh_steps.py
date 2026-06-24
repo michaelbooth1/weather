@@ -20,6 +20,7 @@ from weather.market import taker_bot
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
+from weather.operations import closed_market_day_archive
 from weather.operations import replay_status_backfill
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
@@ -73,6 +74,7 @@ STEP_ORDER = (
     "trading_evidence",
     "clob_order_book_tiering",
     "replay_status_backfill",
+    "closed_day_parquet_incremental",
     "hourly_model_performance",
     "ten_minute_model_performance",
     "price_free_model_learning",
@@ -584,6 +586,51 @@ def run_replay_status_backfill_step(args):
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "summary": summary,
+    }
+
+
+def _daily_archive_root(args):
+    return (
+        Path(args.backtest_root).parent
+        / "archive"
+        / "closed_market_days"
+        / closed_market_day_archive.ARCHIVE_ROOT_VERSION
+    )
+
+
+def run_closed_day_parquet_incremental_step(args):
+    if getattr(args, "skip_closed_day_parquet_incremental", False):
+        return {"status": "SKIPPED", "reason": "skip_closed_day_parquet_incremental"}
+    cursor_path = backtest_path(args, "closed_market_day_parquet_incremental_cursor.json")
+    payload = closed_market_day_archive.build_incremental_payload(
+        snapshots_root=args.snapshots_root,
+        archive_root=getattr(args, "closed_day_parquet_archive_root", "") or _daily_archive_root(args),
+        apply=not getattr(args, "closed_day_parquet_plan_only", False),
+        as_of_date=getattr(args, "as_of", None),
+        max_scan_folders=getattr(args, "closed_day_parquet_max_scan_folders", 25),
+        cursor_path=cursor_path,
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out, cursor_out = closed_market_day_archive.write_incremental_outputs(
+        payload,
+        json_path=backtest_path(args, "closed_market_day_parquet_incremental.json"),
+        report_path=backtest_path(args, "closed_market_day_parquet_incremental_report.md"),
+        cursor_path=cursor_path,
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "mode": payload.get("mode"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "cursor_out": as_path(cursor_out),
+        "summary": summary,
+        "scanned": summary.get("scanned"),
+        "changed": summary.get("changed"),
+        "converted": summary.get("converted"),
+        "blocked": summary.get("blocked"),
+        "failed": summary.get("failed"),
+        "remaining_scan_backlog": summary.get("remaining_scan_backlog"),
     }
 
 
@@ -1166,6 +1213,7 @@ def run_fleet_observability_step(args):
         include_audits=not args.skip_historical_audits,
         tape_backup_root=getattr(args, "tape_backup_root", fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT),
         verify_tape_backup_checksums=getattr(args, "verify_tape_backup_checksums", False),
+        parquet_incremental_path=backtest_path(args, "closed_market_day_parquet_incremental.json"),
     )
     json_out = fleet_observability.write_json(backtest_path(args, "fleet_observability.json"), payload)
     report_out = fleet_observability.write_markdown(backtest_path(args, "fleet_observability_report.md"), payload)
@@ -1212,6 +1260,8 @@ def run_snapshot_evaluation_step(args):
     payload = snapshot_evaluation.build_evaluation(
         backtest_root=args.backtest_root,
         snapshots_root=args.snapshots_root,
+        archive_root=_daily_archive_root(args),
+        archive_as_of_date=getattr(args, "as_of", None),
     )
     json_out, report_out = snapshot_evaluation.write_outputs(
         payload,
@@ -1511,6 +1561,7 @@ DEFAULT_RUNNERS = (
     ("trading_evidence", run_trading_evidence_step),
     ("clob_order_book_tiering", run_clob_order_book_tiering_step),
     ("replay_status_backfill", run_replay_status_backfill_step),
+    ("closed_day_parquet_incremental", run_closed_day_parquet_incremental_step),
     ("hourly_model_performance", run_hourly_model_performance_step),
     ("ten_minute_model_performance", run_ten_minute_model_performance_step),
     ("price_free_model_learning", run_price_free_model_learning_step),

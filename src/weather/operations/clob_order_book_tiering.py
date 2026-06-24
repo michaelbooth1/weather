@@ -12,11 +12,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.operations.cleanup_preflight import build_cleanup_preflight, cleanup_manifest_for_paths
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "clob_order_book_tiering_v0.1"
+SCHEMA_VERSION = schema_version("clob_order_book_tiering")
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "clob_order_book_tiering.json"
@@ -298,11 +300,31 @@ def apply_tiering(
                 action.update(result)
                 if delete_source:
                     _assert_under_root(source, root)
-                    source.unlink()
-                    action["source_deleted"] = True
+                    cleanup_manifest = cleanup_manifest_for_paths(
+                        [source],
+                        root=root,
+                        classification_prefix="snapshots",
+                        deletion_reason="delete verified gzip-tiered CLOB order_books_long.csv projection",
+                        operator_review={
+                            "approved": True,
+                            "approved_by": "weather.operations.clob_order_book_tiering",
+                            "approved_at_utc": utc_iso(),
+                            "note": "Projection cleanup after deterministic gzip verification; raw order_books.jsonl remains canonical evidence.",
+                        },
+                        backup_status={},
+                    )
+                    preflight = build_cleanup_preflight(cleanup_manifest, root=root, backup_status={})
+                    action["cleanup_preflight"] = preflight
+                    if preflight.get("status") == "PASS":
+                        source.unlink()
+                        action["source_deleted"] = True
+                    else:
+                        action["source_deleted"] = False
+                        action["status"] = "skipped_cleanup_preflight_block"
                 else:
                     action["source_deleted"] = False
-                action["status"] = "compressed"
+                if action.get("status") != "skipped_cleanup_preflight_block":
+                    action["status"] = "compressed"
             except Exception as exc:  # noqa: BLE001 - report and continue with other candidates
                 action["status"] = "failed"
                 action["error"] = f"{type(exc).__name__}: {exc}"

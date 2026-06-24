@@ -155,6 +155,10 @@ def _args(tmp, **overrides):
         "ten_minute_candidate_weak_market_regression_tolerance": 0.003,
         "ten_minute_candidate_weak_logloss_regression_tolerance": 0.01,
         "skip_replay_status_backfill": False,
+        "skip_closed_day_parquet_incremental": False,
+        "closed_day_parquet_plan_only": False,
+        "closed_day_parquet_max_scan_folders": 25,
+        "closed_day_parquet_archive_root": "",
         "skip_clob_order_book_tiering": False,
         "clob_tiering_settled_before": "",
         "clob_tiering_min_free_bytes": 1024 * 1024 * 1024,
@@ -476,6 +480,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("trading_evidence"), names.index("daily_learning"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
+        self.assertLess(names.index("replay_status_backfill"), names.index("closed_day_parquet_incremental"))
+        self.assertLess(names.index("closed_day_parquet_incremental"), names.index("data_layer_audit"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
         self.assertLess(names.index("data_layer_audit"), names.index("snapshot_evaluation"))
         self.assertLess(names.index("snapshot_evaluation"), names.index("distribution_stage_attribution"))

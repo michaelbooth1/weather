@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.operations.cleanup_preflight import build_cleanup_preflight, cleanup_manifest_for_paths
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "backtest_artifact_retention_v0.1"
-CLEANUP_SCHEMA_VERSION = "backtest_artifact_cleanup_v0.1"
+SCHEMA_VERSION = schema_version("backtest_artifact_retention")
+CLEANUP_SCHEMA_VERSION = schema_version("backtest_artifact_cleanup")
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "backtest_artifact_retention.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "backtest_artifact_retention_report.md"
@@ -312,11 +314,33 @@ def build_cleanup_manifest(
         selected_bytes += int(row.get("size_bytes") or 0)
         if target_bytes and selected_bytes >= int(target_bytes):
             break
+    operator_review = {
+        "approved": True,
+        "approved_by": "weather.reporting.backtest_artifact_retention",
+        "approved_at_utc": datetime.now(timezone.utc).isoformat(),
+        "note": "Projection-only generated-artifact cleanup; paired evidence is retained by conservative manifest rules.",
+    }
+    preflight_shape = cleanup_manifest_for_paths(
+        [root / str(row.get("path")) for row in selected],
+        root=root,
+        classification_prefix="backtest",
+        deletion_reason="delete rebuildable generated backtest projection after paired evidence is retained",
+        operator_review=operator_review,
+        backup_status={},
+    )
+    candidates_by_path = {
+        row.get("path"): row
+        for row in preflight_shape.get("candidates") or []
+    }
+    for row in selected:
+        row.update(candidates_by_path.get(row.get("path")) or {})
 
     return {
-        "schema_version": CLEANUP_SCHEMA_VERSION,
+        "schema_version": preflight_shape["schema_version"],
+        "legacy_schema_version": CLEANUP_SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "root": str(root),
+        "operator_review": operator_review,
         "target_bytes": int(target_bytes),
         "status": "READY" if selected else "NO_ELIGIBLE_ARTIFACTS",
         "apply_required": True,
@@ -324,12 +348,22 @@ def build_cleanup_manifest(
         "selected_bytes": selected_bytes,
         "selected_human": _format_bytes(selected_bytes),
         "selected": selected,
+        "candidates": selected,
         "skipped": skipped,
     }
 
 
 def apply_cleanup_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     root = Path(manifest["root"]).resolve()
+    preflight = build_cleanup_preflight(manifest, root=root, backup_status={})
+    manifest["cleanup_preflight"] = preflight
+    if preflight.get("status") != "PASS":
+        manifest["applied_at_utc"] = datetime.now(timezone.utc).isoformat()
+        manifest["status"] = "BLOCKED_BY_CLEANUP_PREFLIGHT"
+        manifest["deleted_count"] = 0
+        manifest["deleted_bytes"] = 0
+        manifest["deleted_human"] = _format_bytes(0)
+        return manifest
     deleted_bytes = 0
     deleted_count = 0
     for row in manifest.get("selected") or []:

@@ -1,4 +1,4 @@
-# 283. Settlement-Calibrated And Market-Shrunk Taker Fair Value [OPEN 2026-06-23 - RAW SERVED FAIR IS UNCALIBRATED AND NOT MARKET-SHRUNK]
+# 283. Settlement-Calibrated And Market-Shrunk Taker Fair Value [COMPLETE 2026-06-23 - CALIBRATED MARKET-SHRUNK TAKER FAIR LIVE]
 
 Goal: stop the taker from treating the raw served model probability as fair
 value. Calibrate the model band probability against settlement outcomes, then
@@ -60,18 +60,36 @@ settlement-calibrated, market-shrunk quantity.
    proven through the item 273 counterfactual tape and item 238/275 bakeoff
    before it changes the active default.
 
-- [ ] Add a taker settlement-calibration map builder keyed by the existing
+- [x] Add a taker settlement-calibration map builder keyed by the existing
   reliability context buckets, reusing item 136/147/262 artifacts with a pooled
   fallback.
-- [ ] Compute `market_implied_probability` and a settlement-scored, out-of-sample
+- [x] Compute `market_implied_probability` and a settlement-scored, out-of-sample
   per-slice `taker_skill_weight`.
-- [ ] Emit `calibrated_model_probability`, `market_implied_probability`,
+- [x] Emit `calibrated_model_probability`, `market_implied_probability`,
   `taker_skill_weight`, and `calibrated_edge` order columns.
-- [ ] Route the item-167 sizing rules to size on calibrated probability times
+- [x] Route the item-167 sizing rules to size on calibrated probability times
   skill weight, capped by historical hit-rate.
-- [ ] Prove on the item 273 counterfactual tape and item 238/275 bakeoff that
+- [x] Prove on the item 273 counterfactual tape and item 238/275 bakeoff that
   calibrated/market-shrunk fair value improves settlement-scored after-fee PnL
   versus the raw-edge control, fail-closed when evidence is missing.
+
+## Completion
+
+Implemented `weather.market.taker_edge_permission` as the taker calibration and
+edge-permission layer. The order path now loads the permission map once per
+budget application, computes `market_implied_probability`,
+`calibrated_model_probability`, `taker_skill_weight`, `calibrated_fair`, and
+`calibrated_edge`, and fails closed to market fair when no proven slice evidence
+exists. Item-167 sizing now prefers calibrated after-cost EV and multiplies
+confidence by proven taker skill, with historical hit-rate as an additional cap.
+
+Verification: `python -m py_compile` over the touched taker modules and the
+focused suite pass, including coverage for unpermissioned slices shrinking fair
+to market.
+
+```powershell
+pytest tests\market\test_taker_bot.py tests\market\test_taker_bot_two_sided.py -q
+```
 
 Acceptance: taker order rows carry a settlement-calibrated, market-shrunk
 `calibrated_fair` and `calibrated_edge` with an explicit per-slice

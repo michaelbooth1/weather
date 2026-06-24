@@ -16,12 +16,14 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     process_is_running,
 )
+from weather.schema_registry import schema_version
 from weather.time import utc_now as shared_utc_now
 
 
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
+DISK_PREFLIGHT_SCHEMA_VERSION = schema_version("daily_refresh_disk_preflight")
 
 
 class DiskPreflightError(RuntimeError):
@@ -103,7 +105,7 @@ def promotion_disk_preflight(args, disk_usage_fn=None):
     insufficient_bytes = max(0, required_free_bytes - free_bytes)
     status = "PASS" if insufficient_bytes == 0 else "BLOCK"
     return {
-        "schema_version": "daily_refresh_disk_preflight_v0.1",
+        "schema_version": DISK_PREFLIGHT_SCHEMA_VERSION,
         "step": "promotion_refresh",
         "status": status,
         "path": str(out_path),

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from weather.schema_registry import (  # noqa: E402
+    EXCLUDED_SCHEMA_LITERALS,
     SCHEMA_REGISTRY_SCHEMA_VERSION,
     audit_payload,
     registry_payload,
@@ -137,6 +138,19 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("closed_market_day_archive_manifest"),
             "closed_market_day_archive_manifest_v0.1",
         )
+        self.assertEqual(
+            schema_version("closed_market_day_parquet_backfill"),
+            "closed_market_day_parquet_backfill_v0.1",
+        )
+        self.assertEqual(
+            schema_version("closed_market_day_parquet_incremental"),
+            "closed_market_day_parquet_incremental_v0.1",
+        )
+        self.assertEqual(schema_version("event_day_manifest"), "event_day_manifest_v0.1")
+        self.assertEqual(schema_version("event_day_manifest_backfill"), "event_day_manifest_backfill_v0.1")
+        self.assertEqual(schema_version("event_day_manifest_writer"), "event_day_manifest_writer_v0.1")
+        self.assertEqual(schema_version("cleanup_manifest"), "cleanup_manifest_v0.1")
+        self.assertEqual(schema_version("cleanup_preflight"), "cleanup_preflight_v0.1")
         self.assertEqual(schema_version("model_artifact_externalization"), "model_artifact_externalization_v0.1")
         self.assertEqual(schema_version("model_artifact_promotion_preflight"), "model_artifact_promotion_preflight_v0.1")
         self.assertEqual(schema_version("module_size_audit"), "module_size_audit_v0.1")
@@ -194,6 +208,26 @@ class TestSchemaRegistry(unittest.TestCase):
             "taker_profitability_artifact_verification_v0.1",
         )
         self.assertEqual(
+            schema_version("taker_current_replay_profitability_verification"),
+            "taker_current_replay_profitability_verification_v0.1",
+        )
+        self.assertEqual(
+            schema_version("taker_profitability_artifact_verification_composite"),
+            "taker_profitability_artifact_verification_v0.2",
+        )
+        self.assertEqual(schema_version("backtest_artifact_retention"), "backtest_artifact_retention_v0.1")
+        self.assertEqual(schema_version("backtest_artifact_cleanup"), "backtest_artifact_cleanup_v0.1")
+        self.assertEqual(schema_version("clob_order_book_tiering"), "clob_order_book_tiering_v0.1")
+        self.assertEqual(schema_version("daily_progress_ledger"), "daily_progress_ledger_v0.1")
+        self.assertEqual(schema_version("daily_refresh_disk_preflight"), "daily_refresh_disk_preflight_v0.1")
+        self.assertEqual(schema_version("daily_refresh_stale_lock_repair"), "daily_refresh_stale_lock_repair_v0.1")
+        self.assertEqual(schema_version("daily_rollup_freshness"), "daily_rollup_freshness_v0.1")
+        self.assertEqual(schema_version("runtime_identity_evidence"), "runtime_identity_evidence_v0.1")
+        self.assertEqual(schema_version("snapshot_core_sidecar_backfill"), "snapshot_core_sidecar_backfill_v0.1")
+        self.assertEqual(schema_version("snapshot_explanation_backfill"), "snapshot_explanation_backfill_v0.1")
+        self.assertEqual(schema_version("snapshot_explanations"), "snapshot_explanations_v0.1")
+        self.assertEqual(schema_version("taker_edge_permission_map"), "taker_edge_permission_map_v0.1")
+        self.assertEqual(
             schema_version("taker_champion_challenger_ledger"),
             "taker_champion_challenger_ledger_v0.1",
         )
@@ -217,12 +251,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertIn("feature_store", names)
         self.assertIn("observation_trigger_replay", names)
         self.assertIn("daily_learning", names)
+        self.assertIn("taker_edge_permission_map", names)
 
     def test_audit_classifies_registered_and_unregistered_literals(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "demo.py"
             path.write_text(
                 'KNOWN = "historical_coverage_v1"\n'
+                'EXCLUDED = "maker_default_v0"\n'
                 'UNKNOWN = "made_up_payload_v9"\n',
                 encoding="utf-8",
             )
@@ -231,8 +267,33 @@ class TestSchemaRegistry(unittest.TestCase):
 
         by_version = {row["version"]: row for row in payload["discovered_literals"]}
         self.assertTrue(by_version["historical_coverage_v1"]["registered"])
+        self.assertFalse(by_version["maker_default_v0"]["registered"])
+        self.assertTrue(by_version["maker_default_v0"]["excluded"])
+        self.assertIn("maker_default_v0", payload["excluded_versions"])
+        self.assertNotIn("maker_default_v0", payload["unregistered_versions"])
         self.assertFalse(by_version["made_up_payload_v9"]["registered"])
         self.assertIn("made_up_payload_v9", payload["unregistered_versions"])
+
+    def test_source_tree_strict_audit_has_only_explicit_exclusions(self):
+        payload = audit_payload(["src"])
+
+        self.assertEqual(payload["unregistered_versions"], [])
+        excluded_versions = {row.version for row in EXCLUDED_SCHEMA_LITERALS}
+        self.assertEqual(set(payload["excluded_versions"]), excluded_versions)
+        for exclusion in payload["excluded_schema_literals"]:
+            self.assertTrue(exclusion["owner"])
+            self.assertTrue(exclusion["classification"])
+            self.assertIn("not a", exclusion["reason"])
+
+    def test_new_unregistered_artifact_schema_still_fails_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "demo.py"
+            path.write_text('UNKNOWN = "new_storage_artifact_v9"\n', encoding="utf-8")
+
+            payload = audit_payload([tmp])
+
+        self.assertEqual(payload["unregistered_versions"], ["new_storage_artifact_v9"])
+        self.assertEqual(payload["unregistered_version_count"], 1)
 
 
 if __name__ == "__main__":

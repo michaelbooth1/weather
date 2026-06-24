@@ -16,6 +16,7 @@ from weather.reporting.fleet_observability import (  # noqa: E402
     audit_alerts,
     classify_loop_diagnostic_event,
     clob_alerts,
+    cleanup_deletion_gate_summary,
     current_code_soak_summary,
     live_forward_slo_gate,
     loop_integrity_alerts,
@@ -23,6 +24,8 @@ from weather.reporting.fleet_observability import (  # noqa: E402
     mm_paper_evidence_summary,
     observation_alerts,
     overall_status,
+    parquet_incremental_alerts,
+    parquet_incremental_status,
     runtime_identity_alerts,
     runtime_identity_target_date,
     settled_day_freshness_alerts,
@@ -304,6 +307,19 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(overall_status([{"severity": "warning"}]), "WARN")
         self.assertEqual(overall_status([{"severity": "warning"}, {"severity": "critical"}]), "CRITICAL")
 
+    def test_cleanup_deletion_gate_blocks_missing_critical_files(self):
+        gate = cleanup_deletion_gate_summary({
+            "status": "MISSING_CRITICAL_FILES",
+            "restore_drill_sla_status": "OK",
+            "missing_critical_files": 2,
+            "missing_critical_bytes": 12,
+            "missing_critical_file_samples": [{"path": "data/snapshots/event/order_books.jsonl"}],
+        })
+
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["delete_permission"], "blocked_missing_critical_backup_files")
+        self.assertEqual(gate["missing_samples"][0]["path"], "data/snapshots/event/order_books.jsonl")
+
     def test_runtime_identity_alerts_warn_on_mixed_runtime_blocker(self):
         collection = {
             "markets": [
@@ -446,6 +462,39 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(optional["status"], "WARN")
         self.assertFalse(optional["blocks_core_model_review"])
         self.assertEqual(optional["issue_count"], 2)
+
+    def test_parquet_incremental_status_reads_backlog_and_alerts_on_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "closed_market_day_parquet_incremental.json"
+            path.write_text(
+                json.dumps({
+                    "schema_version": "closed_market_day_parquet_incremental_v0.1",
+                    "generated_at_utc": "2026-06-23T00:00:00+00:00",
+                    "status": "BLOCK",
+                    "mode": "apply",
+                    "summary": {
+                        "scanned": 2,
+                        "converted": 1,
+                        "blocked": 0,
+                        "failed": 1,
+                        "remaining_scan_backlog": 3,
+                    },
+                    "blocker_counts": {"active_writer_lock": 1},
+                    "family_status_counts": {"parquet": 5},
+                    "backlog_by_market": [{"market_id": "austin", "failed": 1}],
+                }),
+                encoding="utf-8",
+            )
+
+            status = parquet_incremental_status(path)
+            alerts = parquet_incremental_alerts(status)
+
+        self.assertTrue(status["exists"])
+        self.assertEqual(status["status"], "BLOCK")
+        self.assertEqual(status["failed"], 1)
+        self.assertEqual(status["remaining_scan_backlog"], 3)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["category"], "closed_day_parquet_incremental")
 
     def test_live_forward_slo_blocks_on_snapshot_gap_clob_gap_or_watcher_failure(self):
         collection = {

@@ -2,6 +2,12 @@
 
 from weather.market.taker_bot_tape_io import *  # noqa: F403
 from weather.market.snapshot_cadence_quality import snapshot_cadence_quality
+from weather.market.taker_edge_permission import (
+    adverse_selection_state,
+    after_cost_ev_per_share,
+    apply_taker_edge_permission,
+    load_taker_edge_permission_map,
+)
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -790,6 +796,38 @@ def base_order_row(input_row, run_id, target_date, now, config, config_hash, str
         "market_mid": compact_float(mid),
         "edge": compact_float(edge),
         "expected_profit_per_share": compact_float(edge),
+        "calibrated_model_probability": compact_float(input_row.get("calibrated_model_probability")),
+        "market_implied_probability": compact_float(input_row.get("market_implied_probability")),
+        "calibrated_fair_probability": compact_float(first_present(
+            input_row,
+            "calibrated_fair_probability",
+            "calibrated_fair",
+        )),
+        "calibrated_fair": compact_float(first_present(
+            input_row,
+            "calibrated_fair",
+            "calibrated_fair_probability",
+        )),
+        "taker_skill_weight": compact_float(input_row.get("taker_skill_weight")),
+        "calibrated_edge": compact_float(input_row.get("calibrated_edge")),
+        "calibrated_expected_profit_per_share": compact_float(input_row.get("calibrated_expected_profit_per_share")),
+        "calibrated_after_fee_edge": None,
+        "after_cost_ev_per_share": None,
+        "entry_ev_per_share": None,
+        "taker_edge_permission": input_row.get("taker_edge_permission") or "",
+        "taker_edge_permission_reason": input_row.get("taker_edge_permission_reason") or "",
+        "taker_edge_permission_record_key": input_row.get("taker_edge_permission_record_key") or "",
+        "taker_edge_permission_evidence_status": input_row.get("taker_edge_permission_evidence_status") or "",
+        "taker_edge_permission_sample_size": input_row.get("taker_edge_permission_sample_size"),
+        "taker_edge_permission_independent_days": input_row.get("taker_edge_permission_independent_days"),
+        "taker_edge_permission_market_count": input_row.get("taker_edge_permission_market_count"),
+        "taker_edge_permission_after_fee_skill": input_row.get("taker_edge_permission_after_fee_skill"),
+        "taker_edge_permission_hit_rate": input_row.get("taker_edge_permission_hit_rate"),
+        "market_benchmark_precondition": input_row.get("market_benchmark_precondition") or "",
+        "market_benchmark_recommendation": input_row.get("market_benchmark_recommendation") or "",
+        "adverse_selection_status": "clear",
+        "adverse_selection_reason": "",
+        "adverse_selection_edge_cap": compact_float(config.get("adverse_selection_edge_cap")),
         "reliability_context_key": "",
         "reliability_confidence": None,
         "reliability_adjusted_fair_probability": None,
@@ -882,6 +920,9 @@ def candidate_skip_reason(row, config):
     best_ask = maybe_float(row.get("best_ask"))
     ask_size = maybe_float(row.get("ask_size_at_best")) or 0.0
     edge = maybe_float(row.get("edge"))
+    calibrated_fair = maybe_float(first_present(row, "calibrated_fair_probability", "calibrated_fair"))
+    calibrated_edge = maybe_float(row.get("calibrated_edge"))
+    after_cost_ev = maybe_float(first_present(row, "after_cost_ev_per_share", "entry_ev_per_share"))
     book_age = maybe_float(row.get("book_age_seconds"))
     model_age = maybe_float(row.get("model_age_seconds"))
     min_price = float(config["min_price"])
@@ -972,7 +1013,34 @@ def candidate_skip_reason(row, config):
         if reason.startswith("source_state"):
             return "NO_TRADE_EARLY_HOUR_SOURCE_STATE", "early-hour source agreement is too weak"
         return "NO_TRADE_EARLY_HOUR_EDGE_TOO_SMALL", "edge does not clear early-hour minimum"
-    if edge is None or edge < float(config["min_edge"]):
+    if config.get("market_no_trade_precondition_enabled", True) and row.get("market_benchmark_precondition") == "no_trade":
+        return (
+            "NO_TRADE_MARKET_BENCHMARK_NO_TRADE",
+            row.get("market_benchmark_recommendation") or "market benchmark recommends no trade",
+        )
+    if config.get("taker_edge_permission_enabled", True) and row.get("taker_edge_permission") != "edge_allowed":
+        return (
+            "NO_TRADE_EDGE_NOT_PERMISSIONED",
+            row.get("taker_edge_permission_reason") or "taker edge-permission map did not allow this slice",
+        )
+    if row.get("adverse_selection_status") == "blocked":
+        return (
+            "NO_TRADE_ADVERSE_SELECTION_EDGE_CAP",
+            row.get("adverse_selection_reason") or "raw model-market disagreement exceeded adverse-selection cap",
+        )
+    if config.get("calibrated_entry_enabled", True):
+        if calibrated_fair is None or calibrated_edge is None:
+            return "NO_TRADE_MISSING_CALIBRATED_FAIR", "missing calibrated taker fair value"
+        min_ev = max(
+            float(config.get("min_after_cost_ev_per_share") or 0.0),
+            float(config.get("min_edge") or 0.0),
+        )
+        if after_cost_ev is None or after_cost_ev < min_ev:
+            return (
+                "NO_TRADE_AFTER_COST_EV_TOO_SMALL",
+                "calibrated after-fee EV does not clear the entry threshold",
+            )
+    elif edge is None or edge < float(config["min_edge"]):
         return "NO_TRADE_EDGE_TOO_SMALL", "best ask is not cheap enough versus fair value"
     if config.get("risk_adjusted_entry_enabled"):
         risk_edge = maybe_float(row.get("risk_adjusted_edge"))

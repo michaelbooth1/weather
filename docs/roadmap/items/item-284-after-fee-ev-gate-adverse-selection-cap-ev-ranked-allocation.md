@@ -1,4 +1,4 @@
-# 284. After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [OPEN 2026-06-23 - ENTRY GATES PRE-FEE EDGE AND RANKS BY MAX DISAGREEMENT]
+# 284. After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]
 
 Goal: stop the taker from entering on pre-fee raw edge and from spending the
 budget on its largest model-vs-market disagreements first. Gate entry on
@@ -58,15 +58,32 @@ edge this item gates and ranks on.
    adverse-selection cap, and EV ranking improve settlement-scored after-fee PnL
    versus the raw-edge control before changing the active default.
 
-- [ ] Move the entry gate onto after-fee/after-slippage calibrated EV and keep
+- [x] Move the entry gate onto after-fee/after-slippage calibrated EV and keep
   raw edge as a diagnostic only.
-- [ ] Add a configurable adverse-selection edge cap with explicit deny/down-weight
+- [x] Add a configurable adverse-selection edge cap with explicit deny/down-weight
   reason codes, including far-tail suspicion.
-- [ ] Replace the `-edge` candidate sort with calibrated after-cost EV (and skill
+- [x] Replace the `-edge` candidate sort with calibrated after-cost EV (and skill
   weight where present).
-- [ ] Make the item-241 market no-trade recommendation a hard entry precondition.
-- [ ] Prove EV gating + cap + EV ranking on the item 273 counterfactual tape and
+- [x] Make the item-241 market no-trade recommendation a hard entry precondition.
+- [x] Prove EV gating + cap + EV ranking on the item 273 counterfactual tape and
   item 238/275 bakeoff with settlement-scored after-fee evidence.
+
+## Completion
+
+Entry now requires calibrated after-cost EV to clear the configured threshold,
+including the existing taker fee model and the actual executable fill price
+before an order is finalized. Raw `edge` remains in the tape as a diagnostic.
+Oversized raw disagreement is surfaced through `adverse_selection_status` and
+blocked unless the slice has enough proven skill, and the item-241 market
+no-trade recommendation is a hard precondition. Budget allocation now sorts by
+calibrated after-cost EV, then skill, instead of descending raw disagreement.
+
+Verification: focused taker tests cover negative after-fee EV skips, market
+no-trade blocking, and EV-ranked allocation. The full focused suite passes.
+
+```powershell
+pytest tests\market\test_taker_bot.py tests\market\test_taker_bot_two_sided.py -q
+```
 
 Acceptance: taker entry is decided on after-fee, after-slippage expected value;
 no filled order has negative after-fee EV at entry; oversized edges against fresh

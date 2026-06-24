@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-23T23:13:49.185144+00:00
+Generated: 2026-06-24T00:37:50.818423+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 285 |
-| Active items | 40 |
-| OPEN | 10 |
-| PARTIAL | 30 |
-| COMPLETE | 245 |
-| ROADMAP rows | 285 |
-| ROADMAP primary rows | 285 |
-| Metadata manifest rows | 285 |
+| Items | 291 |
+| Active items | 36 |
+| OPEN | 7 |
+| PARTIAL | 29 |
+| COMPLETE | 255 |
+| ROADMAP rows | 291 |
+| ROADMAP primary rows | 291 |
+| Metadata manifest rows | 291 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -58,13 +58,9 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 256 | PARTIAL | 2026-06-23 | SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED | [Post-Fix Taker After-Fee Requalification Campaign](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 281 | OPEN | 2026-06-23 | AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
 | 282 | PARTIAL | 2026-06-23 | RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN | [Maker Parallel CLOB Raw-Book Refresh SLA](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
-| 283 | OPEN | 2026-06-23 | RAW SERVED FAIR IS UNCALIBRATED AND NOT MARKET-SHRUNK | [Settlement-Calibrated And Market-Shrunk Taker Fair Value](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
-| 284 | OPEN | 2026-06-23 | ENTRY GATES PRE-FEE EDGE AND RANKS BY MAX DISAGREEMENT | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
-| 285 | OPEN | 2026-06-23 | NO PER-SLICE PROVEN-SKILL PERMISSION FOR TAKER ENTRY | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
 
 ## Lint Issues
 

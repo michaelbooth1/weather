@@ -525,8 +525,27 @@ def write_markdown(path, payload):
         if taxonomy_rows:
             lines += ["", "Diagnostic taxonomy:"]
             lines += markdown_table(["Class", "Events"], taxonomy_rows)
+    parquet_incremental = payload.get("closed_day_parquet_incremental") or {}
+    parquet_summary = parquet_incremental.get("summary") or {}
+    parquet_rows = [
+        ["Status", parquet_incremental.get("status") or "-"],
+        ["Mode", parquet_incremental.get("mode") or "-"],
+        ["Generated", parquet_incremental.get("generated_at_utc") or "-"],
+        ["Scanned", parquet_summary.get("scanned", 0)],
+        ["Changed", parquet_summary.get("changed", 0)],
+        ["Converted", parquet_summary.get("converted", 0)],
+        ["Blocked", parquet_summary.get("blocked", 0)],
+        ["Failed", parquet_summary.get("failed", 0)],
+        ["Remaining scan backlog", parquet_summary.get("remaining_scan_backlog", 0)],
+        ["Source bytes", parquet_summary.get("source_bytes", 0)],
+        ["Parquet bytes", parquet_summary.get("parquet_bytes", 0)],
+    ]
+    lines += ["", "## Closed-Day Parquet Incremental Status", ""]
+    lines += markdown_table(["Metric", "Value"], parquet_rows)
     backup = payload.get("tape_backup") or {}
     restore = backup.get("last_restore_drill") or {}
+    cleanup_gate = payload.get("cleanup_deletion_gate") or {}
+    canonical_cleanup_gate = cleanup_gate.get("canonical_evidence") or {}
     backup_rows = [
         ["Status", backup.get("status")],
         ["Backup root", backup.get("backup_root")],
@@ -538,6 +557,9 @@ def write_markdown(path, payload):
         ["Restore SLA detail", backup.get("restore_drill_sla_detail") or "-"],
         ["Last restore drill", restore.get("status") or "-"],
         ["Restore generated", restore.get("generated_at_utc") or "-"],
+        ["Canonical cleanup gate", cleanup_gate.get("status") or "-"],
+        ["Canonical delete permission", canonical_cleanup_gate.get("delete_permission") or "-"],
+        ["Cleanup missing critical files", cleanup_gate.get("missing_critical_files") or 0],
     ]
     lines += ["", "## Tape Backup And Restore", ""]
     lines += markdown_table(["Metric", "Value"], backup_rows)

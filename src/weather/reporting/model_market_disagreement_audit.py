@@ -31,7 +31,7 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("model_market_disagreement_audit")
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_LOG_PATH = data_path() / "backtest" / "model_market_disagreement_audit.jsonl"
-DEFAULT_GAP_THRESHOLD_POINTS = 50.0
+DEFAULT_GAP_THRESHOLD_POINTS = 30.0
 SNAPSHOT_FILENAME = "snapshots_long.csv"
 
 
@@ -126,10 +126,32 @@ def audit_key_for_row(
     *,
     gap_threshold_points: float = DEFAULT_GAP_THRESHOLD_POINTS,
 ) -> str:
+    _ = gap_threshold_points
+    band_key = str(row.get("band_key") or band_key_text(row))
     parts = [
         str(row.get("event_slug") or ""),
         str(row.get("snapshot_id") or ""),
-        band_key_text(row),
+        band_key,
+        normalized_label(row.get("range_label")),
+    ]
+    digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+    return f"mma_{digest}"
+
+
+def legacy_threshold_audit_key_for_row(
+    row: dict[str, Any],
+    *,
+    gap_threshold_points: float,
+) -> str:
+    """Previous audit identity included the trigger threshold.
+
+    Keep this for reading old rows so lowering the threshold does not cause
+    already-saved observations to be duplicated under a new default.
+    """
+    parts = [
+        str(row.get("event_slug") or ""),
+        str(row.get("snapshot_id") or ""),
+        str(row.get("band_key") or band_key_text(row)),
         normalized_label(row.get("range_label")),
         f"{float(gap_threshold_points):.6f}",
     ]
@@ -406,6 +428,9 @@ def load_audit_index(path: str | Path = DEFAULT_LOG_PATH) -> dict[str, dict[str,
         key = row.get("audit_key")
         if key:
             index[key] = row
+        stable_key = audit_key_for_row(row)
+        if stable_key and stable_key not in index:
+            index[stable_key] = row
     return index
 
 
@@ -515,6 +540,9 @@ def audit_saved_for_row(
     log_path: str | Path = DEFAULT_LOG_PATH,
     gap_threshold_points: float = DEFAULT_GAP_THRESHOLD_POINTS,
 ) -> bool:
+    gap = row_gap_points(row)
+    if gap is None or gap + 1e-9 < float(gap_threshold_points):
+        return False
     index = audit_index if audit_index is not None else load_audit_index(log_path)
     key = audit_key_for_row(row, gap_threshold_points=gap_threshold_points)
     return key in index

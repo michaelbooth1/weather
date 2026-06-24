@@ -11,6 +11,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.operations.storage_classes import (
+    classification_payload,
+    delete_gate_for_storage_class,
+    storage_class_contracts_payload,
+)
+from weather.operations.event_day_manifest import summarize_event_day_manifests
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
@@ -294,9 +300,27 @@ def _file_row(path: Path, root: Path, policy: DataRetentionPolicy) -> dict[str, 
         "path": rel,
         "policy": policy.name,
         "owner": policy.owner,
+        **classification_payload(rel),
         "bytes": int(stat.st_size),
         "size_human": _format_bytes(stat.st_size),
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
+
+
+def _storage_summary_row(storage_class: str) -> dict[str, Any]:
+    return {
+        "storage_class": storage_class,
+        "file_count": 0,
+        "bytes": 0,
+        "size_human": "0 B",
+        "new_file_count": 0,
+        "new_bytes": 0,
+        "new_size_human": "0 B",
+        "backup_required_files": 0,
+        "backup_required_bytes": 0,
+        "backup_required_human": "0 B",
+        "artifact_families": set(),
+        "delete_gate": {},
     }
 
 
@@ -312,10 +336,12 @@ def build_payload(
     generated_at = datetime.now(timezone.utc)
     cutoff = generated_at - timedelta(hours=float(lookback_hours))
     backup_status = _load_json(backup_status_path)
+    event_day_manifests = summarize_event_day_manifests(root / "snapshots", check_hashes=False)
     usage_path = root if root.exists() else root.parent
     usage = shutil.disk_usage(usage_path)
     policies = {policy.name: policy for policy in POLICIES}
     summaries: dict[str, dict[str, Any]] = {}
+    storage_summaries: dict[str, dict[str, Any]] = {}
     top_dirs: dict[str, dict[str, Any]] = {}
     recent_dirs: dict[str, dict[str, Any]] = {}
     largest_files: list[dict[str, Any]] = []
@@ -351,12 +377,25 @@ def build_payload(
             })
             summary["file_count"] += 1
             summary["bytes"] += row["bytes"]
+            storage_summary = storage_summaries.setdefault(
+                row["storage_class"],
+                _storage_summary_row(row["storage_class"]),
+            )
+            storage_summary["file_count"] += 1
+            storage_summary["bytes"] += row["bytes"]
+            if row.get("backup_required"):
+                storage_summary["backup_required_files"] += 1
+                storage_summary["backup_required_bytes"] += row["bytes"]
+            if row.get("artifact_family"):
+                storage_summary["artifact_families"].add(row["artifact_family"])
             if not summary["largest_file"] or row["bytes"] > summary["largest_file"]["bytes"]:
                 summary["largest_file"] = row
             modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
             if modified >= cutoff:
                 summary["new_file_count"] += 1
                 summary["new_bytes"] += row["bytes"]
+                storage_summary["new_file_count"] += 1
+                storage_summary["new_bytes"] += row["bytes"]
                 recent_files.append(row)
                 dir_key = rel.split("/", 1)[0]
                 recent_dir = recent_dirs.setdefault(dir_key, {"path": dir_key, "file_count": 0, "bytes": 0})
@@ -375,6 +414,13 @@ def build_payload(
         summary["restore_gate"] = _policy_restore_gate(policy, backup_status)
         if summary["largest_file"]:
             summary["newest_modified_at_utc"] = _newest_mtime([summary["largest_file"]])
+
+    for storage_class, summary in storage_summaries.items():
+        summary["size_human"] = _format_bytes(summary["bytes"])
+        summary["new_size_human"] = _format_bytes(summary["new_bytes"])
+        summary["backup_required_human"] = _format_bytes(summary["backup_required_bytes"])
+        summary["artifact_families"] = sorted(summary["artifact_families"])
+        summary["delete_gate"] = delete_gate_for_storage_class(storage_class, backup_status)
 
     largest_files.sort(key=lambda row: row["bytes"], reverse=True)
     recent_files.sort(key=lambda row: row["bytes"], reverse=True)
@@ -417,16 +463,20 @@ def build_payload(
             "restore_drill_sla_status": backup_status.get("restore_drill_sla_status") or "-",
             "restore_ok": _backup_restore_ok(backup_status),
         },
+        "event_day_manifests": event_day_manifests,
         "summary": {
             "file_count": file_count,
             "total_bytes": total_bytes,
             "total_human": _format_bytes(total_bytes),
             "policy_count": len(summaries),
+            "storage_class_count": len(storage_summaries),
             "restore_block_count": len(restore_blocks),
             "recent_file_count": len(recent_files),
             "recent_bytes": sum(row["bytes"] for row in recent_files),
             "recent_human": _format_bytes(sum(row["bytes"] for row in recent_files)),
         },
+        "storage_class_contracts": storage_class_contracts_payload(),
+        "storage_class_summaries": sorted(storage_summaries.values(), key=lambda row: row["bytes"], reverse=True),
         "policies": [asdict(policy) for policy in POLICIES],
         "policy_summaries": sorted(summaries.values(), key=lambda row: row["bytes"], reverse=True),
         "largest_directories": largest_dirs[: int(top_n)],
@@ -462,6 +512,36 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Restore drill SLA", backup.get("restore_drill_sla_status")],
                 ["Restore OK for deletion gates", backup.get("restore_ok")],
                 ["Restore-blocked classes", summary.get("restore_block_count")],
+                ["Event-day manifests", (payload.get("event_day_manifests") or {}).get("manifest_count")],
+                ["Blocked event-day manifests", (payload.get("event_day_manifests") or {}).get("block_count")],
+            ],
+        ),
+        "",
+        "## Storage Class Summary",
+        "",
+        *markdown_table(
+            [
+                "Storage Class",
+                "Files",
+                "Size",
+                "New bytes",
+                "Backup-required bytes",
+                "Delete gate",
+                "Delete permission",
+                "Artifact families",
+            ],
+            [
+                [
+                    row.get("storage_class"),
+                    row.get("file_count"),
+                    row.get("size_human"),
+                    row.get("new_size_human"),
+                    row.get("backup_required_human"),
+                    (row.get("delete_gate") or {}).get("status"),
+                    (row.get("delete_gate") or {}).get("delete_permission"),
+                    ", ".join((row.get("artifact_families") or [])[:6]),
+                ]
+                for row in payload.get("storage_class_summaries") or []
             ],
         ),
         "",
@@ -500,9 +580,16 @@ def render_report(payload: dict[str, Any]) -> str:
         "## Largest Files",
         "",
         *markdown_table(
-            ["Path", "Class", "Size", "Modified"],
+            ["Path", "Policy", "Storage Class", "Artifact Family", "Size", "Modified"],
             [
-                [row.get("path"), row.get("policy"), row.get("size_human"), row.get("modified_at_utc")]
+                [
+                    row.get("path"),
+                    row.get("policy"),
+                    row.get("storage_class"),
+                    row.get("artifact_family"),
+                    row.get("size_human"),
+                    row.get("modified_at_utc"),
+                ]
                 for row in payload.get("largest_files") or []
             ],
         ),

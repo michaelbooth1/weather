@@ -104,6 +104,24 @@ def build_run_config_payload(
             "executable_depth_slippage_bps": config.get("executable_depth_slippage_bps"),
             "executable_depth_haircut": config.get("executable_depth_haircut"),
         },
+        "taker_edge_permission": {
+            "enabled": bool_value(config.get("taker_edge_permission_enabled"), True),
+            "map_path": config.get("taker_edge_permission_map_path"),
+            "missing_map_blocks": bool_value(config.get("taker_edge_permission_missing_map_blocks"), True),
+            "calibrated_entry_enabled": bool_value(config.get("calibrated_entry_enabled"), True),
+            "calibrated_sizing_enabled": bool_value(config.get("calibrated_sizing_enabled"), True),
+            "min_after_cost_ev_per_share": config.get("min_after_cost_ev_per_share"),
+            "market_no_trade_precondition_enabled": bool_value(
+                config.get("market_no_trade_precondition_enabled"),
+                True,
+            ),
+            "adverse_selection_edge_cap_enabled": bool_value(
+                config.get("adverse_selection_edge_cap_enabled"),
+                True,
+            ),
+            "adverse_selection_edge_cap": config.get("adverse_selection_edge_cap"),
+            "adverse_selection_cap_min_skill_weight": config.get("adverse_selection_cap_min_skill_weight"),
+        },
         "active_strategy_id": lifecycle.get("active_strategy_id"),
         "active_strategy_lifecycle": lifecycle.get("active_strategy_lifecycle"),
         "active_strategy_canary": lifecycle.get("active_strategy_canary"),
@@ -142,6 +160,39 @@ def build_run_config_payload(
             "include_missing": bool_value(config.get("taker_model_variant_include_missing"), False),
             "default_basket": DEFAULT_TAKER_MODEL_VARIANT_BASKET,
         },
+    }
+
+
+def taker_edge_permission_coverage(rows, config=None):
+    config = config or {}
+    rows = list(rows or [])
+    permission_counts = Counter(row.get("taker_edge_permission") or "missing" for row in rows)
+    evidence_counts = Counter(row.get("taker_edge_permission_evidence_status") or "missing" for row in rows)
+    adverse_counts = Counter(row.get("adverse_selection_status") or "missing" for row in rows)
+    reason_counts = Counter(row.get("reason_code") or "unknown" for row in rows)
+    market_no_trade_rows = sum(
+        1 for row in rows
+        if row.get("market_benchmark_precondition") == "no_trade"
+        or row.get("reason_code") == "NO_TRADE_MARKET_BENCHMARK_NO_TRADE"
+    )
+    return {
+        "enabled": bool_value(config.get("taker_edge_permission_enabled"), True),
+        "calibrated_entry_enabled": bool_value(config.get("calibrated_entry_enabled"), True),
+        "calibrated_sizing_enabled": bool_value(config.get("calibrated_sizing_enabled"), True),
+        "map_path": config.get("taker_edge_permission_map_path"),
+        "row_count": len(rows),
+        "edge_allowed_rows": permission_counts.get("edge_allowed", 0),
+        "not_edge_allowed_rows": sum(
+            count for permission, count in permission_counts.items()
+            if permission != "edge_allowed"
+        ),
+        "missing_evidence_rows": evidence_counts.get("map_missing", 0) + evidence_counts.get("missing_cell", 0),
+        "market_no_trade_rows": market_no_trade_rows,
+        "after_cost_ev_skipped_rows": reason_counts.get("NO_TRADE_AFTER_COST_EV_TOO_SMALL", 0),
+        "adverse_selection_blocked_rows": reason_counts.get("NO_TRADE_ADVERSE_SELECTION_EDGE_CAP", 0),
+        "permission_counts": dict(sorted(permission_counts.items())),
+        "evidence_status_counts": dict(sorted(evidence_counts.items())),
+        "adverse_selection_counts": dict(sorted(adverse_counts.items())),
     }
 
 
@@ -305,6 +356,8 @@ def build_run_once(
     )
     no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
     counterfactual_no_side_campaign = no_side_campaign_summary(all_counterfactual_rows)
+    edge_permission_coverage = taker_edge_permission_coverage(new_rows, config)
+    run_config["taker_edge_permission_coverage"] = edge_permission_coverage
     write_json(run_folder / "daily_pnl.json", pnl_payload)
     write_json(run_folder / "run_config.json", run_config)
     strategy_summary = build_strategy_summary_payload(
@@ -370,6 +423,7 @@ def build_run_once(
         "counterfactual_no_side_rows": counterfactual_no_side_campaign.get("no_side_row_count"),
         "counterfactual_no_side_would_buy_count": counterfactual_no_side_campaign.get("no_side_would_buy_count"),
         "counterfactual_countable_no_side_would_buy_count": counterfactual_no_side_campaign.get("countable_no_side_would_buy_count"),
+        "taker_edge_permission_coverage": edge_permission_coverage,
         "cumulative_order_rows": len(all_rows),
         "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
         "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],
@@ -538,6 +592,8 @@ def recover_run_artifacts_from_orders(
     else:
         counterfactual_rows = []
     counterfactual_no_side_campaign = no_side_campaign_summary(counterfactual_rows)
+    edge_permission_coverage = taker_edge_permission_coverage(latest_rows, config)
+    run_config["taker_edge_permission_coverage"] = edge_permission_coverage
 
     write_json(run_folder / "daily_pnl.json", pnl_payload)
     write_json(run_folder / "run_config.json", run_config)
@@ -613,6 +669,7 @@ def recover_run_artifacts_from_orders(
         "counterfactual_no_side_rows": counterfactual_no_side_campaign.get("no_side_row_count"),
         "counterfactual_no_side_would_buy_count": counterfactual_no_side_campaign.get("no_side_would_buy_count"),
         "counterfactual_countable_no_side_would_buy_count": counterfactual_no_side_campaign.get("countable_no_side_would_buy_count"),
+        "taker_edge_permission_coverage": edge_permission_coverage,
         "cumulative_order_rows": len(all_rows),
         "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
         "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],

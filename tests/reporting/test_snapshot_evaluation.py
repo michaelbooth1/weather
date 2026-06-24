@@ -175,11 +175,16 @@ class TestSnapshotEvaluation(unittest.TestCase):
         self.assertEqual(payload["status"]["status"], "WARN")
         self.assertEqual(payload["snapshot_inventory"]["folder_count"], 1)
         self.assertEqual(payload["snapshot_inventory"]["snapshot_count"], 1)
+        self.assertIn(
+            "text_tape",
+            payload["snapshot_inventory"]["historical_reader_summary"]["source_modes"],
+        )
         self.assertEqual(gates["candidate_vs_current"]["status"], "PASS")
         self.assertEqual(gates["candidate_vs_market"]["status"], "WARN")
         self.assertEqual(gates["data_layer_audit"]["status"], "WARN")
         self.assertTrue(json_exists)
         self.assertIn("Continuous Snapshot Evaluation", report)
+        self.assertIn("Historical Reader Sources", report)
         self.assertIn("miami", report)
         self.assertIn("Backfill replay input status", report)
 

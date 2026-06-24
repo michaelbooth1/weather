@@ -111,6 +111,7 @@ from weather.operations.daily_refresh_steps import (
     render_ingest_quality_report,
     run_active_variant_shadow_step,
     run_clob_order_book_tiering_step,
+    run_closed_day_parquet_incremental_step,
     run_daily_learning_step,
     run_daily_flow_analysis_step,
     run_data_layer_audit_step,

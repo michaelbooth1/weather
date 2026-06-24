@@ -7,6 +7,10 @@ import json
 import sys
 from pathlib import Path
 
+from weather.schema_registry import schema_version
+
+
+STALE_LOCK_REPAIR_SCHEMA_VERSION = schema_version("daily_refresh_stale_lock_repair")
 
 _DEPENDENCY_NAMES = {
     "DEFAULT_SNAPSHOTS_ROOT",
@@ -302,6 +306,10 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--tolerance", type=float, default=1.5)
     parser.add_argument("--skip-polymarket-reconciliation", action="store_true")
     parser.add_argument("--skip-replay-status-backfill", action="store_true")
+    parser.add_argument("--skip-closed-day-parquet-incremental", action="store_true")
+    parser.add_argument("--closed-day-parquet-plan-only", action="store_true")
+    parser.add_argument("--closed-day-parquet-max-scan-folders", type=int, default=25)
+    parser.add_argument("--closed-day-parquet-archive-root", default="")
     parser.add_argument("--skip-clob-order-book-tiering", action="store_true")
     parser.add_argument("--clob-tiering-settled-before", default="")
     parser.add_argument(
@@ -424,7 +432,7 @@ def repair_stale_locks(args):
         getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
     )
     return {
-        "schema_version": "daily_refresh_stale_lock_repair_v0.1",
+        "schema_version": STALE_LOCK_REPAIR_SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "daily_refresh_lock": daily,
         "long_job_lock": long_job,

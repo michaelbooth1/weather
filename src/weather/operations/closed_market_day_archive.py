@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import shutil
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -21,17 +22,26 @@ import pyarrow.parquet as pq
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.operations.event_day_manifest import (
+    event_day_manifest_path,
+    read_event_day_manifest,
+    validate_event_day_manifest,
+)
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 
 
 MANIFEST_SCHEMA_VERSION = schema_version("closed_market_day_archive_manifest")
 BACKFILL_SCHEMA_VERSION = schema_version("closed_market_day_parquet_backfill")
+INCREMENTAL_SCHEMA_VERSION = schema_version("closed_market_day_parquet_incremental")
 ARCHIVE_ROOT_VERSION = "v0.1"
 DEFAULT_ARCHIVE_ROOT = data_path("archive", "closed_market_days", ARCHIVE_ROOT_VERSION)
 DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_BACKFILL_JSON = data_path("backtest", "closed_market_day_parquet_backfill.json")
 DEFAULT_BACKFILL_REPORT = data_path("backtest", "closed_market_day_parquet_backfill_report.md")
+DEFAULT_INCREMENTAL_JSON = data_path("backtest", "closed_market_day_parquet_incremental.json")
+DEFAULT_INCREMENTAL_REPORT = data_path("backtest", "closed_market_day_parquet_incremental_report.md")
+DEFAULT_INCREMENTAL_CURSOR = data_path("backtest", "closed_market_day_parquet_incremental_cursor.json")
 MANIFEST_FILENAME = "closed_market_day_archive_manifest.json"
 DATASET_FILENAME = "data.parquet"
 DEFAULT_PARQUET_CODEC = "zstd"
@@ -163,7 +173,7 @@ ARTIFACT_FAMILIES = (
         "price_history",
         DATASET_FILENAME,
         ("price_history.csv", "price_history.csv.gz"),
-        ("price_history.jsonl",),
+        ("price_history.jsonl", "price_history_raw_manifest.jsonl", "price_history_raw/*.json", "price_history_raw/**/*.json"),
         notes="CLOB price history analysis table.",
     ),
     ArtifactFamilyContract(
@@ -177,7 +187,15 @@ ARTIFACT_FAMILIES = (
         "clob_features_long",
         DATASET_FILENAME,
         ("clob_features_long.csv", "clob_features_long.csv.gz"),
-        ("clob_features.jsonl", "order_books.jsonl", "price_history.jsonl", "clob_tokens.jsonl"),
+        (
+            "clob_features.jsonl",
+            "order_books.jsonl",
+            "price_history.jsonl",
+            "price_history_raw_manifest.jsonl",
+            "price_history_raw/*.json",
+            "price_history_raw/**/*.json",
+            "clob_tokens.jsonl",
+        ),
         notes="Derived market microstructure features.",
     ),
     ArtifactFamilyContract(
@@ -803,6 +821,37 @@ def _planned_family(folder: Path, family: ArtifactFamilyContract, *, snapshots_r
     }
 
 
+def _event_day_manifest_status(folder: Path, *, snapshots_root: Path) -> dict[str, Any]:
+    path = event_day_manifest_path(folder)
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "status": "MISSING",
+        }
+    manifest = read_event_day_manifest(path)
+    if manifest is None:
+        return {
+            "path": str(path),
+            "exists": True,
+            "status": "UNREADABLE",
+        }
+    validation = validate_event_day_manifest(
+        manifest,
+        folder,
+        snapshots_root=snapshots_root,
+        check_hashes=True,
+        fail_on_extra=True,
+    )
+    return {
+        "path": str(path),
+        "exists": True,
+        "status": validation.get("status"),
+        "manifest_hash": manifest.get("manifest_hash"),
+        "validation": validation,
+    }
+
+
 def _source_signature_from_families(families: list[dict[str, Any]]) -> list[tuple[str, int, str, str]]:
     signature: list[tuple[str, int, str, str]] = []
     for family in families:
@@ -868,6 +917,9 @@ def plan_market_day(
     lock_paths = _writer_lock_paths(folder)
     if lock_paths:
         blockers.append("active_writer_lock")
+    event_day_manifest = _event_day_manifest_status(folder, snapshots_root=snapshots_root)
+    if event_day_manifest.get("exists") and event_day_manifest.get("status") != "PASS":
+        blockers.append("stale_event_day_manifest")
 
     families = [
         _planned_family(folder, family, snapshots_root=snapshots_root)
@@ -904,6 +956,7 @@ def plan_market_day(
         "action": action,
         "blockers": blockers,
         "writer_lock_paths": [str(path) for path in lock_paths],
+        "event_day_manifest": event_day_manifest,
         "finalization": (
             _finalization_for_folder(folder, event_slug, ledger_root=ledger_root)
             if not blockers or blockers == ["no_convertible_artifact_families"]
@@ -1011,6 +1064,13 @@ def apply_market_day(
             {"check": "parquet_family_count", "status": "PASS", "value": parquet_count},
             {"check": "source_files_preserved", "status": "PASS", "deleted_source_count": 0},
         ]
+        event_manifest = plan.get("event_day_manifest") or {}
+        if event_manifest.get("exists"):
+            validation_checks.append({
+                "check": "event_day_manifest_current",
+                "status": "PASS",
+                "manifest_hash": event_manifest.get("manifest_hash"),
+            })
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "archive_root_version": ARCHIVE_ROOT_VERSION,
@@ -1025,6 +1085,15 @@ def apply_market_day(
                 "event_slug": plan.get("event_slug"),
             },
             "finalization": plan.get("finalization") or {},
+            "event_day_manifest": (
+                {
+                    "path": event_manifest.get("path"),
+                    "manifest_hash": event_manifest.get("manifest_hash"),
+                    "status": event_manifest.get("status"),
+                }
+                if event_manifest.get("exists")
+                else None
+            ),
             "validation": {
                 "status": "PASS",
                 "checks": validation_checks,
@@ -1141,6 +1210,389 @@ def build_backfill_payload(
     }
 
 
+def _load_incremental_cursor(path: str | Path | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    payload = _read_json(path)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _event_manifest_signature(folder: Path) -> dict[str, Any] | None:
+    manifest = _read_json(event_day_manifest_path(folder))
+    if not manifest:
+        return None
+    manifest_hash = manifest.get("manifest_hash")
+    if not manifest_hash:
+        return None
+    return {
+        "mode": "event_day_manifest",
+        "manifest_hash": manifest_hash,
+        "artifact_count": len(manifest.get("artifacts") or []),
+        "artifact_family_count": len(manifest.get("artifact_families") or []),
+    }
+
+
+def _source_stat_signature(folder: Path, snapshots_root: Path) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for family in ARTIFACT_FAMILIES:
+        for pattern in (*family.source_patterns, *family.raw_evidence_patterns):
+            for path in folder.glob(pattern):
+                if not path.is_file() or path in seen:
+                    continue
+                seen.add(path)
+                stat = path.stat()
+                try:
+                    rel = path.relative_to(snapshots_root).as_posix()
+                except ValueError:
+                    rel = path.as_posix()
+                rows.append({
+                    "path": rel,
+                    "bytes": int(stat.st_size),
+                    "mtime_ns": int(stat.st_mtime_ns),
+                })
+    return {"mode": "source_file_stats", "files": sorted(rows, key=lambda row: row["path"])}
+
+
+def incremental_folder_signature(
+    folder: str | Path,
+    *,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    as_of_date: str | date | datetime | None = None,
+) -> dict[str, Any]:
+    folder = Path(folder)
+    snapshots_root = Path(snapshots_root)
+    as_of = _parse_date(as_of_date).isoformat()
+    detail = _event_manifest_signature(folder) or _source_stat_signature(folder, snapshots_root)
+    payload = {
+        "event_slug": folder.name,
+        "as_of_date": as_of,
+        "signature": detail,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return {
+        "mode": detail.get("mode"),
+        "as_of_date": as_of,
+        "signature_hash": hashlib.sha256(encoded).hexdigest(),
+        "detail": detail,
+    }
+
+
+def _incremental_window(
+    snapshots_root: Path,
+    *,
+    cursor: dict[str, Any],
+    event_slugs: list[str] | tuple[str, ...] | None = None,
+    max_scan_folders: int | None = 25,
+) -> tuple[list[Path], dict[str, Any]]:
+    folders = iter_snapshot_folders(snapshots_root, event_slugs=event_slugs)
+    total = len(folders)
+    if event_slugs:
+        return folders, {
+            "start_index": 0,
+            "next_index": 0,
+            "total_folders": total,
+            "remaining_folders": 0,
+            "event_slug_filter": list(event_slugs),
+        }
+    if max_scan_folders is None:
+        max_scan_folders = total
+    max_scan_folders = max(1, int(max_scan_folders))
+    start = int(((cursor.get("scan") or {}).get("next_index") or 0))
+    if total <= 0:
+        return [], {"start_index": 0, "next_index": 0, "total_folders": 0, "remaining_folders": 0}
+    if start < 0 or start >= total:
+        start = 0
+    window = folders[start:start + max_scan_folders]
+    next_index = start + len(window)
+    if next_index >= total:
+        next_index = 0
+    remaining = max(0, total - (start + len(window)))
+    return window, {
+        "start_index": start,
+        "next_index": next_index,
+        "total_folders": total,
+        "remaining_folders": remaining,
+        "max_scan_folders": max_scan_folders,
+    }
+
+
+def _unchanged_incremental_row(
+    folder: Path,
+    *,
+    prior: dict[str, Any],
+    signature: dict[str, Any],
+    archive_root: Path,
+) -> dict[str, Any]:
+    partition_root = archive_partition_for_folder(folder, archive_root=archive_root)
+    return {
+        "event_slug": folder.name,
+        "market_id": market_id_from_slug(folder.name),
+        "local_date": date_from_event_slug(folder.name).isoformat() if date_from_event_slug(folder.name) else None,
+        "source_folder": str(folder),
+        "partition_root": str(partition_root) if partition_root else None,
+        "status": "skipped",
+        "action": "skip_unchanged",
+        "blockers": prior.get("blockers") or [],
+        "signature": signature,
+        "prior_status": prior.get("status"),
+        "prior_action": prior.get("action"),
+        "manifest_hash": prior.get("manifest_hash"),
+        "converted_family_count": int(prior.get("converted_family_count") or 0),
+        "source_bytes": int(prior.get("source_bytes") or 0),
+        "parquet_bytes": int(prior.get("parquet_bytes") or 0),
+    }
+
+
+def _cursor_entry_for_row(row: dict[str, Any], signature: dict[str, Any], scanned_at_utc: str) -> dict[str, Any]:
+    return {
+        "signature_hash": signature.get("signature_hash"),
+        "signature_mode": signature.get("mode"),
+        "as_of_date": signature.get("as_of_date"),
+        "status": row.get("status"),
+        "action": row.get("action"),
+        "blockers": row.get("blockers") or [],
+        "manifest_hash": row.get("manifest_hash"),
+        "converted_family_count": int(row.get("converted_family_count") or 0),
+        "source_bytes": int(row.get("source_bytes") or 0),
+        "parquet_bytes": int(row.get("parquet_bytes") or 0),
+        "scanned_at_utc": scanned_at_utc,
+    }
+
+
+def _incremental_backlog_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_market: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        market_id = row.get("market_id") or "unknown"
+        item = by_market.setdefault(
+            market_id,
+            {
+                "market_id": market_id,
+                "planned": 0,
+                "converted": 0,
+                "blocked": 0,
+                "failed": 0,
+                "source_bytes": 0,
+                "parquet_bytes": 0,
+            },
+        )
+        status = row.get("status")
+        if status in {"planned", "converted", "blocked", "failed"}:
+            item[status] += 1
+        item["source_bytes"] += int(row.get("source_bytes") or 0)
+        item["parquet_bytes"] += int(row.get("parquet_bytes") or 0)
+    return sorted(by_market.values(), key=lambda row: row["market_id"])
+
+
+def build_incremental_payload(
+    *,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    archive_root: str | Path = DEFAULT_ARCHIVE_ROOT,
+    apply: bool = False,
+    as_of_date: str | date | datetime | None = None,
+    event_slugs: list[str] | tuple[str, ...] | None = None,
+    max_scan_folders: int | None = 25,
+    cursor_path: str | Path | None = DEFAULT_INCREMENTAL_CURSOR,
+    cursor: dict[str, Any] | None = None,
+    codec: str = DEFAULT_PARQUET_CODEC,
+    generated_at_utc: str | None = None,
+    ledger_root: str | Path | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    snapshots_root = Path(snapshots_root)
+    archive_root = Path(archive_root)
+    as_of = _parse_date(as_of_date)
+    generated = generated_at_utc or utc_iso()
+    prior_cursor = dict(cursor or _load_incremental_cursor(cursor_path))
+    prior_folders = dict(prior_cursor.get("folders") or {})
+    folders, scan_state = _incremental_window(
+        snapshots_root,
+        cursor=prior_cursor,
+        event_slugs=event_slugs,
+        max_scan_folders=max_scan_folders,
+    )
+    market_days: list[dict[str, Any]] = []
+    next_folder_cursor = dict(prior_folders)
+    changed_count = 0
+    unchanged_count = 0
+    for folder in folders:
+        signature = incremental_folder_signature(folder, snapshots_root=snapshots_root, as_of_date=as_of)
+        prior = prior_folders.get(folder.name) or {}
+        unchanged = (
+            not force
+            and prior.get("signature_hash") == signature.get("signature_hash")
+            and prior.get("status") != "failed"
+        )
+        if unchanged:
+            row = _unchanged_incremental_row(folder, prior=prior, signature=signature, archive_root=archive_root)
+            unchanged_count += 1
+        else:
+            changed_count += 1
+            plan = plan_market_day(
+                folder,
+                snapshots_root=snapshots_root,
+                archive_root=archive_root,
+                as_of_date=as_of,
+                ledger_root=ledger_root,
+            )
+            row = (
+                apply_market_day(
+                    plan,
+                    archive_root=archive_root,
+                    snapshots_root=snapshots_root,
+                    codec=codec,
+                    generated_at_utc=generated,
+                )
+                if apply and plan.get("action") != "blocked"
+                else plan
+            )
+            row["signature"] = signature
+        market_days.append(row)
+        next_folder_cursor[folder.name] = _cursor_entry_for_row(row, signature, generated)
+
+    counts = {
+        "planned": sum(1 for row in market_days if row.get("status") == "planned"),
+        "converted": sum(1 for row in market_days if row.get("status") == "converted"),
+        "skipped": sum(1 for row in market_days if row.get("status") == "skipped"),
+        "blocked": sum(1 for row in market_days if row.get("status") == "blocked"),
+        "failed": sum(1 for row in market_days if row.get("status") == "failed"),
+    }
+    blocker_counts = Counter(
+        blocker
+        for row in market_days
+        for blocker in (row.get("blockers") or [])
+    )
+    family_status_counts = Counter(
+        family.get("status")
+        for row in market_days
+        for family in (row.get("artifact_families") or [])
+        if family.get("status")
+    )
+    next_cursor = {
+        "schema_version": INCREMENTAL_SCHEMA_VERSION,
+        "updated_at_utc": generated,
+        "snapshots_root": str(snapshots_root),
+        "archive_root": str(archive_root),
+        "as_of_date": as_of.isoformat(),
+        "scan": scan_state,
+        "folders": next_folder_cursor,
+    }
+    return {
+        "schema_version": INCREMENTAL_SCHEMA_VERSION,
+        "generated_at_utc": generated,
+        "mode": "apply" if apply else "dry_run",
+        "status": "BLOCK" if counts["failed"] else "PASS",
+        "snapshots_root": str(snapshots_root),
+        "archive_root": str(archive_root),
+        "as_of_date": as_of.isoformat(),
+        "codec": codec,
+        "cursor_path": str(cursor_path) if cursor_path else None,
+        "scan": scan_state,
+        "summary": {
+            **counts,
+            "scanned": len(market_days),
+            "changed": changed_count,
+            "unchanged": unchanged_count,
+            "market_day_count": len(market_days),
+            "remaining_scan_backlog": scan_state.get("remaining_folders", 0),
+            "source_deleted_count": sum(int(row.get("source_deleted_count") or 0) for row in market_days),
+            "converted_family_count": sum(int(row.get("converted_family_count") or 0) for row in market_days),
+            "source_bytes": sum(int(row.get("source_bytes") or 0) for row in market_days),
+            "parquet_bytes": sum(int(row.get("parquet_bytes") or 0) for row in market_days),
+        },
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "family_status_counts": dict(sorted(family_status_counts.items())),
+        "backlog_by_market": _incremental_backlog_rows(market_days),
+        "market_days": market_days,
+        "cursor": next_cursor,
+    }
+
+
+def render_incremental_report(payload: dict[str, Any]) -> str:
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Incremental Closed Market-Day Parquet Conversion",
+        "",
+        f"Generated: {payload.get('generated_at_utc')}",
+        f"Schema: `{payload.get('schema_version')}`",
+        f"Mode: `{payload.get('mode')}`",
+        f"Status: `{payload.get('status')}`",
+        f"Cursor: `{payload.get('cursor_path')}`",
+        "",
+        "## Summary",
+        "",
+        "| Metric | Value |",
+        "| :--- | ---: |",
+    ]
+    for key in (
+        "scanned",
+        "changed",
+        "unchanged",
+        "planned",
+        "converted",
+        "skipped",
+        "blocked",
+        "failed",
+        "remaining_scan_backlog",
+        "converted_family_count",
+        "source_bytes",
+        "parquet_bytes",
+    ):
+        lines.append(f"| {key} | {summary.get(key, 0)} |")
+    lines += [
+        "",
+        "## Blockers",
+        "",
+        "| Blocker | Count |",
+        "| :--- | ---: |",
+    ]
+    for blocker, count in (payload.get("blocker_counts") or {}).items():
+        lines.append(f"| {blocker} | {count} |")
+    if not payload.get("blocker_counts"):
+        lines.append("| - | 0 |")
+    lines += [
+        "",
+        "## Market Backlog",
+        "",
+        "| Market | Planned | Converted | Blocked | Failed | Source Bytes | Parquet Bytes |",
+        "| :--- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in payload.get("backlog_by_market") or []:
+        lines.append(
+            "| "
+            + " | ".join([
+                str(row.get("market_id") or ""),
+                str(row.get("planned") or 0),
+                str(row.get("converted") or 0),
+                str(row.get("blocked") or 0),
+                str(row.get("failed") or 0),
+                str(row.get("source_bytes") or 0),
+                str(row.get("parquet_bytes") or 0),
+            ])
+            + " |"
+        )
+    lines += [
+        "",
+        "Source snapshot tapes are never deleted or rewritten by this command.",
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_incremental_outputs(
+    payload: dict[str, Any],
+    *,
+    json_path: str | Path = DEFAULT_INCREMENTAL_JSON,
+    report_path: str | Path = DEFAULT_INCREMENTAL_REPORT,
+    cursor_path: str | Path = DEFAULT_INCREMENTAL_CURSOR,
+) -> tuple[Path, Path, Path]:
+    json_out = _write_json(json_path, payload)
+    report_out = Path(report_path)
+    report_out.parent.mkdir(parents=True, exist_ok=True)
+    report_out.write_text(render_incremental_report(payload), encoding="utf-8")
+    cursor_out = _write_json(cursor_path, payload.get("cursor") or {})
+    return json_out, report_out, cursor_out
+
+
 def render_backfill_report(payload: dict[str, Any]) -> str:
     summary = payload.get("summary") or {}
     lines = [
@@ -1213,12 +1665,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Dry-run or apply closed market-day snapshot Parquet backfills."
     )
-    parser.add_argument("mode", choices=("plan", "apply"))
+    parser.add_argument("mode", choices=("plan", "apply", "incremental-plan", "incremental-apply"))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
     parser.add_argument("--as-of-date", default=None)
     parser.add_argument("--event-slug", action="append", default=[])
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--max-scan-folders", type=int, default=25)
+    parser.add_argument("--cursor", default=str(DEFAULT_INCREMENTAL_CURSOR))
+    parser.add_argument("--force", action="store_true")
     parser.add_argument("--codec", default=DEFAULT_PARQUET_CODEC)
     parser.add_argument("--out", default=str(DEFAULT_BACKFILL_JSON))
     parser.add_argument("--report", default=str(DEFAULT_BACKFILL_REPORT))
@@ -1228,6 +1683,43 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.mode in {"incremental-plan", "incremental-apply"}:
+        out = args.out
+        report = args.report
+        if out == str(DEFAULT_BACKFILL_JSON):
+            out = str(DEFAULT_INCREMENTAL_JSON)
+        if report == str(DEFAULT_BACKFILL_REPORT):
+            report = str(DEFAULT_INCREMENTAL_REPORT)
+        payload = build_incremental_payload(
+            snapshots_root=args.snapshots_root,
+            archive_root=args.archive_root,
+            apply=args.mode == "incremental-apply",
+            as_of_date=args.as_of_date,
+            event_slugs=args.event_slug or None,
+            max_scan_folders=args.max_scan_folders,
+            cursor_path=args.cursor,
+            codec=args.codec,
+            force=args.force,
+        )
+        json_out, report_out, cursor_out = write_incremental_outputs(
+            payload,
+            json_path=out,
+            report_path=report,
+            cursor_path=args.cursor,
+        )
+        print(
+            "Incremental closed market-day Parquet conversion: "
+            f"{payload['status']} mode={payload['mode']} "
+            f"scanned={payload['summary']['scanned']} "
+            f"changed={payload['summary']['changed']} "
+            f"converted={payload['summary']['converted']} "
+            f"blocked={payload['summary']['blocked']} "
+            f"failed={payload['summary']['failed']}"
+        )
+        print(f"JSON written to {json_out}")
+        print(f"Report written to {report_out}")
+        print(f"Cursor written to {cursor_out}")
+        return payload
     payload = build_backfill_payload(
         snapshots_root=args.snapshots_root,
         archive_root=args.archive_root,

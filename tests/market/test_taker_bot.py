@@ -16,6 +16,7 @@ from weather.market.taker_bot import (
     build_champion_challenger_ledger,
     build_pnl_payload,
     build_run_once,
+    build_taker_edge_permission_map,
     candidate_skip_reason,
     clustered_taker_promotion_statistics,
     current_high_trust_config_warnings,
@@ -98,6 +99,17 @@ def write_market_fixture(
             "market_status": "active",
             "snapshot_cadence": "scheduled",
             "current_high_trusted": "True",
+            "taker_edge_permission": "edge_allowed",
+            "taker_edge_permission_reason": "fixture_settlement_skill",
+            "taker_edge_permission_sample_size": "10",
+            "taker_edge_permission_independent_days": "5",
+            "taker_edge_permission_market_count": "1",
+            "taker_edge_permission_after_fee_skill": "0.10",
+            "taker_edge_permission_hit_rate": fair,
+            "taker_skill_weight": "1.0",
+            "calibrated_model_probability": fair,
+            "calibrated_fair_probability": fair,
+            "calibrated_fair": fair,
         }
         snapshot.update(cadence_fields or {})
         snapshot.update(snapshot_extra_fields_by_value.get(value) or {})
@@ -275,6 +287,14 @@ def order_row(
         "market_mid": str(fill_price),
         "edge": str(float(fair_probability) - fill_price),
         "expected_profit_per_share": str(float(fair_probability) - fill_price),
+        "taker_edge_permission": "edge_allowed",
+        "taker_edge_permission_reason": "fixture_settlement_skill",
+        "taker_skill_weight": "1.0",
+        "calibrated_model_probability": str(fair_probability),
+        "calibrated_fair_probability": str(fair_probability),
+        "calibrated_fair": str(fair_probability),
+        "calibrated_edge": str(float(fair_probability) - fill_price),
+        "taker_edge_permission_hit_rate": str(fair_probability),
         "ask_size_at_best": str(fill_size),
         "book_age_seconds": "10",
         "model_age_seconds": "10",
@@ -809,15 +829,187 @@ class TestTakerBot(unittest.TestCase):
                 now=NOW,
                 config={"min_edge": 0.005, "max_order_usdc": 10, "max_position_per_token_usdc": 10},
             )
-            filled = [row for row in read_csv(Path(payload["orders_path"])) if row["order_status"] == "FILLED"]
+            orders = read_csv(Path(payload["orders_path"]))
+            filled = [row for row in orders if row["order_status"] == "FILLED"]
+            skipped = [row for row in orders if row["reason_code"] == "NO_TRADE_AFTER_COST_EV_TOO_SMALL"]
             strategy = payload["pnl"]["by_strategy"][0]
 
+        self.assertEqual(len(filled), 0)
+        self.assertEqual(len(skipped), 1)
+        self.assertGreater(float(skipped[0]["edge"]), 0.0)
+        self.assertLess(float(skipped[0]["expected_profit_after_friction_per_share"]), 0.0)
+        self.assertEqual(strategy["settlement_scored_expected_pnl_usdc"], 0.0)
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+
+    def test_unpermissioned_slice_shrinks_calibrated_fair_to_market_and_no_trades(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.80", "0.60")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "taker_edge_permission": "deny",
+                        "taker_edge_permission_reason": "fixture_unproven_slice",
+                        "taker_skill_weight": "0.0",
+                        "calibrated_model_probability": "0.20",
+                    }
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        row = orders[0]
+        self.assertEqual(row["reason_code"], "NO_TRADE_EDGE_NOT_PERMISSIONED")
+        self.assertEqual(row["taker_edge_permission"], "deny")
+        self.assertEqual(float(row["taker_skill_weight"]), 0.0)
+        self.assertAlmostEqual(float(row["calibrated_fair"]), float(row["market_implied_probability"]))
+        self.assertLessEqual(float(row["calibrated_edge"]), 0.0)
+
+    def test_market_no_trade_precondition_blocks_permissioned_slice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.80", "0.60")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "market_benchmark_recommendation": "no_trade_market_smarter",
+                    }
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(orders[0]["reason_code"], "NO_TRADE_MARKET_BENCHMARK_NO_TRADE")
+        self.assertEqual(orders[0]["market_benchmark_precondition"], "no_trade")
+
+    def test_budget_allocation_ranks_by_calibrated_after_cost_ev_not_raw_edge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.95", "0.80"), (82, "0.72", "0.60")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "taker_skill_weight": "0.10",
+                        "calibrated_model_probability": "0.95",
+                        "calibrated_fair_probability": "",
+                        "calibrated_fair": "",
+                    },
+                    82: {
+                        "taker_skill_weight": "1.0",
+                        "calibrated_model_probability": "0.72",
+                        "calibrated_fair_probability": "0.72",
+                        "calibrated_fair": "0.72",
+                    },
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=20,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "max_daily_positions": 1,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            )
+            filled = [row for row in read_csv(Path(payload["orders_path"])) if row["order_status"] == "FILLED"]
+
         self.assertEqual(len(filled), 1)
-        self.assertGreater(float(filled[0]["edge"]), 0.0)
-        self.assertLess(float(filled[0]["expected_profit_after_friction_per_share"]), 0.0)
-        self.assertLess(strategy["settlement_scored_expected_pnl_usdc"], 0.0)
-        self.assertIn("min_settlement_scored_expected_pnl", strategy["settlement_promotion_failed_gates"])
-        self.assertFalse(strategy["quality_candidate_countable"])
+        self.assertEqual(filled[0]["range_label"], "82-83 F")
+        self.assertGreater(float(filled[0]["after_cost_ev_per_share"]), 0.0)
+
+    def test_taker_permission_map_builder_promotes_only_settlement_scored_skill_cells(self):
+        skill_rows = []
+        for index in range(5):
+            skill_rows.append({
+                "target_date": f"2026-06-{14 + index:02d}",
+                "market_id": "atlanta",
+                "captured_at_utc": f"2026-06-{14 + index:02d}T16:00:00+00:00",
+                "capture_hour_local": "12",
+                "range_label": "80-81 F",
+                "bin_kind": "eq",
+                "bin_value": "80",
+                "bin_value_hi": "81",
+                "side": "YES_BUY",
+                "source_freshness_state": "all_fresh",
+                "snapshot_cadence_quality_state": "clean",
+                "current_high_trusted": "True",
+                "current_high_band_distance": "0",
+                "model_variant_id": "served_current",
+                "fair_probability": "0.90",
+                "market_mid": "0.55",
+                "best_ask": "0.60",
+                "settlement_outcome": "1",
+            })
+        weak_rows = [
+            {
+                **skill_rows[0],
+                "target_date": "2026-07-01",
+                "market_id": "seattle",
+                "fair_probability": "0.90",
+                "market_mid": "0.55",
+                "best_ask": "0.60",
+                "settlement_outcome": "0",
+            }
+        ]
+
+        payload = build_taker_edge_permission_map(
+            [*skill_rows, *weak_rows],
+            now="2026-07-10T00:00:00+00:00",
+            min_settled_orders=5,
+            min_independent_days=3,
+        )
+        records = {(row["market_id"], row["permission"]): row for row in payload["records"]}
+
+        self.assertEqual(payload["schema_version"], "taker_edge_permission_map_v0.1")
+        self.assertIn(("atlanta", "edge_allowed"), records)
+        self.assertIn(("seattle", "observe"), records)
+        self.assertGreater(records[("atlanta", "edge_allowed")]["taker_skill_weight"], 0.0)
 
     def test_market_benchmark_blocks_when_market_top_beats_model_trade_after_fees(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1391,6 +1583,73 @@ class TestTakerBot(unittest.TestCase):
             {row["code"] for row in bakeoff["blockers"]},
         )
 
+    def test_strategy_bakeoff_accepts_current_replay_when_source_artifacts_are_legacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "legacy",
+                [
+                    order_row(
+                        "seattle",
+                        "highest-temperature-in-seattle-on-june-19-2026",
+                        "82-83 F",
+                        82,
+                        83,
+                        10.0,
+                        1.0,
+                        fair_probability=0.95,
+                        mark_pnl=3.0,
+                    )
+                ],
+                reported_net=3.0,
+                reported_mtm=3.0,
+                reported_unsettled=1,
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-seattle-on-june-19-2026",
+                    "market_id": "seattle",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 82,
+                    "winning_band": "82-83 F",
+                    "quality_grade": "complete",
+                }
+            ])
+
+            bakeoff = run_taker_strategy_bakeoff(
+                run,
+                labels_csv=labels,
+                strategies="raw_edge_control",
+                budget_usdc=100,
+                out_json=root / "bakeoff.json",
+                out_report=root / "bakeoff.md",
+                config={
+                    "taker_fee_rate": 0.05,
+                    "taker_fee_model": "polymarket_symmetric_price_v1",
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                },
+                now="2026-06-20T12:20:00+00:00",
+            )
+
+        self.assertEqual(bakeoff["source_profitability_artifact_verification"]["status"], "BLOCK")
+        self.assertEqual(bakeoff["current_replay_profitability_verification"]["status"], "PASS")
+        self.assertEqual(bakeoff["profitability_artifact_verification"]["status"], "PASS")
+        self.assertEqual(
+            bakeoff["profitability_artifact_verification"]["evidence_basis"],
+            "current_fee_depth_replay",
+        )
+        self.assertNotIn(
+            "profitability_artifact_verification_failed",
+            {row["code"] for row in bakeoff["blockers"]},
+        )
+        self.assertNotIn(
+            "profitability_artifact_verification",
+            bakeoff["promotion_gates"][0]["failed_gates"],
+        )
+
     def test_profitability_artifact_verifier_allows_no_fill_opportunity_tape(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
@@ -1763,6 +2022,92 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(row["missing_label_day_count"], 1)
         self.assertIn("no_missing_label_days", row["failed_gates"])
         self.assertNotIn("no_partial_quality_days", row["failed_gates"])
+
+    def test_champion_ledger_does_not_count_no_fill_missing_label_day_as_strategy_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            complete_path = root / "complete_bakeoff.json"
+            pending_path = root / "pending_no_fill_bakeoff.json"
+            complete_path.write_text(json.dumps({
+                "schema_version": STRATEGY_BAKEOFF_SCHEMA_VERSION,
+                "generated_at_utc": "2026-06-20T12:00:00+00:00",
+                "run_id": "complete-bakeoff",
+                "source_run_id": "complete",
+                "target_date": "2026-06-19",
+                "label_summary": {"label_rows": 1, "complete_rows": 1, "partial_rows": 0},
+                "blockers": [],
+                "pnl": {
+                    "by_strategy": [
+                        {
+                            "strategy_id": "challenger",
+                            "strategy_family": "candidate",
+                            "filled_order_count": 1,
+                            "settled_order_count": 1,
+                            "unsettled_order_count": 0,
+                            "unscored_order_count": 0,
+                            "spent_usdc": 1,
+                            "settlement_pnl_usdc": 2,
+                            "net_pnl_usdc": 2,
+                        },
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "challenger",
+                        "status": "PASS",
+                        "settled_order_count": 1,
+                        "settled_market_count": 1,
+                        "failed_gates": [],
+                    },
+                ],
+            }), encoding="utf-8")
+            pending_path.write_text(json.dumps({
+                "schema_version": STRATEGY_BAKEOFF_SCHEMA_VERSION,
+                "generated_at_utc": "2026-06-20T12:00:00+00:00",
+                "run_id": "pending-bakeoff",
+                "source_run_id": "pending",
+                "target_date": "2026-06-20",
+                "label_summary": {"label_rows": 0, "complete_rows": 0, "partial_rows": 0},
+                "blockers": [{"code": "missing_target_date_labels"}],
+                "pnl": {
+                    "by_strategy": [
+                        {
+                            "strategy_id": "challenger",
+                            "strategy_family": "candidate",
+                            "filled_order_count": 0,
+                            "settled_order_count": 0,
+                            "unsettled_order_count": 0,
+                            "unscored_order_count": 0,
+                            "spent_usdc": 0,
+                            "settlement_pnl_usdc": 0,
+                            "net_pnl_usdc": 0,
+                        },
+                    ]
+                },
+                "promotion_gates": [
+                    {
+                        "strategy_id": "challenger",
+                        "status": "BLOCK",
+                        "settled_order_count": 0,
+                        "settled_market_count": 0,
+                        "failed_gates": ["min_settled_sample"],
+                    },
+                ],
+            }), encoding="utf-8")
+
+            ledger = build_champion_challenger_ledger(
+                bakeoff_paths=[complete_path, pending_path],
+                champion_strategy_id="champion",
+                now="2026-06-20T12:00:00+00:00",
+                min_complete_label_days=1,
+                min_settled_orders=1,
+            )
+            row = ledger["strategies"][0]
+
+        self.assertEqual(row["complete_label_day_count"], 1)
+        self.assertEqual(row["missing_label_day_count"], 0)
+        self.assertNotIn("no_missing_label_days", row["failed_gates"])
+        self.assertNotIn("all_complete_days_pass_strategy_gate", row["failed_gates"])
 
     def test_low_price_tail_partial_label_stays_candidate_canary(self):
         gate = next_run_policy_gate(
@@ -2466,7 +2811,7 @@ class TestTakerBot(unittest.TestCase):
         self.assertIn("non_negative_settled_roi", gate["failed_gates"])
         self.assertIn("no_resolved_stale_mark_sign_flips", gate["failed_gates"])
         self.assertEqual(gate["stale_mark_sign_flip_count"], 1)
-        self.assertAlmostEqual(gate["net_pnl_usdc"], -10.496)
+        self.assertAlmostEqual(gate["net_pnl_usdc"], -8.9216)
 
     def test_missing_clob_token_blocks_taker_buy(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -14,6 +14,7 @@ from weather.market.taker_profitability_artifact_verification import verify_take
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting import settlement_source_audit
+from weather.schema_registry import schema_version
 
 
 DEFAULT_DATA_ROOT = data_path()
@@ -46,6 +47,8 @@ MM_PREFLIGHT_RECOVERY_COMMANDS = {
     "watcher_stale": "python -m weather.operations.observation_trigger ensure",
 }
 MM_PREFLIGHT_RECOVERY_CLOSEOUT_FILENAME = "preflight_recovery_closeout.json"
+MM_STARVATION_SCHEMA_VERSION = schema_version("mm_evidence_starvation")
+TRADING_EVIDENCE_SCHEMA_VERSION = schema_version("trading_evidence_summary")
 MM_STARVATION_REMEDIATION_BOUNDARY = (
     "producer-side loop cadence and snapshot cadence remediation belongs to "
     "ROADMAP 161/157; MM evidence-starvation detection and trend ownership "
@@ -502,7 +505,7 @@ def mm_evidence_starvation_summary(
             "detail": latest_unrecovered_starved,
         }
     return {
-        "schema_version": "mm_evidence_starvation_v0.1",
+        "schema_version": MM_STARVATION_SCHEMA_VERSION,
         "status": status,
         "blocked_fraction_threshold": float(blocked_fraction_threshold),
         "active_day_count": len(active_rows),
@@ -1072,7 +1075,7 @@ def build_trading_evidence_summary(
     )
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
     return {
-        "schema_version": "trading_evidence_summary_v0.1",
+        "schema_version": TRADING_EVIDENCE_SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
         "mm_runs_root": str(mm_runs_root),
         "taker_runs_root": str(taker_runs_root),

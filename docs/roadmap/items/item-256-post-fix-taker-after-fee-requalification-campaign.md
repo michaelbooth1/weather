@@ -1,4 +1,4 @@
-# 256. Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED]
+# 256. Post-Fix Taker After-Fee Requalification Campaign [COMPLETE 2026-06-24 - CURRENT-FEE CAMPAIGN CLOSED FAIL-CLOSED]
 
 Goal: collect a fresh paper-only champion/challenger campaign under current
 taker defaults and require complete-label, after-fee, after-slippage evidence
@@ -288,9 +288,8 @@ Initial refreshed ledger result:
 - June 23 blockers: `missing_target_date_labels`; no settlement labels exist
   yet for the current target date.
 
-Item 256 remains `PARTIAL`: the fresh campaign is represented in the ledger,
-but no strategy can be live-qualified until future post-fix days settle with
-complete labels, enough fills, and positive after-fee/after-slippage results.
+This intermediate result was superseded by the settlement-label and current-fee
+replay closures below.
 
 ## 2026-06-23 Settlement-Complete Label Refresh
 
@@ -327,15 +326,15 @@ Updated ledger result:
 - settlement-complete bakeoff days: `5` (two June 19 bakeoffs plus June 20,
   June 21, and June 22).
 - true partial-quality days: `0`.
-- missing-label days in strategy rows: `2` from June 23 bakeoffs.
+- missing-label days in strategy rows: `0`; June 23 no-fill diagnostics are
+  retained at run level but no longer fail a strategy ledger row.
 - promotion pass count: `0`.
 - decision: `KEEP_CHAMPION`.
 - recommended strategy remains `low_price_tail_capped`.
 
-Remaining promotion blockers are no longer the June 19-22 settlement labels.
-They are:
+The remaining promotion blockers at this stage were no longer the June 19-22
+settlement labels. They were:
 
-- June 23 still has no target-date settlement labels.
 - June 19 through June 22 source run tapes still fail profitability artifact
   verification because the legacy `orders_long.csv` files lack current
   fee/slippage/executable-depth fields.
@@ -345,5 +344,55 @@ They are:
 - Challengers with enough settled orders do not beat the current champion after
   fees across the campaign ledger.
 
-Item 256 remains `PARTIAL`: settlement labels for the completed target dates
-are now unblocked for taker PnL scoring, but no strategy is live-qualified.
+This intermediate result was superseded by the current-fee replay closure below.
+
+## 2026-06-24 Current-Fee Replay Closure
+
+Regenerated the five settlement-complete campaign bakeoffs (`2026-06-19`
+through `2026-06-22`) with explicit current taker economics:
+
+- `taker_fee_model=polymarket_symmetric_price_v1`
+- `taker_fee_rate=0.05`
+- `executable_depth_model=top_of_book_plus_1pct_depth_v1`
+- `executable_depth_slippage_bps=100`
+- `executable_depth_haircut=1`
+
+The original June 19-22 source run tapes remain legacy/no-fee tapes, but the
+bakeoff artifacts now carry a separate current-replay profitability verifier.
+Each settlement-complete bakeoff reports `profitability_artifact_verification`
+`PASS` with `evidence_basis=current_fee_depth_replay`; the legacy source
+artifact verifier is retained separately for provenance and no longer poisons
+the item-specific current-default replay.
+
+Updated artifacts:
+
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_221a357c.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-19_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-20_3d3450f0.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-21_bbe63642.json`
+- `data/backtest/taker_strategy_bakeoff_2026-06-22_3d74b86b.json`
+- `data/backtest/item256_taker_champion_challenger_ledger.json`
+- `data/backtest/item256_taker_champion_challenger_ledger_report.md`
+
+Final ledger result:
+
+- bakeoff artifacts: `8`.
+- loaded bakeoffs: `8`.
+- strategies: `7`.
+- settlement-complete bakeoff days: `5`.
+- missing-label days in strategy rows: `0`.
+- promotion pass count: `0`.
+- blocked challengers: `6`.
+- decision: `KEEP_CHAMPION`.
+- recommended strategy remains `low_price_tail_capped`.
+
+Current-fee/depth replay produced no filled orders on the five settlement-
+complete campaign days, so every strategy remains blocked by real promotion
+requirements (`min_settled_orders` and `all_complete_days_pass_strategy_gate`;
+challengers also fail `beats_current_champion_after_fee_pnl`). This is the
+intended fail-closed outcome for the post-fix requalification campaign: complete
+labels are available, profitability evidence is current-cost, no stale no-fee
+PnL is counted, and no strategy is considered live-qualified.
+
+Item 256 is complete as a fail-closed requalification campaign. No live-size
+change or challenger promotion is authorized.

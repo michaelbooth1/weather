@@ -19,9 +19,18 @@ The normal daily refresh also writes the same artifacts:
 
 ## Pruning Rules
 
+- Classify files with the
+  [Data Storage Class Contract](data-storage-class-contract.md) before cleanup:
+  `canonical_evidence`, `analysis_projection`, and `operator_cache` have
+  different backup, rebuild-source, and deletion gates.
 - Do not delete `snapshots`, `mm_runs`, `taker_runs`, or canonical historical
   source rows unless the inventory restore gate is `PASS` and a reviewed
   cleanup manifest names the exact files.
+- Run `python -m weather.operations.cleanup_preflight --manifest <cleanup.json>`
+  before any cleanup workflow that could delete local data. A canonical
+  evidence candidate is blocked when tape status is `MISSING_CRITICAL_FILES`,
+  restore-drill evidence is stale, backup checksums fail, or the candidate is
+  absent from the latest backup manifest.
 - Closed market-day Parquet partitions live under
   `data/archive/closed_market_days/v0.1` and are analysis copies, not raw
   evidence replacements. Follow
@@ -30,6 +39,8 @@ The normal daily refresh also writes the same artifacts:
   boundaries.
 - Use `python -m weather.operations.tape_backup status --verify-checksums`
   and a restore drill as deletion proof for irreplaceable classes.
+- Follow the [Tape Backup Runbook](TAPE_BACKUP_RUNBOOK.md) before treating
+  backup status as deletion proof.
 - Use `python -m weather.reporting.backtest_artifact_retention` for large
   rebuildable `data/backtest` row exports; delete only from its cleanup
   manifest when paired reports or manifests exist.

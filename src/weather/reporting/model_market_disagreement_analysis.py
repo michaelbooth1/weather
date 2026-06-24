@@ -14,7 +14,12 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.model_market_disagreement_audit import DEFAULT_LOG_PATH, read_audit_log, safe_float
+from weather.reporting.model_market_disagreement_audit import (
+    DEFAULT_LOG_PATH,
+    audit_key_for_row,
+    read_audit_log,
+    safe_float,
+)
 from weather.schema_registry import schema_version
 
 
@@ -103,11 +108,11 @@ def mean(values) -> float | None:
 
 
 def latest_records(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Keep the latest append-only revision per audit_key."""
+    """Keep the latest append-only revision per audited observation."""
     latest: dict[str, dict[str, Any]] = {}
     revisions: Counter[str] = Counter()
     for index, row in enumerate(rows):
-        key = row.get("audit_key") or f"row-{index}"
+        key = audit_key_for_row(row) or row.get("audit_key") or f"row-{index}"
         item = dict(row)
         item["_source_order"] = index
         revisions[key] += 1

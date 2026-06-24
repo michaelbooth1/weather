@@ -17,7 +17,9 @@ from weather.market.market_microstructure import (  # noqa: E402
     fleet_book_audit,
     fleet_effective_book_gap_seconds,
     price_history_rows,
+    read_price_history_raw_response,
     record_market_websocket,
+    repair_price_history_store,
     run_book_loop,
     running_clob_loop_processes,
     should_use_fast_interval,
@@ -223,6 +225,7 @@ class TestMarketMicrostructure(unittest.TestCase):
                 json.loads(line)
                 for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
             ]
+            raw_manifest_exists = (root / "price_history_raw_manifest.jsonl").exists()
 
         self.assertEqual(result["captured_tokens"], 1)
         self.assertEqual(result["books"], 1)
@@ -242,7 +245,12 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(status_rows[0]["captured_tokens"], 1)
         self.assertEqual(status_rows[0]["books"], 1)
         self.assertEqual(status_rows[0]["clob_feature_rows"], 1)
+        self.assertEqual(status_rows[0]["price_history_new_points"], 1)
+        self.assertEqual(status_rows[0]["price_history_duplicate_points"], 0)
+        self.assertEqual(status_rows[0]["price_history_raw_response_count"], 1)
+        self.assertTrue(status_rows[0]["price_history_raw_response_hashes"])
         self.assertTrue(status_rows[0]["capture_status_path"].endswith("clob_capture_status.jsonl"))
+        self.assertTrue(raw_manifest_exists)
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
 
@@ -357,6 +365,164 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(rows[0]["interval"], "1m")
         self.assertEqual(rows[0]["price"], 0.45)
         self.assertIn("2026", rows[0]["point_time_utc"])
+
+    def test_price_history_writer_dedupes_overlapping_windows(self):
+        token = token_rows_from_event(sample_event())[0]
+        first_capture = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        second_capture = datetime(2026, 6, 12, 15, 1, tzinfo=timezone.utc)
+
+        first_response = {"history": [{"t": 1781308800, "p": 0.45}, {"t": 1781308860, "p": 0.46}]}
+        second_response = {"history": [{"t": 1781308860, "p": 0.46}, {"t": 1781308920, "p": 0.47}]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = mm.MarketMicrostructureStore(root=root, event_slug=token["event_slug"])
+            first = store.write_price_history(
+                price_history_rows(first_response, token, first_capture, interval="1m", fidelity_minutes=1),
+                [{
+                    "captured_at_utc": first_capture.isoformat(),
+                    "event_slug": token["event_slug"],
+                    "market_id": token["market_id"],
+                    "clob_token_id": token["clob_token_id"],
+                    "interval": "1m",
+                    "fidelity_minutes": 1,
+                    "response": first_response,
+                }],
+            )
+            second = store.write_price_history(
+                price_history_rows(second_response, token, second_capture, interval="1m", fidelity_minutes=1),
+                [{
+                    "captured_at_utc": second_capture.isoformat(),
+                    "event_slug": token["event_slug"],
+                    "market_id": token["market_id"],
+                    "clob_token_id": token["clob_token_id"],
+                    "interval": "1m",
+                    "fidelity_minutes": 1,
+                    "response": second_response,
+                }],
+            )
+            rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(first["price_history_new_points"], 2)
+        self.assertEqual(second["price_history_new_points"], 1)
+        self.assertEqual(second["price_history_duplicate_points"], 1)
+        self.assertEqual(second["price_history_corrected_points"], 0)
+        self.assertEqual(second["price_history_total_points"], 3)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row["price"] for row in rows], ["0.45", "0.46", "0.47"])
+
+    def test_price_history_writer_updates_corrected_point_without_duplicate_row(self):
+        token = token_rows_from_event(sample_event())[0]
+        first_capture = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        second_capture = datetime(2026, 6, 12, 15, 2, tzinfo=timezone.utc)
+        original = {"history": [{"t": 1781308800, "p": 0.45}]}
+        corrected = {"history": [{"t": 1781308800, "p": 0.46}]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = mm.MarketMicrostructureStore(root=root, event_slug=token["event_slug"])
+            store.write_price_history(
+                price_history_rows(original, token, first_capture, interval="1m", fidelity_minutes=1),
+                [],
+            )
+            result = store.write_price_history(
+                price_history_rows(corrected, token, second_capture, interval="1m", fidelity_minutes=1),
+                [],
+            )
+            rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(result["price_history_new_points"], 0)
+        self.assertEqual(result["price_history_duplicate_points"], 0)
+        self.assertEqual(result["price_history_corrected_points"], 1)
+        self.assertEqual(result["price_history_total_points"], 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["price"], "0.46")
+
+    def test_price_history_raw_responses_are_content_addressed_and_reused(self):
+        token = token_rows_from_event(sample_event())[0]
+        captured_at = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        response = {"history": [{"t": 1781308800, "p": 0.45}]}
+        raw_record = {
+            "captured_at_utc": captured_at.isoformat(),
+            "event_slug": token["event_slug"],
+            "market_id": token["market_id"],
+            "clob_token_id": token["clob_token_id"],
+            "interval": "1m",
+            "fidelity_minutes": 1,
+            "response": response,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = mm.MarketMicrostructureStore(root=root, event_slug=token["event_slug"])
+            first = store.write_price_history([], [raw_record])
+            second = store.write_price_history([], [raw_record])
+            blobs = list((root / "price_history_raw").glob("*.json"))
+            legacy_rows = [
+                json.loads(line)
+                for line in (root / "price_history.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            restored = read_price_history_raw_response(legacy_rows[-1], root=root)
+
+        self.assertEqual(first["price_history_raw_response_new_blob_count"], 1)
+        self.assertEqual(second["price_history_raw_response_new_blob_count"], 0)
+        self.assertEqual(second["price_history_raw_response_reused_count"], 1)
+        self.assertEqual(first["price_history_raw_response_hashes"], second["price_history_raw_response_hashes"])
+        self.assertEqual(len(blobs), 1)
+        self.assertNotIn("response", legacy_rows[0])
+        self.assertEqual(restored, response)
+
+    def test_price_history_repair_writes_deduped_sidecar_with_key_parity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = [
+                {
+                    "event_slug": "event",
+                    "market_id": "toronto",
+                    "clob_token_id": "yes-token",
+                    "fidelity_minutes": "1",
+                    "interval": "1m",
+                    "point_timestamp": "1781308800",
+                    "point_time_utc": "2026-06-12T00:00:00+00:00",
+                    "price": "0.45",
+                },
+                {
+                    "event_slug": "event",
+                    "market_id": "toronto",
+                    "clob_token_id": "yes-token",
+                    "fidelity_minutes": "1",
+                    "interval": "1m",
+                    "point_timestamp": "1781308800",
+                    "point_time_utc": "2026-06-12T00:00:00+00:00",
+                    "price": "0.45",
+                },
+                {
+                    "event_slug": "event",
+                    "market_id": "toronto",
+                    "clob_token_id": "yes-token",
+                    "fidelity_minutes": "1",
+                    "interval": "1m",
+                    "point_timestamp": "1781308860",
+                    "point_time_utc": "2026-06-12T00:01:00+00:00",
+                    "price": "0.46",
+                },
+            ]
+            with (root / "price_history.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            result = repair_price_history_store(root, generated_at_utc="2026-06-23T00:00:00+00:00")
+            source_rows = list(csv.DictReader((root / "price_history.csv").open(encoding="utf-8", newline="")))
+            deduped_rows = list(csv.DictReader((root / "price_history_deduped.csv").open(encoding="utf-8", newline="")))
+
+        self.assertEqual(result["schema_version"], "clob_price_history_repair_v0.1")
+        self.assertEqual(result["input_rows"], 3)
+        self.assertEqual(result["deduped_rows"], 2)
+        self.assertEqual(result["duplicate_rows_reclaimed"], 1)
+        self.assertEqual(result["validation"]["status"], "PASS")
+        self.assertEqual(len(source_rows), 3)
+        self.assertEqual(len(deduped_rows), 2)
 
     def test_websocket_recorder_subscribes_to_assets_and_writes_raw_event(self):
         fake_ws = FakeWebSocket()

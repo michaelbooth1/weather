@@ -16,9 +16,10 @@ from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.reporting.trading_evidence import build_trading_evidence_summary
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "daily_progress_ledger_v0.1"
+SCHEMA_VERSION = schema_version("daily_progress_ledger")
 DEFAULT_BACKTEST_ROOT = data_path("backtest")
 DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_JSONL_OUT = DEFAULT_BACKTEST_ROOT / "daily_progress_ledger.jsonl"

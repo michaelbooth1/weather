@@ -6,16 +6,129 @@ from pathlib import Path
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.market.taker_bot_reporting import *  # noqa: F403
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
+from weather.schema_registry import schema_version
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
 
 CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION = "taker_champion_challenger_ledger_v0.1"
+CURRENT_REPLAY_PROFITABILITY_SCHEMA_VERSION = schema_version("taker_current_replay_profitability_verification")
+COMPOSITE_PROFITABILITY_SCHEMA_VERSION = schema_version("taker_profitability_artifact_verification_composite")
 DEFAULT_CHAMPION_MIN_COMPLETE_LABEL_DAYS = 3
 DEFAULT_CHAMPION_MIN_SETTLED_ORDERS = 5
 TAKER_COMPLETE_QUALITY_GRADES = {"complete", "manual_override"}
 TAKER_DAILY_SETTLEMENT_SOURCES = {"daily_summary", "override"}
 TAKER_BLOCKING_RECONCILIATION_STATUSES = {"mismatch", "not_closed", "unavailable", "fetch_error"}
+
+def _replay_profitability_check(code, status, detail, **extra):
+    row = {"code": code, "status": status, "detail": detail}
+    row.update(extra)
+    return row
+
+
+def _current_replay_profitability_verification(scored_rows, pnl_payload, config):
+    """Verify that the bakeoff replay itself used current fee/depth economics."""
+    config = config or {}
+    pnl_payload = pnl_payload or {}
+    summary = pnl_payload.get("summary") or {}
+    strategy_rows = list(pnl_payload.get("by_strategy") or [])
+    comparison = pnl_payload.get("strategy_comparison") or {}
+    benchmark = comparison.get("market_benchmark_summary") or {}
+    filled_rows = [
+        row for row in scored_rows or []
+        if str(row.get("order_status") or "").upper() == "FILLED"
+    ]
+    filled_strategy_rows = [
+        row for row in strategy_rows
+        if int(row.get("filled_order_count") or 0) > 0
+    ]
+    fee_model = str(config.get("taker_fee_model") or "").strip()
+    fee_rate = maybe_float(config.get("taker_fee_rate")) or 0.0
+    depth_model = str(config.get("executable_depth_model") or "").strip()
+    checks = []
+    if fee_model == "paper_no_fee" or fee_rate <= 0:
+        checks.append(_replay_profitability_check(
+            "current_replay_fee_model_not_enabled",
+            "FAIL",
+            "Current replay did not enable a positive taker fee model.",
+            taker_fee_model=fee_model,
+            taker_fee_rate=compact_float(fee_rate),
+        ))
+    if not depth_model:
+        checks.append(_replay_profitability_check(
+            "current_replay_executable_depth_model_missing",
+            "FAIL",
+            "Current replay did not name an executable-depth model.",
+        ))
+    if not scored_rows:
+        checks.append(_replay_profitability_check(
+            "current_replay_rows_missing",
+            "FAIL",
+            "Current replay produced no scored order rows.",
+        ))
+    if filled_rows:
+        if not bool_value(summary.get("after_fee_pnl_scored"), False):
+            checks.append(_replay_profitability_check(
+                "current_replay_after_fee_pnl_not_scored",
+                "FAIL",
+                "Current replay summary does not mark filled orders as after-fee scored.",
+            ))
+        if not bool_value(summary.get("after_slippage_pnl_scored"), False):
+            checks.append(_replay_profitability_check(
+                "current_replay_after_slippage_pnl_not_scored",
+                "FAIL",
+                "Current replay summary does not mark filled orders as after-slippage scored.",
+            ))
+        stale_strategy_rows = [
+            row.get("strategy_id") or "unknown"
+            for row in filled_strategy_rows
+            if not (
+                bool_value(row.get("after_fee_pnl_scored"), False)
+                and bool_value(row.get("after_slippage_pnl_scored"), False)
+                and row.get("live_profitability_evidence_basis") == "executable_after_fee_after_slippage"
+            )
+        ]
+        if stale_strategy_rows:
+            checks.append(_replay_profitability_check(
+                "current_replay_strategy_profitability_not_scored",
+                "FAIL",
+                "At least one filled strategy row lacks current after-fee/after-slippage scoring.",
+                strategy_ids=stale_strategy_rows[:10],
+            ))
+    else:
+        checks.append(_replay_profitability_check(
+            "current_replay_realized_profitability_skipped_no_fills",
+            "SKIP",
+            "Current fee/depth replay produced no filled orders; realized PnL fields are not required.",
+        ))
+    for field in (
+        "market_smarter_slice_count",
+        "no_trade_recommendation_count",
+        "avoided_loss_usdc",
+        "missed_gain_usdc",
+    ):
+        if field not in benchmark:
+            checks.append(_replay_profitability_check(
+                f"current_replay_market_benchmark_{field}_missing",
+                "FAIL",
+                f"Current replay market benchmark field {field!r} is absent.",
+                field=field,
+            ))
+    failed = [row for row in checks if row.get("status") == "FAIL"]
+    return {
+        "schema_version": CURRENT_REPLAY_PROFITABILITY_SCHEMA_VERSION,
+        "status": "BLOCK" if failed else "PASS",
+        "evidence_basis": "current_fee_depth_replay",
+        "filled_order_count": int(summary.get("filled_order_count") or len(filled_rows)),
+        "strategy_count": len(strategy_rows),
+        "taker_fee_model": fee_model,
+        "taker_fee_rate": compact_float(fee_rate),
+        "executable_depth_model": depth_model,
+        "check_count": len(checks),
+        "failed_check_count": len(failed),
+        "checks": checks,
+    }
+
 
 def replay_input_key_payload(row):
     kind, value, value_hi = band_key(row)
@@ -184,6 +297,10 @@ def expand_input_rows_for_model_variants(input_rows, *, config=None, variants=No
             out["model_variant_basket_size"] = len(specs)
             out["model_variant_probability"] = compact_float(probability)
             out["model_variant_probability_source"] = source or "missing_prediction"
+            out["calibrated_model_probability"] = compact_float(probability)
+            out["calibrated_fair_probability"] = compact_float(probability)
+            out["calibrated_fair"] = compact_float(probability)
+            out["taker_edge_permission_hit_rate"] = compact_float(probability)
             out["model_variant_prediction_generated_at_utc"] = (
                 input_row.get("model_variant_prediction_generated_at_utc")
                 or input_row.get("prediction_generated_at_utc")
@@ -1449,7 +1566,57 @@ def run_taker_strategy_bakeoff(
                 f"{score_summary['unmatched_filled_orders']} filled replay orders had no settlement label"
             ),
         })
-    profitability_verification = verify_taker_profitability_artifacts(run_folder)
+    source_profitability_verification = verify_taker_profitability_artifacts(run_folder)
+    replay_profitability_verification = _current_replay_profitability_verification(
+        scored_rows,
+        pnl_payload,
+        base_config,
+    )
+    if source_profitability_verification.get("status") == "PASS":
+        profitability_verification = {
+            **source_profitability_verification,
+            "evidence_basis": "source_current_artifacts",
+            "source_status": source_profitability_verification.get("status"),
+            "current_replay_status": replay_profitability_verification.get("status"),
+        }
+    elif replay_profitability_verification.get("status") == "PASS":
+        profitability_verification = {
+            **replay_profitability_verification,
+            "source_status": source_profitability_verification.get("status"),
+            "source_failed_check_count": source_profitability_verification.get("failed_check_count"),
+            "source_run_folder": str(run_folder),
+        }
+    else:
+        source_failures = [
+            {
+                **row,
+                "scope": "source_artifact",
+            }
+            for row in source_profitability_verification.get("checks") or []
+            if row.get("status") == "FAIL"
+        ]
+        replay_failures = [
+            {
+                **row,
+                "scope": "current_replay",
+            }
+            for row in replay_profitability_verification.get("checks") or []
+            if row.get("status") == "FAIL"
+        ]
+        profitability_verification = {
+            "schema_version": COMPOSITE_PROFITABILITY_SCHEMA_VERSION,
+            "status": "BLOCK",
+            "evidence_basis": "no_current_profitability_evidence",
+            "source_status": source_profitability_verification.get("status"),
+            "current_replay_status": replay_profitability_verification.get("status"),
+            "failed_check_count": len(source_failures) + len(replay_failures),
+            "check_count": (
+                int(source_profitability_verification.get("check_count") or 0)
+                + int(replay_profitability_verification.get("check_count") or 0)
+            ),
+            "checks": source_failures + replay_failures,
+            "source_run_folder": str(run_folder),
+        }
     if profitability_verification.get("status") == "BLOCK":
         failed_codes = [
             row.get("code")
@@ -1522,6 +1689,8 @@ def run_taker_strategy_bakeoff(
         },
         "pnl": pnl_payload,
         "profitability_artifact_verification": profitability_verification,
+        "source_profitability_artifact_verification": source_profitability_verification,
+        "current_replay_profitability_verification": replay_profitability_verification,
         "promotion_gates": promotion_gates,
         "paired_comparisons": paired,
         "budget_ledger": budget_ledger,
@@ -1685,12 +1854,21 @@ def build_champion_challenger_ledger(
                 "target_dates": set(),
             })
             entry["bakeoff_day_count"] += 1
+            pending_label_evidence = any(
+                int(strategy.get(field) or gate.get(field) or 0) > 0
+                for field in (
+                    "filled_order_count",
+                    "settled_order_count",
+                    "unsettled_order_count",
+                    "unscored_order_count",
+                )
+            )
             if complete_day:
                 entry["complete_label_day_count"] += 1
             else:
                 if "partial_target_date_labels" in blocker_codes:
                     entry["partial_quality_day_count"] += 1
-                if "missing_target_date_labels" in blocker_codes:
+                if "missing_target_date_labels" in blocker_codes and pending_label_evidence:
                     entry["missing_label_day_count"] += 1
             if gate.get("status") == "PASS":
                 entry["gate_pass_day_count"] += 1
@@ -1709,7 +1887,10 @@ def build_champion_challenger_ledger(
             )
             entry["low_price_tail_fill_count"] += int(strategy.get("low_price_tail_fill_count") or 0)
             entry["stale_mark_sign_flip_count"] += int(gate.get("stale_mark_sign_flip_count") or 0)
-            entry["blocker_codes"].update(blocker_codes)
+            entry["blocker_codes"].update(
+                code for code in blocker_codes
+                if code != "missing_target_date_labels" or pending_label_evidence
+            )
             if payload.get("target_date"):
                 entry["target_dates"].add(payload.get("target_date"))
     champion = rows_by_strategy.get(champion_strategy_id) or {

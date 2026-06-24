@@ -1,6 +1,10 @@
 """Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
 
+import json
+from pathlib import Path
+
 from weather.reporting.fleet_observability_gates import *  # noqa: F403
+from weather.operations.closed_market_day_archive import DEFAULT_INCREMENTAL_JSON
 from weather.reporting.trading_evidence import (
     DEFAULT_MM_RUNS_ROOT,
     DEFAULT_TAKER_RUNS_ROOT,
@@ -8,6 +12,7 @@ from weather.reporting.trading_evidence import (
     mm_evidence_starvation_summary,
 )
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
+from weather.operations.storage_classes import CANONICAL_EVIDENCE, delete_gate_for_storage_class
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -206,6 +211,68 @@ def overall_status(alerts):
     return "OK"
 
 
+def cleanup_deletion_gate_summary(tape_backup_status):
+    canonical_gate = delete_gate_for_storage_class(CANONICAL_EVIDENCE, tape_backup_status or {})
+    return {
+        "status": "PASS" if canonical_gate.get("status") == "PASS" else "BLOCK",
+        "canonical_evidence": canonical_gate,
+        "delete_permission": canonical_gate.get("delete_permission"),
+        "missing_critical_files": canonical_gate.get("missing_critical_files"),
+        "missing_critical_bytes": canonical_gate.get("missing_critical_bytes"),
+        "missing_samples": canonical_gate.get("missing_samples") or [],
+    }
+
+
+def parquet_incremental_status(path=DEFAULT_INCREMENTAL_JSON):
+    path = Path(path)
+    if not path.exists():
+        return {"exists": False, "path": str(path), "status": "missing", "summary": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "exists": False,
+            "path": str(path),
+            "status": "unreadable",
+            "load_error": str(exc),
+            "summary": {},
+        }
+    summary = payload.get("summary") or {}
+    return {
+        "exists": True,
+        "path": str(path),
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "mode": payload.get("mode"),
+        "summary": summary,
+        "blocker_counts": payload.get("blocker_counts") or {},
+        "family_status_counts": payload.get("family_status_counts") or {},
+        "backlog_by_market": payload.get("backlog_by_market") or [],
+        "remaining_scan_backlog": summary.get("remaining_scan_backlog"),
+        "failed": summary.get("failed"),
+        "blocked": summary.get("blocked"),
+    }
+
+
+def parquet_incremental_alerts(status):
+    if not status or status.get("status") in {None, "missing"}:
+        return []
+    if status.get("status") == "BLOCK" or int(status.get("failed") or 0) > 0:
+        return [{
+            "severity": "warning",
+            "market_id": "fleet",
+            "category": "closed_day_parquet_incremental",
+            "message": "closed-day parquet incremental conversion has failures",
+            "detail": {
+                "path": status.get("path"),
+                "summary": status.get("summary") or {},
+                "blocker_counts": status.get("blocker_counts") or {},
+            },
+        }]
+    return []
+
+
 def build_observability_payload(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -218,6 +285,7 @@ def build_observability_payload(
     verify_tape_backup_checksums=False,
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
+    parquet_incremental_path=DEFAULT_INCREMENTAL_JSON,
 ):
     collection = fleet_collection_health(
         snapshots_root=snapshots_root,
@@ -260,10 +328,12 @@ def build_observability_payload(
         reconciliation_path=Path(snapshots_root).parent / "backtest" / "runtime_identity_reconciliation.json",
     )
     settled_freshness = settled_day_freshness_summary()
+    parquet_incremental = parquet_incremental_status(parquet_incremental_path)
     tape_backup_status = tape_backup.backup_status(
         backup_root=tape_backup_root,
         verify_checksums=verify_tape_backup_checksums,
     )
+    cleanup_deletion_gate = cleanup_deletion_gate_summary(tape_backup_status)
     alerts = []
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
@@ -275,6 +345,7 @@ def build_observability_payload(
     alerts.extend(mm_evidence_starvation_alerts(mm_starvation))
     alerts.extend(runtime_identity_alerts(runtime_evidence))
     alerts.extend(settled_day_freshness_alerts(settled_freshness))
+    alerts.extend(parquet_incremental_alerts(parquet_incremental))
     alerts.extend(tape_backup.backup_alerts(tape_backup_status))
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -296,7 +367,9 @@ def build_observability_payload(
         "trading_evidence": trading_evidence,
         "runtime_identity_evidence": runtime_evidence,
         "settled_day_freshness": settled_freshness,
+        "closed_day_parquet_incremental": parquet_incremental,
         "tape_backup": tape_backup_status,
+        "cleanup_deletion_gate": cleanup_deletion_gate,
         "alerts": alerts,
         "summary": {
             "market_count": len(collection.get("markets") or []),
@@ -338,7 +411,12 @@ def build_observability_payload(
             "runtime_identity_mixed": runtime_evidence.get("mixed_runtime_identity"),
             "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
             "runtime_identity_snapshot_rows": runtime_evidence.get("snapshot_row_count"),
+            "closed_day_parquet_incremental_status": parquet_incremental.get("status"),
+            "closed_day_parquet_incremental_failed": parquet_incremental.get("failed"),
+            "closed_day_parquet_incremental_blocked": parquet_incremental.get("blocked"),
+            "closed_day_parquet_remaining_scan_backlog": parquet_incremental.get("remaining_scan_backlog"),
             "tape_backup_status": tape_backup_status.get("status"),
+            "cleanup_deletion_gate_status": cleanup_deletion_gate.get("status"),
             "loop_integrity_status": "OK" if (loop_integrity.get("summary") or {}).get("ok") else "WARN",
             "current_code_soak_status": current_code_soak.get("status"),
             "current_code_soak_counts": current_code_soak.get("counts_toward_active_day"),

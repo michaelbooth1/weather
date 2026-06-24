@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from weather.reporting.model_market_disagreement_audit import (
+    DEFAULT_GAP_THRESHOLD_POINTS,
     build_audit_records,
     ensure_audit_record_saved,
     load_audit_index,
@@ -105,6 +106,26 @@ def test_audit_uses_full_percentage_point_threshold_and_scores_settlement(tmp_pa
     assert exact_threshold["closer_source"] == "market"
 
 
+def test_default_audit_threshold_is_thirty_percentage_points(tmp_path):
+    slug = "highest-temperature-in-nyc-on-june-23-2099"
+    rows = [
+        snapshot_row("s1", "70-71 F", 70, 71, 0.40, 0.72),
+        snapshot_row("s1", "72-73 F", 72, 73, 0.40, 0.69),
+    ]
+    folder = write_snapshot_folder(tmp_path, slug=slug, rows=rows, settlement_bucket=70)
+
+    records = build_audit_records(
+        [folder],
+        latest_only=False,
+        run_id="test-run",
+        audited_at_utc="2099-06-24T00:00:00+00:00",
+    )
+
+    assert DEFAULT_GAP_THRESHOLD_POINTS == 30.0
+    assert [record["range_label"] for record in records] == ["70-71 F"]
+    assert records[0]["gap_threshold_points"] == 30.0
+
+
 def test_run_audit_writes_idempotent_log_and_resolves_later_settlement(tmp_path):
     slug = "highest-temperature-in-nyc-on-june-23-2099"
     rows = [snapshot_row("s1", "70-71 F", 70, 71, 0.05, 0.86)]
@@ -155,7 +176,8 @@ def test_audit_saved_for_row_matches_logged_snapshot_band(tmp_path):
     row = read_snapshot_rows(folder)[0]
 
     assert audit_saved_for_row(row, audit_index=audit_index, gap_threshold_points=50.0)
-    assert not audit_saved_for_row(row, audit_index=audit_index, gap_threshold_points=60.0)
+    assert audit_saved_for_row(row, audit_index=audit_index, gap_threshold_points=60.0)
+    assert not audit_saved_for_row(row, audit_index=audit_index, gap_threshold_points=90.0)
 
 
 def test_ensure_audit_record_saved_writes_positive_and_negative_gap_directions(tmp_path):

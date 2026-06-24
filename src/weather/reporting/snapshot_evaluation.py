@@ -15,10 +15,12 @@ import csv
 import json
 import math
 from collections import Counter
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.operations.closed_market_day_archive import DEFAULT_ARCHIVE_ROOT, read_market_day_artifact
 
 from weather.reporting.formatting import (
     fmt_num,
@@ -26,9 +28,10 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.backtesting.settled_days import folder_market_id
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "snapshot_evaluation_v0.1"
+SCHEMA_VERSION = schema_version("snapshot_evaluation")
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "snapshot_evaluation.json"
@@ -44,6 +47,10 @@ SNAPSHOT_ARTIFACTS = {
     "source_status": "source_status_long.csv",
     "clob_features": "clob_features_long.csv",
     "order_books": "order_books_summary.csv",
+}
+SNAPSHOT_READER_FAMILIES = {
+    "snapshots_long": "snapshots_long",
+    "replay_inputs": "replay_inputs",
 }
 
 
@@ -110,9 +117,89 @@ def line_count(path):
         return 0
 
 
-def snapshot_folder_summary(folder):
+def _reader_cell(value):
+    if value is None:
+        return ""
+    try:
+        if math.isnan(value):
+            return ""
+    except TypeError:
+        pass
+    return value
+
+
+def _artifact_frame_rows(
+    folder,
+    artifact_family,
+    *,
+    snapshots_root,
+    archive_root,
+    archive_as_of_date=None,
+    prefer_archive=True,
+    provenance_rows=None,
+):
+    result = read_market_day_artifact(
+        folder,
+        artifact_family,
+        snapshots_root=snapshots_root,
+        archive_root=archive_root,
+        as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
+    if provenance_rows is not None:
+        provenance_rows.append(asdict(result.provenance))
+    return [
+        {column: _reader_cell(value) for column, value in row.items()}
+        for row in result.frame.to_dict(orient="records")
+    ]
+
+
+def summarize_reader_provenance(rows):
+    modes = Counter(str(row.get("source_mode") or "unknown") for row in rows)
+    fallback_reasons = Counter(
+        str(row.get("fallback_reason"))
+        for row in rows
+        if row.get("fallback_reason")
+    )
+    by_family = {}
+    for row in rows:
+        family = str(row.get("artifact_family") or "unknown")
+        item = by_family.setdefault(
+            family,
+            {"reads": 0, "rows": 0, "source_modes": Counter(), "fallback_reasons": Counter()},
+        )
+        item["reads"] += 1
+        item["rows"] += int(row.get("row_count") or 0)
+        item["source_modes"][str(row.get("source_mode") or "unknown")] += 1
+        if row.get("fallback_reason"):
+            item["fallback_reasons"][str(row.get("fallback_reason"))] += 1
+    return {
+        "read_count": len(rows),
+        "source_modes": dict(sorted(modes.items())),
+        "fallback_reasons": dict(sorted(fallback_reasons.items())),
+        "families": {
+            family: {
+                "reads": item["reads"],
+                "rows": item["rows"],
+                "source_modes": dict(sorted(item["source_modes"].items())),
+                "fallback_reasons": dict(sorted(item["fallback_reasons"].items())),
+            }
+            for family, item in sorted(by_family.items())
+        },
+        "samples": rows[:10],
+    }
+
+
+def snapshot_folder_summary(
+    folder,
+    *,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+    provenance_rows=None,
+):
     folder = Path(folder)
-    tape_path = folder / SNAPSHOT_ARTIFACTS["snapshots_long"]
     snapshot_ids = set()
     band_labels = set()
     row_count = 0
@@ -123,27 +210,46 @@ def snapshot_folder_summary(folder):
     read_error = None
 
     try:
-        with tape_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                row_count += 1
-                snapshot_id = row.get("snapshot_id")
-                if snapshot_id:
-                    snapshot_ids.add(str(snapshot_id))
-                label = row.get("range_label")
-                if label:
-                    band_labels.add(str(label))
-                captured = row.get("captured_at_utc") or row.get("captured_at_local")
-                if captured:
-                    if first_capture is None or captured < first_capture:
-                        first_capture = captured
-                    if last_capture is None or captured > last_capture:
-                        last_capture = captured
-                version = row.get("model_version")
-                if version:
-                    model_versions[str(version)] += 1
-    except OSError as exc:
+        rows = _artifact_frame_rows(
+            folder,
+            SNAPSHOT_READER_FAMILIES["snapshots_long"],
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+            provenance_rows=provenance_rows,
+        )
+        for row in rows:
+            row_count += 1
+            snapshot_id = row.get("snapshot_id")
+            if snapshot_id:
+                snapshot_ids.add(str(snapshot_id))
+            label = row.get("range_label")
+            if label:
+                band_labels.add(str(label))
+            captured = row.get("captured_at_utc") or row.get("captured_at_local")
+            if captured:
+                if first_capture is None or captured < first_capture:
+                    first_capture = captured
+                if last_capture is None or captured > last_capture:
+                    last_capture = captured
+            version = row.get("model_version")
+            if version:
+                model_versions[str(version)] += 1
+    except Exception as exc:  # noqa: BLE001 - inventory should surface unreadable folders as rows
         read_error = str(exc)
+    try:
+        replay_input_record_count = len(_artifact_frame_rows(
+            folder,
+            SNAPSHOT_READER_FAMILIES["replay_inputs"],
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+            provenance_rows=provenance_rows,
+        ))
+    except Exception:
+        replay_input_record_count = line_count(folder / SNAPSHOT_ARTIFACTS["replay_inputs"])
 
     artifacts = {
         key: (folder / filename).exists()
@@ -159,7 +265,7 @@ def snapshot_folder_summary(folder):
         "first_capture": first_capture,
         "last_capture": last_capture,
         "latest_model_versions": [item[0] for item in model_versions.most_common(3)],
-        "replay_input_record_count": line_count(folder / SNAPSHOT_ARTIFACTS["replay_inputs"]),
+        "replay_input_record_count": replay_input_record_count,
         "artifacts": artifacts,
         "read_error": read_error,
     }
@@ -175,8 +281,25 @@ def discover_snapshot_folders(root):
     )
 
 
-def snapshot_inventory(snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
-    folders = [snapshot_folder_summary(folder) for folder in discover_snapshot_folders(snapshots_root)]
+def snapshot_inventory(
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    *,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    provenance_rows = []
+    folders = [
+        snapshot_folder_summary(
+            folder,
+            snapshots_root=snapshots_root,
+            archive_root=archive_root,
+            archive_as_of_date=archive_as_of_date,
+            prefer_archive=prefer_archive,
+            provenance_rows=provenance_rows,
+        )
+        for folder in discover_snapshot_folders(snapshots_root)
+    ]
     artifact_counts = Counter()
     for row in folders:
         for key, present in (row.get("artifacts") or {}).items():
@@ -220,6 +343,7 @@ def snapshot_inventory(snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
         "latest_capture": latest_capture,
         "latest_capture_age_seconds": age_seconds(latest_capture),
         "artifact_rates": rates,
+        "historical_reader_summary": summarize_reader_provenance(provenance_rows),
         "by_market": sorted(by_market.values(), key=lambda item: item["market_id"]),
         "recent_folders": sorted(
             folders,
@@ -573,8 +697,19 @@ def overall_status(gates):
     }
 
 
-def build_evaluation(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
-    inventory = snapshot_inventory(snapshots_root)
+def build_evaluation(
+    backtest_root=DEFAULT_BACKTEST_ROOT,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    archive_root=DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date=None,
+    prefer_archive=True,
+):
+    inventory = snapshot_inventory(
+        snapshots_root,
+        archive_root=archive_root,
+        archive_as_of_date=archive_as_of_date,
+        prefer_archive=prefer_archive,
+    )
     evidence = promotion_summary(backtest_root)
     gates = build_gates(inventory, evidence)
     backlog = improvement_backlog(evidence)
@@ -582,6 +717,7 @@ def build_evaluation(backtest_root=DEFAULT_BACKTEST_ROOT, snapshots_root=DEFAULT
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now().isoformat(),
         "snapshots_root": str(Path(snapshots_root)),
+        "archive_root": str(Path(archive_root)),
         "backtest_root": str(Path(backtest_root)),
         "status": overall_status(gates),
         "gates": gates,
@@ -614,6 +750,7 @@ def render_report(payload):
     casebook = (evidence.get("casebook") or {}).get("summary") or {}
     wu_validation = (evidence.get("wu_max_since_7_validation") or {}).get("summary") or {}
     backlog = payload.get("improvement_backlog") or {}
+    reader_summary = inventory.get("historical_reader_summary") or {}
 
     lines = [
         "# Continuous Snapshot Evaluation",
@@ -638,6 +775,22 @@ def render_report(payload):
             ["Source-status artifact rate", fmt_rate((inventory.get("artifact_rates") or {}).get("source_status"))],
         ],
     )
+    if reader_summary:
+        lines += ["", "## Historical Reader Sources", ""]
+        lines += markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Reads", fmt_count(reader_summary.get("read_count"))],
+                ["Source modes", ", ".join(
+                    f"{key}: {value}"
+                    for key, value in (reader_summary.get("source_modes") or {}).items()
+                ) or "-"],
+                ["Fallback reasons", ", ".join(
+                    f"{key}: {value}"
+                    for key, value in (reader_summary.get("fallback_reasons") or {}).items()
+                ) or "-"],
+            ],
+        )
 
     lines += ["", "## Validation Gates", ""]
     lines += markdown_table(
@@ -762,11 +915,20 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Build a continuous evaluation report for snapshot/replay evidence.")
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    parser.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
+    parser.add_argument("--archive-as-of-date", default=None)
+    parser.add_argument("--no-prefer-archive", action="store_true")
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     args = parser.parse_args(argv)
 
-    payload = build_evaluation(args.backtest_root, args.snapshots_root)
+    payload = build_evaluation(
+        args.backtest_root,
+        args.snapshots_root,
+        archive_root=args.archive_root,
+        archive_as_of_date=args.archive_as_of_date,
+        prefer_archive=not args.no_prefer_archive,
+    )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Wrote {json_out}")
     print(f"Wrote {report_out}")

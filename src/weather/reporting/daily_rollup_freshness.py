@@ -7,8 +7,10 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.schema_registry import schema_version
 
-SCHEMA_VERSION = "daily_rollup_freshness_v0.1"
+
+SCHEMA_VERSION = schema_version("daily_rollup_freshness")
 
 REQUIRED_GRANULAR_ARTIFACTS = (
     ("hourly_model_performance", "hourly_model_performance.json"),

@@ -289,7 +289,7 @@ def early_hour_guardrail_state(row, config):
         return state
 
     state["early_hour_guardrail_status"] = "active"
-    edge = maybe_float(row.get("edge"))
+    edge = maybe_float(first_present(row, "calibrated_edge", "after_cost_ev_per_share", "edge"))
     allowed_states = csv_tokens(config.get("early_hour_require_source_states"))
     source_state = str(row.get("source_freshness_state") or "").strip().lower()
     disposition = str(row.get("current_max_disposition") or "").strip().lower()

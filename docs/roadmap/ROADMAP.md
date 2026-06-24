@@ -142,6 +142,12 @@ infrastructure work remains.
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-22 - UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
+| 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
+| 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
+| 288 | [Fresh Backup/Restore Deletion Gate Before Data Cleanup [COMPLETE 2026-06-23 - CLEANUP PREFLIGHT FAILS CLOSED ON CANONICAL EVIDENCE]](items/item-288-backup-restore-deletion-gate.md) |
+| 289 | [CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]](items/item-289-clob-price-history-dedup-content-addressed-store.md) |
+| 290 | [Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]](items/item-290-incremental-closed-day-parquet-conversion.md) |
+| 291 | [Schema Registry Reconciliation For Storage And Log Artifacts [COMPLETE 2026-06-24 - STRICT AUDIT CLEAN WITH EXPLICIT NON-SCHEMA EXCLUSIONS]](items/item-291-schema-registry-storage-log-artifact-reconciliation.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -291,7 +297,7 @@ infrastructure work remains.
 | 253 | [Two-Sided (NO-Side) Taker Edge And Book Capture [COMPLETE 2026-06-22 - NO-SIDE FADE ARM, BOOK CAPTURE, AND SETTLEMENT INVERSION LIVE]](items/item-253-two-sided-no-side-taker-edge-and-book-capture.md) |
 | 254 | [Extract Serving-Safe Variant-Prediction Runtime From Calibration [COMPLETE 2026-06-23 - SERVING RUNTIME EDGE REMOVED AND ARCHITECTURE RATIFIED]](items/item-254-extract-serving-safe-variant-prediction-runtime.md) |
 | 255 | [Taker Current-High Deny Regression Proof [COMPLETE 2026-06-23 - CONFIG-DRIFT CURRENT-HIGH DENY RATIFIED]](items/item-255-taker-current-high-deny-regression-proof.md) |
-| 256 | [Post-Fix Taker After-Fee Requalification Campaign [PARTIAL 2026-06-23 - SETTLEMENT LABELS REFRESHED, PROMOTION GATES BLOCKED]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
+| 256 | [Post-Fix Taker After-Fee Requalification Campaign [COMPLETE 2026-06-24 - CURRENT-FEE CAMPAIGN CLOSED FAIL-CLOSED]](items/item-256-post-fix-taker-after-fee-requalification-campaign.md) |
 | 257 | [Real NO-Book Depth For Two-Sided Taker [COMPLETE 2026-06-23 - REAL NO-BOOK DEPTH GATES LIVE]](items/item-257-real-no-book-depth-for-two-sided-taker.md) |
 | 258 | [Maker Active-Day Freshness Recovery And MM Preflight Proof [COMPLETE 2026-06-23 - SELECTED PAPER PROOF PASS]](items/item-258-maker-active-day-freshness-recovery-and-mm-preflight-proof.md) |
 | 259 | [Current-Run Artifact Profitability Field Verification [COMPLETE 2026-06-23 - CURRENT-RUN PROFITABILITY VERIFIER GATES PROMOTION]](items/item-259-current-run-artifact-profitability-field-verification.md) |
@@ -318,9 +324,9 @@ infrastructure work remains.
 | 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [COMPLETE 2026-06-23 - FILL-EVIDENCE COMPLETENESS GATE LIVE]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
 | 281 | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [OPEN 2026-06-23 - AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL]](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
 | 282 | [Maker Parallel CLOB Raw-Book Refresh SLA [PARTIAL 2026-06-23 - RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN]](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
-| 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [OPEN 2026-06-23 - RAW SERVED FAIR IS UNCALIBRATED AND NOT MARKET-SHRUNK]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
-| 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [OPEN 2026-06-23 - ENTRY GATES PRE-FEE EDGE AND RANKS BY MAX DISAGREEMENT]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
-| 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [OPEN 2026-06-23 - NO PER-SLICE PROVEN-SKILL PERMISSION FOR TAKER ENTRY]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
+| 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [COMPLETE 2026-06-23 - CALIBRATED MARKET-SHRUNK TAKER FAIR LIVE]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
+| 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
+| 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
 
 ### Architecture And Maintainability
 

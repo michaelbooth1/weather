@@ -180,10 +180,31 @@ def sizing_notional_cap(row, config, remaining_budget, base_cap):
     base_cap = max(0.0, float(base_cap or 0.0))
     if base_cap <= 0:
         return 0.0, 0.0, "base_cap_zero"
-    risk_edge = maybe_float(first_present(row, "risk_adjusted_edge", "edge"))
-    confidence = maybe_float(row.get("reliability_confidence")) or 1.0
+    calibrated_sizing = bool_value(config.get("calibrated_sizing_enabled"), True)
+    risk_edge = maybe_float(first_present(
+        row,
+        "after_cost_ev_per_share" if calibrated_sizing else "risk_adjusted_edge",
+        "calibrated_after_fee_edge" if calibrated_sizing else "risk_adjusted_edge",
+        "calibrated_edge" if calibrated_sizing else "risk_adjusted_edge",
+        "risk_adjusted_edge",
+        "edge",
+    ))
+    reliability = maybe_float(row.get("reliability_confidence")) or 1.0
+    skill_weight = maybe_float(row.get("taker_skill_weight"))
+    if skill_weight is None:
+        skill_weight = 1.0
+    confidence = reliability * (max(0.0, min(1.0, skill_weight)) if calibrated_sizing else 1.0)
     price = maybe_float(first_present(row, "best_ask", "clob_best_ask"))
-    adjusted_fair = maybe_float(first_present(row, "reliability_adjusted_fair_probability", "fair_probability"))
+    adjusted_fair = maybe_float(first_present(
+        row,
+        "calibrated_fair_probability" if calibrated_sizing else "reliability_adjusted_fair_probability",
+        "calibrated_fair" if calibrated_sizing else "reliability_adjusted_fair_probability",
+        "reliability_adjusted_fair_probability",
+        "fair_probability",
+    ))
+    hit_rate = maybe_float(row.get("taker_edge_permission_hit_rate"))
+    if calibrated_sizing and adjusted_fair is not None and hit_rate is not None:
+        adjusted_fair = min(adjusted_fair, hit_rate)
     if rule == "fractional_kelly":
         if price is None or adjusted_fair is None or price >= 1.0:
             return 0.0, 0.0, "fractional_kelly_missing_inputs"
@@ -208,9 +229,13 @@ def sizing_notional_cap(row, config, remaining_budget, base_cap):
     if rule == "tail_lottery":
         if bool_value(row.get("low_price_tail"), False):
             cap = min(base_cap, float(config.get("tail_lottery_max_order_usdc") or base_cap))
+            cap *= max(0.0, min(1.0, confidence))
             return cap, compact_float(cap / base_cap if base_cap else 0.0), "tail_lottery_cap"
         multiplier = min(1.0, 0.5 * confidence)
         return min(base_cap, base_cap * multiplier), compact_float(multiplier), "tail_lottery_non_tail"
+    if calibrated_sizing:
+        multiplier = max(0.0, min(1.0, confidence))
+        return min(base_cap, base_cap * multiplier), compact_float(multiplier), "flat_notional_skill_weighted"
     return base_cap, 1.0, "flat_notional"
 
 
@@ -258,6 +283,12 @@ def apply_taker_budget(
     existing_keys = {row.get("intent_key") for row in existing_rows or [] if row.get("intent_key")}
     seen_keys = set(existing_keys)
     modal_contexts = market_modal_contexts(input_rows)
+    permission_records = []
+    permission_diag = {"exists": False}
+    if config.get("taker_edge_permission_enabled", True):
+        permission_records, permission_diag = load_taker_edge_permission_map(
+            config.get("taker_edge_permission_map_path")
+        )
     # Two-sided taker (item 253): a gated arm (two_sided_enabled) also evaluates
     # the NO side of each band as a synthesized candidate, so an over-priced band
     # the model dislikes can be faded. YES-only arms leave evaluated_rows == input_rows.
@@ -291,8 +322,21 @@ def apply_taker_budget(
         if row["intent_key"] in seen_keys:
             continue
         seen_keys.add(row["intent_key"])
-        row.update(early_hour_guardrail_state({**input_row, **row}, config))
         row.update(enrich_taker_risk_fields({**input_row, **row}, config))
+        row.update(apply_taker_edge_permission(
+            {**input_row, **row},
+            records=permission_records,
+            map_loaded=permission_diag.get("exists", False),
+            config=config,
+        ))
+        row.update(adverse_selection_state(row, config))
+        entry_ev = after_cost_ev_per_share(row, config)
+        row["calibrated_after_fee_edge"] = compact_float(entry_ev)
+        row["after_cost_ev_per_share"] = compact_float(entry_ev)
+        row["entry_ev_per_share"] = compact_float(entry_ev)
+        if config.get("calibrated_entry_enabled", True):
+            row["expected_profit_after_friction_per_share"] = compact_float(entry_ev)
+        row.update(early_hour_guardrail_state({**input_row, **row}, config))
         row.update(modal_context_for_row({**input_row, **row}, modal_contexts, config=config))
         row.update(weak_slot_gate_state({**input_row, **row}, config))
         row.update(warm_tail_guard_state({**input_row, **row}, config))
@@ -306,7 +350,8 @@ def apply_taker_budget(
 
     candidates.sort(
         key=lambda row: (
-            -(maybe_float(row.get("edge")) or 0.0),
+            -(maybe_float(first_present(row, "after_cost_ev_per_share", "calibrated_after_fee_edge", "calibrated_edge", "edge")) or 0.0),
+            -(maybe_float(row.get("taker_skill_weight")) or 0.0),
             row.get("market_id") or "",
             row.get("range_label") or "",
         )
@@ -503,6 +548,23 @@ def apply_taker_budget(
             avg_price = maybe_float(fill_cost.get("executable_fill_price")) or price
             fee = fill_size * taker_fee_per_share(avg_price, config)
             total = notional + fee
+        actual_ev = after_cost_ev_per_share(row, config, price=avg_price)
+        row["entry_ev_per_share"] = compact_float(actual_ev)
+        row["after_cost_ev_per_share"] = compact_float(actual_ev)
+        row["expected_profit_after_friction_per_share"] = compact_float(actual_ev)
+        min_ev = max(
+            float(config.get("min_after_cost_ev_per_share") or 0.0),
+            float(config.get("min_edge") or 0.0),
+        )
+        if config.get("calibrated_entry_enabled", True) and (actual_ev is None or actual_ev < min_ev):
+            row.update({
+                "reason_code": "NO_TRADE_AFTER_COST_EV_TOO_SMALL",
+                "reason_detail": "actual executable after-fee EV does not clear the entry threshold",
+                "budget_remaining_usdc": round(remaining_budget, 6),
+                "position_notional_after_usdc": round(position_before, 6),
+            })
+            rows.append(row)
+            continue
         spent_after = spent + total
         position_after = position_before + notional
         slippage = maybe_float(fill_cost.get("slippage_usdc")) or 0.0
@@ -510,7 +572,7 @@ def apply_taker_budget(
             "action": "BUY",
             "order_status": "FILLED",
             "reason_code": "BUY_EDGE",
-            "reason_detail": "best ask is cheap versus fair value",
+            "reason_detail": "best ask is cheap versus calibrated after-cost fair value",
             "requested_notional_usdc": round(max_order_notional, 6),
             "fill_price": round(avg_price, 6),
             "fill_size": round(fill_size, 6),

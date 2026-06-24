@@ -26,6 +26,14 @@ class SchemaSpec:
     migration_notes: str = ""
 
 
+@dataclass(frozen=True)
+class SchemaLiteralExclusion:
+    version: str
+    owner: str
+    classification: str
+    reason: str
+
+
 REGISTERED_SCHEMAS = (
     SchemaSpec(
         "schema_registry",
@@ -162,6 +170,20 @@ REGISTERED_SCHEMAS = (
         "weather.market.market_microstructure_capture",
         "active",
         "Append-only per-folder status rows for CLOB token/book capture attempts.",
+    ),
+    SchemaSpec(
+        "clob_price_history_raw_response_manifest",
+        "clob_price_history_raw_response_manifest_v0.1",
+        "weather.market.market_microstructure_capture",
+        "active",
+        "Manifest rows for CLOB price-history API responses stored once by SHA-256 content hash.",
+    ),
+    SchemaSpec(
+        "clob_price_history_repair",
+        "clob_price_history_repair_v0.1",
+        "weather.market.market_microstructure_capture",
+        "active",
+        "Historical repair report for deduplicating CLOB price-history point tapes without deleting legacy evidence.",
     ),
     SchemaSpec(
         "config_inventory",
@@ -576,11 +598,53 @@ REGISTERED_SCHEMAS = (
         "Versioned manifest contract for closed market-day Parquet archive partitions.",
     ),
     SchemaSpec(
+        "event_day_manifest",
+        "event_day_manifest_v0.1",
+        "weather.operations.event_day_manifest",
+        "active",
+        "Per-market-day snapshot folder manifest for evidence, projections, rebuild sources, and backup state.",
+    ),
+    SchemaSpec(
+        "event_day_manifest_backfill",
+        "event_day_manifest_backfill_v0.1",
+        "weather.operations.event_day_manifest",
+        "active",
+        "Dry-run/apply report for historical event-day manifest backfills.",
+    ),
+    SchemaSpec(
+        "event_day_manifest_writer",
+        "event_day_manifest_writer_v0.1",
+        "weather.operations.event_day_manifest",
+        "active",
+        "Writer-version stamp for event-day snapshot folder manifests.",
+    ),
+    SchemaSpec(
+        "cleanup_manifest",
+        "cleanup_manifest_v0.1",
+        "weather.operations.cleanup_preflight",
+        "active",
+        "Reviewed file-deletion manifest with exact paths, classes, hashes, restore proof, and operator review.",
+    ),
+    SchemaSpec(
+        "cleanup_preflight",
+        "cleanup_preflight_v0.1",
+        "weather.operations.cleanup_preflight",
+        "active",
+        "Fail-closed cleanup permission report joining cleanup manifests to backup and restore status.",
+    ),
+    SchemaSpec(
         "closed_market_day_parquet_backfill",
         "closed_market_day_parquet_backfill_v0.1",
         "weather.operations.closed_market_day_archive",
         "active",
         "Dry-run/apply report for guarded closed market-day snapshot Parquet backfills.",
+    ),
+    SchemaSpec(
+        "closed_market_day_parquet_incremental",
+        "closed_market_day_parquet_incremental_v0.1",
+        "weather.operations.closed_market_day_archive",
+        "active",
+        "Bounded, cursor-backed closed market-day Parquet conversion status and backlog report.",
     ),
     SchemaSpec(
         "daily_learning",
@@ -1296,6 +1360,21 @@ REGISTERED_SCHEMAS = (
         "Current-run verifier for taker fee, slippage, executable-depth, benchmark, and no-trade evidence fields.",
     ),
     SchemaSpec(
+        "taker_current_replay_profitability_verification",
+        "taker_current_replay_profitability_verification_v0.1",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Bakeoff replay verifier proving current fee and executable-depth economics independent of legacy source-run artifacts.",
+    ),
+    SchemaSpec(
+        "taker_profitability_artifact_verification_composite",
+        "taker_profitability_artifact_verification_v0.2",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Composite taker profitability verifier combining source artifact checks with current replay evidence.",
+        supersedes=("taker_profitability_artifact_verification_v0.1",),
+    ),
+    SchemaSpec(
         "taker_champion_challenger_ledger",
         "taker_champion_challenger_ledger_v0.1",
         "weather.market.taker_bot",
@@ -1408,10 +1487,356 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("wu_daily_legacy", "wu_daily_native_v1", "weather.sources.daily_summary", "legacy"),
     SchemaSpec("wu_hourly", "wu_hourly_native_v1", "weather.sources.wu_history", "active"),
     SchemaSpec("wu_max_since_7_validation", "wu_max_since_7_validation_v0.1", "weather.reporting.wu_max_since_7_validation", "active"),
+    SchemaSpec(
+        "backtest_artifact_retention",
+        "backtest_artifact_retention_v0.1",
+        "weather.reporting.backtest_artifact_retention",
+        "active",
+        "Local generated backtest artifact retention and disk-budget report.",
+    ),
+    SchemaSpec(
+        "backtest_artifact_cleanup",
+        "backtest_artifact_cleanup_v0.1",
+        "weather.reporting.backtest_artifact_retention",
+        "active",
+        "Guarded cleanup manifest for generated backtest artifacts.",
+    ),
+    SchemaSpec(
+        "blocked_market_variant_basket_no_go",
+        "blocked_market_variant_basket_no_go_v0.1",
+        "weather.reporting.variant_basket_selection_validation",
+        "active",
+        "No-go disposition for blocked market variant-basket selection.",
+    ),
+    SchemaSpec(
+        "candidate_replay_sidecar_eligibility",
+        "candidate_replay_sidecar_eligibility_v0.1",
+        "weather.calibration.pooled_candidate_replay_diagnostics",
+        "active",
+        "Candidate replay sidecar eligibility diagnostics.",
+    ),
+    SchemaSpec(
+        "clob_order_book_tiering",
+        "clob_order_book_tiering_v0.1",
+        "weather.operations.clob_order_book_tiering",
+        "active",
+        "Plan/apply report for gzip tiering closed-day CLOB order-book long tapes.",
+    ),
+    SchemaSpec(
+        "cross_hub_quoteability",
+        "cross_hub_quoteability_v0.1",
+        "weather.reporting.cross_hub_readiness",
+        "active",
+        "Cross-hub quoteability evidence and readiness artifact.",
+    ),
+    SchemaSpec(
+        "cross_hub_run_log_summary",
+        "cross_hub_run_log_summary_v0.1",
+        "weather.reporting.cross_hub_research_audit",
+        "active",
+        "Cross-hub run-log summary artifact.",
+    ),
+    SchemaSpec(
+        "daily_progress_ledger",
+        "daily_progress_ledger_v0.1",
+        "weather.reporting.daily_progress_ledger",
+        "active",
+        "Append-only daily progress ledger and latest broad-claim status.",
+    ),
+    SchemaSpec(
+        "daily_refresh_disk_preflight",
+        "daily_refresh_disk_preflight_v0.1",
+        "weather.operations.daily_refresh_locks",
+        "active",
+        "Disk-headroom preflight emitted before daily refresh and promotion exports.",
+    ),
+    SchemaSpec(
+        "daily_refresh_stale_lock_repair",
+        "daily_refresh_stale_lock_repair_v0.1",
+        "weather.operations.daily_refresh_cli",
+        "active",
+        "Stale daily-refresh lock repair report.",
+    ),
+    SchemaSpec(
+        "daily_rollup_freshness",
+        "daily_rollup_freshness_v0.1",
+        "weather.reporting.daily_rollup_freshness",
+        "active",
+        "Freshness rollup for daily refresh, learning, and operations artifacts.",
+    ),
+    SchemaSpec(
+        "feature_quality_quarantine_folder",
+        "feature_quality_quarantine_folder_v0.1",
+        "weather.reporting.feature_quality_quarantine",
+        "active",
+        "Per-folder feature quality quarantine row.",
+    ),
+    SchemaSpec(
+        "feature_quality_quarantine_summary",
+        "feature_quality_quarantine_summary_v0.1",
+        "weather.reporting.feature_quality_quarantine",
+        "active",
+        "Feature quality quarantine summary artifact.",
+    ),
+    SchemaSpec("forecast_error_model", "forecast_error_model_v0.2", "weather.calibration.forecast_error_model", "active"),
+    SchemaSpec(
+        "forecast_radiation_calibration",
+        "forecast_radiation_calibration_v0.1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Forecast radiation calibration sidecar.",
+    ),
+    SchemaSpec(
+        "forecast_radiation_promotion_lane",
+        "forecast_radiation_promotion_lane_v0.1",
+        "weather.reporting.forecast_radiation_gate",
+        "active",
+        "Forecast radiation promotion-lane report.",
+    ),
+    SchemaSpec(
+        "item224_no_market_ranked_winner_repair",
+        "item224_no_market_ranked_winner_repair_v0.1",
+        "weather.reporting.item224_no_market_ranked_winner_repair",
+        "active",
+        "No-market ranked-winner repair report for Item 224.",
+    ),
+    SchemaSpec(
+        "market_residual_repair_rejected_registry",
+        "market_residual_repair_rejected_registry_v0.1",
+        "weather.reporting.market_residual_repair_program",
+        "active",
+        "Rejected-family registry for market residual repair experiments.",
+    ),
+    SchemaSpec(
+        "mm_evidence_starvation",
+        "mm_evidence_starvation_v0.1",
+        "weather.reporting.trading_evidence",
+        "active",
+        "Market-making evidence starvation summary.",
+    ),
+    SchemaSpec(
+        "mm_fill_evidence_completeness",
+        "mm_fill_evidence_completeness_v0.1",
+        "weather.market.mm_paper",
+        "active",
+        "Market-making fill-evidence completeness report.",
+    ),
+    SchemaSpec(
+        "mm_model_variant_bakeoff",
+        "mm_model_variant_bakeoff_v0.1",
+        "weather.market.market_making_model_variants",
+        "active",
+        "Market-making model-variant bakeoff report.",
+    ),
+    SchemaSpec(
+        "mm_model_variant_clustered_promotion_gate",
+        "mm_model_variant_clustered_promotion_gate_v0.1",
+        "weather.market.mm_paper",
+        "active",
+        "Clustered promotion gate for market-making model variants.",
+    ),
+    SchemaSpec(
+        "mm_model_variant_paper_bakeoff",
+        "mm_model_variant_paper_bakeoff_v0.1",
+        "weather.market.mm_paper",
+        "active",
+        "Paper-trading bakeoff for market-making model variants.",
+    ),
+    SchemaSpec(
+        "mm_preflight_recovery_closeout",
+        "mm_preflight_recovery_closeout_v0.1",
+        "weather.market.market_making_preflight",
+        "active",
+        "Market-making preflight recovery closeout artifact.",
+    ),
+    SchemaSpec(
+        "mm_useful_work_liveness",
+        "mm_useful_work_liveness_v0.1",
+        "weather.market.market_making_run",
+        "active",
+        "Market-making useful-work liveness status.",
+    ),
+    SchemaSpec(
+        "observation_payload_backfill",
+        "observation_payload_backfill_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Observation payload sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "observation_payload_backfill_batch",
+        "observation_payload_backfill_batch_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Batch observation payload sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "optional_market_event_streams",
+        "optional_market_event_streams_v0.1",
+        "weather.reporting.fleet_observability",
+        "active",
+        "Optional CLOB price-history and websocket stream status embedded in live-forward SLOs.",
+    ),
+    SchemaSpec(
+        "pooled_feature_band_hgb_forecast_radiation",
+        "pooled_feature_band_hgb_forecast_radiation_v0.1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Pooled feature-band HGB radiation candidate artifact.",
+    ),
+    SchemaSpec(
+        "predawn_candidate_ten_minute_performance",
+        "predawn_candidate_ten_minute_performance_v0.1",
+        "weather.reporting.predawn_weak_slot_repair",
+        "active",
+        "Predawn candidate ten-minute performance sidecar.",
+    ),
+    SchemaSpec(
+        "runtime_identity_evidence",
+        "runtime_identity_evidence_v0.1",
+        "weather.reporting.runtime_identity_evidence",
+        "active",
+        "Runtime identity reconciliation evidence over snapshot and trading artifacts.",
+    ),
+    SchemaSpec(
+        "snapshot_core_sidecar_backfill",
+        "snapshot_core_sidecar_backfill_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Snapshot core sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "snapshot_core_sidecar_backfill_batch",
+        "snapshot_core_sidecar_backfill_batch_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Batch snapshot core sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "snapshot_explanation_backfill",
+        "snapshot_explanation_backfill_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Snapshot explanation sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "snapshot_explanation_backfill_batch",
+        "snapshot_explanation_backfill_batch_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Batch snapshot explanation sidecar backfill report.",
+    ),
+    SchemaSpec(
+        "snapshot_explanations",
+        "snapshot_explanations_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Snapshot explanation sidecar artifact.",
+    ),
+    SchemaSpec(
+        "snapshot_sidecar_eligibility",
+        "snapshot_sidecar_eligibility_v0.1",
+        "weather.calibration.pooled_candidate_replay_diagnostics",
+        "active",
+        "Snapshot sidecar eligibility diagnostics.",
+    ),
+    SchemaSpec(
+        "source_status_proof",
+        "source_status_proof_v0.1",
+        "weather.collection.collection_health",
+        "active",
+        "Proof artifact for source-status freshness and degradation.",
+    ),
+    SchemaSpec(
+        "taker_bot_policy",
+        "taker_bot_policy_v0.1",
+        "weather.market.taker_bot",
+        "active",
+        "Taker-bot policy/config artifact.",
+    ),
+    SchemaSpec(
+        "taker_clustered_promotion_gate",
+        "taker_clustered_promotion_gate_v0.1",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Clustered promotion gate for taker strategy/model variants.",
+    ),
+    SchemaSpec(
+        "taker_counterfactual_tape",
+        "taker_counterfactual_tape_v0.1",
+        "weather.market.taker_bot_tape_io",
+        "active",
+        "Counterfactual taker order tape.",
+    ),
+    SchemaSpec(
+        "taker_current_replay_profitability_verification",
+        "taker_current_replay_profitability_verification_v0.1",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Current replay profitability verifier for taker strategies.",
+    ),
+    SchemaSpec(
+        "taker_edge_permission_map",
+        "taker_edge_permission_map_v0.1",
+        "weather.market.taker_edge_permission",
+        "active",
+        "Per-slice taker edge permission map.",
+    ),
+    SchemaSpec(
+        "taker_model_variant_shadow_bakeoff",
+        "taker_model_variant_shadow_bakeoff_v0.1",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Taker model-variant shadow bakeoff report.",
+    ),
+    SchemaSpec(
+        "taker_profitability_artifact_verification_v0_2",
+        "taker_profitability_artifact_verification_v0.2",
+        "weather.market.taker_bot_bakeoff",
+        "active",
+        "Version 0.2 taker profitability artifact verifier emitted by bakeoff reports.",
+        supersedes=("taker_profitability_artifact_verification_v0.1",),
+    ),
 )
 
 SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
+
+EXCLUDED_SCHEMA_LITERALS = (
+    SchemaLiteralExclusion(
+        "flat_notional_v1",
+        "weather.market.taker_bot_sizing",
+        "sizing_policy_id",
+        "Taker notional sizing policy identifier, not a durable artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "maker_default_v0",
+        "weather.market.market_making_model_variants",
+        "model_variant_basket_id",
+        "Market-making model variant basket identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "polymarket_symmetric_price_v1",
+        "weather.market.taker_bot_sizing",
+        "fee_model_id",
+        "Taker fee/pricing model identifier, not a durable artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "top_of_book_only_v1",
+        "weather.market.taker_bot_sizing",
+        "execution_depth_model_id",
+        "Execution-depth model identifier, not a durable artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "top_of_book_plus_1pct_depth_v1",
+        "weather.market.taker_bot_strategy_registry",
+        "execution_depth_model_id",
+        "Strategy registry execution-depth model identifier, not a durable artifact schema.",
+    ),
+)
+EXCLUDED_SCHEMA_LITERAL_BY_VERSION = {
+    item.version: item for item in EXCLUDED_SCHEMA_LITERALS
+}
 
 SCHEMA_LITERAL_RE = re.compile(
     r"""['"]([a-z][a-z0-9]*(?:_[a-z0-9]+)*_v\d+(?:\.\d+)?|toronto_feature_store_v\d+(?:\.\d+)?)['"]"""
@@ -1479,12 +1904,16 @@ def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES):
             for match in SCHEMA_LITERAL_RE.finditer(line):
                 version = match.group(1)
                 spec = SCHEMAS_BY_VERSION.get(version)
+                exclusion = EXCLUDED_SCHEMA_LITERAL_BY_VERSION.get(version)
                 rows.append({
                     "path": str(path),
                     "line": line_no,
                     "version": version,
                     "registered": spec is not None,
                     "schema_name": spec.name if spec else None,
+                    "excluded": exclusion is not None,
+                    "exclusion_classification": exclusion.classification if exclusion else None,
+                    "exclusion_reason": exclusion.reason if exclusion else None,
                 })
     return rows
 
@@ -1492,15 +1921,21 @@ def scan_schema_literals(paths=("src",), suffixes=DEFAULT_SCAN_SUFFIXES):
 def audit_payload(paths=("src",)) -> dict:
     discovered = scan_schema_literals(paths)
     unregistered_versions = sorted({
-        row["version"] for row in discovered if not row["registered"]
+        row["version"] for row in discovered if not row["registered"] and not row["excluded"]
+    })
+    excluded_versions = sorted({
+        row["version"] for row in discovered if row["excluded"]
     })
     return {
         "schema_version": SCHEMA_REGISTRY_SCHEMA_VERSION,
         "registered_count": len(REGISTERED_SCHEMAS),
         "discovered_literal_count": len(discovered),
         "unregistered_version_count": len(unregistered_versions),
+        "excluded_version_count": len(excluded_versions),
         "registered_schemas": [asdict(spec) for spec in REGISTERED_SCHEMAS],
+        "excluded_schema_literals": [asdict(item) for item in EXCLUDED_SCHEMA_LITERALS],
         "unregistered_versions": unregistered_versions,
+        "excluded_versions": excluded_versions,
         "discovered_literals": discovered,
     }
 
@@ -1529,7 +1964,8 @@ def cmd_audit(args):
         print(json.dumps(payload, indent=2, sort_keys=True))
     print(
         "registered={registered_count} discovered={discovered_literal_count} "
-        "unregistered_versions={unregistered_version_count}".format(**payload)
+        "unregistered_versions={unregistered_version_count} "
+        "excluded_versions={excluded_version_count}".format(**payload)
     )
     if args.strict and payload["unregistered_version_count"]:
         raise SystemExit(1)

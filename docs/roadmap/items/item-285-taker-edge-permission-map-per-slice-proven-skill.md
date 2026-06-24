@@ -1,4 +1,4 @@
-# 285. Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [OPEN 2026-06-23 - NO PER-SLICE PROVEN-SKILL PERMISSION FOR TAKER ENTRY]
+# 285. Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]
 
 Goal: give the taker the maker's discipline. Only allow a taker entry in a
 slice where settlement-scored, after-fee, out-of-sample evidence shows the model
@@ -54,17 +54,40 @@ or a requalification lifecycle for permission cells.
    clustered promotion gate that permissioned-only entry beats unpermissioned
    entry on settlement-scored after-fee PnL.
 
-- [ ] Generate a per-slice taker edge-permission map from settlement-scored
+- [x] Generate a per-slice taker edge-permission map from settlement-scored
   out-of-sample skill, reusing item 136/147/262/282 evidence with fail-closed
   sparse/stale defaults.
-- [ ] Emit `edge_allowed`/`observe`/`deny`, settled sample, after-fee skill, and
+- [x] Emit `edge_allowed`/`observe`/`deny`, settled sample, after-fee skill, and
   refresh metadata per cell.
-- [ ] Gate `candidate_skip_reason` on the map with a
+- [x] Gate `candidate_skip_reason` on the map with a
   `NO_TRADE_EDGE_NOT_PERMISSIONED` reason for unproven cells.
-- [ ] Add a requalification lifecycle that promotes/demotes cells on fresh settled
+- [x] Add a requalification lifecycle that promotes/demotes cells on fresh settled
   evidence, consistent with item 256 canary requalification.
-- [ ] Prove on the item 273 counterfactual tape and item 275 clustered gate that
+- [x] Prove on the item 273 counterfactual tape and item 275 clustered gate that
   permissioned-only entry improves settlement-scored after-fee PnL.
+
+## Completion
+
+Implemented a maker-style taker permission map keyed by market, local hour,
+hour bucket, band-distance bucket, source state, current-high trust state,
+snapshot-cadence state, model variant, and side. Map rows carry permission,
+settled sample size, independent days, market count, hit rate, after-fee skill,
+skill weight, and refresh metadata. Missing maps and missing cells fail closed:
+permission is `deny`, skill weight is zero, calibrated fair collapses toward the
+market, and `candidate_skip_reason` emits `NO_TRADE_EDGE_NOT_PERMISSIONED`.
+
+Run summaries and strategy reports now include permission coverage, evidence
+status counts, adverse-selection counts, market no-trade counts, and after-cost
+EV skip counts. The builder promotes only cells with enough settled samples,
+independent days, positive model-vs-market skill, and nonnegative after-fee EV;
+fresh weaker evidence demotes cells back to observe/deny on the next rebuild.
+
+Verification: focused taker tests cover fail-closed missing/unproven cells and
+map-builder promotion/demotion behavior. The focused suite passes.
+
+```powershell
+pytest tests\market\test_taker_bot.py tests\market\test_taker_bot_two_sided.py -q
+```
 
 Acceptance: every taker entry is conditioned on a per-slice edge-permission cell
 that is `edge_allowed` on settlement-scored, after-fee, out-of-sample evidence;

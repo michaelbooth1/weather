@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from weather.market.taker_bot_strategy_registry import *  # noqa: F403
 from weather.market.taker_bot_tape_io import *  # noqa: F403
+from weather.market.taker_edge_permission import *  # noqa: F403
 from weather.market.taker_bot_strategy_evaluation import *  # noqa: F403
 from weather.market.taker_bot_sizing import *  # noqa: F403
 from weather.market.taker_bot_scoring import *  # noqa: F403

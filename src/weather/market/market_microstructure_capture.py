@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from weather.paths import data_path
 
 import requests
 
-from weather.io import normalize_csv_row
+from weather.io import normalize_csv_row, read_csv_rows, write_csv_rows
 from weather.market.market_config import config_from_event
 from weather.market.market_microstructure_constants import (
     BOOK_LEVEL_COLUMNS,
@@ -41,6 +42,27 @@ from weather.schema_registry import schema_version
 
 
 CLOB_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_capture_status")
+CLOB_PRICE_HISTORY_RAW_MANIFEST_SCHEMA_VERSION = schema_version("clob_price_history_raw_response_manifest")
+CLOB_PRICE_HISTORY_REPAIR_SCHEMA_VERSION = schema_version("clob_price_history_repair")
+PRICE_HISTORY_RAW_DIRNAME = "price_history_raw"
+PRICE_HISTORY_RAW_MANIFEST_FILENAME = "price_history_raw_manifest.jsonl"
+PRICE_HISTORY_DEDUPED_FILENAME = "price_history_deduped.csv"
+PRICE_HISTORY_KEY_FIELDS = (
+    "market_id",
+    "event_slug",
+    "clob_token_id",
+    "fidelity_minutes",
+    "interval",
+    "point_timestamp",
+)
+PRICE_HISTORY_POINT_VALUE_FIELDS = (
+    "polymarket_market_id",
+    "condition_id",
+    "range_label",
+    "outcome",
+    "point_time_utc",
+    "price",
+)
 
 
 def utc_now():
@@ -389,6 +411,242 @@ def price_history_rows(response, token_row, captured_at, interval=None, fidelity
     return rows
 
 
+def _canonical_numeric_text(value):
+    number = to_number(value)
+    if number is None:
+        return "" if value is None else str(value).strip()
+    if float(number).is_integer():
+        return str(int(number))
+    return f"{float(number):.12g}"
+
+
+def _price_history_key(row):
+    timestamp = _canonical_numeric_text(row.get("point_timestamp"))
+    if not timestamp:
+        timestamp = str(row.get("point_time_utc") or "").strip()
+    return (
+        str(row.get("market_id") or "").strip(),
+        str(row.get("event_slug") or "").strip(),
+        str(row.get("clob_token_id") or "").strip(),
+        _canonical_numeric_text(row.get("fidelity_minutes")),
+        str(row.get("interval") or "").strip(),
+        timestamp,
+    )
+
+
+def _price_history_point_signature(row):
+    normalized = normalize_csv_row(row)
+    signature = {}
+    for field in PRICE_HISTORY_POINT_VALUE_FIELDS:
+        value = normalized.get(field)
+        if field == "price":
+            value = _canonical_numeric_text(value)
+        else:
+            value = "" if value is None else str(value).strip()
+        signature[field] = value
+    return signature
+
+
+def _read_csv_header(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return next(csv.reader(handle), []) or []
+    except (OSError, csv.Error):
+        return []
+
+
+def _price_history_columns(path):
+    header = _read_csv_header(path)
+    columns = list(PRICE_HISTORY_COLUMNS)
+    for column in header:
+        if column and column not in columns:
+            columns.append(column)
+    return columns
+
+
+def _dedupe_price_history_rows(rows):
+    ordered_keys = []
+    by_key = {}
+    signatures = {}
+    new_points = 0
+    duplicate_points = 0
+    corrected_points = 0
+    for row in rows:
+        key = _price_history_key(row)
+        signature = _price_history_point_signature(row)
+        if key not in by_key:
+            ordered_keys.append(key)
+            by_key[key] = dict(row)
+            signatures[key] = signature
+            new_points += 1
+            continue
+        if signatures[key] == signature:
+            duplicate_points += 1
+            continue
+        by_key[key] = dict(row)
+        signatures[key] = signature
+        corrected_points += 1
+    return [by_key[key] for key in ordered_keys], {
+        "new_points": new_points,
+        "duplicate_points": duplicate_points,
+        "corrected_points": corrected_points,
+        "total_points": len(ordered_keys),
+    }
+
+
+def _upsert_price_history_rows(path, rows):
+    path = Path(path)
+    incoming_rows = [dict(row) for row in rows or []]
+    existing_rows = read_csv_rows(path)
+    combined_rows, stats = _dedupe_price_history_rows([*existing_rows, *incoming_rows])
+    prior_total = len(_dedupe_price_history_rows(existing_rows)[0])
+    stats["input_rows"] = len(incoming_rows)
+    stats["existing_points"] = prior_total
+    stats["new_points"] = max(0, int(stats["total_points"]) - prior_total)
+    stats["duplicate_points"] = max(
+        0,
+        len(existing_rows) + len(incoming_rows) - int(stats["total_points"]) - int(stats["corrected_points"]),
+    )
+    if combined_rows or incoming_rows:
+        write_csv_rows(path, _price_history_columns(path), combined_rows)
+    return stats
+
+
+def _canonical_json_bytes(payload):
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def _raw_response_payload(record):
+    if isinstance(record, dict) and "response" in record:
+        return record.get("response")
+    return record
+
+
+def read_price_history_raw_response(record, root=None):
+    """Return the raw response body for legacy full rows or new hash-reference rows."""
+    if isinstance(record, dict) and "response" in record:
+        return record.get("response")
+    if not isinstance(record, dict):
+        return None
+    rel_path = record.get("raw_response_path") or record.get("response_path")
+    if not rel_path:
+        raw_hash = record.get("raw_response_sha256")
+        if not raw_hash:
+            return None
+        rel_path = f"{PRICE_HISTORY_RAW_DIRNAME}/{raw_hash}.json"
+    path = Path(rel_path)
+    if not path.is_absolute():
+        path = Path(root or ".") / path
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_price_history_raw_records(store, raw_records, captured_at=None):
+    manifest_rows = []
+    hashes = []
+    raw_bytes = 0
+    unique_bytes_by_hash = {}
+    stored_bytes = 0
+    reused_count = 0
+    new_blob_count = 0
+    for record in raw_records or []:
+        response_payload = _raw_response_payload(record)
+        payload_bytes = _canonical_json_bytes(response_payload)
+        digest = hashlib.sha256(payload_bytes).hexdigest()
+        blob_path = store.price_history_raw_dir / f"{digest}.json"
+        existed = blob_path.exists()
+        if not existed:
+            blob_path.parent.mkdir(parents=True, exist_ok=True)
+            blob_path.write_bytes(payload_bytes + b"\n")
+            stored_bytes += len(payload_bytes)
+            new_blob_count += 1
+        else:
+            reused_count += 1
+        raw_bytes += len(payload_bytes)
+        unique_bytes_by_hash.setdefault(digest, len(payload_bytes))
+        hashes.append(digest)
+        rel_path = blob_path.relative_to(store.root).as_posix()
+        point_count = len((response_payload or {}).get("history") or []) if isinstance(response_payload, dict) else None
+        manifest_row = {
+            "schema_version": CLOB_PRICE_HISTORY_RAW_MANIFEST_SCHEMA_VERSION,
+            "captured_at_utc": record.get("captured_at_utc") or (captured_at.isoformat() if captured_at else None),
+            "event_slug": record.get("event_slug") or store.event_slug,
+            "market_id": record.get("market_id"),
+            "clob_token_id": record.get("clob_token_id"),
+            "start_ts": record.get("start_ts"),
+            "end_ts": record.get("end_ts"),
+            "interval": record.get("interval"),
+            "fidelity_minutes": record.get("fidelity_minutes"),
+            "raw_response_sha256": digest,
+            "raw_response_path": rel_path,
+            "raw_response_bytes": len(payload_bytes),
+            "raw_response_reused_existing": existed,
+            "point_count": point_count,
+        }
+        manifest_rows.append(manifest_row)
+        store.append_jsonl(store.price_history_raw_manifest_path, manifest_row)
+        store.append_jsonl(store.price_history_jsonl_path, manifest_row)
+    return {
+        "raw_response_count": len(manifest_rows),
+        "raw_response_hashes": sorted(set(hashes)),
+        "raw_response_bytes": raw_bytes,
+        "raw_response_unique_bytes": sum(unique_bytes_by_hash.values()),
+        "raw_response_stored_bytes": stored_bytes,
+        "raw_response_reused_count": reused_count,
+        "raw_response_new_blob_count": new_blob_count,
+        "raw_response_manifest_rows": len(manifest_rows),
+        "raw_response_manifest_path": str(store.price_history_raw_manifest_path),
+        "raw_response_jsonl_path": str(store.price_history_jsonl_path),
+    }
+
+
+def repair_price_history_store(
+    folder,
+    *,
+    output_path=None,
+    apply=False,
+    generated_at_utc=None,
+):
+    folder = Path(folder)
+    source_path = folder / "price_history.csv"
+    rows = read_csv_rows(source_path)
+    deduped_rows, stats = _dedupe_price_history_rows(rows)
+    output_path = Path(output_path) if output_path else (
+        source_path if apply else folder / PRICE_HISTORY_DEDUPED_FILENAME
+    )
+    if rows or source_path.exists():
+        write_csv_rows(output_path, _price_history_columns(source_path), deduped_rows)
+    key_counts = Counter(_price_history_key(row) for row in rows)
+    duplicate_keys = sum(1 for count in key_counts.values() if count > 1)
+    key_parity = len(key_counts) == len({_price_history_key(row) for row in deduped_rows})
+    return {
+        "schema_version": CLOB_PRICE_HISTORY_REPAIR_SCHEMA_VERSION,
+        "generated_at_utc": generated_at_utc or utc_now().isoformat(),
+        "folder": str(folder),
+        "source_path": str(source_path),
+        "output_path": str(output_path),
+        "applied_to_source": bool(output_path == source_path),
+        "key_fields": list(PRICE_HISTORY_KEY_FIELDS),
+        "input_rows": len(rows),
+        "deduped_rows": len(deduped_rows),
+        "duplicate_rows_reclaimed": max(0, len(rows) - len(deduped_rows)),
+        "duplicate_key_count": duplicate_keys,
+        "duplicate_points": int(stats["duplicate_points"]),
+        "corrected_points": int(stats["corrected_points"]),
+        "validation": {
+            "status": "PASS" if key_parity else "BLOCK",
+            "legacy_unique_keys": len(key_counts),
+            "deduped_unique_keys": len({_price_history_key(row) for row in deduped_rows}),
+            "key_parity": key_parity,
+        },
+    }
+
+
 class ClobClient:
     def __init__(self, base_url=CLOB_BASE_URL, timeout=10, session=None):
         self.base_url = base_url.rstrip("/")
@@ -479,6 +737,8 @@ class MarketMicrostructureStore:
         self.books_jsonl_path = self.root / "order_books.jsonl"
         self.price_history_path = self.root / "price_history.csv"
         self.price_history_jsonl_path = self.root / "price_history.jsonl"
+        self.price_history_raw_dir = self.root / PRICE_HISTORY_RAW_DIRNAME
+        self.price_history_raw_manifest_path = self.root / PRICE_HISTORY_RAW_MANIFEST_FILENAME
         self.ws_events_path = self.root / "market_ws_events.csv"
         self.ws_jsonl_path = self.root / "market_ws.jsonl"
 
@@ -518,9 +778,27 @@ class MarketMicrostructureStore:
             self.append_jsonl(self.books_jsonl_path, record)
 
     def write_price_history(self, rows, raw_records):
-        self.append_csv(self.price_history_path, PRICE_HISTORY_COLUMNS, rows)
-        for record in raw_records:
-            self.append_jsonl(self.price_history_jsonl_path, record)
+        point_stats = _upsert_price_history_rows(self.price_history_path, rows)
+        raw_stats = _write_price_history_raw_records(self, raw_records)
+        return {
+            "price_history_rows": int(point_stats.get("input_rows") or 0),
+            "price_history_existing_points": int(point_stats.get("existing_points") or 0),
+            "price_history_new_points": int(point_stats.get("new_points") or 0),
+            "price_history_duplicate_points": int(point_stats.get("duplicate_points") or 0),
+            "price_history_corrected_points": int(point_stats.get("corrected_points") or 0),
+            "price_history_total_points": int(point_stats.get("total_points") or 0),
+            "price_history_raw_response_count": int(raw_stats.get("raw_response_count") or 0),
+            "price_history_raw_response_hashes": raw_stats.get("raw_response_hashes") or [],
+            "price_history_raw_response_bytes": int(raw_stats.get("raw_response_bytes") or 0),
+            "price_history_raw_response_unique_bytes": int(raw_stats.get("raw_response_unique_bytes") or 0),
+            "price_history_raw_response_stored_bytes": int(raw_stats.get("raw_response_stored_bytes") or 0),
+            "price_history_raw_response_reused_count": int(raw_stats.get("raw_response_reused_count") or 0),
+            "price_history_raw_response_new_blob_count": int(raw_stats.get("raw_response_new_blob_count") or 0),
+            "price_history_raw_response_manifest_rows": int(raw_stats.get("raw_response_manifest_rows") or 0),
+            "price_history_raw_response_manifest_path": raw_stats.get("raw_response_manifest_path"),
+            "price_history_jsonl_path": raw_stats.get("raw_response_jsonl_path"),
+            "price_history_path": str(self.price_history_path),
+        }
 
     def write_ws_event(self, row, raw_record):
         self.write_ws_events([row], raw_record)
@@ -571,6 +849,18 @@ def capture_status_from_result(
         "books": books,
         "levels": int(result.get("levels") or 0),
         "price_history_rows": int(result.get("price_history_rows") or 0),
+        "price_history_existing_points": int(result.get("price_history_existing_points") or 0),
+        "price_history_new_points": int(result.get("price_history_new_points") or 0),
+        "price_history_duplicate_points": int(result.get("price_history_duplicate_points") or 0),
+        "price_history_corrected_points": int(result.get("price_history_corrected_points") or 0),
+        "price_history_total_points": int(result.get("price_history_total_points") or 0),
+        "price_history_raw_response_count": int(result.get("price_history_raw_response_count") or 0),
+        "price_history_raw_response_hashes": result.get("price_history_raw_response_hashes") or [],
+        "price_history_raw_response_bytes": int(result.get("price_history_raw_response_bytes") or 0),
+        "price_history_raw_response_unique_bytes": int(result.get("price_history_raw_response_unique_bytes") or 0),
+        "price_history_raw_response_stored_bytes": int(result.get("price_history_raw_response_stored_bytes") or 0),
+        "price_history_raw_response_reused_count": int(result.get("price_history_raw_response_reused_count") or 0),
+        "price_history_raw_response_new_blob_count": int(result.get("price_history_raw_response_new_blob_count") or 0),
         "ws_messages": int(result.get("ws_messages") or 0),
         "ws_event_rows": int(result.get("ws_event_rows") or 0),
         "ws_error": result.get("ws_error"),
@@ -581,6 +871,10 @@ def capture_status_from_result(
         "order_books_long_path": str(store.books_long_path),
         "order_books_jsonl_path": str(store.books_jsonl_path),
         "clob_tokens_path": str(store.token_path),
+        "price_history_path": str(store.price_history_path),
+        "price_history_jsonl_path": str(store.price_history_jsonl_path),
+        "price_history_raw_manifest_path": str(store.price_history_raw_manifest_path),
+        "price_history_raw_dir": str(store.price_history_raw_dir),
     }
 
 
@@ -657,6 +951,7 @@ def capture_event_books(
     summaries = []
     level_rows = []
     history_rows = []
+    history_write_result = {}
     ws_result = {"messages": 0}
     feature_result = {"rows": 0, "csv_path": None, "jsonl_path": None}
     midpoint_by_token = {}
@@ -721,7 +1016,7 @@ def capture_event_books(
                     "fidelity_minutes": fidelity_minutes,
                     "response": response,
                 })
-            store.write_price_history(history_rows, history_raw)
+            history_write_result = store.write_price_history(history_rows, history_raw)
 
         if include_ws_events:
             try:
@@ -757,6 +1052,7 @@ def capture_event_books(
             "books": len(summaries),
             "levels": len(level_rows),
             "price_history_rows": len(history_rows),
+            **history_write_result,
             "ws_messages": ws_result.get("messages", 0),
             "ws_event_rows": ws_result.get("event_rows", 0),
             "ws_error": ws_result.get("error"),
@@ -785,6 +1081,7 @@ def capture_event_books(
         "books": len(summaries),
         "levels": len(level_rows),
         "price_history_rows": len(history_rows),
+        **history_write_result,
         "ws_messages": ws_result.get("messages", 0),
         "ws_event_rows": ws_result.get("event_rows", 0),
         "ws_error": ws_result.get("error"),

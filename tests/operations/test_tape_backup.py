@@ -6,6 +6,7 @@ import unittest
 from collections import namedtuple
 from pathlib import Path
 from unittest.mock import patch
+from weather.operations.storage_classes import ANALYSIS_PROJECTION, CANONICAL_EVIDENCE
 from weather.operations.tape_backup import (  # noqa: E402
     TapeBackupCapacityError,
     apply_unmanifested_backup_cleanup,
@@ -71,6 +72,7 @@ class TestTapeBackup(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], "tape_backup_manifest_v0.1")
         self.assertEqual(manifest["summary"]["missing_critical_classes"], [])
         paths = {row["path"] for row in manifest["files"]}
+        by_path = {row["path"]: row for row in manifest["files"]}
         self.assertIn("data/snapshots/event/snapshots.jsonl", paths)
         self.assertIn("data/snapshots/event/order_books_long.csv", paths)
         self.assertIn("data/snapshots/event/order_books.jsonl", paths)
@@ -87,6 +89,13 @@ class TestTapeBackup(unittest.TestCase):
         self.assertIn("clob_tapes", classes)
         self.assertIn("order_lifecycle_and_risk", classes)
         self.assertGreaterEqual(manifest["class_summaries"]["clob_tapes"]["file_count"], 8)
+        self.assertEqual(by_path["data/snapshots/event/snapshots.jsonl"]["storage_class"], CANONICAL_EVIDENCE)
+        self.assertEqual(by_path["data/snapshots/event/order_books_long.csv"]["storage_class"], ANALYSIS_PROJECTION)
+        self.assertNotIn("unclassified", {
+            row["artifact_family"] for row in manifest["files"]
+        })
+        self.assertGreater(manifest["storage_class_summaries"][CANONICAL_EVIDENCE]["file_count"], 0)
+        self.assertGreater(manifest["storage_class_summaries"][ANALYSIS_PROJECTION]["file_count"], 0)
 
     def test_market_microstructure_store_artifact_names_are_classified(self):
         names = [
@@ -377,6 +386,8 @@ class TestTapeBackup(unittest.TestCase):
         self.assertEqual(payload["restore_drill"]["status"], "PASS")
         self.assertTrue(status_exists)
         self.assertIn("Restore drill SLA: **OK**", status_report)
+        self.assertIn("## Storage Class Summary", status_report)
+        self.assertIn("canonical_evidence", status_report)
         self.assertIn("## CLOB Artifact Coverage", status_report)
         self.assertIn("order_book_long", status_report)
 

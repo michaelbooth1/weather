@@ -90,7 +90,9 @@ from weather.market.market_microstructure_capture import (  # noqa: E402
     payload_sha1,
     price_for_outcome,
     price_history_rows,
+    read_price_history_raw_response,
     record_market_websocket,
+    repair_price_history_store,
     status_value,
     summarize_order_book,
     timestamp_to_iso,
@@ -606,6 +608,14 @@ def summarize_loop_results(results):
             "captured_tokens": value.get("captured_tokens"),
             "levels": value.get("levels"),
             "price_history_rows": value.get("price_history_rows"),
+            "price_history_new_points": value.get("price_history_new_points"),
+            "price_history_duplicate_points": value.get("price_history_duplicate_points"),
+            "price_history_corrected_points": value.get("price_history_corrected_points"),
+            "price_history_total_points": value.get("price_history_total_points"),
+            "price_history_raw_response_hashes": value.get("price_history_raw_response_hashes"),
+            "price_history_raw_response_bytes": value.get("price_history_raw_response_bytes"),
+            "price_history_raw_response_stored_bytes": value.get("price_history_raw_response_stored_bytes"),
+            "price_history_raw_response_reused_count": value.get("price_history_raw_response_reused_count"),
             "ws_messages": value.get("ws_messages"),
             "ws_event_rows": value.get("ws_event_rows"),
             "ws_error": value.get("ws_error"),
@@ -1228,6 +1238,22 @@ def main():
         help="Exit 2 when any market has a gap over the threshold or a stale/missing tape.",
     )
 
+    repair_history = subparsers.add_parser(
+        "repair-price-history",
+        help="Deduplicate a snapshot folder's CLOB price-history point table.",
+    )
+    repair_history.add_argument("--folder", required=True, help="Snapshot event folder containing price_history.csv.")
+    repair_history.add_argument(
+        "--out",
+        default="",
+        help="Output CSV path. Defaults to price_history_deduped.csv, or price_history.csv with --apply.",
+    )
+    repair_history.add_argument(
+        "--apply",
+        action="store_true",
+        help="Rewrite price_history.csv in place instead of writing a sidecar deduped table.",
+    )
+
     ws = subparsers.add_parser("websocket", help="Record the public CLOB market WebSocket.")
     ws.add_argument("--market", choices=[spec.id for spec in all_specs()], default="toronto")
     ws.add_argument("--outcomes", default="all")
@@ -1293,6 +1319,16 @@ def main():
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         if args.strict and not result["ok"]:
+            sys.exit(2)
+        return
+    if command == "repair-price-history":
+        result = repair_price_history_store(
+            args.folder,
+            output_path=args.out or None,
+            apply=args.apply,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        if result.get("validation", {}).get("status") != "PASS":
             sys.exit(2)
         return
     if command == "stop":

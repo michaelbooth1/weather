@@ -82,8 +82,10 @@ The backup status command audits CLOB artifacts by emitted filename, not only by
   risk.
 - `order_book_raw`: `order_books.jsonl`; raw order-book payload and response
   metadata.
-- `price_history`: `price_history.csv` and `price_history.jsonl`; CLOB price
-  history used for microstructure features and replay.
+- `price_history`: `price_history.csv`, `price_history.jsonl`,
+  `price_history_raw_manifest.jsonl`, and `price_history_raw/*.json`; CLOB
+  price-history point history plus content-addressed raw responses used for
+  microstructure features and replay.
 - `market_ws`: `market_ws_events.csv` and `market_ws.jsonl`; websocket event
   summaries and raw messages.
 
@@ -129,6 +131,32 @@ The apply path requires free space for the source file plus a 1 GiB reserve,
 writes `order_books_long.csv.gz` through a temp file, verifies decompressed
 SHA-256 and line count against the source, and deletes the uncompressed CSV
 only after verification and only when `--delete-source` is passed.
+
+## Cleanup Preflight
+
+Run cleanup preflight before deleting or demoting local data:
+
+```powershell
+python -m weather.operations.cleanup_preflight --manifest data\backtest\cleanup_manifest.json
+```
+
+Every cleanup manifest must name exact relative paths, storage class, retention
+class, deletion reason, rebuild source or `not rebuildable`, byte count,
+SHA-256, latest backup manifest hash, restore-drill manifest hash, and an
+approving operator note.
+
+Canonical evidence deletion is allowed only when the candidate is listed in the
+reviewed cleanup manifest, the latest backup status is `OK`, restore-drill SLA
+is `OK`, no backup checksum failures are present, and the latest backup
+manifest covers the candidate hash. If tape status is
+`MISSING_CRITICAL_FILES`, canonical evidence deletion is a hard block; the
+preflight report carries the missing-file samples from tape status.
+
+Projection and operator/cache cleanup can still proceed with reviewed
+manifests when they do not delete canonical evidence. Examples include
+rebuildable `data/backtest` row exports, verified gzip-tiered
+`order_books_long.csv` projections, and same-disk backup mirror partials under
+`data/tape_backups/latest`.
 
 If a failed same-disk export leaves files in `latest/` that are not listed in
 `latest/tape_backup_manifest.json`, plan cleanup before rerunning backup:

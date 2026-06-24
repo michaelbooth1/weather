@@ -9,9 +9,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.schema_registry import schema_version
 
 
-SCHEMA_VERSION = "runtime_identity_evidence_v0.1"
+SCHEMA_VERSION = schema_version("runtime_identity_evidence")
 DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_BACKTEST_ROOT = data_path("backtest")
 DEFAULT_MM_RUNS_ROOT = data_path("mm_runs")

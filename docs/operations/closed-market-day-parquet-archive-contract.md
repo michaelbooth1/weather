@@ -118,7 +118,7 @@ and schema-safe. Raw evidence references remain permanent.
 | `clob_tokens` | `clob_tokens.csv`, `clob_tokens.csv.gz` | `clob_tokens.jsonl` |
 | `order_books_summary` | `order_books_summary.csv`, `order_books_summary.csv.gz` | `order_books.jsonl` |
 | `order_books_long` | `order_books_long.csv`, `order_books_long.csv.gz` | `order_books.jsonl` |
-| `price_history` | `price_history.csv`, `price_history.csv.gz` | `price_history.jsonl` |
+| `price_history` | `price_history.csv`, `price_history.csv.gz` | `price_history.jsonl`, `price_history_raw_manifest.jsonl`, `price_history_raw/*.json` |
 | `market_ws_events` | `market_ws_events.csv`, `market_ws_events.csv.gz` | `market_ws.jsonl` |
 | `clob_features_long` | `clob_features_long.csv`, `clob_features_long.csv.gz` | `clob_features.jsonl`, raw CLOB tapes |
 | `variant_predictions_long` | `variant_predictions_long.csv`, `variant_predictions_long.csv.gz` | `live_variant_predictions.jsonl` |
@@ -183,6 +183,32 @@ before returning rows. For fallbacks, provenance reports
 migrated to this boundary. Its JSON and Markdown outputs include
 `historical_reader_summary` / "Historical Reader Sources" so operators can see
 which artifact families came from validated Parquet versus fallback text.
+`weather.reporting.snapshot_evaluation` also reads closed-day snapshot and
+replay-input history through this boundary and reports source-mode mix.
+
+## Incremental Conversion
+
+Closed-day conversion can run as a bounded, resumable daily/operator job:
+
+```powershell
+python -m weather.operations.closed_market_day_archive incremental-apply --max-scan-folders 25
+```
+
+The incremental status schema is
+`closed_market_day_parquet_incremental_v0.1`. The command writes:
+
+- `data/backtest/closed_market_day_parquet_incremental.json`
+- `data/backtest/closed_market_day_parquet_incremental_report.md`
+- `data/backtest/closed_market_day_parquet_incremental_cursor.json`
+
+The cursor records each scanned folder's event-day manifest hash when present
+and falls back to source-file stats otherwise. Unchanged folders are skipped,
+failed folders are retried on the next pass, and the scan cursor advances
+across the sorted snapshot folder list to avoid full-tree timeouts.
+
+Daily refresh runs the same bounded incremental converter before historical
+reader-heavy reports. Fleet observability reads the incremental status artifact
+and surfaces conversion failures, blockers, bytes, and remaining scan backlog.
 
 ## DuckDB Operator Queries
 
@@ -224,7 +250,8 @@ and must stay backed up according to the tape backup policy:
   `forecast_payloads.jsonl`, `source_status.jsonl`, `replay_inputs.jsonl`, and
   `replay_inputs_reconstructed.jsonl`.
 - Raw CLOB tapes: `clob_tokens.jsonl`, `order_books.jsonl`,
-  `price_history.jsonl`, `market_ws.jsonl`, and capture status rows.
+  `price_history.jsonl`, `price_history_raw_manifest.jsonl`,
+  `price_history_raw/*.json`, `market_ws.jsonl`, and capture status rows.
 - Settlement labels, per-market ledgers, resolution specs, and reconciliation
   evidence.
 - Archive manifests and Parquet partitions after Item 244 writes them.

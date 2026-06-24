@@ -13,6 +13,12 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.operations.storage_classes import (
+    artifact_family_registry_payload,
+    classification_payload,
+    storage_class_contracts_payload,
+    summarize_storage_class_entries,
+)
 from weather.paths import REPO_ROOT, relative_to_repo, data_path
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import SCHEMAS_BY_VERSION, schema_version
@@ -98,8 +104,14 @@ CLOB_ARTIFACT_POLICIES = (
         "price_history",
         "irreplaceable_price_history",
         True,
-        "CLOB price-history CSV/JSONL tapes used for microstructure features and replay.",
-        ("data/snapshots/*/price_history.csv", "data/snapshots/*/price_history.jsonl"),
+        "CLOB price-history point tapes, hash manifests, and raw response blobs used for microstructure features and replay.",
+        (
+            "data/snapshots/*/price_history.csv",
+            "data/snapshots/*/price_history.jsonl",
+            "data/snapshots/*/price_history_raw_manifest.jsonl",
+            "data/snapshots/*/price_history_raw/*.json",
+            "data/snapshots/*/price_history_raw/**/*.json",
+        ),
     ),
     ClobArtifactPolicy(
         "market_ws",
@@ -158,6 +170,8 @@ RETENTION_RULES = (
             "data/snapshots/*/order_books*.jsonl",
             "data/snapshots/*/price_history*.csv",
             "data/snapshots/*/price_history*.jsonl",
+            "data/snapshots/*/price_history_raw/*.json",
+            "data/snapshots/*/price_history_raw/**/*.json",
             "data/snapshots/*/market_ws*.csv",
             "data/snapshots/*/market_ws*.jsonl",
         ),
@@ -310,6 +324,8 @@ def retention_policy_payload():
     return {
         "policy_version": POLICY_VERSION,
         "classes": [asdict(rule) for rule in RETENTION_RULES],
+        "storage_class_contracts": storage_class_contracts_payload(),
+        "artifact_families": artifact_family_registry_payload(),
         "global_excludes": list(GLOBAL_EXCLUDES),
     }
 
@@ -346,6 +362,7 @@ def file_entry(path, rel_path, classes):
     return {
         "path": rel_path,
         "classes": sorted(classes),
+        **classification_payload(rel_path),
         "size": stat.st_size,
         "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "sha256": sha256_file(path),
@@ -380,6 +397,7 @@ def _entry_without_hash(path, rel_path, classes):
     return {
         "path": rel_path,
         "classes": sorted(classes),
+        **classification_payload(rel_path),
         "size": stat.st_size,
         "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
     }
@@ -572,6 +590,7 @@ def manifest_hash_payload(manifest):
         "source_root": manifest.get("source_root"),
         "files": manifest.get("files") or [],
         "class_summaries": manifest.get("class_summaries") or {},
+        "storage_class_summaries": manifest.get("storage_class_summaries") or {},
     }
 
 
@@ -593,6 +612,7 @@ def build_backup_manifest(source_root=REPO_ROOT):
             entries.append(file_entry(path, rel, classes))
     entries.sort(key=lambda row: row["path"])
     summaries = class_summaries(entries)
+    storage_summaries = summarize_storage_class_entries(entries)
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "policy_version": POLICY_VERSION,
@@ -600,6 +620,7 @@ def build_backup_manifest(source_root=REPO_ROOT):
         "source_root": str(source_root),
         "policy": retention_policy_payload(),
         "class_summaries": summaries,
+        "storage_class_summaries": storage_summaries,
         "files": entries,
         "summary": {
             "file_count": len(entries),
@@ -774,6 +795,7 @@ def export_backup(
             backed_up_entries.append(file_entry(dst, entry["path"], entry.get("classes") or []))
         manifest["files"] = backed_up_entries
         manifest["class_summaries"] = class_summaries(backed_up_entries)
+        manifest["storage_class_summaries"] = summarize_storage_class_entries(backed_up_entries)
         manifest["summary"].update({
             "file_count": len(backed_up_entries),
             "total_bytes": sum(int(row.get("size") or 0) for row in backed_up_entries),
@@ -865,9 +887,11 @@ def unmanifested_backup_cleanup_plan(
         source_exists = source_path.exists()
         source_size = source_path.stat().st_size if source_exists else None
         status = "candidate" if source_exists else "blocked_missing_source"
+        storage_meta = classification_payload(f"tape_backups/latest/{rel}")
         rows.append({
             "path": str(path),
             "rel_path": rel,
+            **storage_meta,
             "size": size,
             "source_path": str(source_path),
             "source_exists": source_exists,
@@ -977,10 +1001,12 @@ def render_unmanifested_cleanup_report(payload):
     if candidates:
         lines += ["", "## Largest Candidates", ""]
         lines += markdown_table(
-            ["Path", "MiB", "Source Exists", "Same Size"],
+            ["Path", "Storage Class", "Delete Gate", "MiB", "Source Exists", "Same Size"],
             [
                 [
                     row.get("rel_path"),
+                    row.get("storage_class"),
+                    row.get("delete_gate"),
                     round(int(row.get("size") or 0) / (1024 * 1024), 1),
                     row.get("source_exists"),
                     row.get("source_same_size"),
@@ -1146,6 +1172,7 @@ def backup_status(
         "file_count": (manifest.get("summary") or {}).get("file_count"),
         "total_bytes": (manifest.get("summary") or {}).get("total_bytes"),
         "class_summaries": manifest.get("class_summaries") or {},
+        "storage_class_summaries": manifest.get("storage_class_summaries") or {},
         "local_manifest_coverage": coverage,
         "capacity_preflight": capacity,
         "clob_artifact_coverage": coverage.get("clob_artifacts") or {},
@@ -1584,6 +1611,19 @@ def write_status_report(path, payload):
     lines += ["", "## Class Summary", "", "| Class | Critical | Files | Bytes |", "| :--- | :--- | :--- | :--- |"]
     for name, row in sorted((payload.get("class_summaries") or {}).items()):
         lines.append(f"| {name} | {row.get('critical')} | {row.get('file_count')} | {row.get('total_bytes')} |")
+    lines += [
+        "",
+        "## Storage Class Summary",
+        "",
+        "| Storage Class | Files | Bytes | Backup-Required Files | Backup-Required Bytes | Artifact Families |",
+        "| :--- | ---: | ---: | ---: | ---: | :--- |",
+    ]
+    for name, row in sorted((payload.get("storage_class_summaries") or {}).items()):
+        lines.append(
+            f"| {name} | {row.get('file_count')} | {row.get('total_bytes')} | "
+            f"{row.get('backup_required_files')} | {row.get('backup_required_bytes')} | "
+            f"{', '.join((row.get('artifact_families') or [])[:8])} |"
+        )
     coverage = payload.get("local_manifest_coverage") or {}
     lines += [
         "",
