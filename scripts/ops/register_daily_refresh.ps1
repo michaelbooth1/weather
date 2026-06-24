@@ -1,8 +1,7 @@
 # Registers the daily settlement-to-promotion refresh as a Windows Scheduled Task.
 #
-# The task runs the full durable refresh chain:
-# market_day_labels finalize -> promotion_refresh -> progress_audit ->
-# disagreement_casebook -> fleet_observability.
+# The task runs the full durable refresh chain, including exchange-economics
+# drift validation before taker/maker paper evidence is counted.
 #
 # Run from the repo root:  .\scripts\ops\register_daily_refresh.ps1
 # Re-running replaces the existing task.

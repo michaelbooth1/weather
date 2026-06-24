@@ -106,3 +106,13 @@ item-266 winner-rank parity gate was rerun after report refresh and remains
 trained source-bias artifacts by itself.
 
 Related: items 22, 183, 194, 195, 232, 262, 264, 266, 268; `[[highs-projection-data-gap-2026-06-20]]`, `[[replay-ablation-findings]]`.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

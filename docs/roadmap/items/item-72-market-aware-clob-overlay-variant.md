@@ -104,3 +104,13 @@ Completion update 2026-06-16:
 - Focused tests cover known-edge map generation and quote-policy consumption of
   guarded CLOB overlay taxonomy records, including a stale-gate case that must
   emit no permission records.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - MARKET-INFORMED QUOTE GATES LIVE`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

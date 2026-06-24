@@ -74,3 +74,13 @@ model, evidence, operations, and trading metrics. The row sets
 at least 3 positive-skill comparable days, rolling daily-first skill is
 non-negative, at least 84 promotion-grade market-days exist, live-forward SLO
 is `PASS`, and independent baseline evidence is present.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

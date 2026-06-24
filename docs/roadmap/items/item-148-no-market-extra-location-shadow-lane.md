@@ -77,3 +77,13 @@ multiplication cannot count as new labels.
 `--extra-location-transfer-report` and surfaces that report's
 `promotion_gate` as a readiness blocker/open item. Serving promotion remains
 disallowed unless the target-vs-extra gate is `PASS`.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - SHADOW LANE QUARANTINED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

@@ -172,8 +172,21 @@ class DistributionMixin(DistributionSignalMixin):
             unit=self.spec.display_unit,
         )
         trusted_current_max = current_max_features.get("trusted_current_max")
+        support_only_current_max = current_max_features.get("support_only_current_max")
         eccc_max = self.row_same_day_max_native(eccc)
         metar_temp = self.row_temp_native(metar)
+        current_max_boundary = self.current_max_boundary_context(
+            current_max=current_max,
+            support_only_current_max=support_only_current_max,
+            history_max=history_max,
+            official_observations={
+                "eccc_swob": eccc_max,
+                "metar": metar_temp,
+            },
+            current_max_disposition=current_max_features.get("current_max_disposition"),
+            current_max_state=current_max_features.get("current_max_state"),
+            hour=now.hour,
+        )
         weather_forecast_max = self.forecast_day_max(weather_forecast)
         open_meteo_max = self.forecast_day_max(open_meteo)
         nws_forecast_max = self.forecast_day_max(nws_hourly)
@@ -301,6 +314,7 @@ class DistributionMixin(DistributionSignalMixin):
             "current_max_state": current_max_features.get("current_max_state"),
             "current_max_disposition": current_max_features.get("current_max_disposition"),
             "quarantined_current_max": current_max_features.get("quarantined_current_max"),
+            "current_max_boundary": deepcopy(current_max_boundary),
             "forecast_high": forecast_ensemble.get("forecast_high"),
             "forecast_robust_high": forecast_ensemble.get("forecast_robust_high"),
             "forecast_trimmed_high": forecast_ensemble.get("forecast_trimmed_high"),
@@ -436,6 +450,7 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
         calibration_context["afternoon_residual_centering"] = afternoon_centering_context
+        current_max_boundary_reference = self.normalize_scores(scores)
         scores = self.distribution_validated_current_max_floor_stage(
             scores,
             validated_current_max_floor,
@@ -491,6 +506,15 @@ class DistributionMixin(DistributionSignalMixin):
             resolution_weight=lockin_strength,
             cutoff_hour=cutoff_hour,
         )
+        pipeline.snapshot("overconfidence_calibration", calibrated_scores)
+        calibrated_scores, current_max_boundary = self.apply_current_max_boundary_overlock_guard(
+            calibrated_scores,
+            current_max_boundary,
+            allocation_reference=current_max_boundary_reference,
+        )
+        calibration_context["current_max_boundary"] = deepcopy(current_max_boundary)
+        if current_max_boundary.get("active") or current_max_boundary.get("state") == "conflicting":
+            pipeline.snapshot("current_max_boundary_guard", calibrated_scores)
         pipeline.snapshot("final_model", calibrated_scores)
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(
             history.get("rows") or []
@@ -519,6 +543,7 @@ class DistributionMixin(DistributionSignalMixin):
             validated_current_max_floor_bucket=validated_current_max_floor,
             current_observed_bucket=current_observed_bucket,
             observed_support_bucket=observed_support_bucket,
+            current_max_boundary=deepcopy(current_max_boundary),
         )
         component_payload = pipeline.payload()
         result = DistributionResult(

@@ -46,3 +46,13 @@ blocker drilldown, lifecycle budget panel, and live-forward gate panel. The
 budget ledger table now shows both `event` and `budget_action`, and dashboard
 helpers reconstruct current open lifecycle orders from `order_lifecycle.jsonl`.
 Validation: `pytest tests\app\test_market_making_view.py -q` passed.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - COCKPIT LIVE`.
+- The file contains 8 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

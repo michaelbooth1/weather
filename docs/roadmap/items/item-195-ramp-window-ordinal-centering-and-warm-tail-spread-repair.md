@@ -50,3 +50,13 @@ forecast high, current/observed bucket, warm-outlier state, and high
 disagreement. The stage records metadata and component snapshots when active.
 The June 20 low-tail taker replay materially capped warm-tail loss, and focused
 tests prove the dampener reduces mass above the robust anchor.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - RAMP WARM-TAIL DAMPENER LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

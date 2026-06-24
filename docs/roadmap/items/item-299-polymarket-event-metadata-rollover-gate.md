@@ -66,3 +66,13 @@ operators get a single refresh command for ordinary staleness plus a distinct
 manual-review blocker for real market-template drift.
 
 Related: items 18, 19, 38, 46, 57, 66, 152, 174, 202, 243, 287, 294.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

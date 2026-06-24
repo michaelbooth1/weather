@@ -343,7 +343,8 @@ infrastructure work remains.
 | 304 | [Maker Current-Run Evidence Selection And Quote-Starvation Gate [COMPLETE 2026-06-24 - TRADING EVIDENCE SELECTS TARGET-DATE RUNS AND GATES QUOTE STARVATION]](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
 | 305 | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [COMPLETE 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
 | 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
-| 309 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [OPEN 2026-06-24 - GATE FAILS CLOSED: NO CURRENT SNAPSHOT, TEMPLATE, OR ACCEPT-BASELINE EXISTS]](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 309 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [COMPLETE 2026-06-24 - SNAPSHOT TEMPLATE, PUBLISH, ACCEPT-BASELINE, AND REFRESH CADENCE IN PLACE]](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 310 | [Toronto WU Current-Max Boundary Over-Lock Guard [COMPLETE 2026-06-24 - SUPPORT-ONLY CURRENT-MAX BOUNDARY GUARD LIVE]](items/item-310-toronto-wu-current-max-boundary-overlock-guard.md) |
 
 ### Architecture And Maintainability
 

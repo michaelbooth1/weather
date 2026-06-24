@@ -49,3 +49,13 @@ command. `daily_learning` now turns a blocked rollup freshness gate into a P0
 learning blocker and renders the repair command. Focused tests cover dead-PID
 lock recovery, active-PID preservation, stale long-job status clearing, stale
 rollup status gating, and stale compact rollup learning blockers.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - STALE LOCKS AND STALE ROLLUPS FAIL CLOSED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

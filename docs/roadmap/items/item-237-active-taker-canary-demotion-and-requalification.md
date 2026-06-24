@@ -63,3 +63,13 @@ Verification:
 
 - `python -m pytest tests\market\test_taker_bot.py tests\reporting\test_taker_tail_casebook.py tests\operations\test_taker_bot_daily_roll.py tests\operations\test_schema_registry.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_learning.py tests\reporting\test_daily_progress_ledger.py -q`
   - 81 passed, 5 subtests passed.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-22 - CANARY PAPER-ONLY UNTIL REQUALIFIED`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

@@ -65,3 +65,13 @@ performance-gate state, and taker finalization blocks unsafe raw-edge next-run
 policy use when settled bakeoff evidence does not promote it. The 2026-06-20
 low-tail replay capped loss to `-3.00` USDC versus the original `-66.9901`
 USDC. Focused taker and daily-roll tests pass.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - ACTIVE DEFAULT CUT TO LOW-PRICE TAIL-CAPPED ARM`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

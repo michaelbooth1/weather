@@ -77,3 +77,13 @@ Verification:
 - `python -m weather.reporting.active_variant_shadow_refresh --variant-registry config\model_variant_registry.json --long-out data\backtest\active_variant_shadow_long.csv --json-out data\backtest\active_variant_shadow.json --report-out data\backtest\active_variant_shadow_report.md`
 - `python -m weather.reporting.variant_evidence_growth data\backtest\active_variant_shadow_long.csv --baseline-predictions data\backtest\item86_no_market_bakeoff_multi_variant_shadow_long.csv --json-out data\backtest\model_variant_evidence_growth.json --report-out data\backtest\model_variant_evidence_growth_report.md`
 - `python -m pytest -q tests\reporting\test_variant_registry.py tests\reporting\test_multi_variant_shadow.py tests\operations\test_daily_refresh.py tests\calibration\test_pooled_candidate_replay.py tests\calibration\test_promotion_refresh.py tests\operations\test_schema_registry.py tests\collection\test_live_variant_predictions.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - ACTIVE EXPORT CONTRACTS AUDITED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

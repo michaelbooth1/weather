@@ -76,3 +76,13 @@ Verification:
 - Live June 16 smoke with CLOB disabled found 191 open warm-side snapshots, 147
   with Open-Meteo unavailable, and 0 settled cases because no June 16
   settlement labels are present in the worktree yet.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - WARM-SIDE CASEBOOK SLICE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

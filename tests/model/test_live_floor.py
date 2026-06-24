@@ -231,6 +231,88 @@ class TestLiveObservedFloor(unittest.TestCase):
         self.assertEqual(context["quarantined_current_max"], 93.0)
         self.assertIsNone(context["validated_current_max_floor_bucket"])
 
+    def test_current_max_boundary_classifier_flags_toronto_one_up_conflict(self):
+        context = self.m.current_max_boundary_context(
+            current_max=25.0,
+            support_only_current_max=25.0,
+            history_max=24.0,
+            official_observations={"eccc_swob": 24.4, "metar": 24.2},
+            current_max_disposition="support_only",
+            current_max_state="current_max_above_history_minor_gap",
+            hour=15,
+        )
+
+        self.assertTrue(context["active"])
+        self.assertEqual(context["state"], "conflicting")
+        self.assertEqual(context["current_max_bucket"], 25)
+        self.assertEqual(context["wu_history_floor_bucket"], 24)
+        self.assertEqual(context["official_observed_bucket"], 24)
+        self.assertEqual(context["cumulative_support_bucket"], 25)
+        self.assertAlmostEqual(context["exact_band_cap"], 0.55)
+
+    def test_current_max_boundary_classifier_confirms_official_match(self):
+        context = self.m.current_max_boundary_context(
+            current_max=25.0,
+            support_only_current_max=25.0,
+            history_max=24.0,
+            official_observations={"eccc_swob": 25.0},
+            current_max_disposition="support_only",
+            current_max_state="current_max_above_history_minor_gap",
+            hour=15,
+        )
+
+        self.assertFalse(context["active"])
+        self.assertEqual(context["state"], "confirmed")
+        self.assertEqual(context["reason"], "confirmed_by_official_observation")
+
+    def test_current_max_boundary_guard_caps_exact_band_and_uses_adjacent_reference(self):
+        context = self.m.current_max_boundary_context(
+            current_max=25.0,
+            support_only_current_max=25.0,
+            history_max=24.0,
+            official_observations={"eccc_swob": 24.0},
+            current_max_disposition="support_only",
+            current_max_state="current_max_above_history_minor_gap",
+            hour=15,
+        )
+        scores = {24: 0.04, 25: 0.84, 26: 0.12}
+        reference = {24: 0.45, 25: 0.10, 26: 0.45}
+
+        out, guard = self.m.apply_current_max_boundary_overlock_guard(
+            scores,
+            context,
+            allocation_reference=reference,
+        )
+
+        self.assertAlmostEqual(sum(out.values()), 1.0, places=9)
+        self.assertAlmostEqual(out[25], 0.55, places=9)
+        self.assertGreater(out[24], scores[24])
+        self.assertGreater(out[26], scores[26])
+        self.assertAlmostEqual(guard["capped_probability"], 0.29, places=9)
+        self.assertEqual(guard["reason"], "exact_band_capped")
+
+    def test_current_max_boundary_guard_is_toronto_only(self):
+        nyc = TorontoHighTempModel(market_id="nyc")
+        context = nyc.current_max_boundary_context(
+            current_max=80.0,
+            support_only_current_max=80.0,
+            history_max=79.0,
+            official_observations={"metar": 79.0},
+            current_max_disposition="support_only",
+            current_max_state="current_max_above_history_minor_gap",
+            hour=15,
+        )
+
+        out, guard = nyc.apply_current_max_boundary_overlock_guard(
+            {79: 0.05, 80: 0.90, 81: 0.05},
+            context,
+            allocation_reference={79: 0.40, 80: 0.20, 81: 0.40},
+        )
+
+        self.assertFalse(context["active"])
+        self.assertAlmostEqual(out[80], 0.90)
+        self.assertEqual(guard["state"], "conflicting")
+
     def test_noop_when_swob_not_ahead_of_wu(self):
         scores = {t: 1.0 for t in range(16, 22)}
         out = self.m.apply_live_observed_floor(scores, swob_max=18.0, history_max=19.0)

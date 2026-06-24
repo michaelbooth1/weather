@@ -685,6 +685,22 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["material_change_count"], 1)
         self.assertEqual(payload["material_changes"][0]["field"], "market_rules.tick_size")
 
+    def test_exchange_economics_rule_drift_step_passes_with_accepted_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
+            current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+            accepted = Path(args.exchange_economics_accepted_snapshot)
+            accepted.parent.mkdir(parents=True, exist_ok=True)
+            accepted.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
+
+            result = run_exchange_economics_rule_drift_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertFalse(result["rescore_required"])
+        self.assertTrue(payload["accepted_snapshot_present"])
+        self.assertEqual(payload["current_gate"]["evidence_basis"], "current_exchange_economics")
+
     def test_model_market_disagreement_rehydration_step_writes_resolved_revision(self):
         target_date = "2026-06-21"
         with tempfile.TemporaryDirectory() as tmp:

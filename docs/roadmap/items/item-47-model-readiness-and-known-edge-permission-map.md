@@ -57,3 +57,13 @@ mode, and `no_quote` fails closed with `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
 map diagnostics in run preflight artifacts. Validation:
 `pytest tests\market\test_mm_policy.py tests\market\test_market_making_run.py tests\market\test_mm_paper.py -q`
 passed (16 tests).
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - POLICY-CONSUMED MAP`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

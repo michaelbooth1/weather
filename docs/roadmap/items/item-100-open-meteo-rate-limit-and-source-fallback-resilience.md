@@ -70,3 +70,13 @@ Verification:
 - `python -m pytest tests/model/test_source_adapters.py tests/model/test_source_cache_ttl.py tests/operations/test_observation_trigger.py::ObservationTriggerTests::test_snapshot_store_persists_source_degradation_metadata tests/reporting/test_fleet_observability.py::TestFleetObservability::test_fleet_collection_health_returns_one_row_per_registered_market`
 - `python -m pytest tests/operations/test_observation_trigger.py tests/reporting/test_fleet_observability.py`
 - `python -m pytest tests/market/test_mm_policy.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - DEGRADED SOURCE PROVENANCE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

@@ -52,3 +52,13 @@ Validation: `pytest tests\market\test_market_making_run.py -q` passed
 passed (11 tests); full `pytest -q` passed (449 tests, 84 subtests);
 `compileall src tests` passed; `python -m src.market_making_run --help` exposes
 the operator CLI, and a temp-root CLI smoke wrote the expected run artifacts.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

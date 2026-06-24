@@ -72,3 +72,13 @@ Validation:
 - `python -m py_compile src\weather\market\market_making_model_variants.py src\weather\market\market_making_run.py src\weather\market\mm_policy.py src\weather\market\mm_paper.py src\weather\market\mm_paper_reports.py src\weather\reporting\trading_evidence.py`
 
 Related: items 69, 83, 140, 216, 220, 258, 274.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - MAKER MODEL-VARIANT BAKEOFF LIVE`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

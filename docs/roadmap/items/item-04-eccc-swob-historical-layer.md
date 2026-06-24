@@ -51,3 +51,13 @@ target-window days: mean SWOB-WU bias +0.30 C, MAE 0.30 C, exact bucket match
 first reached the WU final high 180 minutes before WU's first max timestamp.
 The 2026-05-27 WU high comes from the snapshot `wu_history_high_c` override, so
 that row is scored for level/bucket but not lead timing.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

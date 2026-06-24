@@ -19,6 +19,7 @@ from weather.calibration.pooled_candidate_replay import (
     cutoff_regime,
     conservative_bridge_report,
     conservative_bridge_shadow_variant_rows,
+    current_max_boundary_slice,
     exact_winner_candidate_diagnostics,
     forecast_profile_guardrails,
     apply_microstructure_gate,
@@ -454,14 +455,33 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 "current_max_state": "current_max_history_gap",
                 "current_max_disposition": "quarantined",
                 "current_max_quarantine_reason": "large_gap_to_wu_history",
+                "current_max_gap_to_history": 10.0,
             },
             band_row=band_row,
         )
 
         self.assertEqual(copy["current_max_disposition"], "quarantined")
         self.assertEqual(copy["current_max_state"], "current_max_history_gap")
+        self.assertEqual(copy["current_max_boundary_slice"], "stale_quarantined")
         self.assertEqual(band_row["current_max_disposition"], "quarantined")
+        self.assertEqual(band_row["current_max_boundary_slice"], "stale_quarantined")
         self.assertEqual(copy["forecast_bucket_pressure"], "warm_side")
+
+    def test_current_max_boundary_slice_flags_one_bucket_support_only_rows(self):
+        self.assertEqual(
+            current_max_boundary_slice({
+                "current_max_disposition": "support_only",
+                "current_max_gap_to_history": 1.0,
+            }),
+            "support_only_one_bucket_up",
+        )
+        self.assertEqual(
+            current_max_boundary_slice({
+                "current_max_disposition": "validated",
+                "current_max_gap_to_history": 0.0,
+            }),
+            "confirmed",
+        )
 
     def test_conservative_bridge_alpha_schedule_is_predeclared(self):
         self.assertAlmostEqual(bridge_alpha_for_market("atlanta"), 0.90)
@@ -1255,6 +1275,19 @@ class TestPooledCandidateReplay(unittest.TestCase):
                             "base_rate": 0.5,
                         }
                     ],
+                    "by_current_max_boundary": [
+                        {
+                            "group": "support_only_one_bucket_up",
+                            "n": 2,
+                            "candidate_brier": 0.20,
+                            "current_brier": 0.15,
+                            "market_brier": 0.10,
+                            "delta_vs_current": 0.05,
+                            "delta_vs_market": 0.10,
+                            "candidate_skill": -1.0,
+                            "base_rate": 0.5,
+                        }
+                    ],
                     "forecast_profile_guardrails": {
                         "rows": [
                             {
@@ -1289,6 +1322,8 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertIn("### Promotion And Market-Aware Exclusions", text)
         self.assertIn("### By Cutoff Regime", text)
         self.assertIn("### By Forecast Disagreement", text)
+        self.assertIn("### By Current-Max Boundary", text)
+        self.assertIn("support_only_one_bucket_up", text)
         self.assertIn("Forecast-Profile High-Disagreement Guardrails", text)
 
     def test_sidecar_eligibility_summary_from_audit_compacts_market_mix(self):

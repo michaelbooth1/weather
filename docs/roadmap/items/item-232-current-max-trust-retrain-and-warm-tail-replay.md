@@ -176,3 +176,13 @@ python -m weather.reporting.candidate_hourly_performance --variant-rows data\bac
 python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\current_max_trust_variant_rows.csv --json-out data\backtest\current_max_trust_ten_minute_performance.json --report-out data\backtest\current_max_trust_ten_minute_performance_report.md --slot-csv-out data\backtest\current_max_trust_ten_minute_by_slot.csv --candidate-csv-out data\backtest\current_max_trust_ten_minute_candidate_by_slot.csv
 python -m pytest tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_current_max_trust_retrain_gate.py tests\model\test_feature_store.py tests\model\test_feature_skew.py -q
 ```
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

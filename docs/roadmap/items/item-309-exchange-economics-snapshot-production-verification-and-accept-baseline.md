@@ -1,4 +1,4 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [OPEN 2026-06-24 - GATE FAILS CLOSED: NO CURRENT SNAPSHOT, TEMPLATE, OR ACCEPT-BASELINE EXISTS]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [COMPLETE 2026-06-24 - SNAPSHOT TEMPLATE, PUBLISH, ACCEPT-BASELINE, AND REFRESH CADENCE IN PLACE]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
@@ -58,14 +58,14 @@ item owns the operator lifecycle of the economics snapshot.
 5. Document the refresh and accept workflow, with the source URLs, in the README
    and an operations runbook.
 
-- [ ] Author the tracked, source-verified snapshot template from current
+- [x] Author the tracked, source-verified snapshot template from current
   Polymarket US documentation.
-- [ ] Add an operator generator/refresh command that writes a gate-valid runtime
+- [x] Add an operator generator/refresh command that writes a gate-valid runtime
   snapshot with fresh `verified_at_utc`.
-- [ ] Add an audited accept/promote-baseline action that populates the accepted
+- [x] Add an audited accept/promote-baseline action that populates the accepted
   snapshot.
-- [ ] Add a recurring refresh cadence and an age-out/material-drift remediation.
-- [ ] Document the refresh/accept workflow and source URLs, and add tests for
+- [x] Add a recurring refresh cadence and an age-out/material-drift remediation.
+- [x] Document the refresh/accept workflow and source URLs, and add tests for
   template validity and an accept-to-drift round-trip.
 
 Acceptance: a current, source-verified exchange-economics snapshot exists and
@@ -74,5 +74,25 @@ validates through the item-300 gate with evidence basis
 baseline exists so material drift can be detected, the snapshot is refreshed on a
 documented cadence inside the freshness window, and the template and workflow are
 tracked and tested.
+
+## Completion Notes
+
+Completed 2026-06-24. `docs/research/exchange_economics_snapshot_template.json`
+is the tracked source-verified template, with source hash
+`9ca10e5517a9d4be486414dcb9162a3a` from current Polymarket US fee, order,
+market, liquidity-incentive, FIX order-entry, and changelog documentation.
+`weather.market.exchange_economics publish` now stamps and validates the ignored
+runtime `data/backtest/exchange_economics_snapshot.json` before writing it, and
+`weather.market.exchange_economics accept` promotes only a current validated
+snapshot to `data/backtest/exchange_economics_accepted_snapshot.json`. The
+current runtime snapshot and accepted baseline were published for target date
+`2026-06-23`; `data/backtest/exchange_economics_drift.json` is `PASS` with
+`accepted_snapshot_present=true`, `rescore_required=false`,
+`material_change_count=0`, and evidence basis `current_exchange_economics`.
+The documented cadence is `scripts/ops/register_exchange_economics_refresh.ps1`
+at 09:00 before `register_daily_refresh.ps1`; the runbook is
+`docs/operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md`. Verification:
+`python -m pytest tests\market\test_exchange_economics.py tests\operations\test_daily_refresh.py -q`
+passed (`66 passed`).
 
 Related: items 44, 45, 240, 259, 260, 300.

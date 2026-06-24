@@ -85,3 +85,13 @@ Verification:
 - Non-mutating CLI status smokes passed for snapshot capture, CLOB capture, and
   observation-trigger supervisors.
 - `.\venv\Scripts\python.exe -m pytest -q` (814 passed, 491 subtests passed)
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - SHARED SUPERVISOR PRIMITIVES LIVE`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

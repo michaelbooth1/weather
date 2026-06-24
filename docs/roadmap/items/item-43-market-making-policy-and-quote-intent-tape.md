@@ -49,3 +49,13 @@ permission rows. No-quote reason counts were missing book 89, stale book 28,
 blocked promotion 11, and shadow disagreement 1. Focused tests
 cover BLOCK fail-closed, SHADOW harvest, disagreement stand-down, PASS
 known-edge model-skewed quotes, stale watcher stand-down, and tape writing.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-14 - SHADOW POLICY LIVE`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

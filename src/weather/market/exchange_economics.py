@@ -7,6 +7,7 @@ live account/platform submission gate remains in ``market_making_preflight``.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -18,7 +19,7 @@ from weather.market.market_making_preflight import (
     recent_utc_timestamp,
 )
 from weather.market.mm_policy import maybe_float, parse_time, utc_now
-from weather.paths import data_path
+from weather.paths import data_path, docs_path
 from weather.schema_registry import schema_version
 
 
@@ -26,6 +27,7 @@ SNAPSHOT_SCHEMA_VERSION = schema_version("exchange_economics_snapshot")
 DRIFT_SCHEMA_VERSION = schema_version("exchange_economics_drift")
 DEFAULT_PLATFORM = "polymarket_us"
 DEFAULT_MAX_AGE_HOURS = 24.0
+DEFAULT_TEMPLATE = docs_path("research", "exchange_economics_snapshot_template.json")
 DEFAULT_SNAPSHOT = data_path() / "backtest" / "exchange_economics_snapshot.json"
 DEFAULT_ACCEPTED_SNAPSHOT = data_path() / "backtest" / "exchange_economics_accepted_snapshot.json"
 DEFAULT_DRIFT_REPORT = data_path() / "backtest" / "exchange_economics_drift.json"
@@ -45,6 +47,22 @@ MATERIAL_FIELD_PATHS = (
     ("api_order_semantics",),
     ("order_semantics",),
 )
+RUNTIME_SNAPSHOT_FIELDS = {
+    "accepted_at_utc",
+    "accepted_from_snapshot_path",
+    "accepted_gate",
+    "exchange_economics_hash",
+    "published_at_utc",
+    "published_from_template",
+    "snapshot_hash",
+    "snapshot_id",
+    "source_hash",
+    "source_hash_sha256",
+    "target_date",
+    "verified_at_utc",
+    "verified_for_target_date",
+}
+SOURCE_HASH_METADATA_FIELDS = {"source_hash", "source_hash_sha256"}
 
 
 def _json_hash(payload, length=24):
@@ -102,6 +120,23 @@ def _source_hash(payload):
         or metadata.get("source_hash")
         or metadata.get("source_hash_sha256")
     )
+
+
+def source_proof_hash(payload):
+    payload = payload or {}
+    source_metadata = {
+        key: value
+        for key, value in (payload.get("source_metadata") or {}).items()
+        if key not in SOURCE_HASH_METADATA_FIELDS
+    }
+    source_payload = {
+        "source_urls": sorted(set(_source_urls(payload))),
+        "sources": payload.get("sources") or [],
+        "source_metadata": source_metadata,
+        "source_evidence": payload.get("source_evidence") or {},
+        "source_verification": payload.get("source_verification") or {},
+    }
+    return _json_hash(source_payload, length=32)
 
 
 def _target_text(value):
@@ -427,6 +462,135 @@ def write_drift_report(payload, path=DEFAULT_DRIFT_REPORT):
     return write_json(path, payload)
 
 
+def load_snapshot_template(path=DEFAULT_TEMPLATE):
+    path = Path(path)
+    payload = _load_json(path)
+    if payload is None:
+        raise ValueError(f"invalid or missing exchange-economics template: {path}")
+    return payload
+
+
+def prepare_snapshot_from_template(
+    template_payload,
+    *,
+    target_date=None,
+    verified_at_utc=None,
+    platform=DEFAULT_PLATFORM,
+    now=None,
+):
+    now_dt = utc_now(now)
+    target_text = _target_text(target_date or _evidence_target(template_payload or {}) or now_dt.date())
+    verified_at = verified_at_utc or now_dt.isoformat()
+    payload = deepcopy(template_payload or {})
+    for field in RUNTIME_SNAPSHOT_FIELDS:
+        payload.pop(field, None)
+    payload["schema_version"] = payload.get("schema_version") or SNAPSHOT_SCHEMA_VERSION
+    payload["platform"] = platform or payload.get("platform") or DEFAULT_PLATFORM
+    payload["verified_for_target_date"] = target_text
+    payload["target_date"] = target_text
+    payload["verified_at_utc"] = verified_at
+    payload["source_hash"] = source_proof_hash(payload)
+    payload["source_hash_sha256"] = payload["source_hash"]
+    payload["snapshot_id"] = snapshot_id(payload)
+    payload["exchange_economics_hash"] = snapshot_hash(payload)
+    return payload
+
+
+def publish_snapshot_from_template(
+    *,
+    template_path=DEFAULT_TEMPLATE,
+    snapshot_path=DEFAULT_SNAPSHOT,
+    target_date=None,
+    platform=DEFAULT_PLATFORM,
+    now=None,
+    max_age_hours=None,
+):
+    template = load_snapshot_template(template_path)
+    payload = prepare_snapshot_from_template(
+        template,
+        target_date=target_date,
+        platform=platform,
+        now=now,
+    )
+    payload["published_at_utc"] = payload["verified_at_utc"]
+    payload["published_from_template"] = str(template_path)
+    gate = _check_snapshot_payload(
+        payload,
+        path=snapshot_path,
+        target_date=target_date or payload.get("verified_for_target_date"),
+        platform=platform,
+        now=now,
+        max_age_hours=max_age_hours,
+    )
+    if not gate.get("ok"):
+        raise ValueError(gate.get("reason") or "exchange-economics snapshot template did not validate")
+    out = write_json(snapshot_path, payload)
+    return {
+        "status": "PASS",
+        "snapshot_path": str(out),
+        "template_path": str(template_path),
+        "target_date": payload.get("verified_for_target_date"),
+        "snapshot_id": gate.get("snapshot_id"),
+        "snapshot_hash": gate.get("snapshot_hash"),
+        "source_hash": gate.get("source_hash"),
+        "gate": gate,
+        "payload": payload,
+    }
+
+
+def accept_snapshot_baseline(
+    *,
+    snapshot_path=DEFAULT_SNAPSHOT,
+    accepted_snapshot_path=DEFAULT_ACCEPTED_SNAPSHOT,
+    drift_report_path=DEFAULT_DRIFT_REPORT,
+    target_date=None,
+    platform=DEFAULT_PLATFORM,
+    now=None,
+    max_age_hours=None,
+):
+    gate = load_exchange_economics_gate(
+        snapshot_path,
+        target_date,
+        platform=platform,
+        now=now,
+        max_age_hours=max_age_hours,
+    )
+    if not gate.get("ok"):
+        raise ValueError(gate.get("reason") or "exchange-economics snapshot is not current")
+    payload = _load_json(snapshot_path)
+    if payload is None:
+        raise ValueError(f"invalid exchange-economics snapshot JSON: {snapshot_path}")
+    accepted_payload = deepcopy(payload)
+    accepted_payload["accepted_at_utc"] = utc_now(now).isoformat()
+    accepted_payload["accepted_from_snapshot_path"] = str(snapshot_path)
+    accepted_payload["accepted_gate"] = {
+        "status": gate.get("status"),
+        "evidence_basis": gate.get("evidence_basis"),
+        "snapshot_id": gate.get("snapshot_id"),
+        "snapshot_hash": gate.get("snapshot_hash"),
+        "source_hash": gate.get("source_hash"),
+        "verified_at_utc": gate.get("verified_at_utc"),
+        "verified_for_target_date": gate.get("verified_for_target_date"),
+    }
+    accepted_out = write_json(accepted_snapshot_path, accepted_payload)
+    drift = build_drift_report(
+        snapshot_path=snapshot_path,
+        accepted_snapshot_path=accepted_out,
+        target_date=target_date,
+        platform=platform,
+        now=now,
+        max_age_hours=max_age_hours,
+    )
+    drift_out = write_drift_report(drift, drift_report_path) if drift_report_path else None
+    return {
+        "status": "PASS" if drift.get("status") == "PASS" else drift.get("status"),
+        "accepted_snapshot_path": str(accepted_out),
+        "drift_report_path": str(drift_out) if drift_out else None,
+        "gate": gate,
+        "drift": drift,
+    }
+
+
 def build_snapshot_payload(
     *,
     target_date,
@@ -489,15 +653,79 @@ def build_snapshot_payload(
     return payload
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Validate exchange economics snapshot and drift.")
+def _add_drift_args(parser):
     parser.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
     parser.add_argument("--accepted-snapshot", default=str(DEFAULT_ACCEPTED_SNAPSHOT))
     parser.add_argument("--target-date", default="")
     parser.add_argument("--platform", default=DEFAULT_PLATFORM)
     parser.add_argument("--now", default=None)
     parser.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
+    return parser
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Publish, accept, or validate exchange economics snapshots.")
+    sub = parser.add_subparsers(dest="command")
+
+    publish = sub.add_parser("publish", help="Stamp and validate a runtime snapshot from the tracked template.")
+    publish.add_argument("--template", default=str(DEFAULT_TEMPLATE))
+    publish.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
+    publish.add_argument("--target-date", default="")
+    publish.add_argument("--platform", default=DEFAULT_PLATFORM)
+    publish.add_argument("--now", default=None)
+    publish.add_argument("--max-age-hours", type=float, default=None)
+    publish.add_argument("--accept", action="store_true", help="Also promote the published snapshot to the accepted baseline.")
+    publish.add_argument("--accepted-snapshot", default=str(DEFAULT_ACCEPTED_SNAPSHOT))
+    publish.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
+
+    accept = sub.add_parser("accept", help="Promote a current validated snapshot to the accepted baseline.")
+    accept.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
+    accept.add_argument("--accepted-snapshot", default=str(DEFAULT_ACCEPTED_SNAPSHOT))
+    accept.add_argument("--target-date", default="")
+    accept.add_argument("--platform", default=DEFAULT_PLATFORM)
+    accept.add_argument("--now", default=None)
+    accept.add_argument("--max-age-hours", type=float, default=None)
+    accept.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
+
+    drift = sub.add_parser("drift", help="Validate current snapshot and compare it to the accepted baseline.")
+    _add_drift_args(drift)
+
+    _add_drift_args(parser)
     args = parser.parse_args(argv)
+    if args.command == "publish":
+        payload = publish_snapshot_from_template(
+            template_path=args.template,
+            snapshot_path=args.snapshot,
+            target_date=args.target_date or None,
+            platform=args.platform,
+            now=args.now,
+            max_age_hours=args.max_age_hours,
+        )
+        print(f"Exchange economics snapshot: {payload['status']} -> {payload['snapshot_path']}")
+        if args.accept:
+            payload["acceptance"] = accept_snapshot_baseline(
+                snapshot_path=args.snapshot,
+                accepted_snapshot_path=args.accepted_snapshot,
+                drift_report_path=args.json_out,
+                target_date=args.target_date or None,
+                platform=args.platform,
+                now=args.now,
+                max_age_hours=args.max_age_hours,
+            )
+            print(f"Accepted baseline: {payload['acceptance']['status']} -> {payload['acceptance']['accepted_snapshot_path']}")
+        return payload
+    if args.command == "accept":
+        payload = accept_snapshot_baseline(
+            snapshot_path=args.snapshot,
+            accepted_snapshot_path=args.accepted_snapshot,
+            drift_report_path=args.json_out,
+            target_date=args.target_date or None,
+            platform=args.platform,
+            now=args.now,
+            max_age_hours=args.max_age_hours,
+        )
+        print(f"Accepted baseline: {payload['status']} -> {payload['accepted_snapshot_path']}")
+        return payload
     payload = build_drift_report(
         snapshot_path=args.snapshot,
         accepted_snapshot_path=args.accepted_snapshot,

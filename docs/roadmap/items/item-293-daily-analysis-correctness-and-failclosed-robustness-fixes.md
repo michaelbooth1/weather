@@ -95,3 +95,13 @@ tests/reporting/test_daily_progress_ledger.py
 tests/reporting/test_daily_flow_analysis.py -q` covers the missing-improvement
 fail-closed path, zero-preserving row counts, FAIL gate handling, sort before
 truncate, schema-stable CSV append, and integer rounding consistency.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - FAIL-CLOSED PROMOTION AND STABLE DAILY LEDGERS`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

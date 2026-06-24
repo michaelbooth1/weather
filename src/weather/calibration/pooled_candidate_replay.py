@@ -254,6 +254,31 @@ def forecast_bucket_pressure(value):
     return "near_forecast"
 
 
+def current_max_boundary_slice(feature_row):
+    """Replay slice for support-only current max near a printed WU boundary."""
+
+    feature_row = feature_row or {}
+    disposition = str(feature_row.get("current_max_disposition") or "").strip().lower()
+    state = str(feature_row.get("current_max_state") or "").strip().lower()
+    try:
+        gap = float(feature_row.get("current_max_gap_to_history"))
+    except (TypeError, ValueError):
+        gap = None
+    if not disposition:
+        return "unknown"
+    if disposition == "support_only":
+        if gap is not None and 0.0 < gap <= 1.5:
+            return "support_only_one_bucket_up"
+        if gap is not None and gap > 1.5:
+            return "support_only_multi_bucket_up"
+        return "support_only"
+    if disposition in {"quarantined", "null_before_reset", "missing"}:
+        return f"stale_{disposition}"
+    if disposition == "validated":
+        return "confirmed"
+    return state or disposition
+
+
 def density_projection_index(payload):
     density = normalize_density(density_f_from_payload(payload) or {})
     if not density:
@@ -297,10 +322,14 @@ def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None)
         "current_max_state",
         "current_max_disposition",
         "current_max_quarantine_reason",
+        "current_max_gap_to_history",
     ):
         value = feature_row.get(column)
         copy[column] = value
         band_row[column] = value
+    boundary_slice = current_max_boundary_slice(feature_row)
+    copy["current_max_boundary_slice"] = boundary_slice
+    band_row["current_max_boundary_slice"] = boundary_slice
 
 def _model_for_market(models, market_id):
     if market_id not in models:
@@ -1084,6 +1113,7 @@ def run_pooled_candidate_replay(args):
         row.setdefault("forecast_source_count_bucket", "unknown")
         row.setdefault("forecast_disagreement_bucket", "unknown")
         row.setdefault("forecast_bucket_pressure", "unknown")
+        row.setdefault("current_max_boundary_slice", "unknown")
 
     trust_rows = score_all_markets(
         root=args.snapshots_root,
@@ -1108,6 +1138,7 @@ def run_pooled_candidate_replay(args):
     by_forecast_source_count = grouped_candidate_comparison(candidate_rows, "forecast_source_count_bucket")
     by_forecast_disagreement = grouped_candidate_comparison(candidate_rows, "forecast_disagreement_bucket")
     by_forecast_bucket_pressure = grouped_candidate_comparison(candidate_rows, "forecast_bucket_pressure")
+    by_current_max_boundary = grouped_candidate_comparison(candidate_rows, "current_max_boundary_slice")
     candidate_variant_path, candidate_variant_rows_count = write_candidate_shadow_variants(
         candidate_variant_out,
         candidate_rows,
@@ -1259,6 +1290,7 @@ def run_pooled_candidate_replay(args):
         "by_forecast_source_count": by_forecast_source_count,
         "by_forecast_disagreement": by_forecast_disagreement,
         "by_forecast_bucket_pressure": by_forecast_bucket_pressure,
+        "by_current_max_boundary": by_current_max_boundary,
         "forecast_profile_guardrails": forecast_profile_guardrails(candidate_rows),
         "candidate_shadow_variants": candidate_shadow_variants,
         "active_registry_contract": registry_contract or {},

@@ -1,0 +1,207 @@
+{
+  "schema_version": "exchange_economics_snapshot_v0.1",
+  "platform": "polymarket_us",
+  "platform_surface": "retail_api_and_exchange_clob",
+  "effective_date": "2026-04-03",
+  "max_age_hours": 24,
+  "source_checked_at_utc": "2026-06-24T00:00:00+00:00",
+  "source_urls": [
+    "https://docs.polymarket.us/fees",
+    "https://docs.polymarket.us/api-reference/orders/overview",
+    "https://docs.polymarket.us/api-reference/market/overview",
+    "https://docs.polymarket.us/incentives/liquidity",
+    "https://docs.polymarket.us/institutional/fix-api/fix-order-entry-overview",
+    "https://docs.polymarket.us/changelog"
+  ],
+  "source_hash": "9ca10e5517a9d4be486414dcb9162a3a",
+  "source_metadata": {
+    "source_hash_algorithm": "sha256 over normalized source_urls, sources, source_metadata excluding source_hash fields, source_evidence, and source_verification",
+    "source_hash": "9ca10e5517a9d4be486414dcb9162a3a",
+    "operator_note": "Refresh this template from official Polymarket US documentation before accepting any material rule change."
+  },
+  "source_verification": {
+    "verification_owner": "operator",
+    "verification_scope": "Polymarket US fee, rebate, liquidity-incentive, tick-size, minimum-quantity, and order-semantics rules used by paper and shadow evidence",
+    "source_checked_date": "2026-06-24",
+    "runtime_publish_command": "python -m weather.market.exchange_economics publish --target-date <YYYY-MM-DD>",
+    "accept_baseline_command": "python -m weather.market.exchange_economics accept --target-date <YYYY-MM-DD>"
+  },
+  "sources": [
+    {
+      "name": "Polymarket US Fee Schedule",
+      "url": "https://docs.polymarket.us/fees",
+      "fields": [
+        "effective_date",
+        "fee_model",
+        "taker_fee_rate",
+        "maker_rebate",
+        "rounding",
+        "execution_only_fee_semantics"
+      ]
+    },
+    {
+      "name": "Polymarket US Orders API Overview",
+      "url": "https://docs.polymarket.us/api-reference/orders/overview",
+      "fields": [
+        "price_bounds",
+        "minimumTradeQty",
+        "orderPriceMinTickSize",
+        "order_states"
+      ]
+    },
+    {
+      "name": "Polymarket US Markets API Overview",
+      "url": "https://docs.polymarket.us/api-reference/market/overview",
+      "fields": [
+        "market_specific_tick_size",
+        "market_specific_minimum_quantity"
+      ]
+    },
+    {
+      "name": "Polymarket US Liquidity Incentive Program",
+      "url": "https://docs.polymarket.us/incentives/liquidity",
+      "fields": [
+        "liquidity_reward_formula",
+        "discount_factor",
+        "target_size",
+        "minimum_payout",
+        "parameter_change_semantics"
+      ]
+    },
+    {
+      "name": "Polymarket US FIX Order Entry Overview",
+      "url": "https://docs.polymarket.us/institutional/fix-api/fix-order-entry-overview",
+      "fields": [
+        "continuous_clob_price_time_priority",
+        "limit_order",
+        "market_to_limit",
+        "time_in_force",
+        "tick_and_quantity_rejection_semantics"
+      ]
+    },
+    {
+      "name": "Polymarket US Changelog",
+      "url": "https://docs.polymarket.us/changelog",
+      "fields": [
+        "partial_contract_rollout",
+        "do_not_infer_tick_or_quantity"
+      ]
+    }
+  ],
+  "fee_model": {
+    "name": "polymarket_symmetric_price_v1",
+    "taker_fee_model": "polymarket_symmetric_price_v1",
+    "fee_formula": "fee_usdc = theta * contracts * price * (1 - price)",
+    "taker_fee_rate": 0.05,
+    "theta": 0.05,
+    "maker_fee_rate": 0.0,
+    "flattening_fee_rate": 0.05,
+    "rounding": "nearest_cent_bankers_rounding",
+    "fees_charged_when": "trade_executes",
+    "fee_currency": "USD",
+    "local_config_reconciliation": {
+      "taker_fee_rate": 0.05,
+      "taker_fee_model": "polymarket_symmetric_price_v1",
+      "configured_taker_fee_effective_date": "2026-03-30",
+      "docs_effective_date": "2026-04-03",
+      "resolution": "Configured rate and model match current Polymarket US docs; docs effective date controls this production snapshot."
+    }
+  },
+  "maker_rebate": {
+    "formula": "maker_rebate_usdc = maker_rebate_pool_share * taker_fee_usdc",
+    "pool_share": 0.25,
+    "maker_rebate_rate": 0.25,
+    "theta_equivalent": 0.0125,
+    "credited_when": "at_fill",
+    "currency": "USD"
+  },
+  "liquidity_rewards": {
+    "formula": "score = discount_factor ** ticks_from_best_price * order_size; bid and ask sides are normalized independently, and payout is proportional to score share after target-size qualification",
+    "distance_unit": "ticks_from_best_price",
+    "discount_factor_default": 0.3,
+    "target_size_default_contracts": 10000,
+    "min_payout_usd": 1.0,
+    "parameters_market_specific": true,
+    "parameters_can_change": true,
+    "weather_related_categories": [
+      "Climate"
+    ],
+    "default_category_daily_reward_usd": 1000
+  },
+  "market_rules": {
+    "tick_size": 0.005,
+    "min_order_size": 0.01,
+    "price_min": 0.01,
+    "price_max": 0.99,
+    "tick_size_field": "orderPriceMinTickSize",
+    "min_order_size_field": "minimumTradeQty",
+    "market_specific_fields_required": true,
+    "order_semantics": {
+      "limit_order": "Priced order can trade only at the specified price or better.",
+      "market_order": "Market behavior is represented by market-to-limit/IOC or a marketable order; no-liquidity market orders can reject.",
+      "cancel": "Open orders can be canceled before fill; canceled, expired, or rejected orders do not incur fees.",
+      "price_time_priority": "Higher bids, lower offers, then earlier timestamp at the same price have priority."
+    }
+  },
+  "api_order_semantics": {
+    "quantity_precision": "Read minimumTradeQty from the market response and submit quantity aligned to that increment.",
+    "price_precision": "Read orderPriceMinTickSize from the market response and submit price.value aligned to that increment.",
+    "extra_precision": "Extra precision can be normalized to market precision.",
+    "order_states": [
+      "PENDING_NEW",
+      "NEW",
+      "PARTIALLY_FILLED",
+      "FILLED",
+      "CANCELED",
+      "REJECTED",
+      "EXPIRED"
+    ],
+    "fix_time_in_force": [
+      "DAY",
+      "GTC",
+      "IOC",
+      "FOK",
+      "GTD"
+    ]
+  },
+  "order_semantics": {
+    "clob": "continuous_price_time_priority",
+    "limit_order": "price_or_better",
+    "market_to_limit": "fills available best price depth, with residual converted to a limit order at the last fill price subject to time-in-force",
+    "fees_on_cancel": false,
+    "fees_on_reject": false,
+    "fees_on_expire": false
+  },
+  "source_evidence": [
+    {
+      "field": "fee_model.taker_fee_rate",
+      "source_url": "https://docs.polymarket.us/fees",
+      "verified_value": "theta=0.05"
+    },
+    {
+      "field": "maker_rebate.pool_share",
+      "source_url": "https://docs.polymarket.us/fees",
+      "verified_value": "25 percent of taker fees"
+    },
+    {
+      "field": "market_rules.tick_size",
+      "source_url": "https://docs.polymarket.us/api-reference/market/overview",
+      "verified_value": "orderPriceMinTickSize is market-specific; 0.005 is a documented half-cent example"
+    },
+    {
+      "field": "market_rules.min_order_size",
+      "source_url": "https://docs.polymarket.us/api-reference/market/overview",
+      "verified_value": "minimumTradeQty is market-specific; 0.01 means one percent of a contract"
+    },
+    {
+      "field": "liquidity_rewards.formula",
+      "source_url": "https://docs.polymarket.us/incentives/liquidity",
+      "verified_value": "discount_factor ** ticks_from_best_price * order_size"
+    },
+    {
+      "field": "order_semantics",
+      "source_url": "https://docs.polymarket.us/institutional/fix-api/fix-order-entry-overview",
+      "verified_value": "continuous CLOB, price-time priority, market-to-limit, IOC/FOK/GTD/GTC"
+    }
+  ]
+}

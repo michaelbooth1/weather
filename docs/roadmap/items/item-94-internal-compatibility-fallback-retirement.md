@@ -81,3 +81,13 @@ Verification:
 - `.\venv\Scripts\python.exe -m pytest tests\operations\test_import_architecture.py tests\collection\test_collection_robustness.py tests\collection\test_forecast_tracker.py tests\market\test_market_microstructure.py tests\market\test_market_making_run.py tests\market\test_mm_paper.py tests\market\test_mm_exchange.py tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_data_layer_audit.py -q`
   (139 passed)
 - `.\venv\Scripts\python.exe -m pytest -q` (806 passed, 491 subtests passed)
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - INTERNAL FALLBACKS RETIRED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

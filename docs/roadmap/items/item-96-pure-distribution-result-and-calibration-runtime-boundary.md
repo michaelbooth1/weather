@@ -87,3 +87,13 @@ Verification:
 - `.\venv\Scripts\python.exe -m pytest tests\calibration\test_intraday_calibration.py tests\model\test_bucket_transitions.py tests\model\test_late_day_lockin.py tests\model\test_feature_model_calibration.py tests\model\test_feature_model_ablation.py -q`
   (49 passed)
 - `.\venv\Scripts\python.exe -m pytest -q` (816 passed, 491 subtests passed)
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - DISTRIBUTION RESULT OWNS METADATA`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

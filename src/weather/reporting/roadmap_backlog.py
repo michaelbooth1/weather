@@ -37,6 +37,10 @@ OWNER_PACKAGE_RE = re.compile(
 )
 CHECKLIST_RE = re.compile(r"^- \[[ xX]\] ", re.MULTILINE)
 BLOCKED_MARKER_RE = re.compile(r"\bBLOCK(?:ED|S|ING)?\b", re.IGNORECASE)
+COMPLETION_NOTES_RE = re.compile(
+    r"^(?:##\s+.*completion notes|completion notes:)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 REQUIRED_ACTIVE_MARKERS = {
     "goal": re.compile(r"^Goal:", re.MULTILINE),
     "source": re.compile(r"^Source:", re.MULTILINE),
@@ -139,6 +143,7 @@ def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> 
         "active": False,
         "parse_errors": [],
         "section_presence": {},
+        "completion_notes_present": bool(COMPLETION_NOTES_RE.search(text)),
         "checklist_count": len(CHECKLIST_RE.findall(text)),
         "open_checklist_count": len(re.findall(r"^- \[ \] ", text, flags=re.MULTILINE)),
         "checked_checklist_count": len(re.findall(r"^- \[[xX]\] ", text, flags=re.MULTILINE)),
@@ -201,6 +206,15 @@ def lint_item(item: dict[str, Any]) -> list[dict[str, Any]]:
                     "path": item.get("path"),
                     "detail": f"active roadmap item is missing required {key} section",
                 })
+    if item.get("status") == "COMPLETE" and not item.get("parse_errors"):
+        if not item.get("completion_notes_present"):
+            issues.append({
+                "severity": "error",
+                "category": "complete_item_missing_completion_notes",
+                "item": item.get("number"),
+                "path": item.get("path"),
+                "detail": "complete roadmap item is missing a completion notes section",
+            })
     return issues
 
 

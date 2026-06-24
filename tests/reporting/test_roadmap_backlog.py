@@ -13,6 +13,11 @@ from weather.reporting.roadmap_backlog import (
 
 
 def _item(path: Path, number: int, status: str, body: str = "") -> Path:
+    completion_notes = (
+        "\n\n## Completion Notes\n\nValidated in test fixture.\n"
+        if status.startswith("COMPLETE") and "Completion Notes" not in body
+        else ""
+    )
     path.write_text(
         f"# {number}. Demo Item {number} [{status}]\n\n"
         "Goal: do the thing.\n\n"
@@ -20,6 +25,7 @@ def _item(path: Path, number: int, status: str, body: str = "") -> Path:
         "Why this matters: test value.\n\n"
         "- [ ] Finish it.\n\n"
         "Acceptance: proof exists.\n"
+        + completion_notes
         + body,
         encoding="utf-8",
     )
@@ -138,6 +144,24 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ERROR")
         categories = {issue["category"] for issue in payload["lint_issues"]}
         self.assertIn("active_item_missing_required_section", categories)
+
+    def test_complete_items_missing_completion_notes_are_lint_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            (items / "item-001-done.md").write_text(
+                "# 1. Done Item [COMPLETE]\n\n"
+                "- [x] Shipped.\n\n"
+                "Acceptance: proof exists.\n",
+                encoding="utf-8",
+            )
+
+            payload = build_payload(root)
+
+        self.assertEqual(payload["status"], "ERROR")
+        categories = {issue["category"] for issue in payload["lint_issues"]}
+        self.assertIn("complete_item_missing_completion_notes", categories)
 
     def test_roadmap_index_lint_catches_duplicate_stale_missing_and_orphan_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

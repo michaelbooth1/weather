@@ -78,3 +78,13 @@ Closed notes:
   `python -m pytest tests\reporting\test_daily_learning.py::TestDailyLearning::test_build_learning_payload_emits_experiment_queue_and_reconciles_results tests\reporting\test_daily_learning.py::TestDailyLearning::test_build_learning_payload_suppresses_retrain_recommendation_without_clean_triggers tests\operations\test_nightly_retrain.py`.
 
 Related: items 36, 37, 108, 115, 125, 138, 295, 297.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - STRUCTURED QUEUE, NIGHTLY EXECUTION, AND RETRAIN RECOMMENDATION LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

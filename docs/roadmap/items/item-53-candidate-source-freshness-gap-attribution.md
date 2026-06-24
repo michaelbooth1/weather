@@ -33,3 +33,13 @@ market on 2,695 rows), `failed:wu_history;stale:metar` (+0.0119 on 253 rows),
 and `stale:metar` (+0.0040 on 616 rows). Validation:
 `pytest tests\calibration\test_pooled_candidate_replay.py tests\calibration\test_promotion_refresh.py -q`
 passed.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - REPORT ATTRIBUTION LIVE`.
+- The file contains 3 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

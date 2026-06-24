@@ -86,3 +86,13 @@ Acceptance: the project can collect and replay multiple candidate probabilities
 per location/day with paired evidence, explicit no-market versus market-informed
 separation, and promotion reports that cannot mistake correlated band rows or
 retuned variants for independent out-of-sample proof.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE`.
+- The file contains 7 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

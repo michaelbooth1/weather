@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from weather.market import exchange_economics
 
 
@@ -78,3 +80,83 @@ def test_snapshot_blocks_target_date_mismatch(tmp_path):
 
     assert gate["status"] == "BLOCK"
     assert "target_date_matches" in gate["missing"]
+
+
+def test_template_prepares_current_source_verified_snapshot():
+    template = exchange_economics.load_snapshot_template()
+
+    payload = exchange_economics.prepare_snapshot_from_template(
+        template,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    gate = exchange_economics._check_snapshot_payload(
+        payload,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+
+    assert gate["status"] == "PASS"
+    assert gate["evidence_basis"] == exchange_economics.CURRENT_EVIDENCE_BASIS
+    assert payload["source_hash"] == "9ca10e5517a9d4be486414dcb9162a3a"
+    assert payload["fee_model"]["taker_fee_rate"] == 0.05
+    assert payload["fee_model"]["taker_fee_model"] == "polymarket_symmetric_price_v1"
+
+
+def test_publish_snapshot_from_template_validates_before_overwrite(tmp_path):
+    template = exchange_economics.load_snapshot_template()
+    template["fee_model"].pop("taker_fee_rate")
+    template["fee_model"].pop("theta")
+    template_path = _write(tmp_path / "template.json", template)
+    snapshot_path = tmp_path / "exchange.json"
+    snapshot_path.write_text('{"keep": true}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="taker_fee_rate_recorded"):
+        exchange_economics.publish_snapshot_from_template(
+            template_path=template_path,
+            snapshot_path=snapshot_path,
+            target_date=TARGET_DATE,
+            now=NOW,
+        )
+
+    assert json.loads(snapshot_path.read_text(encoding="utf-8")) == {"keep": True}
+
+
+def test_publish_accept_and_later_material_drift_round_trip(tmp_path):
+    snapshot_path = tmp_path / "exchange.json"
+    accepted_path = tmp_path / "accepted.json"
+    drift_path = tmp_path / "drift.json"
+
+    published = exchange_economics.publish_snapshot_from_template(
+        snapshot_path=snapshot_path,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    accepted = exchange_economics.accept_snapshot_baseline(
+        snapshot_path=snapshot_path,
+        accepted_snapshot_path=accepted_path,
+        drift_report_path=drift_path,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+
+    assert published["status"] == "PASS"
+    assert accepted["status"] == "PASS"
+    assert accepted["drift"]["accepted_snapshot_present"] is True
+    assert accepted["drift"]["rescore_required"] is False
+
+    current = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    current["fee_model"]["taker_fee_rate"] = 0.06
+    current["exchange_economics_hash"] = exchange_economics.snapshot_hash(current)
+    snapshot_path.write_text(json.dumps(current), encoding="utf-8")
+
+    report = exchange_economics.build_drift_report(
+        snapshot_path,
+        accepted_path,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+
+    assert report["status"] == "BLOCK"
+    assert report["rescore_required"] is True
+    assert {row["field"] for row in report["material_changes"]} == {"fee_model"}

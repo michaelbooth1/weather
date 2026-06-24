@@ -1,0 +1,47 @@
+# Registers the exchange-economics snapshot refresh as a Windows Scheduled Task.
+#
+# The task publishes a current snapshot from the tracked source template before
+# the daily settlement/report refresh. It does not accept the baseline.
+#
+# Run from the repo root:  .\scripts\ops\register_exchange_economics_refresh.ps1
+# Re-running replaces the existing task.
+
+param(
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$TaskName = "WeatherExchangeEconomicsSnapshotRefresh",
+    [string]$At = "09:00"
+)
+
+$script = Join-Path $RepoRoot "scripts\ops\refresh_exchange_economics_snapshot.ps1"
+if (-not (Test-Path $script)) {
+    throw "refresh script not found at $script"
+}
+
+$arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -RepoRoot `"$RepoRoot`""
+
+$action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument $arguments `
+    -WorkingDirectory $RepoRoot
+
+$trigger = New-ScheduledTaskTrigger -Daily -At $At
+
+$settings = New-ScheduledTaskSettingsSet `
+    -MultipleInstances IgnoreNew `
+    -Hidden `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
+    -StartWhenAvailable `
+    -WakeToRun `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries
+
+Register-ScheduledTask `
+    -TaskName $TaskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Description "Publishes the daily exchange-economics snapshot from docs/research/exchange_economics_snapshot_template.json." `
+    -Force | Out-Null
+
+Write-Host "Registered scheduled task '$TaskName': daily at $At."
+Write-Host "Verify with: Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo"

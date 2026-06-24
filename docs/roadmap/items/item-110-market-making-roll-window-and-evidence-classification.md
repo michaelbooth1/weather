@@ -56,3 +56,13 @@ Completion notes (2026-06-17):
 Verification:
 - `.\venv\Scripts\python.exe -m pytest -q tests\market\test_market_making_evidence.py tests\operations\test_market_making_daily_roll.py tests\market\test_market_making_run.py tests\operations\test_schema_registry.py`
 - `.\venv\Scripts\python.exe -m pytest -q tests\market\test_mm_paper.py tests\market\test_mm_exchange.py tests\app\test_market_making_view.py tests\reporting\test_fleet_observability.py tests\reporting\test_daily_learning.py tests\reporting\test_snapshot_evaluation.py tests\operations\test_import_architecture.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-17 - EVIDENCE MODE GATE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

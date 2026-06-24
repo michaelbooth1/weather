@@ -111,6 +111,13 @@ METAR_LIVE_SIGNAL_MAX_WEIGHT = 0.60
 METAR_LIVE_SIGNAL_SIGMA = 0.90
 WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL = 0.001
 
+# --- Current-max boundary over-lock guard ----------------------------------
+# WU/Weather.com max-since-7am is support evidence outside validated markets:
+# it can imply the final high may have reached at least that bucket, but when
+# WU history is still one bucket lower and official observations do not confirm
+# the higher bucket, it must not become exact-band lock-in by itself.
+CURRENT_MAX_BOUNDARY_CONFLICT_EXACT_CAP = 0.55
+
 # --- Late-day lock-in (upper-tail mirror of the floors) ---------------------
 # The biggest model-vs-market gap is end-of-day under-confidence: once the day
 # is past its peak and the temperature is falling, the high is essentially

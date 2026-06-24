@@ -52,3 +52,13 @@ reason taxonomy, and a quality classification that daily learning can consume
 without treating stale labels or missing artifacts as valid no-edge evidence.
 
 Related: items 234, 235, 236, 238, 239, 240, 241, 256, 272, 273, 274, 275, 276, 283, 284, 285, 294.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS NOW PRODUCE CANONICAL POST-SETTLEMENT EVIDENCE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

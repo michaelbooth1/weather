@@ -84,3 +84,13 @@ Verification:
   returned `PASS` with 6 configs and 0 warnings.
 - `python -m pytest -q tests\operations\test_config_inventory.py tests\operations\test_location_config_refresh.py tests\reporting\test_source_family_inventory.py tests\market\test_market_config.py tests\operations\test_schema_registry.py tests\operations\test_import_architecture.py tests\operations\test_path_policy.py`
   passed.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-20 - DURABLE CONFIGS AND FRESH GENERATED EVENTS`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

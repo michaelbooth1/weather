@@ -44,6 +44,7 @@ from weather.model.model_distribution_constants import (
     LATE_LOCKIN_START_HOUR,
     LEARNED_LOCKIN_STAND_MINUTES,
     LEARNED_LOCKIN_START_HOUR,
+    CURRENT_MAX_BOUNDARY_CONFLICT_EXACT_CAP,
     LIVE_FLOOR_BASE,
     LIVE_FLOOR_HEDGE,
     LIVE_FLOOR_HEDGE_MAX,
@@ -66,6 +67,157 @@ from weather.model.model_distribution_constants import (
 )
 
 class DistributionSignalMixin:
+    def current_max_boundary_context(
+        self,
+        *,
+        current_max,
+        support_only_current_max=None,
+        history_max=None,
+        official_observations=None,
+        current_max_disposition=None,
+        current_max_state=None,
+        hour=None,
+    ):
+        """Classify whether support-only current max is an exact-band risk."""
+
+        official_observations = official_observations or {}
+        current_bucket = self.round_half_up(
+            support_only_current_max if support_only_current_max is not None else current_max
+        )
+        history_bucket = self.round_half_up(history_max)
+        official_buckets = [
+            self.round_half_up(value)
+            for value in official_observations.values()
+            if self.round_half_up(value) is not None
+        ]
+        official_bucket = max(official_buckets, default=None)
+        disposition = str(current_max_disposition or "").strip().lower()
+        state = str(current_max_state or "").strip().lower()
+        context = {
+            "active": False,
+            "state": "stale",
+            "reason": "missing_current_max",
+            "market_id": getattr(self.spec, "id", None),
+            "hour": hour,
+            "current_max_bucket": current_bucket,
+            "wu_history_floor_bucket": history_bucket,
+            "official_observed_bucket": official_bucket,
+            "current_max_disposition": disposition or None,
+            "current_max_state": state or None,
+            "exact_band_bucket": current_bucket,
+            "printed_lower_bucket": history_bucket,
+            "warmer_adjacent_bucket": current_bucket + 1 if current_bucket is not None else None,
+            "cumulative_support_bucket": current_bucket,
+            "exact_band_cap": None,
+            "probability_before": None,
+            "probability_after": None,
+            "capped_probability": 0.0,
+            "redistribution": {},
+        }
+        if current_bucket is None:
+            return context
+        if disposition in {"quarantined", "null_before_reset"}:
+            context.update({"state": "stale", "reason": disposition})
+            return context
+        if history_bucket is not None and current_bucket <= history_bucket:
+            context.update({"state": "confirmed", "reason": "covered_by_wu_history"})
+            return context
+        if official_bucket is not None and current_bucket <= official_bucket:
+            context.update({"state": "confirmed", "reason": "confirmed_by_official_observation"})
+            return context
+        if disposition != "support_only":
+            context.update({"state": "stale", "reason": disposition or "not_support_only"})
+            return context
+        if history_bucket is not None and current_bucket == history_bucket + 1:
+            context.update({
+                "state": "conflicting",
+                "reason": "wu_history_one_bucket_lower_without_official_confirmation",
+                "exact_band_cap": CURRENT_MAX_BOUNDARY_CONFLICT_EXACT_CAP,
+                "active": str(getattr(self.spec, "id", "") or "").lower() == "toronto",
+            })
+            return context
+        context.update({
+            "state": "support_only",
+            "reason": "support_only_without_one_bucket_conflict",
+        })
+        return context
+
+    def apply_current_max_boundary_overlock_guard(self, scores, context, allocation_reference=None):
+        """Cap exact current-max lock-in while redistributing through nearby risk.
+
+        The cap is only active for the classified conflict state. Reallocation
+        uses a pre-floor reference shape when available so excess probability
+        follows the model's ordinary adjacent-bucket risk instead of being
+        dumped into a single neighboring bucket.
+        """
+
+        normalized = self.normalize_scores(scores)
+        context = dict(context or {})
+        if not normalized:
+            context.setdefault("reason", "empty_scores")
+            return normalized, context
+        bucket = context.get("exact_band_bucket")
+        cap = context.get("exact_band_cap")
+        if not context.get("active") or bucket is None or cap is None:
+            return normalized, context
+        bucket = int(bucket)
+        cap = max(0.0, min(1.0, float(cap)))
+        before = float(normalized.get(bucket, 0.0))
+        context["probability_before"] = before
+        if before <= cap:
+            context.update({
+                "reason": "exact_band_already_under_cap",
+                "probability_after": before,
+                "capped_probability": 0.0,
+            })
+            return normalized, context
+
+        reference = self.normalize_scores(allocation_reference or {})
+        history_bucket = context.get("printed_lower_bucket")
+        warmer_bucket = context.get("warmer_adjacent_bucket")
+        preferred = [
+            int(value)
+            for value in (history_bucket, warmer_bucket)
+            if value is not None and int(value) != bucket
+        ]
+        recipients = [value for value in preferred if value in normalized]
+        if not recipients:
+            recipients = [value for value in sorted(normalized) if value != bucket]
+        weights = {}
+        for value in recipients:
+            weight = float(reference.get(value, 0.0))
+            if weight <= 0:
+                weight = float(normalized.get(value, 0.0))
+            if weight > 0:
+                weights[value] = weight
+        if not weights:
+            weights = {value: 1.0 for value in recipients}
+        total_weight = sum(weights.values())
+        if total_weight <= 0:
+            context.update({
+                "reason": "no_redistribution_weight",
+                "probability_after": before,
+                "capped_probability": 0.0,
+            })
+            return normalized, context
+
+        excess = before - cap
+        adjusted = dict(normalized)
+        adjusted[bucket] = cap
+        redistribution = {}
+        for value, weight in weights.items():
+            moved = excess * (weight / total_weight)
+            adjusted[value] = adjusted.get(value, 0.0) + moved
+            redistribution[value] = moved
+        adjusted = self.normalize_scores(adjusted)
+        context.update({
+            "reason": "exact_band_capped",
+            "probability_after": float(adjusted.get(bucket, 0.0)),
+            "capped_probability": excess,
+            "redistribution": redistribution,
+        })
+        return adjusted, context
+
     def apply_live_observed_floor(self, scores, swob_max, history_max, hour=None):
         """Suppress buckets below what SWOB has already observed, when SWOB leads
         the printed WU-history high. Keeps a hedge one bucket down for SWOB's

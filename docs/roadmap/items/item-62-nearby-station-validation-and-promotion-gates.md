@@ -54,3 +54,13 @@ Verification:
 - `.\venv\Scripts\python.exe -m src.supplemental_station_validation --markets toronto --start 2000-01-01 --end 2026-06-14 --out data\backtest\supplemental_station_validation.json --report data\backtest\supplemental_station_validation_report.md --strict`
 - `.\venv\Scripts\python.exe -m pytest tests\sources\test_supplemental_station_validation.py tests\sources\test_historical_sources.py tests\reporting\test_data_layer_audit.py tests\reporting\test_source_redundancy.py tests\calibration\test_pooled_feature_model.py -q`
 - `.\venv\Scripts\python.exe -m compileall src\weather\sources\supplemental_station_validation.py src\supplemental_station_validation.py src\weather\reporting\data_layer_audit.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - VALIDATION GATE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

@@ -79,3 +79,13 @@ Closed notes:
   `python -m pytest tests\reporting\test_hourly_model_performance.py tests\reporting\test_ten_minute_model_performance.py tests\reporting\test_price_free_model_learning.py tests\reporting\test_settled_day_root_cause.py tests\reporting\test_daily_learning.py tests\operations\test_daily_refresh.py tests\calibration\test_promotion_refresh.py tests\reporting\test_daily_flow_analysis.py`.
 
 Related: items 37, 120, 145, 160, 168, 198, 199, 294, 305.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

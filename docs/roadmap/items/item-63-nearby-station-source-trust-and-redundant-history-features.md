@@ -55,3 +55,13 @@ Verification:
 - `.\venv\Scripts\python.exe -m src.source_redundancy report --markets toronto --start 2000-05-20 --end 2000-05-22 --snapshots-root data\snapshots --supplemental-validation data\backtest\supplemental_station_validation.json --out scratch\item63_source_redundancy_smoke.json --report scratch\item63_source_redundancy_smoke.md --truth-out scratch\item63_source_truth_smoke.csv --forecast-out scratch\item63_forecast_smoke.csv`
 - `.\venv\Scripts\python.exe -m pytest tests\reporting\test_source_redundancy.py tests\calibration\test_pooled_feature_model.py tests\sources\test_supplemental_station_validation.py tests\reporting\test_data_layer_audit.py -q`
 - `.\venv\Scripts\python.exe -m compileall src\weather\reporting\source_redundancy.py src\weather\calibration\pooled_feature_model.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

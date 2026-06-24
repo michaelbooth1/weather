@@ -76,3 +76,13 @@ Completion notes (2026-06-21):
   `12/12` markets blocked by stale preflight.
 - Verified with:
   `python -m pytest tests\reporting\test_fleet_observability.py tests\reporting\test_daily_progress_ledger.py tests\reporting\test_settled_day_root_cause.py tests\market\test_market_making_run.py tests\market\test_mm_paper.py tests\operations\test_schema_registry.py -q`.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - CRITICAL SLA ROUTES LOST ACTIVE DAYS TO 161/157`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

@@ -71,3 +71,13 @@ live-forward health only.
 - `.\venv\Scripts\python.exe -m weather.reporting.data_layer_audit --historical-start 2000-01-01 --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md`
 - `.\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\snapshot_evaluation.json --report-out data\backtest\snapshot_evaluation_report.md`
 - `.\venv\Scripts\python.exe -m weather.operations.nightly_retrain run --backtest-root data\backtest --snapshots-root data\snapshots --status-out data\backtest\nightly_retrain_status.json --report-out data\backtest\nightly_retrain_report.md`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-17 - DATA P0 CLEARED`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

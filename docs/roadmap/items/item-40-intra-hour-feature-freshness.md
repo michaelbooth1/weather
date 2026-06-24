@@ -114,3 +114,13 @@ outside 12-14 byte-identical (delta 0.0000), hour 14 -0.0088, hour 13 -0.0020,
 hour 12 flat, zero regression at 8-12/15-16; aggregate replayed Brier
 0.0410 -> 0.0405 (market 0.0366). Tests: `tests/test_feature_skew.py`
 `TestRampWallOffsets` (3) pin the per-hour offset sets; full suite 382 passed.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-11 - FLEET REFRESHED`.
+- The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

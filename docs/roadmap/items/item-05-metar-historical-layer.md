@@ -83,3 +83,13 @@ normalizes to the shared native-unit hourly/daily schema, writes manifests, and
 feeds item 30's source-redundancy truth table. At that point, item 5 still had
 the cutoff-hour miss/lead calibration and serving-role retirement/retuning
 remaining; that was completed on 2026-06-15.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE - LEARNED METAR SERVING ROLE`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

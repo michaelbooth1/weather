@@ -18,3 +18,13 @@ mojibake scan of `app.py` + `src/*.py` is clean and `clean_label` scrubs
 corrupted degree glyphs defensively. The only remaining freshness work is the
 separate per-source TTL/status policy, which is owned by item 17 (the
 fast-vs-slow-source staleness distinction), so item 11's panel scope is complete.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE - TTL POLICY TRACKED IN ITEM 17`.
+- The file contains 3 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

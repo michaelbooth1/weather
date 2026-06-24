@@ -68,3 +68,13 @@ Closed notes:
   `python -m pytest tests\reporting\test_june23_location_bias_repair.py tests\operations\test_daily_refresh.py::TestDailyRefresh::test_default_runner_order_repairs_replay_status_before_data_layer_audit`.
 
 Related: items 21, 35, 48, 157, 219, 230, 232, 266, 297, 298.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - LOCATION-BIAS PACKET, REPAIR MANIFESTS, AND PROTECTED-SLICE REPLAY LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

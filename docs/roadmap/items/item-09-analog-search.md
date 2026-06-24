@@ -28,3 +28,13 @@ returned analog payloads carry `forecast_high` / `forecast_gap`
 `tests/test_intraday_calibration.py` (asserts `forecast_gap` in the analog
 result). Analog distance now uses the same Open-Meteo forecast information as
 the feature model, satisfying the item's gate.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

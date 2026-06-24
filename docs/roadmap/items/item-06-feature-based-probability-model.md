@@ -46,3 +46,13 @@ offline feature-model artifact refresh.
 Verification:
 - `.\venv\Scripts\python.exe -m pytest tests\calibration\test_feature_probability_calibration.py tests\model\test_feature_model_calibration.py tests\model\test_feature_model_ablation.py tests\model\test_feature_skew.py tests\model\test_estimate_distribution.py tests\calibration\test_probability_calibration.py -q` -> 47 passed, 126 subtests passed.
 - `.\venv\Scripts\python.exe -m compileall src\weather\calibration\feature_probability_calibration.py src\feature_probability_calibration.py src\weather\calibration\feature_model.py src\weather\model\model_features.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE - TEMPERATURE CALIBRATION LAYER`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

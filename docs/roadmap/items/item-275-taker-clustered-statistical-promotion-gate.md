@@ -61,3 +61,13 @@ Validation:
 - `python -m py_compile src\weather\market\taker_bot_strategy_registry.py src\weather\market\taker_bot_strategy_evaluation.py src\weather\market\taker_bot_bakeoff.py src\weather\market\taker_bot_finalization.py src\weather\market\taker_bot_cli.py`
 
 Related: items 214, 234, 238, 240, 256, 273, 274.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23`.
+- The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

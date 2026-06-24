@@ -190,6 +190,9 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily_learning
+.\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
+.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain run --dry-run
@@ -201,6 +204,13 @@ settlement labels, run taker finalization checks, refresh trading/model evidence
 run promotion and shadow monitors, audit fleet/data health, refresh learning
 reports, and write `data/backtest/daily_refresh_status.json` plus
 `data/backtest/daily_refresh_report.md`.
+
+Exchange-economics snapshots gate paper/shadow taker and maker evidence. The
+tracked source template is
+`docs/research/exchange_economics_snapshot_template.json`; publish a fresh
+runtime snapshot before evidence runs and accept the baseline only after
+reviewing drift. The operator workflow is documented in
+`docs/operations/EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md`.
 
 `nightly_retrain` is the overnight self-improvement job. It refreshes daily
 learning, retrains/validates candidate artifacts, refreshes artifact registries
@@ -256,6 +266,7 @@ registration script replaces the existing task.
 .\scripts\ops\register_snapshot_supervisor.ps1
 .\scripts\ops\register_clob_supervisor.ps1
 .\scripts\ops\register_observation_trigger_supervisor.ps1
+.\scripts\ops\register_exchange_economics_refresh.ps1
 .\scripts\ops\register_daily_refresh.ps1
 .\scripts\ops\register_nightly_retrain.ps1
 .\scripts\ops\register_market_making_daily_roll.ps1
@@ -270,6 +281,7 @@ Default scheduled behavior:
 | `WeatherSnapshotLoopSupervisor` | `register_snapshot_supervisor.ps1` | `snapshot_tracker --ensure` every 2 minutes and at logon; managed capture loop defaults to 10-minute ticks. |
 | `WeatherClobBookLoopSupervisor` | `register_clob_supervisor.ps1` | `market_microstructure ensure` every minute and at logon. |
 | `WeatherObservationTriggerSupervisor` | `register_observation_trigger_supervisor.ps1` | `observation_trigger ensure` every minute and at logon. |
+| `WeatherExchangeEconomicsSnapshotRefresh` | `register_exchange_economics_refresh.ps1` | Daily at 09:00; publishes yesterday's target-date snapshot from the tracked template, without accepting the baseline. |
 | `WeatherDailySettlementPromotionRefresh` | `register_daily_refresh.ps1` | Daily at 09:30. |
 | `WeatherNightlyRetrainValidatePromote` | `register_nightly_retrain.ps1` | Daily at 03:30. |
 | `WeatherMarketMakingDailyRoll` | `register_market_making_daily_roll.ps1` | Daily at 19:30 in `America/Toronto`. |

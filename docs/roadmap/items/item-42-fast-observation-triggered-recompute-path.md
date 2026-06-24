@@ -97,3 +97,13 @@ the Item42 evidence artifact
 After restart, `python -m src.observation_trigger status` reports the watcher
 `RUNNING`, policy status `PASS_WITH_PERMISSION_POLICY`, and
 `trade_permissioned=false` when no fresh allowed trigger is present.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - PERMISSIONED REPLAY GATE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+

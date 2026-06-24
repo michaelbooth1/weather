@@ -96,3 +96,13 @@ its coverage are reported each run; and a settled replay shows permissioned-only
 entry beats unpermissioned entry on settlement-scored after-fee PnL.
 
 Related: items 47, 54, 136, 144, 147, 241, 256, 262, 264, 273, 275, 283, 284.
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

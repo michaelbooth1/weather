@@ -51,7 +51,9 @@ DRIVER_WATERFALL_STAGES = (
     ("high_has_stood_lockin", "High-has-stood lock-in"),
     ("standing_high_partial_lockin", "Standing-high partial dampener"),
     ("late_day_lockin", "Late-day lock-in"),
-    ("final_model", "Overconfidence calibration"),
+    ("overconfidence_calibration", "Overconfidence calibration"),
+    ("current_max_boundary_guard", "Current-max boundary guard"),
+    ("final_model", "Final model"),
 )
 
 # Standalone INPUT distributions (not running snapshots): each is one driver's
@@ -502,6 +504,7 @@ class PresentationMixin:
             "latest_wu_history_time": component_payload.get("latest_wu_history_time"),
             "latest_wu_history_temp": component_payload.get("latest_wu_history_temp"),
             "high_has_stood_lockin": component_payload.get("high_has_stood_lockin"),
+            "current_max_boundary": component_payload.get("current_max_boundary"),
             "observed_floor": observed_bucket,
             "forecast_cap": plausible_cap,
             "wind_regime": wind_group,

@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T18:05:05.554724+00:00
+Generated: 2026-06-24T18:50:08.955004+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 309 |
-| Active items | 33 |
-| OPEN | 5 |
+| Items | 310 |
+| Active items | 32 |
+| OPEN | 4 |
 | PARTIAL | 28 |
-| COMPLETE | 276 |
-| ROADMAP rows | 309 |
-| ROADMAP primary rows | 309 |
-| Metadata manifest rows | 309 |
+| COMPLETE | 278 |
+| ROADMAP rows | 310 |
+| ROADMAP primary rows | 310 |
+| Metadata manifest rows | 310 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -57,7 +57,6 @@ Status: `OK`
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 307 | PARTIAL | 2026-06-24 | IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
-| 309 | OPEN | 2026-06-24 | GATE FAILS CLOSED: NO CURRENT SNAPSHOT, TEMPLATE, OR ACCEPT-BASELINE EXISTS | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 
 ## Lint Issues
 

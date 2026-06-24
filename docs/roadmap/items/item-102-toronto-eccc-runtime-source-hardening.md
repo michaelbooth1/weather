@@ -60,3 +60,13 @@ Verification:
 - `python -m pytest tests/operations/test_observation_trigger.py::ObservationTriggerTests::test_observation_fetch_eccc_swob_supervisor_path_uses_threadpool_import tests/model/test_source_cache_ttl.py::TestSourceCacheTtl::test_toronto_forecast_source_failures_remain_independent tests/model/test_source_cache_ttl.py::TestSourceCacheTtl::test_toronto_official_source_health_warns_late_day_degradation tests/reporting/test_source_redundancy.py::TestSourceRedundancy::test_source_redundancy_includes_june16_toronto_source_status_case`
 - `python -m pytest tests/model/test_source_cache_ttl.py tests/operations/test_observation_trigger.py`
 - `python -m pytest tests/reporting/test_source_redundancy.py tests/sources/test_eccc_gridded.py`
+
+## Completion Notes
+
+Validated in the 2026-06-24 complete-roadmap sweep:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - TORONTO SOURCE HEALTH GATE LIVE`.
+- The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
+- Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
+- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+

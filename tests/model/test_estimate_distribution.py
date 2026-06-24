@@ -765,6 +765,64 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertIn("settlement_lag_adjusted", pipeline.components)
         self.assertIn("current_observed_floor", pipeline.components)
 
+    def test_toronto_support_only_current_max_boundary_guard_caps_final_distribution(self):
+        model = TorontoHighTempModel(target_date="2026-06-24")
+        def june24_row(time, temp):
+            row = _wu_row(time, temp)
+            row["datetime"] = f"2026-06-24T{time}:00-04:00"
+            return row
+
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        june24_row("07:00", 20.0),
+                        june24_row("12:53", 24.0),
+                    ],
+                    "latest": june24_row("12:53", 24.0),
+                    "max_c": 24.0,
+                    "max_times": ["12:53"],
+                },
+            },
+            "wu_current": {
+                "ok": True,
+                "data": {"temp_c": 24.0, "max_since_7am_c": 25.0},
+            },
+            "eccc_swob": {"ok": True, "data": {"same_day_max_c": 24.4}},
+            "metar": {"ok": True, "data": {"temp_c": 24.2}},
+            "local_history": {
+                "ok": True,
+                "data": {
+                    "available": True,
+                    "analysis": {
+                        "target_window_count": 30,
+                        "bucket_probabilities": {24: 0.04, 25: 0.84, 26: 0.12},
+                    },
+                },
+            },
+            "weather_forecast": {"ok": True, "data": {"rows": []}},
+            "open_meteo": {"ok": True, "data": {"rows": []}},
+            "nws_hourly": {"ok": True, "data": {"rows": []}},
+            "global_ensemble": {"ok": True, "data": {"rows": []}},
+            "eccc_citypage": {"ok": True, "data": {}},
+        }
+
+        result = model.estimate_distribution_result(
+            sources,
+            now=datetime(2026, 6, 24, 15, 10, tzinfo=TORONTO_TZ),
+        )
+
+        boundary = result.calibration_context["current_max_boundary"]
+        components = result.component_payload["components"]
+        self.assertEqual(boundary["state"], "conflicting")
+        self.assertIn(boundary["reason"], {"exact_band_capped", "exact_band_already_under_cap"})
+        self.assertLessEqual(result.distribution[25], boundary["exact_band_cap"] + 1e-9)
+        self.assertGreater(result.distribution[24], 0.01)
+        self.assertGreater(result.distribution[26], 0.01)
+        self.assertEqual(components["current_max_boundary_guard"], result.distribution)
+        self.assertEqual(components["final_model"], result.distribution)
+
     def test_effective_cutoff_uses_first_trained_hour_when_only_pre_cutoff_rows_printed(self):
         now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
         rows = [_wu_row("06:50", 14.0)]
