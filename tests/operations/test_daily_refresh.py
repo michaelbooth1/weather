@@ -475,6 +475,34 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(captured["status_out"].endswith("daily_refresh_dry_run_status.json"))
         self.assertTrue(captured["report_out"].endswith("daily_refresh_dry_run_report.md"))
 
+    def test_cli_run_injects_lock_diagnostic_before_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parser = build_parser()
+            args = parser.parse_args([
+                "run",
+                "--backtest-root",
+                str(root / "backtest"),
+                "--snapshots-root",
+                str(root / "snapshots"),
+                "--disable-long-job-guard",
+            ])
+            captured = {}
+
+            def fake_run(run_args):
+                captured["preflight"] = getattr(run_args, "_daily_refresh_cli_lock_preflight", {})
+                return {"status": "ok"}, Path(run_args.status_out), Path(run_args.report_out)
+
+            with (
+                patch("weather.operations.daily_refresh_cli.acquire_lock", return_value={"pid": 123}),
+                patch("weather.operations.daily_refresh_cli.release_lock"),
+                patch("weather.operations.daily_refresh_cli.run_daily_refresh", side_effect=fake_run),
+            ):
+                code = args.func(args)
+
+        self.assertEqual(code, 0)
+        self.assertIn("daily_refresh_lock_after_acquire", captured["preflight"])
+
     def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
@@ -1865,15 +1893,68 @@ class TestDailyRefresh(unittest.TestCase):
                 "schema_errors": [],
             }
         }
+        fake_coverage = {
+            "markets": {
+                "nyc": {
+                    "unresolved_missing_days": ["2026-06-01"],
+                    "unresolved_sparse_days": [],
+                }
+            },
+            "summary": {
+                "markets_with_unresolved_gaps": 1,
+                "unresolved_issue_days": 1,
+                "covered_issue_days": 0,
+            },
+        }
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results):
+                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
+                patch("weather.operations.daily_refresh_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
             self.assertEqual(result["status"], "WARN")
             self.assertTrue(Path(result["json_out"]).exists())
             self.assertTrue(Path(result["report_out"]).exists())
             self.assertEqual(result["summary"]["markets_with_missing_days"], 1)
+            self.assertEqual(result["summary"]["raw_markets_with_missing_days"], 1)
+
+    def test_ingest_quality_gate_passes_when_raw_gaps_have_redundant_coverage(self):
+        fake_results = {
+            "nyc": {
+                "missing_days": [date(2026, 6, 1)],
+                "sparse_days": [(date(2026, 6, 2), 1)],
+                "duplicate_timestamps": [],
+                "impossible_values": [],
+                "schema_errors": [],
+            }
+        }
+        fake_coverage = {
+            "markets": {
+                "nyc": {
+                    "unresolved_missing_days": [],
+                    "unresolved_sparse_days": [],
+                }
+            },
+            "summary": {
+                "markets_with_unresolved_gaps": 0,
+                "unresolved_issue_days": 0,
+                "covered_issue_days": 2,
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
+                patch("weather.operations.daily_refresh_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
+            result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
+
+            self.assertEqual(result["status"], "PASS")
+            self.assertEqual(result["summary"]["markets_with_missing_days"], 0)
+            self.assertEqual(result["summary"]["markets_with_sparse_days"], 0)
+            self.assertEqual(result["summary"]["raw_markets_with_missing_days"], 1)
+            self.assertEqual(result["summary"]["raw_markets_with_sparse_days"], 1)
+            self.assertEqual(result["summary"]["historical_gap_covered_issue_days"], 2)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            self.assertEqual(payload["raw_summary"]["markets_with_sparse_days"], 1)
 
 
 if __name__ == "__main__":

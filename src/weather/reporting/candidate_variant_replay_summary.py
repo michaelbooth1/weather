@@ -48,6 +48,7 @@ DEFAULT_MIN_MARKET_DAYS = 2
 VALIDATION_EVIDENCE_CHOICES = ("row_export_surrogate", "active_replay_contract")
 FALSEY_TEXT = {"0", "false", "no", "n"}
 NON_COUNTABLE_ROW_MARKERS = ("same_corpus", "row_export_surrogate", "diagnostic_row_export")
+SOURCE_VARIANT_ID_FIELDS = ("route_source_variant_id", "source_variant_id")
 
 
 def utc_iso() -> str:
@@ -185,6 +186,52 @@ def _active_row_export_blockers(rows: list[dict[str, Any]]) -> list[str]:
     return blockers
 
 
+def _source_variant_lineage_blockers(
+    rows: list[dict[str, Any]],
+    registry: dict[str, Any],
+) -> list[str]:
+    source_ids: set[str] = set()
+    for row in rows:
+        for field in SOURCE_VARIANT_ID_FIELDS:
+            value = str(row.get(field) or "").strip()
+            if value:
+                source_ids.add(value)
+    if not source_ids:
+        return []
+
+    by_id = _registry_by_id(registry)
+    missing = sorted(source_id for source_id in source_ids if source_id not in by_id)
+    inactive = []
+    non_headline = []
+    for source_id in sorted(source_ids):
+        entry = by_id.get(source_id)
+        if not entry:
+            continue
+        lifecycle = str(entry.get("lifecycle") or "").lower()
+        if lifecycle != "active":
+            inactive.append(f"{source_id}:{lifecycle or 'missing_lifecycle'}")
+        if entry.get("active_for_headline") is False:
+            non_headline.append(source_id)
+
+    blockers = []
+    if missing:
+        blockers.append(
+            "row export references unregistered source variant(s): "
+            + ", ".join(missing[:8])
+        )
+    if inactive:
+        blockers.append(
+            "row export references non-active source variant(s): "
+            + ", ".join(inactive[:8])
+        )
+    if non_headline:
+        blockers.append(
+            "row export references source variant(s) not active_for_headline: "
+            + ", ".join(non_headline[:8])
+        )
+    return blockers
+
+
 def _validate_active_registry_contract(
     contract_payload: dict[str, Any],
     rows: list[dict[str, Any]],
@@ -233,6 +280,12 @@ def _validate_active_registry_contract(
         raise ValueError(
             "active replay contract rows are non-countable: " + "; ".join(row_blockers)
         )
+    lineage_blockers = _source_variant_lineage_blockers(rows, registry)
+    if lineage_blockers:
+        raise ValueError(
+            "active replay contract rows have non-countable source lineage: "
+            + "; ".join(lineage_blockers)
+        )
     return {
         **contract,
         "default_export_path": relative_to_repo(actual_path),
@@ -240,6 +293,7 @@ def _validate_active_registry_contract(
         "validation_checks": {
             "variant_id_matches_rows": True,
             "default_export_path_matches_rows": True,
+            "source_variant_lineage_countable": True,
         },
     }
 

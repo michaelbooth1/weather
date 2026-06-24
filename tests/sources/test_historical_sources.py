@@ -76,6 +76,36 @@ class TestHistoricalSources(unittest.TestCase):
             }],
         }
 
+    def test_wu_manifest_summarizes_quarantined_raw_observation_dates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(
+                tmp,
+                station_icao="KLGA",
+                station_name="New York",
+                history_id="KLGA:9:US",
+                unit="F",
+            )
+            store.write_manifest(
+                hourly_records=[],
+                daily_rows=[],
+                quarantined_records=[
+                    {
+                        "valid_time_gmt": 1716206400,
+                        "obs_id": "KLGA",
+                        "temp": 160,
+                        "dewPt": 61,
+                        "heat_index": 160,
+                        "wc": 160,
+                    }
+                ],
+            )
+
+            manifest = json.loads((Path(tmp) / "manifest.json").read_text())
+
+        self.assertEqual(manifest["quarantined_raw_observations"], 1)
+        self.assertEqual(manifest["quarantined_raw_observation_dates"], {"2024-05-20": 1})
+        self.assertEqual(manifest["quarantined_raw_observation_samples"][0]["temp"], 160)
+
     def test_fleet_coverage_includes_all_item29_sources(self):
         payload = fleet_coverage(["nyc"])
 

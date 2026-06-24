@@ -1,4 +1,4 @@
-# 294. Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [OPEN 2026-06-24 - INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS]
+# 294. Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [COMPLETE 2026-06-24 - INPUT GATE FAIL-CLOSED IN DAILY ANALYSIS]
 
 Goal: stop the daily analysis from drawing conclusions from a stale, partial, or
 internally inconsistent set of upstream artifacts. Validate every input's
@@ -47,14 +47,28 @@ existing `rollup_freshness` covers only specific rollups.
    daily flow reports, and fail the overall status closed when a critical input
    is stale, missing, or inconsistent.
 
-- [ ] Add per-artifact freshness validation against run date with a configurable
+- [x] Add per-artifact freshness validation against run date with a configurable
   skew threshold.
-- [ ] Add an input-coverage score and critical-missing-input fail-closed
+- [x] Add an input-coverage score and critical-missing-input fail-closed
   handling to `daily_learning`.
-- [ ] Add cross-artifact consistency invariants (corpus vs labels, run-date
+- [x] Add cross-artifact consistency invariants (corpus vs labels, run-date
   alignment, Brier delta sign-convention) with a P0 inconsistency learning.
-- [ ] Surface freshness/coverage/consistency in the reports and overall status.
-- [ ] Add tests with stale, missing, and inconsistent input sets.
+- [x] Surface freshness/coverage/consistency in the reports and overall status.
+- [x] Add tests with stale, missing, and inconsistent input sets.
+
+## Completion Notes
+
+Implemented `daily_learning.input_gate` with coverage, freshness, and
+consistency sections. Critical missing or stale/unverifiable inputs now emit P0
+`analysis_input_gate` blocker learnings; failed cross-artifact invariants emit a
+P0 `input_inconsistency` learning. The gate is included in the daily-learning
+JSON/report and carried into daily-flow reports, so retrain/promotion readiness
+and the operator action queue fail closed through existing blocker paths.
+
+Validation covers stale critical inputs, missing critical inputs, and
+inconsistent corpus-vs-label, trading-evidence date, and Brier delta inputs in
+`tests/reporting/test_daily_learning.py`, plus daily-flow surfacing in
+`tests/reporting/test_daily_flow_analysis.py`.
 
 Acceptance: the daily analysis reports input coverage and per-artifact
 freshness, fails closed when a critical input is stale/missing/inconsistent, and

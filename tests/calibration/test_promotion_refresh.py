@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from weather.reporting.promotion.readers import _read_physical_feature_family_ratchet
 from weather.reporting.promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
     _candidate_args,
@@ -590,6 +591,18 @@ class TestPromotionRefresh(unittest.TestCase):
                 "status": "BLOCK",
                 "summary": {"blocking_family_count": 2, "settlement_slice_row_count": 0},
                 "rollup": {"evidence_blocked": ["forecast_baseline", "reanalysis_synoptic"]},
+                "blocked_family_details": [
+                    {
+                        "family_id": "forecast_baseline",
+                        "status": "ISOLATED_REPLAY_BLOCK",
+                        "detail": "harmful_slice_count=1",
+                    },
+                    {
+                        "family_id": "reanalysis_synoptic",
+                        "status": "ISOLATED_REPLAY_BLOCK",
+                        "detail": "missing required slice kinds: settlement_distance; harmful_slice_count=17",
+                    },
+                ],
                 "first_blocker": {
                     "family_id": "forecast_baseline",
                     "status": "ISOLATED_REPLAY_BLOCK",
@@ -602,7 +615,54 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(readiness["status"], "OPEN")
         self.assertIn("physical_feature_family_ratchet", blockers)
         self.assertIn("blocked families=2", blockers["physical_feature_family_ratchet"]["detail"])
-        self.assertIn("missing settlement-sliced ablation rows", blockers["physical_feature_family_ratchet"]["detail"])
+        self.assertIn("forecast_baseline: harmful_slice_count=1", blockers["physical_feature_family_ratchet"]["detail"])
+        self.assertIn("reanalysis_synoptic: missing required slice kinds: settlement_distance", blockers["physical_feature_family_ratchet"]["detail"])
+
+    def test_physical_ratchet_reader_preserves_blocked_family_details(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "physical_feature_family_ratchet.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "physical_feature_family_ratchet_v0.1",
+                        "status": "BLOCK",
+                        "summary": {"blocking_family_count": 2},
+                        "rollup": {"evidence_blocked": ["forecast_baseline", "reanalysis_synoptic"]},
+                        "families": [
+                            {
+                                "family_id": "forecast_baseline",
+                                "status": "ISOLATED_REPLAY_BLOCK",
+                                "rollup_bucket": "evidence_blocked",
+                                "blockers": ["harmful_slice_count=1"],
+                                "settlement_slice_summary": {"harmful_slice_count": 1},
+                            },
+                            {
+                                "family_id": "reanalysis_synoptic",
+                                "status": "ISOLATED_REPLAY_BLOCK",
+                                "rollup_bucket": "evidence_blocked",
+                                "blockers": [
+                                    "missing required slice kinds: settlement_distance",
+                                    "harmful_slice_count=17",
+                                ],
+                                "settlement_slice_summary": {
+                                    "harmful_slice_count": 17,
+                                    "missing_required_slice_kinds": ["settlement_distance"],
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = _read_physical_feature_family_ratchet(path)
+
+        self.assertEqual(payload["first_blocker"]["family_id"], "forecast_baseline")
+        self.assertEqual(len(payload["blocked_family_details"]), 2)
+        self.assertEqual(
+            payload["blocked_family_details"][1]["detail"],
+            "missing required slice kinds: settlement_distance; harmful_slice_count=17",
+        )
 
     def test_evidence_freshness_blocks_location_countability(self):
         freshness = build_evidence_freshness_gate(

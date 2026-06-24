@@ -1001,6 +1001,12 @@ def build_trading_evidence_summary(
         settled_payload=taker_settled_payload,
     )
     taker_profitability_verification = _taker_profitability_verification(taker_path)
+    settlement_scored_target_dates = _settlement_scored_target_dates(taker_payloads)
+    target_date = (
+        settlement_scored_target_dates[-1]
+        if settlement_scored_target_dates
+        else taker.get("target_date") or market_making.get("target_date")
+    )
     settlement_audit_gate = _settlement_source_audit_gate(settlement_audit_json, taker_payloads)
     taker["profitability_artifact_verification"] = taker_profitability_verification
     taker["profitability_artifact_verification_status"] = taker_profitability_verification.get("status")
@@ -1077,6 +1083,9 @@ def build_trading_evidence_summary(
     return {
         "schema_version": TRADING_EVIDENCE_SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
+        "run_date": target_date,
+        "target_date": target_date,
+        "settlement_scored_target_dates": settlement_scored_target_dates,
         "mm_runs_root": str(mm_runs_root),
         "taker_runs_root": str(taker_runs_root),
         "mm_paper_json": str(mm_paper_json),

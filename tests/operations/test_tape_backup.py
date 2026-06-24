@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from collections import namedtuple
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 import pyarrow as pa
@@ -43,6 +43,16 @@ def write(path, text="x\n"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def manifest_time(manifest):
+    value = manifest.get("coverage_cutoff_utc") or manifest["generated_at_utc"]
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def set_mtime(path, when):
+    ts = when.timestamp()
+    os.utime(path, (ts, ts))
 
 
 def write_closed_day_parquet_fixture(root):
@@ -486,7 +496,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root, capacity_margin_bytes=0)
+            manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
             run_restore_drill(
                 backup_root=backup_root,
                 restore_root=Path(tmp) / "restore",
@@ -494,10 +504,11 @@ class TestTapeBackup(unittest.TestCase):
                 report=Path(tmp) / "drill.md",
                 keep_restore=True,
             )
-            write(
+            missing_path = write(
                 root / "data/snapshots/event/order_books_long_extra.csv",
                 "capture_id,side,level_index,price,size\nb2,ask,1,0.46,10\n",
             )
+            set_mtime(missing_path, manifest_time(manifest) - timedelta(seconds=1))
 
             with patch(
                 "weather.operations.tape_backup.shutil.disk_usage",
@@ -515,7 +526,7 @@ class TestTapeBackup(unittest.TestCase):
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
             fixture_source(root)
-            export_backup(root, backup_root, capacity_margin_bytes=0)
+            manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
             run_restore_drill(
                 backup_root=backup_root,
                 restore_root=Path(tmp) / "restore",
@@ -523,10 +534,11 @@ class TestTapeBackup(unittest.TestCase):
                 report=Path(tmp) / "drill.md",
                 keep_restore=True,
             )
-            write(
+            missing_path = write(
                 root / "data/snapshots/event/order_books_long_extra.csv",
                 "capture_id,side,level_index,price,size\nb2,ask,1,0.46,10\n",
             )
+            set_mtime(missing_path, manifest_time(manifest) - timedelta(seconds=1))
 
             with patch(
                 "weather.operations.tape_backup.shutil.disk_usage",
@@ -536,6 +548,40 @@ class TestTapeBackup(unittest.TestCase):
 
         self.assertEqual(status["status"], "INSUFFICIENT_BACKUP_CAPACITY")
         self.assertGreater(status["capacity_preflight"]["insufficient_bytes"], 0)
+
+    def test_backup_status_tracks_post_manifest_critical_files_without_failing_current_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            manifest = export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "drill.json",
+                report=Path(tmp) / "drill.md",
+                keep_restore=True,
+            )
+            post_manifest_path = write(
+                root / "data/snapshots/event/order_books_long_after_manifest.csv",
+                "capture_id,side,level_index,price,size\nb3,bid,1,0.44,12\n",
+            )
+            set_mtime(post_manifest_path, manifest_time(manifest) + timedelta(seconds=1))
+
+            with patch(
+                "weather.operations.tape_backup.shutil.disk_usage",
+                return_value=DiskUsage(total=10_000, used=1_000, free=9_000_000_000),
+            ):
+                status = backup_status(backup_root)
+
+        coverage = status["local_manifest_coverage"]
+        self.assertEqual(status["status"], "OK")
+        self.assertEqual(status["missing_critical_files"], 0)
+        self.assertEqual(coverage["post_manifest_critical_files"], 1)
+        self.assertIn(
+            "order_books_long_after_manifest.csv",
+            coverage["post_manifest_critical_samples"][0]["path"],
+        )
 
     def test_export_backup_capacity_preflight_prevents_partial_copy(self):
         with tempfile.TemporaryDirectory() as tmp:

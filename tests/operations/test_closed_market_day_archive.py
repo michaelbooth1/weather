@@ -426,6 +426,33 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(result.provenance.row_count, 2)
             assert_frame_equal(result.frame, expected, check_dtype=False)
 
+    def test_reader_tolerates_legacy_csv_rows_with_extra_fields(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            (folder / "snapshots_long.csv").write_text(
+                "snapshot_id,event_slug,market_id\n"
+                "s1,highest-temperature-in-austin-on-june-22-2026,austin\n"
+                "s2,highest-temperature-in-austin-on-june-22-2026,austin,legacy-extra\n",
+                encoding="utf-8",
+            )
+
+            result = read_market_day_artifact(
+                folder,
+                "snapshots_long",
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+
+            self.assertEqual(result.provenance.source_mode, "text_tape")
+            self.assertIn("csv_parser_fallback_bad_lines", result.provenance.fallback_reason)
+            self.assertEqual(result.provenance.row_count, 2)
+            self.assertEqual(list(result.frame.columns), ["snapshot_id", "event_slug", "market_id"])
+            self.assertEqual(result.frame.iloc[1]["market_id"], "austin")
+
     def test_apply_is_idempotent_and_rewrites_stale_source_hashes(self):
         from tempfile import TemporaryDirectory
 

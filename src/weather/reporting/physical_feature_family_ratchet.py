@@ -122,6 +122,149 @@ def _day_rows_for_family(ablation_payload, variants):
     return rows
 
 
+def _decision_variants_for_family(ablation, variants):
+    variant = (ablation or {}).get("variant")
+    if variant:
+        return [variant]
+    return variants
+
+
+def _current_ablation_for_family(ablation_payload, inventory_ablation, variants):
+    by_variant = {
+        row.get("variant"): row
+        for row in (ablation_payload.get("variants") or [])
+        if row.get("variant")
+    }
+    for variant in variants:
+        row = by_variant.get(variant)
+        if row:
+            return {
+                **row,
+                "status": "PRESENT",
+                "variant": variant,
+                "evidence_source": "source_family_ablation",
+            }
+    return {
+        **(inventory_ablation or {}),
+        "evidence_source": (inventory_ablation or {}).get("evidence_source") or "source_family_inventory",
+        "evidence_container": "source_family_inventory",
+    }
+
+
+def _cutoff_regime(hour):
+    try:
+        value = int(hour)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 10:
+        return "early"
+    if value < 14:
+        return "midday"
+    return "late"
+
+
+def _weighted(rows, key):
+    values = []
+    for row in rows:
+        n = _int(row.get("n") or row.get("rows"))
+        value = _float(row.get(key))
+        if n > 0 and value is not None:
+            values.append((value, n))
+    if not values:
+        return None
+    return sum(value * n for value, n in values) / sum(n for _, n in values)
+
+
+def _aggregated_slice_row(variant, slice_name, rows, group_values):
+    n = sum(_int(row.get("n") or row.get("rows")) for row in rows)
+    base_brier = _weighted(rows, "full_brier")
+    variant_brier = _weighted(rows, "ablated_brier")
+    delta = (
+        variant_brier - base_brier
+        if variant_brier is not None and base_brier is not None
+        else _weighted(rows, "delta_brier")
+    )
+    market_ids = sorted({str(row.get("market_id") or "") for row in rows if row.get("market_id")})
+    return {
+        "variant": variant,
+        "slice": slice_name,
+        "n": n,
+        "days": len(market_ids) or None,
+        "base_brier": base_brier,
+        "variant_brier": variant_brier,
+        "delta": delta,
+        "evidence_source": "item27_feature_value_gate",
+        **group_values,
+    }
+
+
+def _item27_reanalysis_slice_rows(ablation):
+    if (ablation or {}).get("variant") != "reanalysis_synoptic":
+        return []
+    if (ablation or {}).get("evidence_source") != "item27_feature_value_gate":
+        return []
+
+    variant = "reanalysis_synoptic"
+    rows = []
+    hourly_rows = []
+    for detail in (ablation or {}).get("market_details") or []:
+        market_id = detail.get("market_id")
+        market_n = _int(detail.get("rows"))
+        if market_id and market_n > 0:
+            rows.append(
+                {
+                    "variant": variant,
+                    "slice": "market",
+                    "market_id": market_id,
+                    "n": market_n,
+                    "days": 1,
+                    "base_brier": detail.get("full_brier"),
+                    "variant_brier": detail.get("ablated_brier"),
+                    "delta": detail.get("delta_brier"),
+                    "evidence_source": "item27_feature_value_gate",
+                    "source_path": detail.get("path"),
+                }
+            )
+        path = detail.get("path")
+        if not path:
+            continue
+        payload = _read_json(path)
+        for item in payload.get("by_hour_month") or []:
+            if item.get("family") != variant:
+                continue
+            n = _int(item.get("n"))
+            if n <= 0:
+                continue
+            hourly_rows.append(
+                {
+                    **item,
+                    "market_id": market_id,
+                    "cutoff_regime": _cutoff_regime(item.get("hour")),
+                }
+            )
+
+    by_regime = {}
+    by_market_regime = {}
+    for row in hourly_rows:
+        regime = row.get("cutoff_regime") or "unknown"
+        by_regime.setdefault(regime, []).append(row)
+        market_id = row.get("market_id") or "unknown"
+        by_market_regime.setdefault((market_id, regime), []).append(row)
+
+    for regime, group in sorted(by_regime.items()):
+        rows.append(_aggregated_slice_row(variant, "cutoff_regime", group, {"cutoff_regime": regime}))
+    for (market_id, regime), group in sorted(by_market_regime.items()):
+        rows.append(
+            _aggregated_slice_row(
+                variant,
+                "market_cutoff_regime",
+                group,
+                {"market_id": market_id, "cutoff_regime": regime},
+            )
+        )
+    return rows
+
+
 def _slice_summary(slice_rows):
     kinds = sorted({row.get("slice") or "unknown" for row in slice_rows})
     harmful = [
@@ -143,10 +286,10 @@ def _slice_summary(slice_rows):
     }
 
 
-def _status_for_family(row, slice_rows):
+def _status_for_family(row, slice_rows, ablation=None):
     lineage = row.get("lineage_status") or "UNKNOWN"
     parity = row.get("train_serve_parity_status") or "UNKNOWN"
-    ablation = row.get("ablation") or {}
+    ablation = ablation or row.get("ablation") or {}
     ablation_status = ablation.get("status") or "MISSING"
     delta = _float(ablation.get("delta"))
     active_count = _int(row.get("active_model_feature_count"))
@@ -156,6 +299,9 @@ def _status_for_family(row, slice_rows):
     slice_summary = _slice_summary(slice_rows)
 
     blockers = []
+    if not model_influence and active_count == 0:
+        blockers.append(f"active_model_usage_status={active_status or 'NOT_USED_BY_ACTIVE_ARTIFACT'}")
+        return "LIVE_ONLY", blockers, slice_summary
     if lineage != "PASS":
         blockers.append(f"lineage_status={lineage}")
         return "LINEAGE_BLOCKED", blockers, slice_summary
@@ -177,12 +323,11 @@ def _status_for_family(row, slice_rows):
     missing_kinds = slice_summary["missing_required_slice_kinds"]
     if missing_kinds:
         blockers.append("missing required slice kinds: " + ", ".join(missing_kinds))
-        return "ISOLATED_REPLAY_BLOCK", blockers, slice_summary
     if delta is None or delta <= POSITIVE_LIFT_EPSILON:
         blockers.append(f"pooled_delta={delta}")
-        return "ISOLATED_REPLAY_BLOCK", blockers, slice_summary
     if slice_summary["harmful_slice_count"]:
         blockers.append(f"harmful_slice_count={slice_summary['harmful_slice_count']}")
+    if blockers:
         return "ISOLATED_REPLAY_BLOCK", blockers, slice_summary
     if active_count > 0:
         return "PROMOTION_ELIGIBLE", blockers, slice_summary
@@ -220,11 +365,14 @@ def build_ratchet(
             })
             continue
         variants = _family_variants(row)
-        family_slices = _slice_rows_for_family(ablation_payload, variants)
-        family_day_rows = _day_rows_for_family(ablation_payload, variants)
-        status, blockers, summary = _status_for_family(row, family_slices)
+        ablation = _current_ablation_for_family(ablation_payload, row.get("ablation") or {}, variants)
+        decision_variants = _decision_variants_for_family(ablation, variants)
+        family_slices = _slice_rows_for_family(ablation_payload, decision_variants)
+        if row.get("family_id") == "reanalysis_synoptic" and not family_slices:
+            family_slices = _item27_reanalysis_slice_rows(ablation)
+        family_day_rows = _day_rows_for_family(ablation_payload, decision_variants)
+        status, blockers, summary = _status_for_family(row, family_slices, ablation=ablation)
         bucket = _rollup_bucket(status)
-        ablation = row.get("ablation") or {}
         family = {
             "family_id": family_id,
             "label": row.get("label"),
@@ -238,6 +386,8 @@ def build_ratchet(
             "train_serve_parity_status": row.get("train_serve_parity_status"),
             "historical_archive_status": row.get("historical_archive_status"),
             "live_only_policy": row.get("live_only_policy"),
+            "model_influence": row.get("model_influence"),
+            "configured_model_influence": row.get("configured_model_influence"),
             "active_model_usage_status": row.get("active_model_usage_status"),
             "active_model_feature_count": row.get("active_model_feature_count"),
             "active_model_feature_columns": row.get("active_model_feature_columns") or [],
@@ -251,8 +401,10 @@ def build_ratchet(
                 "delta": ablation.get("delta"),
                 "days_source_helped": ablation.get("days_source_helped"),
                 "days_source_hurt": ablation.get("days_source_hurt"),
+                "evidence_source": ablation.get("evidence_source"),
             },
             "ablation_variants": variants,
+            "decision_ablation_variants": decision_variants,
             "settlement_slice_summary": summary,
             "day_effect_count": len(family_day_rows),
         }

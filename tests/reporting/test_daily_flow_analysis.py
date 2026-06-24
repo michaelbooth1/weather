@@ -52,6 +52,23 @@ def write_flow_artifacts(root, *, blocked=True):
                 "learning_count": len(learnings),
                 "blocker_count": 1 if blocked else 0,
             },
+            "input_gate": {
+                "status": "PASS",
+                "coverage": {
+                    "status": "PASS",
+                    "present_count": 6,
+                    "total_count": 6,
+                    "critical_missing_inputs": [],
+                },
+                "freshness": {
+                    "status": "PASS",
+                    "critical_stale_inputs": [],
+                },
+                "consistency": {
+                    "status": "PASS",
+                    "failed_invariants": [],
+                },
+            },
             "retrain_plan": {
                 "training_ready": not blocked,
                 "promotion_ready": not blocked,
@@ -193,6 +210,7 @@ class TestDailyFlowAnalysis(unittest.TestCase):
         self.assertTrue(json_exists)
         self.assertTrue(actions_exists)
         self.assertIn("Daily Flow Analysis", report)
+        self.assertIn("Daily Learning Input Gate", report)
         self.assertIn("Post-Closure Model Warm-Side Miss Recurrence", report)
 
     def test_build_flow_analysis_uses_latest_date_stamped_root_cause_when_canonical_missing(self):

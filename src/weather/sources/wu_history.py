@@ -320,6 +320,28 @@ class WundergroundHistoryStore:
     def write_manifest(self, hourly_records, daily_rows, quarantined_records=None):
         path = self.root / "manifest.json"
         path.parent.mkdir(parents=True, exist_ok=True)
+        quarantined_records = list(quarantined_records or [])
+        quarantine_dates = Counter()
+        quarantine_samples = []
+        for obs in quarantined_records:
+            local_dt = local_datetime(obs, self.tz)
+            local_date = local_dt.date().isoformat() if local_dt else None
+            if local_date:
+                quarantine_dates[local_date] += 1
+            if len(quarantine_samples) < 20:
+                quarantine_samples.append({
+                    "local_date": local_date,
+                    "valid_time_utc": (
+                        datetime.fromtimestamp(int(obs["valid_time_gmt"]), timezone.utc).isoformat()
+                        if obs.get("valid_time_gmt") is not None
+                        else None
+                    ),
+                    "obs_id": obs.get("obs_id") or obs.get("key"),
+                    "temp": obs.get("temp"),
+                    "dewPt": obs.get("dewPt"),
+                    "heat_index": obs.get("heat_index"),
+                    "wc": obs.get("wc"),
+                })
         
         # Redact api key for security
         api_key = WEATHER_COM_KEY
@@ -355,7 +377,9 @@ class WundergroundHistoryStore:
             },
             "hourly_record_count": len(hourly_records),
             "daily_record_count": len(daily_rows),
-            "quarantined_raw_observations": len(quarantined_records or []),
+            "quarantined_raw_observations": len(quarantined_records),
+            "quarantined_raw_observation_dates": dict(sorted(quarantine_dates.items())),
+            "quarantined_raw_observation_samples": quarantine_samples,
             "quarantine_policy": "drop impossible WU temperature rows during normalization",
             "first_date": daily_rows[0]["local_date"] if daily_rows else None,
             "last_date": daily_rows[-1]["local_date"] if daily_rows else None,

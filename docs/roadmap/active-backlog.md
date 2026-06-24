@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T02:18:59.674007+00:00
+Generated: 2026-06-24T09:43:51.782483+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 300 |
-| Active items | 40 |
-| OPEN | 11 |
-| PARTIAL | 29 |
-| COMPLETE | 260 |
+| Active items | 38 |
+| OPEN | 10 |
+| PARTIAL | 28 |
+| COMPLETE | 262 |
 | ROADMAP rows | 300 |
 | ROADMAP primary rows | 300 |
 | Metadata manifest rows | 300 |
@@ -50,15 +50,13 @@ Status: `OK`
 | 191 | PARTIAL | 2026-06-24 | ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-24 | ROW GATES PASS, ACTIVE CONTRACT BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | PARTIAL | 2026-06-24 | DATA PASS, ACTIVE CONTRACT BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 246 | PARTIAL | 2026-06-24 | RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 294 | OPEN | 2026-06-24 | INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
 | 295 | OPEN | 2026-06-24 | LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
 | 296 | OPEN | 2026-06-24 | POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
 | 297 | OPEN | 2026-06-24 | NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND | [Calibration-Drift And Directional-Bias Daily Tracking](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |

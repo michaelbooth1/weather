@@ -1145,6 +1145,14 @@ def promotion_readiness(
         summary = physical_ratchet.get("summary") or {}
         first = physical_ratchet.get("first_blocker") or {}
         blocked_families = ((physical_ratchet.get("rollup") or {}).get("evidence_blocked") or [])
+        family_details = physical_ratchet.get("blocked_family_details") or []
+        family_detail_text = "; ".join(
+            f"{row.get('family_id')}: {row.get('detail')}"
+            for row in family_details[:5]
+            if row.get("family_id") or row.get("detail")
+        )
+        if not family_detail_text:
+            family_detail_text = first.get("detail") or "inspect physical_feature_family_ratchet"
         blockers.append({
             "category": "physical_feature_family_ratchet",
             "severity": "block",
@@ -1152,13 +1160,14 @@ def promotion_readiness(
                 "physical feature-family ratchet is "
                 f"{physical_ratchet.get('status') or 'MISSING'}; "
                 f"blocked families={summary.get('blocking_family_count')}; "
-                + (first.get("detail") or "inspect physical_feature_family_ratchet")
+                + family_detail_text
             ),
             "evidence": {
                 "path": physical_ratchet.get("path"),
                 "status": physical_ratchet.get("status"),
                 "summary": summary,
                 "blocked_families": blocked_families[:20],
+                "blocked_family_details": family_details[:20],
                 "first_blocker": first,
             },
         })

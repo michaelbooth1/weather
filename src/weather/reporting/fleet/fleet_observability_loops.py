@@ -1,5 +1,6 @@
 """Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
+from weather.operations.supervisor import jsonl_integrity, read_writer_lock
 from weather.reporting.fleet.fleet_observability_inventory import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the

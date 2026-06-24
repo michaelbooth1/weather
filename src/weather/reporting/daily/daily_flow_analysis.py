@@ -595,6 +595,11 @@ def build_flow_analysis(
                 "status": daily_learning.get("status"),
                 "summary": daily_learning.get("summary") or {},
                 "retrain_plan": daily_learning.get("retrain_plan") or {},
+                "input_gate": (
+                    daily_learning.get("input_gate")
+                    or ((daily_learning.get("scorecard") or {}).get("input_gate"))
+                    or {}
+                ),
             },
             "daily_progress_latest": daily_progress,
             "settled_day_root_cause": {
@@ -691,6 +696,8 @@ def render_report(payload: dict[str, Any]) -> str:
     trading_taker = trading.get("taker") or {}
     trading_mm = trading.get("market_making") or {}
     artifacts = payload.get("input_artifacts") or {}
+    daily_learning_rollup = ((payload.get("source_rollups") or {}).get("daily_learning") or {})
+    input_gate = daily_learning_rollup.get("input_gate") or {}
     lines = [
         "# Daily Flow Analysis",
         "",
@@ -702,6 +709,30 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         *markdown_table(["Field", "Value"], _summary_rows(payload)),
         "",
+    ]
+    if input_gate:
+        coverage = input_gate.get("coverage") or {}
+        freshness = input_gate.get("freshness") or {}
+        consistency = input_gate.get("consistency") or {}
+        lines += [
+            "## Daily Learning Input Gate",
+            "",
+            *markdown_table(
+                ["Field", "Value"],
+                [
+                    ["Status", input_gate.get("status") or "-"],
+                    ["Coverage", coverage.get("status") or "-"],
+                    ["Present inputs", f"{coverage.get('present_count', 0)}/{coverage.get('total_count', 0)}"],
+                    ["Critical missing", ", ".join(coverage.get("critical_missing_inputs") or []) or "-"],
+                    ["Freshness", freshness.get("status") or "-"],
+                    ["Critical stale", ", ".join(freshness.get("critical_stale_inputs") or []) or "-"],
+                    ["Consistency", consistency.get("status") or "-"],
+                    ["Failed invariants", ", ".join(consistency.get("failed_invariants") or []) or "-"],
+                ],
+            ),
+            "",
+        ]
+    lines += [
         "## Priority Action Queue",
         "",
     ]

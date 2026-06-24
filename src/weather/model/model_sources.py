@@ -812,6 +812,7 @@ class SourceFetchMixin:
         dewpoint_native = self.to_number(data.get("temperatureDewPoint")) if is_target_day else None
         return {
             "url": url,
+            "raw_payload": data,
             "time": data.get("validTimeLocal"),
             "target_date_match": is_target_day,
             "temp_native": temp_native,
@@ -911,7 +912,8 @@ class SourceFetchMixin:
                     resp.raise_for_status()
                     return resp.text
                 try:
-                    return self.parse_swob_xml(request_with_retries(_once)), None
+                    raw_text = request_with_retries(_once)
+                    return (self.parse_swob_xml(raw_text), raw_text, filename), None
                 except requests.HTTPError as exc:
                     if self.http_status(exc) == 404:
                         return None, filename
@@ -919,12 +921,20 @@ class SourceFetchMixin:
 
             with ThreadPoolExecutor(max_workers=min(8, len(files))) as executor:
                 parsed = executor.map(_fetch_one, files)
-                for row, missing_file in parsed:
+                raw_files = []
+                for parsed_file, missing_file in parsed:
                     if missing_file:
                         missing_files.append(missing_file)
                         continue
+                    row, raw_text, filename = parsed_file
                     if row.get("local_date") == self.target_date.isoformat():
                         rows.append(row)
+                        raw_files.append({
+                            "filename": filename,
+                            "text": raw_text,
+                        })
+        else:
+            raw_files = []
 
         latest = rows[-1] if rows else None
         same_day_max = self.max_value(*[
@@ -935,6 +945,13 @@ class SourceFetchMixin:
             "url": base_url,
             "latest": latest,
             "rows": rows,
+            "raw_payload": {
+                "source": "eccc_swob",
+                "base_url": base_url,
+                "index_html": index_html,
+                "files": raw_files,
+                "skipped_missing_files": missing_files,
+            },
             "skipped_missing_file_count": len(missing_files),
             "skipped_missing_files": missing_files[-5:],
             "same_day_max_native": same_day_max,
@@ -1007,6 +1024,7 @@ class SourceFetchMixin:
         dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp"))) if is_target_day else None
         return {
             "url": url,
+            "raw_payload": payload,
             "report_time": row.get("reportTime"),
             "target_date_match": is_target_day,
             # METAR temps are always Celsius from the API; convert to the

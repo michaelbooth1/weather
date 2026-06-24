@@ -10,6 +10,8 @@ block promotion claims until fixed.
 from __future__ import annotations
 
 import argparse
+import csv
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,6 +68,20 @@ IMPACT_SORT_KEYS = (
     "rows",
     "count",
 )
+INPUT_FRESHNESS_MAX_SKEW_HOURS = 18.0
+INPUT_CONSISTENCY_BRIER_TOLERANCE = 1e-6
+CRITICAL_INPUTS = (
+    "daily_refresh_status",
+    "promotion_refresh",
+    "snapshot_evaluation",
+    "fleet_observability",
+    "data_layer_audit",
+    "trading_evidence",
+)
+COUNTABLE_LABEL_CORPUS_SKIP_REASONS = {
+    "feature_quality_quarantine_excluded",
+    "too_few_replay_inputs",
+}
 
 
 def utc_iso():
@@ -178,6 +194,32 @@ def _load_artifact(root, name, filename):
     return path, None
 
 
+def _market_day_labels_summary(path):
+    path = Path(path)
+    if not path.exists():
+        return {"path": str(path), "exists": False}
+    quality_counts = Counter()
+    reconciliation_counts = Counter()
+    settlement_source_counts = Counter()
+    total = 0
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if not row.get("event_slug"):
+                continue
+            total += 1
+            quality_counts[str(row.get("quality_grade") or "missing")] += 1
+            reconciliation_counts[str(row.get("reconciliation_status") or "missing")] += 1
+            settlement_source_counts[str(row.get("settlement_source") or "missing")] += 1
+    return {
+        "path": str(path),
+        "exists": True,
+        "total_all": total,
+        "quality_counts": dict(sorted(quality_counts.items())),
+        "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
+        "settlement_source_counts": dict(sorted(settlement_source_counts.items())),
+    }
+
+
 def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT):
     root = Path(backtest_root)
     payloads = {}
@@ -186,7 +228,332 @@ def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT):
         path, payload = _load_artifact(root, name, filename)
         payloads[name] = payload or {}
         artifacts[name] = _artifact_record(name, path, payload)
+    payloads["market_day_labels"] = _market_day_labels_summary(root / "market_day_labels.csv")
     return payloads, artifacts
+
+
+def _parse_timestamp(value):
+    return daily_rollup_freshness.parse_timestamp(value)
+
+
+def _parse_run_date(value):
+    if value in (None, ""):
+        return None
+    text = str(value).strip()[:10]
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def _coerce_in_memory_daily_refresh_input(payloads, artifacts, daily_refresh_summary, generated_at_utc):
+    if not daily_refresh_summary:
+        return
+    payloads["daily_refresh_status"] = {
+        **(payloads.get("daily_refresh_status") or {}),
+        "generated_at_utc": generated_at_utc,
+        "status": "in_progress",
+        "summary": daily_refresh_summary,
+    }
+    record = artifacts.get("daily_refresh_status") or {}
+    artifacts["daily_refresh_status"] = {
+        **record,
+        "name": "daily_refresh_status",
+        "exists": True,
+        "generated_at_utc": generated_at_utc,
+        "status": "in_progress",
+        "source": "daily_refresh_summary",
+    }
+
+
+def _input_gate_status(*statuses):
+    flat = []
+    for status in statuses:
+        if isinstance(status, (list, tuple, set)):
+            flat.extend(status)
+        else:
+            flat.append(status)
+    if any(status == "FAIL" for status in flat):
+        return "FAIL"
+    if any(status == "WARN" for status in flat):
+        return "WARN"
+    return "PASS"
+
+
+def _freshness_rows(artifacts, *, run_date, max_skew_hours, critical_inputs):
+    run_day = _parse_run_date(run_date)
+    valid_rows = []
+    for name, record in sorted((artifacts or {}).items()):
+        timestamp = _parse_timestamp((record or {}).get("generated_at_utc"))
+        if timestamp is not None and (record or {}).get("exists"):
+            valid_rows.append((name, timestamp))
+    newest_name = None
+    newest_dt = None
+    if valid_rows:
+        newest_name, newest_dt = max(valid_rows, key=lambda item: item[1])
+
+    rows = []
+    stale_inputs = []
+    critical_stale_inputs = []
+    invalid_timestamp_inputs = []
+    missing_timestamp_inputs = []
+    for name, record in sorted((artifacts or {}).items()):
+        record = record or {}
+        exists = bool(record.get("exists"))
+        generated_raw = record.get("generated_at_utc")
+        generated_dt = _parse_timestamp(generated_raw)
+        reasons = []
+        skew_hours = None
+        run_date_delta_days = None
+        status = "PASS"
+        if not exists:
+            status = "MISSING"
+            reasons.append("artifact_missing")
+        elif generated_raw in (None, ""):
+            status = "TIMESTAMP_MISSING"
+            reasons.append("generated_at_utc_missing")
+            missing_timestamp_inputs.append(name)
+        elif generated_dt is None:
+            status = "TIMESTAMP_INVALID"
+            reasons.append("generated_at_utc_invalid")
+            invalid_timestamp_inputs.append(name)
+        else:
+            if run_day is not None:
+                run_date_delta_days = (run_day - generated_dt.date()).days
+                if generated_dt.date() < run_day:
+                    reasons.append("generated_before_run_date")
+            if newest_dt is not None:
+                skew_hours = round((newest_dt - generated_dt).total_seconds() / 3600.0, 3)
+                if skew_hours > max_skew_hours:
+                    reasons.append("older_than_newest_input_threshold")
+            if reasons:
+                status = "STALE"
+                stale_inputs.append(name)
+        severity = "PASS"
+        if status != "PASS":
+            severity = "FAIL" if name in critical_inputs and status != "MISSING" else "WARN"
+            if severity == "FAIL":
+                critical_stale_inputs.append(name)
+        rows.append({
+            "name": name,
+            "critical": name in critical_inputs,
+            "exists": exists,
+            "generated_at_utc": generated_raw,
+            "generated_date": generated_dt.date().isoformat() if generated_dt is not None else None,
+            "freshness_status": status,
+            "severity": severity,
+            "reasons": reasons,
+            "run_date_delta_days": run_date_delta_days,
+            "age_vs_newest_hours": skew_hours,
+            "path": record.get("path"),
+        })
+    freshness_statuses = [
+        row["severity"]
+        for row in rows
+        if row["freshness_status"] != "MISSING"
+    ]
+    return {
+        "status": _input_gate_status(freshness_statuses),
+        "max_skew_hours": max_skew_hours,
+        "newest_input": newest_name,
+        "newest_generated_at_utc": newest_dt.isoformat() if newest_dt is not None else None,
+        "stale_inputs": stale_inputs,
+        "critical_stale_inputs": critical_stale_inputs,
+        "missing_timestamp_inputs": missing_timestamp_inputs,
+        "invalid_timestamp_inputs": invalid_timestamp_inputs,
+        "rows": rows,
+    }
+
+
+def _coverage_gate(artifacts, *, critical_inputs):
+    rows = []
+    for name, record in sorted((artifacts or {}).items()):
+        exists = bool((record or {}).get("exists"))
+        rows.append({
+            "name": name,
+            "critical": name in critical_inputs,
+            "exists": exists,
+        })
+    missing = [row["name"] for row in rows if not row["exists"]]
+    critical_missing = [row["name"] for row in rows if row["critical"] and not row["exists"]]
+    total = len(rows)
+    present = total - len(missing)
+    return {
+        "status": "FAIL" if critical_missing else "WARN" if missing else "PASS",
+        "present_count": present,
+        "total_count": total,
+        "coverage_ratio": round(present / total, 4) if total else 1.0,
+        "missing_count": len(missing),
+        "missing_inputs": missing,
+        "critical_inputs": list(critical_inputs),
+        "critical_missing_inputs": critical_missing,
+        "rows": rows,
+    }
+
+
+def _consistency_check(name, status, detail, evidence=None):
+    return {
+        "name": name,
+        "status": status,
+        "detail": detail,
+        "evidence": evidence or {},
+    }
+
+
+def _trading_evidence_run_date(payload):
+    trading = payload or {}
+    candidates = [
+        trading.get("run_date"),
+        trading.get("target_date"),
+        (trading.get("market_making") or {}).get("run_date"),
+        (trading.get("market_making") or {}).get("target_date"),
+        (trading.get("taker") or {}).get("run_date"),
+        (trading.get("taker") or {}).get("target_date"),
+    ]
+    return first_present(*candidates)
+
+
+def _consistency_gate(payloads, scorecard, *, run_date, brier_delta_tolerance):
+    checks = []
+    labels_total = safe_int(((scorecard.get("labels") or {}).get("total")))
+    corpus_days = safe_int(((scorecard.get("corpus") or {}).get("market_day_count")))
+    skipped_by_reason = (scorecard.get("corpus") or {}).get("skipped_by_reason") or {}
+    countable_label_skip_count = sum(
+        safe_int(count)
+        for reason, count in skipped_by_reason.items()
+        if str(reason) in COUNTABLE_LABEL_CORPUS_SKIP_REASONS
+    )
+    expected_label_total = corpus_days + countable_label_skip_count
+    if labels_total or corpus_days:
+        labels_match = labels_total == corpus_days or labels_total == expected_label_total
+        checks.append(_consistency_check(
+            "promotion_corpus_vs_settled_labels",
+            "PASS" if labels_match else "FAIL",
+            (
+                f"promotion corpus market_day_count={corpus_days}; "
+                f"settled label total={labels_total}; "
+                f"countable corpus skips={countable_label_skip_count}"
+            ),
+            {
+                "market_day_count": corpus_days,
+                "settled_label_total": labels_total,
+                "countable_corpus_skip_count": countable_label_skip_count,
+                "expected_settled_label_total": expected_label_total,
+                "skipped_by_reason": skipped_by_reason,
+            },
+        ))
+    else:
+        checks.append(_consistency_check(
+            "promotion_corpus_vs_settled_labels",
+            "SKIP",
+            "No corpus market-days or settled labels were present.",
+            {"market_day_count": corpus_days, "settled_label_total": labels_total},
+        ))
+
+    expected_run_date = str(run_date or "")[:10]
+    trading_run_date = _trading_evidence_run_date(payloads.get("trading_evidence") or {})
+    observed_trading_date = str(trading_run_date or "")[:10]
+    if expected_run_date and observed_trading_date:
+        checks.append(_consistency_check(
+            "trading_evidence_run_date",
+            "PASS" if observed_trading_date == expected_run_date else "FAIL",
+            f"trading_evidence date={observed_trading_date}; run_date={expected_run_date}",
+            {"trading_evidence_date": observed_trading_date, "run_date": expected_run_date},
+        ))
+    else:
+        checks.append(_consistency_check(
+            "trading_evidence_run_date",
+            "FAIL",
+            "Trading evidence is missing a run_date or target_date for alignment.",
+            {"trading_evidence_date": observed_trading_date or None, "run_date": expected_run_date or None},
+        ))
+
+    candidate = scorecard.get("candidate") or {}
+    candidate_brier = maybe_float(candidate.get("candidate_brier"))
+    for name, baseline_key, delta_key in (
+        ("candidate_delta_vs_current", "current_brier", "delta_vs_current"),
+        ("candidate_delta_vs_market", "market_brier", "delta_vs_market"),
+    ):
+        baseline = maybe_float(candidate.get(baseline_key))
+        observed_delta = maybe_float(candidate.get(delta_key))
+        if candidate_brier is None or baseline is None or observed_delta is None:
+            checks.append(_consistency_check(
+                name,
+                "SKIP",
+                f"{delta_key} could not be checked because one or more Brier values are missing.",
+                {
+                    "candidate_brier": candidate_brier,
+                    baseline_key: baseline,
+                    delta_key: observed_delta,
+                },
+            ))
+            continue
+        expected_delta = candidate_brier - baseline
+        difference = observed_delta - expected_delta
+        checks.append(_consistency_check(
+            name,
+            "PASS" if abs(difference) <= brier_delta_tolerance else "FAIL",
+            (
+                f"{delta_key}={observed_delta:.6f}; expected "
+                f"candidate_brier - {baseline_key}={expected_delta:.6f}"
+            ),
+            {
+                "candidate_brier": candidate_brier,
+                baseline_key: baseline,
+                delta_key: observed_delta,
+                "expected_delta": expected_delta,
+                "difference": difference,
+                "tolerance": brier_delta_tolerance,
+            },
+        ))
+    failed = [row for row in checks if row.get("status") == "FAIL"]
+    return {
+        "status": "FAIL" if failed else "PASS",
+        "brier_delta_tolerance": brier_delta_tolerance,
+        "failed_invariant_count": len(failed),
+        "failed_invariants": [row["name"] for row in failed],
+        "checks": checks,
+    }
+
+
+def _build_input_gate(
+    payloads,
+    artifacts,
+    scorecard,
+    *,
+    run_date,
+    max_skew_hours=INPUT_FRESHNESS_MAX_SKEW_HOURS,
+    brier_delta_tolerance=INPUT_CONSISTENCY_BRIER_TOLERANCE,
+    critical_inputs=CRITICAL_INPUTS,
+):
+    critical_inputs = tuple(critical_inputs or ())
+    coverage = _coverage_gate(artifacts, critical_inputs=critical_inputs)
+    freshness = _freshness_rows(
+        artifacts,
+        run_date=run_date,
+        max_skew_hours=float(max_skew_hours),
+        critical_inputs=critical_inputs,
+    )
+    consistency = _consistency_gate(
+        payloads,
+        scorecard,
+        run_date=run_date,
+        brier_delta_tolerance=float(brier_delta_tolerance),
+    )
+    return {
+        "status": _input_gate_status(
+            coverage.get("status"),
+            freshness.get("status"),
+            consistency.get("status"),
+        ),
+        "run_date": str(run_date or "")[:10],
+        "critical_inputs": list(critical_inputs),
+        "coverage": coverage,
+        "freshness": freshness,
+        "consistency": consistency,
+    }
 
 
 def _candidate_from_payloads(payloads):
@@ -214,6 +581,49 @@ def _candidate_from_payloads(payloads):
     return {}
 
 
+def _label_total_for_quality_grades(label_summary, quality_grades):
+    if not label_summary or not label_summary.get("exists"):
+        return None
+    quality_counts = label_summary.get("quality_counts") or {}
+    if not quality_grades or "all" in {str(item).lower() for item in quality_grades}:
+        return safe_int(label_summary.get("total_all"))
+    return sum(safe_int(quality_counts.get(str(grade))) for grade in quality_grades)
+
+
+def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
+    daily_labels = daily_labels or {}
+    market_day_labels = market_day_labels or {}
+    quality_grades = corpus.get("quality_grades") or ["complete", "manual_override"]
+    csv_total = _label_total_for_quality_grades(market_day_labels, quality_grades)
+    daily_total = safe_int(daily_labels.get("total"))
+    if daily_total > 0:
+        total = daily_total
+        source = "daily_refresh_status"
+    elif csv_total is not None:
+        total = csv_total
+        source = "market_day_labels_csv"
+    else:
+        total = daily_total
+        source = "daily_refresh_status"
+    return {
+        "total": total,
+        "quality_counts": (
+            daily_labels.get("quality_counts")
+            or market_day_labels.get("quality_counts")
+            or {}
+        ),
+        "reconciliation_counts": (
+            daily_labels.get("reconciliation_counts")
+            or market_day_labels.get("reconciliation_counts")
+            or {}
+        ),
+        "source": source,
+        "path": market_day_labels.get("path"),
+        "total_all": market_day_labels.get("total_all"),
+        "quality_grades": list(quality_grades),
+    }
+
+
 def _scorecard(payloads, daily_refresh_summary=None):
     daily = payloads.get("daily_refresh_status") or {}
     daily_summary = daily_refresh_summary or daily.get("summary") or {}
@@ -223,7 +633,6 @@ def _scorecard(payloads, daily_refresh_summary=None):
         or payloads.get("rollup_freshness")
         or {}
     )
-    labels = daily_summary.get("labels") or {}
     ingest = first_present(
         daily_summary.get("ingest_quality_gate"),
         payloads.get("ingest_quality_gate"),
@@ -237,6 +646,11 @@ def _scorecard(payloads, daily_refresh_summary=None):
     candidate = _candidate_from_payloads(payloads)
     aggregate = candidate.get("aggregate") or {}
     corpus = promotion.get("corpus") or {}
+    label_summary = _scorecard_label_summary(
+        daily_summary.get("labels") or {},
+        payloads.get("market_day_labels") or {},
+        corpus,
+    )
     decisions = promotion.get("decisions") or {}
     shadow = payloads.get("shadow_ab_monitor") or {}
     variant = payloads.get("model_variant_evidence_growth") or {}
@@ -256,11 +670,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     backlog = snapshot_eval.get("improvement_backlog") or {}
 
     return {
-        "labels": {
-            "total": safe_int(labels.get("total")),
-            "quality_counts": labels.get("quality_counts") or {},
-            "reconciliation_counts": labels.get("reconciliation_counts") or {},
-        },
+        "labels": label_summary,
         "ingest_quality_gate": {
             "status": ingest.get("status"),
             "fail_reasons": ingest.get("fail_reasons") or [],
@@ -314,6 +724,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "band_row_count": safe_int(corpus.get("band_row_count")),
             "path": corpus.get("path"),
             "corpus_hash": corpus.get("corpus_hash"),
+            "quality_grades": corpus.get("quality_grades") or [],
+            "skipped_by_reason": corpus.get("skipped_by_reason") or {},
+            "skipped_count": safe_int(corpus.get("skipped_count")),
         },
         "candidate": {
             "rows": safe_int(first_present(aggregate.get("rows"), aggregate.get("n"))),
@@ -421,6 +834,54 @@ def _learning(priority, category, source, signal, action, *, evidence=None, retr
         "retrain_input": bool(retrain_input),
         "blocker": bool(blocker),
     }
+
+
+def _add_input_gate_learnings(learnings, input_gate):
+    gate = input_gate or {}
+    coverage = gate.get("coverage") or {}
+    freshness = gate.get("freshness") or {}
+    consistency = gate.get("consistency") or {}
+    if coverage.get("status") == "FAIL":
+        critical_missing = coverage.get("critical_missing_inputs") or []
+        learnings.append(_learning(
+            "P0",
+            "analysis_input_gate",
+            "daily_learning",
+            (
+                f"Daily analysis input coverage FAIL: present "
+                f"{coverage.get('present_count')}/{coverage.get('total_count')}; "
+                f"critical missing={', '.join(critical_missing) or '-'}."
+            ),
+            "Regenerate the missing critical daily-analysis inputs, then rerun daily_learning and daily_flow_analysis.",
+            evidence=coverage,
+            blocker=True,
+        ))
+    if freshness.get("status") == "FAIL":
+        critical_stale = freshness.get("critical_stale_inputs") or []
+        learnings.append(_learning(
+            "P0",
+            "analysis_input_gate",
+            "daily_learning",
+            (
+                "Daily analysis input freshness FAIL: "
+                f"critical stale or unverifiable={', '.join(critical_stale) or '-'}; "
+                f"newest={freshness.get('newest_input') or '-'}."
+            ),
+            "Regenerate stale or timestamp-invalid critical inputs from the current daily refresh, then rerun daily_learning.",
+            evidence=freshness,
+            blocker=True,
+        ))
+    if consistency.get("status") == "FAIL":
+        failed = consistency.get("failed_invariants") or []
+        learnings.append(_learning(
+            "P0",
+            "input_inconsistency",
+            "daily_learning",
+            "Daily analysis input inconsistency: " + (", ".join(failed) or "unknown invariant"),
+            "Stop using daily-analysis readiness flags until the inconsistent upstream artifacts are regenerated or the schema definition drift is fixed.",
+            evidence=consistency,
+            blocker=True,
+        ))
 
 
 def _add_gate_learnings(learnings, gates):
@@ -658,7 +1119,7 @@ def _add_core_trend_claim_learning(learnings, claim):
         ))
 
 
-def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None):
+def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None, input_gate=None):
     learnings = []
     artifacts = artifacts or {}
     labels_total = scorecard["labels"]["total"]
@@ -685,6 +1146,8 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
     taker_tail = scorecard.get("taker_tail_casebook") or {}
     rollup_freshness = scorecard.get("rollup_freshness") or {}
+
+    _add_input_gate_learnings(learnings, input_gate)
 
     if rollup_freshness.get("status") == "BLOCK":
         first = next(iter(rollup_freshness.get("blockers") or []), {})
@@ -1468,15 +1931,20 @@ def build_learning_payload(
     generated_at_utc=None,
     daily_refresh_summary=None,
     rollup_generated_at_overrides=None,
+    input_max_skew_hours=INPUT_FRESHNESS_MAX_SKEW_HOURS,
+    input_brier_delta_tolerance=INPUT_CONSISTENCY_BRIER_TOLERANCE,
 ):
     payloads, artifacts = load_inputs(backtest_root)
     data_root = Path(backtest_root).parent
+    synthesized_trading_evidence = False
     if not payloads.get("trading_evidence"):
         payloads["trading_evidence"] = build_trading_evidence_summary(
             mm_runs_root=data_root / "mm_runs",
             taker_runs_root=data_root / "taker_runs",
         )
+        synthesized_trading_evidence = True
     generated = generated_at_utc or utc_iso()
+    _coerce_in_memory_daily_refresh_input(payloads, artifacts, daily_refresh_summary, generated)
     daily_status_rollup = (
         ((payloads.get("daily_refresh_status") or {}).get("summary") or {}).get("rollup_freshness")
     )
@@ -1489,13 +1957,44 @@ def build_learning_payload(
             generated_at_overrides=rollup_overrides,
     )
     daily_generated = (payloads.get("daily_refresh_status") or {}).get("generated_at_utc")
+    trading_run_date = _trading_evidence_run_date(payloads.get("trading_evidence") or {})
+    effective_run_date = (
+        run_date
+        or (str(trading_run_date)[:10] if trading_run_date else None)
+        or (str(daily_generated)[:10] if daily_generated else str(generated)[:10])
+    )
+    if synthesized_trading_evidence:
+        if not payloads["trading_evidence"].get("run_date"):
+            payloads["trading_evidence"]["run_date"] = effective_run_date
+        if not payloads["trading_evidence"].get("target_date"):
+            payloads["trading_evidence"]["target_date"] = effective_run_date
+        payloads["trading_evidence"]["generated_at_utc"] = daily_generated or generated
+        record = artifacts.get("trading_evidence") or {}
+        artifacts["trading_evidence"] = {
+            **record,
+            "name": "trading_evidence",
+            "exists": True,
+            "generated_at_utc": daily_generated or generated,
+            "status": payloads["trading_evidence"].get("status"),
+            "source": "synthesized_trading_evidence_summary",
+        }
     scorecard = _scorecard(payloads, daily_refresh_summary=daily_refresh_summary)
+    input_gate = _build_input_gate(
+        payloads,
+        artifacts,
+        scorecard,
+        run_date=effective_run_date,
+        max_skew_hours=input_max_skew_hours,
+        brier_delta_tolerance=input_brier_delta_tolerance,
+    )
+    scorecard["input_gate"] = input_gate
     truncated_sources = []
     learnings = _build_learnings(
         payloads,
         scorecard,
         artifacts=artifacts,
         truncated_sources=truncated_sources,
+        input_gate=input_gate,
     )
     status = _overall_status(learnings, artifacts)
     summary = {
@@ -1504,16 +2003,24 @@ def build_learning_payload(
         "high_priority_learning_count": sum(1 for row in learnings if row.get("priority") in {"P0", "P1"}),
         "retrain_input_count": sum(1 for row in learnings if row.get("retrain_input")),
         "truncated_sources": truncated_sources,
+        "input_gate_status": input_gate.get("status"),
+        "input_coverage": {
+            "present_count": (input_gate.get("coverage") or {}).get("present_count"),
+            "total_count": (input_gate.get("coverage") or {}).get("total_count"),
+            "missing_count": (input_gate.get("coverage") or {}).get("missing_count"),
+            "critical_missing_inputs": (input_gate.get("coverage") or {}).get("critical_missing_inputs") or [],
+        },
     }
     retrain_plan = _retrain_plan(scorecard, learnings, artifacts, snapshots_root)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated,
-        "run_date": run_date or (str(daily_generated)[:10] if daily_generated else str(generated)[:10]),
+        "run_date": effective_run_date,
         "status": status,
         "backtest_root": str(Path(backtest_root)),
         "snapshots_root": str(Path(snapshots_root)),
         "summary": summary,
+        "input_gate": input_gate,
         "scorecard": scorecard,
         "retrain_plan": retrain_plan,
         "learnings": learnings,
@@ -1537,6 +2044,8 @@ def build_parser():
     parser.add_argument("--run-date", default="")
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument("--input-max-skew-hours", type=float, default=INPUT_FRESHNESS_MAX_SKEW_HOURS)
+    parser.add_argument("--input-brier-delta-tolerance", type=float, default=INPUT_CONSISTENCY_BRIER_TOLERANCE)
     return parser
 
 
@@ -1546,6 +2055,8 @@ def main(argv=None):
         backtest_root=args.backtest_root,
         snapshots_root=args.snapshots_root,
         run_date=args.run_date or None,
+        input_max_skew_hours=args.input_max_skew_hours,
+        input_brier_delta_tolerance=args.input_brier_delta_tolerance,
     )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Daily log learning: {payload['status']}")

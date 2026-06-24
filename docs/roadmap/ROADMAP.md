@@ -141,7 +141,7 @@ infrastructure work remains.
 | 243 | [Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
-| 246 | [Deduplicated Durable Tape Backup Repository [PARTIAL 2026-06-24 - RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
+| 246 | [Deduplicated Durable Tape Backup Repository [COMPLETE 2026-06-24 - RESTIC SNAPSHOT AND RESTORE DRILL LIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
 | 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
@@ -272,7 +272,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - ROW GATES PASS, ACTIVE CONTRACT BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - DATA PASS, ACTIVE CONTRACT BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -331,7 +331,7 @@ infrastructure work remains.
 | 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
 | 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [COMPLETE 2026-06-24 - CORRELATED-REGIME CAPS WIRED INTO TAKER AND MAKER RISK]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
 | 293 | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes [COMPLETE 2026-06-24 - FAIL-CLOSED PROMOTION AND STABLE DAILY LEDGERS]](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
-| 294 | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [OPEN 2026-06-24 - INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS]](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
+| 294 | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [COMPLETE 2026-06-24 - INPUT GATE FAIL-CLOSED IN DAILY ANALYSIS]](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
 | 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [OPEN 2026-06-24 - LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
 | 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [OPEN 2026-06-24 - POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
 | 297 | [Calibration-Drift And Directional-Bias Daily Tracking [OPEN 2026-06-24 - NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |

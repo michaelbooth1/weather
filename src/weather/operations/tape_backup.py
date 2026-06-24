@@ -475,6 +475,28 @@ def _manifest_entry_map(manifest):
     }
 
 
+def _entry_mtime(entry):
+    try:
+        return datetime.fromisoformat(str(entry.get("mtime_utc")).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _manifest_cutoff(manifest):
+    try:
+        value = (manifest or {}).get("coverage_cutoff_utc") or (manifest or {}).get("generated_at_utc")
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _after_manifest_cutoff(entry, manifest_paths, cutoff):
+    if not cutoff or entry.get("path") in manifest_paths:
+        return False
+    mtime = _entry_mtime(entry)
+    return bool(mtime and mtime > cutoff)
+
+
 def _clob_policy_for_path(rel_path):
     return [
         policy for policy in CLOB_ARTIFACT_POLICIES
@@ -482,10 +504,11 @@ def _clob_policy_for_path(rel_path):
     ]
 
 
-def clob_artifact_coverage(source_root=REPO_ROOT, manifest=None):
+def clob_artifact_coverage(source_root=REPO_ROOT, manifest=None, manifest_cutoff=None):
     source_root = Path(source_root)
     manifest_entries = _manifest_entry_map(manifest)
     manifest_paths = set(manifest_entries)
+    cutoff = manifest_cutoff if manifest_cutoff is not None else _manifest_cutoff(manifest)
     rows = []
     all_missing_required = []
     for policy in CLOB_ARTIFACT_POLICIES:
@@ -498,6 +521,12 @@ def clob_artifact_coverage(source_root=REPO_ROOT, manifest=None):
                     continue
                 rel = path.relative_to(source_root).as_posix()
                 if _excluded(rel):
+                    continue
+                entry = {
+                    "path": rel,
+                    "mtime_utc": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                }
+                if _after_manifest_cutoff(entry, manifest_paths, cutoff):
                     continue
                 local_paths.add(rel)
         for rel in sorted(local_paths):
@@ -573,11 +602,28 @@ def local_manifest_coverage_audit(source_root=REPO_ROOT, manifest=None):
             "clob_artifacts": {"classes": [], "summary": {}},
         }
     manifest_paths = set(_manifest_entry_map(manifest))
-    local_entries = local_candidate_entries(source_root)
+    cutoff = _manifest_cutoff(manifest)
+    all_local_entries = local_candidate_entries(source_root)
+    post_manifest_entries = [
+        entry for entry in all_local_entries
+        if _after_manifest_cutoff(entry, manifest_paths, cutoff)
+    ]
+    local_entries = [
+        entry for entry in all_local_entries
+        if not _after_manifest_cutoff(entry, manifest_paths, cutoff)
+    ]
     local_by_class = _summarize_entries_by_class(local_entries)
     backed_by_class = _summarize_entries_by_class((manifest or {}).get("files") or [])
     missing_critical = []
     missing_critical_bytes = 0
+    post_manifest_critical = []
+    post_manifest_critical_bytes = 0
+    for entry in post_manifest_entries:
+        critical = _critical_classes(entry.get("classes") or [])
+        if not critical:
+            continue
+        post_manifest_critical.append({**entry, "critical_classes": critical})
+        post_manifest_critical_bytes += int(entry.get("size") or 0)
     for entry in local_entries:
         if entry.get("path") in manifest_paths:
             continue
@@ -608,11 +654,19 @@ def local_manifest_coverage_audit(source_root=REPO_ROOT, manifest=None):
         "status": status,
         "local_candidate_files": len(local_entries),
         "local_candidate_bytes": sum(int(row.get("size") or 0) for row in local_entries),
+        "total_local_candidate_files": len(all_local_entries),
+        "total_local_candidate_bytes": sum(int(row.get("size") or 0) for row in all_local_entries),
+        "manifest_cutoff_utc": cutoff.isoformat() if cutoff else None,
+        "post_manifest_candidate_files": len(post_manifest_entries),
+        "post_manifest_candidate_bytes": sum(int(row.get("size") or 0) for row in post_manifest_entries),
+        "post_manifest_critical_files": len(post_manifest_critical),
+        "post_manifest_critical_bytes": post_manifest_critical_bytes,
+        "post_manifest_critical_samples": post_manifest_critical[:50],
         "missing_critical_files": len(missing_critical),
         "missing_critical_bytes": missing_critical_bytes,
         "missing_critical_samples": missing_critical[:50],
         "class_coverage": class_coverage,
-        "clob_artifacts": clob_artifact_coverage(source_root, manifest),
+        "clob_artifacts": clob_artifact_coverage(source_root, manifest, manifest_cutoff=cutoff),
     }
 
 
@@ -620,6 +674,7 @@ def manifest_hash_payload(manifest):
     return {
         "schema_version": manifest.get("schema_version"),
         "policy_version": manifest.get("policy_version"),
+        "coverage_cutoff_utc": manifest.get("coverage_cutoff_utc"),
         "source_root": manifest.get("source_root"),
         "files": manifest.get("files") or [],
         "class_summaries": manifest.get("class_summaries") or {},
@@ -638,6 +693,7 @@ def manifest_hash(manifest):
 
 def build_backup_manifest(source_root=REPO_ROOT):
     source_root = Path(source_root)
+    coverage_cutoff_utc = utc_iso()
     entries = []
     for path, rel in iter_candidate_files(source_root):
         classes = classify_path(rel)
@@ -649,6 +705,7 @@ def build_backup_manifest(source_root=REPO_ROOT):
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "policy_version": POLICY_VERSION,
+        "coverage_cutoff_utc": coverage_cutoff_utc,
         "generated_at_utc": utc_iso(),
         "source_root": str(source_root),
         "policy": retention_policy_payload(),
@@ -1283,7 +1340,7 @@ def _closed_archive_parquet_expectations(restore_root, selected_paths):
 def _parquet_row_count(path):
     try:
         import pyarrow.parquet as pq
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
         return {"status": "skipped", "reason": f"pyarrow unavailable: {exc}"}
     try:
         return {"status": "ok", "row_count": int(pq.ParquetFile(path).metadata.num_rows)}
@@ -2818,8 +2875,11 @@ def write_status_report(path, payload):
         "",
         f"Source root: `{coverage.get('source_root') or '-'}`",
         f"Status: **{coverage.get('status') or '-'}**",
+        f"Manifest cutoff UTC: `{coverage.get('manifest_cutoff_utc') or '-'}`",
         f"Missing critical files: `{coverage.get('missing_critical_files') or 0}`",
         f"Missing critical bytes: `{coverage.get('missing_critical_bytes') or 0}`",
+        f"Post-manifest critical files: `{coverage.get('post_manifest_critical_files') or 0}`",
+        f"Post-manifest critical bytes: `{coverage.get('post_manifest_critical_bytes') or 0}`",
         "",
     ]
     missing_samples = coverage.get("missing_critical_samples") or []
@@ -2831,6 +2891,13 @@ def write_status_report(path, payload):
         )
     else:
         lines.append("- no missing critical local files")
+    post_manifest_samples = coverage.get("post_manifest_critical_samples") or []
+    if post_manifest_samples:
+        lines += ["", "Post-manifest critical sample paths:"]
+        lines.extend(
+            f"- `{row.get('path')}` ({row.get('size')} bytes; {', '.join(row.get('critical_classes') or [])})"
+            for row in post_manifest_samples[:20]
+        )
     clob = payload.get("clob_artifact_coverage") or {}
     lines += [
         "",

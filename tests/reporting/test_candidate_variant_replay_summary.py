@@ -88,13 +88,20 @@ def _active_contract(rows_path, *, variant_id="candidate_v1"):
     }
 
 
+def _registry_variant(rows_path, *, variant_id="candidate_v1", lifecycle="active", active_for_headline=True):
+    return {
+        **_active_contract(rows_path, variant_id=variant_id),
+        "lifecycle": lifecycle,
+        "active_for_headline": active_for_headline,
+    }
+
+
 def _active_registry(rows_path, *, variant_id="candidate_v1", lifecycle="active"):
-    contract = _active_contract(rows_path, variant_id=variant_id)
     return {
         "schema_version": "model_variant_registry_v0.1",
         "exists": True,
         "path": "inline",
-        "variants": [{**contract, "lifecycle": lifecycle}],
+        "variants": [_registry_variant(rows_path, variant_id=variant_id, lifecycle=lifecycle)],
     }
 
 
@@ -312,6 +319,49 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
                     active_registry_contract=_active_contract(rows_path),
                     variant_registry=_active_registry(rows_path),
                 )
+
+    def test_active_replay_contract_rejects_unregistered_source_lineage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            rows = _passing_rows()
+            rows[0]["route_source_variant_id"] = "diagnostic_repair_v1"
+            _write_rows(rows_path, rows)
+            _write_source(source_path)
+
+            with self.assertRaisesRegex(ValueError, "unregistered source variant"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(rows_path),
+                    variant_registry=_active_registry(rows_path),
+                )
+
+    def test_active_replay_contract_allows_registered_active_source_lineage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            rows = _passing_rows()
+            for row in rows:
+                row["route_source_variant_id"] = "source_active_v1"
+            _write_rows(rows_path, rows)
+            _write_source(source_path)
+            registry = _active_registry(rows_path)
+            registry["variants"].append(_registry_variant(root / "source_rows.csv", variant_id="source_active_v1"))
+
+            payload = build_variant_replay_summary(
+                rows_path,
+                source_path,
+                validation_evidence="active_replay_contract",
+                active_registry_contract=_active_contract(rows_path),
+                variant_registry=registry,
+            )
+
+            checks = payload["candidate_shadow_variants"]["active_registry_contract"]["validation_checks"]
+            self.assertTrue(checks["source_variant_lineage_countable"])
 
     def test_market_regression_blocks_even_with_active_contract_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -440,6 +440,48 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(payload["same_day_max_c"], 21.5)
         self.assertEqual(payload["skipped_missing_file_count"], 1)
         self.assertEqual(payload["skipped_missing_files"], ["2026-06-19-2300-CYYZ-MAN-swob.xml"])
+        self.assertEqual(payload["raw_payload"]["source"], "eccc_swob")
+        self.assertEqual(payload["raw_payload"]["base_url"].split("/")[-2], "CYYZ")
+        self.assertEqual(payload["raw_payload"]["files"][0]["filename"], "2026-06-19-2200-CYYZ-MAN-swob.xml")
+        self.assertIn("max_air_temp_pst1hr", payload["raw_payload"]["files"][0]["text"])
+        self.assertEqual(payload["raw_payload"]["skipped_missing_files"], ["2026-06-19-2300-CYYZ-MAN-swob.xml"])
+
+    def test_wu_current_carries_raw_payload_for_observation_sidecar(self):
+        model = TorontoHighTempModel(target_date="2026-06-24", market_id="atlanta")
+        raw = {
+            "validTimeLocal": "2026-06-24T10:00:00-0400",
+            "temperature": 82,
+            "temperatureMax24Hour": 84,
+            "temperatureMaxSince7Am": 83,
+            "temperatureDewPoint": 70,
+            "relativeHumidity": 66,
+            "cloudCover": 25,
+            "wxPhraseLong": "Partly Cloudy",
+            "windSpeed": 8,
+        }
+        model.get_json = lambda _url, _params: raw
+
+        payload = model.fetch_wu_current()
+
+        self.assertEqual(payload["temp_native"], 82)
+        self.assertEqual(payload["raw_payload"], raw)
+
+    def test_metar_carries_raw_payload_for_observation_sidecar(self):
+        model = TorontoHighTempModel(target_date="2026-06-24", market_id="atlanta")
+        raw = [{
+            "reportTime": "2026-06-24T14:52:00Z",
+            "temp": 28.0,
+            "dewp": 20.0,
+            "wdir": 210,
+            "wspd": 8,
+            "rawOb": "KATL 241452Z 21008KT 10SM FEW040 28/20 A3000",
+        }]
+        model.get_json = lambda _url, _params: raw
+
+        payload = model.fetch_metar()
+
+        self.assertEqual(payload["raw_payload"], raw)
+        self.assertEqual(payload["raw"], raw[0]["rawOb"])
 
     def test_rate_limited_open_meteo_uses_explicit_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:

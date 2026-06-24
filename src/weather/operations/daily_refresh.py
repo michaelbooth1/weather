@@ -355,6 +355,7 @@ def _cli_dependencies():
         run_daily_refresh=run_daily_refresh,
         load_status=load_status,
         lock_preflight=lock_preflight,
+        lock_diagnostic=lock_diagnostic,
         acquire_lock=acquire_lock,
         release_lock=release_lock,
         _remove_lock_if_verified_stale=_remove_lock_if_verified_stale,

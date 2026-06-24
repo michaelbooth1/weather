@@ -528,6 +528,9 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(taker["best_strategy_id"], "raw_edge_control")
         self.assertEqual(taker["strategy_quality_candidate_id"], "raw_edge_control")
         self.assertEqual(taker["strategy_quality_candidate_status"], "COUNTABLE_SETTLED")
+        self.assertEqual(summary["run_date"], "2026-06-19")
+        self.assertEqual(summary["target_date"], "2026-06-19")
+        self.assertEqual(summary["settlement_scored_target_dates"], ["2026-06-19"])
 
     def test_uncertain_settlement_audit_blocks_settled_taker_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

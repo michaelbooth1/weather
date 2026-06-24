@@ -220,6 +220,40 @@ def ingest_quality_gate_status(summary):
     }
 
 
+def _ingest_gap_coverage_summary(raw_summary, gap_coverage):
+    raw_summary = dict(raw_summary or {})
+    gap_coverage = gap_coverage or {}
+    markets = gap_coverage.get("markets") or {}
+    if not markets:
+        return raw_summary
+
+    unresolved_missing = sum(
+        1 for row in markets.values()
+        if row.get("unresolved_missing_days")
+    )
+    unresolved_sparse = sum(
+        1 for row in markets.values()
+        if row.get("unresolved_sparse_days")
+    )
+    coverage_summary = gap_coverage.get("summary") or {}
+    return {
+        **raw_summary,
+        "raw_markets_with_missing_days": raw_summary.get("markets_with_missing_days", 0),
+        "raw_markets_with_sparse_days": raw_summary.get("markets_with_sparse_days", 0),
+        "markets_with_missing_days": unresolved_missing,
+        "markets_with_sparse_days": unresolved_sparse,
+        "historical_gap_markets_with_unresolved_gaps": coverage_summary.get(
+            "markets_with_unresolved_gaps", 0
+        ),
+        "historical_gap_unresolved_issue_days": coverage_summary.get(
+            "unresolved_issue_days", 0
+        ),
+        "historical_gap_covered_issue_days": coverage_summary.get(
+            "covered_issue_days", 0
+        ),
+    }
+
+
 def render_ingest_quality_report(payload):
     summary = payload.get("summary") or {}
     lines = [
@@ -241,14 +275,29 @@ def render_ingest_quality_report(payload):
         "markets_with_impossible_values",
         "markets_with_missing_days",
         "markets_with_sparse_days",
+        "raw_markets_with_missing_days",
+        "raw_markets_with_sparse_days",
+        "historical_gap_markets_with_unresolved_gaps",
+        "historical_gap_unresolved_issue_days",
+        "historical_gap_covered_issue_days",
     ]:
-        lines.append(f"| {key} | {summary.get(key)} |")
+        if key in summary:
+            lines.append(f"| {key} | {summary.get(key)} |")
     lines += ["", "## Fail Reasons", ""]
     for reason in payload.get("fail_reasons") or ["-"]:
         lines.append(f"- {reason}")
     lines += ["", "## Warn Reasons", ""]
     for reason in payload.get("warn_reasons") or ["-"]:
         lines.append(f"- {reason}")
+    coverage_summary = (payload.get("historical_gap_coverage") or {}).get("summary") or {}
+    if coverage_summary:
+        lines += ["", "## Historical Gap Coverage", ""]
+        for key in [
+            "markets_with_unresolved_gaps",
+            "unresolved_issue_days",
+            "covered_issue_days",
+        ]:
+            lines.append(f"- {key}: {coverage_summary.get(key)}")
     lines += ["", "## Corruption Markets", ""]
     for market_id in summary.get("corruption_markets") or ["-"]:
         lines.append(f"- {market_id}")
@@ -272,13 +321,21 @@ def run_ingest_quality_gate_step(args):
         years=years,
         quiet=True,
     )
-    summary = data_auditor.audit_summary(results)
+    raw_summary = data_auditor.audit_summary(results)
+    results_json = {
+        market_id: data_auditor.jsonable_result(result)
+        for market_id, result in (results or {}).items()
+    }
+    gap_coverage = fleet_observability.historical_gap_coverage(results_json)
+    summary = _ingest_gap_coverage_summary(raw_summary, gap_coverage)
     gate = ingest_quality_gate_status(summary)
     payload = {
         "schema_version": "ingest_quality_gate_v0.1",
         "generated_at_utc": utc_iso(),
         "status": gate["status"],
         "summary": summary,
+        "raw_summary": raw_summary,
+        "historical_gap_coverage": gap_coverage,
         "fail_reasons": gate["fail_reasons"],
         "warn_reasons": gate["warn_reasons"],
         "markets": {

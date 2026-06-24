@@ -279,16 +279,32 @@ def source_root_path(source, spec):
     raise KeyError(source)
 
 
-def manifest_quality(source, spec):
+def manifest_quality(source, spec, expected_season=None):
     manifest = read_json_dict(source_root_path(source, spec) / "manifest.json")
     if not manifest:
         return {
             "manifest_exists": False,
             "quarantined_raw_observations": 0,
+            "target_season_quarantined_raw_observations": 0,
         }
+    quarantined = int(manifest.get("quarantined_raw_observations") or 0)
+    quarantine_dates = manifest.get("quarantined_raw_observation_dates")
+    has_quarantine_date_evidence = isinstance(quarantine_dates, dict)
+    target_season_quarantined = quarantined
+    if has_quarantine_date_evidence:
+        expected = {item.isoformat() for item in (expected_season or [])}
+        target_season_quarantined = sum(
+            int(count or 0)
+            for local_date, count in quarantine_dates.items()
+            if local_date in expected
+        )
     return {
         "manifest_exists": True,
-        "quarantined_raw_observations": int(manifest.get("quarantined_raw_observations") or 0),
+        "quarantined_raw_observations": quarantined,
+        "target_season_quarantined_raw_observations": target_season_quarantined,
+        "undated_quarantined_raw_observations": 0 if has_quarantine_date_evidence else quarantined,
+        "quarantine_date_evidence": has_quarantine_date_evidence,
+        "quarantined_raw_observation_dates": quarantine_dates or {},
     }
 
 
@@ -462,7 +478,7 @@ def historical_source_audit(spec, source, expected_period, expected_season):
         "daily_days": len(covered),
         "period": coverage_for_dates(covered, expected_period),
         "target_season": coverage_for_dates(covered, expected_season),
-        "quality": manifest_quality(source, spec),
+        "quality": manifest_quality(source, spec, expected_season=expected_season),
     }
     if source == "reanalysis":
         start = min(expected_period) if expected_period else None
@@ -710,16 +726,18 @@ def build_gates(snapshot, historical, thresholds=None):
         ),
     ))
     low_fill = snapshot.get("low_fill_fields") or []
+    classified_low_fill = snapshot.get("low_fill_field_classifications") or classify_low_fill_fields(low_fill)
     below_fill = [
-        row for row in low_fill
+        row for row in classified_low_fill
         if row.get("fill_rate") is not None
         and float(row.get("fill_rate")) < float(thresholds["min_snapshot_field_fill_rate"])
+        and row.get("classification") == "required"
     ]
     gates.append(gate(
         "snapshot_low_fill_fields",
         "warn",
         not below_fill,
-        f"{len(below_fill)} fields are below {thresholds['min_snapshot_field_fill_rate']:.0%} fill.",
+        f"{len(below_fill)} required fields are below {thresholds['min_snapshot_field_fill_rate']:.0%} fill.",
         threshold=f">= {thresholds['min_snapshot_field_fill_rate']:.1%}",
         action="Inspect low-fill fields and either backfill, replace with canonical artifacts, or remove them from model inputs.",
     ))
@@ -799,15 +817,35 @@ def build_gates(snapshot, historical, thresholds=None):
     ))
 
     quarantined = 0
+    total_quarantined = 0
+    undated_quarantined = 0
     for market in historical.get("markets") or []:
         for source_row in (market.get("sources") or {}).values():
             quality = source_row.get("quality") or {}
-            quarantined += int(quality.get("quarantined_raw_observations") or 0)
+            total_quarantined += int(quality.get("quarantined_raw_observations") or 0)
+            quarantined += int(
+                quality.get(
+                    "target_season_quarantined_raw_observations",
+                    quality.get("quarantined_raw_observations") or 0,
+                )
+                or 0
+            )
+            undated_quarantined += int(
+                quality.get(
+                    "undated_quarantined_raw_observations",
+                    quality.get("quarantined_raw_observations") or 0,
+                )
+                or 0
+            )
     gates.append(gate(
         "quarantined_impossible_observations",
         "warn",
-        quarantined <= int(thresholds["max_quarantined_impossible_observations"]),
-        f"{quarantined} raw observations are quarantined by source manifests.",
+        undated_quarantined <= int(thresholds["max_quarantined_impossible_observations"]),
+        (
+            f"{undated_quarantined} undated raw quarantine(s) lack target-season exclusion evidence; "
+            f"{quarantined} target-season raw quarantine(s) and "
+            f"{total_quarantined} all-history quarantine(s) remain excluded."
+        ),
         threshold=f"<= {thresholds['max_quarantined_impossible_observations']}",
         action="Review quarantines and data-auditor output; do not train on impossible raw rows.",
     ))

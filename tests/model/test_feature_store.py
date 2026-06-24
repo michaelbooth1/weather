@@ -881,6 +881,38 @@ class TestFeatureStore(unittest.TestCase):
         self.assertTrue(any(row["section"] == "distribution_component_metadata" for row in rows))
         self.assertTrue(all(row["snapshot_id"] == snapshot_id for row in rows))
 
+    def test_snapshot_store_backfills_explanation_tape_from_reconstructed_replay_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = SnapshotStore(root=root, event_slug="highest-temperature-in-nyc-on-june-20-2026")
+            snapshot_id = "20260620T120000-0400"
+            snapshot = {
+                "snapshot_id": snapshot_id,
+                "captured_at_local": "2026-06-20T12:00:00-04:00",
+                "event_slug": "highest-temperature-in-nyc-on-june-20-2026",
+                "model_version": "model-v",
+                "distribution": {"82": 1.0},
+                "model_explanation": {"feature_cutoff_hour": 12},
+            }
+            replay = {
+                "snapshot_id": snapshot_id,
+                "target_date": "2026-06-20",
+                "model_version": "model-v",
+                "recorded_distribution": {"82": 1.0},
+                "source": "reconstructed",
+                "sources": {"wu_history": {"ok": True, "data": {"rows": [{"temp": 82}]}}},
+            }
+            store.append_jsonl(root / "snapshots.jsonl", snapshot)
+            store.append_jsonl(root / "replay_inputs_reconstructed.jsonl", replay)
+
+            self.assertEqual(store.replay_inputs_by_snapshot()[snapshot_id]["source"], "reconstructed")
+            result = store.backfill_snapshot_explanations()
+            payload = json.loads((root / "snapshot_explanations.jsonl").read_text(encoding="utf-8").strip())
+
+        self.assertEqual(result["written_snapshot_count"], 1)
+        self.assertEqual(payload["snapshot_id"], snapshot_id)
+        self.assertIn("model_explanation", payload["sections"])
+
     def test_snapshot_store_backfills_core_sidecars_from_existing_jsonl(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

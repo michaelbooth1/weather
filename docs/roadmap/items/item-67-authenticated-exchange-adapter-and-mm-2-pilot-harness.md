@@ -154,3 +154,15 @@ Because no eligible live account or external credential material is available,
 the MM-2 heartbeat, post-only/min-size/tick, tiny two-sided quote, cancel-all,
 user WebSocket lifecycle, and paid-vs-predicted payout evidence remain blocked.
 No market-risk code changes were made.
+
+2026-06-24 continuation check:
+
+- Rechecked the live credential environment; the same Polymarket US/global
+  credential references remain absent, and no forbidden direct secret env vars
+  are present.
+- Inspected the eight newest `data/mm_runs/**/preflight.json` files. They are
+  `paper-live-forward` runs rather than `live-pilot` runs, and all report
+  `live_readiness.ok = false`.
+- No live exchange CLI invocation was run because the existing harness requires
+  both an eligible `live-pilot` run folder and external credential references
+  before live verbs can be enabled.

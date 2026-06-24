@@ -202,6 +202,74 @@ def _scorecard_rows(scorecard):
     ]
 
 
+def _input_gate_summary_rows(input_gate):
+    gate = input_gate or {}
+    coverage = gate.get("coverage") or {}
+    freshness = gate.get("freshness") or {}
+    consistency = gate.get("consistency") or {}
+    return [
+        ["Status", gate.get("status") or "-"],
+        ["Coverage", coverage.get("status") or "-"],
+        [
+            "Present inputs",
+            f"{coverage.get('present_count', 0)}/{coverage.get('total_count', 0)}",
+        ],
+        [
+            "Critical missing",
+            ", ".join(coverage.get("critical_missing_inputs") or []) or "-",
+        ],
+        ["Freshness", freshness.get("status") or "-"],
+        ["Newest input", freshness.get("newest_input") or "-"],
+        ["Newest generated", freshness.get("newest_generated_at_utc") or "-"],
+        [
+            "Critical stale/unverifiable",
+            ", ".join(freshness.get("critical_stale_inputs") or []) or "-",
+        ],
+        ["Consistency", consistency.get("status") or "-"],
+        [
+            "Failed invariants",
+            ", ".join(consistency.get("failed_invariants") or []) or "-",
+        ],
+    ]
+
+
+def _input_gate_consistency_rows(input_gate):
+    consistency = (input_gate or {}).get("consistency") or {}
+    return [
+        [
+            row.get("name"),
+            row.get("status"),
+            row.get("detail"),
+        ]
+        for row in consistency.get("checks") or []
+    ]
+
+
+def _input_gate_freshness_rows(input_gate, limit=24):
+    freshness = (input_gate or {}).get("freshness") or {}
+    rows = freshness.get("rows") or []
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            {"FAIL": 0, "WARN": 1, "PASS": 2}.get(row.get("severity"), 9),
+            row.get("name") or "",
+        ),
+    )
+    return [
+        [
+            row.get("name"),
+            row.get("critical"),
+            row.get("exists"),
+            row.get("freshness_status"),
+            row.get("severity"),
+            row.get("generated_at_utc") or "-",
+            row.get("age_vs_newest_hours") if row.get("age_vs_newest_hours") is not None else "-",
+            ", ".join(row.get("reasons") or []) or "-",
+        ]
+        for row in rows[:limit]
+    ]
+
+
 def _core_trend_report_rows(claim):
     summary = (claim or {}).get("summary") or {}
     return [
@@ -397,6 +465,30 @@ def render_report(payload):
             ["Promotion ready", retrain.get("promotion_ready")],
         ],
     )
+    input_gate = payload.get("input_gate") or scorecard.get("input_gate") or {}
+    if input_gate:
+        lines += ["", "## Input Gate", ""]
+        lines += markdown_table(["Field", "Value"], _input_gate_summary_rows(input_gate))
+        consistency_rows = _input_gate_consistency_rows(input_gate)
+        if consistency_rows:
+            lines += ["", "Consistency checks:"]
+            lines += markdown_table(["Invariant", "Status", "Detail"], consistency_rows)
+        freshness_rows = _input_gate_freshness_rows(input_gate)
+        if freshness_rows:
+            lines += ["", "Artifact freshness:"]
+            lines += markdown_table(
+                [
+                    "Artifact",
+                    "Critical",
+                    "Exists",
+                    "Freshness",
+                    "Severity",
+                    "Generated",
+                    "Age vs Newest h",
+                    "Reasons",
+                ],
+                freshness_rows,
+            )
     lines += ["", "## Scorecard", ""]
     lines += markdown_table(["Area", "Value"], _scorecard_rows(scorecard))
     early_hour_promotion = ((scorecard.get("promotion") or {}).get("early_hour_promotion_blocker") or {})
@@ -699,11 +791,22 @@ def render_report(payload):
             lines += ["", "Next evidence needed:"]
             for action in dict.fromkeys(needed):
                 lines.append(f"- {action}")
+    freshness_by_name = {
+        row.get("name"): row.get("freshness_status")
+        for row in ((input_gate.get("freshness") or {}).get("rows") or [])
+    }
     lines += ["", "## Input Artifacts", ""]
     lines += markdown_table(
-        ["Artifact", "Exists", "Status", "Path"],
+        ["Artifact", "Exists", "Status", "Generated", "Freshness", "Path"],
         [
-            [row.get("name"), row.get("exists"), row.get("status"), row.get("path")]
+            [
+                row.get("name"),
+                row.get("exists"),
+                row.get("status"),
+                row.get("generated_at_utc") or "-",
+                freshness_by_name.get(row.get("name")) or "-",
+                row.get("path"),
+            ]
             for _name, row in sorted(artifacts.items())
         ],
     )

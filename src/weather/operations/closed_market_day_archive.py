@@ -7,6 +7,8 @@ convert or delete snapshot tapes; Item 244 owns the backfill writer.
 from __future__ import annotations
 
 import argparse
+import csv
+import gzip
 import hashlib
 import json
 import shutil
@@ -425,6 +427,7 @@ def _read_source_artifact_result(
         )
 
     frame = _read_source_frame(source_path)
+    reader_fallback = frame.attrs.get("reader_fallback_reason")
     return ArtifactReadResult(
         frame=frame,
         provenance=ArtifactReadProvenance(
@@ -437,7 +440,7 @@ def _read_source_artifact_result(
             manifest_path=str(manifest_path) if manifest_path else None,
             manifest_hash=manifest_hash,
             source_file_hash=sha256_file(source_path),
-            fallback_reason=fallback_reason,
+            fallback_reason=_combine_fallback_reasons(fallback_reason, reader_fallback),
         ),
     )
 
@@ -739,12 +742,42 @@ def _read_jsonl_frame(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _csv_text_handle(path: Path):
+    if path.name.lower().endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8-sig", newline="")
+    return path.open("r", encoding="utf-8-sig", newline="")
+
+
+def _read_csv_parser_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    malformed_rows = 0
+    extra_fields = 0
+    with _csv_text_handle(path) as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
+        for row in reader:
+            extras = row.pop(None, None)
+            if extras:
+                malformed_rows += 1
+                extra_fields += len(extras)
+            rows.append({key: value for key, value in row.items() if key is not None})
+    frame = pd.DataFrame(rows, columns=fieldnames)
+    frame.attrs["reader_fallback_reason"] = "csv_parser_fallback_bad_lines"
+    frame.attrs["reader_error"] = f"{type(exc).__name__}: {exc}"
+    frame.attrs["malformed_csv_row_count"] = malformed_rows
+    frame.attrs["malformed_csv_extra_field_count"] = extra_fields
+    return frame
+
+
 def _read_source_frame(path: Path) -> pd.DataFrame:
     name = path.name.lower()
     if name.endswith(".jsonl"):
         return _read_jsonl_frame(path)
     if name.endswith(".csv") or name.endswith(".csv.gz"):
-        return pd.read_csv(path)
+        try:
+            return pd.read_csv(path)
+        except pd.errors.ParserError as exc:
+            return _read_csv_parser_fallback_frame(path, exc)
     raise ValueError(f"unsupported archive source format: {path}")
 
 

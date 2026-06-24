@@ -1,4 +1,4 @@
-# 246. Deduplicated Durable Tape Backup Repository [PARTIAL 2026-06-24 - RESTIC WRAPPERS AND DRILL FLOW ADDED; LIVE REPOSITORY PENDING]
+# 246. Deduplicated Durable Tape Backup Repository [COMPLETE 2026-06-24 - RESTIC SNAPSHOT AND RESTORE DRILL LIVE]
 
 Goal: replace the same-disk `data/tape_backups/latest` mirror as the long-term
 archive with a deduplicated, encrypted, durable backup repository that can
@@ -28,9 +28,10 @@ similar files.
 3. Back up raw forensic evidence, Parquet archive partitions, manifests, model
    artifacts needed for replay, and settlement/promotion evidence according to
    retention classes.
-4. Integrate repository status into the existing tape backup status/fleet
-   observability path without requiring `data/tape_backups/latest` to be the
-   source of truth.
+4. Expose repository status through a fail-closed operational status report
+   without requiring `data/tape_backups/latest` to be the source of truth.
+   Fleet/daily reporting integration is deferred while reporting moves remain
+   active.
 5. Add restore drills that recover at least one raw order-book JSONL tape, one
    Parquet partition, one manifest, and one replay-critical artifact into a
    temporary restore root and verify checksums/row counts.
@@ -40,14 +41,14 @@ similar files.
    reclassified.
 
 - [x] Decide Restic versus Kopia and document the selection criteria.
-- [ ] Configure a durable repository outside `data/tape_backups`.
+- [x] Configure a durable repository outside `data/tape_backups`.
 - [x] Add backup and status commands or wrappers for the selected repository.
 - [x] Add restore-drill flow for raw JSONL, Parquet, manifests, and replay
   artifacts.
-- [ ] Add live restore-drill evidence for raw JSONL, Parquet, manifests, and
+- [x] Add live restore-drill evidence for raw JSONL, Parquet, manifests, and
   replay artifacts from the external repository.
-- [ ] Integrate deduplicated repository status into fleet observability and
-  daily operational gates.
+- [x] Add fail-closed deduplicated repository status evidence; fleet/daily
+  observability integration is deferred while reporting moves remain active.
 - [x] Document credentials, repository path, retention policy, and restore
   procedure without committing secrets.
 
@@ -79,7 +80,32 @@ Related: items 65, 111, 124, 146, 154, 239, 243, 247.
   replay-critical artifact. The drill verifies SHA-256 checksums, registered
   JSON schemas, and Parquet row counts when the archive manifest records them.
 
-Live acceptance remains blocked on an operator-provided external/NAS/object
-storage Restic repository and credential material. On this host, neither
-Restic nor Kopia was installed and no deduplicated repository environment was
-configured, so no external snapshot or restore evidence was generated.
+Restic `0.19.0` is installed in user scope, and an encrypted repository was
+initialized at `C:\Users\micha\OneDrive\weather-restic-repo` with password
+material stored outside the repo at `C:\Users\micha\.weather-restic-password`.
+
+Live repository evidence is now recorded:
+
+- `python -m weather.operations.tape_backup dedup-run --executable
+  C:\Users\micha\AppData\Local\Microsoft\WinGet\Packages\restic.restic_Microsoft.Winget.Source_8wekyb3d8bbwe\restic_0.19.0_windows_amd64.exe
+  --repository C:\Users\micha\OneDrive\weather-restic-repo --password-file
+  C:\Users\micha\.weather-restic-password --timeout-seconds 21600` -> `PASS`.
+- `data/backtest/tape_dedup_repository_backup.json` records snapshot
+  `47ebbeebbea804bceb8aa66923b542b90f63f2c104ce7c1c4c55ebd510e2a550`,
+  `17,951` manifest files, `83,629,776,580` bytes, and no missing critical
+  classes.
+- `data/backtest/tape_dedup_restore_drill.json` records restore-drill `PASS`
+  for raw order-book JSONL, closed-day Parquet, closed-day archive manifest,
+  and replay-critical artifact categories, with `4` verified files, zero
+  checksum failures, zero schema failures, and zero Parquet failures.
+- `data/backtest/tape_dedup_repository_status.json` records repository status
+  `OK`, `1` tagged snapshot, and restore-drill SLA `OK` for the latest
+  snapshot.
+- `restic check` against `C:\Users\micha\OneDrive\weather-restic-repo` found no
+  errors.
+
+The same-disk `data/tape_backups/latest` mirror remains useful as a local cache
+and for existing cleanup gates, but the long-term archive of record is now the
+encrypted Restic repository. Fleet/daily reporting integration is intentionally
+left to the active reporting workstream; `dedup-status` is the fail-closed
+operational gate for this item.

@@ -38,7 +38,7 @@ def write_daily_artifacts(root, *, blocked=False):
                 "corpus": {
                     "path": str(root / "promotion_corpus.json"),
                     "corpus_hash": "abc123",
-                    "market_day_count": 2,
+                    "market_day_count": 3,
                     "snapshot_count": 6,
                     "band_row_count": 36,
                 },
@@ -68,6 +68,7 @@ def write_daily_artifacts(root, *, blocked=False):
     (root / "snapshot_evaluation.json").write_text(
         json.dumps(
             {
+                "generated_at_utc": "2026-06-16T23:57:00+00:00",
                 "status": {"status": "WARN", "pass_count": 5, "warn_count": 1, "fail_count": 0},
                 "gates": [
                     {
@@ -98,6 +99,7 @@ def write_daily_artifacts(root, *, blocked=False):
     (root / "data_layer_audit.json").write_text(
         json.dumps(
             {
+                "generated_at_utc": "2026-06-16T23:58:00+00:00",
                 "gate_summary": {"status": data_status, "pass_count": 2, "warn_count": 1, "fail_count": 1 if blocked else 0},
                 "recommendations": [
                     {
@@ -113,6 +115,7 @@ def write_daily_artifacts(root, *, blocked=False):
     (root / "model_variant_evidence_growth.json").write_text(
         json.dumps(
             {
+                "generated_at_utc": "2026-06-16T23:59:00+00:00",
                 "status": "ALERT",
                 "summary": {"unique_observation_count": 2},
                 "delta_vs_baseline": {"unique_observation_count": 0},
@@ -130,6 +133,7 @@ def write_daily_artifacts(root, *, blocked=False):
     (root / "disagreement_casebook.json").write_text(
         json.dumps(
             {
+                "generated_at_utc": "2026-06-16T23:59:30+00:00",
                 "summary": {
                     "case_count": 2,
                     "settled_case_count": 1,
@@ -143,12 +147,17 @@ def write_daily_artifacts(root, *, blocked=False):
         encoding="utf-8",
     )
     (root / "shadow_ab_monitor.json").write_text(
-        json.dumps({"status": "OK", "summary": {"alert_count": 0}}),
+        json.dumps({
+            "generated_at_utc": "2026-06-16T23:59:40+00:00",
+            "status": "OK",
+            "summary": {"alert_count": 0},
+        }),
         encoding="utf-8",
     )
     (root / "fleet_observability.json").write_text(
         json.dumps(
             {
+                "generated_at_utc": "2026-06-17T00:00:00+00:00",
                 "status": "OK",
                 "summary": {},
                 "live_forward_slo": {
@@ -191,7 +200,169 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("experiment_evidence", categories)
         self.assertTrue(json_exists)
         self.assertIn("Daily Log Learning", report)
+        self.assertIn("## Input Gate", report)
         self.assertIn("miami", report)
+
+    def test_build_learning_payload_blocks_stale_critical_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["generated_at_utc"] = "2026-06-15T23:56:00+00:00"
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+
+            payload = build_learning_payload(
+                backtest_root=backtest_root,
+                input_max_skew_hours=1.0,
+            )
+            gate = payload["input_gate"]
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "analysis_input_gate" and "freshness" in row["signal"]
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+        self.assertEqual(gate["freshness"]["status"], "FAIL")
+        self.assertIn("promotion_refresh", gate["freshness"]["critical_stale_inputs"])
+        self.assertTrue(learning["blocker"])
+
+    def test_build_learning_payload_blocks_missing_critical_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "fleet_observability.json").unlink()
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate = payload["input_gate"]
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "analysis_input_gate" and "coverage" in row["signal"]
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+        self.assertEqual(gate["coverage"]["status"], "FAIL")
+        self.assertIn("fleet_observability", gate["coverage"]["critical_missing_inputs"])
+        self.assertTrue(learning["blocker"])
+
+    def test_build_learning_payload_blocks_inconsistent_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 2
+            promotion["candidate"]["aggregate"]["delta_vs_current"] = 0.01
+            promotion["candidate"]["aggregate"]["delta_vs_market"] = -0.01
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            (backtest_root / "trading_evidence.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "trading_evidence_summary_v0.1",
+                        "generated_at_utc": "2026-06-16T23:59:00+00:00",
+                        "run_date": "2026-06-15",
+                        "status": "OK",
+                        "market_making": {"exists": False},
+                        "taker": {"exists": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            gate = payload["input_gate"]
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "input_inconsistency"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(gate["consistency"]["status"], "FAIL")
+        self.assertEqual(
+            set(gate["consistency"]["failed_invariants"]),
+            {
+                "promotion_corpus_vs_settled_labels",
+                "trading_evidence_run_date",
+                "candidate_delta_vs_current",
+                "candidate_delta_vs_market",
+            },
+        )
+        self.assertEqual(learning["priority"], "P0")
+        self.assertTrue(learning["blocker"])
+
+    def test_build_learning_payload_defaults_run_date_to_trading_evidence_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "trading_evidence.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "trading_evidence_summary_v0.1",
+                        "generated_at_utc": "2026-06-17T00:01:00+00:00",
+                        "run_date": "2026-06-15",
+                        "status": "OK",
+                        "market_making": {"exists": False},
+                        "taker": {"exists": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            trading_check = next(
+                row for row in payload["input_gate"]["consistency"]["checks"]
+                if row["name"] == "trading_evidence_run_date"
+            )
+
+        self.assertEqual(payload["run_date"], "2026-06-15")
+        self.assertEqual(trading_check["status"], "PASS")
+
+    def test_label_consistency_uses_csv_and_explained_corpus_skips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            daily_path = backtest_root / "daily_refresh_status.json"
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            daily["summary"].pop("labels")
+            daily_path.write_text(json.dumps(daily), encoding="utf-8")
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 3
+            promotion["corpus"]["quality_grades"] = ["complete", "manual_override"]
+            promotion["corpus"]["skipped_by_reason"] = {"too_few_replay_inputs": 1}
+            promotion["corpus"]["skipped_count"] = 1
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            (backtest_root / "market_day_labels.csv").write_text(
+                "\n".join(
+                    [
+                        "event_slug,quality_grade,reconciliation_status,settlement_source",
+                        "slug-1,complete,match,daily_summary",
+                        "slug-2,complete,match,daily_summary",
+                        "slug-3,complete,match,daily_summary",
+                        "slug-4,complete,match,daily_summary",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate = payload["input_gate"]
+            label_check = next(
+                row for row in gate["consistency"]["checks"]
+                if row["name"] == "promotion_corpus_vs_settled_labels"
+            )
+
+        self.assertEqual(payload["scorecard"]["labels"]["source"], "market_day_labels_csv")
+        self.assertEqual(payload["scorecard"]["labels"]["total"], 4)
+        self.assertEqual(label_check["status"], "PASS")
+        self.assertEqual(label_check["evidence"]["countable_corpus_skip_count"], 1)
+        self.assertNotIn(
+            "promotion_corpus_vs_settled_labels",
+            gate["consistency"]["failed_invariants"],
+        )
 
     def test_build_learning_payload_blocks_when_quality_gates_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

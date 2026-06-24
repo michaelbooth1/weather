@@ -55,6 +55,14 @@ CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_long",
     "order_books_long_gzip",
 )
+OBSERVATION_PAYLOAD_SOURCE_NAMES = {
+    "wu_history",
+    "wu_current",
+    "metar",
+    "eccc_swob",
+    "eccc_hourly",
+    "nws_observations",
+}
 REQUIRED_SNAPSHOT_ARTIFACTS = (
     "replay_input_status",
     "forecasts",
@@ -117,10 +125,21 @@ DEFAULT_AUDIT_THRESHOLDS = {
 }
 
 REQUIRED_LOW_FILL_FIELDS = {
-    "best_bid",
     "best_ask",
     "last_trade_price",
     "feature_schema_version",
+    "snapshot_cadence_quality_state",
+    "snapshot_cadence_gap_count",
+    "snapshot_cadence_last_model_age_seconds",
+    "snapshot_cadence_confidence_multiplier",
+    "snapshot_cadence_permission",
+    "snapshot_cadence_reason",
+}
+INTENTIONALLY_SPARSE_LOW_FILL_FIELDS = {
+    "snapshot_cadence_max_gap_seconds",
+}
+OPTIONAL_MARKET_MICROSTRUCTURE_LOW_FILL_FIELDS = {
+    "best_bid",
 }
 INTENTIONALLY_SPARSE_LOW_FILL_PREFIXES = (
     "official_canadian_",
@@ -324,6 +343,12 @@ def missing_artifacts(artifact_presence, names):
     return [name for name in names if not artifact_presence.get(name)]
 
 
+def forecast_payload_observation_source_rows(folder):
+    path = Path(folder) / "forecast_payloads_long.csv"
+    rows = read_csv_dicts(path)
+    return sum(1 for row in rows if row.get("source") in OBSERVATION_PAYLOAD_SOURCE_NAMES)
+
+
 def sidecar_backfill_commands(folder, artifact_presence):
     folder_text = str(folder)
     commands = []
@@ -355,11 +380,20 @@ def sidecar_backfill_commands(folder, artifact_presence):
             "reconstructable": True,
         })
     if not artifact_presence.get("observation_payloads") and artifact_presence.get("forecast_payloads"):
-        commands.append({
-            "artifact": "observation_payloads",
-            "command": f"python -m weather.collection.snapshot_store backfill-observation-payloads \"{folder_text}\"",
-            "reconstructable": True,
-        })
+        observation_source_rows = forecast_payload_observation_source_rows(folder)
+        if observation_source_rows:
+            commands.append({
+                "artifact": "observation_payloads",
+                "command": f"python -m weather.collection.snapshot_store backfill-observation-payloads \"{folder_text}\"",
+                "reconstructable": True,
+            })
+        else:
+            commands.append({
+                "artifact": "observation_payloads",
+                "command": "restart live snapshot loop with observation raw payload persistence enabled",
+                "reconstructable": False,
+                "reason": "forecast_payloads_long.csv contains no observation-source payload rows",
+            })
     has_raw_books = any(artifact_presence.get(name) for name in CLOB_RAW_BOOK_ARTIFACT_KEYS)
     if not artifact_presence.get("clob_features") and has_raw_books:
         commands.append({
@@ -586,6 +620,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             active_day=bool(target_date and target_date >= training_ready_cutoff),
         )
         row["sidecar_eligibility"] = eligibility
+        artifact_scope_ready = bool((eligibility.get("labels") or {}).get("training_ready"))
         primary_eligibility_counts[eligibility.get("primary_label") or "unknown"] += 1
         for label, enabled in (eligibility.get("labels") or {}).items():
             if enabled:
@@ -629,19 +664,19 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         feature_quality_source_file_counts.update(feature_quality.get("source_file_counts") or {})
         if feature_quality.get("sample_rows"):
             feature_quality_samples.extend(feature_quality.get("sample_rows") or [])
-        if training_ready:
+        if artifact_scope_ready:
             training_ready_folder_count += 1
         field_nonempty.update(row.get("nonempty") or {})
         field_totals.update(row.get("field_totals") or {})
         for name, present in (row.get("artifact_presence") or {}).items():
             if present:
                 artifact_totals[name] += 1
-                if training_ready:
+                if artifact_scope_ready:
                     training_ready_artifact_totals[name] += 1
         artifact_presence = row.get("artifact_presence") or {}
         if artifact_presence.get("clob_capture_status"):
             clob_capture_status_days += 1
-            if training_ready:
+            if artifact_scope_ready:
                 training_ready_clob_capture_status_days += 1
         has_clob_token_artifact = any(
             bool(artifact_presence.get(name)) for name in CLOB_TOKEN_ARTIFACT_KEYS
@@ -651,11 +686,11 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         )
         if has_clob_token_artifact:
             clob_token_artifact_days += 1
-            if training_ready:
+            if artifact_scope_ready:
                 training_ready_clob_token_artifact_days += 1
         if has_clob_raw_book_artifact:
             clob_raw_book_artifact_days += 1
-            if training_ready:
+            if artifact_scope_ready:
                 training_ready_clob_raw_book_artifact_days += 1
         status = row.get("source_status") or {}
         source_status_rows += int(status.get("row_count") or 0)
@@ -842,11 +877,21 @@ def classify_low_fill_field(row):
             "Backfill the field from canonical artifacts or remove it from the "
             "serving/training contract before using it for broad promotion."
         )
+    elif field in OPTIONAL_MARKET_MICROSTRUCTURE_LOW_FILL_FIELDS:
+        classification = "market_microstructure_optional"
+        owner = "market microstructure"
+        action = (
+            "Use canonical CLOB/book artifacts for executable bid-side evidence; "
+            "one-sided snapshot rows may legitimately have no best_bid."
+        )
     elif field in RETIRED_LOW_FILL_FIELDS or any(field.startswith(prefix) for prefix in RETIRED_LOW_FILL_PREFIXES):
         classification = "retired"
         owner = "feature contract"
         action = "Keep this field out of model inputs and remove it from required schema checks."
-    elif any(field.startswith(prefix) for prefix in INTENTIONALLY_SPARSE_LOW_FILL_PREFIXES):
+    elif (
+        field in INTENTIONALLY_SPARSE_LOW_FILL_FIELDS
+        or any(field.startswith(prefix) for prefix in INTENTIONALLY_SPARSE_LOW_FILL_PREFIXES)
+    ):
         classification = "intentionally_sparse"
         owner = "source coverage"
         action = "Document the market/provider scope and keep the field model-exempt outside that scope."

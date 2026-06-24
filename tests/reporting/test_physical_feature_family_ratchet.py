@@ -15,6 +15,7 @@ def _family_row(
     delta=0.02,
     active_count=1,
     active_status="ACTIVE_FEATURES",
+    model_influence=True,
     live_only=False,
     policy="training_and_serving",
 ):
@@ -29,7 +30,7 @@ def _family_row(
         "historical_archive_status": "test_archive",
         "live_only": live_only,
         "live_only_policy": policy,
-        "model_influence": True,
+        "model_influence": model_influence,
         "configured_model_influence": True,
         "active_model_usage_status": active_status,
         "active_model_feature_count": active_count,
@@ -161,6 +162,232 @@ class TestPhysicalFeatureFamilyRatchet(unittest.TestCase):
         self.assertIn("Settlement-Sliced Lift And Harm", report)
         self.assertTrue(json_exists)
         self.assertTrue(report_exists)
+
+    def test_prefers_current_ablation_variant_summary_over_inventory_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inventory = root / "source_family_inventory.json"
+            ablation = root / "source_family_ablation.json"
+            inventory.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_inventory_v0.1",
+                        "status": "PASS",
+                        "inventory": [
+                            _family_row("forecast_baseline", delta=-0.01),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ablation.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_ablation_v0.1",
+                        "variants": [
+                            {
+                                "variant": "forecast_baseline",
+                                "n": 48,
+                                "days": 4,
+                                "delta": 0.03,
+                                "days_source_helped": 4,
+                                "days_source_hurt": 0,
+                            }
+                        ],
+                        "slice_effects": _slice_rows("forecast_baseline", 0.02),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_ratchet(
+                source_family_inventory=inventory,
+                source_family_ablation=ablation,
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            family = payload["families"][0]
+
+        self.assertEqual(family["status"], "PROMOTION_ELIGIBLE")
+        self.assertEqual(family["ablation"]["delta"], 0.03)
+        self.assertEqual(family["ablation"]["evidence_source"], "source_family_ablation")
+
+    def test_family_decision_uses_selected_ablation_variant_slices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inventory = root / "source_family_inventory.json"
+            ablation = root / "source_family_ablation.json"
+            family = _family_row("forecast_baseline", delta=0.02)
+            family["ablation"]["variant"] = "all_forecasts"
+            inventory.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_inventory_v0.1",
+                        "status": "PASS",
+                        "inventory": [family],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ablation.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_ablation_v0.1",
+                        "variants": [
+                            {
+                                "variant": "all_forecasts",
+                                "n": 48,
+                                "days": 4,
+                                "delta": 0.03,
+                                "days_source_helped": 4,
+                                "days_source_hurt": 0,
+                            }
+                        ],
+                        "slice_effects": _slice_rows("all_forecasts", 0.02)
+                        + _slice_rows("open_meteo", -0.02),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_ratchet(
+                source_family_inventory=inventory,
+                source_family_ablation=ablation,
+                generated_at_utc="2026-06-24T00:00:00+00:00",
+            )
+            [family] = payload["families"]
+
+        self.assertEqual(family["status"], "PROMOTION_ELIGIBLE")
+        self.assertEqual(family["decision_ablation_variants"], ["all_forecasts"])
+        self.assertEqual(family["settlement_slice_summary"]["harmful_slice_count"], 0)
+        self.assertEqual({row["variant"] for row in payload["settlement_sliced_lift"]}, {"all_forecasts"})
+
+    def test_reanalysis_item27_evidence_supplies_market_and_cutoff_slices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gate = root / "item27_feature_value_gate_atlanta.json"
+            gate.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "item27_feature_value_gate_v0.1",
+                        "by_hour_month": [
+                            {
+                                "family": "reanalysis_synoptic",
+                                "hour": 8,
+                                "n": 10,
+                                "full_brier": 0.20,
+                                "ablated_brier": 0.24,
+                                "delta_brier": 0.04,
+                            },
+                            {
+                                "family": "reanalysis_synoptic",
+                                "hour": 12,
+                                "n": 20,
+                                "full_brier": 0.30,
+                                "ablated_brier": 0.36,
+                                "delta_brier": 0.06,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            inventory = root / "source_family_inventory.json"
+            ablation = root / "source_family_ablation.json"
+            family = _family_row("reanalysis_synoptic", delta=0.03)
+            family["ablation"].update(
+                {
+                    "variant": "reanalysis_synoptic",
+                    "evidence_source": "item27_feature_value_gate",
+                    "market_details": [
+                        {
+                            "market_id": "atlanta",
+                            "path": str(gate),
+                            "rows": 30,
+                            "full_brier": 0.27,
+                            "ablated_brier": 0.33,
+                            "delta_brier": 0.06,
+                        }
+                    ],
+                }
+            )
+            inventory.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_inventory_v0.1",
+                        "status": "PASS",
+                        "inventory": [family],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ablation.write_text(
+                json.dumps({"schema_version": "source_family_ablation_v0.1", "slice_effects": []}),
+                encoding="utf-8",
+            )
+
+            payload = build_ratchet(
+                source_family_inventory=inventory,
+                source_family_ablation=ablation,
+                generated_at_utc="2026-06-24T00:00:00+00:00",
+            )
+            [family] = payload["families"]
+
+        self.assertEqual(family["status"], "ISOLATED_REPLAY_BLOCK")
+        self.assertEqual(family["blockers"], ["missing required slice kinds: settlement_distance"])
+        self.assertEqual(
+            set(family["settlement_slice_summary"]["required_slice_kinds_present"]),
+            {"market", "cutoff_regime", "market_cutoff_regime"},
+        )
+        self.assertEqual(family["settlement_slice_summary"]["missing_required_slice_kinds"], ["settlement_distance"])
+
+    def test_inactive_diagnostic_family_does_not_block_on_lineage_or_parity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inventory = root / "source_family_inventory.json"
+            ablation = root / "source_family_ablation.json"
+            inventory.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_inventory_v0.1",
+                        "status": "PASS",
+                        "inventory": [
+                            _family_row(
+                                "nws_grid",
+                                lineage="PARTIAL_SOURCE_STATUS",
+                                parity="LINEAGE_BLOCKED",
+                                active_count=0,
+                                active_status="NOT_USED_BY_ACTIVE_ARTIFACT",
+                                model_influence=False,
+                                policy="live_only_diagnostic_until_backfilled",
+                            ),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ablation.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_ablation_v0.1",
+                        "slice_effects": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_ratchet(
+                source_family_inventory=inventory,
+                source_family_ablation=ablation,
+                generated_at_utc="2026-06-24T00:00:00+00:00",
+            )
+            family = payload["families"][0]
+
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(family["status"], "LIVE_ONLY")
+        self.assertEqual(family["rollup_bucket"], "diagnostic_only")
+        self.assertIn("nws_grid", payload["rollup"]["diagnostic_only"])
+        self.assertEqual(family["model_influence"], False)
+        self.assertEqual(family["blockers"], ["active_model_usage_status=NOT_USED_BY_ACTIVE_ARTIFACT"])
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ _DEPENDENCY_NAMES = {
     "run_daily_refresh",
     "load_status",
     "lock_preflight",
+    "lock_diagnostic",
     "acquire_lock",
     "release_lock",
     "_remove_lock_if_verified_stale",

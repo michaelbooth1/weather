@@ -505,15 +505,24 @@ def _read_physical_feature_family_ratchet(path):
         }
     payload = json.loads(path.read_text(encoding="utf-8"))
     families = payload.get("families") or []
+    blocked_family_details = [
+        {
+            "family_id": row.get("family_id"),
+            "status": row.get("status"),
+            "detail": "; ".join(row.get("blockers") or []) or row.get("status"),
+            "settlement_slice_summary": row.get("settlement_slice_summary") or {},
+        }
+        for row in families
+        if row.get("rollup_bucket") == "evidence_blocked"
+    ]
     first_blocker = next(
         (
             {
                 "family_id": row.get("family_id"),
                 "status": row.get("status"),
-                "detail": "; ".join(row.get("blockers") or []) or row.get("status"),
+                "detail": row.get("detail"),
             }
-            for row in families
-            if row.get("rollup_bucket") == "evidence_blocked"
+            for row in blocked_family_details
         ),
         {},
     )
@@ -525,6 +534,7 @@ def _read_physical_feature_family_ratchet(path):
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
         "rollup": payload.get("rollup") or {},
+        "blocked_family_details": blocked_family_details,
         "first_blocker": first_blocker,
     }
 

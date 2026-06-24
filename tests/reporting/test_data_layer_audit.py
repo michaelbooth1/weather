@@ -570,6 +570,64 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(audit["training_ready_folder_count"], 0)
         self.assertEqual(audit["folders"][0]["training_ready_reason"], "replay_status_evaluation_only")
 
+    def test_snapshot_audit_scopes_artifact_counts_to_sidecar_training_ready_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"
+            folder.mkdir(parents=True)
+            with (folder / "snapshots_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["snapshot_id", "captured_at_local", "event_slug", "market_yes"],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "market_yes": "0.5",
+                })
+            (folder / "replay_inputs.jsonl").write_text('{"snapshot_id": "snap-1"}\n', encoding="utf-8")
+            (folder / "replay_input_status.json").write_text(
+                json.dumps({
+                    "folder_status": "captured",
+                    "snapshot_count": 1,
+                    "captured_count": 1,
+                    "counts": {"captured": 1},
+                }),
+                encoding="utf-8",
+            )
+            with (folder / "replay_input_status_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "snapshot_id",
+                        "captured_at_utc",
+                        "captured_at_local",
+                        "event_slug",
+                        "replay_input_status",
+                        "replay_input_source",
+                        "reason",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    "snapshot_id": "snap-1",
+                    "captured_at_utc": "2026-06-16T18:00:00+00:00",
+                    "captured_at_local": "2026-06-16T14:00:00-04:00",
+                    "event_slug": folder.name,
+                    "replay_input_status": "captured",
+                    "replay_input_source": "replay_inputs.jsonl",
+                    "reason": "training_ready",
+                })
+
+            audit = snapshot_audit(snapshots_root=tmp)
+
+        folder_row = audit["folders"][0]
+        self.assertTrue(folder_row["training_ready"])
+        self.assertFalse(folder_row["sidecar_eligibility"]["labels"]["training_ready"])
+        self.assertEqual(audit["training_ready_folder_count"], 0)
+        self.assertEqual(audit["artifact_training_ready_day_counts"], {})
+
     def test_build_gates_fails_missing_required_artifacts_and_warns_stale_sources(self):
         snapshot = {
             "folder_count": 2,
@@ -608,6 +666,104 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(by_name["source_status_stale_or_failed_rate"]["status"], "WARN")
         self.assertEqual(by_name["settlement_source_auth_failure"]["status"], "FAIL")
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "WARN")
+
+    def test_low_fill_gate_counts_only_required_fields(self):
+        snapshot = {
+            "folder_count": 1,
+            "training_ready_folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "forecast_payloads": 1,
+                "clob_features": 1,
+            },
+            "artifact_training_ready_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+            },
+            "low_fill_fields": [
+                {"field": "best_bid", "fill_rate": 0.4},
+                {"field": "snapshot_cadence_max_gap_seconds", "fill_rate": 0.1},
+                {"field": "runtime_git_dirty", "fill_rate": 0.4},
+                {"field": "eccc_forecast_high_c", "fill_rate": 0.1},
+            ],
+            "source_status": {"row_count": 1, "stale_or_failed_rows": 0, "stale_or_failed_rate": 0.0},
+        }
+
+        gates = build_gates(snapshot, {"markets": []})
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["snapshot_low_fill_fields"]["status"], "PASS")
+        self.assertIn("0 required fields", by_name["snapshot_low_fill_fields"]["evidence"])
+
+    def test_low_fill_gate_warns_on_required_cadence_fields(self):
+        snapshot = {
+            "folder_count": 1,
+            "training_ready_folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "forecast_payloads": 1,
+                "clob_features": 1,
+            },
+            "artifact_training_ready_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+            },
+            "low_fill_fields": [
+                {"field": "snapshot_cadence_quality_state", "fill_rate": 0.4},
+                {"field": "best_bid", "fill_rate": 0.4},
+            ],
+            "source_status": {"row_count": 1, "stale_or_failed_rows": 0, "stale_or_failed_rate": 0.0},
+        }
+
+        gates = build_gates(snapshot, {"markets": []})
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["snapshot_low_fill_fields"]["status"], "WARN")
+        self.assertIn("1 required fields", by_name["snapshot_low_fill_fields"]["evidence"])
+
+    def test_quarantine_gate_counts_target_season_quarantines_only(self):
+        snapshot = {
+            "folder_count": 1,
+            "training_ready_folder_count": 1,
+            "artifact_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "forecast_payloads": 1,
+                "clob_features": 1,
+            },
+            "artifact_training_ready_day_counts": {
+                "replay_input_status": 1,
+                "forecasts": 1,
+                "clob_features": 1,
+            },
+            "low_fill_fields": [],
+            "source_status": {"row_count": 1, "stale_or_failed_rows": 0, "stale_or_failed_rate": 0.0},
+        }
+        historical = {
+            "markets": [{
+                "sources": {
+                    "wu": {
+                        "quality": {
+                            "quarantined_raw_observations": 6,
+                            "target_season_quarantined_raw_observations": 2,
+                            "undated_quarantined_raw_observations": 0,
+                        }
+                    }
+                }
+            }]
+        }
+
+        gates = build_gates(snapshot, historical)
+        by_name = {row["name"]: row for row in gates}
+
+        self.assertEqual(by_name["quarantined_impossible_observations"]["status"], "PASS")
+        self.assertIn("0 undated raw quarantine", by_name["quarantined_impossible_observations"]["evidence"])
+        self.assertIn("2 target-season", by_name["quarantined_impossible_observations"]["evidence"])
+        self.assertIn("6 all-history", by_name["quarantined_impossible_observations"]["evidence"])
 
     def test_build_recommendations_marks_multi_market_settlement_auth_as_p0(self):
         recs = build_recommendations(
@@ -721,6 +877,45 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertIn("features_components", commands)
         self.assertIn("backfill-core-sidecars", commands["features_components"])
         self.assertIn("snapshot_explanations", commands)
+
+    def test_sidecar_eligibility_marks_observation_payload_gap_non_reconstructable_without_source_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "forecast_payloads_long.csv").write_text(
+                "snapshot_id,source,payload_hash\ns1,weather_forecast,h1\n",
+                encoding="utf-8",
+            )
+            row = {
+                "folder": str(folder),
+                "training_ready_reason": "not_settled_cutoff",
+                "artifact_presence": {
+                    "snapshots_jsonl": True,
+                    "replay_inputs": True,
+                    "replay_input_status": True,
+                    "source_status": True,
+                    "features": True,
+                    "components": True,
+                    "forecasts": True,
+                    "forecast_payloads": True,
+                    "observation_payloads": False,
+                    "snapshot_explanations": True,
+                    "clob_features": True,
+                    "clob_tokens": True,
+                    "order_books_summary": True,
+                    "price_history": True,
+                    "market_ws_events": True,
+                },
+                "replay_input_status": {"folder_status": "captured"},
+            }
+
+            eligibility = sidecar_eligibility_for_folder(row, settled_scope_ready=False, active_day=True)
+
+        obs_command = next(
+            item for item in eligibility["backfill_commands"]
+            if item["artifact"] == "observation_payloads"
+        )
+        self.assertFalse(obs_command["reconstructable"])
+        self.assertIn("restart live snapshot loop", obs_command["command"])
 
     def test_sidecar_eligibility_blocks_training_for_feature_quality_exclusions(self):
         row = {
@@ -870,6 +1065,7 @@ class TestDataLayerAudit(unittest.TestCase):
                 "replay_inputs": 0,
             },
             "low_fill_fields": [
+                {"field": "snapshot_cadence_quality_state", "nonempty": 4, "total": 10, "fill_rate": 0.4},
                 {"field": "best_bid", "nonempty": 4, "total": 10, "fill_rate": 0.4},
                 {"field": "eccc_forecast_high_c", "nonempty": 1, "total": 10, "fill_rate": 0.1},
                 {"field": "runtime_git_commit", "nonempty": 4, "total": 10, "fill_rate": 0.4},
@@ -896,7 +1092,8 @@ class TestDataLayerAudit(unittest.TestCase):
             for row in by_gate["snapshot_low_fill_fields"]["affected_fields"]
         }
 
-        self.assertEqual(low_fields["best_bid"], "required")
+        self.assertEqual(low_fields["snapshot_cadence_quality_state"], "required")
+        self.assertEqual(low_fields["best_bid"], "market_microstructure_optional")
         self.assertEqual(low_fields["eccc_forecast_high_c"], "intentionally_sparse")
         self.assertEqual(low_fields["runtime_git_commit"], "retired")
         self.assertEqual(by_gate["snapshot_artifact_replay_inputs"]["affected_folder_count"], 1)

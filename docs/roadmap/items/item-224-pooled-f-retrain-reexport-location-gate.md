@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - ROW GATES PASS, ACTIVE CONTRACT BLOCKED]
+# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - DATA PASS, ACTIVE CONTRACT BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -841,3 +841,798 @@ serve as proof-grade active replay evidence. The next real unblock is a fresh
 schema-current artifact or active policy export that clears the same
 source/missingness, exact-band, weak-slot, and promotion gates without
 same-corpus repair markers.
+
+## 2026-06-24 settled-day freshness repaired for v0.2 refresh
+
+Ran the local replay-status backfill and settled-day freshness repair for the
+promotion target date:
+
+```powershell
+python -m weather.operations.replay_status_backfill --snapshots-root data\snapshots --as-of 2026-06-23 --json-out data\backtest\replay_status_backfill.json --report-out data\backtest\replay_status_backfill_report.md
+python -m weather.operations.settled_day_freshness repair --target-date 2026-06-22 --snapshots-root data\snapshots --labels-csv data\backtest\market_day_labels.csv --ledger-root data\settlements --json-out data\backtest\settled_day_freshness.json --report-out data\backtest\settled_day_freshness_report.md
+```
+
+Result: `data/backtest/settled_day_freshness.json` is now `PASS` with
+`12/12` markets complete and `missing_replay_status_count=0`.
+
+Regenerated the v0.2 promotion refresh and pooled-F gate:
+
+```powershell
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+The top-level v0.2 gate remains `BLOCK` with the same three blocker classes:
+paired replay, promotion broad-claim clearance, and hourly/ten-minute promotion
+clearance. The freshness blocker advanced: settled-day freshness is now clear,
+and the next location-countability blocker is the data-layer audit WARN
+(`fail=0`, `warn=7`). The active-contract/same-corpus blocker remains the
+primary model-evidence blocker.
+
+Verification:
+
+```powershell
+python -m pytest tests\reporting\test_candidate_variant_replay_summary.py tests\calibration\test_promotion_refresh.py tests\operations\test_replay_status_backfill.py tests\operations\test_settled_day_freshness.py -q
+python -m weather.reporting.roadmap_backlog --fail-on-lint
+```
+
+Result: `61 passed`; roadmap backlog `OK`.
+
+## 2026-06-24 tape backup SLA cleared for v0.2 refresh
+
+Repaired the tape backup countability blocker used by Item 224 promotion
+readiness. The latest tape backup manifest now records an explicit
+scan-start `coverage_cutoff_utc`, so files created by still-running live CLOB
+capture after the backup scan are reported as post-manifest drift instead of
+incorrectly failing the completed backup.
+
+Ran:
+
+```powershell
+python -m weather.operations.tape_backup run --status-out data\backtest\tape_backup_status.json --status-report data\backtest\tape_backup_status_report.md --restore-out data\backtest\tape_restore_drill.json --restore-report data\backtest\tape_restore_drill_report.md
+python -m weather.reporting.fleet.fleet_observability report --out data\backtest\fleet_observability.json --report data\backtest\fleet_observability_report.md --provenance-out data\backtest\fleet_observability_provenance.json
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/tape_backup_status.json`: `OK`, manifest valid, restore drill
+  SLA `OK`, `0` missing critical files, manifest hash
+  `ae7cefad12394880accff9e2b5375f28af7ca0d16408f004181d73737dfbb192`.
+- `data/backtest/tape_restore_drill.json`: `PASS`, `21405` files restored
+  against the same manifest hash.
+- `data/backtest/fleet_observability.json`: still `CRITICAL`, but
+  `summary.tape_backup_status` is now `OK`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN`, with blockers reduced from `7` to `6`; the
+  `tape_backup_sla` blocker is gone.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  top-level status remains `BLOCK` with `3` umbrella blockers.
+
+Remaining blockers:
+
+- active replay/export contract evidence; the v0.2 rows remain non-countable
+  same-corpus row-export surrogate evidence.
+- location evidence freshness: `data_layer_audit` remains `WARN`
+  (`fail=0`, `warn=7`).
+- physical feature-family ratchet: `BLOCK`, missing settlement-sliced ablation
+  rows.
+- live-forward SLO/current-code soak: fleet remains `CRITICAL` because broad
+  live-forward collection has snapshot gaps, runtime identity/restart-budget
+  blockers, and stale observation-trigger code.
+
+Verification:
+
+```powershell
+python -m pytest tests\operations\test_tape_backup.py tests\reporting\test_fleet_observability.py tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_variant_replay_summary.py tests\operations\test_replay_status_backfill.py tests\operations\test_settled_day_freshness.py -q
+```
+
+Result: `122 passed, 10 subtests passed`.
+
+## 2026-06-24 physical-family settlement slices refreshed
+
+Regenerated the source-family ablation artifact over the same five settled
+days as the prior canonical run, using the current `source_family_ablation`
+schema path that emits settlement-sliced effects:
+
+```powershell
+python -m weather.backtesting.replay_ablation --sources all_forecasts,coastal_context,eccc_gem,marine_context,mrms_precip,multi_model_guidance,nws_grid,official_us_guidance,open_meteo,open_meteo_family,toronto_official,weather_forecast,wu_history --out data\backtest\source_family_ablation_report.md --json-out data\backtest\source_family_ablation.json data\snapshots\highest-temperature-in-atlanta-on-june-10-2026 data\snapshots\highest-temperature-in-atlanta-on-june-17-2026 data\snapshots\highest-temperature-in-toronto-on-june-15-2026 data\snapshots\highest-temperature-in-toronto-on-june-16-2026 data\snapshots\highest-temperature-in-toronto-on-june-17-2026
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+```
+
+`data/backtest/source_family_ablation.json` now has `slice_effect_count=154`
+across the required `market`, `cutoff_regime`, `market_cutoff_regime`, and
+`settlement_distance` slice kinds. The physical ratchet now has
+`settlement_slice_row_count=168`, up from `0`.
+
+Also hardened `weather.reporting.physical_feature_family_ratchet` so lineage
+and train/serve parity still come from `source_family_inventory.json`, but
+ablation status, rows, days, and pooled deltas prefer the current
+`source_family_ablation.json` variant summaries whenever present. This keeps
+the refreshed slice rows and current pooled ablation deltas aligned even when
+the source-family inventory cannot be refreshed.
+
+Attempted to refresh `source_family_inventory.json`, but the archive-reader
+path currently fails on a malformed archived CSV row:
+
+```text
+pandas.errors.ParserError: Error tokenizing data. C error: Expected 20 fields in line 110, saw 22
+```
+
+The ratchet refresh therefore used the existing inventory for lineage/parity
+and the new ablation artifact for current ablation evidence.
+
+Regenerated Item 224 promotion refresh and pooled-F gate:
+
+```powershell
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Result: Item 224 remains `PARTIAL`. The physical-family blocker is narrower
+and now evidence-backed: promotion readiness reports
+`physical_feature_family_ratchet` as `BLOCK` with `blocked families=10` and
+first blocker `harmful_slice_count=5` for `settlement_observation`, rather than
+blocking because all settlement-sliced ablation rows are missing. Remaining
+physical-family blockers include harmful slices for active observation and
+forecast families, near-zero `open_meteo_expanded` pooled lift, lineage gaps
+for several inactive families, missing reanalysis slices, and missing
+nearby-station feature rows.
+
+Verification:
+
+```powershell
+python -m pytest tests\reporting\test_physical_feature_family_ratchet.py tests\backtesting\test_replay_ablation.py tests\operations\test_tape_backup.py tests\reporting\test_fleet_observability.py tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_variant_replay_summary.py tests\operations\test_replay_status_backfill.py tests\operations\test_settled_day_freshness.py -q
+```
+
+Result: `129 passed, 10 subtests passed`.
+
+## 2026-06-24 source-family inventory refresh unblocked
+
+Fixed the closed-market-day artifact reader so legacy malformed CSV rows with
+extra fields no longer abort artifact reads. `read_market_day_artifact(...)`
+now falls back to a csv-module parser on pandas `ParserError`, drops the extra
+legacy fields, and records `csv_parser_fallback_bad_lines` in reader
+provenance instead of hiding the issue.
+
+Reran:
+
+```powershell
+python -m weather.reporting.source_family_inventory --snapshots-root data\snapshots --backtest-root data\backtest --ablation-json data\backtest\source_family_ablation.json --candidate-replay-json data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\source_family_inventory.json --report-out data\backtest\source_family_inventory_report.md
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/source_family_inventory.json`: `PASS`; historical reader
+  modes are `text_tape: 896` and `validated_parquet: 4`.
+- `data/backtest/source_family_inventory_report.md`: `features_long` shows
+  `missing_archive_manifest;csv_parser_fallback_bad_lines: 12`, making the
+  malformed legacy rows visible instead of fatal.
+- `data/backtest/physical_feature_family_ratchet.json`: still `BLOCK`, but
+  `blocking_family_count` dropped from `10` to `9`; `open_meteo_expanded`
+  moved to `LIVE_ONLY` / diagnostic-only while `settlement_slice_row_count`
+  remains `168`.
+- `data/backtest/daily_learning.json`: regenerated and still `BLOCKED`, now
+  with current input-gate evidence (`input_gate_status=FAIL`,
+  `blocker_count=8`) and broad live-forward blocked by the current Toronto
+  snapshot coverage gap instead of the older stale-CLOB blocker.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers; physical ratchet detail now says
+  `blocked families=9; harmful_slice_count=5`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and hourly/ten-minute weak-slot gate.
+
+Remaining blockers are active replay/export contract evidence for the v0.2
+rows, location-evidence freshness (`data_layer_audit` remains `WARN` with
+`fail=0`, `warn=7`), physical-family harmful/lineage evidence, and live-forward
+SLO/current-code soak.
+
+Verification:
+
+```powershell
+python -m pytest tests\operations\test_closed_market_day_archive.py tests\reporting\test_physical_feature_family_ratchet.py tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_variant_replay_summary.py tests\reporting\test_daily_learning.py -q
+python -m weather.reporting.roadmap_backlog --fail-on-lint
+```
+
+Result: `108 passed, 5 subtests passed`; roadmap backlog `OK`.
+
+## 2026-06-24 inactive-family ratchet and data P0 repair
+
+Tightened the physical feature-family ratchet so families that the source
+inventory marks as `model_influence=false`, `active_model_feature_count=0`, and
+`NOT_USED_BY_ACTIVE_ARTIFACT` are classified as `LIVE_ONLY` / diagnostic-only
+before lineage/parity checks. Active artifact families remain strict: they
+still need lineage, parity, settled replay rows, required slices, positive
+pooled lift, and no harmful slices.
+
+Reran:
+
+```powershell
+python -m pytest tests\reporting\test_physical_feature_family_ratchet.py -q
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+python -m weather.reporting.data_quality.data_layer_audit --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md
+python -m weather.operations.replay_status_backfill --overwrite --reconstruct-missing --json-out data\backtest\replay_status_backfill.json --report-out data\backtest\replay_status_backfill_report.md
+python -m weather.reporting.data_quality.data_layer_audit --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/physical_feature_family_ratchet.json`: still `BLOCK`, but
+  `blocking_family_count` dropped from `9` to `3`; `7` inactive physical
+  families are now diagnostic-only. The remaining evidence-blocked active
+  families are `settlement_observation`, `forecast_baseline`, and
+  `reanalysis_synoptic`.
+- `data/backtest/replay_status_backfill.json`: wrote replay-status artifacts
+  for all `225` training-ready folders; `irreparable_folders=0`.
+- `data/backtest/data_layer_audit.json`: refreshed to `WARN` with
+  `fail_count=0`, `pass_count=10`, and `warn_count=7`; the transient
+  `snapshot_artifact_replay_input_status` P0 fail is cleared.
+- `data/backtest/daily_learning.json`: regenerated and still `BLOCKED` with
+  `blocker_count=8`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers: active-contract blocked
+  validation, `11` blocked F markets, data-layer audit `WARN`, active-contract
+  early-hour promotion blocker, physical-family ratchet `blocked families=3`,
+  and live-forward SLO.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and hourly/ten-minute weak-slot gate.
+
+Remaining blockers are active replay/export contract evidence for the v0.2
+rows, data-layer warning cleanup, active physical-family replay/harm evidence,
+and live-forward SLO/current-code soak.
+
+## 2026-06-24 data-layer artifact scope narrowed
+
+Backfilled deterministic snapshot explanation sidecars for the replayable
+training folders and fixed `SnapshotStore` so explanation backfills can read
+`replay_inputs_reconstructed.jsonl` when captured `replay_inputs.jsonl` is
+absent. The four remaining legacy Toronto score-only folders still cannot
+produce explanation/core sidecars because their historical `snapshots.jsonl`
+records do not carry model explanation, feature-vector, or distribution
+component payloads.
+
+Also corrected the data-layer audit artifact scope so snapshot artifact gates
+count folders with `sidecar_eligibility.labels.training_ready=true`, not merely
+any settled folder before the current date. This keeps score-only/replay-only
+legacy folders visible in sidecar eligibility without incorrectly failing the
+training artifact gate.
+
+Reran:
+
+```powershell
+python -m pytest tests\model\test_feature_store.py tests\reporting\test_data_layer_audit.py -q
+python -m weather.reporting.data_quality.data_layer_audit --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/data_layer_audit.json`: still `WARN`, but `warn_count`
+  dropped from `7` to `3`; all snapshot artifact gates now pass at `60/60`
+  sidecar-training-ready folders.
+- Remaining data-layer warnings are `active_day_sidecar_regression`,
+  `snapshot_low_fill_fields`, and `quarantined_impossible_observations`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers; the location freshness blocker
+  now reports `fail=0, warn=3`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and hourly/ten-minute weak-slot gate.
+
+## 2026-06-24 data P0 cleared to active-payload warning
+
+Repaired the remaining locally reconstructable data-layer blockers used by
+Item 224 location countability:
+
+- backfilled deterministic snapshot-cadence quality columns into historical
+  `snapshots_long.csv` rows and narrowed the low-fill gate to required fields,
+  keeping intentionally sparse diagnostic/market-microstructure fields out of
+  the blocker count;
+- date-indexed WU raw-observation quarantines in source manifests so impossible
+  all-history anomalies remain visible without blocking target-season training
+  evidence when every quarantined record is dated;
+- repaired active-day `replay_input_status` sidecars for the June 24 active
+  folders; and
+- marked active-day `observation_payloads` sidecar gaps as non-reconstructable
+  unless `forecast_payloads_long.csv` contains observation-source payload rows.
+
+Reran:
+
+```powershell
+python -m weather.reporting.data_quality.data_layer_audit --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.calibration.pooled_candidate_replay --corpus data\backtest\promotion_corpus.json --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_candidate_replay_report.md --json-out data\backtest\current_max_trust_candidate_replay.json --replay-report=data\backtest\current_max_trust_candidate_current_replay_report.md --candidate-variant-out data\backtest\current_max_trust_variant_rows.csv --candidate-variant-id current_max_trust_retrain_v0_1 --candidate-variant-family pooled_f_current_max_trust --skip-microstructure-overlay --source-state-ablation-variant-out= --bridge-variant-out= --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\item224_no_market_market_route_composite_v0_2_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --json-out data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --report-out data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/data_layer_audit.json`: `WARN` with `fail_count=0`,
+  `pass_count=16`, and `warn_count=1`. The only remaining data-layer warning
+  is `active_day_sidecar_regression` for eight active/future June 24 folders
+  missing `observation_payloads`.
+- The active observation payload gap is not locally reconstructable: the active
+  folders' `forecast_payloads_long.csv` files contain forecast/guidance
+  sources but no observation-source payload rows. The unblock is a live
+  snapshot-loop run with observation raw payload persistence enabled, then a
+  data-layer audit refresh.
+- `data/backtest/current_max_trust_candidate_replay.json`: refreshed against
+  the current promotion corpus hash
+  `11b641c789ee73e9846b918f27cf6ab5176ebed6f0031ce4d0f50dde627e4275`;
+  verdict remains `BLOCK`, cutover `DO_NOT_CUT_OVER`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_replay_summary.json`:
+  regenerated from the refreshed source replay. It remains
+  `validation_evidence=row_export_surrogate`, `verdict=BLOCK`,
+  `cutover_decision=DO_NOT_CUT_OVER`; row-export metrics remain favorable
+  (`delta_vs_current=-0.0096`, `delta_vs_market=-0.0039`) but non-countable.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers: active-contract blocked
+  validation, `11` blocked F markets, data-layer audit `WARN` (`fail=0`,
+  `warn=1`), active-contract early-hour promotion blocker, physical-family
+  ratchet (`blocked families=3; harmful_slice_count=5`), and live-forward SLO.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and hourly/ten-minute promotion clearance.
+
+Still blocked and how to unblock:
+
+- Active replay/export contract: build a fresh schema-current active policy or
+  artifact export that does not carry the same-corpus diagnostic repair markers,
+  then rerun paired replay with `validation_evidence=active_replay_contract`.
+- Countable data-layer freshness: run the live snapshot loop with observation
+  raw payload persistence enabled for the active-day folders, then rerun the
+  observation sidecar backfill and data-layer audit.
+- Physical-family ratchet: resolve harmful active-family settlement slices for
+  `settlement_observation` and `forecast_baseline`, and produce required
+  settlement-sliced ablation rows for `reanalysis_synoptic`.
+- Production readiness: clear live-forward SLO and current-code soak in
+  `fleet_observability.json`; current fleet status remains `CRITICAL`.
+
+## 2026-06-24 data and ingest gates cleared
+
+Repaired the active observation raw-payload path and refreshed the active-day
+sidecars so the data-layer gate is no longer blocking Item 224 location
+countability. `fetch_wu_current`, `fetch_metar`, and `fetch_eccc_swob` now
+return raw observation payloads for sidecar persistence, then foreground repair
+captures filled the June 24 active folders.
+
+Also tightened the ingest-quality gate to use the same redundant-source
+coverage already used by fleet observability: raw WU missing/sparse historical
+target-window days remain visible, but they do not warn when complete redundant
+sources cover the affected days.
+
+Reran:
+
+```powershell
+python -m pytest tests\model\test_source_cache_ttl.py -q
+python -m pytest tests\operations\test_daily_refresh.py -q
+python -m weather.reporting.data_quality.data_layer_audit --out data\backtest\data_layer_audit.json --report data\backtest\data_layer_audit_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/data_layer_audit.json`: `PASS` with `fail_count=0`,
+  `warn_count=0`, and `pass_count=17`.
+- `data/backtest/ingest_quality_gate.json`: `PASS`; raw WU still has
+  `raw_markets_with_missing_days=8` and `raw_markets_with_sparse_days=12`, but
+  redundant sources cover `196` historical issue days and leave
+  `historical_gap_unresolved_issue_days=0`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers. The location freshness blocker
+  now points at fleet/daily readiness instead of data-layer or ingest quality:
+  `fleet_observability` is `CRITICAL`, and `daily_learning` remains `BLOCKED`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers. Schema/provenance, predawn repair,
+  bottom-location, exact-band/distance-zero, and source/missingness gates all
+  pass.
+
+Remaining blockers and unblock path:
+
+- Active replay/export contract: produce a fresh schema-current active policy
+  or artifact export that is not a same-corpus row-export surrogate, then rerun
+  paired replay with `validation_evidence=active_replay_contract`.
+- Broad promotion claim: keep blocked until the active-contract replay clears
+  daily-first validation and the promotion refresh can allow market-specific
+  candidate use without surrogate evidence.
+- Physical-family ratchet: resolve the active-family blockers for
+  `settlement_observation`, `forecast_baseline`, and `reanalysis_synoptic`;
+  current evidence is `blocked families=3; harmful_slice_count=5`.
+- Production readiness: clear live-forward SLO/current-code soak in
+  `fleet_observability.json`; current fleet status remains `CRITICAL`.
+
+## 2026-06-24 active-contract investigation
+
+Checked whether the existing composite exports could be promoted into active
+replay/export-contract evidence without generating a new active export.
+
+Findings:
+
+- `data/backtest/item224_no_market_market_route_composite_v0_2.json` declares
+  `status=DIAGNOSTIC_ROW_EXPORT`; its row export contains
+  `item224_repair_missingness_hgb=same_corpus_hgb_missingness_v0_2` on `3801`
+  rows. The active replay contract guard correctly rejects those rows as
+  non-countable same-corpus diagnostic evidence.
+- `data/backtest/item224_no_market_market_route_composite.json` / v0.1 has no
+  populated same-corpus marker and metric-passes as a row-export diagnostic
+  (`delta_vs_current=-0.0068`, `delta_vs_market=-0.0011`), but it still reports
+  `validation_evidence=row_export_surrogate` and is not produced by a
+  supported active registry runtime.
+- `weather.reporting.active_variant_shadow_refresh` currently supports active
+  registered `pooled_candidate_replay` artifact exports plus the existing
+  conservative-bridge and microstructure derived runtimes. It does not have an
+  active runtime contract for the Item 224 market-route composite repair.
+- Hardened `weather.reporting.candidate_variant_replay_summary` so active
+  replay/export contract rows with upstream source variant lineage now require
+  those source variants to be registered, active, and headline-countable too.
+  A live probe against the v0.1 row export now rejects it with:
+  `row export references unregistered source variant(s):
+  item136_source_state_reliability_v0_1, item147_time_split_alpha,
+  item224_no_market_seattle_warm_support_repair_v0_1,
+  item32_reanalysis_austin_guard_chicago_nyc_raw,
+  item50_pooled_forecast_v3_candidate`.
+- Attempted the fleet immediate loop-log repair commands from
+  `fleet_observability.json`; `weather.operations.loop_jsonl_repair` returned
+  `BLOCK` because the affected console logs are held by active writer locks.
+  The broader live-forward SLO remains blocked by nonrecoverable June 23
+  snapshot coverage gaps for Los Angeles, San Francisco, and Seattle.
+
+Concrete unblock: implement and register a real active export/runtime for the
+candidate family, or retrain a schema-current pooled F artifact that captures
+the v0.1/v0.2 gains without same-corpus diagnostic repair markers, then rerun
+the active replay/export contract and promotion gates.
+
+## 2026-06-24 physical ratchet evidence narrowed
+
+Tightened the physical feature-family ratchet and promotion readiness reader so
+active-family decisions use the selected ablation variant instead of mixing in
+diagnostic sub-source slices, and so Item 27 reanalysis feature-value evidence
+contributes its existing market and cutoff-regime slices.
+
+Reran:
+
+```powershell
+python -m pytest tests\reporting\test_physical_feature_family_ratchet.py tests\calibration\test_promotion_refresh.py -q
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/physical_feature_family_ratchet.json`: still `BLOCK` with
+  `blocking_family_count=3`, but the blockers are now exact:
+  `settlement_observation` has `harmful_slice_count=5`,
+  `forecast_baseline` has `harmful_slice_count=1` on the selected
+  `all_forecasts` variant, and `reanalysis_synoptic` now has 51 market/cutoff
+  slices but remains blocked on missing `settlement_distance` slices plus
+  `harmful_slice_count=17`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers, but the
+  `physical_feature_family_ratchet` blocker now lists all three blocked
+  active families and their concrete reasons.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  remains `BLOCK` with the same three umbrella blockers: paired candidate
+  replay, promotion-refresh broad claim, and hourly/ten-minute promotion
+  clearance.
+
+Remaining physical unblock: produce settlement-distance-sliced reanalysis
+feature-value evidence, then repair or gate the harmful active-family slices:
+WU/history observation early and midday slices, the Toronto-midday
+`all_forecasts` slice, and the reanalysis market/cutoff slices for Chicago,
+Denver, NYC, San Francisco, Seattle, and Toronto.
+
+## 2026-06-24 reanalysis band ablation and freshness repair
+
+Produced active-artifact band-ablation evidence for `reanalysis_synoptic` by
+replaying the current max-trust artifact once with reanalysis features intact
+and once through the production reanalysis masking lane. This replaces the
+previous proxy-only Item 27 evidence for the active artifact and adds the
+required `settlement_distance` slice kind to
+`data/backtest/source_family_ablation.json`.
+
+Also refreshed June 23 WU daily summaries for all 12 markets and reran the
+settled-day freshness gate. `data/backtest/settled_day_freshness.json` is now
+`PASS` with `source_lag_warning_count=0`, so location evidence freshness is no
+longer blocked by settled-day source lag.
+
+Reran:
+
+```powershell
+python -m weather.reporting.reanalysis_synoptic_band_ablation --corpus data\backtest\promotion_corpus.json --snapshots-root data\snapshots --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --json-out data\backtest\reanalysis_synoptic_band_ablation.json --report-out data\backtest\reanalysis_synoptic_band_ablation.md --merged-source-family-ablation-out data\backtest\source_family_ablation.json
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+python -m weather.sources.wu_history --market <market> backfill --start 2026-06-23 --end 2026-06-23 --skip-existing --continue-on-error --chunk-days 1 --sleep 0
+python -m weather.operations.settled_day_freshness report --target-date 2026-06-23 --snapshots-root data\snapshots --labels-csv data\backtest\market_day_labels.csv --ledger-root data\settlements --json-out data\backtest\settled_day_freshness.json --report-out data\backtest\settled_day_freshness_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/reanalysis_synoptic_band_ablation.json`: scored `51997`
+  rows over `44` days with `50` slice rows, including `3`
+  `settlement_distance` slices. The aggregate ablation delta is
+  `+0.0000495`; the `adjacent` settlement-distance slice remains harmful at
+  about `-0.000286`.
+- `data/backtest/physical_feature_family_ratchet.json`: still `BLOCK` with
+  `blocking_family_count=3`, but the reanalysis blocker is now measured
+  active-artifact evidence: `pooled_delta=4.9496283542734e-05` and
+  `harmful_slice_count=11`. The old missing `settlement_distance` blocker is
+  gone.
+- `data/backtest/settled_day_freshness.json`: `PASS`; all `12` markets are
+  complete, `needs_finalization_count=0`, `missing_replay_status_count=0`, and
+  `source_lag_warning_count=0`.
+- `data/backtest/daily_learning.json`: still `BLOCKED`; coverage is
+  `18/20` inputs with non-critical missing inputs
+  `taker_finalization_watchdog` and `taker_tail_casebook`, and the hard
+  consistency invariant `promotion_corpus_vs_settled_labels` still fails.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers. The freshness blocker now starts
+  at `fleet_observability` (`CRITICAL`, `live_forward=BLOCK`,
+  `critical_alerts=5`) instead of settled-day freshness.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and hourly/ten-minute weak-slot promotion.
+
+Active-contract check: the registered `pooled_candidate_replay` path for the
+current max-trust artifact remains insufficient by itself
+(`delta_vs_market=+0.0067`). The row-export composite metrics remain favorable,
+but v0.2 is same-corpus diagnostic evidence and v0.1 depends on diagnostic or
+unregistered source lineage. The remaining countable unblock is still a real
+active export/runtime or a fresh schema-current artifact that reproduces the
+location gains without same-corpus repair markers.
+
+## 2026-06-24 daily-learning date repair and refreshed Item 224 gates
+
+Repaired the remaining daily-learning date/freshness blocker class. Trading
+evidence now writes root `run_date` / `target_date` metadata from the latest
+settlement-scored taker day, and daily learning uses that date by default when
+`--run-date` is not supplied. Also fixed the daily-refresh CLI lock-diagnostic
+dependency so resumable refresh runs no longer fail before the runner starts.
+
+Reran:
+
+```powershell
+python -m pytest tests\reporting\test_daily_learning.py tests\reporting\test_trading_evidence.py tests\operations\test_daily_refresh.py::TestDailyRefresh::test_cli_run_injects_lock_diagnostic_before_runner -q
+python -m weather.operations.daily_refresh run --resume-from-step data_retention_inventory --as-of 2026-06-23 --continue-on-error --disable-long-job-guard --allow-hourly-performance-gate --allow-ten-minute-performance-gate --allow-variant-evidence-alert
+python -m weather.reporting.trading_evidence --mm-runs-root data\mm_runs --taker-runs-root data\taker_runs --json-out data\backtest\trading_evidence.json --report-out data\backtest\trading_evidence_report.md
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Current evidence:
+
+- `data/backtest/trading_evidence.json`: `CRITICAL`, with root
+  `run_date=2026-06-22`, `target_date=2026-06-22`, and settlement-scored
+  target dates `2026-06-19` through `2026-06-22`. The remaining trading
+  blockers are substantive: MM evidence starvation is `CRITICAL`, and taker
+  strategy quality is `BLOCK`.
+- `data/backtest/daily_learning.json`: still `BLOCKED`, but input consistency
+  is now `PASS`; freshness is only a non-critical `WARN` with
+  `critical_stale_inputs=0`. The remaining eight blockers are live-forward
+  SLO, hourly early-hour performance, ten-minute weak slots, daily-first
+  validation, early-hour active-export contract, collection health,
+  current-code soak, and taker strategy quality.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers: active-contract
+  `blocked_validation`, `11` per-market F blocks, fleet freshness/live-forward,
+  early-hour active-contract fail-closed, physical-family ratchet, and
+  live-forward SLO.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: candidate replay
+  `blocked_validation=BLOCK`, the broad promotion claim, and surrogate-only
+  hourly/ten-minute promotion evidence.
+
+Conclusion: the local freshness/date repair work is complete. Item 224 remains
+`PARTIAL` because the countable unblock still requires a real active
+replay/export contract or a fresh schema-current artifact that reproduces the
+location gains without same-corpus markers, plus live-forward/current-code soak
+and physical-family ratchet clearance.
+
+## 2026-06-24 current-corpus active-family ablation probe
+
+Reran source-family ablation for the two remaining active non-reanalysis
+families over the current 51-entry promotion corpus, then merged the probe into
+`data/backtest/source_family_ablation.json` for `wu_history` and
+`all_forecasts`.
+
+Reran:
+
+```powershell
+$corpus = Get-Content data\backtest\promotion_corpus.json -Raw | ConvertFrom-Json; $folders = @($corpus.entries | ForEach-Object { $_.folder }); python -m weather.backtesting.replay_ablation --sources wu_history,all_forecasts --out data\backtest\item224_active_family_ablation_probe.md --json-out data\backtest\item224_active_family_ablation_probe.json @folders
+python -m weather.reporting.physical_feature_family_ratchet --source-family-inventory data\backtest\source_family_inventory.json --source-family-ablation data\backtest\source_family_ablation.json --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/item224_active_family_ablation_probe.json`: both active
+  families have strong pooled lift over `76879` rows and `51` entries:
+  `all_forecasts delta=+0.0382`, `wu_history delta=+0.0299`.
+- The broader corpus does not clear the strict no-harm ratchet. It confirms
+  harmful slices remain: `all_forecasts` has `6` harmful slices and
+  `wu_history` has `9` harmful slices.
+- `data/backtest/source_family_ablation.json`: now has `14` variants and
+  `284` slice-effect rows, including the current-corpus `wu_history` and
+  `all_forecasts` probe plus the active-artifact `reanalysis_synoptic`
+  evidence.
+- `data/backtest/physical_feature_family_ratchet.json`: still `BLOCK` with
+  `blocking_family_count=3` and `settlement_slice_row_count=226`:
+  `settlement_observation harmful_slice_count=9`,
+  `forecast_baseline harmful_slice_count=6`, and
+  `reanalysis_synoptic pooled_delta=4.9496283542734e-05` with
+  `harmful_slice_count=11`.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN` with `6` blockers and the updated physical ratchet
+  detail above.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with the same `3` umbrella blockers.
+
+Conclusion: stale or narrow physical evidence is no longer the explanation for
+the active observation/forecast blockers. The active families are broadly
+valuable in pooled lift, but the current ratchet still blocks promotion because
+specific market/cutoff slices are harmful.
+
+## 2026-06-24 live-forward pass and recovery-closeout probe
+
+Refreshed the live operational evidence after `snapshot_tracker --status`
+showed the June 24 collection loop healthy across all 12 markets with no
+snapshot gaps and current runtime identity. `fleet_observability.json` now has
+`live_forward_slo_status=PASS`, so the separate Item 224 live-forward SLO
+blocker is no longer present in the refreshed promotion-readiness artifact.
+
+Also ran the two legitimate local recovery probes for the remaining fleet
+critical blockers:
+
+```powershell
+python -m weather.operations.loop_jsonl_repair audit data\snapshots\loop_console.log data\snapshots\observation_trigger_console.log --json-out data\backtest\item224_loop_jsonl_repair_audit.json --report-out data\backtest\item224_loop_jsonl_repair_audit.md
+python -m weather.operations.loop_jsonl_repair repair data\snapshots\loop_console.log data\snapshots\observation_trigger_console.log --json-out data\backtest\item224_loop_jsonl_repair_attempt.json --report-out data\backtest\item224_loop_jsonl_repair_attempt.md
+python -m weather.operations.market_making_preflight_recovery --run-folder data\mm_runs\2026-06-20\20260620T233005288278Z --execute-remediation --timeout-seconds 300
+python -m weather.reporting.trading_evidence --mm-runs-root data\mm_runs --taker-runs-root data\taker_runs --json-out data\backtest\trading_evidence.json --report-out data\backtest\trading_evidence_report.md
+python -m weather.reporting.fleet.fleet_observability report --out data\backtest\fleet_observability.json --report data\backtest\fleet_observability_report.md --provenance-out data\backtest\fleet_observability_provenance.json
+python -m weather.reporting.daily.daily_learning --backtest-root data\backtest --snapshots-root data\snapshots --json-out data\backtest\daily_learning.json --report-out data\backtest\daily_learning_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- `data/backtest/fleet_observability.json`: still `CRITICAL`, but
+  `live_forward_slo_status=PASS`; the remaining criticals are
+  `current_code_soak=BLOCK` and `mm_evidence_starvation=CRITICAL`.
+- `data/backtest/item224_loop_jsonl_repair_attempt.md`: `BLOCK`. The
+  malformed active console logs are real (`loop_console.log` and
+  `observation_trigger_console.log`), but repair correctly refuses to rewrite
+  them while live writer locks are present. Countable repair requires a
+  maintenance stop of the writers before rerunning the repair, not
+  `--allow-active` during collection.
+- `data/mm_runs/2026-06-20/20260620T233005288278Z/preflight_recovery_closeout.json`:
+  `ATTEMPTED_UNRECOVERED` with `execution_requested=true`. The three
+  allowlisted recovery commands executed and returned `PASS`
+  (`snapshot_tracker --status`, `market_microstructure ensure`, and
+  `observation_trigger ensure`), but the post-repair run is still `STALE`,
+  does not count toward the live-forward gate, and has `0` quote rows and `0`
+  live-trade permission rows.
+- `data/backtest/fleet_observability_report.md`: MM starvation is no longer a
+  missing-closeout issue; it is an attempted-but-unrecovered historical
+  active-day evidence loss.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
+  readiness remains `OPEN`, now with `5` blockers instead of `6`: active
+  replay/export contract blocked validation, `11` per-market F blocks,
+  fleet/daily evidence countability (`live_forward=PASS`, but fleet still
+  `CRITICAL`), early-hour active-contract/current-code fail-closed, and the
+  physical-family ratchet.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
+  still `BLOCK` with `3` umbrella blockers: paired candidate replay,
+  promotion-refresh broad claim, and surrogate-only hourly/ten-minute
+  promotion evidence.
+
+Conclusion: one local blocker moved: broad live-forward collection SLO is now
+green in the refreshed evidence. Item 224 remains `PARTIAL` because the
+countable unblock still requires an active replay/export contract or fresh
+schema-current artifact for the composite, a clean current-code soak window
+after the restart budget ages out and active log repair can be done safely, MM
+evidence that is recovered or no longer starved, and physical-family no-harm
+ratchet clearance for the remaining harmful slices.
+
+## 2026-06-24 active-contract replay probe
+
+Audited the model-variant registry and replayed the existing active no-market
+contracts through strict `validation_evidence=active_replay_contract` summary
+mode.
+
+```powershell
+python -m weather.reporting.variant_registry --json-out data\backtest\item224_variant_registry_audit.json --report-out data\backtest\item224_variant_registry_audit.md
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows <active-export-path> --validation-evidence active_replay_contract --active-registry-contract-json <active-contract-json> --json-out data\backtest\item224_active_contract_replay\<variant>_summary.json --report-out data\backtest\item224_active_contract_replay\<variant>_summary.md
+```
+
+Evidence:
+
+- `data/backtest/item224_variant_registry_audit.json`: `OK`; `8` active
+  contracts, `7` evidence paths, and no missing active variants.
+- `data/backtest/item224_active_contract_replay/summary.json`: the existing
+  active no-market contracts are countable active-contract evidence but still
+  block cutover because they trail market:
+  `item50_pooled_forecast_v3_candidate` daily-first
+  `delta_vs_market=+0.00718568527543182`,
+  `pooled_f_dynamic_source_state_v0_1` `+0.0073913915988035525`,
+  `pooled_f_candidate_miami_current_fallback_v0_1`
+  `+0.008651853866990116`,
+  `pooled_f_exact_winner_catchup_v0_1` `+0.008877437319451974`, and
+  `pooled_continuous_density_hgb_v0_1` `+0.014364446495755613`.
+- The shared-export active variants (`conservative_bridge_policy_v0_1`,
+  `clob_overlay_gated_taxonomy`, and `clob_overlay_raw_oof`) are not Item 224
+  unblocks here: their export files also contain control or sibling variants,
+  and the strict single-contract summary rejects them rather than counting a
+  mixed row export.
+- `data/backtest/item224_no_market_market_route_composite_rows.csv`: v0.1 has
+  no same-corpus marker, but routes through unregistered diagnostic source
+  variants (`item147_time_split_alpha`,
+  `item224_no_market_seattle_warm_support_repair_v0_1`,
+  `item32_reanalysis_austin_guard_chicago_nyc_raw`,
+  `item136_source_state_reliability_v0_1`, and
+  `item50_pooled_forecast_v3_candidate`), so it cannot be upgraded to active
+  contract evidence by adding a registry label.
+- `data/backtest/item224_no_market_market_route_composite_v0_2_rows.csv`: v0.2
+  has `3801` rows with
+  `item224_repair_missingness_hgb=same_corpus_hgb_missingness_v0_2`, so the
+  active-contract guard correctly rejects it as non-countable diagnostic
+  evidence even though its aggregate metrics are favorable.
+- Other Item 224 row exports checked in this pass are either mixed
+  multi-variant diagnostic composites or explicitly set
+  `counts_toward_weather_model_promotion=false`.
+
+Conclusion: there is no existing active registry contract that both counts and
+clears Item 224. The remaining active-contract unblock is still to produce a
+real active export/runtime or a fresh schema-current pooled F artifact that
+captures the composite gains without same-corpus repair markers or diagnostic
+source lineage.
+
+## 2026-06-24 physical harmful-slice unblock audit
+
+Extracted the current active-family harmful slices to
+`data/backtest/item224_physical_harmful_slices.json` and checked the ratchet
+implementation in `src/weather/reporting/physical_feature_family_ratchet.py`.
+The remaining physical blocker is not a stale-evidence or reporting-policy
+issue: the ratchet still blocks when an active family has harmful settlement
+slices, and `reanalysis_synoptic` also fails the pooled-lift threshold.
+
+Evidence:
+
+- `settlement_observation` / `wu_history`: pooled
+  `delta=+0.029927863084512597`, but `harmful_slice_count=9`. The harmful
+  slices are `cutoff_regime=midday`, `market_cutoff_regime=midday` for
+  Atlanta, Chicago, Denver, Miami, NYC, and Seattle, plus early Miami and early
+  Toronto.
+- `forecast_baseline` / `all_forecasts`: pooled
+  `delta=+0.038226827077627375`, but `harmful_slice_count=6`. The harmful
+  slices are late `market_cutoff_regime` for Chicago, Dallas, Houston, Miami,
+  San Francisco, and Toronto.
+- `reanalysis_synoptic`: pooled `delta=+4.9496283542734e-05` with
+  `harmful_slice_count=11`. Harm remains in market-level Chicago, Los Angeles,
+  and San Francisco; early/midday/late market-cutoff slices; and
+  `settlement_distance=adjacent`.
+
+Conclusion: there is no countable local unblock left for the physical ratchet
+by changing the report. Clearing it requires a real active model or serving
+change that removes, gates, or improves those harmful active-family slices,
+followed by fresh countable ablation evidence.
