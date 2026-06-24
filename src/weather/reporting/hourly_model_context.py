@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
 from weather.reporting.hourly_model_gate import *  # noqa: F403
+from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -246,7 +247,7 @@ def build_hourly_performance(
     daily_summary = hourly_daily_summary(best_hours, worst_hours, remediation_registry, gate)
     variable_weight_context = load_variable_weight_context(context_root)
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now().isoformat(),
         "inputs": {
@@ -295,6 +296,40 @@ def build_hourly_performance(
             "variable_weight_context": variable_weight_context,
         },
     }
+    rerun_command = build_rerun_command(
+        "weather.reporting.hourly_model_performance",
+        labels_csv=labels_csv,
+        snapshots_root=snapshots_root,
+        quality_grades=quality_grades,
+        markets=markets,
+        start_date=start_date,
+        end_date=end_date,
+        extra_args=[
+            "--context-root",
+            context_root,
+            "--min-rows",
+            min_rows,
+            "--top-hours",
+            top_hours,
+            "--min-regime-market-days",
+            min_regime_market_days,
+            "--early-brier-regression-tolerance",
+            early_brier_regression_tolerance,
+            "--early-logloss-regression-tolerance",
+            early_logloss_regression_tolerance,
+            "--early-ece-max",
+            early_ece_max,
+        ],
+    )
+    return attach_scoring_liveness(
+        payload,
+        artifact_name="hourly_model_performance",
+        labels_csv=labels_csv,
+        quality_grades=quality_grades,
+        last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
+        rerun_command=rerun_command,
+        gate_keys=("hourly_performance_gate",),
+    )
 
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.

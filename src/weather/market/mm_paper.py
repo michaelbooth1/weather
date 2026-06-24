@@ -33,6 +33,7 @@ from weather.market.clob_recon import (
     build_recon_payload,
     load_recon_payload,
 )
+from weather.market import exchange_economics
 from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
 from weather.market.mm_paper_evidence import (
     COMPATIBLE_RUN_SCHEMA_VERSIONS,
@@ -2131,6 +2132,9 @@ def build_paper_payload(
     now=None,
     ledger_root=None,
     clob_recon_path=DEFAULT_CLOB_RECON,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_target_date=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
     generated_at = generated_at_iso(now)
@@ -2203,6 +2207,36 @@ def build_paper_payload(
         run_folders,
         report_generated_at_utc=generated_at,
     )
+    economics_target_date = (
+        exchange_economics_target_date
+        or paper_score_freshness.get("latest_completed_active_day")
+        or paper_score_freshness.get("latest_covered_active_day")
+    )
+    exchange_gate = exchange_economics.load_exchange_economics_gate(
+        exchange_economics_snapshot_path,
+        economics_target_date,
+        platform=exchange_economics_platform,
+        now=now or generated_at,
+    )
+    exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
+    for row in fill_rows:
+        row.update({
+            "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
+        })
+    for row in model_variant_fill_rows:
+        row.update({
+            "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
+        })
+    base_gate_status = (
+        "OPEN"
+        if len(anti_overfit.get("live_forward_days") or []) < int(config["min_edge_allowed_live_days"])
+        else "PAPER_DAYS_READY"
+    )
+    gate_status = "BLOCK" if not exchange_gate.get("ok") else base_gate_status
     summary = {
         "run_folders": len(run_folders),
         "candidate_run_folders": len(candidate_run_folders),
@@ -2246,6 +2280,11 @@ def build_paper_payload(
         "paper_score_freshness_status": paper_score_freshness.get("status"),
         "latest_completed_active_day": paper_score_freshness.get("latest_completed_active_day"),
         "latest_covered_active_day": paper_score_freshness.get("latest_covered_active_day"),
+        "exchange_economics_gate": exchange_gate,
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "exchange_economics_gate_reason": exchange_gate.get("reason"),
+        "paper_evidence_basis": exchange_gate.get("evidence_basis"),
+        **exchange_fields,
         "per_market_live_forward_evidence": per_market_evidence_summary,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
         "event_gate_score": event_gate_score,
@@ -2263,7 +2302,8 @@ def build_paper_payload(
                 "pass_pair_count"
             ),
         },
-        "gate_status": "OPEN" if len(anti_overfit.get("live_forward_days") or []) < int(config["min_edge_allowed_live_days"]) else "PAPER_DAYS_READY",
+        "gate_status": gate_status,
+        "gate_status_without_exchange_economics": base_gate_status,
     }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -2273,6 +2313,9 @@ def build_paper_payload(
         "backtest_root": str(backtest_root),
         "promotion_refresh": str(promotion_refresh),
         "casebook_path": str(casebook_path),
+        "exchange_economics_snapshot_path": str(exchange_economics_snapshot_path) if exchange_economics_snapshot_path else None,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "config": config,
         "summary": summary,
         "clob_recon": clob_recon,
@@ -2376,6 +2419,9 @@ def build_arg_parser():
     parser.add_argument("--known-edge-report-out", default=str(DEFAULT_KNOWN_EDGE_REPORT_OUT))
     parser.add_argument("--ledger-root", default=None)
     parser.add_argument("--now", default=None)
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
+    parser.add_argument("--exchange-economics-target-date", default=None)
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     parser.add_argument("--config", action="append", default=[], help="Paper config override, key=value.")
     return parser
 
@@ -2395,6 +2441,9 @@ def main(argv=None):
         config=config,
         now=parse_time(args.now) if args.now else None,
         ledger_root=Path(args.ledger_root) if args.ledger_root else None,
+        exchange_economics_snapshot_path=Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
+        exchange_economics_target_date=args.exchange_economics_target_date,
+        exchange_economics_platform=args.exchange_economics_platform,
     )
     payload, _known_edge = write_outputs(
         payload,

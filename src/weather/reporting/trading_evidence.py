@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.market import mm_paper
+from weather.market import exchange_economics, mm_paper
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
@@ -29,6 +29,11 @@ TAKER_QUALITY_MIN_ROLLING_RUNS = 5
 TAKER_QUALITY_MIN_FILLS = 100
 TAKER_QUALITY_MIN_NET_PNL_USDC = 0.0
 TAKER_SETTLEMENT_SCORED_STATUS = "SETTLEMENT_SCORED"
+TAKER_SETTLEMENT_SCORED_ZERO_FILL_STATUS = "SETTLEMENT_SCORED_ZERO_FILL"
+TAKER_SETTLEMENT_SCORED_STATUSES = {
+    TAKER_SETTLEMENT_SCORED_STATUS,
+    TAKER_SETTLEMENT_SCORED_ZERO_FILL_STATUS,
+}
 COUNTABLE_MM_EVIDENCE_MODE = "active_day_live_forward"
 MM_STARVATION_BLOCKED_FRACTION_THRESHOLD = 0.75
 MM_STALE_INPUT_GATES = {"model_freshness", "clob_freshness", "observation_trigger"}
@@ -55,6 +60,138 @@ MM_STARVATION_REMEDIATION_BOUNDARY = (
     "belongs to ROADMAP 210; active-day supervisor recovery closeout belongs "
     "to ROADMAP 211"
 )
+
+
+def _exchange_gate_from_payloads(*payloads):
+    for payload in payloads:
+        payload = payload or {}
+        gate = payload.get("exchange_economics_gate")
+        if gate:
+            return gate
+        summary = payload.get("summary") or {}
+        status = (
+            payload.get("exchange_economics_status")
+            or payload.get("exchange_economics_gate_status")
+            or summary.get("exchange_economics_gate_status")
+        )
+        snapshot_id = (
+            payload.get("exchange_economics_snapshot_id")
+            or summary.get("exchange_economics_snapshot_id")
+        )
+        economics_hash = (
+            payload.get("exchange_economics_hash")
+            or summary.get("exchange_economics_hash")
+        )
+        if status or snapshot_id or economics_hash:
+            return {
+                "status": status or "PASS",
+                "ok": status in {None, "", "PASS"},
+                "snapshot_id": snapshot_id,
+                "snapshot_hash": economics_hash,
+                "source_hash": (
+                    payload.get("exchange_economics_source_hash")
+                    or summary.get("exchange_economics_source_hash")
+                ),
+                "evidence_basis": (
+                    payload.get("exchange_economics_evidence_basis")
+                    or summary.get("exchange_economics_evidence_basis")
+                ),
+                "verified_at_utc": (
+                    payload.get("exchange_economics_verified_at_utc")
+                    or summary.get("exchange_economics_verified_at_utc")
+                ),
+                "reason": (
+                    payload.get("exchange_economics_gate_reason")
+                    or summary.get("exchange_economics_gate_reason")
+                ),
+            }
+    return {}
+
+
+def _exchange_gate_blocked(gate):
+    gate = gate or {}
+    if gate.get("required") is False:
+        return False
+    return bool(
+        not gate
+        or gate.get("status") == "BLOCK"
+        or gate.get("ok") is False
+        or not (gate.get("snapshot_id") or gate.get("exchange_economics_snapshot_id"))
+    )
+TAKER_POLICY_GATE_REASONS = {
+    "NO_TRADE_EDGE_TOO_SMALL",
+    "NO_TRADE_AFTER_COST_EV_TOO_SMALL",
+    "NO_TRADE_EDGE_NOT_PERMISSIONED",
+    "NO_TRADE_ADVERSE_SELECTION_EDGE_CAP",
+    "NO_TRADE_BAD_TAIL_NO_GO",
+    "NO_TRADE_MARKET_CENTERED_WARM_TAIL",
+    "NO_TRADE_MARKET_BENCHMARK_NO_TRADE",
+    "NO_TRADE_EARLY_HOUR_DAILY_POSITION_LIMIT",
+    "NO_TRADE_CORRELATED_REGIME_EXPOSURE_CAP",
+    "NO_TRADE_WEAK_SLOT_KILL_SWITCH",
+    "NO_TRADE_PRICE_OUT_OF_RANGE",
+}
+TAKER_MARKET_BOOK_INFRA_REASONS = {
+    "NO_TRADE_STALE_BOOK",
+    "NO_TRADE_MISSING_BOOK",
+    "NO_TRADE_MISSING_TOKEN",
+    "NO_TRADE_MISSING_PREFLIGHT",
+}
+TAKER_DATA_FRESHNESS_REASONS = {
+    "NO_TRADE_STALE_MODEL",
+    "NO_TRADE_SNAPSHOT_CADENCE_DEGRADED",
+    "NO_TRADE_CURRENT_HIGH_TRUST_GATE",
+    "NO_TRADE_STALE_SOURCE_STATUS",
+    "NO_TRADE_OBSERVATION_TRIGGER_STALE",
+}
+TAKER_STRATEGY_DISABLED_REASONS = {
+    "NO_TRADE_STRATEGY_DISABLED",
+    "NO_TRADE_DISABLED",
+    "NO_TRADE_PAPER_ONLY",
+}
+TAKER_INFRA_ROOT_CAUSES = {
+    "stale_book_input",
+    "stale_model_input",
+    "missing_orders_tape",
+    "missing_strategy_summary",
+    "missing_heartbeat_metadata",
+    "blocked_by_market_discovery",
+    "blocked_by_disk",
+}
+TAKER_POLICY_ROOT_CAUSES = {"policy_no_edge"}
+MM_QUOTE_RISK_CLEAN_REASONS = {
+    "NO_QUOTE_EDGE_TOO_SMALL",
+    "NO_QUOTE_NO_EDGE",
+    "NO_QUOTE_MARKET_NOT_MISPRICED",
+}
+MM_QUOTE_POLICY_REASONS = {
+    "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+    "NO_QUOTE_BUDGET_EXHAUSTED",
+    "NO_QUOTE_CANCEL_ALL",
+    "NO_QUOTE_POSITION_LIMIT",
+    "NO_QUOTE_DISAGREEMENT_SHADOW",
+    "NO_QUOTE_RISK_LIMIT",
+}
+MM_QUOTE_INFRA_REASONS = {
+    "NO_QUOTE_MISSING_PREFLIGHT",
+    "NO_QUOTE_MISSING_BOOK",
+    "NO_QUOTE_STALE_BOOK",
+    "NO_QUOTE_MISSING_TOKEN",
+    "NO_QUOTE_CLOB_UNAVAILABLE",
+    "NO_QUOTE_MARKET_DISCOVERY",
+}
+MM_QUOTE_DATA_REASONS = {
+    "NO_QUOTE_STALE_MODEL",
+    "NO_QUOTE_STALE_SOURCE",
+    "NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED",
+    "NO_QUOTE_OBSERVATION_TRIGGER_STALE",
+    "NO_QUOTE_CURRENT_HIGH_TRUST_GATE",
+}
+MM_QUOTE_STRATEGY_DISABLED_REASONS = {
+    "NO_QUOTE_STRATEGY_DISABLED",
+    "NO_QUOTE_DISABLED",
+    "NO_QUOTE_OPERATOR_DRILL",
+}
 
 
 def _read_json(path):
@@ -150,9 +287,19 @@ def _closeout_status(closeout, starved):
     return closeout.get("status") or ("RECOVERED" if closeout.get("recovered") else "ATTEMPTED_UNRECOVERED")
 
 
-def _latest_run_summary(root):
+def _payload_target_date(path, payload):
+    return str((payload or {}).get("target_date") or Path(path).parent.parent.name if path else "")
+
+
+def _latest_run_summary(root, *, target_date=None):
     root = Path(root)
     candidates = sorted(root.glob("*/*/run_summary.json"))
+    if target_date:
+        requested = str(target_date)
+        candidates = [
+            path for path in candidates
+            if path.parent.parent.name == requested
+        ]
     if not candidates:
         return None, None
     latest = max(candidates, key=lambda path: path.stat().st_mtime)
@@ -177,6 +324,67 @@ def _run_sort_key(path, payload):
     )
 
 
+def _mm_countable_proof(payload):
+    if not payload:
+        return False
+    live_gate = payload.get("live_forward_gate") or {}
+    return bool(
+        payload.get("evidence_mode") == COUNTABLE_MM_EVIDENCE_MODE
+        and payload.get("counts_toward_live_forward_gate")
+        and payload.get("preflight_status") in {"PASS", None}
+        and live_gate.get("status") in {"PASS", None}
+    )
+
+
+def _select_market_making_run(root, *, target_date=None):
+    all_rows = _all_run_summaries(root)
+    if not all_rows:
+        return None, None, {
+            "requested_target_date": str(target_date) if target_date else None,
+            "selection_status": "MISSING",
+            "candidate_count": 0,
+            "countable_candidate_count": 0,
+            "selected_target_date": None,
+            "selected_countable": False,
+        }
+    requested = str(target_date) if target_date else None
+    target_rows = [
+        (path, payload) for path, payload in all_rows
+        if not requested or str(payload.get("target_date") or path.parent.parent.name) == requested
+    ]
+    selection_status = "LATEST_OVERALL"
+    if requested:
+        selection_status = "TARGET_DATE"
+    candidate_rows = target_rows or all_rows
+    countable_rows = [(path, payload) for path, payload in candidate_rows if _mm_countable_proof(payload)]
+    if countable_rows:
+        selected_path, selected_payload = max(countable_rows, key=lambda item: _run_sort_key(item[0], item[1]))
+        selection_status = (
+            "COUNTABLE_TARGET_DATE"
+            if requested and target_rows else
+            "STALE_FALLBACK"
+            if requested else
+            "COUNTABLE_LATEST"
+        )
+    else:
+        selected_path, selected_payload = max(candidate_rows, key=lambda item: _run_sort_key(item[0], item[1]))
+        if requested and not target_rows:
+            selection_status = "STALE_FALLBACK"
+        elif requested:
+            selection_status = "TARGET_DATE_NON_COUNTABLE"
+    selected_target = str(selected_payload.get("target_date") or selected_path.parent.parent.name)
+    return selected_path, selected_payload, {
+        "requested_target_date": requested,
+        "selection_status": selection_status,
+        "candidate_count": len(candidate_rows),
+        "target_date_candidate_count": len(target_rows),
+        "countable_candidate_count": len(countable_rows),
+        "selected_target_date": selected_target,
+        "selected_countable": _mm_countable_proof(selected_payload),
+        "selected_path": str(selected_path),
+    }
+
+
 def _float_value(value, default=0.0):
     try:
         return float(value)
@@ -196,6 +404,221 @@ def _first_present(*values):
         if value is not None:
             return value
     return None
+
+
+def _count_mapping_total(counts):
+    total = 0
+    for value in (counts or {}).values():
+        total += _int_value(value)
+    return total
+
+
+def _sorted_count_rows(counts, limit=None):
+    rows = [
+        {"reason": str(reason), "count": _int_value(count)}
+        for reason, count in (counts or {}).items()
+        if _int_value(count) > 0
+    ]
+    rows = sorted(rows, key=lambda row: (-row["count"], row["reason"]))
+    return rows[:limit] if limit else rows
+
+
+def _taker_reason_category(reason):
+    reason = str(reason or "unknown")
+    upper = reason.upper()
+    if upper in TAKER_POLICY_GATE_REASONS or upper.startswith("NO_TRADE_EDGE"):
+        return "policy_gate"
+    if upper in TAKER_MARKET_BOOK_INFRA_REASONS or "BOOK" in upper or "TOKEN" in upper or "CLOB" in upper:
+        return "market_book_infra"
+    if upper in TAKER_DATA_FRESHNESS_REASONS or "STALE" in upper or "FRESH" in upper or "CADENCE" in upper:
+        return "data_freshness"
+    if upper in TAKER_STRATEGY_DISABLED_REASONS or "DISABLED" in upper or "PAPER_ONLY" in upper:
+        return "strategy_disabled"
+    if upper.endswith("_EDGE") or upper.startswith("BUY_") or upper.startswith("SELL_"):
+        return "trade_signal"
+    return "unknown"
+
+
+def _maker_quote_reason_category(reason):
+    reason = str(reason or "unknown")
+    upper = reason.upper()
+    if upper.startswith("QUOTE") or upper in {"BUY_EDGE", "SELL_EDGE"}:
+        return "quote_allowed"
+    if upper in MM_QUOTE_RISK_CLEAN_REASONS:
+        return "risk_clean_no_edge"
+    if upper in MM_QUOTE_POLICY_REASONS or "BUDGET" in upper or "LIMIT" in upper or "PERMISSION" in upper:
+        return "policy_gate"
+    if upper in MM_QUOTE_INFRA_REASONS or "BOOK" in upper or "TOKEN" in upper or "CLOB" in upper:
+        return "market_book_infra"
+    if upper in MM_QUOTE_DATA_REASONS or "STALE" in upper or "FRESH" in upper or "CADENCE" in upper:
+        return "data_freshness"
+    if upper in MM_QUOTE_STRATEGY_DISABLED_REASONS or "DISABLED" in upper or "OPERATOR" in upper:
+        return "strategy_disabled"
+    return "unknown"
+
+
+def _reason_taxonomy(reason_counts, categorizer):
+    category_counts = Counter()
+    reason_rows = []
+    for reason, raw_count in (reason_counts or {}).items():
+        count = _int_value(raw_count)
+        if count <= 0:
+            continue
+        category = categorizer(reason)
+        category_counts[category] += count
+        reason_rows.append({
+            "reason": str(reason),
+            "count": count,
+            "category": category,
+        })
+    reason_rows = sorted(reason_rows, key=lambda row: (-row["count"], row["reason"]))
+    dominant_category = None
+    if category_counts:
+        dominant_category = sorted(category_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+    return {
+        "total_reason_count": sum(category_counts.values()),
+        "category_counts": dict(sorted(category_counts.items())),
+        "dominant_category": dominant_category,
+        "reason_rows": reason_rows,
+    }
+
+
+def taker_no_trade_taxonomy(reason_counts):
+    taxonomy = _reason_taxonomy(reason_counts, _taker_reason_category)
+    categories = taxonomy.get("category_counts") or {}
+    taxonomy.update({
+        "policy_gate_count": _int_value(categories.get("policy_gate")),
+        "market_book_infra_count": _int_value(categories.get("market_book_infra")),
+        "data_freshness_count": _int_value(categories.get("data_freshness")),
+        "strategy_disabled_count": _int_value(categories.get("strategy_disabled")),
+        "infra_blocker_count": (
+            _int_value(categories.get("market_book_infra"))
+            + _int_value(categories.get("data_freshness"))
+            + _int_value(categories.get("strategy_disabled"))
+        ),
+    })
+    return taxonomy
+
+
+def _zero_fill_quality_classification(fields, *, settlement_available):
+    filled_orders = _int_value(fields.get("filled_orders"))
+    if filled_orders > 0:
+        return "filled"
+    if not settlement_available:
+        return "unscored_stale_labels"
+    taxonomy = fields.get("no_trade_reason_taxonomy") or {}
+    root_cause = fields.get("root_cause_class")
+    if taxonomy.get("infra_blocker_count") or root_cause in TAKER_INFRA_ROOT_CAUSES:
+        return "infra_blocked"
+    if taxonomy.get("policy_gate_count") or root_cause in TAKER_POLICY_ROOT_CAUSES:
+        return "risk_clean_no_edge"
+    return "risk_clean_no_edge"
+
+
+def _selected_market_count(payload, gate_summary):
+    markets = payload.get("markets") or []
+    if isinstance(markets, list):
+        return len(markets)
+    return _int_value(
+        gate_summary.get("market_count")
+        or ((_live_forward_evidence(payload, "paper_trading_evidence")).get("market_count"))
+    )
+
+
+def _maker_quote_starvation_summary(payload, selected_summary):
+    payload = payload or {}
+    selected_summary = selected_summary or {}
+    cumulative = payload.get("cumulative") or {}
+    live_gate = payload.get("live_forward_gate") or {}
+    gate_summary = live_gate.get("summary") or {}
+    reason_counts = (
+        payload.get("reason_counts")
+        or ((payload.get("latest_tick") or {}).get("reason_counts"))
+        or {}
+    )
+    quote_rows = _int_value(_first_present(
+        payload.get("cumulative_quote_permission_rows"),
+        cumulative.get("quote_rows"),
+        payload.get("quote_permission_rows"),
+        (payload.get("latest_tick") or {}).get("quote_rows"),
+    ))
+    fills = _int_value(_first_present(
+        payload.get("paper_fill_count"),
+        payload.get("conservative_fills"),
+        (payload.get("paper_score") or {}).get("conservative_fills"),
+        payload.get("cumulative_paper_fill_count"),
+    ))
+    posted_legs = _int_value(_first_present(
+        payload.get("cumulative_paper_posted_count"),
+        cumulative.get("paper_posted_lifecycle_legs"),
+        cumulative.get("paper_posted_count"),
+    ))
+    markets_covered = _int_value(_first_present(
+        gate_summary.get("market_count"),
+        (_live_forward_evidence(payload, "paper_trading_evidence")).get("market_count"),
+        _selected_market_count(payload, gate_summary),
+    ))
+    total_intents = _int_value(_first_present(
+        payload.get("row_count"),
+        payload.get("cumulative_quote_intent_rows"),
+        cumulative.get("quote_intent_rows"),
+        (payload.get("latest_tick") or {}).get("row_count"),
+        _count_mapping_total(reason_counts),
+    ))
+    if total_intents <= 0:
+        total_intents = _count_mapping_total(reason_counts)
+    taxonomy = _reason_taxonomy(reason_counts, _maker_quote_reason_category)
+    categories = taxonomy.get("category_counts") or {}
+    stale_selected = selected_summary.get("selection_status") == "STALE_FALLBACK"
+    countable = bool(payload.get("counts_toward_live_forward_gate"))
+    has_quote_proof = quote_rows > 0 or countable
+    infra_count = (
+        _int_value(categories.get("market_book_infra"))
+        + _int_value(categories.get("data_freshness"))
+        + _int_value(categories.get("strategy_disabled"))
+    )
+    policy_count = _int_value(categories.get("policy_gate"))
+    risk_clean_count = _int_value(categories.get("risk_clean_no_edge"))
+    unknown_count = _int_value(categories.get("unknown"))
+    if stale_selected:
+        classification = "stale_evidence"
+    elif has_quote_proof:
+        classification = "countable_with_quotes"
+    elif infra_count:
+        classification = "quote_starved_infra"
+    elif risk_clean_count and not policy_count and not unknown_count:
+        classification = "risk_clean_no_edge"
+    elif policy_count:
+        classification = "quote_starved_policy"
+    elif total_intents <= 0:
+        classification = "stale_evidence"
+    else:
+        classification = "quote_starved_infra"
+    gate_status = "PASS"
+    if classification in {"quote_starved_infra", "stale_evidence"}:
+        gate_status = "BLOCK"
+    elif classification == "quote_starved_policy":
+        gate_status = "WARN"
+    taxonomy.update({
+        "infra_blocker_count": infra_count,
+        "policy_gate_count": policy_count,
+        "risk_clean_no_edge_count": risk_clean_count,
+        "top_blocking_gates": _sorted_count_rows(reason_counts, limit=8),
+    })
+    return {
+        "status": gate_status,
+        "classification": classification,
+        "quote_permission_rows": quote_rows,
+        "paper_fill_count": fills,
+        "paper_posted_lifecycle_legs": posted_legs,
+        "markets_covered": markets_covered,
+        "total_intents": total_intents,
+        "reason_taxonomy": taxonomy,
+        "stale_selection": stale_selected,
+        "selected_target_date": selected_summary.get("selected_target_date"),
+        "requested_target_date": selected_summary.get("requested_target_date"),
+        "selection_status": selected_summary.get("selection_status"),
+    }
 
 
 def _settled_taker_payload(summary_path):
@@ -419,9 +842,16 @@ def mm_starvation_run_row(path, payload, *, blocked_fraction_threshold=MM_STARVA
 def mm_evidence_starvation_summary(
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     *,
+    target_date=None,
     blocked_fraction_threshold=MM_STARVATION_BLOCKED_FRACTION_THRESHOLD,
 ):
     run_rows = _all_run_summaries(mm_runs_root)
+    if target_date:
+        requested = str(target_date)
+        run_rows = [
+            (path, payload) for path, payload in run_rows
+            if str(payload.get("target_date") or path.parent.parent.name) == requested
+        ]
     latest_by_day = {}
     for path, payload in run_rows:
         target_date = payload.get("target_date") or path.parent.name
@@ -525,14 +955,23 @@ def mm_evidence_starvation_summary(
     }
 
 
-def summarize_market_making_run(path, payload):
+def summarize_market_making_run(path, payload, selection_summary=None):
     if not payload:
         return {"exists": False}
+    selection_summary = selection_summary or {}
     cumulative = payload.get("cumulative") or {}
     live_gate = payload.get("live_forward_gate") or {}
     gate_summary = live_gate.get("summary") or {}
     useful_work = payload.get("useful_work_liveness") or live_gate.get("useful_work_liveness") or {}
+    exchange_gate = _exchange_gate_from_payloads(payload, payload.get("run_config") or {})
     model_variant = payload.get("model_variant_bakeoff") or {}
+    skipped_variants = model_variant.get("skipped_variants") or []
+    skipped_variant_input_rows = sum(_int_value(row.get("input_row_count")) for row in skipped_variants)
+    skipped_variant_ids = sorted({
+        str(row.get("model_variant_id"))
+        for row in skipped_variants
+        if row.get("model_variant_id")
+    })
     evidence_mode = payload.get("evidence_mode")
     evidence_mode_reason = (
         payload.get("evidence_mode_reason")
@@ -546,16 +985,45 @@ def summarize_market_making_run(path, payload):
         or ((payload.get("latest_tick") or {}).get("reason_counts"))
         or {}
     )
+    quote_starvation = _maker_quote_starvation_summary(payload, selection_summary)
+    countability_blockers = [] if countable_all_markets else [
+        blocker for blocker in [
+            None if countable_mode else f"evidence_mode={evidence_mode}",
+            None if live_gate.get("status") in {"PASS", None} else f"live_forward_gate={live_gate.get('status')}",
+            None if payload.get("preflight_status") in {"PASS", None} else f"preflight={payload.get('preflight_status')}",
+            (
+                None
+                if useful_work.get("status") in {"PASS", "SKIPPED", None}
+                else f"useful_work_liveness={useful_work.get('status')}"
+            ),
+        ]
+        if blocker
+    ]
+    if skipped_variant_input_rows:
+        countability_blockers.append(f"model_variant_bakeoff_skipped_variants={skipped_variant_input_rows}")
+    if quote_starvation.get("status") == "BLOCK":
+        countability_blockers.append(f"quote_starvation={quote_starvation.get('classification')}")
+    if _exchange_gate_blocked(exchange_gate):
+        countability_blockers.append("paper_stale_exchange_economics")
+    countability_status = "COUNTABLE" if countable_all_markets and not countability_blockers else "NON_COUNTABLE"
+    exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     return {
         "exists": True,
         "path": str(path),
         "run_folder": payload.get("run_folder"),
         "run_id": payload.get("run_id"),
         "target_date": payload.get("target_date"),
+        "evidence_selection": selection_summary,
+        "evidence_selection_status": selection_summary.get("selection_status"),
+        "selected_target_date": selection_summary.get("selected_target_date"),
         "mode": payload.get("mode"),
         "evidence_mode": evidence_mode,
         "evidence_mode_reason": evidence_mode_reason,
         "preflight_status": payload.get("preflight_status"),
+        "exchange_economics_gate": exchange_gate,
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "paper_evidence_basis": exchange_gate.get("evidence_basis"),
+        **exchange_fields,
         "selected_market_count": len(payload.get("markets") or []),
         "latest_tick_quote_rows": (payload.get("latest_tick") or {}).get("quote_rows"),
         "quote_rows": payload.get("cumulative_quote_permission_rows") or cumulative.get("quote_rows"),
@@ -577,26 +1045,25 @@ def summarize_market_making_run(path, payload):
         "model_variant_bakeoff_row_count": payload.get("model_variant_row_count"),
         "model_variant_bakeoff_variant_ids": model_variant.get("emitted_variant_ids") or [],
         "model_variant_bakeoff_family_size": model_variant.get("multiple_testing_family_size"),
+        "model_variant_bakeoff_skipped_variants": skipped_variants,
+        "model_variant_bakeoff_skipped_variant_count": len(skipped_variants),
+        "model_variant_bakeoff_skipped_variant_ids": skipped_variant_ids,
+        "model_variant_bakeoff_skipped_input_row_count": skipped_variant_input_rows,
         "reason_counts": reason_counts,
         "current_high_trust_no_quote_count": _int_value(
             reason_counts.get("NO_QUOTE_CURRENT_HIGH_TRUST_GATE")
         ),
         "counts_toward_live_forward_gate": countable_all_markets,
         "countable_mode": countable_mode,
-        "countability_status": "COUNTABLE" if countable_all_markets else "NON_COUNTABLE",
-        "countability_blockers": [] if countable_all_markets else [
-            blocker for blocker in [
-                None if countable_mode else f"evidence_mode={evidence_mode}",
-                None if live_gate.get("status") in {"PASS", None} else f"live_forward_gate={live_gate.get('status')}",
-                None if payload.get("preflight_status") in {"PASS", None} else f"preflight={payload.get('preflight_status')}",
-                (
-                    None
-                    if useful_work.get("status") in {"PASS", "SKIPPED", None}
-                    else f"useful_work_liveness={useful_work.get('status')}"
-                ),
-            ]
-            if blocker
-        ],
+        "countability_status": countability_status,
+        "countability_blockers": countability_blockers,
+        "quote_starvation": quote_starvation,
+        "quote_starvation_gate": {
+            "status": quote_starvation.get("status"),
+            "classification": quote_starvation.get("classification"),
+            "blocks_maker_evidence_countability": quote_starvation.get("status") == "BLOCK",
+        },
+        "maker_day_classification": quote_starvation.get("classification"),
         "model_review_evidence": _evidence_class(payload, "model_review_evidence"),
         "paper_trading_evidence": _evidence_class(payload, "paper_trading_evidence"),
         "live_trade_permission_evidence": _evidence_class(payload, "live_trade_permission_evidence"),
@@ -609,6 +1076,8 @@ def _taker_summary_fields(payload, settled_payload=None):
     pnl_payload = payload.get("pnl") or {}
     if settled_payload:
         pnl_payload = settled_payload.get("pnl") or pnl_payload
+    exchange_gate = _exchange_gate_from_payloads(settled_payload, payload, pnl_payload)
+    exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     strategy_comparison = pnl_payload.get("strategy_comparison") or {}
     by_strategy = pnl_payload.get("by_strategy") or []
     countable_candidate = strategy_comparison.get("countable_strategy_quality_candidate") or {}
@@ -654,23 +1123,36 @@ def _taker_summary_fields(payload, settled_payload=None):
             settled_pnl.get("settled_order_count"),
             settled_summary.get("settled_order_count"),
         ))
+        filled_order_count = _int_value(_first_present(
+            settled_pnl.get("filled_order_count"),
+            settled_summary.get("filled_order_count"),
+        ))
         mtm_pnl = _float_value(_first_present(
             settled_pnl.get("mark_to_market_pnl_usdc"),
             settled_summary.get("mark_to_market_pnl_usdc"),
         ))
         pnl_source = settled_summary.get("pnl_source") or reconciliation.get("preferred_pnl_source")
+        reason_counts = settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {}
+        no_trade_taxonomy = taker_no_trade_taxonomy(reason_counts)
         evidence_status = (
             "SETTLEMENT_SCORED"
             if settled_count > 0 else
+            TAKER_SETTLEMENT_SCORED_ZERO_FILL_STATUS
+            if filled_order_count <= 0 else
             "PROVISIONAL_MTM_ONLY"
             if mtm_pnl != 0.0 or pnl_source == "mark_to_market" else
             "UNSCORED"
         )
+        zero_fill_quality = _zero_fill_quality_classification(
+            {
+                "filled_orders": filled_order_count,
+                "root_cause_class": summary.get("root_cause_class"),
+                "no_trade_reason_taxonomy": no_trade_taxonomy,
+            },
+            settlement_available=True,
+        )
         return {
-            "filled_orders": _int_value(_first_present(
-                settled_pnl.get("filled_order_count"),
-                settled_summary.get("filled_order_count"),
-            )),
+            "filled_orders": filled_order_count,
             "budget_spent_usdc": _float_value(_first_present(
                 settled_pnl.get("budget_spent_usdc"),
                 settled_summary.get("budget_spent_usdc"),
@@ -705,11 +1187,11 @@ def _taker_summary_fields(payload, settled_payload=None):
                 settled_pnl.get("unsettled_order_count"),
                 settled_summary.get("unsettled_order_count"),
             )),
-            "reason_counts": settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {},
+            "reason_counts": reason_counts,
+            "no_trade_reason_taxonomy": no_trade_taxonomy,
+            "zero_fill_quality_classification": zero_fill_quality,
             "current_high_trust_no_trade_count": _int_value(
-                (settled_pnl.get("reason_counts") or settled_summary.get("reason_counts") or {}).get(
-                    "NO_TRADE_CURRENT_HIGH_TRUST_GATE"
-                )
+                reason_counts.get("NO_TRADE_CURRENT_HIGH_TRUST_GATE")
             ),
             "root_cause_class": summary.get("root_cause_class"),
             "first_failing_gate": summary.get("first_failing_gate"),
@@ -720,6 +1202,14 @@ def _taker_summary_fields(payload, settled_payload=None):
             "settlement_reconciliation_warnings": warnings,
             "settled_pnl_path": settled_payload.get("settled_pnl_path"),
             "settled_report_path": settled_payload.get("settled_report_path"),
+            "exchange_economics_gate": exchange_gate,
+            "exchange_economics_gate_status": exchange_gate.get("status"),
+            "paper_evidence_basis": (
+                exchange_economics.STALE_EVIDENCE_BASIS
+                if _exchange_gate_blocked(exchange_gate)
+                else exchange_gate.get("evidence_basis")
+            ),
+            **exchange_fields,
             "active_strategy_id": next_gate.get("active_strategy_id") or settled_summary.get("active_strategy_id"),
             "active_strategy_lifecycle": (
                 next_gate.get("active_strategy_lifecycle")
@@ -803,19 +1293,30 @@ def _taker_summary_fields(payload, settled_payload=None):
         if pnl_source == "mark_to_market" else
         "UNSCORED"
     )
+    reason_counts = pnl.get("reason_counts") or summary.get("reason_counts") or {}
+    no_trade_taxonomy = taker_no_trade_taxonomy(reason_counts)
+    filled_order_count = _int_value(summary.get("cumulative_filled_orders") or pnl.get("filled_order_count"))
+    zero_fill_quality = _zero_fill_quality_classification(
+        {
+            "filled_orders": filled_order_count,
+            "root_cause_class": summary.get("root_cause_class"),
+            "no_trade_reason_taxonomy": no_trade_taxonomy,
+        },
+        settlement_available=False,
+    )
     return {
-        "filled_orders": _int_value(summary.get("cumulative_filled_orders") or pnl.get("filled_order_count")),
+        "filled_orders": filled_order_count,
         "budget_spent_usdc": _float_value(summary.get("budget_spent_usdc") or pnl.get("budget_spent_usdc")),
         "net_pnl_usdc": _float_value(summary.get("cumulative_net_pnl_usdc") or pnl.get("net_pnl_usdc")),
         "mark_to_market_pnl_usdc": _float_value(pnl.get("mark_to_market_pnl_usdc")),
         "settlement_pnl_usdc": _float_value(pnl.get("settlement_pnl_usdc")),
         "settled_order_count": _int_value(pnl.get("settled_order_count")),
         "unsettled_order_count": _int_value(pnl.get("unsettled_order_count")),
-        "reason_counts": pnl.get("reason_counts") or summary.get("reason_counts") or {},
+        "reason_counts": reason_counts,
+        "no_trade_reason_taxonomy": no_trade_taxonomy,
+        "zero_fill_quality_classification": zero_fill_quality,
         "current_high_trust_no_trade_count": _int_value(
-            (pnl.get("reason_counts") or summary.get("reason_counts") or {}).get(
-                "NO_TRADE_CURRENT_HIGH_TRUST_GATE"
-            )
+            reason_counts.get("NO_TRADE_CURRENT_HIGH_TRUST_GATE")
         ),
         "root_cause_class": summary.get("root_cause_class"),
         "first_failing_gate": summary.get("first_failing_gate"),
@@ -826,6 +1327,14 @@ def _taker_summary_fields(payload, settled_payload=None):
         "settlement_reconciliation_warnings": [],
         "settled_pnl_path": None,
         "settled_report_path": None,
+        "exchange_economics_gate": exchange_gate,
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "paper_evidence_basis": (
+            exchange_economics.STALE_EVIDENCE_BASIS
+            if _exchange_gate_blocked(exchange_gate)
+            else exchange_gate.get("evidence_basis")
+        ),
+        **exchange_fields,
         "active_strategy_id": summary.get("active_strategy_id"),
         "active_strategy_lifecycle": summary.get("active_strategy_lifecycle"),
         "active_strategy_lifecycle_status": summary.get("active_strategy_lifecycle"),
@@ -870,7 +1379,7 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
     ]
     settlement_fields = [
         row for row in rolling_fields
-        if row.get("pnl_evidence_status") == TAKER_SETTLEMENT_SCORED_STATUS
+        if row.get("pnl_evidence_status") in TAKER_SETTLEMENT_SCORED_STATUSES
     ]
     mtm_only_fields = [
         row for row in rolling_fields
@@ -894,6 +1403,9 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
         quality_status = "SAMPLE_PENDING_NEGATIVE_LATEST"
     else:
         quality_status = "SAMPLE_PENDING"
+    exchange_blocks = _exchange_gate_blocked(latest.get("exchange_economics_gate"))
+    if exchange_blocks:
+        quality_status = "BLOCK"
     return {
         "exists": True,
         "path": str(path),
@@ -902,6 +1414,7 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
         "target_date": payload.get("target_date"),
         "mode": payload.get("mode"),
         **latest,
+        "exchange_economics_blocks_promotion": exchange_blocks,
         "quality_gate": {
             "status": quality_status,
             "sample_ready": sample_ready,
@@ -913,14 +1426,20 @@ def summarize_taker_run(path, payload, rolling_payloads=None, settled_payload=No
             "rolling_reported_net_pnl_usdc": rolling_reported_net_pnl,
             "rolling_mark_to_market_pnl_usdc": rolling_mtm_pnl,
             "rolling_provisional_mtm_run_count": len(mtm_only_fields),
-            "evidence_basis": "settlement_scored",
+            "evidence_basis": (
+                exchange_economics.STALE_EVIDENCE_BASIS
+                if exchange_blocks
+                else "settlement_scored"
+            ),
             "min_rolling_runs": TAKER_QUALITY_MIN_ROLLING_RUNS,
             "min_filled_orders": TAKER_QUALITY_MIN_FILLS,
             "min_net_pnl_usdc": TAKER_QUALITY_MIN_NET_PNL_USDC,
             "latest_negative": latest_negative,
             "interpretation": (
                 "rolling sample clears taker quality thresholds"
-                if threshold_pass else
+                if threshold_pass and not exchange_blocks else
+                "exchange economics snapshot is missing, stale, or mismatched"
+                if exchange_blocks else
                 "rolling sample is large enough but below taker quality thresholds"
                 if sample_ready else
                 "MTM-only taker P&L is diagnostic; quality requires settlement-scored rolling evidence"
@@ -952,7 +1471,8 @@ def _settlement_scored_target_dates(taker_payloads):
             pnl_summary.get("settled_order_count"),
             summary.get("settled_order_count"),
         ))
-        if settled_count <= 0:
+        has_post_settlement_artifact = bool(settled_payload)
+        if settled_count <= 0 and not has_post_settlement_artifact:
             continue
         target_date = effective.get("target_date") or (payload or {}).get("target_date")
         if target_date:
@@ -978,18 +1498,32 @@ def build_trading_evidence_summary(
     mm_paper_json=DEFAULT_MM_PAPER_JSON,
     settlement_audit_json=DEFAULT_SETTLEMENT_AUDIT_JSON,
     generated_at_utc=None,
+    target_date=None,
 ):
-    mm_path, mm_payload = _latest_run_summary(mm_runs_root)
-    taker_path, taker_payload = _latest_run_summary(taker_runs_root)
+    requested_target_date = str(target_date) if target_date else None
+    mm_path, mm_payload, mm_selection = _select_market_making_run(
+        mm_runs_root,
+        target_date=requested_target_date,
+    )
+    if requested_target_date:
+        taker_path, taker_payload = _latest_run_summary(taker_runs_root, target_date=requested_target_date)
+    else:
+        taker_path, taker_payload = _latest_run_summary(taker_runs_root)
     taker_settled_payload = _settled_taker_payload(taker_path)
     taker_payloads = [
         (payload, _settled_taker_payload(path))
         for path, payload in _all_run_summaries(taker_runs_root)
     ]
-    mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
-    market_making = summarize_market_making_run(mm_path, mm_payload)
+    mm_starvation = mm_evidence_starvation_summary(mm_runs_root, target_date=requested_target_date)
+    market_making = summarize_market_making_run(mm_path, mm_payload, selection_summary=mm_selection)
     mm_paper_payload = _read_json(mm_paper_json) or {}
     mm_paper_summary = mm_paper_payload.get("summary") or {}
+    mm_paper_exchange_gate = (
+        _exchange_gate_from_payloads(mm_paper_payload, mm_paper_summary)
+        if mm_paper_payload
+        else {"required": False, "ok": True, "status": "SKIP", "reason": "maker paper report missing"}
+    )
+    mm_paper_exchange_fields = exchange_economics.exchange_economics_artifact_fields(mm_paper_exchange_gate)
     paper_score_freshness = mm_paper.maker_paper_score_freshness_from_report(
         mm_runs_root,
         mm_paper_json,
@@ -1002,10 +1536,13 @@ def build_trading_evidence_summary(
     )
     taker_profitability_verification = _taker_profitability_verification(taker_path)
     settlement_scored_target_dates = _settlement_scored_target_dates(taker_payloads)
-    target_date = (
-        settlement_scored_target_dates[-1]
-        if settlement_scored_target_dates
-        else taker.get("target_date") or market_making.get("target_date")
+    effective_target_date = (
+        requested_target_date
+        or (
+            settlement_scored_target_dates[-1]
+            if settlement_scored_target_dates
+            else taker.get("target_date") or market_making.get("target_date")
+        )
     )
     settlement_audit_gate = _settlement_source_audit_gate(settlement_audit_json, taker_payloads)
     taker["profitability_artifact_verification"] = taker_profitability_verification
@@ -1034,6 +1571,18 @@ def build_trading_evidence_summary(
     )
     market_making["paper_score_conservative_fills"] = mm_paper_summary.get("conservative_fills")
     market_making["paper_score_gate_status"] = mm_paper_summary.get("gate_status")
+    market_making["paper_exchange_economics_gate"] = mm_paper_exchange_gate
+    market_making["paper_exchange_economics_gate_status"] = mm_paper_exchange_gate.get("status")
+    market_making["paper_evidence_basis"] = (
+        exchange_economics.STALE_EVIDENCE_BASIS
+        if _exchange_gate_blocked(mm_paper_exchange_gate)
+        else mm_paper_exchange_gate.get("evidence_basis")
+    )
+    market_making.update({
+        key: value
+        for key, value in mm_paper_exchange_fields.items()
+        if value is not None
+    })
     paper_fill_evidence = mm_paper_summary.get("fill_evidence_completeness") or {}
     market_making["paper_fill_evidence_completeness_status"] = paper_fill_evidence.get("status")
     market_making["paper_fill_evidence_completeness_blockers"] = paper_fill_evidence.get("blockers") or []
@@ -1075,21 +1624,45 @@ def build_trading_evidence_summary(
         blockers.append("fill_evidence_completeness=BLOCK")
         market_making["countability_blockers"] = blockers
         market_making["countability_status"] = "NON_COUNTABLE"
+    if _exchange_gate_blocked(mm_paper_exchange_gate):
+        blockers = list(market_making.get("countability_blockers") or [])
+        if "paper_stale_exchange_economics" not in blockers:
+            blockers.append("paper_stale_exchange_economics")
+        market_making["countability_blockers"] = blockers
+        market_making["countability_status"] = "NON_COUNTABLE"
     routed_starvation = mm_starvation.get("latest_starved") or latest_starvation
     market_making["latest_preflight_blocked_market_fraction"] = latest_starvation.get(
         "preflight_blocked_market_fraction"
     )
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
+    maker_exchange_blocked = bool(mm_paper_payload) and _exchange_gate_blocked(mm_paper_exchange_gate)
+    taker_exchange_blocked = bool(taker.get("exists")) and _exchange_gate_blocked(taker.get("exchange_economics_gate"))
+    exchange_summary = {
+        "status": "BLOCK" if (maker_exchange_blocked or taker_exchange_blocked) else "PASS",
+        "maker_gate_status": mm_paper_exchange_gate.get("status"),
+        "taker_gate_status": (taker.get("exchange_economics_gate") or {}).get("status"),
+        "maker_snapshot_id": (
+            mm_paper_exchange_gate.get("snapshot_id")
+            or mm_paper_exchange_fields.get("exchange_economics_snapshot_id")
+        ),
+        "taker_snapshot_id": taker.get("exchange_economics_snapshot_id"),
+        "evidence_basis": (
+            exchange_economics.STALE_EVIDENCE_BASIS
+            if (maker_exchange_blocked or taker_exchange_blocked)
+            else exchange_economics.CURRENT_EVIDENCE_BASIS
+        ),
+    }
     return {
         "schema_version": TRADING_EVIDENCE_SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
-        "run_date": target_date,
-        "target_date": target_date,
+        "run_date": effective_target_date,
+        "target_date": effective_target_date,
         "settlement_scored_target_dates": settlement_scored_target_dates,
         "mm_runs_root": str(mm_runs_root),
         "taker_runs_root": str(taker_runs_root),
         "mm_paper_json": str(mm_paper_json),
         "settlement_audit_json": str(settlement_audit_json) if settlement_audit_json else None,
+        "exchange_economics": exchange_summary,
         "market_making": market_making,
         "taker": taker,
     }
@@ -1099,13 +1672,22 @@ def _summary_status(payload):
     mm = payload.get("market_making") or {}
     taker = payload.get("taker") or {}
     taker_quality = taker.get("quality_gate") or {}
+    exchange = payload.get("exchange_economics") or {}
+    if exchange.get("status") == "BLOCK":
+        return "BLOCK"
     if mm.get("evidence_starvation_status") == "CRITICAL":
         return "CRITICAL"
+    if (mm.get("quote_starvation_gate") or {}).get("status") == "BLOCK":
+        return "BLOCK"
+    if _int_value(mm.get("model_variant_bakeoff_skipped_input_row_count")) > 0:
+        return "BLOCK"
     if mm.get("paper_score_freshness_status") == "STALE":
         return "BLOCK"
     if taker.get("profitability_artifact_verification_status") == "BLOCK":
         return "BLOCK"
     if taker.get("settlement_source_audit_status") == "BLOCK":
+        return "BLOCK"
+    if taker.get("zero_fill_quality_classification") in {"infra_blocked", "unscored_stale_labels"}:
         return "BLOCK"
     if taker_quality.get("status") == "BLOCK":
         return "BLOCK"
@@ -1121,12 +1703,27 @@ def _summary_status(payload):
 def render_report(payload):
     mm = payload.get("market_making") or {}
     taker = payload.get("taker") or {}
+    exchange = payload.get("exchange_economics") or {}
     quality = taker.get("quality_gate") or {}
     lines = [
         "# Trading Evidence Summary",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: **{payload.get('status') or _summary_status(payload)}**",
+        "",
+        "## Exchange Economics",
+        "",
+    ]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Status", exchange.get("status") or "-"],
+            ["Evidence basis", exchange.get("evidence_basis") or "-"],
+            ["Maker snapshot", exchange.get("maker_snapshot_id") or "-"],
+            ["Taker snapshot", exchange.get("taker_snapshot_id") or "-"],
+        ],
+    )
+    lines += [
         "",
         "## Market Making",
         "",
@@ -1135,12 +1732,22 @@ def render_report(payload):
         ["Field", "Value"],
         [
             ["Run", mm.get("run_id") or "-"],
+            ["Selected target date", mm.get("selected_target_date") or "-"],
+            ["Selection status", mm.get("evidence_selection_status") or "-"],
             ["Evidence mode", mm.get("evidence_mode") or "-"],
             ["Counts toward live-forward", mm.get("counts_toward_live_forward_gate")],
             ["Countability status", mm.get("countability_status") or "-"],
+            ["Exchange economics", mm.get("paper_exchange_economics_gate_status") or mm.get("exchange_economics_gate_status") or "-"],
+            ["Exchange snapshot", mm.get("exchange_economics_snapshot_id") or "-"],
+            ["Maker day classification", mm.get("maker_day_classification") or "-"],
+            ["Quote-starvation gate", (mm.get("quote_starvation_gate") or {}).get("status") or "-"],
             ["Quote rows", mm.get("quote_rows")],
             ["Paper-posted legs", mm.get("paper_posted_lifecycle_legs")],
             ["Live-trade permission rows", mm.get("live_trade_permission_rows")],
+            [
+                "Model-variant skipped rows",
+                mm.get("model_variant_bakeoff_skipped_input_row_count"),
+            ],
             ["Evidence starvation", mm.get("evidence_starvation_status") or "-"],
             ["Starved active-day streak", mm.get("starved_active_day_streak")],
             ["Paper-score freshness", mm.get("paper_score_freshness_status") or "-"],
@@ -1164,6 +1771,13 @@ def render_report(payload):
             ["Executable net P&L", fmt_signed(taker.get("executable_net_pnl_usdc"), 4)],
             ["P&L source", taker.get("pnl_source") or "-"],
             ["P&L evidence", taker.get("pnl_evidence_status") or "-"],
+            ["Exchange economics", taker.get("exchange_economics_gate_status") or "-"],
+            ["Exchange snapshot", taker.get("exchange_economics_snapshot_id") or "-"],
+            ["Zero-fill quality", taker.get("zero_fill_quality_classification") or "-"],
+            [
+                "No-trade taxonomy",
+                json.dumps((taker.get("no_trade_reason_taxonomy") or {}).get("category_counts") or {}, sort_keys=True),
+            ],
             ["Settled / unsettled", f"{taker.get('settled_order_count')}/{taker.get('unsettled_order_count')}"],
             ["Settlement reconciliation", taker.get("settlement_reconciliation_status") or "-"],
             ["Active strategy", taker.get("active_strategy_id") or "-"],
@@ -1220,6 +1834,7 @@ def build_parser():
     parser.add_argument("--mm-runs-root", default=str(DEFAULT_MM_RUNS_ROOT))
     parser.add_argument("--taker-runs-root", default=str(DEFAULT_TAKER_RUNS_ROOT))
     parser.add_argument("--settlement-audit-json", default=str(DEFAULT_SETTLEMENT_AUDIT_JSON))
+    parser.add_argument("--target-date", default=None)
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     return parser
@@ -1231,6 +1846,7 @@ def main(argv=None):
         mm_runs_root=args.mm_runs_root,
         taker_runs_root=args.taker_runs_root,
         settlement_audit_json=args.settlement_audit_json,
+        target_date=args.target_date,
     )
     json_out, report_out = write_outputs(payload, args.json_out, args.report_out)
     print(f"Trading evidence: {payload.get('status') or _summary_status(payload)}")

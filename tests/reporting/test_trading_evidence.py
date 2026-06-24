@@ -31,6 +31,84 @@ def _write_active_mm_run(root, target_date, run_id):
     return run
 
 
+def _write_zero_fill_taker_run(root, target_date, run_id, reason_code, *, settled, root_cause="policy_no_edge"):
+    run = Path(root) / "taker_runs" / target_date / run_id
+    run.mkdir(parents=True)
+    (run / "orders_long.csv").write_text(
+        "run_id,target_date,order_status,action,reason_code,event_slug,market_id,range_label,bin_kind,bin_value,bin_value_hi\n"
+        f"{run_id},{target_date},SKIPPED,NO_TRADE,{reason_code},"
+        f"highest-temperature-in-atlanta-on-{target_date},atlanta,80-81 F,eq,80,81\n",
+        encoding="utf-8",
+    )
+    (run / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "taker_bot_run_v0.1",
+                "run_id": run_id,
+                "target_date": target_date,
+                "mode": "paper-taker",
+                "summary": {
+                    "latest_tick_rows": 1,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_filled_orders": 0,
+                    "cumulative_net_pnl_usdc": 0.0,
+                    "reason_counts": {reason_code: 1},
+                    "root_cause_class": root_cause,
+                },
+                "pnl": {
+                    "summary": {
+                        "filled_order_count": 0,
+                        "net_pnl_usdc": 0.0,
+                        "mark_to_market_pnl_usdc": 0.0,
+                        "settled_order_count": 0,
+                        "unsettled_order_count": 0,
+                        "reason_counts": {reason_code: 1},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    if settled:
+        (run / "settled_pnl.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "taker_settlement_finalization_v0.1",
+                    "run_id": run_id,
+                    "target_date": target_date,
+                    "summary": {
+                        "filled_order_count": 0,
+                        "settled_order_count": 0,
+                        "unsettled_order_count": 0,
+                        "net_pnl_usdc": 0.0,
+                        "settlement_pnl_usdc": 0.0,
+                        "mark_to_market_pnl_usdc": 0.0,
+                        "pnl_source": "settlement_finalization",
+                        "reason_counts": {reason_code: 1},
+                    },
+                    "pnl": {
+                        "summary": {
+                            "filled_order_count": 0,
+                            "settled_order_count": 0,
+                            "unsettled_order_count": 0,
+                            "net_pnl_usdc": 0.0,
+                            "settlement_pnl_usdc": 0.0,
+                            "mark_to_market_pnl_usdc": 0.0,
+                            "reason_counts": {reason_code: 1},
+                        }
+                    },
+                    "reconciliation": {
+                        "status": "PASS",
+                        "preferred_pnl_source": "settlement_finalization",
+                        "warnings": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    return run
+
+
 class TestTradingEvidence(unittest.TestCase):
     def test_market_making_useful_work_liveness_blocks_countability_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -179,6 +257,240 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(mm["paper_score_conservative_fills"], 33)
         self.assertEqual(mm["countability_status"], "NON_COUNTABLE")
         self.assertIn("paper_score_freshness=STALE", mm["countability_blockers"])
+        self.assertEqual(saved["status"], "BLOCK")
+
+    def test_stale_exchange_economics_downgrades_maker_paper_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = _write_active_mm_run(root, "2026-06-19", "active")
+            report_json = root / "backtest" / "mm_paper_report.json"
+            report_json.parent.mkdir(parents=True)
+            report_json.write_text(json.dumps({
+                "schema_version": "mm_paper_v0.1",
+                "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                "exchange_economics_gate": {
+                    "required": True,
+                    "ok": False,
+                    "status": "BLOCK",
+                    "evidence_basis": "paper_stale_exchange_economics",
+                    "reason": "exchange-economics snapshot artifact missing",
+                },
+                "summary": {
+                    "conservative_fills": 33,
+                    "gate_status": "BLOCK",
+                    "pnl": {"net_pnl_after_fees_incentives_usdc": 1.6556},
+                    "paper_score_freshness": {
+                        "covered_run_folders": [str(run)],
+                    },
+                    "exchange_economics_gate_status": "BLOCK",
+                    "paper_evidence_basis": "paper_stale_exchange_economics",
+                },
+                "run_configs": {str(run): {"run_id": "active"}},
+            }), encoding="utf-8")
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                mm_paper_json=report_json,
+            )
+
+        mm = summary["market_making"]
+        self.assertEqual(summary["exchange_economics"]["status"], "BLOCK")
+        self.assertEqual(mm["countability_status"], "NON_COUNTABLE")
+        self.assertEqual(mm["paper_evidence_basis"], "paper_stale_exchange_economics")
+        self.assertIn("paper_stale_exchange_economics", mm["countability_blockers"])
+
+    def test_market_making_selection_prefers_target_date_countable_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_active_mm_run(root, "2026-06-19", "target-active")
+            _write_active_mm_run(root, "2026-06-20", "newer-active")
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["run_id"], "target-active")
+        self.assertEqual(mm["evidence_selection_status"], "COUNTABLE_TARGET_DATE")
+        self.assertEqual(mm["maker_day_classification"], "countable_with_quotes")
+
+    def test_market_making_stale_fallback_blocks_target_date_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_active_mm_run(root, "2026-06-18", "old-active")
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+            json_out = root / "trading_evidence.json"
+            report_out = root / "trading_evidence.md"
+            write_outputs(summary, json_out=json_out, report_out=report_out)
+            saved = json.loads(json_out.read_text(encoding="utf-8"))
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["evidence_selection_status"], "STALE_FALLBACK")
+        self.assertEqual(mm["maker_day_classification"], "stale_evidence")
+        self.assertEqual(mm["quote_starvation_gate"]["status"], "BLOCK")
+        self.assertEqual(saved["status"], "BLOCK")
+
+    def test_market_making_quote_starved_infra_blocks_countability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "mm_runs" / "2026-06-19" / "infra-starved"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "mm_run_v0.2",
+                        "run_id": "infra-starved",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-live-forward",
+                        "evidence_mode": "active_day_live_forward",
+                        "counts_toward_live_forward_gate": False,
+                        "preflight_status": "PASS",
+                        "row_count": 12,
+                        "cumulative_quote_permission_rows": 0,
+                        "reason_counts": {"NO_QUOTE_STALE_BOOK": 12},
+                        "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["maker_day_classification"], "quote_starved_infra")
+        self.assertEqual(mm["quote_starvation_gate"]["status"], "BLOCK")
+        self.assertIn("quote_starvation=quote_starved_infra", mm["countability_blockers"])
+
+    def test_market_making_model_variant_skips_block_trading_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "mm_runs" / "2026-06-19" / "variant-skip"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "mm_run_v0.2",
+                        "run_id": "variant-skip",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-live-forward",
+                        "evidence_mode": "active_day_live_forward",
+                        "counts_toward_live_forward_gate": True,
+                        "preflight_status": "PASS",
+                        "cumulative_quote_permission_rows": 5,
+                        "model_variant_bakeoff": {
+                            "status": "PASS",
+                            "emitted_variant_ids": ["served_current"],
+                            "skipped_variants": [
+                                {
+                                    "model_variant_id": "missing_probability_variant",
+                                    "reason": "missing_probability_column",
+                                    "input_row_count": 4,
+                                }
+                            ],
+                        },
+                        "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+            json_out = root / "trading_evidence.json"
+            report_out = root / "trading_evidence.md"
+            write_outputs(summary, json_out=json_out, report_out=report_out)
+            saved = json.loads(json_out.read_text(encoding="utf-8"))
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["model_variant_bakeoff_skipped_input_row_count"], 4)
+        self.assertEqual(mm["countability_status"], "NON_COUNTABLE")
+        self.assertIn("model_variant_bakeoff_skipped_variants=4", mm["countability_blockers"])
+        self.assertEqual(saved["status"], "BLOCK")
+
+    def test_settled_zero_fill_taker_day_is_risk_clean_no_edge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_zero_fill_taker_run(
+                root,
+                "2026-06-19",
+                "taker-zero-policy",
+                "NO_TRADE_EDGE_TOO_SMALL",
+                settled=True,
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+
+        taker = summary["taker"]
+        self.assertEqual(taker["pnl_evidence_status"], "SETTLEMENT_SCORED_ZERO_FILL")
+        self.assertEqual(taker["zero_fill_quality_classification"], "risk_clean_no_edge")
+        self.assertEqual(taker["no_trade_reason_taxonomy"]["category_counts"]["policy_gate"], 1)
+        self.assertEqual(summary["settlement_scored_target_dates"], ["2026-06-19"])
+
+    def test_settled_zero_fill_taker_day_with_stale_book_is_infra_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_zero_fill_taker_run(
+                root,
+                "2026-06-19",
+                "taker-zero-infra",
+                "NO_TRADE_STALE_BOOK",
+                settled=True,
+                root_cause="stale_book_input",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+
+        taker = summary["taker"]
+        self.assertEqual(taker["zero_fill_quality_classification"], "infra_blocked")
+        self.assertEqual(taker["no_trade_reason_taxonomy"]["category_counts"]["market_book_infra"], 1)
+
+    def test_unsettled_zero_fill_taker_day_is_stale_label_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_zero_fill_taker_run(
+                root,
+                "2026-06-19",
+                "taker-zero-stale",
+                "NO_TRADE_EDGE_TOO_SMALL",
+                settled=False,
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+            json_out = root / "trading_evidence.json"
+            report_out = root / "trading_evidence.md"
+            write_outputs(summary, json_out=json_out, report_out=report_out)
+            saved = json.loads(json_out.read_text(encoding="utf-8"))
+
+        taker = summary["taker"]
+        self.assertEqual(taker["pnl_evidence_status"], "UNSCORED")
+        self.assertEqual(taker["zero_fill_quality_classification"], "unscored_stale_labels")
         self.assertEqual(saved["status"], "BLOCK")
 
     def test_negative_single_taker_day_is_sample_pending_not_strategy_failure(self):

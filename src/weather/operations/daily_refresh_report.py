@@ -163,6 +163,19 @@ def render_report(payload):
                     f"rows {daily.get('hourly_checkpoint_rows')}; "
                     f"current_max_guarded {carryover.get('risky_or_guarded_count', 0)}"
                 )
+        elif step.get("name") == "model_market_disagreement_rehydration":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; target {result.get('target_date')}; "
+                    f"rehydrated {result.get('rehydrated_count')}; "
+                    f"model/market {result.get('model_closer_rehydrated_count')}/"
+                    f"{result.get('market_closer_rehydrated_count')}; "
+                    f"excluded partial/missing {result.get('excluded_partial_label_count')}/"
+                    f"{result.get('excluded_missing_label_count')}; "
+                    f"pending_after {result.get('pending_after_count')}"
+                )
         elif step.get("name") == "shadow_ab_monitor":
             detail = f"{result.get('status')} {result.get('summary')}"
         elif step.get("name") == "active_variant_shadow":
@@ -214,6 +227,17 @@ def render_report(payload):
             )
         elif step.get("name") == "fleet_observability":
             detail = f"{result.get('status')} {result.get('summary')}"
+        elif step.get("name") == "daily_roll_log_hygiene":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; current blockers {result.get('current_blocker_count')}; "
+                    f"archived incidents {result.get('archived_incident_count')}; "
+                    f"recurring {result.get('recurring_incident_count')}; "
+                    f"missing logs {result.get('missing_log_count')}; "
+                    f"incidents {result.get('incidents_out') or '-'}"
+                )
         elif step.get("name") == "nightly_health_checks":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"

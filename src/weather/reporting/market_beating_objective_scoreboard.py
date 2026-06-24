@@ -472,6 +472,7 @@ def _executable_profitability_decision(trading):
     blockers = []
     taker = trading.get("taker") or {}
     mm = trading.get("market_making") or {}
+    exchange = trading.get("exchange_economics") or {}
     quality = taker.get("quality_gate") or {}
     evidence_status = _status(taker.get("pnl_evidence_status"))
     trading_status = trading.get("status")
@@ -501,6 +502,8 @@ def _executable_profitability_decision(trading):
         taker_blocks.append("taker has no settled orders")
     if taker_basis not in {"SETTLEMENT_SCORED", ""}:
         taker_blocks.append(f"taker promotion evidence basis is {taker.get('promotion_evidence_basis')}")
+    if _status(exchange.get("status")) == "BLOCK":
+        taker_blocks.append("exchange economics snapshot is not current")
 
     maker_net = _float(mm.get("paper_score_net_pnl_after_fees_incentives_usdc"))
     maker_baseline = mm.get("market_benchmark_status") or mm.get("paper_score_benchmark_status")
@@ -515,6 +518,8 @@ def _executable_profitability_decision(trading):
         maker_blocks.append("maker after-fee/incentive net PnL is not positive")
     if _status(maker_baseline) != "PASS":
         maker_blocks.append("maker market/no-trade benchmark status is not pass")
+    if _status(exchange.get("status")) == "BLOCK":
+        maker_blocks.append("exchange economics snapshot is not current")
 
     taker_pass = not taker_blocks
     maker_pass = not maker_blocks
@@ -570,6 +575,8 @@ def _executable_profitability_decision(trading):
             "maker_countability_status": mm.get("countability_status"),
             "maker_net_after_fees_incentives_usdc": maker_net,
             "maker_market_benchmark_status": maker_baseline,
+            "exchange_economics_status": exchange.get("status"),
+            "exchange_economics_evidence_basis": exchange.get("evidence_basis"),
         },
         "taker_blockers": taker_blocks,
         "maker_blockers": maker_blocks,

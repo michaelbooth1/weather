@@ -24,6 +24,8 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("forecast_history_coverage"), "forecast_history_coverage_v0.1")
         self.assertEqual(schema_version("forecast_history_long"), "forecast_history_long_v3")
         self.assertEqual(schema_version("daily_learning"), "daily_learning_v0.1")
+        self.assertEqual(schema_version("automatic_experiment_queue"), "automatic_experiment_queue_v0.1")
+        self.assertEqual(schema_version("experiment_queue_results"), "experiment_queue_results_v0.1")
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.1")
         self.assertEqual(schema_version("multi_variant_shadow_attribution"), "multi_variant_shadow_attribution_v0.1")
@@ -38,6 +40,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "proper_scoring_reliability_scorecard_v0.1",
         )
         self.assertEqual(schema_version("winner_rank_parity"), "winner_rank_parity_v0.1")
+        self.assertEqual(schema_version("june23_location_bias_repair"), "june23_location_bias_repair_v0.1")
         self.assertEqual(schema_version("afternoon_residual_centering"), "afternoon_residual_centering_v0.1")
         self.assertEqual(
             schema_version("weather_only_model_proof_packet"),
@@ -220,6 +223,8 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("taker_profitability_artifact_verification_composite"),
             "taker_profitability_artifact_verification_v0.2",
         )
+        self.assertEqual(schema_version("exchange_economics_snapshot"), "exchange_economics_snapshot_v0.1")
+        self.assertEqual(schema_version("exchange_economics_drift"), "exchange_economics_drift_v0.1")
         self.assertEqual(schema_version("backtest_artifact_retention"), "backtest_artifact_retention_v0.1")
         self.assertEqual(schema_version("backtest_artifact_cleanup"), "backtest_artifact_cleanup_v0.1")
         self.assertEqual(schema_version("clob_order_book_tiering"), "clob_order_book_tiering_v0.1")

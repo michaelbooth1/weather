@@ -1,4 +1,4 @@
-# 308. Model-Performance Scoring Liveness And Regenerate-On-Settlement [OPEN 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]
+# 308. Model-Performance Scoring Liveness And Regenerate-On-Settlement [COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]
 
 Goal: ensure the model-skill scoring artifacts regenerate when new settlement
 labels land, and that a scoring step which fails to produce an artifact at least
@@ -48,14 +48,14 @@ regeneration, not model scoring.
 5. Surface scoring liveness (per-artifact scored target date versus latest
    settled label) in daily learning and daily flow.
 
-- [ ] Trigger model-performance scoring regeneration when a new day settles.
-- [ ] Add `last_scored_target_date` and a blocking remediation for scoring older
+- [x] Trigger model-performance scoring regeneration when a new day settles.
+- [x] Add `last_scored_target_date` and a blocking remediation for scoring older
   than the latest settled label.
-- [ ] Add the scoring steps to the refresh dependency graph with step-level
+- [x] Add the scoring steps to the refresh dependency graph with step-level
   error surfacing.
-- [ ] Block the hourly/10-minute/early-hour gates from consuming stale-dated
+- [x] Block the hourly/10-minute/early-hour gates from consuming stale-dated
   scoring.
-- [ ] Add tests proving a newly settled day regenerates scoring or emits a
+- [x] Add tests proving a newly settled day regenerates scoring or emits a
   blocking step error, and that gates reject stale-dated scoring.
 
 Acceptance: when a new day settles, the model-performance scoring artifacts
@@ -63,5 +63,19 @@ regenerate for that target date or emit a blocking step-level remediation with a
 rerun command, no model-skill gate consumes scoring older than the latest settled
 label, and a regression test proves a stale scoring artifact triggers
 regeneration or a blocker rather than silent staleness.
+
+Closed notes:
+
+- Added a shared `model_scoring_liveness` contract that records
+  `last_scored_target_date`, compares it with the latest promotion-countable
+  settled label, and emits a blocking rerun remediation when stale.
+- Stamped liveness into hourly, 10-minute, price-free, and settled-day
+  root-cause artifacts; stale hourly/10-minute scoring now injects hard gate
+  blockers that promotion readiness cannot candidate-mitigate.
+- Daily refresh now surfaces scoring liveness in step results and marks the run
+  critical when any scoring artifact is stale; daily learning and daily flow
+  surface P0 blocker actions and scored-vs-latest dates.
+- Verified with
+  `python -m pytest tests\reporting\test_hourly_model_performance.py tests\reporting\test_ten_minute_model_performance.py tests\reporting\test_price_free_model_learning.py tests\reporting\test_settled_day_root_cause.py tests\reporting\test_daily_learning.py tests\operations\test_daily_refresh.py tests\calibration\test_promotion_refresh.py tests\reporting\test_daily_flow_analysis.py`.
 
 Related: items 37, 120, 145, 160, 168, 198, 199, 294, 305.

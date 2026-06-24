@@ -883,10 +883,24 @@ def _decision_record(
 ) -> dict[str, Any]:
     retrain = daily_learning.get("retrain_plan") or {}
     scorecard = daily_learning.get("scorecard") or {}
+    label_countability = retrain.get("label_countability") or scorecard.get("label_countability") or {}
     fleet = scorecard.get("fleet") or {}
     trading = scorecard.get("trading_evidence") or {}
     taker = trading.get("taker") or {}
     mm = trading.get("market_making") or {}
+    scoring_liveness = {
+        name: (scorecard.get(name) or {}).get("scoring_liveness") or {}
+        for name in (
+            "hourly_model_performance",
+            "ten_minute_model_performance",
+            "price_free_model_learning",
+            "settled_day_root_cause",
+        )
+    }
+    scoring_liveness_blocked = [
+        name for name, row in scoring_liveness.items()
+        if row.get("status") == "BLOCK"
+    ]
     first_blocker = next((row for row in actions if row.get("blocks")), None)
     first_action = actions[0] if actions else {}
     next_command = (
@@ -899,6 +913,11 @@ def _decision_record(
     return {
         "training_ready": bool(retrain.get("training_ready")),
         "promotion_ready": bool(retrain.get("promotion_ready")),
+        "label_countability_status": label_countability.get("status"),
+        "labels_promotion_countable": label_countability.get("promotion_countable"),
+        "scoring_liveness_status": "BLOCK" if scoring_liveness_blocked else "PASS",
+        "scoring_liveness_blocked": scoring_liveness_blocked,
+        "scoring_liveness": scoring_liveness,
         "broad_improvement_claim_allowed": daily_progress.get("broad_improvement_claim_allowed"),
         "live_forward_slo_status": (fleet.get("live_forward_slo") or {}).get("status"),
         "ops_fleet_status": fleet.get("status"),
@@ -1115,6 +1134,14 @@ def _summary_rows(payload: dict[str, Any]) -> list[list[Any]]:
         ["Metric anomalies", summary.get("metric_anomaly_count", 0)],
         ["Training ready", decision.get("training_ready")],
         ["Promotion ready", decision.get("promotion_ready")],
+        ["Label countability", decision.get("label_countability_status") or "-"],
+        [
+            "Scoring liveness",
+            (
+                f"{decision.get('scoring_liveness_status') or '-'}; "
+                f"blocked={', '.join(decision.get('scoring_liveness_blocked') or []) or '-'}"
+            ),
+        ],
         ["Broad claim allowed", decision.get("broad_improvement_claim_allowed")],
         ["Live-forward SLO", decision.get("live_forward_slo_status") or "-"],
         ["Taker quality", decision.get("taker_quality_status") or "-"],

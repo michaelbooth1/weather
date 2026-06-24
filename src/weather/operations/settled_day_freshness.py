@@ -287,6 +287,10 @@ def summarize_rows(rows):
     incomplete = [row for row in rows if not row.get("canonical_complete")]
     needs_finalization = [row for row in rows if row.get("needs_finalization")]
     source_lag = [row for row in rows if row.get("source_lag_warning")]
+    quality_counts = {}
+    for row in rows:
+        grade = row.get("quality_grade") or "missing"
+        quality_counts[grade] = quality_counts.get(grade, 0) + 1
     status = "PASS"
     if incomplete:
         status = "FAIL"
@@ -307,6 +311,8 @@ def summarize_rows(rows):
         "missing_source_status_count": sum(1 for row in rows if not row.get("source_status_exists")),
         "missing_tape_count": sum(1 for row in rows if not row.get("snapshots_long_exists")),
         "source_lag_warning_count": len(source_lag),
+        "quality_counts": dict(sorted(quality_counts.items())),
+        "partial_label_count": quality_counts.get("partial", 0),
     }
 
 

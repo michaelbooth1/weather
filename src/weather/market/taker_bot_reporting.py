@@ -44,6 +44,8 @@ def render_report(payload):
             ["Budget USDC", fmt_num(summary.get("budget_usdc"), 2)],
             ["Budget spent USDC", fmt_num(summary.get("budget_spent_usdc"), 2)],
             ["Budget remaining USDC", fmt_num(summary.get("budget_remaining_usdc"), 2)],
+            ["Exchange economics", summary.get("exchange_economics_gate_status") or "-"],
+            ["Exchange snapshot", summary.get("exchange_economics_snapshot_id") or "-"],
             ["Active strategy", summary.get("active_strategy_id") or "-"],
             ["Active strategy lifecycle", summary.get("active_strategy_lifecycle") or "-"],
             ["Canary sample target", (summary.get("active_strategy_canary") or {}).get("min_settled_orders") or "-"],
@@ -237,6 +239,20 @@ def build_strategy_summary_payload(pnl_payload, run_config=None, run_id=None, ta
         "comparison": (pnl_payload or {}).get("strategy_comparison") or {},
         "tail_fill_quality": (pnl_payload or {}).get("tail_fill_quality") or {},
         "taker_edge_permission_coverage": (run_config or {}).get("taker_edge_permission_coverage") or {},
+        "exchange_economics_gate": (run_config or {}).get("exchange_economics_gate") or (pnl_payload or {}).get("exchange_economics_gate") or {},
+        **{
+            key: (run_config or {}).get(key) or (pnl_payload or {}).get(key)
+            for key in (
+                "exchange_economics_status",
+                "exchange_economics_evidence_basis",
+                "exchange_economics_snapshot_id",
+                "exchange_economics_hash",
+                "exchange_economics_source_hash",
+                "exchange_economics_verified_at_utc",
+                "exchange_economics_effective_date",
+                "exchange_economics_platform",
+            )
+        },
     }
 
 
@@ -265,6 +281,8 @@ def render_strategy_report(payload):
             ["Best settlement-scored strategy", comparison.get("best_settlement_scored_strategy_id") or "-"],
             ["Settlement-scored candidate status", comparison.get("countable_strategy_quality_candidate_status")],
             ["Promotion evidence basis", comparison.get("promotion_evidence_basis") or "-"],
+            ["Exchange economics", (payload.get("exchange_economics_gate") or {}).get("status") or payload.get("exchange_economics_status") or "-"],
+            ["Exchange snapshot", payload.get("exchange_economics_snapshot_id") or "-"],
             ["Market benchmark status", comparison.get("market_benchmark_status") or "-"],
             ["MTM can promote", str(bool(comparison.get("mtm_promotion_allowed"))).lower()],
         ],

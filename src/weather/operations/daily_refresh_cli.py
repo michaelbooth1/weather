@@ -28,14 +28,17 @@ _DEPENDENCY_NAMES = {
     "active_variant_shadow_refresh",
     "frozen_baseline_replay_trend",
     "hourly_model_performance",
+    "model_market_disagreement_analysis",
     "ten_minute_model_performance",
     "settled_day_root_cause",
     "winner_rank_parity",
+    "june23_location_bias_repair",
     "taker_bot",
     "taker_tail_casebook",
     "trading_evidence",
     "promotion_refresh",
     "clob_order_book_tiering",
+    "daily_roll_log_hygiene",
     "fleet_observability",
     "event_metadata_validation",
     "data_retention_inventory",
@@ -167,10 +170,28 @@ def build_run_parser(parser, dependencies=None):
         help="Trend report output; defaults to <backtest-root>/frozen_baseline_replay_trend_report.md.",
     )
     parser.add_argument("--as-of", default=None)
+    parser.add_argument(
+        "--settled-analysis-target-date",
+        default="",
+        help="Settled market day for post-finalization analysis; defaults to --as-of minus one day.",
+    )
     parser.add_argument("--quality-grades", default="complete,manual_override")
     parser.add_argument("--skip-hourly-model-performance", action="store_true")
     parser.add_argument("--skip-ten-minute-model-performance", action="store_true")
     parser.add_argument("--skip-price-free-model-learning", action="store_true")
+    parser.add_argument("--skip-model-market-disagreement-rehydration", action="store_true")
+    parser.add_argument(
+        "--model-market-disagreement-log",
+        default=str(model_market_disagreement_analysis.DEFAULT_LOG_PATH),
+        help="Append-only model-market disagreement audit log for post-settlement rehydration.",
+    )
+    parser.add_argument(
+        "--model-market-disagreement-min-pattern-cases",
+        type=int,
+        default=1,
+        help="Minimum cases required before disagreement-analysis patterns become recommendations.",
+    )
+    parser.add_argument("--skip-settled-day-analysis-barrier", action="store_true")
     parser.add_argument("--skip-settled-day-root-cause", action="store_true")
     parser.add_argument("--skip-winner-rank-parity", action="store_true")
     parser.add_argument("--winner-rank-parity-days", type=int, default=winner_rank_parity.DEFAULT_DAYS)
@@ -178,6 +199,11 @@ def build_run_parser(parser, dependencies=None):
         "--winner-rank-parity-min-snapshots",
         type=int,
         default=winner_rank_parity.DEFAULT_MIN_SNAPSHOTS,
+    )
+    parser.add_argument("--skip-june23-location-bias-repair", action="store_true")
+    parser.add_argument(
+        "--june23-location-bias-repair-date",
+        default=june23_location_bias_repair.DEFAULT_TARGET_DATE,
     )
     parser.add_argument(
         "--settled-root-cause-date",
@@ -233,6 +259,18 @@ def build_run_parser(parser, dependencies=None):
         help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
     )
     parser.add_argument("--skip-maker-paper-score", action="store_true")
+    parser.add_argument("--skip-exchange-economics-rule-drift", action="store_true")
+    parser.add_argument(
+        "--exchange-economics-snapshot",
+        default="",
+        help="Current exchange economics snapshot; defaults to <backtest-root>/exchange_economics_snapshot.json.",
+    )
+    parser.add_argument(
+        "--exchange-economics-accepted-snapshot",
+        default="",
+        help="Previously accepted exchange economics snapshot for material-drift comparison.",
+    )
+    parser.add_argument("--exchange-economics-platform", default="polymarket_us")
     parser.add_argument("--skip-settlement-source-audit", action="store_true")
     parser.add_argument("--skip-trading-evidence", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
@@ -338,6 +376,27 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--tape-backup-root", default=str(fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT))
     parser.add_argument("--verify-tape-backup-checksums", action="store_true")
     parser.add_argument("--skip-nightly-health-checks", action="store_true")
+    parser.add_argument("--skip-daily-roll-log-hygiene", action="store_true")
+    parser.add_argument(
+        "--daily-roll-log-window-hours",
+        type=float,
+        default=daily_roll_log_hygiene.DEFAULT_CURRENT_WINDOW_HOURS,
+    )
+    parser.add_argument(
+        "--daily-roll-log-sources",
+        default="",
+        help="Comma-separated loop=path entries for taker, maker, snapshot, and daily_refresh logs.",
+    )
+    parser.add_argument(
+        "--daily-roll-log-incidents",
+        default="",
+        help="Historical incident JSONL path; defaults to <backtest-root>/daily_roll_log_incidents.jsonl.",
+    )
+    parser.add_argument(
+        "--daily-roll-current-log-root",
+        default="",
+        help="Directory for current-window per-loop log files; defaults to <backtest-root>/daily_roll_current_logs.",
+    )
     parser.add_argument("--nightly-health-alert-root", default=str(nightly_health_checks.DEFAULT_ALERT_ROOT))
     parser.add_argument("--nightly-health-timezone", default=nightly_health_checks.DEFAULT_TIMEZONE)
     parser.add_argument(

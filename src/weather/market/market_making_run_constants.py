@@ -30,6 +30,9 @@ RUN_EXTRA_COLUMNS = [
     "quote_ttl_seconds",
     "open_order_count",
     "budget_released_usdc",
+    "exchange_economics_snapshot_id",
+    "exchange_economics_hash",
+    "exchange_economics_evidence_basis",
 ]
 
 RUN_QUOTE_COLUMNS = RUN_EXTRA_COLUMNS + QUOTE_COLUMNS

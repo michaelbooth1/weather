@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.calibration.pooled_candidate_scoring import ATTRIBUTION_FEATURE_FIELDS
+from weather.reporting.model_scoring_liveness import apply_liveness_to_gate, gate_has_liveness_blocker
 from weather.reporting.promotion.readers import *  # noqa: F403
 from weather.schema_registry import schema_version
 
@@ -1199,7 +1200,10 @@ def promotion_readiness(
             "evidence": tape,
         })
     hourly_gate = (hourly_performance or {}).get("hourly_performance_gate") or {}
+    if ((hourly_performance or {}).get("scoring_liveness") or {}).get("status") == "BLOCK":
+        hourly_gate = apply_liveness_to_gate(hourly_gate, (hourly_performance or {}).get("scoring_liveness") or {})
     hourly_status = hourly_gate.get("status")
+    hourly_liveness_blocked = gate_has_liveness_blocker(hourly_gate)
     candidate_hourly_gate = (candidate_hourly_performance or {}).get("candidate_hourly_gate") or {}
     candidate_hourly_status = candidate_hourly_gate.get("status")
     candidate_variant_id = (candidate.get("candidate_shadow_variants") or {}).get("variant_id")
@@ -1216,8 +1220,10 @@ def promotion_readiness(
             hourly_status in {"BLOCK", "MISSING"}
             and candidate_hourly_status == "PASS"
             and candidate_hourly_matches
+            and not hourly_liveness_blocked
         ),
         "current_hourly_status": hourly_status,
+        "current_scoring_liveness_blocked": hourly_liveness_blocked,
         "candidate_hourly_status": candidate_hourly_status,
         "candidate_variant_id": candidate_variant_id,
         "candidate_hourly_variant_ids": sorted(candidate_hourly_variant_ids),
@@ -1237,7 +1243,13 @@ def promotion_readiness(
             "evidence": hourly_gate,
         })
     ten_minute_gate = (ten_minute_performance or {}).get("ten_minute_performance_gate") or {}
+    if ((ten_minute_performance or {}).get("scoring_liveness") or {}).get("status") == "BLOCK":
+        ten_minute_gate = apply_liveness_to_gate(
+            ten_minute_gate,
+            (ten_minute_performance or {}).get("scoring_liveness") or {},
+        )
     ten_minute_status = ten_minute_gate.get("status")
+    ten_minute_liveness_blocked = gate_has_liveness_blocker(ten_minute_gate)
     candidate_ten_minute_gate = (candidate_ten_minute_performance or {}).get("candidate_ten_minute_gate") or {}
     candidate_ten_minute_status = candidate_ten_minute_gate.get("status")
     candidate_ten_minute_variant_ids = _candidate_ten_minute_variant_ids(candidate_ten_minute_performance)
@@ -1249,8 +1261,10 @@ def promotion_readiness(
             ten_minute_status in {"BLOCK", "MISSING"}
             and candidate_ten_minute_status == "PASS"
             and candidate_ten_minute_matches
+            and not ten_minute_liveness_blocked
         ),
         "current_ten_minute_status": ten_minute_status,
+        "current_scoring_liveness_blocked": ten_minute_liveness_blocked,
         "candidate_ten_minute_status": candidate_ten_minute_status,
         "candidate_variant_id": candidate_variant_id,
         "candidate_ten_minute_variant_ids": sorted(candidate_ten_minute_variant_ids),

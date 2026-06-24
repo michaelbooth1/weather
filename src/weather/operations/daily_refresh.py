@@ -42,6 +42,7 @@ from weather.reporting.fleet import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import market_beating_objective_scoreboard
+from weather.reporting import model_market_disagreement_analysis
 from weather.reporting import ten_minute_model_performance
 from weather.reporting import price_free_model_learning
 from weather.reporting import progress_audit
@@ -49,12 +50,14 @@ from weather.reporting import promotion_refresh
 from weather.reporting import active_variant_shadow_refresh
 from weather.operations import replay_status_backfill
 from weather.operations import event_metadata_validation
+from weather.operations import daily_roll_log_hygiene
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
 from weather.reporting import distribution_stage_attribution
 from weather.reporting import settled_day_root_cause
 from weather.reporting import variant_evidence_growth
 from weather.reporting import winner_rank_parity
+from weather.reporting import june23_location_bias_repair
 from weather.reporting import taker_tail_casebook
 from weather.reporting import trading_evidence
 from weather.market import taker_bot
@@ -117,16 +120,20 @@ from weather.operations.daily_refresh_steps import (
     run_daily_flow_analysis_step,
     run_data_layer_audit_step,
     run_data_retention_inventory_step,
+    run_daily_roll_log_hygiene_step,
     run_disagreement_casebook_step,
     run_distribution_stage_attribution_step,
     run_event_metadata_validation_step,
+    run_exchange_economics_rule_drift_step,
     run_fleet_observability_step,
     run_frozen_baseline_replay_trend_step,
     run_hourly_model_performance_step,
     run_ingest_quality_gate_step,
+    run_june23_location_bias_repair_step,
     run_market_day_labels_finalize,
     run_market_beating_objective_scoreboard_step,
     run_maker_paper_score_step,
+    run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
     run_nightly_health_checks_step,
     run_price_free_model_learning_step,
@@ -135,6 +142,7 @@ from weather.operations.daily_refresh_steps import (
     run_promotion_refresh_step,
     run_reanalysis_recent_refresh_step,
     run_replay_status_backfill_step,
+    run_settled_day_analysis_barrier_step,
     run_settled_day_root_cause_step,
     run_settlement_source_audit_step,
     run_shadow_ab_monitor_step,
@@ -206,7 +214,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
-            if name in {"daily_learning", "daily_flow_analysis"}:
+            if name in {"settled_day_analysis_barrier", "daily_learning", "daily_flow_analysis"}:
                 setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
             try:
                 step = run_step(name, runner, args)
@@ -223,7 +231,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 payload["steps"].append(step)
                 break
             payload["steps"].append(step)
-            if step["status"] == "error" and not args.continue_on_error:
+            if step["status"] == "error" and (
+                not args.continue_on_error
+                or (step.get("result") or {}).get("hard_stop_pipeline")
+            ):
                 break
         errors = [step for step in payload["steps"] if step.get("status") == "error"]
         payload["status"] = "error" if errors else "ok"
@@ -242,6 +253,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             ingest_status = ((ingest_step.get("result") or {}).get("status"))
             if ingest_status == "FAIL" and payload["status"] == "ok":
                 payload["status"] = "critical"
+        exchange_step = next((step for step in payload["steps"] if step.get("name") == "exchange_economics_rule_drift"), {})
+        exchange_status = ((exchange_step.get("result") or {}).get("status"))
+        if exchange_status == "BLOCK" and payload["status"] == "ok":
+            payload["status"] = "critical"
         if args.fail_on_data_layer_audit:
             audit_step = next((step for step in payload["steps"] if step.get("name") == "data_layer_audit"), {})
             gate_status = ((audit_step.get("result") or {}).get("gate_status"))
@@ -259,6 +274,20 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             )
             ten_minute_status = ((ten_minute_step.get("result") or {}).get("status"))
             if ten_minute_status == "BLOCK" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        scoring_liveness_blockers = [
+            {
+                "step": step.get("name"),
+                "last_scored_target_date": (step.get("result") or {}).get("last_scored_target_date"),
+                "latest_settled_label_date": (step.get("result") or {}).get("latest_settled_label_date"),
+                "remediation_command": (step.get("result") or {}).get("remediation_command"),
+            }
+            for step in payload["steps"]
+            if ((step.get("result") or {}).get("scoring_liveness_status") == "BLOCK")
+        ]
+        if scoring_liveness_blockers:
+            payload["scoring_liveness_blockers"] = scoring_liveness_blockers
+            if payload["status"] == "ok":
                 payload["status"] = "critical"
         if getattr(args, "fail_on_snapshot_evaluation", False):
             evaluation_step = next((step for step in payload["steps"] if step.get("name") == "snapshot_evaluation"), {})
@@ -344,15 +373,19 @@ def _cli_dependencies():
         active_variant_shadow_refresh=active_variant_shadow_refresh,
         frozen_baseline_replay_trend=frozen_baseline_replay_trend,
         hourly_model_performance=hourly_model_performance,
+        model_market_disagreement_analysis=model_market_disagreement_analysis,
         ten_minute_model_performance=ten_minute_model_performance,
         settled_day_root_cause=settled_day_root_cause,
         winner_rank_parity=winner_rank_parity,
+        june23_location_bias_repair=june23_location_bias_repair,
         taker_bot=taker_bot,
         taker_tail_casebook=taker_tail_casebook,
         trading_evidence=trading_evidence,
         promotion_refresh=promotion_refresh,
         clob_order_book_tiering=clob_order_book_tiering,
+        daily_roll_log_hygiene=daily_roll_log_hygiene,
         fleet_observability=fleet_observability,
+        event_metadata_validation=event_metadata_validation,
         data_retention_inventory=data_retention_inventory,
         run_daily_refresh=run_daily_refresh,
         load_status=load_status,

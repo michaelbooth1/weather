@@ -1,4 +1,4 @@
-# 306. Daily-Roll Log Hygiene And Historical Error Separation [OPEN 2026-06-24 - OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH]
+# 306. Daily-Roll Log Hygiene And Historical Error Separation [CLOSED 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]
 
 Goal: separate historical daily-roll console errors from current health so log
 audits can distinguish old disk/encoding failures from active-day blockers.
@@ -30,12 +30,18 @@ current-window health summary for daily-roll console logs.
 5. Add tests or smoke fixtures for archived no-space-left and encoding errors
    that must not block current health unless they recur.
 
-- [ ] Add current-window log files or rotation for daily-roll console logs.
-- [ ] Write dated incident records for historical errors.
-- [ ] Update daily status reports to separate current errors from archived
+- [x] Add current-window log files or rotation for daily-roll console logs.
+- [x] Write dated incident records for historical errors.
+- [x] Update daily status reports to separate current errors from archived
   incidents.
-- [ ] Add recurrence detection from archived incident to current blocker.
-- [ ] Add fixtures for stale disk-full and Unicode decode errors.
+- [x] Add recurrence detection from archived incident to current blocker.
+- [x] Add fixtures for stale disk-full and Unicode decode errors.
+
+Implemented: `daily_roll_log_hygiene` writes per-loop current-window logs,
+archives historical disk/encoding incidents with first/last seen and
+resolution status, reports only current-window blockers in daily refresh, and
+promotes an archived incident back to current only when it recurs in the active
+window.
 
 Acceptance: daily roll health reports show only current-window blockers as
 current failures, historical disk/encoding incidents remain searchable in dated

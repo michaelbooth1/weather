@@ -103,6 +103,43 @@ def write_labels_csv(root, folder):
     return path
 
 
+def write_stale_labels_csv(root, folder):
+    path = Path(root) / "labels.csv"
+    rows = [
+        {
+            "event_slug": SLUG,
+            "market_id": "toronto",
+            "city": "Toronto",
+            "target_date": "2026-06-03",
+            "settlement_bucket": "10",
+            "settlement_unit": "C",
+            "settlement_source": "test",
+            "quality_grade": "complete",
+            "snapshot_count": "2",
+            "band_count": "2",
+            "snapshot_tape_path": str(folder / "snapshots_long.csv"),
+        },
+        {
+            "event_slug": "highest-temperature-in-nyc-on-june-4-2026",
+            "market_id": "nyc",
+            "city": "New York",
+            "target_date": "2026-06-04",
+            "settlement_bucket": "82",
+            "settlement_unit": "F",
+            "settlement_source": "test",
+            "quality_grade": "complete",
+            "snapshot_count": "0",
+            "band_count": "0",
+            "snapshot_tape_path": str(Path(root) / "missing" / "snapshots_long.csv"),
+        },
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
 class TestHourlyModelPerformance(unittest.TestCase):
     def test_build_hourly_performance_scores_and_ranks_hours(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +168,9 @@ class TestHourlyModelPerformance(unittest.TestCase):
             csv_exists = Path(csv_out).exists()
 
         self.assertEqual(payload["schema_version"], "hourly_model_performance_v0.3")
+        self.assertEqual(payload["last_scored_target_date"], "2026-06-03")
+        self.assertEqual(payload["latest_settled_label_date"], "2026-06-03")
+        self.assertEqual(payload["scoring_liveness"]["status"], "PASS")
         self.assertEqual(payload["corpus"]["scored_market_days"], 1)
         self.assertEqual(payload["corpus"]["hourly_checkpoint_rows"], 4)
         self.assertEqual(set(by_hour), {9, 10})
@@ -175,6 +215,33 @@ class TestHourlyModelPerformance(unittest.TestCase):
         self.assertIn("Spread And Winner Recognition", report)
         self.assertIn("Remediation Probes", report)
         self.assertTrue(csv_exists)
+
+    def test_scoring_liveness_blocks_when_latest_settled_label_is_unscored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = write_snapshot_folder(tmp)
+            labels_csv = write_stale_labels_csv(tmp, folder)
+
+            payload = build_hourly_performance(
+                labels_csv=labels_csv,
+                snapshots_root=Path(tmp) / "snapshots",
+                context_root=Path(tmp),
+                quality_grades=("complete",),
+                min_rows=1,
+                top_hours=1,
+            )
+
+        self.assertEqual(payload["last_scored_target_date"], "2026-06-03")
+        self.assertEqual(payload["latest_settled_label_date"], "2026-06-04")
+        self.assertEqual(payload["scoring_liveness"]["status"], "BLOCK")
+        self.assertEqual(payload["hourly_performance_gate"]["status"], "BLOCK")
+        self.assertEqual(
+            payload["hourly_performance_gate"]["first_blocker"]["gate"],
+            "model_scoring_liveness_stale",
+        )
+        self.assertIn(
+            "python -m weather.reporting.hourly_model_performance",
+            payload["hourly_performance_gate"]["first_blocker"]["remediation_command"],
+        )
 
     def test_forecast_centering_probe_uses_forecast_anchor_without_market_prices(self):
         rows = [

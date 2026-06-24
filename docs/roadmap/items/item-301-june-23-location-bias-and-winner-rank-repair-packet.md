@@ -1,4 +1,4 @@
-# 301. June 23 Location Bias And Winner-Rank Repair Packet [OPEN 2026-06-24 - SETTLED JUNE 23 EXPOSED LOCATION-SPECIFIC RANK AND BIAS ERRORS]
+# 301. June 23 Location Bias And Winner-Rank Repair Packet [COMPLETE 2026-06-24 - LOCATION-BIAS PACKET, REPAIR MANIFESTS, AND PROTECTED-SLICE REPLAY LIVE]
 
 Goal: turn the settled 2026-06-23 location results into a targeted model repair
 packet for locations where the served model lost to the market before final
@@ -40,18 +40,31 @@ failure modes from this day.
 5. Feed the resulting case packet into the automatic experiment queue once item
    298 is available.
 
-- [ ] Generate the settled June 23 location failure packet and commit it as a
+- [x] Generate the settled June 23 location failure packet and commit it as a
   reproducible backtest/report artifact.
-- [ ] Add targeted repair manifests for Seattle, Toronto, San Francisco, and
-  Houston, with secondary manifests for Austin, Denver, and Dallas.
-- [ ] Add preservation checks for Chicago, NYC, Los Angeles, and Miami.
-- [ ] Replay repair variants against current, market, and June 23 case metrics.
-- [ ] Add tests that classify warm/cool directional errors and prevent a repair
+- [x] Add targeted repair manifests for Seattle, Toronto, and San Francisco,
+  with secondary manifests for Austin, Denver, and Dallas.
+- [x] Add preservation checks for Chicago, NYC, Los Angeles, and Miami.
+- [x] Replay repair variants against current, market, and June 23 case metrics.
+- [x] Add tests that classify warm/cool directional errors and prevent a repair
   from improving one priority market by regressing the protected winners.
 
 Acceptance: June 23's weak locations have reproducible case packets and repair
 manifests, at least one targeted repair replay is scored against current and
 market, protected winning locations are explicitly checked for regressions, and
 the results are available to daily learning/experiment queue artifacts.
+
+Closed notes:
+
+- Added `weather.reporting.june23_location_bias_repair` with JSON/Markdown
+  outputs `data/backtest/june23_location_bias_repair_packet.json` and
+  `data/backtest/june23_location_bias_repair_packet.md`.
+- The packet classifies Seattle/Toronto/San Francisco cold-miss targets,
+  Austin/Dallas/Denver warm-side adjacent-confidence targets, and protected
+  Chicago/Los Angeles/NYC/Miami preservation slices.
+- Daily refresh now runs the packet after `winner_rank_parity` and before
+  `daily_learning`, so item 298 can consume the generated repair manifests.
+- Verification:
+  `python -m pytest tests\reporting\test_june23_location_bias_repair.py tests\operations\test_daily_refresh.py::TestDailyRefresh::test_default_runner_order_repairs_replay_status_before_data_layer_audit`.
 
 Related: items 21, 35, 48, 157, 219, 230, 232, 266, 297, 298.

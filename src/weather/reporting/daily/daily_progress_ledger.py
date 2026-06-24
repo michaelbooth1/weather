@@ -267,6 +267,8 @@ def broad_claim_failures(row):
         failures.append("independent_baseline_missing")
     if row.get("runtime_identity_status") == "BLOCK":
         failures.append(row.get("runtime_identity_blocking_reason") or "runtime_identity_blocked")
+    if row.get("evidence_labels_promotion_countable") is False:
+        failures.append("labels_not_promotion_countable")
     return failures
 
 
@@ -335,6 +337,12 @@ def build_progress_row(
     taker = trading.get("taker") or {}
     taker_quality = taker.get("quality_gate") or {}
     label_quality = _quality_counts(daily_refresh)
+    label_countability = (
+        (((daily_refresh.get("summary") or {}).get("settled_day_analysis_barrier") or {}).get("label_countability"))
+        or ((daily_learning.get("retrain_plan") or {}).get("label_countability"))
+        or ((daily_learning.get("scorecard") or {}).get("label_countability"))
+        or {}
+    )
     calibration = _daily_calibration_metrics(proper_scoring)
     row = {
         "schema_version": SCHEMA_VERSION,
@@ -364,6 +372,9 @@ def build_progress_row(
         "candidate_verdict": candidate.get("verdict"),
         "candidate_cutover_decision": candidate.get("cutover_decision"),
         "evidence_complete_labels": maybe_int(label_quality.get("complete")),
+        "evidence_partial_labels": maybe_int(label_quality.get("partial")),
+        "evidence_label_countability_status": label_countability.get("status"),
+        "evidence_labels_promotion_countable": label_countability.get("promotion_countable"),
         "evidence_label_total": maybe_int(((daily_refresh.get("summary") or {}).get("labels") or {}).get("total")),
         "evidence_promotion_grade_market_days": maybe_int(trend_summary.get("promotion_grade_market_days")),
         "evidence_corpus_market_days": maybe_int(corpus.get("market_day_count")),

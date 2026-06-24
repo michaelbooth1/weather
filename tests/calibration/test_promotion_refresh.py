@@ -468,6 +468,42 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(readiness["hourly_performance_mitigation"]["candidate_hourly_status"], "PASS")
         self.assertTrue(readiness["hourly_performance_mitigation"]["candidate_hourly_matches"])
 
+    def test_promotion_readiness_does_not_mitigate_stale_hourly_scoring(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+            },
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            hourly_performance={
+                "scoring_liveness": {
+                    "status": "BLOCK",
+                    "artifact_name": "hourly_model_performance",
+                    "last_scored_target_date": "2026-06-21",
+                    "latest_settled_label_date": "2026-06-23",
+                    "first_blocker": {
+                        "gate": "model_scoring_liveness_stale",
+                        "detail": "hourly_model_performance is stale",
+                        "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                    },
+                },
+                "hourly_performance_gate": {"status": "PASS"},
+            },
+            candidate_hourly_performance={
+                "variant_ids": ["candidate_v1"],
+                "candidate_hourly_gate": {"status": "PASS"},
+            },
+        )
+
+        self.assertEqual(readiness["status"], "OPEN")
+        blocker = next(row for row in readiness["blockers"] if row["category"] == "hourly_performance_gate")
+        self.assertEqual(blocker["severity"], "block")
+        self.assertIn("hourly_model_performance is stale", blocker["detail"])
+        self.assertFalse(readiness["hourly_performance_mitigation"]["applied"])
+        self.assertTrue(readiness["hourly_performance_mitigation"]["current_scoring_liveness_blocked"])
+
     def test_promotion_readiness_blocks_on_ten_minute_performance_gate(self):
         readiness = promotion_readiness(
             {"aggregate": {"delta_vs_market": -0.01}},
@@ -526,6 +562,42 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["applied"])
         self.assertEqual(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_status"], "PASS")
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_matches"])
+
+    def test_promotion_readiness_does_not_mitigate_stale_ten_minute_scoring(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+                "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+            },
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            ten_minute_performance={
+                "scoring_liveness": {
+                    "status": "BLOCK",
+                    "artifact_name": "ten_minute_model_performance",
+                    "last_scored_target_date": "2026-06-21",
+                    "latest_settled_label_date": "2026-06-23",
+                    "first_blocker": {
+                        "gate": "model_scoring_liveness_stale",
+                        "detail": "ten_minute_model_performance is stale",
+                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                    },
+                },
+                "ten_minute_performance_gate": {"status": "PASS"},
+            },
+            candidate_ten_minute_performance={
+                "variant_ids": ["candidate_v1"],
+                "candidate_ten_minute_gate": {"status": "PASS"},
+            },
+        )
+
+        self.assertEqual(readiness["status"], "OPEN")
+        blocker = next(row for row in readiness["blockers"] if row["category"] == "ten_minute_performance_gate")
+        self.assertEqual(blocker["severity"], "block")
+        self.assertIn("ten_minute_model_performance is stale", blocker["detail"])
+        self.assertFalse(readiness["ten_minute_performance_mitigation"]["applied"])
+        self.assertTrue(readiness["ten_minute_performance_mitigation"]["current_scoring_liveness_blocked"])
 
     def test_promotion_readiness_blocks_market_informed_candidate_as_core_readiness(self):
         readiness = promotion_readiness(

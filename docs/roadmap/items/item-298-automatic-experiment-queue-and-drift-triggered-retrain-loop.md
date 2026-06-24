@@ -1,4 +1,4 @@
-# 298. Automatic Experiment Queue And Drift-Triggered Retrain Loop [OPEN 2026-06-24 - EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY]
+# 298. Automatic Experiment Queue And Drift-Triggered Retrain Loop [COMPLETE 2026-06-24 - STRUCTURED QUEUE, NIGHTLY EXECUTION, AND RETRAIN RECOMMENDATION LIVE]
 
 Goal: close the improvement loop. Turn the daily analysis's per-slice experiment
 hints into a machine-readable queue that nightly retrain actually executes, and
@@ -44,14 +44,14 @@ or a drift/novelty trigger that gates whether retraining runs.
    and queued experiments never auto-promote without the existing promotion and
    clustered-confidence gates.
 
-- [ ] Emit a machine-readable, deduplicated experiment queue from the daily
+- [x] Emit a machine-readable, deduplicated experiment queue from the daily
   analysis.
-- [ ] Make `nightly_retrain` consume the queue, run top-N experiments, and write
+- [x] Make `nightly_retrain` consume the queue, run top-N experiments, and write
   results back.
-- [ ] Mark queued experiments resolved/regressed/still-open on the next daily
+- [x] Mark queued experiments resolved/regressed/still-open on the next daily
   run.
-- [ ] Add a `retrain_recommended` drift/novelty trigger with explicit reasons.
-- [ ] Add tests proving the queue round-trips and that drift triggers (and the
+- [x] Add a `retrain_recommended` drift/novelty trigger with explicit reasons.
+- [x] Add tests proving the queue round-trips and that drift triggers (and the
   absence of drift suppresses) a retrain recommendation without disabling
   scheduled retraining.
 
@@ -60,5 +60,21 @@ retrain executes and writes back, the next daily run reconciles each experiment'
 outcome, and a `retrain_recommended` signal fires from explicit drift/novelty
 reasons while never auto-promoting outside the existing gates, proven by
 round-trip and drift-trigger tests.
+
+Closed notes:
+
+- `daily_learning` now emits `experiment_queue` with schema
+  `automatic_experiment_queue_v0.1`, stable `queue_id`s, required queue fields,
+  item 301 repair-manifest ingestion, and result reconciliation from
+  `experiment_queue_results.json`.
+- `nightly_retrain` now runs an internal `experiment_queue` step after daily
+  learning, executes top-N eligible command-bearing items, and writes
+  `experiment_queue_results_v0.1` with `resolved`, `regressed`, or
+  `still_open` reconciliation status for the next daily run.
+- `retrain_plan.retrain_recommendation` now records explicit drift/novelty
+  reasons and preserves scheduled fail-closed behavior; expensive retrain
+  skipping is opt-in via `--skip-when-no-retrain-recommendation`.
+- Verification:
+  `python -m pytest tests\reporting\test_daily_learning.py::TestDailyLearning::test_build_learning_payload_emits_experiment_queue_and_reconciles_results tests\reporting\test_daily_learning.py::TestDailyLearning::test_build_learning_payload_suppresses_retrain_recommendation_without_clean_triggers tests\operations\test_nightly_retrain.py`.
 
 Related: items 36, 37, 108, 115, 125, 138, 295, 297.

@@ -1,4 +1,4 @@
-# 302. Post-Settlement Disagreement Audit Rehydration Gate [OPEN 2026-06-24 - AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE]
+# 302. Post-Settlement Disagreement Audit Rehydration Gate [CLOSED 2026-06-24 - POST-LABEL REHYDRATION GATED]
 
 Goal: automatically rehydrate disagreement-audit snapshots after settlement so
 operator reviews use final labels, not stale pending rows.
@@ -35,13 +35,19 @@ exist.
 5. Surface the rehydrated disagreement status in daily learning and the audit
    operator dashboard.
 
-- [ ] Add post-settlement disagreement rehydration to the daily refresh order.
-- [ ] Fail closed when target-date rows remain pending after labels exist.
-- [ ] Add settled interpretation deltas to the disagreement Markdown report.
-- [ ] Surface unresolved/rehydrated counts in daily learning and dashboard
+- [x] Add post-settlement disagreement rehydration to the daily refresh order.
+- [x] Fail closed when target-date rows remain pending after labels exist.
+- [x] Add settled interpretation deltas to the disagreement Markdown report.
+- [x] Surface unresolved/rehydrated counts in daily learning and dashboard
   artifacts.
-- [ ] Add tests with pending rows that become model-closer, market-closer, and
+- [x] Add tests with pending rows that become model-closer, market-closer, and
   excluded partial-label cases after settlement.
+
+Implemented: `model_market_disagreement_rehydration` now runs before the
+settled-day analysis barrier, appends canonical-label audit revisions, excludes
+partial/missing label rows from pending settlement watchlists, blocks complete
+labels that still cannot resolve, and surfaces rehydration counts/deltas in the
+analysis report, daily refresh status, and daily learning.
 
 Acceptance: after a market day settles, disagreement reports cannot leave
 target-date rows pending when labels exist; the report names model-closer and

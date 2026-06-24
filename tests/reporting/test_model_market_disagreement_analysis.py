@@ -2,6 +2,7 @@ import json
 
 from weather.reporting.model_market_disagreement_analysis import (
     build_payload,
+    rehydrate_audit_log,
     render_report,
     route_for_pattern,
     write_outputs,
@@ -61,6 +62,30 @@ def _record(
 def _write_jsonl(path, rows):
     path.write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def _write_labels(path, rows):
+    fieldnames = [
+        "event_slug",
+        "market_id",
+        "target_date",
+        "settlement_bucket",
+        "settlement_unit",
+        "settlement_source",
+        "quality_grade",
+        "winning_band",
+        "finalized_at_utc",
+    ]
+    path.write_text(
+        ",".join(fieldnames)
+        + "\n"
+        + "\n".join(
+            ",".join(str(row.get(field, "")) for field in fieldnames)
+            for row in rows
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -154,3 +179,110 @@ def test_route_for_pattern_covers_source_state_and_residual_fallback_lanes():
     assert residual_route["repair_lane"] == "market-specific residual repair"
     assert residual_route["owner"] == "chicago market residual repair"
     assert residual_route["automatic_model_or_trading_change_allowed"] is False
+
+
+def test_rehydrate_audit_log_resolves_pending_and_excludes_partial_labels(tmp_path):
+    target_date = "2099-06-23"
+    log_path = tmp_path / "audit.jsonl"
+    labels_csv = tmp_path / "market_day_labels.csv"
+    rows = [
+        _record("model-closer", market_id="nyc", range_label="70 F", model=0.92, market=0.20, fair=None, target_date=target_date),
+        _record("market-closer", market_id="seattle", range_label="71 F", model=0.05, market=0.86, fair=None, target_date=target_date),
+        _record("partial-label", market_id="miami", range_label="72 F", model=0.90, market=0.10, fair=None, target_date=target_date),
+    ]
+    _write_jsonl(log_path, rows)
+    _write_labels(labels_csv, [
+        {
+            "event_slug": rows[0]["event_slug"],
+            "market_id": rows[0]["market_id"],
+            "target_date": target_date,
+            "settlement_bucket": 70,
+            "settlement_unit": "F",
+            "settlement_source": "daily_summary",
+            "quality_grade": "complete",
+            "winning_band": "70 F",
+            "finalized_at_utc": "2099-06-24T00:00:00+00:00",
+        },
+        {
+            "event_slug": rows[1]["event_slug"],
+            "market_id": rows[1]["market_id"],
+            "target_date": target_date,
+            "settlement_bucket": 71,
+            "settlement_unit": "F",
+            "settlement_source": "daily_summary",
+            "quality_grade": "complete",
+            "winning_band": "71 F",
+            "finalized_at_utc": "2099-06-24T00:00:00+00:00",
+        },
+        {
+            "event_slug": rows[2]["event_slug"],
+            "market_id": rows[2]["market_id"],
+            "target_date": target_date,
+            "settlement_bucket": 72,
+            "settlement_unit": "F",
+            "settlement_source": "snapshot_high",
+            "quality_grade": "partial",
+            "winning_band": "72 F",
+            "finalized_at_utc": "2099-06-24T00:00:00+00:00",
+        },
+    ])
+
+    rehydration = rehydrate_audit_log(
+        log_path=log_path,
+        labels_csv=labels_csv,
+        target_date=target_date,
+        generated_at_utc="2099-06-24T01:00:00+00:00",
+    )
+    payload = build_payload(
+        log_path=log_path,
+        generated_at_utc="2099-06-24T01:01:00+00:00",
+        rehydration_summary=rehydration,
+    )
+    report = render_report(payload)
+    latest = {row["audit_key"]: row for row in payload["pending_watchlist"]}
+
+    assert rehydration["status"] == "WARN"
+    assert rehydration["rehydrated_count"] == 2
+    assert rehydration["model_closer_rehydrated_count"] == 1
+    assert rehydration["market_closer_rehydrated_count"] == 1
+    assert rehydration["excluded_partial_label_count"] == 1
+    assert rehydration["unresolved_after_rehydrate_count"] == 0
+    assert payload["summary"]["pending_count"] == 0
+    assert payload["summary"]["settlement_rehydration_excluded_count"] == 1
+    assert latest == {}
+    assert "## Settlement Rehydration" in report
+    assert "## Rehydration Interpretation Changes" in report
+
+
+def test_rehydrate_audit_log_blocks_complete_label_rows_that_cannot_resolve(tmp_path):
+    target_date = "2099-06-23"
+    log_path = tmp_path / "audit.jsonl"
+    labels_csv = tmp_path / "market_day_labels.csv"
+    row = _record("bad-band", range_label="not a band", model=0.60, market=0.10, fair=None, target_date=target_date)
+    _write_jsonl(log_path, [row])
+    _write_labels(labels_csv, [
+        {
+            "event_slug": row["event_slug"],
+            "market_id": row["market_id"],
+            "target_date": target_date,
+            "settlement_bucket": 70,
+            "settlement_unit": "F",
+            "settlement_source": "daily_summary",
+            "quality_grade": "complete",
+            "winning_band": "70 F",
+            "finalized_at_utc": "2099-06-24T00:00:00+00:00",
+        },
+    ])
+
+    rehydration = rehydrate_audit_log(
+        log_path=log_path,
+        labels_csv=labels_csv,
+        target_date=target_date,
+        generated_at_utc="2099-06-24T01:00:00+00:00",
+    )
+    payload = build_payload(log_path=log_path, rehydration_summary=rehydration)
+
+    assert rehydration["status"] == "BLOCK"
+    assert rehydration["unresolved_after_rehydrate_count"] == 1
+    assert rehydration["blockers"][0]["gate"] == "target_date_complete_label_rows_still_pending"
+    assert payload["summary"]["pending_count"] == 1

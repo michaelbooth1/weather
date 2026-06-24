@@ -8,7 +8,9 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from weather.market import exchange_economics
 from weather.market.taker_bot import ORDER_COLUMNS
+from weather.market.market_config import event_slug_for_date
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     acquire_lock,
@@ -22,15 +24,20 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_daily_flow_analysis_step,
     run_daily_refresh,
     run_distribution_stage_attribution_step,
+    run_exchange_economics_rule_drift_step,
     run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
+    run_june23_location_bias_repair_step,
     run_maker_paper_score_step,
     run_market_beating_objective_scoreboard_step,
+    run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
     run_proper_scoring_reliability_scorecard_step,
     run_reanalysis_recent_refresh_step,
+    run_daily_roll_log_hygiene_step,
+    run_settled_day_analysis_barrier_step,
     run_settled_day_root_cause_step,
     run_settlement_source_audit_step,
     run_taker_finalization_watchdog_step,
@@ -38,6 +45,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_trading_evidence_step,
     run_winner_rank_parity_step,
 )
+from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
 
@@ -58,6 +66,7 @@ def _args(tmp, **overrides):
         "dry_run": False,
         "continue_on_error": False,
         "resume_from_step": "",
+        "as_of": None,
         "fail_on_fleet_critical": False,
         "fail_on_ingest_quality": False,
         "fail_on_data_layer_audit": False,
@@ -113,11 +122,18 @@ def _args(tmp, **overrides):
         "skip_hourly_model_performance": False,
         "skip_ten_minute_model_performance": False,
         "skip_price_free_model_learning": False,
+        "skip_model_market_disagreement_rehydration": False,
+        "model_market_disagreement_log": str(root / "backtest" / "model_market_disagreement_audit.jsonl"),
+        "model_market_disagreement_min_pattern_cases": 1,
+        "skip_settled_day_analysis_barrier": False,
+        "settled_analysis_target_date": "",
         "skip_settled_day_root_cause": False,
         "settled_root_cause_date": "",
         "skip_winner_rank_parity": False,
         "winner_rank_parity_days": 7,
         "winner_rank_parity_min_snapshots": 1,
+        "skip_june23_location_bias_repair": False,
+        "june23_location_bias_repair_date": "2026-06-23",
         "taker_root": str(root / "taker_runs"),
         "mm_root": str(root / "mm_runs"),
         "skip_taker_finalization_watchdog": False,
@@ -130,6 +146,10 @@ def _args(tmp, **overrides):
         "taker_champion_strategy_id": "raw_edge_control",
         "taker_champion_min_complete_label_days": 3,
         "taker_champion_min_settled_orders": 5,
+        "skip_exchange_economics_rule_drift": False,
+        "exchange_economics_snapshot": str(root / "backtest" / "exchange_economics_snapshot.json"),
+        "exchange_economics_accepted_snapshot": str(root / "backtest" / "exchange_economics_accepted_snapshot.json"),
+        "exchange_economics_platform": "polymarket_us",
         "skip_taker_tail_casebook": False,
         "taker_tail_casebook_date": "",
         "taker_tail_casebook_max_runs": 0,
@@ -138,6 +158,8 @@ def _args(tmp, **overrides):
         "skip_trading_evidence": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "quality_grades": "complete,manual_override",
+        "labels_csv": str(root / "backtest" / "market_day_labels.csv"),
+        "ledger_root": str(root / "settlements"),
         "markets": "",
         "hourly_min_rows": 30,
         "hourly_top_hours": 3,
@@ -169,6 +191,11 @@ def _args(tmp, **overrides):
         "reconstruct_missing_replay_inputs": False,
         "include_active_replay_status": False,
         "skip_nightly_health_checks": False,
+        "skip_daily_roll_log_hygiene": False,
+        "daily_roll_log_window_hours": 24.0,
+        "daily_roll_log_sources": "",
+        "daily_roll_log_incidents": "",
+        "daily_roll_current_log_root": "",
         "nightly_health_alert_root": str(root / "alerts"),
         "nightly_health_timezone": "America/Toronto",
         "nightly_health_date": "",
@@ -179,6 +206,18 @@ def _args(tmp, **overrides):
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def _write_exchange_snapshot(path, *, target_date="2026-06-19", now="2026-06-20T12:00:00+00:00", **overrides):
+    payload = exchange_economics.build_snapshot_payload(
+        target_date=target_date,
+        verified_at_utc=now,
+        **overrides,
+    )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def _write_order_tape(path, rows):
@@ -434,6 +473,83 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual([step["status"] for step in payload["steps"]], ["error", "ok"])
 
+    def test_settled_day_barrier_hard_stops_even_when_continue_on_error(self):
+        calls = []
+
+        def barrier(_args):
+            calls.append("barrier")
+            raise SettledDayAnalysisBarrierError(
+                "settled-day barrier blocked",
+                {
+                    "status": "BLOCK",
+                    "target_date": "2026-06-23",
+                    "hard_stop_pipeline": True,
+                    "resume_command": "python -m weather.operations.daily_refresh run --resume-from-step settled_day_analysis_barrier",
+                },
+            )
+
+        def after(_args):
+            calls.append("after")
+            return {"status": "SHOULD_NOT_RUN"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, continue_on_error=True),
+                runners=[
+                    ("settled_day_analysis_barrier", barrier),
+                    ("promotion_refresh", after),
+                ],
+            )
+
+        self.assertEqual(calls, ["barrier"])
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["steps"][0]["root_cause_class"], "settled_day_analysis_barrier")
+        self.assertEqual(len(payload["steps"]), 1)
+
+    def test_settled_day_barrier_blocks_pre_finalization_target_date(self):
+        target_date = "2026-06-17"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            slug = event_slug_for_date(target_date, "nyc")
+            folder = snapshots / slug
+            folder.mkdir(parents=True)
+            (folder / "snapshots_long.csv").write_text(
+                "event_slug,snapshot_id,captured_at_local,range_label,bin_kind,bin_value_c,model_probability,market_yes\n"
+                f"{slug},s1,{target_date}T12:00:00-04:00,77 F,eq,77,0.5,0.5\n",
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                snapshots_root=str(snapshots),
+                settled_analysis_target_date=target_date,
+                markets="nyc",
+            )
+            args._daily_refresh_steps_so_far = [
+                {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 0}},
+                {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "ten_minute_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "price_free_model_learning", "status": "ok", "result": {"status": "SKIPPED"}},
+            ]
+
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+            payload = raised.exception.payload
+            freshness = json.loads((root / "backtest" / "settled_day_freshness.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertTrue(payload["hard_stop_pipeline"])
+        self.assertEqual(payload["target_date"], target_date)
+        self.assertEqual(freshness["status"], "FAIL")
+        self.assertEqual(freshness["summary"]["needs_finalization_count"], 1)
+        self.assertIn("settled_day_freshness", {row["component"] for row in payload["blockers"]})
+
     def test_dry_run_records_planned_steps_without_calling_runners(self):
         def should_not_run(_args):
             raise AssertionError("dry run should not execute runners")
@@ -510,7 +626,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("event_metadata_validation"), names.index("market_day_labels_finalize"))
         self.assertLess(names.index("event_metadata_validation"), names.index("trading_evidence"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
-        self.assertLess(names.index("market_day_labels_finalize"), names.index("taker_finalization_watchdog"))
+        self.assertLess(names.index("market_day_labels_finalize"), names.index("exchange_economics_rule_drift"))
+        self.assertLess(names.index("exchange_economics_rule_drift"), names.index("taker_finalization_watchdog"))
+        self.assertLess(names.index("exchange_economics_rule_drift"), names.index("maker_paper_score"))
         self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_tail_casebook"))
         self.assertLess(names.index("taker_tail_casebook"), names.index("maker_paper_score"))
         self.assertLess(names.index("maker_paper_score"), names.index("settlement_source_audit"))
@@ -520,6 +638,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("closed_day_parquet_incremental"))
         self.assertLess(names.index("fleet_observability"), names.index("nightly_health_checks"))
+        self.assertLess(names.index("fleet_observability"), names.index("daily_roll_log_hygiene"))
+        self.assertLess(names.index("daily_roll_log_hygiene"), names.index("nightly_health_checks"))
         self.assertLess(names.index("nightly_health_checks"), names.index("data_layer_audit"))
         self.assertLess(names.index("closed_day_parquet_incremental"), names.index("data_layer_audit"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
@@ -528,7 +648,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("distribution_stage_attribution"), names.index("settled_day_root_cause"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("winner_rank_parity"))
         self.assertLess(names.index("settled_day_root_cause"), names.index("winner_rank_parity"))
-        self.assertLess(names.index("winner_rank_parity"), names.index("data_retention_inventory"))
+        self.assertLess(names.index("winner_rank_parity"), names.index("june23_location_bias_repair"))
+        self.assertLess(names.index("june23_location_bias_repair"), names.index("data_retention_inventory"))
         self.assertLess(names.index("data_retention_inventory"), names.index("daily_learning"))
         self.assertLess(names.index("trading_evidence"), names.index("market_beating_objective_scoreboard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("market_beating_objective_scoreboard"))
@@ -538,10 +659,144 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("replay_status_backfill"), names.index("hourly_model_performance"))
         self.assertLess(names.index("hourly_model_performance"), names.index("ten_minute_model_performance"))
         self.assertLess(names.index("ten_minute_model_performance"), names.index("price_free_model_learning"))
-        self.assertLess(names.index("price_free_model_learning"), names.index("promotion_refresh"))
+        self.assertLess(names.index("price_free_model_learning"), names.index("model_market_disagreement_rehydration"))
+        self.assertLess(names.index("model_market_disagreement_rehydration"), names.index("settled_day_analysis_barrier"))
+        self.assertLess(names.index("price_free_model_learning"), names.index("settled_day_analysis_barrier"))
+        self.assertLess(names.index("settled_day_analysis_barrier"), names.index("promotion_refresh"))
         self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
+
+    def test_exchange_economics_rule_drift_step_blocks_on_material_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
+            current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+            accepted_payload = json.loads(current.read_text(encoding="utf-8"))
+            accepted_payload["market_rules"]["tick_size"] = 0.01
+            accepted = Path(args.exchange_economics_accepted_snapshot)
+            accepted.parent.mkdir(parents=True, exist_ok=True)
+            accepted.write_text(json.dumps(accepted_payload), encoding="utf-8")
+
+            result = run_exchange_economics_rule_drift_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertTrue(result["rescore_required"])
+        self.assertEqual(payload["material_change_count"], 1)
+        self.assertEqual(payload["material_changes"][0]["field"], "market_rules.tick_size")
+
+    def test_model_market_disagreement_rehydration_step_writes_resolved_revision(self):
+        target_date = "2026-06-21"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            slug = event_slug_for_date(target_date, "nyc")
+            log_path = backtest / "model_market_disagreement_audit.jsonl"
+            audit_row = {
+                "schema_version": "model_market_disagreement_audit_v0.1",
+                "audit_key": "mma-step-test",
+                "audit_revision": 1,
+                "audited_at_utc": "2026-06-21T18:00:00+00:00",
+                "status": "pending_settlement",
+                "event_slug": slug,
+                "market_id": "nyc",
+                "target_date": target_date,
+                "snapshot_id": "s1",
+                "captured_at_local": "2026-06-21T14:00:00-04:00",
+                "range_label": "77 F",
+                "band_key": "eq:77",
+                "model_probability": 0.9,
+                "market_yes": 0.1,
+                "fair_value_probability": None,
+                "model_minus_market_points": 80.0,
+                "gap_points": 80.0,
+                "closer_source": "pending_settlement",
+                "outcome": None,
+            }
+            log_path.write_text(json.dumps(audit_row) + "\n", encoding="utf-8")
+            labels = backtest / "market_day_labels.csv"
+            labels.write_text(
+                "event_slug,market_id,target_date,settlement_bucket,settlement_unit,"
+                "settlement_source,quality_grade,winning_band,finalized_at_utc\n"
+                f"{slug},nyc,{target_date},77,F,daily_summary,complete,77 F,"
+                "2026-06-22T01:00:00+00:00\n",
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                labels_csv=str(labels),
+                model_market_disagreement_log=str(log_path),
+                settled_analysis_target_date=target_date,
+            )
+
+            result = run_model_market_disagreement_rehydration_step(args)
+            json_exists = Path(result["json_out"]).exists()
+            report_exists = Path(result["report_out"]).exists()
+            rows = [
+                json.loads(line)
+                for line in log_path.read_text(encoding="utf-8").strip().splitlines()
+            ]
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["rehydrated_count"], 1)
+        self.assertEqual(result["model_closer_rehydrated_count"], 1)
+        self.assertEqual(result["pending_after_count"], 0)
+        self.assertTrue(json_exists)
+        self.assertTrue(report_exists)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[-1]["status"], "resolved")
+        self.assertEqual(rows[-1]["closer_source"], "model")
+
+    def test_daily_roll_log_hygiene_archives_old_errors_and_promotes_recurrence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            logs = root / "logs"
+            logs.mkdir()
+            taker_log = logs / "taker.log"
+            taker_log.write_text(
+                "\n".join([
+                    "2026-06-20T01:00:00+00:00 No space left on device while writing tape",
+                    "2026-06-20T02:00:00+00:00 UnicodeDecodeError: codec can't decode byte 0xff",
+                    "2026-06-24T11:00:00+00:00 daily roll healthy",
+                ])
+                + "\n",
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                as_of="2026-06-24T12:00:00+00:00",
+                daily_roll_log_sources=f"taker={taker_log}",
+                daily_roll_log_window_hours=6.0,
+                daily_roll_log_incidents=str(root / "backtest" / "daily_roll_log_incidents.jsonl"),
+            )
+
+            first = run_daily_roll_log_hygiene_step(args)
+            first_incidents_exists = Path(first["incidents_out"]).exists()
+            first_current_log_exists = (Path(first["current_log_root"]) / "taker.current.log").exists()
+            taker_log.write_text(
+                "\n".join([
+                    "2026-06-20T01:00:00+00:00 No space left on device while writing tape",
+                    "2026-06-24T11:30:00+00:00 No space left on device while writing tape",
+                ])
+                + "\n",
+                encoding="utf-8",
+            )
+            second = run_daily_roll_log_hygiene_step(args)
+
+        self.assertEqual(first["status"], "PASS")
+        self.assertEqual(first["current_blocker_count"], 0)
+        self.assertEqual(first["historical_error_count"], 2)
+        self.assertEqual(first["archived_incident_count"], 2)
+        self.assertTrue(first_incidents_exists)
+        self.assertTrue(first_current_log_exists)
+        self.assertEqual(second["status"], "BLOCK")
+        self.assertEqual(second["current_blocker_count"], 1)
+        self.assertEqual(second["recurring_incident_count"], 1)
+        self.assertEqual(
+            second["first_current_blocker"]["recurrence_of_incident_id"],
+            second["first_current_blocker"]["incident_id"],
+        )
 
     def test_market_beating_objective_scoreboard_step_writes_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -928,6 +1183,36 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["summary"]["ten_minute_model_performance"]["status"], "BLOCK")
         self.assertIn("10-Minute Performance Gate", report)
         self.assertIn("03:00 weak-slot cluster trails market", report)
+
+    def test_scoring_liveness_block_marks_run_critical(self):
+        def price_free(_args):
+            return {
+                "status": "BLOCK",
+                "last_scored_target_date": "2026-06-21",
+                "latest_settled_label_date": "2026-06-23",
+                "scoring_liveness_status": "BLOCK",
+                "remediation_command": "python -m weather.reporting.price_free_model_learning",
+                "scoring_liveness": {
+                    "status": "BLOCK",
+                    "artifact_name": "price_free_model_learning",
+                    "last_scored_target_date": "2026-06-21",
+                    "latest_settled_label_date": "2026-06-23",
+                    "remediation_command": "python -m weather.reporting.price_free_model_learning",
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[("price_free_model_learning", price_free)],
+            )
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["scoring_liveness_blockers"][0]["step"], "price_free_model_learning")
+        self.assertEqual(
+            payload["summary"]["price_free_model_learning"]["scoring_liveness_status"],
+            "BLOCK",
+        )
 
     def test_fail_on_snapshot_evaluation_marks_run_critical(self):
         def evaluation(_args):
@@ -1331,6 +1616,7 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(
                 tmp,
                 labels_csv=str(labels),
+                settled_analysis_target_date="2026-06-19",
                 taker_finalization_min_free_bytes=0,
                 skip_taker_bakeoff=True,
             )
@@ -1345,6 +1631,113 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(settled_exists)
         self.assertTrue(json_exists)
         self.assertTrue(report_exists)
+
+    def test_taker_finalization_watchdog_step_finalizes_zero_fill_and_writes_dated_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "taker_runs" / "2026-06-19" / "taker-zero"
+            event_slug = "highest-temperature-in-seattle-on-june-19-2026"
+            base_row = {
+                "schema_version": "taker_bot_run_v0.1",
+                "run_id": "taker-zero",
+                "target_date": "2026-06-19",
+                "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                "captured_at_utc": "2026-06-19T20:00:00+00:00",
+                "market_id": "seattle",
+                "event_slug": event_slug,
+                "range_label": "80-81 F",
+                "bin_kind": "eq",
+                "bin_value": "80",
+                "bin_value_hi": "81",
+                "clob_token_id": "token-seattle-80",
+                "fair_probability": "0.80",
+                "best_ask": "0.60",
+                "reason_code": "NO_TRADE_EDGE_TOO_SMALL",
+                "strategy_id": "strict_edge_probe",
+                "strategy_family": "probe",
+            }
+            _write_order_tape(
+                run / "orders_long.csv",
+                [{**base_row, "order_status": "SKIPPED", "action": "NO_TRADE"}],
+            )
+            _write_order_tape(
+                run / "counterfactual_orders_long.csv",
+                [
+                    {
+                        **base_row,
+                        "order_status": "FILLED",
+                        "action": "BUY",
+                        "fill_price": "0.60",
+                        "fill_size": "10",
+                        "fill_notional_usdc": "6.0",
+                        "total_spent_usdc": "6.0",
+                        "reason_code": "BUY_EDGE",
+                        "strategy_id": "raw_edge_control",
+                    }
+                ],
+            )
+            (run / "run_config.json").write_text(
+                json.dumps({
+                    "run_id": "taker-zero",
+                    "target_date": "2026-06-19",
+                    "budget_usdc": 12,
+                    "active_strategy_id": "strict_edge_probe",
+                    "strategy_ids": ["strict_edge_probe"],
+                    "policy_config": {"min_edge": 0.25, "max_order_usdc": 10},
+                }),
+                encoding="utf-8",
+            )
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "taker-zero",
+                        "target_date": "2026-06-19",
+                        "summary": {
+                            "budget_usdc": 12,
+                            "latest_tick_rows": 1,
+                            "latest_tick_filled_orders": 0,
+                            "cumulative_filled_orders": 0,
+                            "cumulative_net_pnl_usdc": 0.0,
+                            "reason_counts": {"NO_TRADE_EDGE_TOO_SMALL": 1},
+                            "root_cause_class": "policy_no_edge",
+                        },
+                        "pnl": {"summary": {"filled_order_count": 0, "unsettled_order_count": 0}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            labels = root / "backtest" / "market_day_labels.csv"
+            labels.parent.mkdir(parents=True)
+            labels.write_text(
+                "\n".join(
+                    [
+                        "event_slug,market_id,target_date,settlement_bucket,winning_band,quality_grade",
+                        f"{event_slug},seattle,2026-06-19,80,80-81 F,complete",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                labels_csv=str(labels),
+                settled_analysis_target_date="2026-06-19",
+                taker_finalization_min_free_bytes=0,
+            )
+
+            result = run_taker_finalization_watchdog_step(args)
+            settled_exists = (run / "settled_pnl.json").exists()
+            bakeoff_exists = (run / "strategy_bakeoff.json").exists()
+            detail_json_exists = Path(result["detail_json_out"]).exists()
+            detail_report_exists = Path(result["detail_report_out"]).exists()
+
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["target_date"], "2026-06-19")
+        self.assertEqual(result["finalized_run_count"], 1)
+        self.assertTrue(settled_exists)
+        self.assertTrue(bakeoff_exists)
+        self.assertTrue(detail_json_exists)
+        self.assertTrue(detail_report_exists)
 
     def test_taker_tail_casebook_step_writes_no_go_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1389,15 +1782,22 @@ class TestDailyRefresh(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = run_taker_tail_casebook_step(_args(tmp, labels_csv=str(labels)))
+            result = run_taker_tail_casebook_step(
+                _args(tmp, labels_csv=str(labels), settled_analysis_target_date="2026-06-21")
+            )
             json_exists = Path(result["json_out"]).exists()
             report_exists = Path(result["report_out"]).exists()
+            detail_json_exists = Path(result["detail_json_out"]).exists()
+            detail_report_exists = Path(result["detail_report_out"]).exists()
 
         self.assertEqual(result["status"], "BLOCK_BAD_TAIL_SLICES")
+        self.assertEqual(result["target_date"], "2026-06-21")
         self.assertEqual(result["tail_fill_count"], 1)
         self.assertEqual(result["no_go_candidate_count"], 1)
         self.assertTrue(json_exists)
         self.assertTrue(report_exists)
+        self.assertTrue(detail_json_exists)
+        self.assertTrue(detail_report_exists)
 
     def test_trading_evidence_step_writes_summary_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1429,7 +1829,7 @@ class TestDailyRefresh(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = run_trading_evidence_step(_args(tmp))
+            result = run_trading_evidence_step(_args(tmp, settled_analysis_target_date="2026-06-19"))
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             report_exists = Path(result["report_out"]).exists()
 
@@ -1482,8 +1882,10 @@ class TestDailyRefresh(unittest.TestCase):
     def test_maker_paper_score_step_writes_fresh_standard_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             _run = _write_active_mm_run(tmp)
+            args = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
+            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
 
-            result = run_maker_paper_score_step(_args(tmp))
+            result = run_maker_paper_score_step(args)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             report = Path(result["report_out"]).read_text(encoding="utf-8")
             fills_exists = Path(result["fills_out"]).exists()

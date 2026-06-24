@@ -23,6 +23,7 @@ from pathlib import Path
 
 from weather.market.market_config import config_for_date, ensure_date
 from weather.market.info_event_calendar import summarize_event_gate_rows
+from weather.market import exchange_economics
 from weather.market.market_microstructure import audit_book_tape
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import all_specs, spec_for_id
@@ -1193,6 +1194,8 @@ def build_run_once(
     append=False,
     data_layer_audit_path=DEFAULT_DATA_LAYER_AUDIT,
     platform_verification_path=DEFAULT_PLATFORM_VERIFICATION,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
     evidence_mode=EVIDENCE_MODE_AUTO,
 ):
@@ -1224,6 +1227,13 @@ def build_run_once(
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
     platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
+    exchange_economics_gate = exchange_economics.load_exchange_economics_gate(
+        exchange_economics_snapshot_path,
+        target,
+        platform=exchange_economics_platform,
+        now=now,
+    )
+    exchange_economics_fields = exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate)
     event_metadata_state = _event_metadata_preflight_payload(
         event_metadata_validation_path,
         target,
@@ -1252,6 +1262,8 @@ def build_run_once(
     run_config["clob_recon"] = clob_recon_diag
     run_config["data_layer_live_gate"] = data_layer_live_gate
     run_config["platform_verification_gate"] = platform_verification_gate
+    run_config["exchange_economics_gate"] = exchange_economics_gate
+    run_config.update(exchange_economics_fields)
     run_config["event_metadata_validation"] = {
         key: value
         for key, value in event_metadata_state.items()
@@ -1300,6 +1312,7 @@ def build_run_once(
             pilot=pilot,
             data_layer_live_gate=data_layer_live_gate,
             platform_verification_gate=platform_verification_gate,
+            exchange_economics_gate=exchange_economics_gate,
             event_metadata_gate=_event_metadata_gate_for_market(event_metadata_state, spec.id),
             current_high_assessment=current_high_assessment,
         )
@@ -1396,6 +1409,8 @@ def build_run_once(
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
+        "exchange_economics_gate": exchange_economics_gate,
+        **exchange_economics_fields,
         "event_metadata_validation": {
             key: value
             for key, value in event_metadata_state.items()
@@ -1448,6 +1463,12 @@ def build_run_once(
         quote_ttl_seconds=float(policy_config.get("quote_ttl_seconds") or DEFAULT_QUOTE_TTL_SECONDS),
         cancel_all=cancel_all,
     )
+    for row in quote_rows:
+        row.update({
+            "exchange_economics_snapshot_id": exchange_economics_fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": exchange_economics_fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": exchange_economics_fields.get("exchange_economics_evidence_basis"),
+        })
     risk_events.extend(budget_risk_events)
     model_variant_quote_rows = [
         add_run_columns(
@@ -1465,6 +1486,12 @@ def build_run_once(
         )
         for row in raw_model_variant_rows
     ]
+    for row in model_variant_quote_rows:
+        row.update({
+            "exchange_economics_snapshot_id": exchange_economics_fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": exchange_economics_fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": exchange_economics_fields.get("exchange_economics_evidence_basis"),
+        })
     if any(row.get("live_trade_permission") for row in quote_rows) and mode != "live-pilot":
         raise RuntimeError("shadow/paper run attempted to emit live-trade permission")
     event_gate_summary = summarize_event_gate_rows(quote_rows)
@@ -1568,6 +1595,8 @@ def build_run_once(
         },
         "live_forward_gate_status": live_forward_gate_payload.get("status"),
         "counts_toward_live_forward_gate": live_forward_gate_payload.get("counts_toward_live_forward_gate"),
+        "exchange_economics_gate": exchange_economics_gate,
+        **exchange_economics_fields,
         "useful_work_liveness": useful_work_liveness,
         "evidence_mode": evidence_classification.get("evidence_mode"),
         "evidence_classification": evidence_classification,
@@ -1710,6 +1739,8 @@ def main(argv=None):
     parser.add_argument("--live-readiness", default=None, help="JSON file proving live account/platform gates.")
     parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT), help="Latest data-layer audit JSON for live-pilot CLOB artifact gating.")
     parser.add_argument("--platform-verification", default=str(DEFAULT_PLATFORM_VERIFICATION), help="Current account/platform verification JSON required for live-pilot.")
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT), help="Current exchange economics snapshot required for paper/shadow/live evidence.")
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     parser.add_argument("--event-metadata-validation", default=str(event_metadata_validation.DEFAULT_JSON_OUT), help="Event metadata validation JSON required for default-root active-day evidence.")
     parser.add_argument("--once", action="store_true", help="For paper-live-forward, run one tick instead of looping.")
     parser.add_argument("--interval-seconds", type=float, default=60.0)
@@ -1731,6 +1762,8 @@ def main(argv=None):
         "live_readiness_path": args.live_readiness,
         "data_layer_audit_path": Path(args.data_layer_audit) if args.data_layer_audit else None,
         "platform_verification_path": Path(args.platform_verification) if args.platform_verification else None,
+        "exchange_economics_snapshot_path": Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
+        "exchange_economics_platform": args.exchange_economics_platform,
         "event_metadata_validation_path": Path(args.event_metadata_validation) if args.event_metadata_validation else None,
         "evidence_mode": args.evidence_mode,
         "pilot": args.pilot,

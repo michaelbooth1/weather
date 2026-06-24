@@ -13,6 +13,45 @@ DEFAULT_FINALIZATION_SLA_HOURS = 4.0
 DEFAULT_FINALIZATION_RETENTION_DAYS = 14
 DEFAULT_RETENTION_CANDIDATE_MIN_BYTES = 100_000_000
 
+
+def _exchange_fields_from_run_config(run_config):
+    gate = (run_config or {}).get("exchange_economics_gate") or {}
+    fields = exchange_economics.exchange_economics_artifact_fields(gate)
+    if not fields.get("exchange_economics_snapshot_id"):
+        fields = {
+            key: (run_config or {}).get(key)
+            for key in fields
+        }
+    return gate, fields
+
+
+def _annotate_rows_with_exchange_fields(rows, fields):
+    for row in rows or []:
+        row.update({
+            "exchange_economics_snapshot_id": fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": fields.get("exchange_economics_evidence_basis"),
+        })
+    return rows
+
+
+def _annotate_pnl_with_exchange_fields(pnl_payload, gate, fields):
+    pnl_payload = pnl_payload or {}
+    pnl_payload["exchange_economics_gate"] = gate
+    pnl_payload.update(fields)
+    pnl_payload.setdefault("summary", {}).update({
+        "exchange_economics_gate_status": gate.get("status") or (fields.get("exchange_economics_status")),
+        "exchange_economics_gate_reason": gate.get("reason"),
+        **fields,
+    })
+    for row in pnl_payload.get("by_strategy") or []:
+        row.update({
+            "exchange_economics_gate_status": gate.get("status") or fields.get("exchange_economics_status"),
+            **fields,
+        })
+    return pnl_payload
+
+
 def first_numeric(*values, default=None):
     for value in values:
         number = maybe_float(value)
@@ -650,6 +689,9 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
         run_config.get("active_strategy_lifecycle")
         or active_strategy_lifecycle_for_spec((run_config.get("strategies") or [{}])[0], run_config.get("policy_config") or {})
     )
+    exchange_gate = (run_config.get("exchange_economics_gate") or bakeoff.get("exchange_economics_gate") or {})
+    exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
+    exchange_blocks = bool(exchange_gate.get("status") == "BLOCK" or exchange_gate.get("ok") is False)
     canary_decision = None
     if active_lifecycle == "candidate_canary":
         canary_decision = _canary_gate_status(
@@ -689,14 +731,19 @@ def next_run_policy_gate(strategy_summary, run_config=None, bakeoff=None):
     else:
         status = "WARN"
         reason = "multiple or missing active strategy arms; operator review required"
+    if exchange_blocks:
+        status = "BLOCK"
+        reason = exchange_gate.get("reason") or "exchange economics snapshot is not current"
     return {
         "status": status,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "active_strategy_id": active_id,
         "active_strategy_lifecycle": active_lifecycle,
         "active_strategy_lifecycle_status": (
             (canary_decision or {}).get("active_strategy_lifecycle_status") or active_lifecycle
         ),
-        "promotion_eligible": bool((canary_decision or {}).get("promotion_eligible")),
+        "promotion_eligible": bool((canary_decision or {}).get("promotion_eligible")) and not exchange_blocks,
         "paper_only": bool((canary_decision or {}).get("paper_only")),
         "paper_only_reason": (canary_decision or {}).get("paper_only_reason") or "",
         "requalification_required": bool((canary_decision or {}).get("requalification_required")),
@@ -865,13 +912,35 @@ def finalization_state_for_run(
     raw_orders = read_order_rows(order_path) if order_path.exists() else []
     filled_orders = [row for row in raw_orders if str(row.get("order_status") or "").upper() == "FILLED"]
     labels = load_settlement_labels(labels_csv)
+    target_label_summary = label_summary_for_target(labels_csv, target_date)
+    target_labels_complete = bool(
+        int(target_label_summary.get("label_rows") or 0) > 0
+        and int(target_label_summary.get("complete_rows") or 0) >= int(target_label_summary.get("label_rows") or 0)
+    )
     labelable_count = 0
     for row in filled_orders:
         label = settlement_label_for_order(row, labels)
         if settlement_outcome_for_order(row, label) is not None:
             labelable_count += 1
+    settlement_scoreable_order_count = 0
+    for row in raw_orders:
+        label = settlement_label_for_order(row, labels)
+        if settlement_outcome_for_order(row, label) is not None:
+            settlement_scoreable_order_count += 1
+    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
+    counterfactual_rows = read_order_rows(counterfactual_path) if counterfactual_path.exists() else []
+    settlement_scoreable_counterfactual_count = 0
+    for row in counterfactual_rows:
+        label = settlement_label_for_order(row, labels)
+        if settlement_outcome_for_order(row, label) is not None:
+            settlement_scoreable_counterfactual_count += 1
     unmatched_filled = max(0, len(filled_orders) - labelable_count)
-    labels_available = labelable_count > 0
+    zero_fill_labels_available = bool(
+        not filled_orders
+        and target_labels_complete
+        and (settlement_scoreable_order_count > 0 or settlement_scoreable_counterfactual_count > 0)
+    )
+    labels_available = labelable_count > 0 or zero_fill_labels_available
     labels_mtime = _path_mtime_utc(labels_csv)
     orders_mtime = _path_mtime_utc(order_path)
     settled_mtime = _path_mtime_utc(settled_pnl_path)
@@ -886,15 +955,15 @@ def finalization_state_for_run(
     if not order_path.exists():
         status = "MISSING_ORDERS"
         sla_status = "NOT_LABELABLE"
-    elif not filled_orders:
+    elif labels_available and finalization_fresh:
+        status = "FINALIZED"
+        sla_status = "PASS"
+    elif not filled_orders and not labels_available:
         status = "NO_FILLED_ORDERS"
         sla_status = "NOT_LABELABLE"
     elif not labels_available:
         status = "WAITING_FOR_LABELS"
         sla_status = "WAITING"
-    elif finalization_fresh:
-        status = "FINALIZED"
-        sla_status = "PASS"
     elif availability_age_hours is not None and availability_age_hours > float(sla_hours):
         status = "LABELS_AVAILABLE_NO_FINALIZATION"
         sla_status = "BREACH"
@@ -915,9 +984,15 @@ def finalization_state_for_run(
         "labels_available": labels_available,
         "label_available_at_utc": label_available_at.isoformat() if label_available_at else None,
         "label_availability_age_hours": round(availability_age_hours, 3) if availability_age_hours is not None else None,
+        "target_label_rows": target_label_summary.get("label_rows"),
+        "target_complete_label_rows": target_label_summary.get("complete_rows"),
+        "target_labels_complete": target_labels_complete,
         "filled_order_count": len(filled_orders),
         "labelable_filled_order_count": labelable_count,
         "unmatched_filled_order_count": unmatched_filled,
+        "settlement_scoreable_order_count": settlement_scoreable_order_count,
+        "settlement_scoreable_counterfactual_order_count": settlement_scoreable_counterfactual_count,
+        "zero_fill_labels_available": zero_fill_labels_available,
         "settled_pnl_exists": settled_pnl_path.exists(),
         "settled_report_exists": settled_report_path.exists(),
         "finalization_fresh": finalization_fresh,
@@ -947,6 +1022,8 @@ def finalization_watchdog(
     champion_min_settled_orders=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
     champion_ledger_out=None,
     champion_ledger_report_out=None,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     now = utc_now(now)
     folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
@@ -979,6 +1056,8 @@ def finalization_watchdog(
                     now=now,
                     min_free_bytes=min_free_bytes,
                     disk_usage_fn=disk_usage_fn,
+                    exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+                    exchange_economics_platform=exchange_economics_platform,
                 )
                 bakeoff_action = bakeoff_state.get("action")
                 bakeoff_path = bakeoff_state.get("strategy_bakeoff_path")
@@ -1373,9 +1452,11 @@ def finalize_counterfactual_tape(
         }
     now = utc_now(now)
     run_config = run_config or {}
+    exchange_gate, exchange_fields = _exchange_fields_from_run_config(run_config)
     rows = read_order_rows(counterfactual_path)
     labels = load_settlement_labels(labels_csv)
     scored_rows, label_summary = score_orders_against_labels(rows, labels)
+    _annotate_rows_with_exchange_fields(scored_rows, exchange_fields)
     for row in scored_rows:
         row["counterfactual_pnl_source"] = row.get("pnl_source") or row.get("counterfactual_pnl_source") or ""
     strategy_count = len({strategy_id_for_row(row) for row in scored_rows}) or 1
@@ -1387,6 +1468,7 @@ def finalize_counterfactual_tape(
         now=now,
         policy_config=run_config.get("policy_config") or {},
     )
+    pnl_payload = _annotate_pnl_with_exchange_fields(pnl_payload, exchange_gate, exchange_fields)
     active_strategy_id = run_config.get("active_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
     strategy_lift = counterfactual_strategy_lift_rows(
         pnl_payload,
@@ -1413,6 +1495,8 @@ def finalize_counterfactual_tape(
         "no_side_would_buy_count": no_side_campaign.get("no_side_would_buy_count"),
         "countable_no_side_would_buy_count": no_side_campaign.get("countable_no_side_would_buy_count"),
         "settled_countable_no_side_would_buy_count": no_side_campaign.get("settled_countable_no_side_would_buy_count"),
+        "exchange_economics_gate_status": exchange_gate.get("status") or exchange_fields.get("exchange_economics_status"),
+        **exchange_fields,
     })
     strategy_summary = build_strategy_summary_payload(
         pnl_payload,
@@ -1442,6 +1526,8 @@ def finalize_counterfactual_tape(
         "labels_csv": str(labels_csv),
         "label_summary": label_summary,
         "summary": summary,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "strategy_lift": strategy_lift,
         "slice_summaries": slice_summaries,
         "no_side_campaign": no_side_campaign,
@@ -1500,6 +1586,8 @@ def finalize_taker_run(
     raw_orders = read_order_rows(order_path)
     scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
     run_config = read_json(run_folder / "run_config.json", {}) or {}
+    exchange_gate, exchange_fields = _exchange_fields_from_run_config(run_config)
+    _annotate_rows_with_exchange_fields(scored_orders, exchange_fields)
     pnl_payload = build_pnl_payload(
         scored_orders,
         budget_usdc,
@@ -1508,6 +1596,7 @@ def finalize_taker_run(
         now=now,
         policy_config=run_config.get("policy_config") or {},
     )
+    pnl_payload = _annotate_pnl_with_exchange_fields(pnl_payload, exchange_gate, exchange_fields)
     reported_summary = reported_taker_pnl_summary(run_summary, daily_pnl)
     reconciliation = build_settlement_reconciliation(pnl_payload.get("summary") or {}, reported_summary)
     settled_orders_path = run_folder / "settled_orders_long.csv"
@@ -1579,6 +1668,9 @@ def finalize_taker_run(
         "active_strategy_canary_after_fee_required": next_gate.get("canary_after_fee_required"),
         "active_strategy_canary_after_fee_evidence": next_gate.get("canary_after_fee_evidence"),
         "disk_capacity_status": disk_preflight.get("status"),
+        "exchange_economics_gate_status": exchange_gate.get("status") or exchange_fields.get("exchange_economics_status"),
+        "exchange_economics_gate_reason": exchange_gate.get("reason"),
+        **exchange_fields,
         "disk_free_bytes": disk_preflight.get("free_bytes"),
         "disk_required_free_bytes": disk_preflight.get("required_free_bytes"),
         "settled_orders_path": str(settled_orders_path),
@@ -1628,6 +1720,8 @@ def finalize_taker_run(
         "label_summary": label_summary,
         "summary": final_summary,
         "pnl": pnl_payload,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "strategy_summary": strategy_summary,
         "counterfactual": counterfactual,
         "next_run_policy_gate": next_gate,

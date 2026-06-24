@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import random
 from collections import Counter
 from datetime import datetime, timezone
@@ -43,17 +44,21 @@ ARTIFACT_FILES = {
     "model_variant_evidence_growth": "model_variant_evidence_growth.json",
     "progress_audit": "progress_audit.json",
     "disagreement_casebook": "disagreement_casebook.json",
+    "model_market_disagreement_analysis": "model_market_disagreement_analysis.json",
     "event_metadata_validation": "event_metadata_validation.json",
     "fleet_observability": "fleet_observability.json",
     "data_layer_audit": "data_layer_audit.json",
     "snapshot_evaluation": "snapshot_evaluation.json",
     "settled_day_root_cause": "settled_day_root_cause.json",
     "settled_day_freshness": "settled_day_freshness.json",
+    "settled_day_analysis_barrier": "settled_day_analysis_barrier.json",
     "source_family_inventory": "source_family_inventory.json",
     "proper_scoring_reliability_scorecard": "proper_scoring_reliability_scorecard.json",
     "taker_finalization_watchdog": "taker_finalization_watchdog.json",
     "taker_tail_casebook": "taker_tail_casebook.json",
     "trading_evidence": "trading_evidence.json",
+    "june23_location_bias_repair": "june23_location_bias_repair_packet.json",
+    "experiment_queue_results": "experiment_queue_results.json",
 }
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
@@ -83,6 +88,9 @@ CALIBRATION_ECE_DRIFT_THRESHOLD = 0.02
 CALIBRATION_BIAS_DRIFT_THRESHOLD = 0.5
 INPUT_FRESHNESS_MAX_SKEW_HOURS = 18.0
 INPUT_CONSISTENCY_BRIER_TOLERANCE = 1e-6
+EXPERIMENT_QUEUE_MAX_ITEMS = 20
+EXPERIMENT_QUEUE_RETRAIN_INPUT_LIMIT = 12
+RETRAIN_CORPUS_GROWTH_MARKET_DAYS = 1
 CRITICAL_INPUTS = (
     "daily_refresh_status",
     "promotion_refresh",
@@ -91,6 +99,8 @@ CRITICAL_INPUTS = (
     "fleet_observability",
     "data_layer_audit",
     "trading_evidence",
+    "settled_day_analysis_barrier",
+    "model_market_disagreement_analysis",
 )
 COUNTABLE_LABEL_CORPUS_SKIP_REASONS = {
     "feature_quality_quarantine_excluded",
@@ -159,6 +169,185 @@ def _rank_learnings(learnings):
         )
     )
     return [row for _index, row in indexed]
+
+
+def _stable_id(*parts):
+    text = "|".join(str(part or "") for part in parts)
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _status_from_queue_result(result):
+    if not result:
+        return None
+    status = result.get("resolution_status") or result.get("experiment_status") or result.get("status")
+    if status in {"resolved", "regressed", "still_open", "blocked", "failed"}:
+        return "regressed" if status in {"failed"} else status
+    return "still_open" if status in {"executed", "recorded"} else status
+
+
+def _queue_results_by_id(results_payload):
+    results = {}
+    for row in (results_payload or {}).get("results") or []:
+        queue_id = row.get("queue_id")
+        if queue_id:
+            results[str(queue_id)] = row
+    return results
+
+
+def _apply_queue_result(item, results_by_id):
+    result = results_by_id.get(str(item.get("queue_id") or ""))
+    if not result:
+        return item
+    status = _status_from_queue_result(result)
+    return {
+        **item,
+        "status": status or item.get("status"),
+        "last_result": {
+            "status": result.get("status"),
+            "resolution_status": result.get("resolution_status"),
+            "returncode": result.get("returncode"),
+            "executed_at_utc": result.get("executed_at_utc"),
+            "result_artifact": result.get("result_artifact"),
+            "detail": result.get("detail"),
+        },
+    }
+
+
+def _queue_item_from_learning(row, index, *, generated_at_utc):
+    evidence = row.get("evidence") or {}
+    slice_name = first_present(
+        evidence.get("slice"),
+        evidence.get("gate"),
+        row.get("category"),
+        "daily_learning",
+    )
+    group = evidence.get("group")
+    if group not in (None, "") and str(group) not in str(slice_name):
+        slice_name = f"{slice_name}={group}"
+    hypothesis = first_present(
+        evidence.get("next_experiment"),
+        row.get("action"),
+        row.get("signal"),
+        "Inspect and replay this retrain input.",
+    )
+    artifact_path = first_present(
+        evidence.get("experiment_artifact"),
+        evidence.get("artifact_path"),
+        evidence.get("path"),
+        "",
+    )
+    clearance_rule = first_present(
+        evidence.get("clearance_rule"),
+        "Must improve the queued slice without regressing protected promotion gates.",
+    )
+    queue_id = evidence.get("queue_id") or f"daily:{_stable_id(row.get('source'), row.get('category'), slice_name, hypothesis)}"
+    return {
+        "queue_id": queue_id,
+        "source": row.get("source"),
+        "category": row.get("category"),
+        "slice": str(slice_name),
+        "hypothesis": str(hypothesis),
+        "artifact_path": str(artifact_path),
+        "clearance_rule": str(clearance_rule),
+        "status": "queued",
+        "priority": row.get("priority") or "P2",
+        "estimated_impact": row.get("estimated_impact"),
+        "created_at_utc": generated_at_utc,
+        "source_learning_index": index,
+        "command": evidence.get("experiment_command") or evidence.get("command") or [],
+    }
+
+
+def _queue_item_from_manifest(row, *, generated_at_utc):
+    manifest_status = row.get("status") or "queued"
+    if manifest_status == "eligible":
+        status = "queued"
+    elif manifest_status == "blocked_missing_case":
+        status = "blocked_missing_evidence"
+    else:
+        status = manifest_status
+    command = row.get("command") or []
+    return {
+        "queue_id": row.get("queue_id") or f"item301:{_stable_id(row.get('market_id'), row.get('slice'))}",
+        "source": row.get("source") or "june23_location_bias_repair_packet",
+        "category": "june23_location_bias_repair",
+        "slice": row.get("slice") or row.get("market_id") or "june23_location_bias_repair",
+        "hypothesis": row.get("hypothesis") or "Replay June 23 location-bias repair candidate.",
+        "artifact_path": row.get("artifact_path") or "",
+        "clearance_rule": row.get("clearance_rule") or "Must pass protected-location preservation and normal promotion gates.",
+        "status": status,
+        "priority": row.get("priority") or "P1",
+        "estimated_impact": row.get("estimated_impact"),
+        "created_at_utc": generated_at_utc,
+        "market_id": row.get("market_id"),
+        "target_date": row.get("target_date"),
+        "repair_family": row.get("repair_family"),
+        "command": command,
+    }
+
+
+def _build_experiment_queue(learnings, payloads, artifacts, *, generated_at_utc, run_date=None):
+    results_by_id = _queue_results_by_id(payloads.get("experiment_queue_results") or {})
+    items = []
+    june23 = payloads.get("june23_location_bias_repair") or {}
+    for manifest in june23.get("experiment_queue_items") or june23.get("repair_manifests") or []:
+        items.append(_queue_item_from_manifest(manifest, generated_at_utc=generated_at_utc))
+    retrain_rows = [
+        (index, row)
+        for index, row in enumerate(learnings or [])
+        if row.get("retrain_input") and not row.get("blocker")
+    ]
+    retrain_rows.sort(
+        key=lambda item: (
+            _priority_rank(item[1].get("priority")),
+            -maybe_float(item[1].get("estimated_impact") or 0.0),
+            item[0],
+        )
+    )
+    for index, row in retrain_rows[:EXPERIMENT_QUEUE_RETRAIN_INPUT_LIMIT]:
+        items.append(_queue_item_from_learning(row, index, generated_at_utc=generated_at_utc))
+
+    deduped = {}
+    for item in items:
+        queue_id = str(item.get("queue_id") or _stable_id(item.get("source"), item.get("slice"), item.get("hypothesis")))
+        item["queue_id"] = queue_id
+        if queue_id not in deduped:
+            deduped[queue_id] = item
+    ranked = sorted(
+        (_apply_queue_result(item, results_by_id) for item in deduped.values()),
+        key=lambda item: (
+            _priority_rank(item.get("priority")),
+            item.get("status") not in {"queued", "still_open", "regressed"},
+            -maybe_float(item.get("estimated_impact") or 0.0),
+            str(item.get("queue_id")),
+        ),
+    )[:EXPERIMENT_QUEUE_MAX_ITEMS]
+    eligible = [
+        item for item in ranked
+        if item.get("status") in {"queued", "still_open", "regressed"}
+    ]
+    results_record = artifacts.get("experiment_queue_results") or {}
+    return {
+        "schema_version": schema_version("automatic_experiment_queue"),
+        "generated_at_utc": generated_at_utc,
+        "run_date": str(run_date or "")[:10],
+        "status": "READY" if eligible else "EMPTY",
+        "items": ranked,
+        "summary": {
+            "queue_count": len(ranked),
+            "eligible_count": len(eligible),
+            "blocked_count": sum(1 for item in ranked if str(item.get("status") or "").startswith("blocked")),
+            "resolved_count": sum(1 for item in ranked if item.get("status") == "resolved"),
+            "regressed_count": sum(1 for item in ranked if item.get("status") == "regressed"),
+            "still_open_count": sum(1 for item in ranked if item.get("status") == "still_open"),
+            "item301_count": sum(1 for item in ranked if item.get("category") == "june23_location_bias_repair"),
+        },
+        "results_artifact": {
+            "path": results_record.get("path"),
+            "exists": bool(results_record.get("exists")),
+            "generated_at_utc": results_record.get("generated_at_utc"),
+        },
+    }
 
 
 def _capped_sorted_rows(rows, limit, source, truncated_sources=None, priority_func=None):
@@ -459,6 +648,123 @@ def _trading_evidence_run_date(payload):
     return first_present(*candidates)
 
 
+def _date_text(value):
+    if value in (None, ""):
+        return None
+    text = str(value).strip()[:10]
+    return text or None
+
+
+def _target_date_check(name, expected_date, observed_date, *, mode="equals", source=None):
+    observed = _date_text(observed_date)
+    expected = _date_text(expected_date)
+    evidence = {
+        "expected_target_date": expected,
+        "observed_target_date": observed,
+        "mode": mode,
+        "source": source or name,
+    }
+    if not expected or not observed:
+        return _consistency_check(
+            name,
+            "SKIP",
+            f"{source or name} has no comparable target date.",
+            evidence,
+        )
+    if mode == "date_max":
+        status = "PASS" if observed == expected else "FAIL"
+        detail = f"{source or name} date_max={observed}; run_date={expected}"
+    else:
+        status = "PASS" if observed == expected else "FAIL"
+        detail = f"{source or name} target_date={observed}; run_date={expected}"
+    return _consistency_check(name, status, detail, evidence)
+
+
+def _scoring_liveness(payload):
+    return (payload or {}).get("scoring_liveness") or {}
+
+
+def _last_scored_target_date(payload):
+    liveness = _scoring_liveness(payload)
+    corpus = (payload or {}).get("corpus") or {}
+    return (
+        (payload or {}).get("last_scored_target_date")
+        or liveness.get("last_scored_target_date")
+        or (payload or {}).get("target_date")
+        or corpus.get("date_max")
+    )
+
+
+def _target_date_consistency_checks(payloads, *, run_date):
+    expected = _date_text(run_date)
+    specs = [
+        (
+            "settled_day_freshness_target_date",
+            (payloads.get("settled_day_freshness") or {}).get("target_date"),
+            "equals",
+            "settled_day_freshness",
+        ),
+        (
+            "settled_day_analysis_barrier_target_date",
+            (payloads.get("settled_day_analysis_barrier") or {}).get("target_date"),
+            "equals",
+            "settled_day_analysis_barrier",
+        ),
+        (
+            "settled_day_root_cause_target_date",
+            (payloads.get("settled_day_root_cause") or {}).get("target_date"),
+            "equals",
+            "settled_day_root_cause",
+        ),
+        (
+            "promotion_refresh_corpus_date_max",
+            ((payloads.get("promotion_refresh") or {}).get("corpus") or {}).get("date_max"),
+            "date_max",
+            "promotion_refresh.corpus",
+        ),
+        (
+            "hourly_model_performance_date_max",
+            ((payloads.get("hourly_model_performance") or {}).get("corpus") or {}).get("date_max"),
+            "date_max",
+            "hourly_model_performance.corpus",
+        ),
+        (
+            "hourly_model_performance_last_scored_target_date",
+            _last_scored_target_date(payloads.get("hourly_model_performance") or {}),
+            "equals",
+            "hourly_model_performance",
+        ),
+        (
+            "ten_minute_model_performance_date_max",
+            ((payloads.get("ten_minute_model_performance") or {}).get("corpus") or {}).get("date_max"),
+            "date_max",
+            "ten_minute_model_performance.corpus",
+        ),
+        (
+            "ten_minute_model_performance_last_scored_target_date",
+            _last_scored_target_date(payloads.get("ten_minute_model_performance") or {}),
+            "equals",
+            "ten_minute_model_performance",
+        ),
+        (
+            "price_free_model_learning_date_max",
+            ((payloads.get("price_free_model_learning") or {}).get("corpus") or {}).get("date_max"),
+            "date_max",
+            "price_free_model_learning.corpus",
+        ),
+        (
+            "price_free_model_learning_last_scored_target_date",
+            _last_scored_target_date(payloads.get("price_free_model_learning") or {}),
+            "equals",
+            "price_free_model_learning",
+        ),
+    ]
+    return [
+        _target_date_check(name, expected, observed, mode=mode, source=source)
+        for name, observed, mode, source in specs
+    ]
+
+
 def _consistency_gate(payloads, scorecard, *, run_date, brier_delta_tolerance):
     checks = []
     labels_total = safe_int(((scorecard.get("labels") or {}).get("total")))
@@ -513,6 +819,8 @@ def _consistency_gate(payloads, scorecard, *, run_date, brier_delta_tolerance):
             "Trading evidence is missing a run_date or target_date for alignment.",
             {"trading_evidence_date": observed_trading_date or None, "run_date": expected_run_date or None},
         ))
+
+    checks.extend(_target_date_consistency_checks(payloads, run_date=run_date))
 
     candidate = scorecard.get("candidate") or {}
     candidate_brier = maybe_float(candidate.get("candidate_brier"))
@@ -668,6 +976,36 @@ def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
     }
 
 
+def _label_countability_policy(label_summary, barrier):
+    barrier_policy = (barrier or {}).get("label_countability") or {}
+    if barrier_policy:
+        return {
+            **barrier_policy,
+            "source": "settled_day_analysis_barrier",
+        }
+    quality_counts = (label_summary or {}).get("quality_counts") or {}
+    partial_count = safe_int(quality_counts.get("partial"))
+    if partial_count:
+        return {
+            "status": "diagnostic_only",
+            "promotion_countable": False,
+            "diagnostic_only": True,
+            "partial_label_count": partial_count,
+            "quality_counts": quality_counts,
+            "reason": f"{partial_count} settled label(s) have quality_grade=partial",
+            "source": "label_quality_counts",
+        }
+    return {
+        "status": "promotion_countable",
+        "promotion_countable": True,
+        "diagnostic_only": False,
+        "partial_label_count": 0,
+        "quality_counts": quality_counts,
+        "reason": "all selected settled labels are promotion-countable",
+        "source": "label_quality_counts",
+    }
+
+
 def _served_calibration_lane(scorecard):
     lanes = (scorecard or {}).get("lanes") or []
     for name in ("weather_only", "current", "candidate", "no_market"):
@@ -751,6 +1089,8 @@ def _scorecard(payloads, daily_refresh_summary=None):
     variant = payloads.get("model_variant_evidence_growth") or {}
     progress = payloads.get("progress_audit") or {}
     casebook = (payloads.get("disagreement_casebook") or {}).get("summary") or {}
+    disagreement_analysis = payloads.get("model_market_disagreement_analysis") or {}
+    disagreement_rehydration = disagreement_analysis.get("rehydration") or {}
     fleet = payloads.get("fleet_observability") or {}
     event_metadata = payloads.get("event_metadata_validation") or {}
     trading = payloads.get("trading_evidence") or {}
@@ -758,6 +1098,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     root_cause = payloads.get("settled_day_root_cause") or {}
     settled_day = payloads.get("settled_day_freshness") or {}
+    settled_barrier = payloads.get("settled_day_analysis_barrier") or {}
     source_family_inventory = payloads.get("source_family_inventory") or {}
     taker_finalization = payloads.get("taker_finalization_watchdog") or {}
     taker_tail = payloads.get("taker_tail_casebook") or {}
@@ -768,6 +1109,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
 
     return {
         "labels": label_summary,
+        "label_countability": _label_countability_policy(label_summary, settled_barrier),
         "ingest_quality_gate": {
             "status": ingest.get("status"),
             "fail_reasons": ingest.get("fail_reasons") or [],
@@ -792,6 +1134,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
             "remediation_registry_summary": (hourly.get("remediation_registry") or {}).get("summary") or {},
             "early_hour_market_deltas": (hourly.get("remediation_registry") or {}).get("early_hour_market_deltas") or [],
+            "last_scored_target_date": _last_scored_target_date(hourly),
+            "latest_settled_label_date": (_scoring_liveness(hourly)).get("latest_settled_label_date"),
+            "scoring_liveness": _scoring_liveness(hourly),
         },
         "ten_minute_model_performance": {
             "status": (ten_minute.get("ten_minute_performance_gate") or {}).get("status"),
@@ -800,6 +1145,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "candidate_ten_minute_gate": ten_minute.get("candidate_ten_minute_gate") or {},
             "weak_slots": ten_minute.get("weak_slots") or {},
             "rankings": ten_minute.get("rankings") or {},
+            "last_scored_target_date": _last_scored_target_date(ten_minute),
+            "latest_settled_label_date": (_scoring_liveness(ten_minute)).get("latest_settled_label_date"),
+            "scoring_liveness": _scoring_liveness(ten_minute),
         },
         "price_free_model_learning": {
             "status": price_free.get("status"),
@@ -814,6 +1162,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
                 "focus_definition": price_free_current_max.get("focus_definition"),
             },
             "evidence_classification": price_free.get("evidence_classification") or {},
+            "last_scored_target_date": _last_scored_target_date(price_free),
+            "latest_settled_label_date": (_scoring_liveness(price_free)).get("latest_settled_label_date"),
+            "scoring_liveness": _scoring_liveness(price_free),
         },
         "corpus": {
             "market_day_count": safe_int(corpus.get("market_day_count")),
@@ -864,6 +1215,31 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "model_win_count": safe_int(casebook.get("model_win_count")),
             "model_loss_count": safe_int(casebook.get("model_loss_count")),
             "taxonomy_counts": casebook.get("taxonomy_counts") or {},
+        },
+        "model_market_disagreement_rehydration": {
+            "status": (
+                disagreement_rehydration.get("status")
+                or ((disagreement_rehydration.get("gate") or {}).get("status"))
+                or ((disagreement_analysis.get("summary") or {}).get("rehydration_status"))
+            ),
+            "target_date": disagreement_rehydration.get("target_date"),
+            "pending_before_count": safe_int(disagreement_rehydration.get("pending_before_count")),
+            "rehydrated_count": safe_int(disagreement_rehydration.get("rehydrated_count")),
+            "model_closer_rehydrated_count": safe_int(
+                disagreement_rehydration.get("model_closer_rehydrated_count")
+            ),
+            "market_closer_rehydrated_count": safe_int(
+                disagreement_rehydration.get("market_closer_rehydrated_count")
+            ),
+            "excluded_partial_label_count": safe_int(disagreement_rehydration.get("excluded_partial_label_count")),
+            "excluded_missing_label_count": safe_int(disagreement_rehydration.get("excluded_missing_label_count")),
+            "pending_after_count": safe_int(disagreement_rehydration.get("pending_after_count")),
+            "unresolved_after_rehydrate_count": safe_int(
+                disagreement_rehydration.get("unresolved_after_rehydrate_count")
+            ),
+            "blocker_count": safe_int(disagreement_rehydration.get("blocker_count")),
+            "blockers": disagreement_rehydration.get("blockers") or [],
+            "report_out": (disagreement_analysis.get("summary") or {}).get("report_out"),
         },
         "fleet": {
             "status": fleet.get("status"),
@@ -920,6 +1296,9 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "status": root_cause.get("status"),
             "target_date": root_cause.get("target_date"),
             "summary": root_cause.get("summary") or {},
+            "last_scored_target_date": _last_scored_target_date(root_cause),
+            "latest_settled_label_date": (_scoring_liveness(root_cause)).get("latest_settled_label_date"),
+            "scoring_liveness": _scoring_liveness(root_cause),
         },
         "settled_day_freshness": {
             "status": settled_day.get("status"),
@@ -927,6 +1306,14 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "summary": settled_day.get("summary") or {},
             "repair_command": settled_day.get("repair_command"),
             "replay_status_repair_command": settled_day.get("replay_status_repair_command"),
+        },
+        "settled_day_analysis_barrier": {
+            "status": settled_barrier.get("status"),
+            "target_date": settled_barrier.get("target_date"),
+            "blocker_count": settled_barrier.get("blocker_count"),
+            "blockers": settled_barrier.get("blockers") or [],
+            "label_countability": settled_barrier.get("label_countability") or {},
+            "resume_command": settled_barrier.get("resume_command"),
         },
         "source_family_inventory": {
             "status": source_family_inventory.get("status"),
@@ -1335,6 +1722,8 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     data_layer = scorecard["data_layer_audit"]
     settled_root_cause = scorecard.get("settled_day_root_cause") or {}
     settled_day = scorecard["settled_day_freshness"]
+    settled_barrier = scorecard.get("settled_day_analysis_barrier") or {}
+    label_countability = scorecard.get("label_countability") or {}
     source_family_inventory = scorecard.get("source_family_inventory") or {}
     fleet = scorecard["fleet"]
     shadow = scorecard["shadow_ab_monitor"]
@@ -1349,6 +1738,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
     promotion = scorecard["promotion"]
     casebook = scorecard["casebook"]
+    disagreement_rehydration = scorecard.get("model_market_disagreement_rehydration") or {}
     taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
     taker_tail = scorecard.get("taker_tail_casebook") or {}
     rollup_freshness = scorecard.get("rollup_freshness") or {}
@@ -1357,6 +1747,32 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     ledger_rows = payloads.get("daily_progress_ledger") or []
 
     _add_input_gate_learnings(learnings, input_gate)
+
+    for source, artifact in (
+        ("hourly_model_performance", hourly),
+        ("ten_minute_model_performance", ten_minute),
+        ("price_free_model_learning", price_free),
+        ("settled_day_root_cause", settled_root_cause),
+    ):
+        liveness = artifact.get("scoring_liveness") or {}
+        if liveness.get("status") != "BLOCK":
+            continue
+        first = liveness.get("first_blocker") or {}
+        learnings.append(_learning(
+            "P0",
+            "model_scoring_liveness",
+            source,
+            first.get("detail")
+            or (
+                f"{source} last scored {liveness.get('last_scored_target_date')}; "
+                f"latest settled label is {liveness.get('latest_settled_label_date')}"
+            ),
+            first.get("remediation_command")
+            or liveness.get("remediation_command")
+            or f"Regenerate {source} before consuming model-skill gates.",
+            evidence=liveness,
+            blocker=True,
+        ))
 
     if event_metadata.get("status") and event_metadata.get("status") != "PASS":
         first = event_metadata.get("first_blocker") or {}
@@ -1434,6 +1850,67 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             evidence=settled_day,
         ))
 
+    if settled_barrier.get("status") == "BLOCK":
+        first = next(iter(settled_barrier.get("blockers") or []), {})
+        learnings.append(_learning(
+            "P0",
+            "settled_day_analysis_barrier",
+            "settled_day_analysis_barrier",
+            (
+                f"Settled-day analysis barrier blocked {settled_barrier.get('target_date')}: "
+                f"{first.get('component') or 'dependency'} {first.get('detail') or 'blocked'}."
+            ),
+            settled_barrier.get("resume_command")
+            or "Rerun daily refresh from settled_day_analysis_barrier after finalization completes.",
+            evidence=settled_barrier,
+            blocker=True,
+        ))
+
+    if disagreement_rehydration.get("status") == "BLOCK":
+        first = next(iter(disagreement_rehydration.get("blockers") or []), {})
+        learnings.append(_learning(
+            "P0",
+            "disagreement_audit_rehydration",
+            "model_market_disagreement_analysis",
+            (
+                f"Model-market disagreement audit rehydration blocked "
+                f"{disagreement_rehydration.get('target_date') or run_date}: "
+                f"{first.get('detail') or 'complete-label rows remain unresolved'}."
+            ),
+            "Rerun daily refresh from model_market_disagreement_rehydration after repairing labels or audit band metadata.",
+            evidence=disagreement_rehydration,
+            blocker=True,
+        ))
+    elif disagreement_rehydration.get("status") == "WARN":
+        learnings.append(_learning(
+            "P1",
+            "disagreement_audit_rehydration",
+            "model_market_disagreement_analysis",
+            (
+                f"Model-market disagreement audit rehydration excluded "
+                f"{disagreement_rehydration.get('excluded_partial_label_count')} partial-label and "
+                f"{disagreement_rehydration.get('excluded_missing_label_count')} missing-label row(s)."
+            ),
+            "Review excluded disagreement rows before treating them as model-repair evidence.",
+            evidence=disagreement_rehydration,
+            blocker=False,
+        ))
+
+    if label_countability.get("diagnostic_only"):
+        learnings.append(_learning(
+            "P1",
+            "label_countability",
+            "settled_day_analysis_barrier",
+            (
+                f"Target-date labels are diagnostic-only: {label_countability.get('reason')}; "
+                "broad promotion evidence is not countable."
+            ),
+            "Use the day for diagnostic review only; wait for complete labels before broad promotion claims.",
+            evidence=label_countability,
+            retrain_input=False,
+            blocker=False,
+        ))
+
     root_cause_summary = settled_root_cause.get("summary") or {}
     if safe_int(root_cause_summary.get("explanation_snapshot_count")):
         coverage = root_cause_summary.get("explanation_coverage_rate")
@@ -1455,6 +1932,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
         ))
 
     if labels_total or corpus.get("market_day_count"):
+        evidence_countable = not bool(label_countability.get("diagnostic_only"))
         learnings.append(_learning(
             "P1",
             "new_training_evidence",
@@ -1464,8 +1942,12 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"{corpus.get('market_day_count')} market-days and {corpus.get('snapshot_count')} snapshots"
             ),
             "Use the refreshed corpus as the next retrain and replay input.",
-            evidence={"labels": scorecard["labels"], "corpus": corpus},
-            retrain_input=True,
+            evidence={
+                "labels": scorecard["labels"],
+                "corpus": corpus,
+                "label_countability": label_countability,
+            },
+            retrain_input=evidence_countable,
         ))
 
     if ingest.get("status") == "FAIL":
@@ -1980,6 +2462,8 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     if mm_trading.get("exists"):
         counts = bool(mm_trading.get("counts_toward_live_forward_gate"))
         priority = "P1" if counts else "P2"
+        quote_gate = mm_trading.get("quote_starvation_gate") or {}
+        quote_summary = mm_trading.get("quote_starvation") or {}
         learnings.append(_learning(
             priority,
             "market_making_evidence",
@@ -1989,7 +2473,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"quote_rows={mm_trading.get('quote_rows')} "
                 f"paper_legs={mm_trading.get('paper_posted_lifecycle_legs')} "
                 f"live_permission_rows={mm_trading.get('live_trade_permission_rows')} "
-                f"counts={counts}."
+                f"counts={counts}; classification={mm_trading.get('maker_day_classification') or '-'}."
             ),
             (
                 "Count MM as broad live-forward evidence only when evidence_mode is "
@@ -1999,11 +2483,45 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             retrain_input=counts,
             blocker=False,
         ))
+        if quote_gate.get("status") == "BLOCK":
+            learnings.append(_learning(
+                "P0",
+                "market_making_quote_starvation",
+                "trading_evidence",
+                (
+                    f"MM quote-starvation gate blocked: "
+                    f"classification={quote_gate.get('classification')}; "
+                    f"selection={mm_trading.get('evidence_selection_status')}; "
+                    f"quote_rows={quote_summary.get('quote_permission_rows')} "
+                    f"intents={quote_summary.get('total_intents')}."
+                ),
+                (
+                    "Do not count maker evidence until the latest target-date proof run is selected "
+                    "and quote starvation is resolved or explained by policy-only no-edge gates."
+                ),
+                evidence={"quote_starvation": quote_summary, "selection": mm_trading.get("evidence_selection") or {}},
+                blocker=True,
+            ))
+        elif quote_gate.get("status") == "WARN":
+            learnings.append(_learning(
+                "P1",
+                "market_making_quote_starvation",
+                "trading_evidence",
+                (
+                    f"MM quotes were policy-starved: classification={quote_gate.get('classification')}; "
+                    f"top gates={(quote_summary.get('reason_taxonomy') or {}).get('top_blocking_gates') or []}."
+                ),
+                "Treat the maker day as no-quote policy evidence, not quote permission proof.",
+                evidence={"quote_starvation": quote_summary},
+                blocker=False,
+            ))
     taker = trading.get("taker") or {}
     if taker.get("exists"):
         quality = taker.get("quality_gate") or {}
+        zero_fill_quality = taker.get("zero_fill_quality_classification")
+        zero_fill_blocker = zero_fill_quality in {"infra_blocked", "unscored_stale_labels"}
         learnings.append(_learning(
-            "P1" if quality.get("sample_ready") else "P2",
+            "P0" if zero_fill_blocker else ("P1" if quality.get("sample_ready") else "P2"),
             "taker_strategy_quality",
             "trading_evidence",
             (
@@ -2017,15 +2535,20 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"tail_status={taker.get('tail_fill_quality_status') or '-'} "
                 f"reconciliation={taker.get('settlement_reconciliation_status') or '-'} "
                 f"root_cause={taker.get('root_cause_class')}; "
+                f"zero_fill_quality={zero_fill_quality or '-'}; "
                 f"quality={quality.get('status')}."
             ),
             (
+                "Repair stale labels/artifacts or infrastructure blockers before treating zero-fill days "
+                "as no-edge evidence; otherwise require settlement-scored fills, tail-fill quality, "
+                "and rolling P&L thresholds before taker strategy-quality claims."
+                if zero_fill_blocker else
                 "Treat MTM-only paper P&L as provisional; require settlement-scored fills, "
                 "tail-fill quality, and rolling P&L thresholds before taker strategy-quality claims."
             ),
             evidence=taker,
             retrain_input=False,
-            blocker=quality.get("status") == "BLOCK",
+            blocker=quality.get("status") == "BLOCK" or zero_fill_blocker,
         ))
 
     if casebook.get("model_loss_count"):
@@ -2147,13 +2670,119 @@ def _promotion_confidence(candidate):
     }
 
 
-def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
+def _variant_delta_value(delta, *keys):
+    if not isinstance(delta, dict):
+        return None
+    for key in keys:
+        value = maybe_float(delta.get(key))
+        if value is not None:
+            return value
+    for value in delta.values():
+        if isinstance(value, dict):
+            nested = _variant_delta_value(value, *keys)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _retrain_recommendation(scorecard, learnings, experiment_queue, input_gate):
+    reasons = []
+    thresholds = {
+        "corpus_growth_market_days": RETRAIN_CORPUS_GROWTH_MARKET_DAYS,
+        "calibration_ece_drift": CALIBRATION_ECE_DRIFT_THRESHOLD,
+        "directional_bias_abs_drift": CALIBRATION_BIAS_DRIFT_THRESHOLD,
+    }
+    if (input_gate or {}).get("status") == "FAIL":
+        return {
+            "recommended": False,
+            "status": "SCHEDULED_FALLBACK",
+            "scheduled_fallback": True,
+            "reasons": [
+                {
+                    "code": "daily_analysis_inputs_not_clean",
+                    "detail": "daily analysis inputs are missing, stale, or inconsistent",
+                }
+            ],
+            "thresholds": thresholds,
+            "eligible_experiment_count": ((experiment_queue.get("summary") or {}).get("eligible_count") or 0),
+            "detail": "Input drift/novelty signals are missing or blocked; keep the existing scheduled retrain behavior.",
+        }
+
+    label_countability = scorecard.get("label_countability") or {}
+    settled = scorecard.get("settled_day_freshness") or {}
+    if (
+        label_countability.get("promotion_countable") is not False
+        and settled.get("target_date")
+        and safe_int((settled.get("summary") or {}).get("complete_market_count")) > 0
+    ):
+        reasons.append({
+            "code": "new_clean_settled_day",
+            "detail": f"settled target date {settled.get('target_date')} has clean countable labels",
+        })
+
+    delta = (scorecard.get("model_variant_evidence_growth") or {}).get("delta_vs_baseline") or {}
+    growth = _variant_delta_value(delta, "market_day_count", "unique_market_day_count", "unique_observation_count")
+    if growth is not None and growth >= RETRAIN_CORPUS_GROWTH_MARKET_DAYS:
+        reasons.append({
+            "code": "corpus_growth",
+            "detail": f"variant evidence grew by {fmt_num(growth, 3)} market-day/observation unit(s)",
+            "value": growth,
+            "threshold": RETRAIN_CORPUS_GROWTH_MARKET_DAYS,
+        })
+
+    for row in learnings or []:
+        if row.get("category") in {"calibration_drift", "directional_bias_drift"} and row.get("retrain_input"):
+            reasons.append({
+                "code": row.get("category"),
+                "detail": row.get("signal"),
+                "priority": row.get("priority"),
+            })
+        elif (
+            row.get("category") in {"market_skill_gap", "model_gap_slice", "hourly_early_market_delta"}
+            and row.get("priority") in {"P0", "P1"}
+            and row.get("retrain_input")
+        ):
+            reasons.append({
+                "code": "chronic_or_priority_slice",
+                "detail": row.get("signal"),
+                "priority": row.get("priority"),
+            })
+
+    eligible_count = safe_int((experiment_queue.get("summary") or {}).get("eligible_count"))
+    if eligible_count:
+        reasons.append({
+            "code": "eligible_experiment_queue",
+            "detail": f"{eligible_count} queued experiment(s) are eligible for nightly execution",
+            "value": eligible_count,
+        })
+
+    recommended = bool(reasons)
+    return {
+        "recommended": recommended,
+        "status": "RECOMMENDED" if recommended else "NOT_RECOMMENDED",
+        "scheduled_fallback": False,
+        "reasons": reasons or [{"code": "no_new_drift_or_novelty", "detail": "No clean drift, novelty, chronic-slice, or eligible queue trigger fired."}],
+        "thresholds": thresholds,
+        "eligible_experiment_count": eligible_count,
+        "detail": (
+            "Run retrain from explicit drift/novelty triggers."
+            if recommended
+            else "Retrain is not recommended by drift/novelty signals; default scheduled retrain remains available."
+        ),
+    }
+
+
+def _retrain_plan(scorecard, learnings, artifacts, snapshots_root, experiment_queue=None, retrain_recommendation=None):
     blockers = [row for row in learnings if row.get("blocker")]
     retrain_inputs = [row for row in learnings if row.get("retrain_input")]
     corpus = scorecard["corpus"]
     candidate = scorecard["candidate"]
     snapshot_status = scorecard["snapshot_evaluation"]["status"]
     variant_sla = (scorecard.get("model_variant_evidence_growth") or {}).get("evidence_sla") or {}
+    label_countability = scorecard.get("label_countability") or {}
+    labels_promotion_countable = label_countability.get("promotion_countable")
+    if labels_promotion_countable is None:
+        labels_promotion_countable = True
     evidence_allows_broad_promotion = variant_sla.get("broad_promotion_claim_allowed")
     if evidence_allows_broad_promotion is None:
         evidence_allows_broad_promotion = True
@@ -2188,6 +2817,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         "candidate_delta_vs_current_confident": candidate_delta_confident,
         "no_missing_candidate_rows": safe_int(candidate.get("missing_candidate_rows")) == 0,
         "broad_promotion_evidence_allowed": bool(evidence_allows_broad_promotion),
+        "labels_promotion_countable": bool(labels_promotion_countable),
     }
     promotion_ready_reasons = [
         name for name, passed in promotion_checks.items()
@@ -2209,6 +2839,13 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         "blocker_count": len(blockers),
         "first_uncleared_p0_gate": first_blocker or {},
         "retrain_input_count": len(retrain_inputs),
+        "experiment_queue": {
+            "status": (experiment_queue or {}).get("status"),
+            "queue_count": ((experiment_queue or {}).get("summary") or {}).get("queue_count"),
+            "eligible_count": ((experiment_queue or {}).get("summary") or {}).get("eligible_count"),
+            "item301_count": ((experiment_queue or {}).get("summary") or {}).get("item301_count"),
+        },
+        "retrain_recommendation": retrain_recommendation or {},
         "snapshots_root": str(Path(snapshots_root)),
         "broad_live_forward_slo": {
             "status": live_slo.get("status"),
@@ -2224,6 +2861,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
             "summary": live_slo.get("summary") or {},
         },
         "variant_learning_gate": scorecard.get("variant_learning_gate") or {},
+        "label_countability": label_countability,
         "training_inputs": {
             "promotion_corpus": {
                 "path": corpus.get("path") or artifacts["promotion_refresh"]["path"],
@@ -2285,6 +2923,7 @@ def build_learning_payload(
         payloads["trading_evidence"] = build_trading_evidence_summary(
             mm_runs_root=data_root / "mm_runs",
             taker_runs_root=data_root / "taker_runs",
+            target_date=run_date,
         )
         synthesized_trading_evidence = True
     generated = generated_at_utc or utc_iso()
@@ -2342,12 +2981,28 @@ def build_learning_payload(
         run_date=effective_run_date,
     )
     learnings = _rank_learnings(learnings)
+    experiment_queue = _build_experiment_queue(
+        learnings,
+        payloads,
+        artifacts,
+        generated_at_utc=generated,
+        run_date=effective_run_date,
+    )
+    retrain_recommendation = _retrain_recommendation(
+        scorecard,
+        learnings,
+        experiment_queue,
+        input_gate,
+    )
     status = _overall_status(learnings, artifacts)
     summary = {
         "learning_count": len(learnings),
         "blocker_count": sum(1 for row in learnings if row.get("blocker")),
         "high_priority_learning_count": sum(1 for row in learnings if row.get("priority") in {"P0", "P1"}),
         "retrain_input_count": sum(1 for row in learnings if row.get("retrain_input")),
+        "experiment_queue_count": (experiment_queue.get("summary") or {}).get("queue_count"),
+        "eligible_experiment_count": (experiment_queue.get("summary") or {}).get("eligible_count"),
+        "retrain_recommended": retrain_recommendation.get("recommended"),
         "truncated_sources": truncated_sources,
         "input_gate_status": input_gate.get("status"),
         "input_coverage": {
@@ -2357,7 +3012,14 @@ def build_learning_payload(
             "critical_missing_inputs": (input_gate.get("coverage") or {}).get("critical_missing_inputs") or [],
         },
     }
-    retrain_plan = _retrain_plan(scorecard, learnings, artifacts, snapshots_root)
+    retrain_plan = _retrain_plan(
+        scorecard,
+        learnings,
+        artifacts,
+        snapshots_root,
+        experiment_queue=experiment_queue,
+        retrain_recommendation=retrain_recommendation,
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated,
@@ -2369,6 +3031,7 @@ def build_learning_payload(
         "input_gate": input_gate,
         "scorecard": scorecard,
         "retrain_plan": retrain_plan,
+        "experiment_queue": experiment_queue,
         "learnings": learnings,
         "input_artifacts": artifacts,
     }

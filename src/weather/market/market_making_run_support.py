@@ -475,6 +475,7 @@ def preflight_market(
     pilot=False,
     data_layer_live_gate=None,
     platform_verification_gate=None,
+    exchange_economics_gate=None,
     event_metadata_gate=None,
     current_high_assessment=None,
 ):
@@ -555,6 +556,14 @@ def preflight_market(
             "missing",
             platform_verification_gate.get("reason") or "platform/account verification is not current",
         )
+    exchange_economics_gate = exchange_economics_gate or {"required": False, "ok": True}
+    if exchange_economics_gate.get("required"):
+        add_gate(
+            "exchange_economics_gate",
+            bool(exchange_economics_gate.get("ok")),
+            "missing",
+            exchange_economics_gate.get("reason") or "exchange economics snapshot is not current",
+        )
 
     live_gate = {
         "required": mode == "live-pilot",
@@ -620,6 +629,7 @@ def preflight_market(
         "live_gate": live_gate,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
+        "exchange_economics_gate": exchange_economics_gate,
         "event_metadata_gate": event_metadata_gate,
         "current_high_assessment": current_high_assessment or {},
     }

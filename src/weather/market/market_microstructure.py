@@ -983,10 +983,11 @@ def ensure_clob_loop(
             "orphan_processes_detected": has_orphans,
             "runtime_identity_matches_current": runtime_matches_current,
             "runtime_identity_before": (status or {}).get("runtime_identity"),
-            "loop_offsets_before": loop_file_offsets(spec),
         }
         guard = supervisor_recovery_guard(spec, action, now=now)
         result["recovery_guard"] = guard
+        if action in {"start", "restart"}:
+            result["loop_offsets_before"] = loop_file_offsets(spec)
         if action in {"start", "restart"} and not guard.get("allowed"):
             result["intended_action"] = action
             result["action"] = guard.get("action")

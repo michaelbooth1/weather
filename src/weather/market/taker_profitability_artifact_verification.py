@@ -39,6 +39,11 @@ BENCHMARK_FIELDS = (
     "avoided_loss_usdc",
     "missed_gain_usdc",
 )
+EXCHANGE_ECONOMICS_FIELDS = (
+    "exchange_economics_snapshot_id",
+    "exchange_economics_hash",
+    "exchange_economics_evidence_basis",
+)
 
 
 def _present(value) -> bool:
@@ -124,9 +129,40 @@ def _strategy_comparison(payload):
     return payload.get("strategy_comparison") or (payload.get("pnl") or {}).get("strategy_comparison") or {}
 
 
-def verify_taker_profitability_artifacts(run_folder):
+def _exchange_gate_from_payloads(*payloads):
+    for payload in payloads:
+        payload = payload or {}
+        gate = payload.get("exchange_economics_gate")
+        if gate:
+            return gate
+        summary = payload.get("summary") or {}
+        snapshot_id = (
+            payload.get("exchange_economics_snapshot_id")
+            or summary.get("exchange_economics_snapshot_id")
+        )
+        economics_hash = (
+            payload.get("exchange_economics_hash")
+            or summary.get("exchange_economics_hash")
+        )
+        status = (
+            payload.get("exchange_economics_status")
+            or summary.get("exchange_economics_gate_status")
+        )
+        if snapshot_id or economics_hash or status:
+            return {
+                "status": status or "PASS",
+                "ok": status in {None, "", "PASS"},
+                "snapshot_id": snapshot_id,
+                "snapshot_hash": economics_hash,
+                "reason": summary.get("exchange_economics_gate_reason"),
+            }
+    return {}
+
+
+def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=None):
     run_folder = Path(run_folder)
     orders_path = run_folder / "orders_long.csv"
+    run_config_path = run_folder / "run_config.json"
     daily_pnl_path = run_folder / "daily_pnl.json"
     strategy_summary_path = run_folder / "strategy_summary.json"
     settled_pnl_path = run_folder / "settled_pnl.json"
@@ -148,6 +184,7 @@ def verify_taker_profitability_artifacts(run_folder):
     orders = read_csv_rows(orders_path)
     filled_orders = [row for row in orders if str(row.get("order_status") or "").upper() == "FILLED"]
     order_scope = filled_orders or orders
+    run_config = read_json(run_config_path, {}) or {}
     daily_pnl = read_json(daily_pnl_path, {}) or {}
     strategy_summary = read_json(strategy_summary_path, {}) or {}
     settled_pnl = read_json(settled_pnl_path, {}) or {}
@@ -156,10 +193,38 @@ def verify_taker_profitability_artifacts(run_folder):
     benchmark_summary = comparison.get("market_benchmark_summary") or {}
 
     checks = []
+    exchange_gate = exchange_economics_gate or _exchange_gate_from_payloads(
+        run_config,
+        daily_pnl,
+        strategy_summary,
+        settled_pnl,
+    )
+    gate_status = str(exchange_gate.get("status") or "").upper()
+    if not exchange_gate:
+        checks.append(_check(
+            "exchange_economics_gate_missing",
+            "FAIL",
+            "Taker profitability artifacts do not cite an exchange-economics gate.",
+        ))
+    elif gate_status == "BLOCK" or exchange_gate.get("ok") is False:
+        checks.append(_check(
+            "exchange_economics_gate_blocked",
+            "FAIL",
+            exchange_gate.get("reason") or "Exchange-economics gate is not current.",
+            exchange_economics_snapshot_id=exchange_gate.get("snapshot_id"),
+            exchange_economics_hash=exchange_gate.get("snapshot_hash"),
+        ))
+    elif not (exchange_gate.get("snapshot_id") and (exchange_gate.get("snapshot_hash") or exchange_gate.get("exchange_economics_hash"))):
+        checks.append(_check(
+            "exchange_economics_snapshot_identity_missing",
+            "FAIL",
+            "Exchange-economics gate does not include snapshot id and hash.",
+        ))
     if not orders_path.exists():
         checks.append(_check("orders_tape_missing", "FAIL", f"Missing orders tape: {orders_path}"))
     else:
         checks.extend(_field_checks(order_scope, ORDER_OPPORTUNITY_FIELDS, scope="orders"))
+        checks.extend(_field_checks(order_scope, EXCHANGE_ECONOMICS_FIELDS, scope="orders_exchange_economics"))
         if filled_orders:
             checks.extend(_field_checks(filled_orders, FILLED_ORDER_FIELDS, scope="orders"))
         else:
@@ -176,12 +241,14 @@ def verify_taker_profitability_artifacts(run_folder):
         ))
     else:
         checks.extend(_field_checks(strategy_rows, STRATEGY_FIELDS, scope="strategy"))
+        checks.extend(_field_checks(strategy_rows, EXCHANGE_ECONOMICS_FIELDS, scope="strategy_exchange_economics"))
         checks.extend(_field_checks([benchmark_summary], BENCHMARK_FIELDS, scope="market_benchmark"))
 
     if settled_pnl_path.exists():
         settled_summary = (settled_pnl.get("pnl") or {}).get("summary") or settled_pnl.get("summary") or {}
         settled_strategy_rows = _strategy_rows(settled_pnl)
         checks.extend(_field_checks([settled_summary], ("live_profitability_evidence_basis",), scope="finalization"))
+        checks.extend(_field_checks([settled_summary], EXCHANGE_ECONOMICS_FIELDS, scope="finalization_exchange_economics"))
         if not _basis_is_after_fee(settled_summary.get("live_profitability_evidence_basis")):
             checks.append(_check(
                 "finalization_live_profitability_basis_not_after_fee_slippage",
@@ -226,10 +293,12 @@ def verify_taker_profitability_artifacts(run_folder):
         "schema_version": SCHEMA_VERSION,
         "run_folder": str(run_folder),
         "orders_path": str(orders_path),
+        "run_config_path": str(run_config_path),
         "daily_pnl_path": str(daily_pnl_path),
         "strategy_summary_path": str(strategy_summary_path),
         "settled_pnl_path": str(settled_pnl_path),
         "status": "BLOCK" if failed else "PASS",
+        "exchange_economics_gate": exchange_gate,
         "check_count": len(checks),
         "failed_check_count": len(failed),
         "checks": checks,

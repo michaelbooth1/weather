@@ -4,9 +4,11 @@ import os
 import tempfile
 import time
 import unittest
+import warnings
 from io import StringIO
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from weather.operations import supervisor
 
@@ -191,6 +193,36 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(circuit["action"], "circuit_open")
         self.assertEqual(circuit["recent_recovery_count"], 2)
 
+    def test_recent_recovery_events_skips_large_non_supervisor_lines(self):
+        now = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            diagnostics_path = Path(tmp) / "diagnostics.jsonl"
+            market_row = {
+                "time": (now - timedelta(minutes=1)).isoformat(),
+                "markets": {"atlanta": {"payload": "x" * 1_000_000}},
+            }
+            recovery_row = {
+                "time": now.isoformat(),
+                "supervisor": "ensure",
+                "action": "restart",
+                "state": "DEAD",
+            }
+            diagnostics_path.write_text(
+                json.dumps(market_row) + "\n" + json.dumps(recovery_row) + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(supervisor.json, "loads", wraps=json.loads) as loads:
+                events = supervisor.recent_recovery_events(
+                    diagnostics_path,
+                    now=now,
+                    window_hours=24,
+                )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event"]["action"], "restart")
+        self.assertEqual(loads.call_count, 1)
+
     def test_configure_json_console_logging_emits_valid_json_lines(self):
         root_logger = logging.getLogger()
         old_handlers = list(root_logger.handlers)
@@ -202,11 +234,32 @@ class TestSupervisorPrimitives(unittest.TestCase):
         finally:
             root_logger.handlers = old_handlers
             root_logger.setLevel(old_level)
+            logging.captureWarnings(False)
 
         payload = json.loads(stream.getvalue().strip())
         self.assertEqual(payload["level"], "WARNING")
         self.assertEqual(payload["logger"], "weather.test")
         self.assertEqual(payload["message"], "cache lock busy: unit")
+
+    def test_configure_json_console_logging_routes_python_warnings(self):
+        root_logger = logging.getLogger()
+        old_handlers = list(root_logger.handlers)
+        old_level = root_logger.level
+        stream = StringIO()
+        try:
+            supervisor.configure_json_console_logging(stream=stream, level=logging.WARNING)
+            with warnings.catch_warnings():
+                warnings.simplefilter("always")
+                warnings.warn("raw warning should be JSON", UserWarning)
+        finally:
+            root_logger.handlers = old_handlers
+            root_logger.setLevel(old_level)
+            logging.captureWarnings(False)
+
+        payload = json.loads(stream.getvalue().strip())
+        self.assertEqual(payload["level"], "WARNING")
+        self.assertEqual(payload["logger"], "py.warnings")
+        self.assertIn("raw warning should be JSON", payload["message"])
 
     def test_module_command_and_detached_launch(self):
         with tempfile.TemporaryDirectory() as tmp:

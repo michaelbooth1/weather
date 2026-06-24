@@ -46,6 +46,7 @@ def configure_json_console_logging(stream=None, level=logging.INFO) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+    logging.captureWarnings(True)
 
 
 @dataclass(frozen=True)
@@ -410,6 +411,16 @@ def _recovery_event(event: dict[str, Any]) -> bool:
     )
 
 
+def _looks_like_recovery_event_line(line: str) -> bool:
+    text = str(line or "").lower()
+    return (
+        '"supervisor"' in text
+        and '"ensure"' in text
+        and '"action"' in text
+        and ('"start"' in text or '"restart"' in text)
+    )
+
+
 def recent_recovery_events(
     diagnostics_path: str | Path,
     *,
@@ -426,6 +437,8 @@ def recent_recovery_events(
         for line_number, raw in enumerate(handle, start=1):
             line = raw.strip()
             if not line:
+                continue
+            if not _looks_like_recovery_event_line(line):
                 continue
             try:
                 event = json.loads(line)

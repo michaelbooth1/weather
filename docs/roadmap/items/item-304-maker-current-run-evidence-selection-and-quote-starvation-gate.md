@@ -1,4 +1,4 @@
-# 304. Maker Current-Run Evidence Selection And Quote-Starvation Gate [OPEN 2026-06-24 - TRADING EVIDENCE CAN MISS COUNTABLE MAKER RUNS AND QUOTE STARVATION]
+# 304. Maker Current-Run Evidence Selection And Quote-Starvation Gate [COMPLETE 2026-06-24 - TRADING EVIDENCE SELECTS TARGET-DATE RUNS AND GATES QUOTE STARVATION]
 
 Goal: make maker trading evidence select the latest countable target-date runs
 and explicitly flag quote-starvation by gate before maker evidence is considered
@@ -37,12 +37,12 @@ book infrastructure.
    the maker evidence report so variant evidence cannot look complete when it is
    partly skipped.
 
-- [ ] Repair maker trading-evidence run selection for target-date countable
+- [x] Repair maker trading-evidence run selection for target-date countable
   proof folders.
-- [ ] Add quote-starvation metrics and blocker taxonomy to maker reports.
-- [ ] Add maker-day classification for no-quote/no-fill outcomes.
-- [ ] Surface variant-bakeoff skipped-variant counts in trading evidence.
-- [ ] Add tests with fresh proof runs, stale report selection, policy
+- [x] Add quote-starvation metrics and blocker taxonomy to maker reports.
+- [x] Add maker-day classification for no-quote/no-fill outcomes.
+- [x] Surface variant-bakeoff skipped-variant counts in trading evidence.
+- [x] Add tests with fresh proof runs, stale report selection, policy
   starvation, and infrastructure starvation.
 
 Acceptance: maker trading evidence covers the latest countable target-date maker

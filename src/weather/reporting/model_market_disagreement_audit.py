@@ -441,7 +441,15 @@ def should_append_record(previous: dict[str, Any] | None, record: dict[str, Any]
     record_resolved = record.get("fair_value_probability") is not None
     if record_resolved and not previous_resolved:
         return True
-    fields = ("fair_value_probability", "closer_source", "settlement_bucket", "outcome")
+    fields = (
+        "status",
+        "fair_value_probability",
+        "closer_source",
+        "settlement_bucket",
+        "settlement_quality_grade",
+        "settlement_label_available",
+        "outcome",
+    )
     return any(previous.get(field) != record.get(field) for field in fields)
 
 

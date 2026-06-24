@@ -4,22 +4,22 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T13:41:16.538530+00:00
-Status: `OK`
+Generated: 2026-06-24T16:40:30.280456+00:00
+Status: `ERROR`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
 | Items | 308 |
-| Active items | 42 |
-| OPEN | 15 |
-| PARTIAL | 27 |
-| COMPLETE | 266 |
+| Active items | 35 |
+| OPEN | 7 |
+| PARTIAL | 28 |
+| COMPLETE | 272 |
 | ROADMAP rows | 308 |
 | ROADMAP primary rows | 308 |
 | Metadata manifest rows | 308 |
-| Lint errors | 0 |
+| Lint errors | 1 |
 
 ## Active Items
 
@@ -56,17 +56,13 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 298 | OPEN | 2026-06-24 | EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY | [Automatic Experiment Queue And Drift-Triggered Retrain Loop](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
 | 300 | OPEN | 2026-06-24 | PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS | [Current Exchange Economics And Rule-Drift Gate](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
-| 301 | OPEN | 2026-06-24 | SETTLED JUNE 23 EXPOSED LOCATION-SPECIFIC RANK AND BIAS ERRORS | [June 23 Location Bias And Winner-Rank Repair Packet](items/item-301-june-23-location-bias-and-winner-rank-repair-packet.md) |
 | 302 | OPEN | 2026-06-24 | AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE | [Post-Settlement Disagreement Audit Rehydration Gate](items/item-302-post-settlement-disagreement-audit-rehydration-gate.md) |
-| 303 | OPEN | 2026-06-24 | ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS DO NOT PRODUCE CANONICAL EVIDENCE | [Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization](items/item-303-post-settlement-taker-zero-fill-evidence-and-artifact-canonicalization.md) |
-| 304 | OPEN | 2026-06-24 | TRADING EVIDENCE CAN MISS COUNTABLE MAKER RUNS AND QUOTE STARVATION | [Maker Current-Run Evidence Selection And Quote-Starvation Gate](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
-| 305 | OPEN | 2026-06-24 | NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
 | 306 | OPEN | 2026-06-24 | OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH | [Daily-Roll Log Hygiene And Historical Error Separation](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | PARTIAL | 2026-06-24 | CODE REMEDIATION LANDED, ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
-| 308 | OPEN | 2026-06-24 | MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT | [Model-Performance Scoring Liveness And Regenerate-On-Settlement](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
+| 307 | PARTIAL | 2026-06-24 | IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 
 ## Lint Issues
 
-- none
+| Severity | Category | Item | Path | Detail |
+| :--- | :--- | :--- | :--- | :--- |
+| error | roadmap_heading_parse | 299 | docs/roadmap/items/item-299-polymarket-event-metadata-rollover-gate.md | status block does not parse into status, optional date, and disposition |

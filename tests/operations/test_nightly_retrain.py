@@ -27,6 +27,7 @@ def _args(tmp, *extra):
         "--promotion-report", str(root / "backtest" / "f_family_promotion_refresh_report.md"),
         "--daily-learning-out", str(root / "backtest" / "daily_learning.json"),
         "--daily-learning-report", str(root / "backtest" / "daily_learning_report.md"),
+        "--experiment-queue-results-out", str(root / "backtest" / "experiment_queue_results.json"),
         "--labels-csv", str(root / "backtest" / "market_day_labels.csv"),
         "--ledger-root", str(root / "settlements"),
         "--settled-day-freshness-out", str(root / "backtest" / "settled_day_freshness.json"),
@@ -80,6 +81,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual([step["name"] for step in payload["steps"]], [
             "settled_day_freshness",
             "daily_learning",
+            "experiment_queue",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
             "artifact_registry",
@@ -120,6 +122,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual([step["name"] for step in payload["steps"]], [
             "settled_day_freshness",
             "daily_learning",
+            "experiment_queue",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
         ])
@@ -136,8 +139,111 @@ class TestNightlyRetrain(unittest.TestCase):
             )
 
         self.assertEqual(payload["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 7)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 8)
         self.assertFalse(payload["config"]["long_job_guard"]["enabled"])
+
+    def test_experiment_queue_step_executes_top_eligible_items_and_writes_results(self):
+        calls = []
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            if "weather.reporting.daily.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "ACTIONABLE",
+                        "run_date": "2026-06-24",
+                        "summary": {"learning_count": 1, "blocker_count": 0},
+                        "retrain_plan": {
+                            "training_ready": True,
+                            "retrain_recommendation": {
+                                "recommended": True,
+                                "status": "RECOMMENDED",
+                                "scheduled_fallback": False,
+                                "reasons": [{"code": "eligible_experiment_queue"}],
+                            },
+                        },
+                        "experiment_queue": {
+                            "status": "READY",
+                            "summary": {"queue_count": 1, "eligible_count": 1},
+                            "items": [
+                                {
+                                    "queue_id": "item301:2026-06-23:seattle:cold_miss",
+                                    "status": "queued",
+                                    "priority": "P1",
+                                    "source": "june23_location_bias_repair_packet",
+                                    "category": "june23_location_bias_repair",
+                                    "slice": "market_id=seattle;bias=cold_miss",
+                                    "hypothesis": "repair seattle cold miss",
+                                    "artifact_path": "data/backtest/june23_location_bias_repair_packet.json",
+                                    "clearance_rule": "protect winners",
+                                    "command": ["python", "-m", "weather.reporting.june23_location_bias_repair"],
+                                }
+                            ],
+                        },
+                        "learnings": [],
+                    }),
+                    encoding="utf-8",
+                )
+            if "weather.reporting.promotion_refresh" in command:
+                out = command[command.index("--out") + 1]
+                _write_promotion(out, shadow=["nyc"])
+            return {"returncode": 0, "stdout": "ok", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_nightly_retrain(_args(tmp), runner=runner)
+            results = json.loads((Path(tmp) / "backtest" / "experiment_queue_results.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "shadow")
+        self.assertEqual(results["schema_version"], "experiment_queue_results_v0.1")
+        self.assertEqual(results["executed_count"], 1)
+        self.assertEqual(results["results"][0]["queue_id"], "item301:2026-06-23:seattle:cold_miss")
+        self.assertTrue(any("weather.reporting.june23_location_bias_repair" in command for command in calls))
+
+    def test_no_retrain_recommendation_can_skip_expensive_steps_without_disabling_default_schedule(self):
+        calls = []
+
+        def runner(command, **_kwargs):
+            calls.append(command)
+            if "weather.reporting.daily.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "ACTIONABLE",
+                        "run_date": "2026-06-24",
+                        "summary": {"learning_count": 0, "blocker_count": 0},
+                        "retrain_plan": {
+                            "training_ready": True,
+                            "retrain_recommendation": {
+                                "recommended": False,
+                                "status": "NOT_RECOMMENDED",
+                                "scheduled_fallback": False,
+                                "reasons": [{"code": "no_new_drift_or_novelty"}],
+                            },
+                        },
+                        "experiment_queue": {
+                            "status": "EMPTY",
+                            "summary": {"queue_count": 0, "eligible_count": 0},
+                            "items": [],
+                        },
+                        "learnings": [],
+                    }),
+                    encoding="utf-8",
+                )
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_nightly_retrain(
+                _args(tmp, "--skip-when-no-retrain-recommendation"),
+                runner=runner,
+            )
+
+        self.assertEqual(payload["status"], "skipped_no_retrain_recommendation")
+        self.assertEqual(payload["promotion"]["reason"], "retrain_not_recommended")
+        self.assertIn("retrain_recommendation_gate", [step["name"] for step in payload["steps"]])
+        self.assertFalse(any("weather.calibration.family_secondary_artifacts" in command for command in calls))
 
     def test_daily_learning_blocker_marks_run_blocked_by_default(self):
         calls = []

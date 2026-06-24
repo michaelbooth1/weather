@@ -1,4 +1,4 @@
-# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - CODE REMEDIATION LANDED, ACTIVE-DAY SOAK PENDING]
+# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -81,24 +81,60 @@ observation-trigger loops:
 - CLOB and observation-trigger `ensure` commands now use the same bounded
   recovery guard while preserving their existing orphan-process and
   source-identity recovery decisions.
+- Recovery-event scanning now prefilters diagnostics lines before JSON parsing
+  and healthy `noop` ensures do not count diagnostics/console offsets, avoiding
+  scheduler lock contention from large loop logs.
+- Managed-loop console logging now captures Python warnings as JSON log records,
+  preventing raw warning text from creating new malformed JSONL lines.
+- Event metadata validation report rendering now emits Markdown tables
+  correctly, so the live-forward gate validation command exits cleanly while
+  writing both JSON and Markdown evidence.
 
 Regression coverage added:
 
 - `tests/operations/test_supervisor.py` covers malformed-line quarantine and
-  recovery guard backoff/circuit behavior.
+  recovery guard backoff/circuit behavior, large non-supervisor diagnostics
+  prefiltering, and JSON routing for Python warnings.
 - `tests/collection/test_loop_supervisor.py` and
   `tests/collection/test_collection_robustness.py` cover snapshot stale-code
   backoff and clean child exit.
 - `tests/market/test_market_microstructure.py` and
   `tests/operations/test_observation_trigger.py` cover CLOB and
-  observation-trigger bounded restarts.
+  observation-trigger bounded restarts, including the fast CLOB `noop` ensure
+  path.
+- `tests/operations/test_event_metadata_validation.py` covers Markdown report
+  rendering and output writing for the event-metadata validation evidence used
+  by the live-forward gate.
 
 Verification:
 
 - `python -m pytest tests\operations\test_supervisor.py tests\collection\test_loop_supervisor.py tests\collection\test_collection_robustness.py tests\operations\test_observation_trigger.py tests\market\test_market_microstructure.py tests\reporting\test_fleet_observability.py tests\operations\test_nightly_health_checks.py -q`
-  passed (`149 passed`).
+  passed (`153 passed`).
+- `python -m pytest tests\operations\test_event_metadata_validation.py -q`
+  passed (`6 passed`).
+- `python -m weather.operations.event_metadata_validation --target-date 2026-06-24`
+  now exits successfully and writes both
+  `data/backtest/event_metadata_validation.json` and
+  `data/backtest/event_metadata_validation_report.md`.
+- Deployed the patched loops at source fingerprint `0112ea7b37a05047`.
+  Snapshot, CLOB, and observation-trigger health all report `RUNNING`, current
+  runtime identity, live pids, single writer locks, and `consecutive_errors=0`.
+- Repaired legacy malformed snapshot and observation console lines. Final local
+  integrity checks report `malformed_lines=0` for
+  `data/snapshots/loop_console.log` and
+  `data/snapshots/observation_trigger_console.log`.
+- Refreshed same-day location event metadata and wrote
+  `data/backtest/event_metadata_validation.json`; the final fleet probe reports
+  event metadata validation `PASS` and live-forward SLO `PASS` /
+  `counts_toward_live_forward_gate=True`.
+- `data/backtest/fleet_observability_item307_event_validation_fix_probe.json` still
+  reports fleet `CRITICAL` only because today's pre-fix restart storm remains in
+  the 24-hour budget window: snapshot `447 > 6` until
+  `2026-06-25T14:56:43.976503+00:00`, CLOB `432 > 12` until
+  `2026-06-25T13:26:23.350449+00:00`, and observation-trigger `108 > 12` until
+  `2026-06-25T13:58:12.968501+00:00`.
 
-Remaining blocker: deploy/restart the managed loops with this code and retain one
-full active-day soak where all three loops stay current-code, single-writer,
-under restart budget, and live-forward cadence passes. That evidence is required
+Remaining blocker: retain one full active-day soak after the pre-fix restart
+storm ages out, where all three loops stay current-code, single-writer, under
+restart budget, and live-forward cadence passes. That evidence is required
 before this item should be marked complete.

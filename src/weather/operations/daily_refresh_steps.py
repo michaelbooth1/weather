@@ -15,15 +15,18 @@ from weather.backtesting.settlement_ledger import (
     DEFAULT_LEDGER_ROOT,
     finalize_folders,
 )
+from weather.market import exchange_economics
 from weather.market import mm_paper
 from weather.market import taker_bot
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
+from weather.operations import daily_roll_log_hygiene
 from weather.operations import event_metadata_validation
 from weather.operations import nightly_health_checks
 from weather.operations import replay_status_backfill
+from weather.operations import settled_day_freshness
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
     as_path,
@@ -47,7 +50,9 @@ from weather.reporting import distribution_stage_attribution
 from weather.reporting.fleet import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
+from weather.reporting import june23_location_bias_repair
 from weather.reporting import market_beating_objective_scoreboard
+from weather.reporting import model_market_disagreement_analysis
 from weather.reporting import price_free_model_learning
 from weather.reporting import proper_scoring_reliability_scorecard
 from weather.reporting import progress_audit
@@ -70,6 +75,7 @@ STEP_ORDER = (
     "ingest_quality_gate",
     "event_metadata_validation",
     "market_day_labels_finalize",
+    "exchange_economics_rule_drift",
     "taker_finalization_watchdog",
     "taker_tail_casebook",
     "maker_paper_score",
@@ -81,6 +87,8 @@ STEP_ORDER = (
     "hourly_model_performance",
     "ten_minute_model_performance",
     "price_free_model_learning",
+    "model_market_disagreement_rehydration",
+    "settled_day_analysis_barrier",
     "promotion_refresh",
     "shadow_ab_monitor",
     "active_variant_shadow",
@@ -90,17 +98,104 @@ STEP_ORDER = (
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
+    "daily_roll_log_hygiene",
     "nightly_health_checks",
     "data_layer_audit",
     "snapshot_evaluation",
     "distribution_stage_attribution",
     "settled_day_root_cause",
     "winner_rank_parity",
+    "june23_location_bias_repair",
     "data_retention_inventory",
     "daily_learning",
     "market_beating_objective_scoreboard",
     "daily_flow_analysis",
 )
+
+SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
+    {
+        "step": "market_day_labels_finalize",
+        "phase": "label_finalization",
+        "critical": True,
+    },
+    {
+        "step": "exchange_economics_rule_drift",
+        "phase": "exchange_economics_currentness",
+        "critical": True,
+        "target_date_fields": ("target_date",),
+        "skippable_as_non_critical": False,
+    },
+    {
+        "step": "taker_finalization_watchdog",
+        "phase": "post_label_taker_finalization",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "taker_tail_casebook",
+        "phase": "post_label_taker_evidence",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "maker_paper_score",
+        "phase": "post_label_maker_evidence",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "settlement_source_audit",
+        "phase": "label_provenance_audit",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "trading_evidence",
+        "phase": "post_label_trading_evidence",
+        "critical": True,
+        "target_date_fields": ("target_date", "run_date"),
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "replay_status_backfill",
+        "phase": "settled_day_replay_rehydration",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "hourly_model_performance",
+        "phase": "model_skill_scoring",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "ten_minute_model_performance",
+        "phase": "model_skill_scoring",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "price_free_model_learning",
+        "phase": "model_skill_scoring",
+        "critical": False,
+        "skippable_as_non_critical": True,
+    },
+    {
+        "step": "model_market_disagreement_rehydration",
+        "phase": "post_label_disagreement_audit_rehydration",
+        "critical": True,
+        "target_date_fields": ("target_date",),
+        "skippable_as_non_critical": True,
+    },
+)
+
+
+class SettledDayAnalysisBarrierError(RuntimeError):
+    """Raised when final settled-day analysis must not continue."""
+
+    def __init__(self, message, payload):
+        super().__init__(message)
+        self.payload = dict(payload or {})
 
 
 def planned_steps():
@@ -426,6 +521,45 @@ def run_market_day_labels_finalize(args):
     return summary
 
 
+def run_exchange_economics_rule_drift_step(args):
+    if getattr(args, "skip_exchange_economics_rule_drift", False):
+        return {"status": "SKIPPED", "reason": "skip_exchange_economics_rule_drift"}
+    target = settled_analysis_target_date(args).isoformat()
+    snapshot_path = (
+        getattr(args, "exchange_economics_snapshot", "")
+        or backtest_path(args, "exchange_economics_snapshot.json")
+    )
+    accepted_snapshot_path = (
+        getattr(args, "exchange_economics_accepted_snapshot", "")
+        or backtest_path(args, "exchange_economics_accepted_snapshot.json")
+    )
+    payload = exchange_economics.build_drift_report(
+        snapshot_path=snapshot_path,
+        accepted_snapshot_path=accepted_snapshot_path,
+        target_date=target,
+        platform=getattr(args, "exchange_economics_platform", exchange_economics.DEFAULT_PLATFORM),
+        now=getattr(args, "as_of", None),
+    )
+    json_out = exchange_economics.write_drift_report(
+        payload,
+        backtest_path(args, "exchange_economics_drift.json"),
+    )
+    gate = payload.get("current_gate") or {}
+    return {
+        "status": payload.get("status"),
+        "target_date": target,
+        "json_out": as_path(json_out),
+        "snapshot_path": str(snapshot_path),
+        "accepted_snapshot_path": str(accepted_snapshot_path),
+        "snapshot_id": payload.get("current_snapshot_id"),
+        "snapshot_hash": payload.get("current_snapshot_hash"),
+        "gate_status": gate.get("status"),
+        "rescore_required": bool(payload.get("rescore_required")),
+        "material_change_count": payload.get("material_change_count"),
+        "blockers": payload.get("blockers") or [],
+    }
+
+
 def _taker_finalization_status(payload):
     summary = payload.get("summary") or {}
     if summary.get("sla_breach_count"):
@@ -440,8 +574,12 @@ def run_taker_finalization_watchdog_step(args):
         return {"status": "SKIPPED", "reason": "skip_taker_finalization_watchdog"}
     champion_ledger_out = backtest_path(args, "taker_champion_challenger_ledger.json")
     champion_report_out = backtest_path(args, "taker_champion_challenger_ledger_report.md")
+    target_date = (
+        getattr(args, "taker_finalization_date", "")
+        or settled_analysis_target_date(args).isoformat()
+    )
     payload = taker_bot.finalization_watchdog(
-        target_date=getattr(args, "taker_finalization_date", "") or None,
+        target_date=target_date,
         runs_root=getattr(args, "taker_root", taker_bot.DEFAULT_RUNS_ROOT),
         labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
         now=getattr(args, "as_of", None),
@@ -463,18 +601,35 @@ def run_taker_finalization_watchdog_step(args):
         ),
         champion_ledger_out=champion_ledger_out,
         champion_ledger_report_out=champion_report_out,
+        exchange_economics_snapshot_path=(
+            getattr(args, "exchange_economics_snapshot", "")
+            or backtest_path(args, "exchange_economics_snapshot.json")
+        ),
+        exchange_economics_platform=getattr(
+            args,
+            "exchange_economics_platform",
+            exchange_economics.DEFAULT_PLATFORM,
+        ),
     )
     status = _taker_finalization_status(payload)
     payload["status"] = status
     json_out = write_json(backtest_path(args, "taker_finalization_watchdog.json"), payload)
     report_out = backtest_path(args, "taker_finalization_watchdog_report.md")
     Path(report_out).parent.mkdir(parents=True, exist_ok=True)
-    Path(report_out).write_text(taker_bot.render_finalization_watchdog_report(payload), encoding="utf-8")
+    report_text = taker_bot.render_finalization_watchdog_report(payload)
+    Path(report_out).write_text(report_text, encoding="utf-8")
+    detail_json_out = write_json(backtest_path(args, f"taker_finalization_watchdog_{target_date}.json"), payload)
+    detail_report_out = backtest_path(args, f"taker_finalization_watchdog_report_{target_date}.md")
+    Path(detail_report_out).parent.mkdir(parents=True, exist_ok=True)
+    Path(detail_report_out).write_text(report_text, encoding="utf-8")
     summary = payload.get("summary") or {}
     return {
         "status": status,
+        "target_date": target_date,
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
+        "detail_json_out": as_path(detail_json_out),
+        "detail_report_out": as_path(detail_report_out),
         "run_count": summary.get("run_count"),
         "labelable_run_count": summary.get("labelable_run_count"),
         "needs_finalization_count": summary.get("needs_finalization_count"),
@@ -493,9 +648,13 @@ def run_taker_finalization_watchdog_step(args):
 def run_taker_tail_casebook_step(args):
     if getattr(args, "skip_taker_tail_casebook", False):
         return {"status": "SKIPPED", "reason": "skip_taker_tail_casebook"}
+    target_date = (
+        getattr(args, "taker_tail_casebook_date", "")
+        or settled_analysis_target_date(args).isoformat()
+    )
     runs = taker_tail_casebook.discover_run_sources(
         getattr(args, "taker_root", taker_tail_casebook.DEFAULT_TAKER_RUNS_ROOT),
-        target_date=getattr(args, "taker_tail_casebook_date", "") or None,
+        target_date=target_date,
         max_runs=getattr(args, "taker_tail_casebook_max_runs", 0) or None,
     )
     payload = taker_tail_casebook.build_tail_casebook_from_paths(
@@ -506,11 +665,17 @@ def run_taker_tail_casebook_step(args):
     json_out = backtest_path(args, "taker_tail_casebook.json")
     report_out = backtest_path(args, "taker_tail_casebook_report.md")
     taker_tail_casebook.write_outputs(payload, json_out=json_out, report_out=report_out)
+    detail_json_out = backtest_path(args, f"taker_tail_casebook_{target_date}.json")
+    detail_report_out = backtest_path(args, f"taker_tail_casebook_report_{target_date}.md")
+    taker_tail_casebook.write_outputs(payload, json_out=detail_json_out, report_out=detail_report_out)
     summary = payload.get("summary") or {}
     return {
         "status": summary.get("status"),
+        "target_date": target_date,
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
+        "detail_json_out": as_path(detail_json_out),
+        "detail_report_out": as_path(detail_report_out),
         "source_run_count": len(runs),
         "tail_fill_count": summary.get("tail_fill_count"),
         "losing_tail_fill_count": summary.get("losing_tail_fill_count"),
@@ -530,8 +695,18 @@ def run_maker_paper_score_step(args):
         backtest_root=backtest_root,
         casebook_path=backtest_path(args, "disagreement_casebook.json"),
         promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
-        now=utc_iso(),
+        now=getattr(args, "as_of", None) or utc_iso(),
         ledger_root=getattr(args, "ledger_root", None),
+        exchange_economics_snapshot_path=(
+            getattr(args, "exchange_economics_snapshot", "")
+            or backtest_path(args, "exchange_economics_snapshot.json")
+        ),
+        exchange_economics_target_date=settled_analysis_target_date(args).isoformat(),
+        exchange_economics_platform=getattr(
+            args,
+            "exchange_economics_platform",
+            exchange_economics.DEFAULT_PLATFORM,
+        ),
     )
     payload, _known_edge = mm_paper.write_outputs(
         payload,
@@ -546,7 +721,7 @@ def run_maker_paper_score_step(args):
     freshness = summary.get("paper_score_freshness") or {}
     pnl = summary.get("pnl") or {}
     return {
-        "status": "BLOCK" if freshness.get("status") == "STALE" else "PASS",
+        "status": "BLOCK" if freshness.get("status") == "STALE" or summary.get("exchange_economics_gate_status") == "BLOCK" else "PASS",
         "json_out": as_path(backtest_path(args, "mm_paper_report.json")),
         "report_out": as_path(backtest_path(args, "mm_paper_report.md")),
         "fills_out": as_path(backtest_path(args, "mm_paper_fills_long.csv")),
@@ -562,6 +737,9 @@ def run_maker_paper_score_step(args):
         "conservative_fills": summary.get("conservative_fills"),
         "net_pnl_after_fees_incentives_usdc": pnl.get("net_pnl_after_fees_incentives_usdc"),
         "gate_status": summary.get("gate_status"),
+        "exchange_economics_gate_status": summary.get("exchange_economics_gate_status"),
+        "exchange_economics_snapshot_id": summary.get("exchange_economics_snapshot_id"),
+        "exchange_economics_hash": summary.get("exchange_economics_hash"),
         "blocks_maker_evidence_countability": freshness.get("blocks_maker_evidence_countability"),
     }
 
@@ -598,12 +776,14 @@ def run_settlement_source_audit_step(args):
 def run_trading_evidence_step(args):
     if getattr(args, "skip_trading_evidence", False):
         return {"status": "SKIPPED", "reason": "skip_trading_evidence"}
+    target_date = settled_analysis_target_date(args).isoformat()
     payload = trading_evidence.build_trading_evidence_summary(
         mm_runs_root=getattr(args, "mm_root", trading_evidence.DEFAULT_MM_RUNS_ROOT),
         taker_runs_root=getattr(args, "taker_root", trading_evidence.DEFAULT_TAKER_RUNS_ROOT),
         mm_paper_json=backtest_path(args, "mm_paper_report.json"),
         settlement_audit_json=backtest_path(args, "settlement_source_revision_audit.json"),
         generated_at_utc=utc_iso(),
+        target_date=target_date,
     )
     status = trading_evidence._summary_status(payload)
     payload["status"] = status
@@ -616,11 +796,15 @@ def run_trading_evidence_step(args):
     mm = payload.get("market_making") or {}
     return {
         "status": status,
+        "target_date": payload.get("target_date"),
+        "run_date": payload.get("run_date"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "mm_evidence_mode": mm.get("evidence_mode"),
         "mm_counts_toward_live_forward": mm.get("counts_toward_live_forward_gate"),
         "mm_evidence_starvation_status": mm.get("evidence_starvation_status"),
+        "mm_maker_day_classification": mm.get("maker_day_classification"),
+        "mm_quote_starvation_gate_status": (mm.get("quote_starvation_gate") or {}).get("status"),
         "mm_paper_score_freshness_status": mm.get("paper_score_freshness_status"),
         "mm_paper_latest_completed_active_day": mm.get("paper_score_latest_completed_active_day"),
         "mm_paper_latest_covered_active_day": mm.get("paper_score_latest_covered_active_day"),
@@ -629,6 +813,7 @@ def run_trading_evidence_step(args):
         "taker_run_id": taker.get("run_id"),
         "taker_quality_status": (taker.get("quality_gate") or {}).get("status"),
         "taker_pnl_evidence_status": taker.get("pnl_evidence_status"),
+        "taker_zero_fill_quality_classification": taker.get("zero_fill_quality_classification"),
         "taker_settlement_source_audit_status": taker.get("settlement_source_audit_status"),
         "taker_settlement_source_audit_blockers": taker.get("settlement_source_audit_blockers") or [],
         "taker_net_pnl_usdc": taker.get("net_pnl_usdc"),
@@ -739,6 +924,196 @@ def run_closed_day_parquet_incremental_step(args):
     }
 
 
+def settled_analysis_target_date(args):
+    configured = getattr(args, "settled_analysis_target_date", "") or ""
+    if configured:
+        return parse_date_arg(configured)
+    return settled_day_freshness.target_date_from_args(
+        target_date=None,
+        as_of=getattr(args, "as_of", None),
+    )
+
+
+def _parse_market_ids(value):
+    if not value:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def _dependency_status(step, dependency, target_date):
+    result = step.get("result") or {}
+    step_status = step.get("status")
+    result_status = result.get("status")
+    blocker = None
+    non_critical = False
+    if not step:
+        blocker = "step_missing"
+    elif step_status == "error":
+        blocker = step.get("error") or "step_error"
+    elif result_status == "SKIPPED" and dependency.get("skippable_as_non_critical"):
+        non_critical = True
+    elif result_status in {"BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
+        blocker = f"step_result_status={result_status}"
+
+    observed_dates = []
+    for field in dependency.get("target_date_fields") or ():
+        value = result.get(field)
+        if value:
+            observed_dates.append(str(value)[:10])
+    mismatched_dates = sorted({value for value in observed_dates if value != target_date})
+    if mismatched_dates and dependency.get("critical"):
+        blocker = f"target_date_mismatch={','.join(mismatched_dates)} expected={target_date}"
+
+    return {
+        "step": dependency["step"],
+        "phase": dependency.get("phase"),
+        "critical": bool(dependency.get("critical")),
+        "step_status": step_status,
+        "result_status": result_status,
+        "target_date": target_date,
+        "observed_target_dates": sorted(set(observed_dates)),
+        "non_critical": non_critical,
+        "blocker": blocker,
+    }
+
+
+def _label_countability_from_freshness(freshness, finalize_result=None):
+    finalize_result = finalize_result or {}
+    quality_counts = Counter()
+    finalize_quality_counts = finalize_result.get("quality_counts") or {}
+    if finalize_quality_counts:
+        quality_counts.update({
+            key: int(value or 0)
+            for key, value in finalize_quality_counts.items()
+        })
+    else:
+        for row in freshness.get("markets") or []:
+            grade = row.get("quality_grade")
+            if grade:
+                quality_counts[str(grade)] += 1
+    partial_count = int(quality_counts.get("partial") or 0)
+    if partial_count:
+        status = "diagnostic_only"
+        promotion_countable = False
+        reason = f"{partial_count} settled label(s) have quality_grade=partial"
+    else:
+        status = "promotion_countable"
+        promotion_countable = True
+        reason = "all selected settled labels are promotion-countable"
+    return {
+        "status": status,
+        "promotion_countable": promotion_countable,
+        "diagnostic_only": not promotion_countable,
+        "partial_label_count": partial_count,
+        "quality_counts": dict(sorted(quality_counts.items())),
+        "reason": reason,
+    }
+
+
+def _settled_day_resume_command(args):
+    command = [
+        "python",
+        "-m",
+        "weather.operations.daily_refresh",
+        "run",
+        "--resume-from-step",
+        "settled_day_analysis_barrier",
+        "--backtest-root",
+        str(args.backtest_root),
+        "--snapshots-root",
+        str(args.snapshots_root),
+    ]
+    if getattr(args, "as_of", None):
+        command += ["--as-of", str(args.as_of)]
+    target = getattr(args, "settled_analysis_target_date", "") or ""
+    if target:
+        command += ["--settled-analysis-target-date", str(target)]
+    return " ".join(command)
+
+
+def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
+    target = settled_analysis_target_date(args)
+    target_date = target.isoformat()
+    steps_by_name = {step.get("name"): step for step in steps_so_far or []}
+    freshness_payload = settled_day_freshness.build_freshness_payload(
+        snapshots_root=getattr(args, "snapshots_root", settled_day_freshness.DEFAULT_SNAPSHOTS_ROOT),
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
+        target_date=target,
+        as_of=getattr(args, "as_of", None),
+        market_ids=_parse_market_ids(getattr(args, "markets", "")),
+    )
+    freshness_json, freshness_report = settled_day_freshness.write_outputs(
+        freshness_payload,
+        backtest_path(args, "settled_day_freshness.json"),
+        backtest_path(args, "settled_day_freshness_report.md"),
+    )
+    dependencies = [
+        _dependency_status(steps_by_name.get(dependency["step"]) or {}, dependency, target_date)
+        for dependency in SETTLED_DAY_ANALYSIS_DEPENDENCIES
+    ]
+    blockers = []
+    if freshness_payload.get("status") == "FAIL":
+        summary = freshness_payload.get("summary") or {}
+        blockers.append({
+            "component": "settled_day_freshness",
+            "detail": (
+                f"{summary.get('incomplete_market_count')} incomplete market(s); "
+                f"{summary.get('needs_finalization_count')} need finalization; "
+                f"{summary.get('needs_replay_status_repair_count')} need replay-status repair"
+            ),
+            "repair_command": freshness_payload.get("repair_command"),
+            "replay_status_repair_command": freshness_payload.get("replay_status_repair_command"),
+        })
+    for dependency in dependencies:
+        if dependency.get("blocker"):
+            blockers.append({
+                "component": dependency.get("step"),
+                "detail": dependency.get("blocker"),
+                "phase": dependency.get("phase"),
+                "resume_command": _settled_day_resume_command(args),
+            })
+    finalize = (steps_by_name.get("market_day_labels_finalize") or {}).get("result") or {}
+    countability = _label_countability_from_freshness(freshness_payload, finalize)
+    status = "BLOCK" if blockers else ("DIAGNOSTIC_ONLY" if countability.get("diagnostic_only") else "PASS")
+    return {
+        "schema_version": schema_version("settled_day_analysis_barrier"),
+        "generated_at_utc": utc_iso(),
+        "status": status,
+        "target_date": target_date,
+        "dependency_graph": list(SETTLED_DAY_ANALYSIS_DEPENDENCIES),
+        "dependencies": dependencies,
+        "settled_day_freshness": {
+            "status": freshness_payload.get("status"),
+            "json_out": as_path(freshness_json),
+            "report_out": as_path(freshness_report),
+            "summary": freshness_payload.get("summary") or {},
+        },
+        "label_countability": countability,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "resume_command": _settled_day_resume_command(args),
+        "hard_stop_pipeline": bool(blockers),
+    }
+
+
+def run_settled_day_analysis_barrier_step(args):
+    if getattr(args, "skip_settled_day_analysis_barrier", False):
+        return {"status": "SKIPPED", "reason": "skip_settled_day_analysis_barrier"}
+    steps_so_far = getattr(args, "_daily_refresh_steps_so_far", None) or []
+    payload = build_settled_day_analysis_barrier(args, steps_so_far=steps_so_far)
+    json_out = write_json(backtest_path(args, "settled_day_analysis_barrier.json"), payload)
+    payload["json_out"] = as_path(json_out)
+    if payload.get("status") == "BLOCK":
+        raise SettledDayAnalysisBarrierError(
+            f"settled-day analysis barrier blocked target_date={payload.get('target_date')}",
+            payload,
+        )
+    return payload
+
+
 def promotion_args(args):
     parser = promotion_refresh.build_parser()
     refresh_args = parser.parse_args([])
@@ -816,6 +1191,17 @@ def run_promotion_refresh_step(args):
     }
 
 
+def scoring_liveness_fields(payload):
+    liveness = (payload or {}).get("scoring_liveness") or {}
+    return {
+        "last_scored_target_date": (payload or {}).get("last_scored_target_date"),
+        "latest_settled_label_date": (payload or {}).get("latest_settled_label_date"),
+        "scoring_liveness_status": liveness.get("status"),
+        "scoring_liveness": liveness,
+        "remediation_command": liveness.get("remediation_command"),
+    }
+
+
 def run_hourly_model_performance_step(args):
     if getattr(args, "skip_hourly_model_performance", False):
         return {"status": "SKIPPED", "reason": "skip_hourly_model_performance"}
@@ -859,6 +1245,7 @@ def run_hourly_model_performance_step(args):
         "daily_summary": payload.get("daily_summary") or {},
         "hourly_performance_gate": gate,
         "remediation_registry_summary": registry.get("summary") or {},
+        **scoring_liveness_fields(payload),
     }
 
 
@@ -929,6 +1316,7 @@ def run_ten_minute_model_performance_step(args):
         "candidate_ten_minute_gate": candidate_gate,
         "weak_slots": (payload.get("weak_slots") or {}).get("slot_labels") or [],
         "variant_ids": payload.get("variant_ids") or [],
+        **scoring_liveness_fields(payload),
     }
 
 
@@ -951,8 +1339,9 @@ def run_price_free_model_learning_step(args):
         current_max_csv_out=backtest_path(args, "price_free_model_learning_current_max_carryover.csv"),
     )
     current_max = payload.get("current_max_carryover") or {}
+    liveness = payload.get("scoring_liveness") or {}
     return {
-        "status": payload.get("status"),
+        "status": "BLOCK" if liveness.get("status") == "BLOCK" else payload.get("status"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "hourly_csv_out": as_path(hourly_csv_out),
@@ -960,6 +1349,67 @@ def run_price_free_model_learning_step(args):
         "daily_summary": payload.get("daily_summary") or {},
         "corpus": payload.get("corpus") or {},
         "current_max_carryover_summary": current_max.get("summary") or {},
+        **scoring_liveness_fields(payload),
+    }
+
+
+def run_model_market_disagreement_rehydration_step(args):
+    if getattr(args, "skip_model_market_disagreement_rehydration", False):
+        return {"status": "SKIPPED", "reason": "skip_model_market_disagreement_rehydration"}
+    target = settled_analysis_target_date(args).isoformat()
+    log_path = Path(
+        getattr(args, "model_market_disagreement_log", "")
+        or backtest_path(args, "model_market_disagreement_audit.jsonl")
+    )
+    labels_csv = Path(getattr(args, "labels_csv", DEFAULT_LABELS_CSV))
+    generated_at = utc_iso()
+    rehydration = model_market_disagreement_analysis.rehydrate_audit_log(
+        log_path=log_path,
+        labels_csv=labels_csv,
+        target_date=target,
+        generated_at_utc=generated_at,
+    )
+    payload = model_market_disagreement_analysis.build_payload(
+        log_path=log_path,
+        min_pattern_cases=getattr(args, "model_market_disagreement_min_pattern_cases", 1),
+        generated_at_utc=generated_at,
+        rehydration_summary=rehydration,
+    )
+    json_out, report_out = model_market_disagreement_analysis.write_outputs(
+        payload,
+        json_out=backtest_path(args, "model_market_disagreement_analysis.json"),
+        report_out=backtest_path(args, "model_market_disagreement_analysis.md"),
+        review_queue_out=backtest_path(args, "model_market_disagreement_review_queue.json"),
+    )
+    review_queue_out = backtest_path(args, "model_market_disagreement_review_queue.json")
+    summary = payload.get("summary") or {}
+    return {
+        "status": rehydration.get("status"),
+        "target_date": target,
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "review_queue_out": as_path(review_queue_out),
+        "audit_log_path": str(log_path),
+        "labels_csv": str(labels_csv),
+        "target_row_count": rehydration.get("target_row_count"),
+        "pending_before_count": rehydration.get("pending_before_count"),
+        "rehydrated_count": rehydration.get("rehydrated_count"),
+        "model_closer_rehydrated_count": rehydration.get("model_closer_rehydrated_count"),
+        "market_closer_rehydrated_count": rehydration.get("market_closer_rehydrated_count"),
+        "excluded_partial_label_count": rehydration.get("excluded_partial_label_count"),
+        "excluded_missing_label_count": rehydration.get("excluded_missing_label_count"),
+        "pending_after_count": rehydration.get("pending_after_count"),
+        "unresolved_after_rehydrate_count": rehydration.get("unresolved_after_rehydrate_count"),
+        "blocker_count": rehydration.get("blocker_count"),
+        "blockers": rehydration.get("blockers") or [],
+        "summary": {
+            "resolved_count": summary.get("resolved_count"),
+            "pending_count": summary.get("pending_count"),
+            "settlement_rehydration_excluded_count": summary.get("settlement_rehydration_excluded_count"),
+            "model_closer_count": summary.get("model_closer_count"),
+            "market_closer_count": summary.get("market_closer_count"),
+        },
+        "rehydration": rehydration,
     }
 
 
@@ -1338,6 +1788,54 @@ def run_fleet_observability_step(args):
     }
 
 
+def run_daily_roll_log_hygiene_step(args):
+    if getattr(args, "skip_daily_roll_log_hygiene", False):
+        return {"status": "SKIPPED", "reason": "skip_daily_roll_log_hygiene"}
+    configured = daily_roll_log_hygiene.parse_log_sources(
+        getattr(args, "daily_roll_log_sources", "")
+    )
+    log_sources = configured or daily_roll_log_hygiene.DEFAULT_LOG_SOURCES
+    current_root = (
+        Path(getattr(args, "daily_roll_current_log_root", "") or "")
+        if getattr(args, "daily_roll_current_log_root", "")
+        else backtest_path(args, "daily_roll_current_logs")
+    )
+    incidents_out = Path(
+        getattr(args, "daily_roll_log_incidents", "")
+        or backtest_path(args, "daily_roll_log_incidents.jsonl")
+    )
+    payload = daily_roll_log_hygiene.build_payload(
+        log_sources=log_sources,
+        incidents_path=incidents_out,
+        current_window_hours=getattr(
+            args,
+            "daily_roll_log_window_hours",
+            daily_roll_log_hygiene.DEFAULT_CURRENT_WINDOW_HOURS,
+        ),
+        as_of=getattr(args, "as_of", None),
+    )
+    json_out, incidents_path, current_log_root = daily_roll_log_hygiene.write_outputs(
+        payload,
+        json_out=backtest_path(args, "daily_roll_log_hygiene.json"),
+        incidents_out=incidents_out,
+        current_log_root=current_root,
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "incidents_out": as_path(incidents_path),
+        "current_log_root": as_path(current_log_root),
+        "current_blocker_count": summary.get("current_blocker_count"),
+        "historical_error_count": summary.get("historical_error_count"),
+        "archived_incident_count": summary.get("archived_incident_count"),
+        "recurring_incident_count": summary.get("recurring_incident_count"),
+        "missing_log_count": summary.get("missing_log_count"),
+        "current_category_counts": summary.get("current_category_counts") or {},
+        "first_current_blocker": next(iter(payload.get("current_blockers") or []), {}),
+    }
+
+
 def run_nightly_health_checks_step(args):
     if getattr(args, "skip_nightly_health_checks", False):
         return {"status": "SKIPPED", "reason": "skip_nightly_health_checks"}
@@ -1471,8 +1969,8 @@ def run_distribution_stage_attribution_step(args):
 def run_settled_day_root_cause_step(args):
     if getattr(args, "skip_settled_day_root_cause", False):
         return {"status": "SKIPPED", "reason": "skip_settled_day_root_cause"}
-    configured_date = getattr(args, "settled_root_cause_date", "") or getattr(args, "as_of", "")
-    target = parse_date_arg(configured_date) if configured_date else (utc_now().date() - timedelta(days=1))
+    configured_date = getattr(args, "settled_root_cause_date", "") or ""
+    target = parse_date_arg(configured_date) if configured_date else settled_analysis_target_date(args)
     target_date = target.isoformat()
     payload = settled_day_root_cause.build_payload(
         target_date,
@@ -1480,6 +1978,7 @@ def run_settled_day_root_cause_step(args):
         taker_root=getattr(args, "taker_root", settled_day_root_cause.DEFAULT_TAKER_ROOT),
         mm_root=getattr(args, "mm_root", settled_day_root_cause.DEFAULT_MM_ROOT),
         backtest_root=args.backtest_root,
+        labels_csv=getattr(args, "labels_csv", settled_day_root_cause.DEFAULT_LABELS_CSV),
     )
     json_out, report_out, issues_out = settled_day_root_cause.write_outputs(
         payload,
@@ -1500,6 +1999,7 @@ def run_settled_day_root_cause_step(args):
         "issue_counts": summary.get("issue_counts") or {},
         "taker_net_pnl_usdc": summary.get("taker_net_pnl_usdc"),
         "mm_run_count": summary.get("mm_run_count"),
+        **scoring_liveness_fields(payload),
     }
 
 
@@ -1541,6 +2041,42 @@ def run_winner_rank_parity_step(args):
         "winner_probability_gap_market_minus_model": summary.get("winner_probability_gap_market_minus_model"),
         "brier_contribution": summary.get("brier_contribution"),
         "candidate_guardrail_block_count": summary.get("candidate_guardrail_block_count"),
+    }
+
+
+def run_june23_location_bias_repair_step(args):
+    if getattr(args, "skip_june23_location_bias_repair", False):
+        return {"status": "SKIPPED", "reason": "skip_june23_location_bias_repair"}
+    json_out = backtest_path(args, "june23_location_bias_repair_packet.json")
+    payload = june23_location_bias_repair.build_payload(
+        snapshots_root=args.snapshots_root,
+        labels_csv=getattr(args, "labels_csv", june23_location_bias_repair.DEFAULT_LABELS_CSV),
+        target_date=getattr(
+            args,
+            "june23_location_bias_repair_date",
+            june23_location_bias_repair.DEFAULT_TARGET_DATE,
+        ),
+        artifact_path=json_out,
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out = june23_location_bias_repair.write_outputs(
+        payload,
+        json_out=json_out,
+        report_out=backtest_path(args, "june23_location_bias_repair_packet.md"),
+    )
+    summary = payload.get("summary") or {}
+    replay = payload.get("repair_replay") or {}
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "target_date": payload.get("target_date"),
+        "cases_scored": (payload.get("case_packet") or {}).get("cases_scored"),
+        "repair_manifest_count": summary.get("repair_manifest_count"),
+        "eligible_repair_manifest_count": summary.get("eligible_repair_manifest_count"),
+        "repair_replay_status": replay.get("status"),
+        "repair_improvement_count": replay.get("repair_improvement_count"),
+        "protected_regression_count": replay.get("protected_regression_count"),
     }
 
 
@@ -1589,7 +2125,7 @@ def run_daily_learning_step(args):
     payload = daily_learning.build_learning_payload(
         backtest_root=args.backtest_root,
         snapshots_root=args.snapshots_root,
-        run_date=getattr(args, "as_of", None),
+        run_date=settled_analysis_target_date(args).isoformat(),
         daily_refresh_summary=daily_refresh_summary,
         rollup_generated_at_overrides={"daily_progress_latest": utc_iso()},
     )
@@ -1651,7 +2187,7 @@ def run_daily_flow_analysis_step(args):
     payload = daily_flow_analysis.build_flow_analysis(
         backtest_root=args.backtest_root,
         snapshots_root=args.snapshots_root,
-        run_date=getattr(args, "as_of", None),
+        run_date=settled_analysis_target_date(args).isoformat(),
         daily_refresh_steps=steps_so_far,
         daily_refresh_summary=daily_refresh_summary,
     )
@@ -1708,6 +2244,7 @@ DEFAULT_RUNNERS = (
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("event_metadata_validation", run_event_metadata_validation_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
+    ("exchange_economics_rule_drift", run_exchange_economics_rule_drift_step),
     ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
     ("taker_tail_casebook", run_taker_tail_casebook_step),
     ("maker_paper_score", run_maker_paper_score_step),
@@ -1719,6 +2256,8 @@ DEFAULT_RUNNERS = (
     ("hourly_model_performance", run_hourly_model_performance_step),
     ("ten_minute_model_performance", run_ten_minute_model_performance_step),
     ("price_free_model_learning", run_price_free_model_learning_step),
+    ("model_market_disagreement_rehydration", run_model_market_disagreement_rehydration_step),
+    ("settled_day_analysis_barrier", run_settled_day_analysis_barrier_step),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("active_variant_shadow", run_active_variant_shadow_step),
@@ -1728,12 +2267,14 @@ DEFAULT_RUNNERS = (
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
+    ("daily_roll_log_hygiene", run_daily_roll_log_hygiene_step),
     ("nightly_health_checks", run_nightly_health_checks_step),
     ("data_layer_audit", run_data_layer_audit_step),
     ("snapshot_evaluation", run_snapshot_evaluation_step),
     ("distribution_stage_attribution", run_distribution_stage_attribution_step),
     ("settled_day_root_cause", run_settled_day_root_cause_step),
     ("winner_rank_parity", run_winner_rank_parity_step),
+    ("june23_location_bias_repair", run_june23_location_bias_repair_step),
     ("data_retention_inventory", run_data_retention_inventory_step),
     ("daily_learning", run_daily_learning_step),
     ("market_beating_objective_scoreboard", run_market_beating_objective_scoreboard_step),
@@ -1755,6 +2296,11 @@ def run_step(name, runner, args):
         row["status"] = "error"
         row["error"] = str(exc)
         row["root_cause_class"] = "blocked_by_disk"
+        row["result"] = exc.payload
+    except SettledDayAnalysisBarrierError as exc:
+        row["status"] = "error"
+        row["error"] = str(exc)
+        row["root_cause_class"] = "settled_day_analysis_barrier"
         row["result"] = exc.payload
     except Exception as exc:  # noqa: BLE001
         row["status"] = "error"
@@ -1784,6 +2330,10 @@ def pipeline_summary(steps):
     hourly = ((by_name.get("hourly_model_performance") or {}).get("result") or {})
     ten_minute = ((by_name.get("ten_minute_model_performance") or {}).get("result") or {})
     price_free = ((by_name.get("price_free_model_learning") or {}).get("result") or {})
+    disagreement_rehydration = (
+        (by_name.get("model_market_disagreement_rehydration") or {}).get("result") or {}
+    )
+    settled_barrier = ((by_name.get("settled_day_analysis_barrier") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
     proper_scorecard = ((by_name.get("proper_scoring_reliability_scorecard") or {}).get("result") or {})
@@ -1792,12 +2342,14 @@ def pipeline_summary(steps):
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
+    log_hygiene = ((by_name.get("daily_roll_log_hygiene") or {}).get("result") or {})
     nightly_health = ((by_name.get("nightly_health_checks") or {}).get("result") or {})
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     stage_attribution = ((by_name.get("distribution_stage_attribution") or {}).get("result") or {})
     root_cause = ((by_name.get("settled_day_root_cause") or {}).get("result") or {})
     parity = ((by_name.get("winner_rank_parity") or {}).get("result") or {})
+    june23_repair = ((by_name.get("june23_location_bias_repair") or {}).get("result") or {})
     learning = ((by_name.get("daily_learning") or {}).get("result") or {})
     market_objective = ((by_name.get("market_beating_objective_scoreboard") or {}).get("result") or {})
     flow = ((by_name.get("daily_flow_analysis") or {}).get("result") or {})
@@ -1911,6 +2463,10 @@ def pipeline_summary(steps):
             "daily_summary": hourly.get("daily_summary") or {},
             "hourly_performance_gate": hourly.get("hourly_performance_gate") or {},
             "remediation_registry_summary": hourly.get("remediation_registry_summary") or {},
+            "last_scored_target_date": hourly.get("last_scored_target_date"),
+            "latest_settled_label_date": hourly.get("latest_settled_label_date"),
+            "scoring_liveness_status": hourly.get("scoring_liveness_status"),
+            "scoring_liveness": hourly.get("scoring_liveness") or {},
         },
         "ten_minute_model_performance": {
             "status": ten_minute.get("status"),
@@ -1919,12 +2475,45 @@ def pipeline_summary(steps):
             "candidate_ten_minute_gate": ten_minute.get("candidate_ten_minute_gate") or {},
             "weak_slots": ten_minute.get("weak_slots") or [],
             "variant_ids": ten_minute.get("variant_ids") or [],
+            "last_scored_target_date": ten_minute.get("last_scored_target_date"),
+            "latest_settled_label_date": ten_minute.get("latest_settled_label_date"),
+            "scoring_liveness_status": ten_minute.get("scoring_liveness_status"),
+            "scoring_liveness": ten_minute.get("scoring_liveness") or {},
         },
         "price_free_model_learning": {
             "status": price_free.get("status"),
             "daily_summary": price_free.get("daily_summary") or {},
             "corpus": price_free.get("corpus") or {},
             "current_max_carryover_summary": price_free.get("current_max_carryover_summary") or {},
+            "last_scored_target_date": price_free.get("last_scored_target_date"),
+            "latest_settled_label_date": price_free.get("latest_settled_label_date"),
+            "scoring_liveness_status": price_free.get("scoring_liveness_status"),
+            "scoring_liveness": price_free.get("scoring_liveness") or {},
+        },
+        "model_market_disagreement_rehydration": {
+            "status": disagreement_rehydration.get("status"),
+            "target_date": disagreement_rehydration.get("target_date"),
+            "target_row_count": disagreement_rehydration.get("target_row_count"),
+            "pending_before_count": disagreement_rehydration.get("pending_before_count"),
+            "rehydrated_count": disagreement_rehydration.get("rehydrated_count"),
+            "model_closer_rehydrated_count": disagreement_rehydration.get("model_closer_rehydrated_count"),
+            "market_closer_rehydrated_count": disagreement_rehydration.get("market_closer_rehydrated_count"),
+            "excluded_partial_label_count": disagreement_rehydration.get("excluded_partial_label_count"),
+            "excluded_missing_label_count": disagreement_rehydration.get("excluded_missing_label_count"),
+            "pending_after_count": disagreement_rehydration.get("pending_after_count"),
+            "unresolved_after_rehydrate_count": disagreement_rehydration.get("unresolved_after_rehydrate_count"),
+            "blocker_count": disagreement_rehydration.get("blocker_count"),
+            "blockers": disagreement_rehydration.get("blockers") or [],
+            "report_out": disagreement_rehydration.get("report_out"),
+        },
+        "settled_day_analysis_barrier": {
+            "status": settled_barrier.get("status"),
+            "target_date": settled_barrier.get("target_date"),
+            "blocker_count": settled_barrier.get("blocker_count"),
+            "blockers": settled_barrier.get("blockers") or [],
+            "label_countability": settled_barrier.get("label_countability") or {},
+            "settled_day_freshness": settled_barrier.get("settled_day_freshness") or {},
+            "resume_command": settled_barrier.get("resume_command"),
         },
         "replay_status_backfill": {
             "status": replay_backfill.get("status"),
@@ -1983,6 +2572,18 @@ def pipeline_summary(steps):
             "status": fleet.get("status"),
             "summary": fleet.get("summary") or {},
         },
+        "daily_roll_log_hygiene": {
+            "status": log_hygiene.get("status"),
+            "current_blocker_count": log_hygiene.get("current_blocker_count"),
+            "historical_error_count": log_hygiene.get("historical_error_count"),
+            "archived_incident_count": log_hygiene.get("archived_incident_count"),
+            "recurring_incident_count": log_hygiene.get("recurring_incident_count"),
+            "missing_log_count": log_hygiene.get("missing_log_count"),
+            "current_category_counts": log_hygiene.get("current_category_counts") or {},
+            "first_current_blocker": log_hygiene.get("first_current_blocker") or {},
+            "current_log_root": log_hygiene.get("current_log_root"),
+            "incidents_out": log_hygiene.get("incidents_out"),
+        },
         "nightly_health_checks": {
             "status": nightly_health.get("status"),
             "alert_count": nightly_health.get("alert_count"),
@@ -2021,6 +2622,10 @@ def pipeline_summary(steps):
             "issue_counts": root_cause.get("issue_counts") or {},
             "taker_net_pnl_usdc": root_cause.get("taker_net_pnl_usdc"),
             "mm_run_count": root_cause.get("mm_run_count"),
+            "last_scored_target_date": root_cause.get("last_scored_target_date"),
+            "latest_settled_label_date": root_cause.get("latest_settled_label_date"),
+            "scoring_liveness_status": root_cause.get("scoring_liveness_status"),
+            "scoring_liveness": root_cause.get("scoring_liveness") or {},
         },
         "winner_rank_parity": {
             "status": parity.get("status"),
@@ -2037,6 +2642,16 @@ def pipeline_summary(steps):
             "winner_probability_gap_market_minus_model": parity.get("winner_probability_gap_market_minus_model"),
             "brier_contribution": parity.get("brier_contribution"),
             "candidate_guardrail_block_count": parity.get("candidate_guardrail_block_count"),
+        },
+        "june23_location_bias_repair": {
+            "status": june23_repair.get("status"),
+            "target_date": june23_repair.get("target_date"),
+            "cases_scored": june23_repair.get("cases_scored"),
+            "repair_manifest_count": june23_repair.get("repair_manifest_count"),
+            "eligible_repair_manifest_count": june23_repair.get("eligible_repair_manifest_count"),
+            "repair_replay_status": june23_repair.get("repair_replay_status"),
+            "repair_improvement_count": june23_repair.get("repair_improvement_count"),
+            "protected_regression_count": june23_repair.get("protected_regression_count"),
         },
         "market_beating_objective_scoreboard": {
             "status": market_objective.get("status"),

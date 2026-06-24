@@ -33,6 +33,7 @@ from weather.reporting.hourly_model_performance import (
     score_folder,
     summarize_rows,
 )
+from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 from weather.schema_registry import schema_version
 from weather.scoring.metrics import (
     binary_log_loss,
@@ -889,7 +890,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     )
     daily_summary = ten_minute_daily_summary(rankings, gate, weak_slot_payload)
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "inputs": {
@@ -938,6 +939,38 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "replay_probes": probes,
         "candidate_item147": candidate,
     }
+    rerun_command = build_rerun_command(
+        "weather.reporting.ten_minute_model_performance",
+        labels_csv=args.labels_csv,
+        snapshots_root=args.snapshots_root,
+        quality_grades=quality_grades,
+        markets=markets,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        extra_args=[
+            "--min-rows",
+            args.min_rows,
+            "--top-slots",
+            args.top_slots,
+            "--min-weak-market-days",
+            getattr(args, "min_weak_market_days", DEFAULT_MIN_WEAK_MARKET_DAYS),
+            "--weak-brier-regression-tolerance",
+            getattr(args, "weak_brier_regression_tolerance", DEFAULT_WEAK_BRIER_REGRESSION_TOLERANCE),
+            "--weak-logloss-regression-tolerance",
+            getattr(args, "weak_logloss_regression_tolerance", DEFAULT_WEAK_LOGLOSS_REGRESSION_TOLERANCE),
+            "--item147-rows",
+            args.item147_rows,
+        ],
+    )
+    return attach_scoring_liveness(
+        payload,
+        artifact_name="ten_minute_model_performance",
+        labels_csv=args.labels_csv,
+        quality_grades=quality_grades,
+        last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
+        rerun_command=rerun_command,
+        gate_keys=("ten_minute_performance_gate", "candidate_ten_minute_gate"),
+    )
 
 
 def slot_table(rows: list[dict[str, Any]], limit: int | None = None) -> list[list[Any]]:
@@ -1027,6 +1060,7 @@ def render_report(payload: dict[str, Any]) -> str:
     candidate = payload.get("candidate_item147") or {}
     overlap = candidate.get("weak_slot_overlap") or {}
     probes = payload.get("replay_probes") or {}
+    liveness = payload.get("scoring_liveness") or {}
     worst_abs = rankings.get("worst_absolute") or []
     worst_vs_market = rankings.get("worst_vs_market") or []
     best_abs = rankings.get("best_absolute") or []
@@ -1064,6 +1098,9 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Scored market-days", corpus.get("scored_market_days")],
             ["Markets", ", ".join(corpus.get("markets") or [])],
             ["Date range", f"{corpus.get('date_min')} to {corpus.get('date_max')}"],
+            ["Scoring liveness", liveness.get("status") or "-"],
+            ["Last scored target date", liveness.get("last_scored_target_date") or "-"],
+            ["Latest settled label date", liveness.get("latest_settled_label_date") or "-"],
             ["All scored snapshot rows", corpus.get("all_snapshot_rows")],
             ["10-minute checkpoint rows", corpus.get("ten_minute_checkpoint_rows")],
             ["Skipped labels", json.dumps(corpus.get("skipped_labels") or {}, sort_keys=True)],

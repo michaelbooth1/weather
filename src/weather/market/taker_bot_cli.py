@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_finalization import *  # noqa: F403
+from weather.market import exchange_economics
 from weather.operations import event_metadata_validation
 from weather.runtime_identity import get_runtime_identity
 
@@ -50,6 +51,52 @@ def _event_metadata_gate(state, market_id):
             ),
         }
     return gate
+
+
+def _exchange_economics_gate_for_run(snapshot_path, target_date, platform, now):
+    gate = exchange_economics.load_exchange_economics_gate(
+        snapshot_path,
+        target_date,
+        platform=platform,
+        now=now,
+    )
+    return gate, exchange_economics.exchange_economics_artifact_fields(gate)
+
+
+def _apply_exchange_economics_fields(rows, fields):
+    for row in rows or []:
+        row.update({
+            "exchange_economics_snapshot_id": fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": fields.get("exchange_economics_evidence_basis"),
+        })
+    return rows
+
+
+def _annotate_taker_pnl_with_exchange_economics(pnl_payload, gate, fields):
+    pnl_payload = pnl_payload or {}
+    pnl_payload["exchange_economics_gate"] = gate
+    pnl_payload.update(fields)
+    pnl_payload.setdefault("summary", {}).update({
+        "exchange_economics_gate_status": gate.get("status"),
+        "exchange_economics_gate_reason": gate.get("reason"),
+        "promotion_evidence_basis": (
+            "settlement_scored" if gate.get("ok") else exchange_economics.STALE_EVIDENCE_BASIS
+        ),
+        **fields,
+    })
+    for row in pnl_payload.get("by_strategy") or []:
+        row.update({
+            "exchange_economics_gate_status": gate.get("status"),
+            **fields,
+        })
+    comparison = pnl_payload.get("strategy_comparison") or {}
+    if comparison:
+        comparison.update({
+            "exchange_economics_gate_status": gate.get("status"),
+            **fields,
+        })
+    return pnl_payload
 
 
 def discover_inputs(
@@ -128,6 +175,7 @@ def build_run_config_payload(
     registry=None,
     runtime_identity=None,
     event_metadata_state=None,
+    exchange_economics_gate=None,
 ):
     strategy_specs = strategy_specs or selected_strategy_specs(None, base_config=config, registry=registry)
     lifecycle = active_strategy_lifecycle_payload(strategy_specs, config=config, target_date=target_date)
@@ -149,6 +197,8 @@ def build_run_config_payload(
         "policy_hash": policy_hash(config),
         "policy_config": config,
         "fee_config": taker_fee_config(config),
+        "exchange_economics_gate": exchange_economics_gate or {},
+        **exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate or {}),
         "executable_depth_config": {
             "executable_depth_model": config.get("executable_depth_model"),
             "executable_depth_slippage_bps": config.get("executable_depth_slippage_bps"),
@@ -267,10 +317,18 @@ def build_run_once(
     experiment_id=None,
     strategy_registry=None,
     event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     now = utc_now(now)
     target = ensure_date(target_date)
     config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
+    exchange_gate, exchange_fields = _exchange_economics_gate_for_run(
+        exchange_economics_snapshot_path,
+        target,
+        exchange_economics_platform,
+        now,
+    )
     strategy_specs = selected_strategy_specs(strategies, base_config=config, registry=strategy_registry)
     strategy_ids = [item["strategy_id"] for item in strategy_specs]
     experiment_id = experiment_id or default_experiment_id(target, strategy_ids)
@@ -325,6 +383,8 @@ def build_run_once(
         new_rows.extend(strategy_rows)
         budget_ledger.extend(strategy_ledger)
     all_rows = score_orders([*existing_rows, *new_rows], snapshots_root=snapshots_root, ledger_root=ledger_root, now=now)
+    _apply_exchange_economics_fields(new_rows, exchange_fields)
+    _apply_exchange_economics_fields(all_rows, exchange_fields)
     write_csv_rows(order_path, ORDER_COLUMNS, all_rows)
     tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
     append_jsonl(run_folder / "budget_ledger.jsonl", budget_ledger)
@@ -374,6 +434,8 @@ def build_run_once(
             ledger_root=ledger_root,
             now=now,
         )
+        _apply_exchange_economics_fields(counterfactual_rows, exchange_fields)
+        _apply_exchange_economics_fields(all_counterfactual_rows, exchange_fields)
         all_counterfactual_rows = annotate_counterfactual_rows(
             all_counterfactual_rows,
             real_rows=all_rows,
@@ -404,6 +466,7 @@ def build_run_once(
         registry=strategy_registry,
         runtime_identity=runtime_identity,
         event_metadata_state=event_state,
+        exchange_economics_gate=exchange_gate,
     )
     pnl_payload = build_pnl_payload(
         all_rows,
@@ -413,6 +476,7 @@ def build_run_once(
         now=now,
         policy_config=run_config.get("policy_config") or config,
     )
+    pnl_payload = _annotate_taker_pnl_with_exchange_economics(pnl_payload, exchange_gate, exchange_fields)
     no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
     counterfactual_no_side_campaign = no_side_campaign_summary(all_counterfactual_rows)
     edge_permission_coverage = taker_edge_permission_coverage(new_rows, config)
@@ -460,6 +524,9 @@ def build_run_once(
         "budget_scope": "per_strategy",
         "budget_spent_usdc": pnl_payload["summary"]["budget_spent_usdc"],
         "budget_remaining_usdc": pnl_payload["summary"]["budget_remaining_usdc"],
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "exchange_economics_gate_reason": exchange_gate.get("reason"),
+        **exchange_fields,
         "latest_tick_rows": len(new_rows),
         "latest_tick_filled_orders": len(latest_filled),
         "latest_tick_spent_usdc": sum_field(latest_filled, "total_spent_usdc"),
@@ -524,6 +591,8 @@ def build_run_once(
         "observation_status": observation_status,
         "markets": market_summaries,
         "pnl": pnl_payload,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "latest_orders": new_rows,
         "latest_counterfactual_orders": counterfactual_rows,
         "tape_integrity": tape_integrity,
@@ -573,6 +642,8 @@ def recover_run_artifacts_from_orders(
     experiment_id=None,
     strategy_registry=None,
     now=None,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     """Rebuild summary artifacts for a run folder with a complete order tape."""
     now = utc_now(now)
@@ -590,6 +661,12 @@ def recover_run_artifacts_from_orders(
     budget = float(budget_usdc if budget_usdc is not None else _infer_order_tape_budget(all_rows))
     strategy_arg = strategies or _infer_order_tape_strategies(all_rows)
     config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
+    exchange_gate, exchange_fields = _exchange_economics_gate_for_run(
+        exchange_economics_snapshot_path,
+        target,
+        exchange_economics_platform,
+        now,
+    )
     strategy_specs = selected_strategy_specs(strategy_arg, base_config=config, registry=strategy_registry)
     strategy_ids = [item["strategy_id"] for item in strategy_specs]
     experiment_id = experiment_id or first.get("experiment_id") or default_experiment_id(target, strategy_ids)
@@ -604,6 +681,7 @@ def recover_run_artifacts_from_orders(
         row for row in all_rows
         if latest_generated is None or row.get("generated_at_utc") == latest_generated
     ]
+    _apply_exchange_economics_fields(latest_rows, exchange_fields)
     tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget) for item in strategy_specs)
     runtime_identity = get_runtime_identity()
@@ -621,6 +699,7 @@ def recover_run_artifacts_from_orders(
         strategy_specs=strategy_specs,
         registry=strategy_registry,
         runtime_identity=runtime_identity,
+        exchange_economics_gate=exchange_gate,
     )
     pnl_payload = build_pnl_payload(
         all_rows,
@@ -630,6 +709,7 @@ def recover_run_artifacts_from_orders(
         now=now,
         policy_config=run_config.get("policy_config") or config,
     )
+    pnl_payload = _annotate_taker_pnl_with_exchange_economics(pnl_payload, exchange_gate, exchange_fields)
     no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
     counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
     counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
@@ -704,6 +784,9 @@ def recover_run_artifacts_from_orders(
         "budget_scope": "per_strategy",
         "budget_spent_usdc": pnl_payload["summary"]["budget_spent_usdc"],
         "budget_remaining_usdc": pnl_payload["summary"]["budget_remaining_usdc"],
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "exchange_economics_gate_reason": exchange_gate.get("reason"),
+        **exchange_fields,
         "latest_tick_rows": len(latest_rows),
         "latest_tick_filled_orders": len(latest_filled),
         "latest_tick_spent_usdc": sum_field(latest_filled, "total_spent_usdc"),
@@ -775,6 +858,8 @@ def recover_run_artifacts_from_orders(
         "observation_status": {},
         "markets": [],
         "pnl": pnl_payload,
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "latest_orders": latest_rows,
         "latest_counterfactual_orders": [],
         "tape_integrity": tape_integrity,
@@ -803,6 +888,8 @@ def recover_main(argv=None):
     parser.add_argument("--strategies", default=None)
     parser.add_argument("--experiment-id", default=None)
     parser.add_argument("--now", default=None)
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
     args = parser.parse_args(argv)
     payload = recover_run_artifacts_from_orders(
@@ -815,6 +902,8 @@ def recover_main(argv=None):
         strategies=args.strategies,
         experiment_id=args.experiment_id,
         now=args.now,
+        exchange_economics_snapshot_path=Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
+        exchange_economics_platform=args.exchange_economics_platform,
     )
     summary = payload.get("summary") or {}
     print(
@@ -912,6 +1001,8 @@ def finalize_main(argv=None):
     parser.add_argument("--champion-min-settled-orders", type=int, default=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS)
     parser.add_argument("--champion-ledger-out", default=None)
     parser.add_argument("--champion-ledger-report-out", default=None)
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     args = parser.parse_args(argv)
     if args.watchdog:
         payload = finalization_watchdog(
@@ -934,6 +1025,10 @@ def finalize_main(argv=None):
             champion_ledger_report_out=(
                 Path(args.champion_ledger_report_out) if args.champion_ledger_report_out else None
             ),
+            exchange_economics_snapshot_path=(
+                Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None
+            ),
+            exchange_economics_platform=args.exchange_economics_platform,
         )
         if args.status_out:
             write_json(Path(args.status_out), payload)
@@ -980,6 +1075,8 @@ def bakeoff_main(argv=None):
     parser.add_argument("--min-settled-orders", type=int, default=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS)
     parser.add_argument("--max-drawdown-usdc", type=float, default=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC)
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
     args = parser.parse_args(argv)
     payload = run_taker_strategy_bakeoff(
@@ -995,6 +1092,8 @@ def bakeoff_main(argv=None):
         min_settled_orders=args.min_settled_orders,
         max_drawdown_usdc=args.max_drawdown_usdc,
         min_free_bytes=args.min_free_bytes,
+        exchange_economics_snapshot_path=Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
+        exchange_economics_platform=args.exchange_economics_platform,
     )
     summary = payload["summary"]
     print(
@@ -1036,6 +1135,8 @@ def main(argv=None):
     parser.add_argument("--until-utc", default=None)
     parser.add_argument("--max-ticks", type=int, default=None)
     parser.add_argument("--ledger-root", default=None)
+    parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
+    parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     args = parser.parse_args(raw_argv)
 
     common = {
@@ -1048,6 +1149,8 @@ def main(argv=None):
         "observation_status_path": Path(args.observation_status),
         "strategies": args.strategies,
         "experiment_id": args.experiment_id,
+        "exchange_economics_snapshot_path": Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
+        "exchange_economics_platform": args.exchange_economics_platform,
     }
     if args.loop and args.now is None and not args.fresh:
         payload = run_loop(

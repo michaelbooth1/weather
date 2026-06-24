@@ -167,6 +167,27 @@ REGISTERED_SCHEMAS = (
         "Fail-closed daily-refresh gate for active-variant shadow freshness and independent evidence growth.",
     ),
     SchemaSpec(
+        "settled_day_analysis_barrier",
+        "settled_day_analysis_barrier_v0.1",
+        "weather.operations.daily_refresh_steps",
+        "active",
+        "Fail-closed settled-day dependency barrier and partial-label countability policy.",
+    ),
+    SchemaSpec(
+        "exchange_economics_snapshot",
+        "exchange_economics_snapshot_v0.1",
+        "weather.market.exchange_economics",
+        "active",
+        "Versioned exchange fee, rebate, reward, tick/min-order, and order-semantics snapshot.",
+    ),
+    SchemaSpec(
+        "exchange_economics_drift",
+        "exchange_economics_drift_v0.1",
+        "weather.market.exchange_economics",
+        "active",
+        "Daily material-drift gate for exchange economics snapshots and paper-evidence rescoring.",
+    ),
+    SchemaSpec(
         "observation_trigger",
         "observation_trigger_v0.1",
         "weather.operations.observation_trigger",
@@ -526,6 +547,13 @@ REGISTERED_SCHEMAS = (
         "Winner top-rank parity gate comparing model and market top-hit behavior by repair owner slice.",
     ),
     SchemaSpec(
+        "june23_location_bias_repair",
+        "june23_location_bias_repair_v0.1",
+        "weather.reporting.june23_location_bias_repair",
+        "active",
+        "June 23 per-location bias, winner-rank repair manifests, protected-slice preservation checks, and counterfactual repair replay packet.",
+    ),
+    SchemaSpec(
         "afternoon_residual_centering",
         "afternoon_residual_centering_v0.1",
         "weather.calibration.afternoon_residual_centering",
@@ -722,6 +750,20 @@ REGISTERED_SCHEMAS = (
         "weather.reporting.daily.daily_learning",
         "active",
         "Daily distilled log-learning artifact for retrain and promotion decisions.",
+    ),
+    SchemaSpec(
+        "automatic_experiment_queue",
+        "automatic_experiment_queue_v0.1",
+        "weather.reporting.daily.daily_learning",
+        "active",
+        "Machine-readable daily experiment queue built from retrain inputs, drift signals, and case repair packets.",
+    ),
+    SchemaSpec(
+        "experiment_queue_results",
+        "experiment_queue_results_v0.1",
+        "weather.operations.nightly_retrain",
+        "active",
+        "Nightly retrain execution results and reconciliation statuses for automatic experiment queue items.",
     ),
     SchemaSpec(
         "daily_flow_analysis",
@@ -1654,6 +1696,13 @@ REGISTERED_SCHEMAS = (
         "weather.reporting.daily.daily_rollup_freshness",
         "active",
         "Freshness rollup for daily refresh, learning, and operations artifacts.",
+    ),
+    SchemaSpec(
+        "daily_roll_log_hygiene",
+        "daily_roll_log_hygiene_v0.1",
+        "weather.operations.daily_roll_log_hygiene",
+        "active",
+        "Current-window daily-roll log health with historical disk/encoding incident archive separation.",
     ),
     SchemaSpec(
         "feature_quality_quarantine_folder",

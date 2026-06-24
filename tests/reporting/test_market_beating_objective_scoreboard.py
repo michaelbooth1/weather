@@ -107,6 +107,7 @@ def _trading(status="OK", mtm_only=False, profitable=False):
     return {
         "schema_version": "trading_evidence_summary_v0.1",
         "status": status,
+        "exchange_economics": {"status": "PASS", "evidence_basis": "current_exchange_economics"},
         "taker": {
             "pnl_evidence_status": "PROVISIONAL_MTM_ONLY" if mtm_only else ("SETTLEMENT_SCORED" if profitable else "UNSCORED"),
             "pnl_source": "mark_to_market" if mtm_only else "settlement_finalization",
@@ -200,3 +201,24 @@ def test_executable_profitability_blocks_mtm_only_pnl(tmp_path):
     assert executable["status"] == "BLOCK"
     assert "mark-to-market evidence cannot promote" in executable["first_blocker"]["detail"]
     assert executable["lane_contamination"]["status"] == "BLOCK"
+
+
+def test_executable_profitability_blocks_stale_exchange_economics(tmp_path):
+    trading = _trading(status="BLOCK", profitable=True)
+    trading["exchange_economics"] = {
+        "status": "BLOCK",
+        "evidence_basis": "paper_stale_exchange_economics",
+    }
+    _write_standard_inputs(
+        tmp_path,
+        proof=_proof(status="BLOCK"),
+        scorecard=_scorecard(weather_brier=0.05, market_brier=0.03),
+        trading=trading,
+    )
+
+    payload = build_scoreboard(backtest_root=tmp_path)
+    executable = payload["decisions"]["executable_profitability"]
+
+    assert payload["status"] == "BLOCK"
+    assert executable["status"] == "BLOCK"
+    assert "exchange economics snapshot is not current" in executable["taker_blockers"]

@@ -31,6 +31,57 @@ def write_daily_artifacts(root, *, blocked=False):
         ),
         encoding="utf-8",
     )
+    (root / "settled_day_freshness.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "settled_day_freshness_v0.1",
+                "generated_at_utc": "2026-06-16T23:55:30+00:00",
+                "status": "PASS",
+                "target_date": "2026-06-16",
+                "summary": {
+                    "expected_market_count": 3,
+                    "complete_market_count": 3,
+                    "incomplete_market_count": 0,
+                    "needs_finalization_count": 0,
+                    "quality_counts": {"complete": 3},
+                    "partial_label_count": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "settled_day_analysis_barrier.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "settled_day_analysis_barrier_v0.1",
+                "generated_at_utc": "2026-06-16T23:55:40+00:00",
+                "status": "PASS",
+                "target_date": "2026-06-16",
+                "blocker_count": 0,
+                "label_countability": {
+                    "status": "promotion_countable",
+                    "promotion_countable": True,
+                    "diagnostic_only": False,
+                    "partial_label_count": 0,
+                    "quality_counts": {"complete": 3},
+                    "reason": "all selected settled labels are promotion-countable",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (root / "event_metadata_validation.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "event_metadata_validation_v0.1",
+                "generated_at_utc": "2026-06-16T23:55:50+00:00",
+                "status": "PASS",
+                "target_date": "2026-06-16",
+                "summary": {"first_blocker": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
     (root / "f_family_promotion_refresh.json").write_text(
         json.dumps(
             {
@@ -146,6 +197,35 @@ def write_daily_artifacts(root, *, blocked=False):
         ),
         encoding="utf-8",
     )
+    (root / "model_market_disagreement_analysis.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "model_market_disagreement_analysis_v0.1",
+                "generated_at_utc": "2026-06-16T23:59:35+00:00",
+                "summary": {
+                    "deduped_audit_snapshots": 0,
+                    "resolved_count": 0,
+                    "pending_count": 0,
+                    "rehydration_status": "PASS",
+                },
+                "rehydration": {
+                    "status": "PASS",
+                    "target_date": "2026-06-16",
+                    "pending_before_count": 0,
+                    "rehydrated_count": 0,
+                    "model_closer_rehydrated_count": 0,
+                    "market_closer_rehydrated_count": 0,
+                    "excluded_partial_label_count": 0,
+                    "excluded_missing_label_count": 0,
+                    "pending_after_count": 0,
+                    "unresolved_after_rehydrate_count": 0,
+                    "blocker_count": 0,
+                    "blockers": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (root / "shadow_ab_monitor.json").write_text(
         json.dumps({
             "generated_at_utc": "2026-06-16T23:59:40+00:00",
@@ -168,6 +248,13 @@ def write_daily_artifacts(root, *, blocked=False):
         ),
         encoding="utf-8",
     )
+
+
+def rewrite_json(path, mutator):
+    path = Path(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutator(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 class TestDailyLearning(unittest.TestCase):
@@ -296,6 +383,117 @@ class TestDailyLearning(unittest.TestCase):
         )
         self.assertEqual(learning["priority"], "P0")
         self.assertTrue(learning["blocker"])
+
+    def test_build_learning_payload_blocks_mixed_target_dates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "settled_day_root_cause.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "settled_day_root_cause_v0.1",
+                        "generated_at_utc": "2026-06-16T23:58:00+00:00",
+                        "target_date": "2026-06-15",
+                        "status": "OK",
+                        "summary": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["date_max"] = "2026-06-15"
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            failed = set(payload["input_gate"]["consistency"]["failed_invariants"])
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertIn("settled_day_root_cause_target_date", failed)
+        self.assertIn("promotion_refresh_corpus_date_max", failed)
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+
+    def test_build_learning_payload_blocks_stale_model_scoring_liveness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "hourly_model_performance.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "hourly_model_performance_v0.3",
+                        "generated_at_utc": "2026-06-16T23:58:30+00:00",
+                        "last_scored_target_date": "2026-06-15",
+                        "latest_settled_label_date": "2026-06-16",
+                        "corpus": {"date_max": "2026-06-15"},
+                        "hourly_performance_gate": {"status": "PASS"},
+                        "scoring_liveness": {
+                            "status": "BLOCK",
+                            "artifact_name": "hourly_model_performance",
+                            "last_scored_target_date": "2026-06-15",
+                            "latest_settled_label_date": "2026-06-16",
+                            "first_blocker": {
+                                "gate": "model_scoring_liveness_stale",
+                                "detail": "hourly_model_performance is stale",
+                                "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                            },
+                            "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "model_scoring_liveness"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(learning["priority"], "P0")
+        self.assertTrue(learning["blocker"])
+        self.assertIn("hourly_model_performance is stale", learning["signal"])
+        self.assertEqual(
+            payload["scorecard"]["hourly_model_performance"]["scoring_liveness"]["status"],
+            "BLOCK",
+        )
+
+    def test_build_learning_payload_blocks_disagreement_rehydration_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            path = backtest_root / "model_market_disagreement_analysis.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["rehydration"] = {
+                "status": "BLOCK",
+                "target_date": "2026-06-16",
+                "pending_before_count": 1,
+                "rehydrated_count": 0,
+                "excluded_partial_label_count": 0,
+                "excluded_missing_label_count": 0,
+                "pending_after_count": 1,
+                "unresolved_after_rehydrate_count": 1,
+                "blocker_count": 1,
+                "blockers": [
+                    {
+                        "gate": "target_date_complete_label_rows_still_pending",
+                        "detail": "1 target-date disagreement row remains unresolved despite complete canonical labels",
+                    }
+                ],
+            }
+            payload["summary"]["rehydration_status"] = "BLOCK"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            learning_payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            learning = next(
+                row for row in learning_payload["learnings"]
+                if row["category"] == "disagreement_audit_rehydration"
+            )
+
+        self.assertEqual(learning_payload["status"], "BLOCKED")
+        self.assertEqual(learning["priority"], "P0")
+        self.assertTrue(learning["blocker"])
+        self.assertIn("unresolved despite complete canonical labels", learning["signal"])
 
     def test_build_learning_payload_defaults_run_date_to_trading_evidence_date(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -426,6 +624,54 @@ class TestDailyLearning(unittest.TestCase):
         self.assertTrue(payload["retrain_plan"]["promotion_ready"])
         self.assertEqual(confidence["delta_vs_current"]["status"], "PASS")
         self.assertLessEqual(confidence["delta_vs_current"]["ci_high"], 0)
+
+    def test_partial_labels_are_diagnostic_only_for_promotion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 40
+            promotion["candidate"]["aggregate"]["rows"] = 400
+            promotion["candidate"]["paired_delta_samples"] = [
+                {
+                    "market_day": f"day-{index:02d}",
+                    "delta_vs_current": -0.01,
+                    "delta_vs_market": -0.002,
+                }
+                for index in range(40)
+            ]
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            daily_path = backtest_root / "daily_refresh_status.json"
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            daily["summary"]["labels"]["total"] = 40
+            daily["summary"]["labels"]["quality_counts"] = {"complete": 39, "partial": 1}
+            daily_path.write_text(json.dumps(daily), encoding="utf-8")
+            barrier_path = backtest_root / "settled_day_analysis_barrier.json"
+            barrier = json.loads(barrier_path.read_text(encoding="utf-8"))
+            barrier["status"] = "DIAGNOSTIC_ONLY"
+            barrier["label_countability"] = {
+                "status": "diagnostic_only",
+                "promotion_countable": False,
+                "diagnostic_only": True,
+                "partial_label_count": 1,
+                "quality_counts": {"complete": 39, "partial": 1},
+                "reason": "1 settled label(s) have quality_grade=partial",
+            }
+            barrier_path.write_text(json.dumps(barrier), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            categories = {row["category"] for row in payload["learnings"]}
+
+        self.assertEqual(payload["scorecard"]["label_countability"]["status"], "diagnostic_only")
+        self.assertFalse(payload["retrain_plan"]["promotion_ready"])
+        self.assertIn("labels_promotion_countable", payload["retrain_plan"]["promotion_ready_reasons"])
+        self.assertIn("label_countability", categories)
+        self.assertFalse(
+            next(row for row in payload["learnings"] if row["category"] == "new_training_evidence")[
+                "retrain_input"
+            ]
+        )
 
     def test_promotion_ready_blocks_correlated_delta_samples(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1608,7 +1854,149 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("directional_bias_drift", categories)
         self.assertEqual(payload["scorecard"]["calibration_monitoring"]["calibration_ece"], 0.08)
         self.assertEqual(payload["scorecard"]["calibration_monitoring"]["directional_bias_mean_error"], 1.2)
+        self.assertTrue(payload["retrain_plan"]["retrain_recommendation"]["recommended"])
         self.assertIn("Calibration and bias", report)
+
+    def test_build_learning_payload_emits_experiment_queue_and_reconciles_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            queue_id = "item301:2026-06-23:seattle:cold_miss"
+            (backtest_root / "june23_location_bias_repair_packet.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "june23_location_bias_repair_v0.1",
+                        "generated_at_utc": "2026-06-16T23:59:45+00:00",
+                        "status": "ACTIONABLE",
+                        "experiment_queue_items": [
+                            {
+                                "queue_id": queue_id,
+                                "source": "june23_location_bias_repair_packet",
+                                "target_date": "2026-06-23",
+                                "market_id": "seattle",
+                                "slice": "market_id=seattle;bias=cold_miss",
+                                "hypothesis": "repair seattle cold miss",
+                                "artifact_path": str(backtest_root / "june23_location_bias_repair_packet.json"),
+                                "clearance_rule": "protect winners",
+                                "status": "eligible",
+                                "priority": "P1",
+                                "command": ["python", "-m", "weather.reporting.june23_location_bias_repair"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (backtest_root / "experiment_queue_results.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "experiment_queue_results_v0.1",
+                        "generated_at_utc": "2026-06-17T03:35:00+00:00",
+                        "status": "OK",
+                        "results": [
+                            {
+                                "queue_id": queue_id,
+                                "status": "executed",
+                                "resolution_status": "resolved",
+                                "returncode": 0,
+                                "executed_at_utc": "2026-06-17T03:34:00+00:00",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            queue = payload["experiment_queue"]
+            queued = {row["queue_id"]: row for row in queue["items"]}
+            report = render_report(payload)
+
+        self.assertEqual(queue["schema_version"], "automatic_experiment_queue_v0.1")
+        self.assertEqual(queue["summary"]["item301_count"], 1)
+        self.assertEqual(queued[queue_id]["status"], "resolved")
+        self.assertEqual(queued[queue_id]["last_result"]["resolution_status"], "resolved")
+        self.assertIn("Experiment Queue", report)
+
+    def test_build_learning_payload_suppresses_retrain_recommendation_without_clean_triggers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            rewrite_json(
+                backtest_root / "daily_refresh_status.json",
+                lambda payload: payload["summary"].update(
+                    {
+                        "labels": {
+                            "total": 0,
+                            "quality_counts": {},
+                            "reconciliation_counts": {},
+                        }
+                    }
+                ),
+            )
+            rewrite_json(
+                backtest_root / "settled_day_freshness.json",
+                lambda payload: payload["summary"].update(
+                    {
+                        "complete_market_count": 0,
+                        "expected_market_count": 0,
+                    }
+                ),
+            )
+            rewrite_json(
+                backtest_root / "f_family_promotion_refresh.json",
+                lambda payload: (
+                    payload["corpus"].update(
+                        {
+                            "market_day_count": 0,
+                            "snapshot_count": 0,
+                            "band_row_count": 0,
+                        }
+                    ),
+                    payload["candidate"]["aggregate"].update(
+                        {
+                            "rows": 0,
+                            "candidate_brier": 0.08,
+                            "current_brier": 0.07,
+                            "market_brier": 0.09,
+                            "delta_vs_current": 0.01,
+                            "delta_vs_market": -0.01,
+                        }
+                    ),
+                    payload.setdefault("gap_owner_table", []),
+                ),
+            )
+            rewrite_json(
+                backtest_root / "snapshot_evaluation.json",
+                lambda payload: payload["improvement_backlog"].update({"top_slices": []}),
+            )
+            rewrite_json(
+                backtest_root / "model_variant_evidence_growth.json",
+                lambda payload: payload.update(
+                    {
+                        "status": "OK",
+                        "delta_vs_baseline": {"unique_observation_count": 0},
+                        "alerts": [],
+                    }
+                ),
+            )
+            rewrite_json(
+                backtest_root / "disagreement_casebook.json",
+                lambda payload: payload["summary"].update(
+                    {
+                        "case_count": 0,
+                        "settled_case_count": 0,
+                        "model_loss_count": 0,
+                    }
+                ),
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            recommendation = payload["retrain_plan"]["retrain_recommendation"]
+
+        self.assertFalse(recommendation["recommended"])
+        self.assertFalse(recommendation["scheduled_fallback"])
+        self.assertEqual(recommendation["reasons"][0]["code"], "no_new_drift_or_novelty")
 
     def test_build_learning_payload_blocks_stale_compact_rollup(self):
         with tempfile.TemporaryDirectory() as tmp:

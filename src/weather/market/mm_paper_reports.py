@@ -65,6 +65,7 @@ def render_paper_report(payload):
     evidence = summary.get("trade_evidence_gaps") or {}
     anti = summary.get("anti_overfit") or {}
     freshness = summary.get("paper_score_freshness") or {}
+    exchange_gate = summary.get("exchange_economics_gate") or payload.get("exchange_economics_gate") or {}
     event_gate = summary.get("event_gate_score") or {}
     clob_recon = summary.get("clob_recon") or {}
     live_forward_evidence = summary.get("per_market_live_forward_evidence") or {}
@@ -95,6 +96,8 @@ def render_paper_report(payload):
             ["Queue-estimated fill legs", summary.get("queue_estimated_fill_legs")],
             ["Queue-estimated shares", fmt_num(summary.get("queue_estimated_filled_shares"), 3)],
             ["Gate status", summary.get("gate_status")],
+            ["Exchange economics", exchange_gate.get("status") or summary.get("exchange_economics_gate_status") or "-"],
+            ["Exchange snapshot", summary.get("exchange_economics_snapshot_id") or "-"],
             ["Paper-score freshness", freshness.get("status") or "-"],
             ["Fill evidence completeness", fill_evidence.get("status") or "-"],
             ["Latest completed active day", freshness.get("latest_completed_active_day") or "-"],
@@ -473,6 +476,10 @@ def permission_for_record(base_permission, paper_slice, promotion, paper_summary
         return "no_quote", "promotion_block"
     if base_permission == "SHADOW":
         return "harvest_only", "promotion_shadow"
+    if (paper_summary.get("exchange_economics_gate") or {}).get("status") == "BLOCK":
+        return "harvest_only", "paper_stale_exchange_economics"
+    if paper_summary.get("exchange_economics_gate_status") == "BLOCK":
+        return "harvest_only", "paper_stale_exchange_economics"
     fill_count = int(paper_slice.get("fill_count") or 0) if paper_slice else 0
     ci_low = finite_float((paper_slice or {}).get("markout_30m_ci_low"))
     net = finite_float((paper_slice or {}).get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0
@@ -780,6 +787,10 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
         "generated_at_utc": generated_at_iso(now),
         "promotion_refresh": str(promotion_refresh),
         "paper_report_schema_version": paper_payload.get("schema_version"),
+        "exchange_economics_gate": paper_payload.get("exchange_economics_gate") or paper_summary.get("exchange_economics_gate"),
+        "exchange_economics_snapshot_id": paper_summary.get("exchange_economics_snapshot_id"),
+        "exchange_economics_hash": paper_summary.get("exchange_economics_hash"),
+        "exchange_economics_evidence_basis": paper_summary.get("exchange_economics_evidence_basis"),
         "policy": {
             "block": "BLOCK promotion maps to no_quote.",
             "shadow": "SHADOW promotion maps to harvest_only.",
@@ -797,6 +808,8 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "active_model_gap_cell_count": len(active_gap_cells),
             "promotion_market_count": len(promotions),
             "paper_fill_count": paper_summary.get("conservative_fills", 0),
+            "exchange_economics_gate_status": paper_summary.get("exchange_economics_gate_status"),
+            "exchange_economics_snapshot_id": paper_summary.get("exchange_economics_snapshot_id"),
             "clob_overlay_quote_guardrails_present": clob_overlay_diag.get("quote_guardrails_present", False),
             "clob_overlay_allowed_taxonomy_count": len(clob_overlay_diag.get("allowed_taxonomies") or []),
             "clob_overlay_blocked_taxonomy_count": len(clob_overlay_diag.get("blocked_taxonomies") or []),

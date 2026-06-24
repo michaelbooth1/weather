@@ -862,36 +862,38 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "## Summary",
         "",
-        markdown_table(
-            ["Metric", "Value"],
-            [
-                ["Markets", summary.get("market_count")],
-                ["Passing", summary.get("pass_count")],
-                ["Blocked", summary.get("block_count")],
-                ["Issues", summary.get("issue_count")],
-                ["Stale issues", summary.get("stale_count")],
-                ["Mismatch issues", summary.get("mismatch_count")],
-                ["Ambiguous issues", summary.get("ambiguous_count")],
-                ["Blank-token issues", summary.get("blank_token_count")],
-            ],
-        ),
+    ]
+    lines.extend(markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Markets", summary.get("market_count")],
+            ["Passing", summary.get("pass_count")],
+            ["Blocked", summary.get("block_count")],
+            ["Issues", summary.get("issue_count")],
+            ["Stale issues", summary.get("stale_count")],
+            ["Mismatch issues", summary.get("mismatch_count")],
+            ["Ambiguous issues", summary.get("ambiguous_count")],
+            ["Blank-token issues", summary.get("blank_token_count")],
+        ],
+    ))
+    lines.extend([
         "",
         "## Markets",
         "",
-        markdown_table(
-            ["Market", "Status", "Issues", "First Issue", "Command"],
+    ])
+    lines.extend(markdown_table(
+        ["Market", "Status", "Issues", "First Issue", "Command"],
+        [
             [
-                [
-                    row.get("market_id"),
-                    row.get("status"),
-                    row.get("issue_count"),
-                    ((row.get("first_issue") or {}).get("code") or "-"),
-                    row.get("remediation_command") or "-",
-                ]
-                for row in payload.get("market_rows") or []
-            ],
-        ),
-    ]
+                row.get("market_id"),
+                row.get("status"),
+                row.get("issue_count"),
+                ((row.get("first_issue") or {}).get("code") or "-"),
+                row.get("remediation_command") or "-",
+            ]
+            for row in payload.get("market_rows") or []
+        ],
+    ))
     return "\n".join(lines) + "\n"
 
 

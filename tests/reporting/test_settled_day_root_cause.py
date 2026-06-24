@@ -296,6 +296,27 @@ def _roadmap_item(root: Path, number: int, title: str, status: str) -> None:
     )
 
 
+def _write_labels_csv(path: Path, latest_target_date: str = "2026-06-20") -> Path:
+    rows = [
+        {
+            "event_slug": "highest-temperature-in-nyc-on-june-20-2026",
+            "market_id": "nyc",
+            "target_date": "2026-06-20",
+            "quality_grade": "complete",
+            "settlement_bucket": "82",
+        },
+        {
+            "event_slug": f"highest-temperature-in-nyc-on-{latest_target_date}",
+            "market_id": "nyc",
+            "target_date": latest_target_date,
+            "quality_grade": "complete",
+            "settlement_bucket": "82",
+        },
+    ]
+    _write_csv(path, list(rows[0]), rows)
+    return path
+
+
 class SettledDayRootCauseTests(unittest.TestCase):
     def test_build_payload_maps_detected_issue_codes_to_roadmap_items(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -339,6 +360,30 @@ class SettledDayRootCauseTests(unittest.TestCase):
         self.assertIn("analog_search", market["explanation_sections"])
         self.assertEqual(market["price_history_snapshot_count"], 1)
         self.assertEqual(market["ws_event_snapshot_count"], 1)
+
+    def test_build_payload_blocks_when_root_cause_target_lags_latest_settled_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots, taker, taker_root, mm_root, backtest = _write_fixture(tmp)
+            labels_csv = _write_labels_csv(backtest / "market_day_labels.csv", latest_target_date="2026-06-21")
+
+            payload = build_payload(
+                "2026-06-20",
+                snapshots_root=snapshots,
+                taker_run_folder=taker,
+                taker_root=taker_root,
+                mm_root=mm_root,
+                backtest_root=backtest,
+                labels_csv=labels_csv,
+            )
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertEqual(payload["last_scored_target_date"], "2026-06-20")
+        self.assertEqual(payload["latest_settled_label_date"], "2026-06-21")
+        self.assertEqual(payload["scoring_liveness"]["status"], "BLOCK")
+        self.assertIn(
+            "python -m weather.reporting.settled_day_root_cause",
+            payload["scoring_liveness"]["remediation_command"],
+        )
 
     def test_write_outputs_emits_json_markdown_and_issue_csv(self):
         with tempfile.TemporaryDirectory() as tmp:

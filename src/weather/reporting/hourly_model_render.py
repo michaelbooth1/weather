@@ -280,6 +280,7 @@ def render_report(payload):
     remediation_registry = payload.get("remediation_registry") or {}
     hourly_gate = payload.get("hourly_performance_gate") or {}
     daily_summary = payload.get("daily_summary") or {}
+    liveness = payload.get("scoring_liveness") or {}
     diagnostics = payload.get("deep_diagnostics") or {}
     variable_context = diagnostics.get("variable_weight_context") or {}
     rerun = (
@@ -305,6 +306,9 @@ def render_report(payload):
             ["Markets", ", ".join(corpus.get("markets") or []) or "-"],
             ["Date range", f"{corpus.get('date_min') or '-'} to {corpus.get('date_max') or '-'}"],
             ["Quality grades", ", ".join(inputs.get("quality_grades") or []) or "-"],
+            ["Scoring liveness", liveness.get("status") or "-"],
+            ["Last scored target date", liveness.get("last_scored_target_date") or "-"],
+            ["Latest settled label date", liveness.get("latest_settled_label_date") or "-"],
             ["All snapshot rows", corpus.get("all_snapshot_rows", 0)],
             ["Hourly checkpoint rows", corpus.get("hourly_checkpoint_rows", 0)],
             ["Skipped labels", json.dumps(corpus.get("skipped_labels") or {}, sort_keys=True)],

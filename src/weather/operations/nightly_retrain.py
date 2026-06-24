@@ -37,6 +37,7 @@ DEFAULT_FAMILY_SECONDARY_MANIFEST = writable_artifact_path("f_family_secondary_a
 DEFAULT_POOLED_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_v0_3.pkl")
 DEFAULT_DAILY_LEARNING_OUT = DEFAULT_BACKTEST_ROOT / "daily_learning.json"
 DEFAULT_DAILY_LEARNING_REPORT = DEFAULT_BACKTEST_ROOT / "daily_learning_report.md"
+DEFAULT_EXPERIMENT_QUEUE_RESULTS_OUT = DEFAULT_BACKTEST_ROOT / "experiment_queue_results.json"
 DEFAULT_SETTLED_DAY_FRESHNESS_OUT = DEFAULT_BACKTEST_ROOT / "settled_day_freshness.json"
 DEFAULT_SETTLED_DAY_FRESHNESS_REPORT = DEFAULT_BACKTEST_ROOT / "settled_day_freshness_report.md"
 DEFAULT_TASK_NAME = "WeatherNightlyRetrainValidatePromote"
@@ -291,6 +292,8 @@ def planned_steps(args):
         steps.append(("settled_day_freshness", settled_day_freshness_command(args)))
     if not args.skip_daily_learning:
         steps.append(("daily_learning", daily_learning_command(args)))
+    if not args.skip_experiment_queue:
+        steps.append(("experiment_queue", []))
     if not args.skip_family_secondary:
         steps.append(("family_secondary_artifacts", family_secondary_command(args)))
     if not args.skip_pooled_feature:
@@ -379,6 +382,8 @@ def daily_learning_summary(path):
     payload = read_json(path)
     summary = payload.get("summary") or {}
     retrain_plan = payload.get("retrain_plan") or {}
+    experiment_queue = payload.get("experiment_queue") or {}
+    retrain_recommendation = retrain_plan.get("retrain_recommendation") or {}
     broad_slo = retrain_plan.get("broad_live_forward_slo") or (
         ((payload.get("scorecard") or {}).get("fleet") or {}).get("live_forward_slo") or {}
     )
@@ -405,12 +410,136 @@ def daily_learning_summary(path):
         "blocker_count": summary.get("blocker_count"),
         "high_priority_learning_count": summary.get("high_priority_learning_count"),
         "retrain_input_count": summary.get("retrain_input_count"),
+        "experiment_queue_count": (experiment_queue.get("summary") or {}).get("queue_count"),
+        "eligible_experiment_count": (experiment_queue.get("summary") or {}).get("eligible_count"),
+        "retrain_recommended": retrain_recommendation.get("recommended"),
+        "retrain_recommendation": retrain_recommendation,
+        "experiment_queue": experiment_queue,
         "training_ready": retrain_plan.get("training_ready"),
         "promotion_ready": retrain_plan.get("promotion_ready"),
         "broad_live_forward_slo": broad_slo,
         "variant_learning_gate": variant_learning_gate,
         "blockers": blockers,
     }
+
+
+def _queue_item_eligible(item):
+    return (item or {}).get("status") in {"queued", "still_open", "regressed"}
+
+
+def _queue_command(item):
+    command = (item or {}).get("command") or []
+    parts = []
+    if isinstance(command, list):
+        parts = [str(part) for part in command if str(part)]
+    elif isinstance(command, str) and command.strip():
+        parts = command.strip().split()
+    if parts and parts[0].lower() == "python":
+        parts[0] = sys.executable
+    return parts
+
+
+def execute_experiment_queue(args, runner=run_subprocess_step):
+    learning = read_json(args.daily_learning_out)
+    queue = learning.get("experiment_queue") or {}
+    items = [item for item in queue.get("items") or [] if _queue_item_eligible(item)]
+    items = items[: max(0, int(args.experiment_queue_top_n))]
+    results = []
+    started = utc_iso()
+    for item in items:
+        command = _queue_command(item)
+        result = {
+            "queue_id": item.get("queue_id"),
+            "priority": item.get("priority"),
+            "source": item.get("source"),
+            "category": item.get("category"),
+            "slice": item.get("slice"),
+            "hypothesis": item.get("hypothesis"),
+            "artifact_path": item.get("artifact_path"),
+            "clearance_rule": item.get("clearance_rule"),
+            "command": command,
+            "executed_at_utc": utc_iso(),
+        }
+        if not command:
+            result.update({
+                "status": "recorded",
+                "returncode": 0,
+                "resolution_status": "still_open",
+                "detail": "queue item has no executable command; recorded for operator or future runner",
+            })
+            results.append(result)
+            continue
+        step_result = runner(command, timeout_seconds=args.step_timeout_seconds)
+        returncode = int((step_result or {}).get("returncode") or 0)
+        result.update(step_result or {})
+        result["returncode"] = returncode
+        result["status"] = "executed" if returncode == 0 else "failed"
+        result["resolution_status"] = "still_open" if returncode == 0 else "regressed"
+        result["result_artifact"] = item.get("artifact_path")
+        results.append(result)
+    payload = {
+        "schema_version": schema_version("experiment_queue_results"),
+        "generated_at_utc": utc_iso(),
+        "started_at_utc": started,
+        "status": "OK" if not any(row.get("status") == "failed" for row in results) else "ERROR",
+        "daily_learning": str(args.daily_learning_out),
+        "queue_status": queue.get("status"),
+        "queue_count": (queue.get("summary") or {}).get("queue_count"),
+        "eligible_count": len(items),
+        "executed_count": sum(1 for row in results if row.get("status") == "executed"),
+        "recorded_count": sum(1 for row in results if row.get("status") == "recorded"),
+        "failed_count": sum(1 for row in results if row.get("status") == "failed"),
+        "top_n": int(args.experiment_queue_top_n),
+        "results": results,
+    }
+    out = write_json(args.experiment_queue_results_out, payload)
+    return payload, out
+
+
+def run_experiment_queue_step(args, runner):
+    started = time.time()
+    step = {
+        "name": "experiment_queue",
+        "command": ["internal", "execute_experiment_queue"],
+        "started_at_utc": utc_iso(),
+        "finished_at_utc": None,
+        "duration_seconds": None,
+        "status": "running",
+        "returncode": None,
+        "stdout": "",
+        "stderr": "",
+    }
+    try:
+        payload, out = execute_experiment_queue(args, runner=runner)
+        step["returncode"] = 0 if payload.get("status") != "ERROR" else 1
+        step["status"] = "ok" if step["returncode"] == 0 else "error"
+        step["stdout"] = f"experiment_queue_results={out}"
+        step["result"] = {
+            "status": payload.get("status"),
+            "out": str(out),
+            "queue_count": payload.get("queue_count"),
+            "eligible_count": payload.get("eligible_count"),
+            "executed_count": payload.get("executed_count"),
+            "recorded_count": payload.get("recorded_count"),
+            "failed_count": payload.get("failed_count"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        step["status"] = "error"
+        step["returncode"] = -1
+        step["stderr"] = f"{type(exc).__name__}: {exc}"
+        step["traceback"] = traceback.format_exc()
+    step["finished_at_utc"] = utc_iso()
+    step["duration_seconds"] = round(time.time() - started, 3)
+    return step
+
+
+def _should_skip_expensive_retrain(args, daily_learning):
+    if not getattr(args, "skip_when_no_retrain_recommendation", False):
+        return False
+    recommendation = (daily_learning or {}).get("retrain_recommendation") or {}
+    if recommendation.get("scheduled_fallback"):
+        return False
+    return recommendation.get("recommended") is False
 
 
 def settled_day_freshness_summary(path):
@@ -568,6 +697,8 @@ def nightly_run_sla_status(
 def pipeline_status(steps, promotion, daily_learning=None, *, fail_on_daily_learning_blocker=False):
     if any(step.get("status") == "error" for step in steps):
         return "error"
+    if any(step.get("name") == "retrain_recommendation_gate" and step.get("status") == "skipped" for step in steps):
+        return "skipped_no_retrain_recommendation"
     if (
         fail_on_daily_learning_blocker
         and (daily_learning or {}).get("status") == "BLOCKED"
@@ -834,6 +965,9 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
             "settled_day_freshness_report": args.settled_day_freshness_report,
             "daily_learning_out": args.daily_learning_out,
             "daily_learning_report": args.daily_learning_report,
+            "experiment_queue_results_out": args.experiment_queue_results_out,
+            "experiment_queue_top_n": args.experiment_queue_top_n,
+            "skip_when_no_retrain_recommendation": args.skip_when_no_retrain_recommendation,
             "long_job_guard": long_job_guard_info or {},
         },
         "steps": steps,
@@ -856,7 +990,23 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
         payload["status"] = "dry_run"
     else:
         for name, command in plan:
-            step = run_step(name, command, args, runner)
+            if name == "experiment_queue":
+                step = run_experiment_queue_step(args, runner)
+            else:
+                if name == "family_secondary_artifacts":
+                    payload["daily_learning"] = daily_learning_summary(args.daily_learning_out)
+                    if _should_skip_expensive_retrain(args, payload["daily_learning"]):
+                        steps.append({
+                            "name": "retrain_recommendation_gate",
+                            "command": ["internal", "skip_expensive_retrain"],
+                            "status": "skipped",
+                            "returncode": 0,
+                            "duration_seconds": 0.0,
+                            "reason": "retrain_not_recommended",
+                            "retrain_recommendation": payload["daily_learning"].get("retrain_recommendation") or {},
+                        })
+                        break
+                step = run_step(name, command, args, runner)
             steps.append(step)
             if step["status"] == "error" and not args.continue_on_error:
                 break
@@ -870,9 +1020,15 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
         if "promotion_refresh" in ran_steps:
             payload["promotion"] = promotion_summary(args.promotion_out)
         else:
+            skipped_for_recommendation = any(
+                step.get("name") == "retrain_recommendation_gate" and step.get("status") == "skipped"
+                for step in steps
+            )
             reason = (
                 "daily_learning_blocked"
                 if payload["daily_learning"].get("status") == "BLOCKED"
+                else "retrain_not_recommended"
+                if skipped_for_recommendation
                 else "promotion_refresh_not_run"
             )
             payload["promotion"] = promotion_not_run_summary(args.promotion_out, reason)
@@ -913,6 +1069,8 @@ def build_run_parser(parser):
     parser.add_argument("--promotion-report", default=str(DEFAULT_BACKTEST_ROOT / "f_family_promotion_refresh_report.md"))
     parser.add_argument("--daily-learning-out", default=str(DEFAULT_DAILY_LEARNING_OUT))
     parser.add_argument("--daily-learning-report", default=str(DEFAULT_DAILY_LEARNING_REPORT))
+    parser.add_argument("--experiment-queue-results-out", default=str(DEFAULT_EXPERIMENT_QUEUE_RESULTS_OUT))
+    parser.add_argument("--experiment-queue-top-n", type=int, default=3)
     parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--ledger-root", default=str(DEFAULT_LEDGER_ROOT))
     parser.add_argument("--settled-day-freshness-out", default=str(DEFAULT_SETTLED_DAY_FRESHNESS_OUT))
@@ -934,6 +1092,8 @@ def build_run_parser(parser):
     parser.add_argument("--skip-settled-day-freshness", action="store_true")
     parser.add_argument("--skip-settled-day-polymarket-reconciliation", action="store_true")
     parser.add_argument("--skip-daily-learning", action="store_true")
+    parser.add_argument("--skip-experiment-queue", action="store_true")
+    parser.add_argument("--skip-when-no-retrain-recommendation", action="store_true")
     parser.add_argument("--skip-pooled-feature", action="store_true")
     parser.add_argument("--skip-artifact-registry", action="store_true")
     parser.add_argument("--skip-promotion-refresh", action="store_true")

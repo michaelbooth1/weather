@@ -1,4 +1,4 @@
-# 303. Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization [OPEN 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS DO NOT PRODUCE CANONICAL EVIDENCE]
+# 303. Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization [COMPLETE 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS NOW PRODUCE CANONICAL POST-SETTLEMENT EVIDENCE]
 
 Goal: make zero-fill taker days post-settlement auditable, current, and
 distinguishable between valid no-edge policy behavior and infrastructure
@@ -38,12 +38,12 @@ blockers.
 5. Feed the classification into daily learning, trading evidence, and taker
    requalification reports.
 
-- [ ] Add a post-settlement taker regeneration step for zero-fill and filled
+- [x] Add a post-settlement taker regeneration step for zero-fill and filled
   days.
-- [ ] Write canonical watchdog and tail-casebook artifacts every target day.
-- [ ] Add no-trade reason taxonomy and daily counts by category.
-- [ ] Add zero-fill quality classification to taker daily PnL/evidence reports.
-- [ ] Add tests for pre-label bakeoff refresh, zero-fill risk-clean days, and
+- [x] Write canonical watchdog and tail-casebook artifacts every target day.
+- [x] Add no-trade reason taxonomy and daily counts by category.
+- [x] Add zero-fill quality classification to taker daily PnL/evidence reports.
+- [x] Add tests for pre-label bakeoff refresh, zero-fill risk-clean days, and
   zero-fill infrastructure-blocked days.
 
 Acceptance: a settled zero-fill taker day has fresh post-label bakeoff and

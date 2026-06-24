@@ -23,6 +23,7 @@ from weather.reporting.hourly_model_performance import (
     parse_csv_values,
     parse_quality_grades,
 )
+from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 from weather.schema_registry import schema_version
 from weather.scoring.metrics import binary_log_loss, brier, expected_calibration_error, missing, safe_float
 
@@ -671,7 +672,7 @@ def build_price_free_learning(
     current_max = build_current_max_payload(all_current_max_rows)
     status = "OK" if all_rows else "NO_SCORED_ROWS"
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now().isoformat(),
         "status": status,
@@ -720,6 +721,23 @@ def build_price_free_learning(
             "current_max_guarded_count": (current_max.get("summary") or {}).get("risky_or_guarded_count", 0),
         },
     }
+    rerun_command = build_rerun_command(
+        "weather.reporting.price_free_model_learning",
+        labels_csv=labels_csv,
+        snapshots_root=snapshots_root,
+        quality_grades=quality_grades,
+        markets=markets,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return attach_scoring_liveness(
+        payload,
+        artifact_name="price_free_model_learning",
+        labels_csv=labels_csv,
+        quality_grades=quality_grades,
+        last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
+        rerun_command=rerun_command,
+    )
 
 
 def fmt_num(value, decimals=4):
@@ -785,6 +803,7 @@ def render_report(payload):
     overall = ((payload.get("overall") or {}).get("hourly_checkpoint") or {})
     current_max = payload.get("current_max_carryover") or {}
     current_summary = current_max.get("summary") or {}
+    liveness = payload.get("scoring_liveness") or {}
     rerun = ".\\venv\\Scripts\\python.exe -m weather.reporting.price_free_model_learning"
     if inputs.get("quality_grades") != list(DEFAULT_QUALITY_GRADES):
         rerun += f" --quality-grades {','.join(inputs.get('quality_grades') or [])}"
@@ -808,6 +827,9 @@ def render_report(payload):
             ["Markets", ", ".join(corpus.get("markets") or []) or "-"],
             ["Date range", f"{corpus.get('date_min') or '-'} to {corpus.get('date_max') or '-'}"],
             ["Quality grades", ", ".join(inputs.get("quality_grades") or []) or "-"],
+            ["Scoring liveness", liveness.get("status") or "-"],
+            ["Last scored target date", liveness.get("last_scored_target_date") or "-"],
+            ["Latest settled label date", liveness.get("latest_settled_label_date") or "-"],
             ["All snapshot rows", corpus.get("all_snapshot_rows", 0)],
             ["Hourly checkpoint rows", corpus.get("hourly_checkpoint_rows", 0)],
             ["Price-free reasons", json.dumps(corpus.get("price_free_reason_counts") or {}, sort_keys=True)],

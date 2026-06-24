@@ -752,6 +752,41 @@ class TestMarketMicrostructure(unittest.TestCase):
         stop_loop.assert_not_called()
         start_loop.assert_not_called()
 
+    def test_ensure_clob_loop_noop_does_not_scan_log_offsets(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 4321,
+                    "last_heartbeat": now.isoformat(),
+                    "interval_seconds": 60,
+                    "consecutive_errors": 0,
+                    "runtime_identity": {"source_fingerprint": "current"},
+                    "last_market_results": {
+                        "toronto": {"books": 1, "captured_tokens": 2, "error": None},
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", root / "clob_loop_console.log"), \
+                    patch.object(mm, "CLOB_PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(mm, "CLOB_SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(mm, "acquire_clob_supervisor_lock", return_value=object()), \
+                    patch.object(mm, "release_clob_supervisor_lock"), \
+                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                    patch.object(mm, "clob_runtime_matches_current", return_value=True), \
+                    patch.object(mm, "loop_file_offsets", side_effect=AssertionError("noop scanned log offsets")):
+                result = mm.ensure_clob_loop(now=now)
+
+        self.assertEqual(result["action"], "noop")
+        self.assertNotIn("loop_offsets_before", result)
+
     def test_running_clob_loop_processes_filters_loop_commands(self):
         rows = [
             {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},

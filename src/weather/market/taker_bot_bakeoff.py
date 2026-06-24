@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market import exchange_economics
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.market.taker_bot_reporting import *  # noqa: F403
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
@@ -26,7 +27,7 @@ def _replay_profitability_check(code, status, detail, **extra):
     return row
 
 
-def _current_replay_profitability_verification(scored_rows, pnl_payload, config):
+def _current_replay_profitability_verification(scored_rows, pnl_payload, config, exchange_economics_gate=None):
     """Verify that the bakeoff replay itself used current fee/depth economics."""
     config = config or {}
     pnl_payload = pnl_payload or {}
@@ -59,6 +60,16 @@ def _current_replay_profitability_verification(scored_rows, pnl_payload, config)
             "current_replay_executable_depth_model_missing",
             "FAIL",
             "Current replay did not name an executable-depth model.",
+        ))
+    exchange_economics_gate = exchange_economics_gate or {}
+    if exchange_economics_gate.get("status") == "BLOCK" or exchange_economics_gate.get("ok") is False:
+        checks.append(_replay_profitability_check(
+            "current_replay_exchange_economics_not_current",
+            "FAIL",
+            exchange_economics_gate.get("reason") or "Current replay did not have a current exchange-economics snapshot.",
+            evidence_basis=exchange_economics.STALE_EVIDENCE_BASIS,
+            exchange_economics_snapshot_id=exchange_economics_gate.get("snapshot_id"),
+            exchange_economics_hash=exchange_economics_gate.get("snapshot_hash"),
         ))
     if not scored_rows:
         checks.append(_replay_profitability_check(
@@ -124,6 +135,8 @@ def _current_replay_profitability_verification(scored_rows, pnl_payload, config)
         "taker_fee_model": fee_model,
         "taker_fee_rate": compact_float(fee_rate),
         "executable_depth_model": depth_model,
+        "exchange_economics_gate_status": exchange_economics_gate.get("status"),
+        **exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate),
         "check_count": len(checks),
         "failed_check_count": len(failed),
         "checks": checks,
@@ -1307,6 +1320,8 @@ def render_bakeoff_report(payload):
             ["Replay ticks", summary.get("replay_tick_count")],
             ["Scored order rows", summary.get("scored_order_rows")],
             ["Label rows for date", (payload.get("label_summary") or {}).get("label_rows")],
+            ["Exchange economics", summary.get("exchange_economics_gate_status") or "-"],
+            ["Exchange snapshot", summary.get("exchange_economics_snapshot_id") or "-"],
             [
                 "Profitability artifact verification",
                 (payload.get("profitability_artifact_verification") or {}).get("status") or "-",
@@ -1433,6 +1448,8 @@ def run_taker_strategy_bakeoff(
     max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     now = utc_now(now)
     run_folder = Path(run_folder)
@@ -1460,6 +1477,13 @@ def run_taker_strategy_bakeoff(
         **(config or {}),
     }
     base_config = enrich_config_with_performance_gates(base_config, target)
+    exchange_gate = exchange_economics.load_exchange_economics_gate(
+        exchange_economics_snapshot_path,
+        target,
+        platform=exchange_economics_platform,
+        now=now,
+    )
+    exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     budget = float(
         budget_usdc
         if budget_usdc is not None
@@ -1495,6 +1519,12 @@ def run_taker_strategy_bakeoff(
             generated_rows.extend(rows)
             budget_ledger.extend(ledger)
     labels = load_settlement_labels(labels_csv)
+    for row in generated_rows:
+        row.update({
+            "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+            "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
+            "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
+        })
     scored_rows, score_summary = score_orders_against_labels(generated_rows, labels)
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget) for item in strategy_specs)
     pnl_payload = build_pnl_payload(
@@ -1505,6 +1535,20 @@ def run_taker_strategy_bakeoff(
         now=now,
         policy_config=base_config,
     )
+    pnl_payload["exchange_economics_gate"] = exchange_gate
+    pnl_payload.update(exchange_fields)
+    pnl_payload.setdefault("summary", {}).update({
+        "exchange_economics_gate_status": exchange_gate.get("status"),
+        "promotion_evidence_basis": (
+            "settlement_scored" if exchange_gate.get("ok") else exchange_economics.STALE_EVIDENCE_BASIS
+        ),
+        **exchange_fields,
+    })
+    for row in pnl_payload.get("by_strategy") or []:
+        row.update({
+            "exchange_economics_gate_status": exchange_gate.get("status"),
+            **exchange_fields,
+        })
     label_summary = label_summary_for_target(labels_csv, target)
     promotion_gates = [
         strategy_gate_for_bakeoff(
@@ -1566,11 +1610,27 @@ def run_taker_strategy_bakeoff(
                 f"{score_summary['unmatched_filled_orders']} filled replay orders had no settlement label"
             ),
         })
-    source_profitability_verification = verify_taker_profitability_artifacts(run_folder)
+    if not exchange_gate.get("ok"):
+        blockers.append({
+            "code": "paper_stale_exchange_economics",
+            "detail": exchange_gate.get("reason") or "Exchange economics snapshot is stale, missing, or mismatched.",
+            "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+        })
+        for gate in promotion_gates:
+            failed_gates = list(gate.get("failed_gates") or [])
+            if "paper_stale_exchange_economics" not in failed_gates:
+                failed_gates.append("paper_stale_exchange_economics")
+            gate["failed_gates"] = failed_gates
+            gate["status"] = "BLOCK"
+    source_profitability_verification = verify_taker_profitability_artifacts(
+        run_folder,
+        exchange_economics_gate=exchange_gate,
+    )
     replay_profitability_verification = _current_replay_profitability_verification(
         scored_rows,
         pnl_payload,
         base_config,
+        exchange_economics_gate=exchange_gate,
     )
     if source_profitability_verification.get("status") == "PASS":
         profitability_verification = {
@@ -1666,6 +1726,8 @@ def run_taker_strategy_bakeoff(
         "strategy_ids": strategy_ids,
         "budget_per_strategy_usdc": compact_float(budget),
         "budget_scope": "per_strategy",
+        "exchange_economics_gate": exchange_gate,
+        **exchange_fields,
         "strategy_registry": strategy_registry_payload(),
         "strategies": [
             {
@@ -1684,6 +1746,8 @@ def run_taker_strategy_bakeoff(
             "replay_tick_count": len(replay_ticks),
             "generated_order_rows": len(generated_rows),
             "scored_order_rows": len(scored_rows),
+            "exchange_economics_gate_status": exchange_gate.get("status"),
+            **exchange_fields,
             "promotion_pass_count": sum(1 for row in promotion_gates if row.get("status") == "PASS"),
             "promotion_block_count": sum(1 for row in promotion_gates if row.get("status") != "PASS"),
         },
@@ -1737,6 +1801,8 @@ def ensure_taker_strategy_bakeoff(
     now=None,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
+    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
 ):
     run_folder = Path(run_folder)
     out_json = run_folder / "strategy_bakeoff.json"
@@ -1756,6 +1822,8 @@ def ensure_taker_strategy_bakeoff(
         now=now,
         min_free_bytes=min_free_bytes,
         disk_usage_fn=disk_usage_fn,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
     )
     return {
         "action": "created",

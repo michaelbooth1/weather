@@ -1,4 +1,4 @@
-# 305. Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [OPEN 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]
+# 305. Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [COMPLETE 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]
 
 Goal: enforce a strict settled-day analysis order so nightly and daily reports
 cannot mix pre-finalization artifacts, stale target dates, or partial-label
@@ -41,12 +41,22 @@ overclaims.
    finalization completes instead of leaving stale blocker conclusions as the
    latest packet.
 
-- [ ] Encode the settled-day analysis dependency graph and finalization barrier.
-- [ ] Add target-date invariant checks across daily/nightly artifacts.
-- [ ] Propagate partial-label status into promotion and evidence countability.
-- [ ] Add rerun/resume behavior after finalization completes.
-- [ ] Add tests for pre-finalization nightly runs, mixed target dates, and
+- [x] Encode the settled-day analysis dependency graph and finalization barrier.
+- [x] Add target-date invariant checks across daily/nightly artifacts.
+- [x] Propagate partial-label status into promotion and evidence countability.
+- [x] Add rerun/resume behavior after finalization completes.
+- [x] Add tests for pre-finalization nightly runs, mixed target dates, and
   partial-label diagnostic-only days.
+
+Closed notes: daily refresh now inserts a `settled_day_analysis_barrier` step
+after post-label scoring and before promotion refresh. The barrier writes
+`settled_day_freshness.json` and `settled_day_analysis_barrier.json`, hard-stops
+downstream promotion/daily steps on incomplete finalization even under
+`--continue-on-error`, and emits a `--resume-from-step
+settled_day_analysis_barrier` command. Daily learning now checks declared target
+dates across settled freshness, barrier, trading evidence, root cause, and
+corpus-backed scoring artifacts, and partial-label days are carried as
+`diagnostic_only` with `labels_not_promotion_countable` broad-claim failures.
 
 Acceptance: daily learning and nightly promotion cannot publish final
 target-date conclusions until required post-settlement artifacts are current,

@@ -21,6 +21,10 @@ from weather.reporting.disagreement_casebook import (
     parse_time as parse_event_time,
 )
 from weather.reporting.roadmap_backlog import item_files, parse_item
+from weather.reporting.model_scoring_liveness import (
+    attach_scoring_liveness,
+    build_root_cause_rerun_command,
+)
 from weather.schema_registry import schema_version
 
 
@@ -28,6 +32,7 @@ SCHEMA_VERSION = schema_version("settled_day_root_cause")
 DEFAULT_DATA_ROOT = data_path()
 DEFAULT_SNAPSHOTS_ROOT = DEFAULT_DATA_ROOT / "snapshots"
 DEFAULT_BACKTEST_ROOT = DEFAULT_DATA_ROOT / "backtest"
+DEFAULT_LABELS_CSV = DEFAULT_BACKTEST_ROOT / "market_day_labels.csv"
 DEFAULT_TAKER_ROOT = DEFAULT_DATA_ROOT / "taker_runs"
 DEFAULT_MM_ROOT = DEFAULT_DATA_ROOT / "mm_runs"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "settled_day_root_cause.json"
@@ -953,6 +958,7 @@ def build_payload(
     taker_root: str | Path = DEFAULT_TAKER_ROOT,
     mm_root: str | Path = DEFAULT_MM_ROOT,
     backtest_root: str | Path = DEFAULT_BACKTEST_ROOT,
+    labels_csv: str | Path | None = None,
     roadmap_root: str | Path = DEFAULT_ROADMAP_ROOT,
     now: str | None = None,
 ) -> dict[str, Any]:
@@ -997,7 +1003,7 @@ def build_payload(
     price_history_snapshot_count = sum(report.get("price_history_snapshot_count") or 0 for report in market_reports)
     ws_event_snapshot_count = sum(report.get("ws_event_snapshot_count") or 0 for report in market_reports)
     status = "NO_DATA" if not market_reports and not taker.get("available") else ("ACTIONABLE" if issue_counts else "OK")
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now or utc_now(),
         "target_date": target_date,
@@ -1056,6 +1062,27 @@ def build_payload(
         "market_maker": market_maker,
         "performance": performance,
     }
+    liveness_labels_csv = Path(labels_csv) if labels_csv else Path(backtest_root) / DEFAULT_LABELS_CSV.name
+    rerun_command = build_root_cause_rerun_command(
+        target_date=target_date,
+        snapshots_root=snapshots_root,
+        taker_root=taker_root,
+        mm_root=mm_root,
+        backtest_root=backtest_root,
+        labels_csv=liveness_labels_csv,
+    )
+    attach_scoring_liveness(
+        payload,
+        artifact_name="settled_day_root_cause",
+        labels_csv=liveness_labels_csv,
+        last_scored_target_date=target_date,
+        rerun_command=rerun_command,
+    )
+    payload["summary"]["scoring_liveness_status"] = (payload.get("scoring_liveness") or {}).get("status")
+    if (payload.get("scoring_liveness") or {}).get("status") == "BLOCK":
+        payload["status"] = "BLOCK"
+        payload["summary"]["status"] = "BLOCK"
+    return payload
 
 
 def _summary_rows(summary: dict[str, Any]) -> list[list[Any]]:
@@ -1081,6 +1108,7 @@ def _summary_rows(summary: dict[str, Any]) -> list[list[Any]]:
 
 
 def render_report(payload: dict[str, Any], *, top_n: int = 12) -> str:
+    liveness = payload.get("scoring_liveness") or {}
     lines = [
         f"# Settled-Day Root-Cause Report: {payload.get('target_date')}",
         "",
@@ -1092,6 +1120,21 @@ def render_report(payload: dict[str, Any], *, top_n: int = 12) -> str:
         *markdown_table(["Metric", "Value"], _summary_rows(payload.get("summary") or {})),
         "",
     ]
+    if liveness:
+        lines += [
+            "## Scoring Liveness",
+            "",
+            *markdown_table(
+                ["Metric", "Value"],
+                [
+                    ["Status", liveness.get("status")],
+                    ["Last scored target date", liveness.get("last_scored_target_date") or "-"],
+                    ["Latest settled label date", liveness.get("latest_settled_label_date") or "-"],
+                    ["Remediation", liveness.get("remediation_command") or "-"],
+                ],
+            ),
+            "",
+        ]
     issue_counts = (payload.get("summary") or {}).get("issue_counts") or {}
     lines += ["## Issue Counts", ""]
     afternoon = (payload.get("summary") or {}).get("afternoon_post_ramp_slice") or {}
@@ -1350,6 +1393,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--taker-root", default=str(DEFAULT_TAKER_ROOT))
     parser.add_argument("--mm-root", default=str(DEFAULT_MM_ROOT))
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
+    parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--roadmap-root", default=str(DEFAULT_ROADMAP_ROOT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
@@ -1366,6 +1410,7 @@ def main(argv=None) -> int:
         taker_root=args.taker_root,
         mm_root=args.mm_root,
         backtest_root=args.backtest_root,
+        labels_csv=args.labels_csv,
         roadmap_root=args.roadmap_root,
     )
     json_out, report_out, issues_out = write_outputs(

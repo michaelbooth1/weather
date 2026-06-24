@@ -367,6 +367,13 @@ REMEDIATION_RULES = {
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
+    "exchange_economics_gate": {
+        "root_cause": "exchange_economics_gate_blocked",
+        "owner": "exchange economics snapshot",
+        "suggested_command": "refresh exchange_economics_snapshot.json from current platform docs and rerun paper scoring",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
 }
 
 

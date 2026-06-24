@@ -88,6 +88,23 @@ def test_validation_passes_when_generated_metadata_matches_live_gamma_tokens():
     assert payload["validation_hash"]
 
 
+def test_report_and_write_outputs_render_markdown_tables(tmp_path):
+    payload = validate([event()])
+
+    report = gate.render_report(payload)
+    json_out, report_out = gate.write_outputs(
+        payload,
+        json_out=tmp_path / "event_metadata_validation.json",
+        report_out=tmp_path / "event_metadata_validation.md",
+    )
+
+    assert "| Metric | Value |" in report
+    assert "| Market | Status | Issues | First Issue | Command |" in report
+    assert json_out.exists()
+    assert report_out.exists()
+    assert "| atlanta | PASS | 0 | - | -" in report_out.read_text(encoding="utf-8")
+
+
 def test_stale_target_event_uses_refresh_remediation():
     stale_event = event(
         slug="highest-temperature-in-atlanta-on-june-23-2026",

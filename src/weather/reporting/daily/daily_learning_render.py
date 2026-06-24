@@ -13,6 +13,7 @@ def _count_summary(counts):
 
 def _scorecard_rows(scorecard):
     labels = scorecard.get("labels") or {}
+    label_countability = scorecard.get("label_countability") or {}
     corpus = scorecard.get("corpus") or {}
     candidate = scorecard.get("candidate") or {}
     promotion = scorecard.get("promotion") or {}
@@ -59,6 +60,7 @@ def _scorecard_rows(scorecard):
     taker_tail_summary = taker_tail.get("summary") or {}
     return [
         ["Labels finalized", labels.get("total")],
+        ["Label countability", label_countability.get("status") or "-"],
         ["Corpus market-days", corpus.get("market_day_count")],
         ["Corpus snapshots", corpus.get("snapshot_count")],
         ["Candidate rows", candidate.get("rows")],
@@ -83,6 +85,8 @@ def _scorecard_rows(scorecard):
             "Hourly performance gate",
             (
                 f"{hourly_gate.get('status') or '-'}; "
+                f"scored={hourly.get('last_scored_target_date') or '-'}; "
+                f"latest={hourly.get('latest_settled_label_date') or '-'}; "
                 f"worst={', '.join(hourly_daily.get('worst_hours') or []) or '-'}"
             ),
         ],
@@ -90,6 +94,8 @@ def _scorecard_rows(scorecard):
             "10-minute performance gate",
             (
                 f"{ten_minute_gate.get('status') or '-'}; "
+                f"scored={ten_minute.get('last_scored_target_date') or '-'}; "
+                f"latest={ten_minute.get('latest_settled_label_date') or '-'}; "
                 f"weak={', '.join(ten_minute_daily.get('weak_slots') or []) or '-'}"
             ),
         ],
@@ -104,6 +110,8 @@ def _scorecard_rows(scorecard):
             "Price-free diagnostics",
             (
                 f"{price_free.get('status') or '-'}; "
+                f"scored={price_free.get('last_scored_target_date') or '-'}; "
+                f"latest={price_free.get('latest_settled_label_date') or '-'}; "
                 f"days={price_free_daily.get('scored_market_days', 0)}; "
                 f"rows={price_free_daily.get('hourly_checkpoint_rows', 0)}; "
                 f"guarded={price_free_carryover.get('risky_or_guarded_count', 0)}"
@@ -118,6 +126,8 @@ def _scorecard_rows(scorecard):
             "Root-cause explanation tape",
             (
                 f"{root_cause.get('status') or '-'}; "
+                f"scored={root_cause.get('last_scored_target_date') or '-'}; "
+                f"latest={root_cause.get('latest_settled_label_date') or '-'}; "
                 f"snapshots={root_cause_summary.get('explanation_snapshot_count', 0)}; "
                 f"coverage={fmt_num(root_cause_summary.get('explanation_coverage_rate'), 3)}"
             ),
@@ -448,10 +458,19 @@ def _current_code_soak_rows(soak):
     ]
 
 
+def _recommendation_reason_label(row):
+    if isinstance(row, dict):
+        return str(row.get("code") or row.get("detail") or "-")
+    return str(row)
+
+
 def render_report(payload):
     summary = payload.get("summary") or {}
     scorecard = payload.get("scorecard") or {}
     retrain = payload.get("retrain_plan") or {}
+    experiment_queue = payload.get("experiment_queue") or {}
+    queue_summary = experiment_queue.get("summary") or {}
+    recommendation = retrain.get("retrain_recommendation") or {}
     learnings = payload.get("learnings") or []
     artifacts = payload.get("input_artifacts") or {}
     lines = [
@@ -471,11 +490,49 @@ def render_report(payload):
             ["Blockers", summary.get("blocker_count", 0)],
             ["High-priority learnings", summary.get("high_priority_learning_count", 0)],
             ["Retrain inputs", summary.get("retrain_input_count", 0)],
+            ["Experiment queue", summary.get("experiment_queue_count", queue_summary.get("queue_count", 0))],
+            ["Eligible experiments", summary.get("eligible_experiment_count", queue_summary.get("eligible_count", 0))],
+            ["Retrain recommended", recommendation.get("recommended")],
             ["Training ready", retrain.get("training_ready")],
             ["Promotion ready", retrain.get("promotion_ready")],
             ["Promotion confidence", (retrain.get("promotion_confidence") or {}).get("status") or "-"],
         ],
     )
+    lines += ["", "## Experiment Queue", ""]
+    lines += markdown_table(
+        ["Field", "Value"],
+        [
+            ["Queue status", experiment_queue.get("status") or "-"],
+            ["Queue count", queue_summary.get("queue_count", 0)],
+            ["Eligible count", queue_summary.get("eligible_count", 0)],
+            ["Resolved", queue_summary.get("resolved_count", 0)],
+            ["Regressed", queue_summary.get("regressed_count", 0)],
+            ["Still open", queue_summary.get("still_open_count", 0)],
+            ["Item 301 rows", queue_summary.get("item301_count", 0)],
+            ["Retrain recommendation", recommendation.get("status") or "-"],
+            [
+                "Recommendation reasons",
+                ", ".join(_recommendation_reason_label(row) for row in recommendation.get("reasons") or []) or "-",
+            ],
+            ["Scheduled fallback", recommendation.get("scheduled_fallback")],
+        ],
+    )
+    queue_rows = [
+        [
+            row.get("queue_id"),
+            row.get("priority"),
+            row.get("status"),
+            row.get("slice"),
+            row.get("artifact_path") or "-",
+        ]
+        for row in experiment_queue.get("items") or []
+    ]
+    if queue_rows:
+        lines += ["", "Queued experiments:"]
+        lines += markdown_table(
+            ["Queue ID", "Priority", "Status", "Slice", "Artifact"],
+            queue_rows[:12],
+        )
     input_gate = payload.get("input_gate") or scorecard.get("input_gate") or {}
     if input_gate:
         lines += ["", "## Input Gate", ""]
@@ -621,11 +678,13 @@ def render_report(payload):
         lines.append("No actionable learnings were found in the available artifacts.")
     lines += ["", "## Retrain Plan", ""]
     first_gate = retrain.get("first_uncleared_p0_gate") or {}
+    label_countability = retrain.get("label_countability") or ((scorecard.get("label_countability") or {}))
     lines += markdown_table(
         ["Field", "Value"],
         [
             ["Training ready", retrain.get("training_ready")],
             ["Promotion ready", retrain.get("promotion_ready")],
+            ["Label countability", label_countability.get("status") or "-"],
             ["Promotion confidence", (retrain.get("promotion_confidence") or {}).get("status") or "-"],
             [
                 "Delta vs current CI high",

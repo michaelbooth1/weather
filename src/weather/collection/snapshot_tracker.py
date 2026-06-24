@@ -623,10 +623,11 @@ def ensure_loop(interval_minutes=10.0, now=None):
         "restart_cause": health["state"] if action in {"start", "restart"} else None,
         "runtime_identity_before": (status or {}).get("runtime_identity"),
         "current_runtime_identity": health.get("current_runtime_identity"),
-        "loop_offsets_before": loop_file_offsets(spec),
     }
     guard = supervisor_recovery_guard(spec, action, now=now)
     result["recovery_guard"] = guard
+    if action in {"start", "restart"}:
+        result["loop_offsets_before"] = loop_file_offsets(spec)
     if action in {"start", "restart"} and not guard.get("allowed"):
         result["intended_action"] = action
         result["action"] = guard.get("action")

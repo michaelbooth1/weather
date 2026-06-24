@@ -335,14 +335,14 @@ infrastructure work remains.
 | 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [COMPLETE 2026-06-24 - LEDGER HISTORY CONSUMED FOR BLOCKER LIFECYCLE AND ANOMALIES]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
 | 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [COMPLETE 2026-06-24 - IMPACT RANKING AND CONFIDENCE-GATED PROMOTION LIVE]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
 | 297 | [Calibration-Drift And Directional-Bias Daily Tracking [COMPLETE 2026-06-24 - CALIBRATION AND BIAS LEDGER TREND LIVE]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
-| 298 | [Automatic Experiment Queue And Drift-Triggered Retrain Loop [OPEN 2026-06-24 - EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY]](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
+| 298 | [Automatic Experiment Queue And Drift-Triggered Retrain Loop [COMPLETE 2026-06-24 - STRUCTURED QUEUE, NIGHTLY EXECUTION, AND RETRAIN RECOMMENDATION LIVE]](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
 | 300 | [Current Exchange Economics And Rule-Drift Gate [OPEN 2026-06-24 - PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS]](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
-| 301 | [June 23 Location Bias And Winner-Rank Repair Packet [OPEN 2026-06-24 - SETTLED JUNE 23 EXPOSED LOCATION-SPECIFIC RANK AND BIAS ERRORS]](items/item-301-june-23-location-bias-and-winner-rank-repair-packet.md) |
+| 301 | [June 23 Location Bias And Winner-Rank Repair Packet [COMPLETE 2026-06-24 - LOCATION-BIAS PACKET, REPAIR MANIFESTS, AND PROTECTED-SLICE REPLAY LIVE]](items/item-301-june-23-location-bias-and-winner-rank-repair-packet.md) |
 | 302 | [Post-Settlement Disagreement Audit Rehydration Gate [OPEN 2026-06-24 - AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE]](items/item-302-post-settlement-disagreement-audit-rehydration-gate.md) |
-| 303 | [Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization [OPEN 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS DO NOT PRODUCE CANONICAL EVIDENCE]](items/item-303-post-settlement-taker-zero-fill-evidence-and-artifact-canonicalization.md) |
-| 304 | [Maker Current-Run Evidence Selection And Quote-Starvation Gate [OPEN 2026-06-24 - TRADING EVIDENCE CAN MISS COUNTABLE MAKER RUNS AND QUOTE STARVATION]](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
-| 305 | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [OPEN 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
-| 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [OPEN 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
+| 303 | [Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization [COMPLETE 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS NOW PRODUCE CANONICAL POST-SETTLEMENT EVIDENCE]](items/item-303-post-settlement-taker-zero-fill-evidence-and-artifact-canonicalization.md) |
+| 304 | [Maker Current-Run Evidence Selection And Quote-Starvation Gate [COMPLETE 2026-06-24 - TRADING EVIDENCE SELECTS TARGET-DATE RUNS AND GATES QUOTE STARVATION]](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
+| 305 | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [COMPLETE 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
+| 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
 
 ### Architecture And Maintainability
 
@@ -385,7 +385,7 @@ infrastructure work remains.
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [OPEN 2026-06-24 - OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - CODE REMEDIATION LANDED, ACTIVE-DAY SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 
 ## Maintenance Conventions
 
