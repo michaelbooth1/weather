@@ -10,12 +10,30 @@ from weather.reporting.source_family_inventory import (
     build_source_family_inventory,
     item27_reanalysis_ablation_evidence,
     market_expansion_scorecard,
+    open_meteo_air_quality_archive_evidence,
     reanalysis_promotion_lane,
     write_outputs,
 )
+from weather.market.market_registry import spec_for_id
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.model.feature_store import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.operations.closed_market_day_archive import build_backfill_payload
+from weather.sources.open_meteo_archives import OpenMeteoArchiveStore, normalize_open_meteo_air_quality_archive
+from weather.sources.nbm_probabilistic_tmax import NBPStationArchiveStore, parse_nbp_station_tmax
+
+
+NBP_TEXT = """
+ KLGA    NBM V5.0 NBP GUIDANCE    5/30/2026  0000 UTC
+UTC    00  12| 00  12
+FHR    24  36| 48  60
+TXNMN  84  68| 79  68
+TXNSD   2   2|  4   3
+TXNP1  81  64| 73  63
+TXNP2  82  66| 76  66
+TXNP5  84  68| 80  69
+TXNP7  85  69| 82  71
+TXNP9  86  70| 84  72
+"""
 
 
 def write_csv(path, rows):
@@ -212,6 +230,195 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertGreater(payload["promotion_preflight"]["blocked_family_count"], 0)
         self.assertTrue(json_exists)
         self.assertIn("Source Family Inventory", report_text)
+
+    def test_open_meteo_air_quality_archive_evidence_updates_inventory_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            open_meteo_root = root / "open_meteo_archives"
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_air_quality",
+                        "ok": "True",
+                        "status": "fresh",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "forecast_payloads_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_air_quality",
+                        "status": "fresh",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "features_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "market_id": "nyc",
+                        "forecast_remaining_pm2_5_mean": "36",
+                    }
+                ],
+            )
+            spec = spec_for_id("nyc")
+            payload = {
+                "hourly": {
+                    "time": ["2026-06-18T14:00"],
+                    "pm2_5": [36.0],
+                    "pm10": [55.0],
+                    "aerosol_optical_depth": [0.42],
+                    "dust": [7.0],
+                    "us_aqi": [105],
+                    "european_aqi": [63],
+                }
+            }
+            store = OpenMeteoArchiveStore(open_meteo_root)
+            store.write_air_quality_archive(normalize_open_meteo_air_quality_archive(payload, spec), spec)
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            evidence = open_meteo_air_quality_archive_evidence(open_meteo_root)
+            inventory = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=backtest_root / "missing_candidate_replay.json",
+                locations_config=locations_config,
+                open_meteo_archive_root=open_meteo_root,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in inventory["inventory"]}
+
+        self.assertEqual(evidence["historical_archive_status"], "partial_historical_smoke_archive")
+        self.assertIn("nyc", evidence["covered_markets"])
+        self.assertEqual(rows["open_meteo_expanded"]["historical_archive_status"], "partial_historical_smoke_archive")
+        self.assertEqual(rows["open_meteo_expanded"]["historical_archive"]["covered_market_count"], 1)
+
+    def test_verified_nbp_station_archive_updates_nbm_historical_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            nbm_archive_root = root / "nbm_probabilistic_tmax"
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            payload = parse_nbp_station_tmax(
+                NBP_TEXT,
+                "KLGA",
+                "2026-05-30",
+                source_url="https://example.test/blend_nbptx.t00z",
+                fetched_at="2026-05-30T01:00:00+00:00",
+            )
+            NBPStationArchiveStore(nbm_archive_root).write_payload(payload)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nws_grid",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "nws_grid",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nws_hourly",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "nws_hourly",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nbm_probabilistic_tmax",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "nbm_probabilistic_tmax",
+                    },
+                ],
+            )
+            write_csv(
+                folder / "forecast_payloads_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nws_grid",
+                        "status": "fresh",
+                        "source_family": "nws_grid",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nws_hourly",
+                        "status": "fresh",
+                        "source_family": "nws_hourly",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "nbm_probabilistic_tmax",
+                        "status": "fresh",
+                        "source_family": "nbm_probabilistic_tmax",
+                    },
+                ],
+            )
+            write_csv(
+                folder / "features_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "market_id": "nyc",
+                        "nws_grid_high": "84",
+                        "nbm_prob_tmax_p50": "84",
+                    }
+                ],
+            )
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            inventory = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                nbm_station_archive_root=nbm_archive_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=backtest_root / "missing_candidate_replay.json",
+                locations_config=locations_config,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in inventory["inventory"]}
+
+        self.assertEqual(inventory["nbm_station_archive"]["status"], "PASS")
+        self.assertEqual(rows["nws_grid"]["historical_archive_status"], "nbp_station_archive_available")
+        self.assertEqual(rows["nws_grid"]["nbm_station_archive"]["replay_safe_row_count"], 1)
 
     def test_inventory_reports_parquet_reader_modes_for_closed_days(self):
         with tempfile.TemporaryDirectory() as tmp:

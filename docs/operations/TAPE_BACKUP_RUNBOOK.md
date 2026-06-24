@@ -154,9 +154,16 @@ preflight report carries the missing-file samples from tape status.
 
 Projection and operator/cache cleanup can still proceed with reviewed
 manifests when they do not delete canonical evidence. Examples include
-rebuildable `data/backtest` row exports, verified gzip-tiered
-`order_books_long.csv` projections, and same-disk backup mirror partials under
-`data/tape_backups/latest`.
+rebuildable `data/backtest` row exports and verified gzip-tiered
+`order_books_long.csv` projections. Same-disk backup mirror cleanup under
+`data/tape_backups/latest` has a stricter gate because those files can look
+like cache while still being the only local restore copy of a file that is not
+covered by the latest manifest.
+
+Treat `data/tape_backups/latest` as a short-term local restore cache, not as
+the durable archive of record. Durable retention belongs outside the workspace
+on the external or deduplicated repository covered by the backup status and
+restore-drill evidence.
 
 If a failed same-disk export leaves files in `latest/` that are not listed in
 `latest/tape_backup_manifest.json`, plan cleanup before rerunning backup:
@@ -165,14 +172,32 @@ If a failed same-disk export leaves files in `latest/` that are not listed in
 python -m weather.operations.tape_backup prune-unmanifested
 ```
 
-Apply only after the report shows the candidates have source counterparts:
+Review both the JSON and Markdown report. Candidate rows must show the latest
+manifest hash, the source counterpart, file size, source/mirror SHA-256 match,
+and the reason the row is eligible or blocked. Apply is fail-closed unless all
+of these are true:
+
+- the reviewed dry-run JSON is passed back with `--reviewed-plan`;
+- the latest manifest validates and still matches the dry-run plan hash;
+- the latest restore drill is current and matches the latest manifest hash;
+- tape backup status is `OK`;
+- every unmanifested row is a byte-identical source-backed duplicate;
+- an operator approval note is supplied.
+
+Apply syntax, used only after durable backup/restore evidence is current:
 
 ```powershell
-python -m weather.operations.tape_backup prune-unmanifested --apply
+python -m weather.operations.tape_backup prune-unmanifested --apply `
+  --reviewed-plan data\backtest\tape_backup_unmanifested_cleanup.json `
+  --operator-approve `
+  --operator-approved-by "<operator>" `
+  --operator-note "reviewed dry-run report; durable backup and restore evidence current"
 ```
 
 This removes only unmanifested files under the backup `latest/` directory; it
-does not delete source tapes or manifest-listed backup files.
+does not delete source tapes or manifest-listed backup files. Do not apply
+cleanup when the report has blocked rows, missing/stale restore evidence,
+`MISSING_CRITICAL_FILES`, or any source/mirror size or checksum mismatch.
 
 ## Restore Drill
 

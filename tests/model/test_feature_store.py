@@ -268,6 +268,50 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(historical["rise_from_7am"], 12.0)
         self.assertEqual(historical["warming_rate_2h"], 4.0)
 
+    def test_historical_builder_derives_marine_context_source(self):
+        rows = [
+            {
+                "time": "12:00",
+                "minute_of_day": 720,
+                "temp_native": 82.0,
+                "dewpoint_native": 64.0,
+                "humidity": 55.0,
+                "pressure": 1014.0,
+            }
+        ]
+        marine_context = {
+            "stations": [{
+                "usable": True,
+                "latest_age_minutes": 20,
+                "missing_sensors": [],
+                "distance_km": 10,
+                "onshore_direction_min": 45.0,
+                "onshore_direction_max": 165.0,
+                "latest": {
+                    "water_temp_native": 60.0,
+                    "air_temp_native": 70.0,
+                    "wind_speed_kmh": 18.0,
+                    "wind_direction_degrees": 135.0,
+                },
+                "rows": [],
+            }],
+        }
+
+        historical = build_historical_feature_record(
+            "2026-06-07",
+            rows,
+            {"bucket": 82},
+            12,
+            forecast_high=88.0,
+            marine_context_source=marine_context,
+        )
+
+        self.assertEqual(historical["marine_water_temp_native"], 60.0)
+        self.assertEqual(historical["marine_water_minus_forecast_high"], -28.0)
+        self.assertEqual(historical["marine_air_minus_current_temp"], -12.0)
+        self.assertEqual(historical["marine_onshore_flow"], 1.0)
+        self.assertEqual(historical["marine_onshore_cooling_potential"], 28.0)
+
     def test_model_build_returns_feature_vector(self):
         model = TorontoHighTempModel(target_date="2026-05-28")
         rows = [

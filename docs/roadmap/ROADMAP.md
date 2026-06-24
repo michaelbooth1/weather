@@ -130,7 +130,7 @@ infrastructure work remains.
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-22 - GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-22 - GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
+| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-22 - GATE REFRESHED, SST/BREEZE SLICE BLOCKED]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
 | 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
@@ -327,6 +327,7 @@ infrastructure work remains.
 | 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [COMPLETE 2026-06-23 - CALIBRATED MARKET-SHRUNK TAKER FAIR LIVE]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
 | 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
 | 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
+| 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [OPEN 2026-06-24 - PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
 
 ### Architecture And Maintainability
 

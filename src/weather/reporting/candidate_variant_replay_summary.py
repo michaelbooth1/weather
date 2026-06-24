@@ -373,7 +373,8 @@ def build_variant_replay_summary(
     source_candidate = _read_json(source_candidate_json)
     source_corpus = source_candidate.get("corpus") or {}
     row_export_corpus_hash = candidate_rows_corpus_hash(rows)
-    corpus_hash = source_corpus.get("corpus_hash") or row_export_corpus_hash
+    source_candidate_corpus_hash = source_corpus.get("corpus_hash")
+    corpus_hash = row_export_corpus_hash
     aggregate = _comparison(rows)
     blocked_validation = _blocked_validation(
         rows,
@@ -418,6 +419,7 @@ def build_variant_replay_summary(
             "markets": len({row.get("market_id") for row in rows if row.get("market_id")}),
             "corpus_hash": corpus_hash,
             "row_export_corpus_hash": row_export_corpus_hash,
+            "source_candidate_corpus_hash": source_candidate_corpus_hash,
         },
         "coverage": source_candidate.get("coverage") or {},
         "replay_gate": {

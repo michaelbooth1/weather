@@ -10,7 +10,7 @@ from weather.reporting.candidate_variant_replay_summary import (
     write_outputs,
 )
 from weather.reporting.promotion_refresh_decisions import promotion_readiness
-from weather.reporting.promotion_refresh_readers import _candidate_summary
+from weather.reporting.promotion_refresh_readers import _candidate_summary, load_precomputed_candidate_report
 
 
 FIELDNAMES = [
@@ -99,7 +99,8 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(payload["candidate_shadow_variants"]["variant_id"], "candidate_v1")
         self.assertEqual(payload["candidate_shadow_variants"]["derived_from"]["variant_id"], "source_candidate")
-        self.assertEqual(payload["corpus"]["corpus_hash"], "source-corpus")
+        self.assertEqual(payload["corpus"]["corpus_hash"], payload["corpus"]["row_export_corpus_hash"])
+        self.assertEqual(payload["corpus"]["source_candidate_corpus_hash"], "source-corpus")
         self.assertTrue(payload["corpus"]["row_export_corpus_hash"])
         self.assertTrue(payload["row_export_metric_passed"])
         self.assertFalse(payload["blocked_validation"]["passed"])
@@ -108,6 +109,25 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
         self.assertEqual(payload["candidate_market_verdict"], "PASS")
         self.assertTrue(json_exists)
         self.assertIn("Candidate Variant Replay Summary", report)
+
+    def test_row_export_surrogate_loads_when_source_corpus_matches_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            summary_path = root / "summary.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            payload = build_variant_replay_summary(rows_path, source_path)
+            write_outputs(payload, summary_path, root / "summary.md")
+            loaded = load_precomputed_candidate_report(
+                summary_path,
+                {"corpus_hash": "source-corpus"},
+            )
+
+        self.assertEqual(loaded["corpus"]["corpus_hash"], payload["corpus"]["row_export_corpus_hash"])
+        self.assertEqual(loaded["corpus"]["source_candidate_corpus_hash"], "source-corpus")
 
     def test_active_replay_contract_summary_can_feed_promotion_refresh_mitigation(self):
         with tempfile.TemporaryDirectory() as tmp:

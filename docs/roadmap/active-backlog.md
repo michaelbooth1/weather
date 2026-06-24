@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T01:02:09.555041+00:00
+Generated: 2026-06-24T01:45:19.420647+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 291 |
+| Items | 292 |
 | Active items | 35 |
-| OPEN | 5 |
-| PARTIAL | 30 |
-| COMPLETE | 256 |
-| ROADMAP rows | 291 |
-| ROADMAP primary rows | 291 |
-| Metadata manifest rows | 291 |
+| OPEN | 6 |
+| PARTIAL | 29 |
+| COMPLETE | 257 |
+| ROADMAP rows | 292 |
+| ROADMAP primary rows | 292 |
+| Metadata manifest rows | 292 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -47,7 +47,7 @@ Status: `OK`
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 188 | PARTIAL | 2026-06-22 | GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-22 | GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | PARTIAL | 2026-06-22 | GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
+| 190 | PARTIAL | 2026-06-24 | REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | PARTIAL | 2026-06-22 | GATE REFRESHED, SST/BREEZE SLICE BLOCKED | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
@@ -59,6 +59,7 @@ Status: `OK`
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 292 | OPEN | 2026-06-24 | PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
 
 ## Lint Issues
 

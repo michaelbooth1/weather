@@ -172,6 +172,36 @@ class TestOfficialGuidanceCollection(unittest.TestCase):
         self.assertEqual(summary["row_count"], 2)
         self.assertNotIn("rows", summary)
 
+    def test_collect_can_dedupe_repeated_replay_source_rows(self):
+        replay = {
+            "event_slug": "highest-temperature-in-nyc-on-june-15-2026",
+            "target_date": "2026-06-15",
+            "sources": {
+                "nws_grid": {"ok": True, "data": {
+                    "payload_hash": "same-raw-payload",
+                    "day_rows": [{"time": "12:00", "max_temp_native": 88.0}],
+                }},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "snapshots" / "event"
+            root.mkdir(parents=True)
+            (root / "replay_inputs.jsonl").write_text(
+                json.dumps(replay | {"captured_at_local": "2026-06-15T12:00:00-04:00"}) + "\n"
+                + json.dumps(replay | {"captured_at_local": "2026-06-15T12:05:00-04:00"}) + "\n",
+                encoding="utf-8",
+            )
+
+            payload = collect_official_guidance_from_replay_inputs(
+                [Path(tmp) / "snapshots"],
+                dedupe=True,
+            )
+
+        self.assertEqual(payload["row_count"], 1)
+        self.assertTrue(payload["dedupe"])
+        self.assertEqual(payload["duplicate_row_count"], 1)
+        self.assertEqual(payload["source_counts"], {"nws_grid": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

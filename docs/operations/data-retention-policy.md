@@ -44,8 +44,13 @@ The normal daily refresh also writes the same artifacts:
 - Use `python -m weather.reporting.backtest_artifact_retention` for large
   rebuildable `data/backtest` row exports; delete only from its cleanup
   manifest when paired reports or manifests exist.
-- Use `python -m weather.operations.tape_backup prune-unmanifested` only for
-  failed same-disk backup partials under `data/tape_backups/latest`.
+- Use `python -m weather.operations.tape_backup prune-unmanifested` only as a
+  dry-run review for failed same-disk backup partials under
+  `data/tape_backups/latest`. Apply requires the reviewed dry-run JSON,
+  current manifest and restore-drill evidence, backup status `OK`,
+  byte-identical source counterparts for every row, and explicit operator
+  approval. Do not apply mirror cleanup while durable backup evidence is stale,
+  missing, or incomplete.
 - Prefer gzip tiering or externalization for large historical JSONL/CSV
   evidence before deleting local copies.
 

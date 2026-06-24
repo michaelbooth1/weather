@@ -112,6 +112,46 @@ class TestOpenMeteoArchives(unittest.TestCase):
         self.assertEqual(daily_rows[0]["day_high_spread"], "5.0")
         self.assertIn("hourly", raw_payload)
 
+    def test_air_quality_store_merges_chunks_and_reports_coverage(self):
+        spec = spec_for_id("nyc")
+        first_payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00"],
+                "pm2_5": [36.0],
+                "pm10": [55.0],
+                "aerosol_optical_depth": [0.42],
+                "dust": [7.0],
+                "us_aqi": [105],
+                "european_aqi": [63],
+            }
+        }
+        second_payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
+                "pm2_5": [37.0, 12.0],
+                "pm10": [56.0, 18.0],
+                "aerosol_optical_depth": [0.43, 0.10],
+                "dust": [8.0, 2.0],
+                "us_aqi": [110, 40],
+                "european_aqi": [65, 20],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = OpenMeteoArchiveStore(tmp)
+            store.write_air_quality_archive(normalize_open_meteo_air_quality_archive(first_payload, spec), spec)
+            result = store.write_air_quality_archive(normalize_open_meteo_air_quality_archive(second_payload, spec), spec)
+            hourly_rows = list(csv.DictReader(Path(result["hourly_path"]).open(encoding="utf-8", newline="")))
+            coverage = store.air_quality_coverage(spec, "2026-06-01", "2026-06-03")
+            missing = store.air_quality_missing_ranges(spec, "2026-06-01", "2026-06-03", chunk_days=2)
+
+        self.assertEqual(result["hourly_rows"], 2)
+        self.assertEqual(len(hourly_rows), 2)
+        self.assertEqual(hourly_rows[0]["pm2_5"], "37.0")
+        self.assertEqual(coverage["covered_days"], 2)
+        self.assertEqual(coverage["missing_days"], 1)
+        self.assertEqual(missing[0][0].isoformat(), "2026-06-03")
+
 
 if __name__ == "__main__":
     unittest.main()

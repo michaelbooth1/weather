@@ -61,6 +61,15 @@ def fixture_source(root):
     write(root / "data/backtest/backtest_report.md", "derived report should not be backed up\n")
 
 
+def operator_review():
+    return {
+        "approved": True,
+        "approved_by": "unit-test",
+        "approved_at_utc": "2026-06-23T00:00:00+00:00",
+        "note": "reviewed prune-unmanifested dry-run report for unit test",
+    }
+
+
 class TestTapeBackup(unittest.TestCase):
     def test_manifest_classifies_irreplaceable_tapes_and_excludes_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -391,7 +400,7 @@ class TestTapeBackup(unittest.TestCase):
         self.assertIn("## CLOB Artifact Coverage", status_report)
         self.assertIn("order_book_long", status_report)
 
-    def test_unmanifested_backup_cleanup_deletes_only_source_backed_partials(self):
+    def test_unmanifested_backup_cleanup_apply_refuses_without_manifest_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             backup_root = Path(tmp) / "backup"
@@ -399,21 +408,137 @@ class TestTapeBackup(unittest.TestCase):
             export_backup(root, backup_root, capacity_margin_bytes=0)
             source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
             backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
+
+            plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
+            (backup_root / "latest" / "tape_backup_manifest.json").unlink()
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = source_extra.exists()
+
+        self.assertEqual(applied["status"], "BLOCK")
+        self.assertTrue(backup_extra_exists)
+        self.assertTrue(source_extra_exists)
+        self.assertIn("manifest_valid", {
+            gate["check"]
+            for gate in applied["gates"]
+            if gate["status"] == "BLOCK"
+        })
+
+    def test_unmanifested_backup_cleanup_apply_refuses_without_restore_drill_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
+            backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
+
+            plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = source_extra.exists()
+
+        self.assertEqual(applied["status"], "BLOCK")
+        self.assertTrue(backup_extra_exists)
+        self.assertTrue(source_extra_exists)
+        self.assertIn("restore_drill_current", {
+            gate["check"]
+            for gate in applied["gates"]
+            if gate["status"] == "BLOCK"
+        })
+
+    def test_unmanifested_backup_cleanup_apply_refuses_without_operator_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
+            backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
+
+            plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
+            applied = apply_unmanifested_backup_cleanup(plan)
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = source_extra.exists()
+
+        self.assertEqual(applied["status"], "BLOCK")
+        self.assertTrue(backup_extra_exists)
+        self.assertTrue(source_extra_exists)
+        self.assertIn("operator_review", {
+            gate["check"]
+            for gate in applied["gates"]
+            if gate["status"] == "BLOCK"
+        })
+
+    def test_unmanifested_backup_cleanup_apply_blocks_when_any_row_lacks_source_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
+            backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
             missing_source_extra = write(backup_root / "latest/data/snapshots/event/missing_source.csv", "only backup\n")
 
             plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
-            plan["apply"] = apply_unmanifested_backup_cleanup(plan)
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
             backup_extra_exists = backup_extra.exists()
-            source_extra_exists = source_extra.exists()
             missing_source_extra_exists = missing_source_extra.exists()
+            source_extra_exists = source_extra.exists()
 
         self.assertEqual(plan["summary"]["candidate_files"], 1)
         self.assertEqual(plan["summary"]["blocked_files"], 1)
-        self.assertFalse(backup_extra_exists)
+        self.assertEqual(applied["status"], "BLOCK")
+        self.assertTrue(backup_extra_exists)
         self.assertTrue(source_extra_exists)
         self.assertTrue(missing_source_extra_exists)
-        self.assertEqual(plan["apply"]["summary"]["deleted_files"], 1)
-        self.assertEqual(plan["apply"]["summary"]["skipped_files"], 1)
+        self.assertEqual(applied["summary"]["deleted_files"], 0)
+        self.assertGreaterEqual(applied["summary"]["skipped_files"], 1)
+
+    def test_unmanifested_backup_cleanup_deletes_only_after_manifest_restore_and_operator_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            source_extra = write(root / "data/snapshots/event/partial_copy.csv", "source\n")
+            backup_extra = write(backup_root / "latest/data/snapshots/event/partial_copy.csv", "source\n")
+
+            plan = unmanifested_backup_cleanup_plan(backup_root=backup_root, source_root=root)
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = source_extra.exists()
+
+        self.assertEqual(plan["summary"]["candidate_files"], 1)
+        self.assertEqual(plan["summary"]["blocked_files"], 0)
+        self.assertTrue(plan["apply_permission"])
+        self.assertEqual(applied["status"], "PASS")
+        self.assertFalse(backup_extra_exists)
+        self.assertTrue(source_extra_exists)
+        self.assertEqual(applied["summary"]["deleted_files"], 1)
+        self.assertEqual(applied["restore_drill_evidence"]["sla_status"], "OK")
+        self.assertEqual(applied["post_cleanup_backup_status"]["status"], "OK")
 
 
 if __name__ == "__main__":

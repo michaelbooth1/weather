@@ -260,7 +260,15 @@ def load_precomputed_candidate_report(path, manifest):
     candidate_corpus = candidate_report.get("corpus") or {}
     candidate_hash = candidate_corpus.get("corpus_hash")
     manifest_hash = manifest.get("corpus_hash")
-    if candidate_hash and manifest_hash and candidate_hash != manifest_hash:
+    source_candidate_hash = candidate_corpus.get("source_candidate_corpus_hash")
+    row_export_surrogate = candidate_report.get("validation_evidence") == "row_export_surrogate"
+    source_matches_manifest = bool(source_candidate_hash and manifest_hash and source_candidate_hash == manifest_hash)
+    if (
+        candidate_hash
+        and manifest_hash
+        and candidate_hash != manifest_hash
+        and not (row_export_surrogate and source_matches_manifest)
+    ):
         raise ValueError(
             "precomputed candidate corpus hash mismatch: "
             f"candidate={candidate_hash}, manifest={manifest_hash}"

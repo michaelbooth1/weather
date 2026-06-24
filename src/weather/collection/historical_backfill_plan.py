@@ -13,7 +13,9 @@ from pathlib import Path
 from weather.paths import data_path
 
 from weather.market.market_registry import all_specs, spec_for_id
+from weather.sources.marine_water_contrast import MarineWaterContrastStore
 from weather.sources.noaa_ghcnh_history import GHCNHStore
+from weather.sources.open_meteo_archives import OpenMeteoArchiveStore
 from weather.sources.reanalysis_history import ReanalysisStore
 from weather.sources.wu_history import WundergroundHistoryStore, parse_date
 
@@ -23,6 +25,8 @@ DEFAULT_MINIMUM_START = date(2015, 1, 1)
 DEFAULT_DEEP_START = date(1940, 1, 1)
 DEFAULT_WU_CHUNK_DAYS = 14
 DEFAULT_REANALYSIS_CHUNK_DAYS = 31
+DEFAULT_OPEN_METEO_AQ_CHUNK_DAYS = 31
+DEFAULT_MARINE_WATER_CONTRAST_CHUNK_DAYS = 31
 DEFAULT_SOURCES = ("wu", "ghcnh", "reanalysis")
 DEFAULT_QUEUE_MODE = "market_source"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
@@ -428,13 +432,141 @@ def reanalysis_queue(spec, start_date, end_date, python, chunk_days, queue_mode=
     return reanalysis_market_source_queue(spec, start_date, end_date, python, chunk_days)
 
 
-def queue_for_source(source, spec, start_date, end_date, python, wu_chunk_days, reanalysis_chunk_days, queue_mode):
+def open_meteo_air_quality_chunk_queue(spec, start_date, end_date, python, chunk_days):
+    store = OpenMeteoArchiveStore()
+    items = []
+    for start, end in store.air_quality_missing_ranges(spec, start_date, end_date, chunk_days=chunk_days):
+        items.append(queue_item(
+            "open_meteo_air_quality",
+            spec,
+            [
+                python,
+                "-m",
+                "weather.sources.open_meteo_archives",
+                "--market",
+                spec.id,
+                "air-quality",
+                "backfill",
+                "--start",
+                start.isoformat(),
+                "--end",
+                end.isoformat(),
+                "--chunk-days",
+                str(chunk_days),
+                "--skip-existing",
+            ],
+            {"start": start.isoformat(), "end": end.isoformat(), "kind": "date_range"},
+        ))
+    return items
+
+
+def open_meteo_air_quality_market_source_queue(spec, start_date, end_date, python, chunk_days):
+    store = OpenMeteoArchiveStore()
+    ranges = store.air_quality_missing_ranges(spec, start_date, end_date, chunk_days=chunk_days)
+    if not ranges:
+        return []
+    first_missing, last_missing = window_from_ranges(ranges)
+    return [queue_item(
+        "open_meteo_air_quality",
+        spec,
+        [
+            python,
+            "-m",
+            "weather.sources.open_meteo_archives",
+            "--market",
+            spec.id,
+            "air-quality",
+            "backfill",
+            "--start",
+            first_missing.isoformat(),
+            "--end",
+            last_missing.isoformat(),
+            "--chunk-days",
+            str(chunk_days),
+            "--skip-existing",
+        ],
+        {
+            "start": first_missing.isoformat(),
+            "end": last_missing.isoformat(),
+            "kind": "market_source_date_window",
+            "missing_ranges": len(ranges),
+            "missing_days": days_in_ranges(ranges),
+            "chunk_days": chunk_days,
+        },
+    )]
+
+
+def open_meteo_air_quality_queue(spec, start_date, end_date, python, chunk_days, queue_mode=DEFAULT_QUEUE_MODE):
+    if queue_mode == "chunk":
+        return open_meteo_air_quality_chunk_queue(spec, start_date, end_date, python, chunk_days)
+    return open_meteo_air_quality_market_source_queue(spec, start_date, end_date, python, chunk_days)
+
+
+def marine_water_contrast_queue(spec, start_date, end_date, python, chunk_days, queue_mode=DEFAULT_QUEUE_MODE):
+    ranges = MarineWaterContrastStore(spec).missing_ranges(start_date, end_date, chunk_days=chunk_days)
+    if not ranges:
+        return []
+    selected = ranges if queue_mode == "chunk" else [window_from_ranges(ranges)]
+    items = []
+    for start, end in selected:
+        items.append(queue_item(
+            "marine_water_contrast",
+            spec,
+            [
+                python,
+                "-m",
+                "weather.sources.marine_water_contrast",
+                "--market",
+                spec.id,
+                "backfill-station-history",
+                "--start",
+                start.isoformat(),
+                "--end",
+                end.isoformat(),
+                "--skip-existing",
+                "--continue-on-error",
+            ],
+            {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "kind": "date_range" if queue_mode == "chunk" else "market_source_date_window",
+                "missing_ranges": len(ranges),
+                "missing_days": days_in_ranges(ranges),
+                "chunk_days": chunk_days,
+            },
+        ))
+    return items
+
+
+def queue_for_source(
+    source,
+    spec,
+    start_date,
+    end_date,
+    python,
+    wu_chunk_days,
+    reanalysis_chunk_days,
+    open_meteo_aq_chunk_days,
+    marine_water_contrast_chunk_days,
+    queue_mode,
+):
     if source == "wu":
         return wu_queue(spec, start_date, end_date, python, wu_chunk_days, queue_mode)
     if source == "ghcnh":
         return ghcnh_queue(spec, start_date, end_date, python, queue_mode)
     if source == "reanalysis":
         return reanalysis_queue(spec, start_date, end_date, python, reanalysis_chunk_days, queue_mode)
+    if source == "open_meteo_air_quality":
+        return open_meteo_air_quality_queue(spec, start_date, end_date, python, open_meteo_aq_chunk_days, queue_mode)
+    if source == "marine_water_contrast":
+        return marine_water_contrast_queue(
+            spec,
+            start_date,
+            end_date,
+            python,
+            marine_water_contrast_chunk_days,
+            queue_mode,
+        )
     raise ValueError(f"unknown historical source: {source}")
 
 
@@ -447,6 +579,8 @@ def build_plan(
     python=None,
     wu_chunk_days=DEFAULT_WU_CHUNK_DAYS,
     reanalysis_chunk_days=DEFAULT_REANALYSIS_CHUNK_DAYS,
+    open_meteo_aq_chunk_days=DEFAULT_OPEN_METEO_AQ_CHUNK_DAYS,
+    marine_water_contrast_chunk_days=DEFAULT_MARINE_WATER_CONTRAST_CHUNK_DAYS,
     queue_mode=DEFAULT_QUEUE_MODE,
     backtest_root=DEFAULT_BACKTEST_ROOT,
 ):
@@ -465,6 +599,8 @@ def build_plan(
                 py,
                 wu_chunk_days,
                 reanalysis_chunk_days,
+                open_meteo_aq_chunk_days,
+                marine_water_contrast_chunk_days,
                 queue_mode,
             ))
     items, source_limited, policy = classify_source_limited_items(items, backtest_root=backtest_root)
@@ -521,6 +657,8 @@ def cmd_plan(args):
         python=args.python,
         wu_chunk_days=args.wu_chunk_days,
         reanalysis_chunk_days=args.reanalysis_chunk_days,
+        open_meteo_aq_chunk_days=args.open_meteo_aq_chunk_days,
+        marine_water_contrast_chunk_days=args.marine_water_contrast_chunk_days,
         queue_mode=args.queue_mode,
         backtest_root=args.backtest_root,
     )
@@ -542,6 +680,8 @@ def build_parser():
     parser.add_argument("--python", default=python_path())
     parser.add_argument("--wu-chunk-days", type=int, default=DEFAULT_WU_CHUNK_DAYS)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=DEFAULT_REANALYSIS_CHUNK_DAYS)
+    parser.add_argument("--open-meteo-aq-chunk-days", type=int, default=DEFAULT_OPEN_METEO_AQ_CHUNK_DAYS)
+    parser.add_argument("--marine-water-contrast-chunk-days", type=int, default=DEFAULT_MARINE_WATER_CONTRAST_CHUNK_DAYS)
     parser.add_argument("--queue-mode", choices=("market_source", "chunk"), default=DEFAULT_QUEUE_MODE)
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--out", default=str(DEFAULT_OUT))

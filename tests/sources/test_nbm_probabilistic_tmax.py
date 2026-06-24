@@ -8,9 +8,11 @@ from pathlib import Path
 from weather.sources.nbm_probabilistic_tmax import (
     NBPStationArchiveStore,
     exceedance_probability_from_percentiles,
+    nbp_station_archive_summary,
     nbp_station_archive_row,
     nbp_text_url,
     parse_nbp_station_tmax,
+    replay_nbp_station_archive_row,
     station_nbp_block,
 )
 
@@ -102,6 +104,51 @@ class TestNbmProbabilisticTmax(unittest.TestCase):
         self.assertEqual(rows[0]["source_url"], "https://example.test/blend_nbptx.t00z")
         self.assertEqual(raw_payload["station_id"], "KLGA")
         self.assertIn("TXNP9", raw_payload["text"])
+
+    def test_station_archive_replays_from_raw_payload(self):
+        payload = parse_nbp_station_tmax(
+            NBP_TEXT,
+            "KLGA",
+            date(2026, 5, 30),
+            source_url="https://example.test/blend_nbptx.t00z",
+            fetched_at="2026-05-30T01:00:00+00:00",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = NBPStationArchiveStore(tmp)
+            first = store.write_payload(payload)
+            rows = list(csv.DictReader(Path(first["rows_path"]).open(encoding="utf-8", newline="")))
+            replay = replay_nbp_station_archive_row(rows[0], rows_path=first["rows_path"])
+            summary = nbp_station_archive_summary(tmp)
+
+        self.assertEqual(replay["status"], "PASS")
+        self.assertTrue(replay["replay_safe"])
+        self.assertEqual(replay["replayed_percentiles"]["90"], 86.0)
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual(summary["replay_safe_row_count"], 1)
+
+    def test_station_archive_replay_detects_payload_drift(self):
+        payload = parse_nbp_station_tmax(
+            NBP_TEXT,
+            "KLGA",
+            date(2026, 5, 30),
+            source_url="https://example.test/blend_nbptx.t00z",
+            fetched_at="2026-05-30T01:00:00+00:00",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = NBPStationArchiveStore(tmp)
+            first = store.write_payload(payload)
+            raw_path = Path(first["raw_payload_path"])
+            raw_payload = json.loads(raw_path.read_text(encoding="utf-8"))
+            raw_payload["text"] = raw_payload["text"].replace("TXNP9  86  70", "TXNP9  87  70")
+            raw_path.write_text(json.dumps(raw_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            summary = nbp_station_archive_summary(tmp)
+
+        self.assertEqual(summary["status"], "FAIL")
+        self.assertEqual(summary["failed_row_count"], 1)
+        self.assertIn("raw_payload_hash_mismatch", summary["failed_samples"][0]["issues"])
+        self.assertIn("p90_mismatch", summary["failed_samples"][0]["issues"])
 
     def test_missing_station_returns_unavailable_payload(self):
         payload = parse_nbp_station_tmax(NBP_TEXT, "KATL", "2026-05-30")

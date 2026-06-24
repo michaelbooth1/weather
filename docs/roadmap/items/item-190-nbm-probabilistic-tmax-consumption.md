@@ -1,4 +1,4 @@
-# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-22 - GATE REFRESHED, PAYLOAD/US-SLICE BLOCKED]
+# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED]
 
 Goal: consume the National Blend of Models' calibrated probabilistic maximum-
 temperature distribution, instead of using only its point high.
@@ -46,10 +46,9 @@ distribution is scored against.
 - [x] Added NBM payload/source visibility to snapshot reconstruction, source
   family inventory, disagreement casebook, and official US guidance ablations.
 - [x] Added machine-readable NBM probabilistic Tmax gate artifact.
+- [x] Proved a replay-safe NBP station archive path for US markets.
 - [ ] Add native QMD GRIB percentile/exceedance-grid extraction for market
-  points and bucket edges.
-- [ ] Backfill historical probabilistic NBM features or otherwise prove a
-  replay-safe archive path for US markets.
+  points and bucket edges if bucket-edge native exceedance grids become needed.
 - [ ] Settlement-score NBM-prob as a calibration anchor and gate promotion on
   non-regressing per-market skill.
 
@@ -127,6 +126,31 @@ US-market settlement gates exist.
 Verification:
 
 - `python -m pytest tests\reporting\test_nbm_probabilistic_tmax_gate.py tests\sources\test_nbm_probabilistic_tmax.py tests\model\test_forecast_feature.py tests\model\test_feature_store.py tests\operations\test_schema_registry.py -q` -> 53 passed, 12 pre-existing sklearn all-missing fixture warnings.
+
+## 2026-06-24 Replay-Safe NBP Station Archive
+
+Added a replay-safety proof for the NBP station-text archive path:
+
+- `weather.sources.nbm_probabilistic_tmax.replay_nbp_station_archive_row`
+  reloads the archived raw NBP text payload, reparses the station/target-date
+  Tmax percentiles, and verifies station, target date, issue time, forecast
+  hour, valid time, product version, source URL, payload hash, percentile
+  values, mean, standard deviation, spread, and IQR against the CSV manifest.
+- `nbp_station_archive_summary` reports archive status as `PASS` only when at
+  least one available row exists and every manifest row replays cleanly.
+- `weather.reporting.source_family_inventory` now upgrades item 190's NWS/NBM
+  historical archive status to `nbp_station_archive_available` only when that
+  replay-safe archive evidence is present; otherwise the family remains on the
+  live-only/grid-backfill status.
+- Snapshot forecast-payload manifests now retain NBM bulletin `issued_at` and
+  `valid_time_utc` metadata as provider issue/update times when raw NBP payloads
+  are persisted.
+
+Verification:
+
+- `python -m pytest tests\sources\test_nbm_probabilistic_tmax.py -q` -> 8 passed.
+- `python -m pytest tests\collection\test_forecast_payload_persistence.py -q` -> 1 passed.
+- `python -m pytest tests\reporting\test_source_family_inventory.py -q` -> 16 passed.
 
 Acceptance: NBM probabilistic MaxT is ingested for US markets, exposed as
 features, and settlement-scored, with non-regressing per-market skill and a

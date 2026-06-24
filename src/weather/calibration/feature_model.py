@@ -52,6 +52,7 @@ from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
 )
+from weather.sources.marine_water_contrast import load_marine_water_contrast_features
 from weather.units import round_half_up
 
 # LOO must stay ON: without it the retrain exports artifacts with no
@@ -637,9 +638,11 @@ def build_feature_records_for_model(
     by_date,
     forecast_index,
     forecast_profiles,
+    marine_water_contrast_index=None,
     reanalysis_synoptic_index=None,
 ):
     raw_data = defaultdict(list)
+    marine_water_contrast_index = marine_water_contrast_index or {}
     reanalysis_synoptic_index = reanalysis_synoptic_index or {}
     for local_date in sorted(daily.keys()):
         rows = by_date.get(local_date, [])
@@ -654,6 +657,7 @@ def build_feature_records_for_model(
                 hour,
                 forecast_high=forecast_index.get(local_date.isoformat()),
                 forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
+                marine_context_features=marine_water_contrast_index.get((local_date.isoformat(), int(hour))),
                 reanalysis_synoptic_features=reanalysis_synoptic_index.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,
@@ -676,6 +680,7 @@ def main_item27_feature_value_report(market_id="toronto", n_splits=5):
     bucket_space = cache["bucket_space"]
     forecast_index = load_forecast_daily(daily_path_for(spec))
     forecast_profiles = load_forecast_profiles(long_path_for(spec))
+    marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
     reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
     raw_data = build_feature_records_for_model(
         model,
@@ -683,6 +688,7 @@ def main_item27_feature_value_report(market_id="toronto", n_splits=5):
         by_date,
         forecast_index,
         forecast_profiles,
+        marine_water_contrast_index=marine_water_contrast_index,
         reanalysis_synoptic_index=reanalysis_synoptic_index,
     )
     validation_rows, ablation_rows = evaluate_feature_family_segments(
@@ -962,6 +968,9 @@ def main(market_id="toronto"):
           f"(forecast feature present for those, NaN otherwise).")
     print(f"Loaded {len(forecast_profiles)} historical forecast-profile days "
           f"(profile/radiation/cloud features present where archived).")
+    marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
+    print(f"Loaded {len(marine_water_contrast_index)} marine water-contrast cutoff rows "
+          "(features present where sidecar is built).")
     reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
     print(f"Loaded {len(reanalysis_synoptic_index)} gated reanalysis/synoptic days "
           "(feature present where sidecar is built).")
@@ -977,6 +986,7 @@ def main(market_id="toronto"):
         by_date,
         forecast_index,
         forecast_profiles,
+        marine_water_contrast_index=marine_water_contrast_index,
         reanalysis_synoptic_index=reanalysis_synoptic_index,
     )
 

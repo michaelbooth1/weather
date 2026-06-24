@@ -927,8 +927,12 @@ class SnapshotStore:
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
-                "provider_issue_time": data.get("provider_issue_time"),
-                "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
+                "provider_issue_time": data.get("provider_issue_time") or data.get("issued_at"),
+                "provider_update_time": (
+                    data.get("provider_update_time")
+                    or data.get("last_updated")
+                    or data.get("valid_time_utc")
+                ),
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),

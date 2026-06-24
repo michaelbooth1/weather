@@ -12,7 +12,7 @@ import json
 import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 NBM_PROB_TMAX_SCHEMA_VERSION = "nbm_probabilistic_tmax_v0.1"
@@ -369,6 +369,171 @@ class NBPStationArchiveStore:
             "raw_payload_path": raw_path,
             "row": row,
         }
+
+
+def _read_station_archive_rows(rows_path: Path) -> list[dict[str, str]]:
+    if not rows_path.exists():
+        return []
+    with rows_path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _resolve_raw_payload_path(rows_path: Path, raw_payload_path: str | None) -> Path | None:
+    if not raw_payload_path:
+        return None
+    path = Path(raw_payload_path)
+    if path.is_absolute():
+        return path
+    return rows_path.parent / path
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _as_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_int(value: Any) -> int | None:
+    number = _as_float(value)
+    return int(number) if number is not None else None
+
+
+def _same_float(left: Any, right: Any, tolerance: float = 1e-6) -> bool:
+    left_number = _as_float(left)
+    right_number = _as_float(right)
+    if left_number is None or right_number is None:
+        return left_number is None and right_number is None
+    return abs(left_number - right_number) <= tolerance
+
+
+def replay_nbp_station_archive_row(row: dict, *, rows_path: str | Path | None = None) -> dict:
+    """Verify that one archive manifest row can be replayed from its raw NBP text."""
+    row = dict(row or {})
+    rows_path = Path(rows_path) if rows_path is not None else None
+    issues = []
+    raw_payload_path = _resolve_raw_payload_path(rows_path or Path("."), row.get("raw_payload_path"))
+    raw_payload = None
+
+    if row.get("schema_version") != NBM_STATION_ARCHIVE_SCHEMA_VERSION:
+        issues.append("schema_version_mismatch")
+    if row.get("source") != "nbm_probabilistic_tmax":
+        issues.append("source_mismatch")
+    if row.get("source_kind") != "nbp_station_text":
+        issues.append("source_kind_mismatch")
+    if raw_payload_path is None:
+        issues.append("raw_payload_path_missing")
+    elif not raw_payload_path.exists():
+        issues.append("raw_payload_file_missing")
+    else:
+        try:
+            raw_payload = json.loads(raw_payload_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            issues.append("raw_payload_not_readable_json")
+
+    replayed = None
+    if isinstance(raw_payload, dict):
+        text = raw_payload.get("text")
+        if not text:
+            issues.append("raw_payload_text_missing")
+        raw_hash = raw_payload.get("payload_hash")
+        computed_hash = _payload_hash(text or "")
+        if raw_hash and raw_hash != computed_hash:
+            issues.append("raw_payload_hash_mismatch")
+        if row.get("payload_hash") and row.get("payload_hash") != computed_hash:
+            issues.append("row_payload_hash_mismatch")
+        if text:
+            try:
+                replayed = parse_nbp_station_tmax(
+                    text,
+                    row.get("station_id") or raw_payload.get("station_id"),
+                    row.get("target_date") or raw_payload.get("target_date"),
+                    source_url=row.get("source_url") or raw_payload.get("source_url"),
+                    fetched_at=row.get("fetched_at") or raw_payload.get("fetched_at"),
+                )
+            except (TypeError, ValueError):
+                issues.append("raw_payload_replay_failed")
+                replayed = None
+        if replayed:
+            if _as_bool(row.get("available")) != bool(replayed.get("available")):
+                issues.append("available_mismatch")
+            for key in ("station_id", "target_date", "issued_at", "valid_time_utc", "product_version"):
+                if (row.get(key) or None) != (replayed.get(key) or None):
+                    issues.append(f"{key}_mismatch")
+            if _as_int(row.get("forecast_hour")) != _as_int(replayed.get("forecast_hour")):
+                issues.append("forecast_hour_mismatch")
+            for percentile in ("10", "25", "50", "75", "90"):
+                if not _same_float(row.get(f"p{percentile}"), (replayed.get("percentiles") or {}).get(percentile)):
+                    issues.append(f"p{percentile}_mismatch")
+            for row_key, replay_key in (
+                ("mean_native", "mean_native"),
+                ("stddev_native", "stddev_native"),
+                ("day_max_native", "day_max_native"),
+                ("p10_p90_spread", "p10_p90_spread"),
+                ("iqr", "iqr"),
+            ):
+                if not _same_float(row.get(row_key), replayed.get(replay_key)):
+                    issues.append(f"{row_key}_mismatch")
+            if row.get("source_url") and row.get("source_url") != (replayed.get("source_url") or replayed.get("url")):
+                issues.append("source_url_mismatch")
+
+    available = _as_bool(row.get("available"))
+    replay_safe = bool(available and replayed and replayed.get("available") and not issues)
+    return {
+        "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+        "station_id": row.get("station_id"),
+        "target_date": row.get("target_date"),
+        "issued_at": row.get("issued_at"),
+        "payload_hash": row.get("payload_hash"),
+        "raw_payload_path": str(raw_payload_path) if raw_payload_path is not None else None,
+        "available": available,
+        "replay_safe": replay_safe,
+        "status": "PASS" if replay_safe else "FAIL",
+        "issues": sorted(set(issues)),
+        "replayed_forecast_hour": replayed.get("forecast_hour") if replayed else None,
+        "replayed_percentiles": (replayed or {}).get("percentiles") or {},
+    }
+
+
+def nbp_station_archive_summary(root: str | Path, *, max_samples: int = 5) -> dict:
+    """Summarize whether a station archive can safely reconstruct NBM percentile features."""
+    store = NBPStationArchiveStore(root)
+    rows = _read_station_archive_rows(store.rows_path)
+    checks = [
+        replay_nbp_station_archive_row(row, rows_path=store.rows_path)
+        for row in rows
+    ]
+    pass_count = sum(1 for item in checks if item.get("replay_safe"))
+    fail_count = len(checks) - pass_count
+    available_count = sum(1 for row in rows if _as_bool(row.get("available")))
+    station_ids = sorted({str(row.get("station_id") or "") for row in rows if row.get("station_id")})
+    target_dates = sorted({str(row.get("target_date") or "") for row in rows if row.get("target_date")})
+    status = "PASS" if rows and available_count and fail_count == 0 else "MISSING"
+    if rows and fail_count:
+        status = "FAIL"
+    return {
+        "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+        "root": str(store.root),
+        "rows_path": str(store.rows_path),
+        "status": status,
+        "replay_safe": status == "PASS",
+        "row_count": len(rows),
+        "available_row_count": available_count,
+        "replay_safe_row_count": pass_count,
+        "failed_row_count": fail_count,
+        "station_ids": station_ids[:max_samples],
+        "target_dates": target_dates[:max_samples],
+        "samples": checks[:max_samples],
+        "failed_samples": [item for item in checks if not item.get("replay_safe")][:max_samples],
+    }
 
 
 def cdf_probability_from_percentiles(percentiles: dict, threshold: float | None) -> float | None:

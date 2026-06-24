@@ -232,6 +232,58 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(item["command"][item["command"].index("--start") + 1], "2026-01-01")
         self.assertEqual(item["command"][item["command"].index("--end") + 1], "2026-01-05")
 
+    def test_backfill_plan_includes_open_meteo_air_quality_source(self):
+        class FakeStore:
+            def air_quality_missing_ranges(self, spec, start_date, end_date, chunk_days=31):
+                return [
+                    (date(2026, 6, 1), date(2026, 6, 2)),
+                    (date(2026, 6, 5), date(2026, 6, 5)),
+                ]
+
+        with patch("weather.collection.historical_backfill_plan.OpenMeteoArchiveStore", return_value=FakeStore()):
+            plan = build_plan(
+                market_ids=["nyc"],
+                sources=["open_meteo_air_quality"],
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 5),
+                python="python",
+                open_meteo_aq_chunk_days=2,
+            )
+
+        self.assertEqual(plan["queue_count"], 1)
+        item = plan["queue"][0]
+        self.assertEqual(item["source"], "open_meteo_air_quality")
+        self.assertEqual(item["detail"]["missing_ranges"], 2)
+        self.assertEqual(item["detail"]["missing_days"], 3)
+        self.assertEqual(item["command"][:3], ["python", "-m", "weather.sources.open_meteo_archives"])
+        self.assertIn("air-quality", item["command"])
+        self.assertIn("--skip-existing", item["command"])
+
+    def test_backfill_plan_includes_marine_water_contrast_source(self):
+        class FakeStore:
+            def __init__(self, _spec):
+                pass
+
+            def missing_ranges(self, start_date, end_date, chunk_days=31):
+                return [(date(2026, 6, 1), date(2026, 6, 2))]
+
+        with patch("weather.collection.historical_backfill_plan.MarineWaterContrastStore", FakeStore):
+            plan = build_plan(
+                market_ids=["nyc"],
+                sources=["marine_water_contrast"],
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 2),
+                python="python",
+            )
+
+        self.assertEqual(plan["queue_count"], 1)
+        item = plan["queue"][0]
+        self.assertEqual(item["source"], "marine_water_contrast")
+        self.assertEqual(item["detail"]["missing_days"], 2)
+        self.assertEqual(item["command"][:3], ["python", "-m", "weather.sources.marine_water_contrast"])
+        self.assertIn("backfill-station-history", item["command"])
+        self.assertIn("--skip-existing", item["command"])
+
     def test_backfill_plan_records_pre_2015_us_wu_as_source_limited(self):
         class FakeStore:
             def missing_ranges(self, start_date, end_date, chunk_days=14):

@@ -1,4 +1,4 @@
-# 247. Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-22 - UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM]
+# 247. Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]
 
 Goal: safely demote `data/tape_backups/latest` from long-term archive to
 short-term local restore cache, then reclaim only unmanifested duplicate mirror
@@ -34,16 +34,16 @@ be deleted because a mirror cleanup looked plausible.
 6. Add a local mirror retention setting for how much recent cache, if any, is
    worth keeping after the deduplicated repository is operational.
 
-- [ ] Run and review `python -m weather.operations.tape_backup
+- [x] Run and review `python -m weather.operations.tape_backup
   prune-unmanifested` in dry-run mode against the current mirror.
-- [ ] Add or tighten tests that apply mode refuses to delete without manifest
+- [x] Add or tighten tests that apply mode refuses to delete without manifest
   validation and restore-drill evidence.
-- [ ] Add an operator gate that blocks cleanup when candidate files lack a
+- [x] Add an operator gate that blocks cleanup when candidate files lack a
   source counterpart or verified durable-repository restore.
 - [ ] Apply cleanup only to verified unmanifested mirror duplicates.
 - [ ] Refresh backup status, fleet observability, and local storage inventory
   after cleanup.
-- [ ] Document the new role of `data/tape_backups/latest` as cache, not
+- [x] Document the new role of `data/tape_backups/latest` as cache, not
   archive.
 
 Acceptance: unmanifested duplicate files in `data/tape_backups/latest` can be
@@ -51,5 +51,24 @@ reclaimed through a dry-run, restore-verified, manifest-backed apply workflow;
 no source snapshot data is deleted; post-cleanup backup status remains healthy;
 and the runbook makes clear that durable retention belongs to the
 deduplicated repository, not the local mirror.
+
+Implementation note (2026-06-24): `weather.operations.tape_backup
+prune-unmanifested` now emits a dry-run plan with manifest validity,
+restore-drill SLA, source/mirror SHA-256 comparison, plan hash, apply gates,
+and local mirror cache-retention metadata. Apply mode is fail-closed: it
+requires `--reviewed-plan`, explicit operator approval metadata, a valid latest
+manifest matching the reviewed plan, current restore-drill evidence, backup
+status `OK`, no blocked dry-run rows, and a second source/mirror hash
+revalidation before unlinking any file. The applied manifest records deleted
+paths, skipped rows, operator review, restore evidence, manifest hash, and
+post-cleanup backup status.
+
+Dry-run review (2026-06-24): the current mirror produced
+`data/backtest/tape_backup_unmanifested_cleanup.json` and report with
+`status=WARN`, `apply_permission=false`, 28 unmanifested files totaling
+23,518,335,013 bytes, 4 byte-identical tiny source-backed candidates, and 24
+blocked missing-source rows. Apply is blocked because the latest manifest hash
+does not validate and the blocked rows have no source counterpart. No cleanup
+was applied.
 
 Related: items 65, 111, 124, 146, 154, 239, 246.

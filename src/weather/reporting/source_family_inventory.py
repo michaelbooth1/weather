@@ -36,6 +36,12 @@ from weather.model.feature_store import (
 from weather.paths import config_path, data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
+from weather.sources.marine_water_contrast import (
+    DEFAULT_ROOT as DEFAULT_MARINE_WATER_CONTRAST_ROOT,
+    FEATURE_FILENAME as MARINE_WATER_CONTRAST_FEATURE_FILENAME,
+)
+from weather.sources.nbm_probabilistic_tmax import nbp_station_archive_summary
+from weather.sources.open_meteo_archives import OpenMeteoArchiveStore
 
 try:
     from weather.calibration.pooled_feature_model import HISTORICAL_ONLY_SOURCE_RELIABILITY_COLUMNS
@@ -54,6 +60,9 @@ SCHEMA_VERSION = schema_version("source_family_inventory")
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_REANALYSIS_ROOT = data_path() / "reanalysis"
+DEFAULT_MARINE_WATER_CONTRAST_SIDECAR_ROOT = DEFAULT_MARINE_WATER_CONTRAST_ROOT
+DEFAULT_NBM_STATION_ARCHIVE_ROOT = data_path() / "nbm_probabilistic_tmax"
+DEFAULT_OPEN_METEO_ARCHIVE_ROOT = data_path() / "open_meteo_archives"
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory_report.md"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation.json"
@@ -340,6 +349,53 @@ def requires_forecast_payload(spec):
     return any(source in FORECAST_PAYLOAD_SOURCES for source in spec.source_keys)
 
 
+def open_meteo_air_quality_archive_evidence(open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT):
+    store = OpenMeteoArchiveStore(open_meteo_archive_root)
+    applicable_specs = [
+        spec
+        for spec in REGISTRY.values()
+        if "open_meteo" in spec.sources
+    ]
+    rows = []
+    covered_markets = []
+    for spec in sorted(applicable_specs, key=lambda item: item.id):
+        coverage = store.air_quality_coverage(spec)
+        covered = int(coverage.get("covered_days") or 0) > 0
+        if covered:
+            covered_markets.append(spec.id)
+        rows.append({
+            "market_id": spec.id,
+            "station": spec.icao,
+            "covered_days": coverage.get("covered_days", 0),
+            "hourly_rows": coverage.get("hourly_rows", 0),
+            "first_covered_date": coverage.get("first_covered_date"),
+            "last_covered_date": coverage.get("last_covered_date"),
+            "hourly_path": coverage.get("hourly_path"),
+        })
+    if applicable_specs and len(covered_markets) == len(applicable_specs):
+        status = "historical_smoke_archive_available"
+    elif covered_markets:
+        status = "partial_historical_smoke_archive"
+    else:
+        status = "historical_smoke_archive_missing"
+    return {
+        "family_id": "open_meteo_expanded",
+        "source": "open_meteo_air_quality",
+        "archive_root": str(Path(open_meteo_archive_root)),
+        "historical_archive_status": status,
+        "market_count": len(applicable_specs),
+        "covered_market_count": len(covered_markets),
+        "covered_markets": sorted(covered_markets),
+        "missing_markets": sorted(spec.id for spec in applicable_specs if spec.id not in covered_markets),
+        "rows": rows,
+    }
+
+
+def archive_evidence_by_family(open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT):
+    aq = open_meteo_air_quality_archive_evidence(open_meteo_archive_root)
+    return {aq["family_id"]: aq}
+
+
 def stats_template():
     return {
         "source_status_rows": 0,
@@ -362,6 +418,9 @@ def stats_template():
         "by_cutoff": defaultdict(lambda: {"rows": 0, "total_cells": 0, "missing_cells": 0}),
         "artifact_folders": set(),
         "clob_raw_tape_folders": set(),
+        "marine_water_contrast_rows": 0,
+        "marine_water_contrast_sources": set(),
+        "marine_water_contrast_providers": set(),
         "sample_folders": set(),
     }
 
@@ -614,6 +673,36 @@ def scan_reanalysis_sidecars(reanalysis_root, stats_by_family):
         for row in rows:
             row = dict(row)
             row["market_id"] = row.get("market_id") or market_spec.id
+            update_feature_stats(stats, spec, row, market_spec.id, columns=present)
+
+
+def scan_marine_water_contrast_sidecars(marine_water_contrast_root, stats_by_family):
+    stats = stats_by_family["marine_context"]
+    spec = next(item for item in FAMILY_SPECS if item.family_id == "marine_context")
+    root = Path(marine_water_contrast_root)
+    if not root.exists():
+        return
+    for market_spec in sorted(REGISTRY.values(), key=lambda item: item.id):
+        path = root / market_spec.icao.lower() / "features" / MARINE_WATER_CONTRAST_FEATURE_FILENAME
+        rows, fieldnames = read_csv_stream(path)
+        if not rows:
+            continue
+        present = [column for column in spec.feature_columns if column in set(fieldnames)]
+        if not present:
+            continue
+        stats["feature_folders"].add(str(path.parent))
+        stats["artifact_folders"].add(str(path.parent))
+        stats["sample_folders"].add(str(path.parent))
+        stats["marine_water_contrast_rows"] += len(rows)
+        for row in rows:
+            row = dict(row)
+            row["market_id"] = row.get("market_id") or market_spec.id
+            source = row.get("feature_source")
+            provider = row.get("sst_provider")
+            if source:
+                stats["marine_water_contrast_sources"].add(str(source))
+            if provider:
+                stats["marine_water_contrast_providers"].add(str(provider).lower())
             update_feature_stats(stats, spec, row, market_spec.id, columns=present)
 
 
@@ -1073,7 +1162,34 @@ def lineage_status(spec, stats):
     return "PASS"
 
 
-def parity_status(spec, stats, lineage, usage=None):
+def effective_nbm_station_archive_available(nbm_station_archive=None):
+    return bool((nbm_station_archive or {}).get("replay_safe"))
+
+
+def effective_historical_archive_status(spec, nbm_station_archive=None, stats=None):
+    if spec.family_id == "nws_grid" and effective_nbm_station_archive_available(nbm_station_archive):
+        return "nbp_station_archive_available"
+    if spec.family_id == "marine_context":
+        stats = stats or {}
+        providers = {
+            str(item).lower()
+            for item in stats.get("marine_water_contrast_providers", set())
+            if item
+        }
+        if providers & {"glsea", "oisst"}:
+            return "glsea_oisst_archive_available"
+        if int(stats.get("marine_water_contrast_rows") or 0) > 0:
+            return "marine_station_archive_available"
+    return spec.historical_archive_status
+
+
+def effective_live_only_policy(spec, nbm_station_archive=None):
+    if spec.family_id == "nws_grid" and effective_nbm_station_archive_available(nbm_station_archive):
+        return "parity_required_before_promotion"
+    return spec.live_only_policy
+
+
+def parity_status(spec, stats, lineage, usage=None, live_only_policy=None):
     active_columns = set((usage or {}).get("active_model_feature_columns") or [])
     required_columns = active_columns or set(spec.feature_columns)
     feature_column_count = len(required_columns)
@@ -1095,7 +1211,8 @@ def parity_status(spec, stats, lineage, usage=None):
         return "PARTIAL_MISSINGNESS"
     if lineage != "PASS":
         return "LINEAGE_BLOCKED"
-    if "live_only" in spec.live_only_policy:
+    policy = live_only_policy if live_only_policy is not None else spec.live_only_policy
+    if "live_only" in policy:
         return "LIVE_ONLY_REQUIRES_BACKFILL"
     return "PASS"
 
@@ -1195,16 +1312,30 @@ def reanalysis_promotion_lane(ablation):
     }
 
 
-def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
+def inventory_rows(
+    stats_by_family,
+    ablation_payload,
+    model_usage=None,
+    nbm_station_archive=None,
+    archive_evidence=None,
+):
     ablations = ablation_by_variant(ablation_payload)
+    archive_evidence = archive_evidence or {}
     rows = []
     for spec in FAMILY_SPECS:
         stats = stats_by_family[spec.family_id]
         usage = active_family_usage(spec, model_usage or {})
         lineage = lineage_status(spec, stats)
-        parity = parity_status(spec, stats, lineage, usage=usage)
+        live_only_policy = effective_live_only_policy(spec, nbm_station_archive)
+        parity = parity_status(spec, stats, lineage, usage=usage, live_only_policy=live_only_policy)
         ablation = ablation_for_spec(spec, ablations)
         decision = promotion_decision(spec, lineage, parity, ablation)
+        family_archive = archive_evidence.get(spec.family_id) or {}
+        historical_archive_status = (
+            family_archive.get("historical_archive_status")
+            or effective_historical_archive_status(spec, nbm_station_archive, stats=stats)
+        )
+        nbm_archive_evidence = nbm_station_archive if spec.family_id == "nws_grid" else None
         promotion_lane = None
         artifact_promotion_lane = None
         artifact_lane_consistency = None
@@ -1232,9 +1363,20 @@ def inventory_rows(stats_by_family, ablation_payload, model_usage=None):
                 - stats["feature_columns_present"]
             ),
             "lineage_artifacts": list(spec.lineage_artifacts),
-            "historical_archive_status": spec.historical_archive_status,
-            "live_only": spec.live_only_policy != "training_and_serving",
-            "live_only_policy": spec.live_only_policy,
+            "historical_archive_status": historical_archive_status,
+            "historical_archive": family_archive,
+            "live_only": live_only_policy != "training_and_serving",
+            "live_only_policy": live_only_policy,
+            "nbm_station_archive": nbm_archive_evidence,
+            "marine_water_contrast_sidecar": (
+                {
+                    "rows": stats["marine_water_contrast_rows"],
+                    "feature_sources": sorted(stats["marine_water_contrast_sources"]),
+                    "sst_providers": sorted(stats["marine_water_contrast_providers"]),
+                    "folder_count": len(stats["artifact_folders"]),
+                }
+                if spec.family_id == "marine_context" else None
+            ),
             "model_influence": usage["model_influence"],
             "configured_model_influence": spec.model_influence,
             "active_model_usage_status": usage["active_model_usage_status"],
@@ -1363,6 +1505,9 @@ def promotion_preflight(
     *,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     archive_root=DEFAULT_ARCHIVE_ROOT,
+    marine_water_contrast_root=DEFAULT_MARINE_WATER_CONTRAST_SIDECAR_ROOT,
+    nbm_station_archive_root=DEFAULT_NBM_STATION_ARCHIVE_ROOT,
+    open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT,
     backtest_root=DEFAULT_BACKTEST_ROOT,
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
@@ -1401,6 +1546,9 @@ def promotion_preflight(
             "python -m weather.reporting.source_family_inventory "
             f"--snapshots-root {Path(snapshots_root).as_posix()} "
             f"--archive-root {Path(archive_root).as_posix()} "
+            f"--marine-water-contrast-root {Path(marine_water_contrast_root).as_posix()} "
+            f"--nbm-station-archive-root {Path(nbm_station_archive_root).as_posix()} "
+            f"--open-meteo-archive-root {Path(open_meteo_archive_root).as_posix()} "
             f"--backtest-root {Path(backtest_root).as_posix()} "
             f"--ablation-json {Path(ablation_json).as_posix()} "
             f"--candidate-replay-json {Path(candidate_replay_json).as_posix()}"
@@ -1416,6 +1564,9 @@ def build_source_family_inventory(
     *,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     reanalysis_root=DEFAULT_REANALYSIS_ROOT,
+    marine_water_contrast_root=DEFAULT_MARINE_WATER_CONTRAST_SIDECAR_ROOT,
+    nbm_station_archive_root=DEFAULT_NBM_STATION_ARCHIVE_ROOT,
+    open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT,
     backtest_root=DEFAULT_BACKTEST_ROOT,
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
@@ -1481,6 +1632,7 @@ def build_source_family_inventory(
             prefer_archive=prefer_archive,
         )
     scan_reanalysis_sidecars(reanalysis_root, stats_by_family)
+    scan_marine_water_contrast_sidecars(marine_water_contrast_root, stats_by_family)
     ablation_payload = read_json(ablation_json, default={}) or {}
     candidate_replay_payload = read_json(candidate_replay_json, default={}) or {}
     model_usage = active_model_usage(candidate_replay_payload)
@@ -1498,11 +1650,22 @@ def build_source_family_inventory(
     if item27_reanalysis:
         merged_ablation_payload["variants"].append(item27_reanalysis)
     merged_ablation_count = len(ablation_by_variant(merged_ablation_payload))
-    rows = inventory_rows(stats_by_family, merged_ablation_payload, model_usage=model_usage)
+    nbm_station_archive = nbp_station_archive_summary(nbm_station_archive_root)
+    archive_evidence = archive_evidence_by_family(open_meteo_archive_root)
+    rows = inventory_rows(
+        stats_by_family,
+        merged_ablation_payload,
+        model_usage=model_usage,
+        nbm_station_archive=nbm_station_archive,
+        archive_evidence=archive_evidence,
+    )
     preflight = promotion_preflight(
         rows,
         snapshots_root=snapshots_root,
         archive_root=archive_root,
+        marine_water_contrast_root=marine_water_contrast_root,
+        nbm_station_archive_root=nbm_station_archive_root,
+        open_meteo_archive_root=open_meteo_archive_root,
         backtest_root=backtest_root,
         ablation_json=ablation_json,
         candidate_replay_json=candidate_replay_json,
@@ -1519,6 +1682,8 @@ def build_source_family_inventory(
         "snapshots_root": str(Path(snapshots_root)),
         "archive_root": str(Path(archive_root)),
         "reanalysis_root": str(Path(reanalysis_root)),
+        "nbm_station_archive_root": str(Path(nbm_station_archive_root)),
+        "open_meteo_archive_root": str(Path(open_meteo_archive_root)),
         "backtest_root": str(Path(backtest_root)),
         "ablation_json": str(Path(ablation_json)),
         "candidate_replay_json": str(Path(candidate_replay_json)),
@@ -1537,8 +1702,14 @@ def build_source_family_inventory(
             "active_model_usage_status": model_usage["status"],
             "active_model_feature_count": model_usage["feature_count"],
             "active_overlay_families": model_usage["active_overlay_families"],
+            "nbm_station_archive_status": nbm_station_archive.get("status"),
+            "nbm_station_archive_rows": nbm_station_archive.get("row_count"),
+            "open_meteo_aq_archive_status": (archive_evidence.get("open_meteo_expanded") or {}).get("historical_archive_status"),
+            "open_meteo_aq_archive_markets": (archive_evidence.get("open_meteo_expanded") or {}).get("covered_market_count"),
         },
         "historical_reader_summary": reader_summary,
+        "nbm_station_archive": nbm_station_archive,
+        "open_meteo_archive_evidence": archive_evidence,
         "inventory": rows,
         "active_model_usage": model_usage,
         "promotion_preflight": preflight,
@@ -1576,9 +1747,42 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ["Active model usage", summary.get("active_model_usage_status")],
             ["Active model features", summary.get("active_model_feature_count")],
             ["Active overlay families", ", ".join(summary.get("active_overlay_families") or []) or "-"],
+            ["NBM station archive", summary.get("nbm_station_archive_status") or "-"],
+            ["NBM station archive rows", summary.get("nbm_station_archive_rows")],
+            ["Open-Meteo AQ archive", summary.get("open_meteo_aq_archive_status") or "-"],
+            ["Open-Meteo AQ archive markets", summary.get("open_meteo_aq_archive_markets")],
             ["Market expansion status", summary.get("market_expansion_status")],
         ],
     )
+    open_meteo_archive = (payload.get("open_meteo_archive_evidence") or {}).get("open_meteo_expanded") or {}
+    if open_meteo_archive:
+        lines += ["", "## Open-Meteo AQ Archive", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", open_meteo_archive.get("historical_archive_status")],
+                ["Root", open_meteo_archive.get("archive_root")],
+                ["Markets", open_meteo_archive.get("market_count")],
+                ["Covered markets", open_meteo_archive.get("covered_market_count")],
+                ["Covered", ", ".join(open_meteo_archive.get("covered_markets") or []) or "-"],
+                ["Missing", ", ".join(open_meteo_archive.get("missing_markets") or []) or "-"],
+            ],
+        )
+    nbm_station_archive = payload.get("nbm_station_archive") or {}
+    if nbm_station_archive:
+        lines += ["", "## NBM Station Archive", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", nbm_station_archive.get("status")],
+                ["Root", nbm_station_archive.get("root")],
+                ["Rows", nbm_station_archive.get("row_count")],
+                ["Replay-safe rows", nbm_station_archive.get("replay_safe_row_count")],
+                ["Failed rows", nbm_station_archive.get("failed_row_count")],
+                ["Stations", ", ".join(nbm_station_archive.get("station_ids") or []) or "-"],
+                ["Target dates", ", ".join(nbm_station_archive.get("target_dates") or []) or "-"],
+            ],
+        )
     if reader_summary:
         lines += ["", "## Historical Reader Sources", ""]
         families = reader_summary.get("families") or {}
@@ -1722,6 +1926,9 @@ def main(argv=None):
     parser.add_argument("--archive-as-of-date", default=None)
     parser.add_argument("--no-archive-reader", action="store_true")
     parser.add_argument("--reanalysis-root", default=str(DEFAULT_REANALYSIS_ROOT))
+    parser.add_argument("--marine-water-contrast-root", default=str(DEFAULT_MARINE_WATER_CONTRAST_SIDECAR_ROOT))
+    parser.add_argument("--nbm-station-archive-root", default=str(DEFAULT_NBM_STATION_ARCHIVE_ROOT))
+    parser.add_argument("--open-meteo-archive-root", default=str(DEFAULT_OPEN_METEO_ARCHIVE_ROOT))
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--ablation-json", default=str(DEFAULT_ABLATION_JSON))
     parser.add_argument("--candidate-replay-json", default=str(DEFAULT_CANDIDATE_REPLAY_JSON))
@@ -1736,6 +1943,9 @@ def main(argv=None):
         archive_as_of_date=args.archive_as_of_date,
         prefer_archive=not args.no_archive_reader,
         reanalysis_root=args.reanalysis_root,
+        marine_water_contrast_root=args.marine_water_contrast_root,
+        nbm_station_archive_root=args.nbm_station_archive_root,
+        open_meteo_archive_root=args.open_meteo_archive_root,
         backtest_root=args.backtest_root,
         ablation_json=args.ablation_json,
         candidate_replay_json=args.candidate_replay_json,

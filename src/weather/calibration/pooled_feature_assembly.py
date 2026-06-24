@@ -66,6 +66,7 @@ from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
 )
+from weather.sources.marine_water_contrast import load_marine_water_contrast_features
 from weather.artifacts import writable_artifact_path
 from weather.calibration.blocked_validation import blocked_validation_audit
 from weather.calibration.pooled_feature_source_state import (
@@ -842,6 +843,7 @@ def build_market_records(
     by_date = cache.get("by_date") or {}
     forecast_index = load_forecast_daily(daily_path_for(spec))
     forecast_profiles = load_forecast_profiles(long_path_for(spec))
+    marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
     reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
     climate = market_climate_stats(cache)
     source_reliability = market_source_reliability(spec)
@@ -864,6 +866,7 @@ def build_market_records(
                 int(hour),
                 forecast_high=forecast_index.get(local_date.isoformat()),
                 forecast_profile_rows=forecast_profiles.get(local_date.isoformat()),
+                marine_context_features=marine_water_contrast_index.get((local_date.isoformat(), int(hour))),
                 reanalysis_synoptic_features=reanalysis_synoptic_index.get(local_date.isoformat()),
                 wind_group_fn=model.wind_group,
                 cloud_group_fn=model.cloud_group,

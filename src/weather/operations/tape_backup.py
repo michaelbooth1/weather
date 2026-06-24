@@ -26,8 +26,19 @@ from weather.schema_registry import SCHEMAS_BY_VERSION, schema_version
 
 MANIFEST_SCHEMA_VERSION = schema_version("tape_backup_manifest")
 RESTORE_DRILL_SCHEMA_VERSION = schema_version("tape_restore_drill")
+UNMANIFESTED_CLEANUP_SCHEMA_VERSION = schema_version("tape_backup_unmanifested_cleanup")
 POLICY_VERSION = "tape_retention_policy_v0.1"
 DEFAULT_CAPACITY_MARGIN_BYTES = 1024 * 1024 * 1024
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+DEFAULT_LOCAL_MIRROR_CACHE_RETENTION_DAYS = _env_int("WEATHER_TAPE_MIRROR_CACHE_RETENTION_DAYS", 7)
 DEFAULT_BACKUP_ROOT = (
     Path(os.environ["WEATHER_TAPE_BACKUP_ROOT"])
     if os.environ.get("WEATHER_TAPE_BACKUP_ROOT")
@@ -832,6 +843,64 @@ def load_backup_manifest(backup_root=DEFAULT_BACKUP_ROOT):
     return payload, path
 
 
+def _cleanup_operator_review_ok(review):
+    review = review or {}
+    if review.get("approved") is not True:
+        return False, "operator_review.approved must be true"
+    if not review.get("approved_by"):
+        return False, "operator_review.approved_by is required"
+    if not review.get("approved_at_utc"):
+        return False, "operator_review.approved_at_utc is required"
+    if not review.get("note"):
+        return False, "operator_review.note is required"
+    return True, "ok"
+
+
+def _unmanifested_cleanup_plan_hash_payload(payload):
+    return {
+        "schema_version": payload.get("schema_version"),
+        "backup_root": payload.get("backup_root"),
+        "latest_root": payload.get("latest_root"),
+        "source_root": payload.get("source_root"),
+        "manifest_hash": payload.get("manifest_hash"),
+        "manifest_valid": payload.get("manifest_valid"),
+        "restore_drill_sla_status": payload.get("restore_drill_sla_status"),
+        "files": [
+            {
+                "rel_path": row.get("rel_path"),
+                "size": row.get("size"),
+                "backup_sha256": row.get("backup_sha256"),
+                "source_sha256": row.get("source_sha256"),
+                "source_path": row.get("source_path"),
+                "source_exists": row.get("source_exists"),
+                "source_same_hash": row.get("source_same_hash"),
+                "status": row.get("status"),
+                "reason": row.get("reason"),
+            }
+            for row in payload.get("files") or []
+        ],
+    }
+
+
+def unmanifested_cleanup_plan_hash(payload):
+    encoded = json.dumps(
+        _unmanifested_cleanup_plan_hash_payload(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _cleanup_gate_row(check, passed, detail, **extra):
+    row = {
+        "check": check,
+        "status": "PASS" if passed else "BLOCK",
+        "detail": detail,
+    }
+    row.update(extra)
+    return row
+
+
 def _is_path_under(path, root):
     try:
         Path(path).resolve().relative_to(Path(root).resolve())
@@ -843,37 +912,80 @@ def _is_path_under(path, root):
 def unmanifested_backup_cleanup_plan(
     backup_root=DEFAULT_BACKUP_ROOT,
     source_root=REPO_ROOT,
+    *,
+    max_restore_age_hours=168,
+    local_cache_retention_days=DEFAULT_LOCAL_MIRROR_CACHE_RETENTION_DAYS,
 ):
     backup_root = Path(backup_root)
     source_root = Path(source_root)
     latest_root = backup_root / LATEST_DIR
     manifest, manifest_path = load_backup_manifest(backup_root)
+    valid, detail = validate_manifest(manifest)
+    restore = load_restore_drill_status(backup_root)
+    restore_status, restore_detail = restore_drill_sla_status(
+        restore,
+        manifest_hash_value=manifest.get("manifest_hash") if manifest else None,
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    base = {
+        "schema_version": UNMANIFESTED_CLEANUP_SCHEMA_VERSION,
+        "generated_at_utc": utc_iso(),
+        "dry_run": True,
+        "mirror_role": "local_restore_cache",
+        "local_cache_retention_days": int(local_cache_retention_days or 0),
+        "backup_root": str(backup_root),
+        "latest_root": str(latest_root),
+        "manifest_path": str(manifest_path),
+        "source_root": str(source_root),
+        "manifest_hash": manifest.get("manifest_hash") if manifest else None,
+        "manifest_valid": valid,
+        "manifest_detail": detail,
+        "restore_drill": {
+            "status": restore.get("status"),
+            "path": restore.get("path"),
+            "manifest_hash": restore.get("manifest_hash"),
+            "generated_at_utc": restore.get("generated_at_utc"),
+        },
+        "restore_drill_sla_status": restore_status,
+        "restore_drill_sla_detail": restore_detail,
+        "max_restore_age_hours": max_restore_age_hours,
+        "summary": {
+            "unmanifested_files": 0,
+            "unmanifested_bytes": 0,
+            "candidate_files": 0,
+            "candidate_bytes": 0,
+            "blocked_files": 0,
+            "blocked_bytes": 0,
+            "source_same_size_files": 0,
+            "source_same_hash_files": 0,
+        },
+        "files": [],
+    }
     if not latest_root.exists():
-        return {
-            "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
-            "generated_at_utc": utc_iso(),
+        payload = {
+            **base,
             "status": "SKIPPED",
             "reason": "latest backup root does not exist",
-            "backup_root": str(backup_root),
-            "latest_root": str(latest_root),
-            "manifest_path": str(manifest_path),
-            "source_root": str(source_root),
-            "summary": {"candidate_files": 0, "candidate_bytes": 0, "blocked_files": 0, "blocked_bytes": 0},
-            "files": [],
         }
+        payload["apply_gates"] = [
+            _cleanup_gate_row("latest_root_exists", False, "latest backup root does not exist"),
+        ]
+        payload["apply_permission"] = False
+        payload["plan_hash"] = unmanifested_cleanup_plan_hash(payload)
+        return payload
     if not manifest:
-        return {
-            "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
-            "generated_at_utc": utc_iso(),
+        payload = {
+            **base,
             "status": "SKIPPED",
             "reason": "latest backup manifest does not exist",
-            "backup_root": str(backup_root),
-            "latest_root": str(latest_root),
-            "manifest_path": str(manifest_path),
-            "source_root": str(source_root),
-            "summary": {"candidate_files": 0, "candidate_bytes": 0, "blocked_files": 0, "blocked_bytes": 0},
-            "files": [],
         }
+        payload["apply_gates"] = [
+            _cleanup_gate_row("manifest_valid", False, "latest backup manifest does not exist"),
+            _cleanup_gate_row("restore_drill_current", False, restore_detail),
+        ]
+        payload["apply_permission"] = False
+        payload["plan_hash"] = unmanifested_cleanup_plan_hash(payload)
+        return payload
     manifest_paths = set(_manifest_entry_map(manifest))
     rows = []
     for path in sorted(latest_root.rglob("*")):
@@ -886,39 +998,61 @@ def unmanifested_backup_cleanup_plan(
         source_path = source_root / rel
         source_exists = source_path.exists()
         source_size = source_path.stat().st_size if source_exists else None
-        status = "candidate" if source_exists else "blocked_missing_source"
-        storage_meta = classification_payload(f"tape_backups/latest/{rel}")
+        source_same_size = bool(source_exists and int(source_size or 0) == size)
+        backup_sha = sha256_file(path)
+        source_sha = sha256_file(source_path) if source_same_size else None
+        source_same_hash = bool(source_sha and backup_sha == source_sha)
+        if source_same_hash:
+            status = "candidate"
+            reason = "unmanifested mirror duplicate; source counterpart exists and hash matches"
+        elif not source_exists:
+            status = "blocked_missing_source"
+            reason = "unmanifested backup file has no source counterpart"
+        elif not source_same_size:
+            status = "blocked_source_size_mismatch"
+            reason = "source counterpart exists but size differs from mirror copy"
+        else:
+            status = "blocked_source_hash_mismatch"
+            reason = "source counterpart exists but SHA-256 differs from mirror copy"
+        storage_meta = classification_payload(f"data/tape_backups/latest/{rel}")
         rows.append({
             "path": str(path),
             "rel_path": rel,
             **storage_meta,
             "size": size,
+            "latest_manifest_hash": manifest.get("manifest_hash"),
+            "backup_sha256": backup_sha,
             "source_path": str(source_path),
             "source_exists": source_exists,
             "source_size": source_size,
-            "source_same_size": bool(source_exists and int(source_size or 0) == size),
+            "source_same_size": source_same_size,
+            "source_sha256": source_sha,
+            "source_same_hash": source_same_hash,
+            "verified_duplicate": source_same_hash,
             "status": status,
-            "reason": (
-                "unmanifested partial backup duplicate; source exists"
-                if source_exists
-                else "unmanifested backup file has no source counterpart"
-            ),
+            "reason": reason,
         })
     candidate_rows = [row for row in rows if row.get("status") == "candidate"]
     blocked_rows = [row for row in rows if row.get("status") != "candidate"]
     status = "WARN" if candidate_rows else "PASS"
     if blocked_rows:
         status = "WARN"
-    return {
-        "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
-        "generated_at_utc": utc_iso(),
+    gates = [
+        _cleanup_gate_row("manifest_valid", valid, detail),
+        _cleanup_gate_row("restore_drill_current", restore_status == "OK", restore_detail),
+        _cleanup_gate_row(
+            "blocked_rows",
+            not blocked_rows,
+            "all unmanifested mirror files have duplicate-source evidence"
+            if not blocked_rows else "one or more unmanifested mirror files lack duplicate-source evidence",
+            blocked_files=len(blocked_rows),
+            blocked_bytes=sum(int(row.get("size") or 0) for row in blocked_rows),
+        ),
+    ]
+    payload = {
+        **base,
         "status": status,
         "reason": "ok" if rows else "no unmanifested backup files",
-        "backup_root": str(backup_root),
-        "latest_root": str(latest_root),
-        "manifest_path": str(manifest_path),
-        "source_root": str(source_root),
-        "manifest_hash": manifest.get("manifest_hash"),
         "summary": {
             "unmanifested_files": len(rows),
             "unmanifested_bytes": sum(int(row.get("size") or 0) for row in rows),
@@ -927,46 +1061,221 @@ def unmanifested_backup_cleanup_plan(
             "blocked_files": len(blocked_rows),
             "blocked_bytes": sum(int(row.get("size") or 0) for row in blocked_rows),
             "source_same_size_files": sum(1 for row in candidate_rows if row.get("source_same_size")),
+            "source_same_hash_files": sum(1 for row in candidate_rows if row.get("source_same_hash")),
         },
+        "apply_gates": gates,
+        "apply_permission": bool(rows) and all(row.get("status") == "PASS" for row in gates),
         "files": rows,
     }
+    payload["plan_hash"] = unmanifested_cleanup_plan_hash(payload)
+    return payload
 
 
-def apply_unmanifested_backup_cleanup(payload):
+def apply_unmanifested_backup_cleanup(
+    payload,
+    *,
+    operator_review=None,
+    max_age_hours=26,
+    max_restore_age_hours=168,
+):
     latest_root = Path(payload.get("latest_root") or Path(payload.get("backup_root") or DEFAULT_BACKUP_ROOT) / LATEST_DIR)
-    actions = []
-    for row in payload.get("files") or []:
+    backup_root = Path(payload.get("backup_root") or latest_root.parent)
+    source_root = Path(payload.get("source_root") or REPO_ROOT)
+    review = operator_review or payload.get("operator_review") or {}
+    review_ok, review_detail = _cleanup_operator_review_ok(review)
+    manifest, manifest_path = load_backup_manifest(backup_root)
+    manifest_valid, manifest_detail = validate_manifest(manifest)
+    manifest_hash_value = manifest.get("manifest_hash") if manifest else None
+    manifest_paths = set(_manifest_entry_map(manifest)) if manifest else set()
+    restore = load_restore_drill_status(backup_root)
+    restore_status, restore_detail = restore_drill_sla_status(
+        restore,
+        manifest_hash_value=manifest_hash_value,
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    current_status = backup_status(
+        backup_root=backup_root,
+        max_age_hours=max_age_hours,
+        max_restore_age_hours=max_restore_age_hours,
+        source_root=source_root,
+    )
+    computed_plan_hash = unmanifested_cleanup_plan_hash(payload)
+    plan_hash = payload.get("plan_hash") or computed_plan_hash
+    plan_hash_valid = not payload.get("plan_hash") or payload.get("plan_hash") == computed_plan_hash
+    plan_hash_detail = (
+        "reviewed dry-run plan has no embedded hash; computed hash will be recorded"
+        if not payload.get("plan_hash")
+        else "reviewed dry-run plan hash matches plan contents"
+        if payload.get("plan_hash") == computed_plan_hash
+        else "reviewed dry-run plan hash does not match plan contents"
+    )
+    gates = [
+        _cleanup_gate_row("dry_run_plan", payload.get("dry_run") is True, "reviewed dry-run cleanup plan is required"),
+        _cleanup_gate_row(
+            "dry_run_plan_hash",
+            plan_hash_valid,
+            plan_hash_detail,
+            plan_hash=payload.get("plan_hash"),
+            computed_plan_hash=computed_plan_hash,
+        ),
+        _cleanup_gate_row("operator_review", review_ok, review_detail),
+        _cleanup_gate_row("manifest_valid", manifest_valid, manifest_detail),
+        _cleanup_gate_row(
+            "manifest_hash_matches_plan",
+            bool(manifest_hash_value and manifest_hash_value == payload.get("manifest_hash")),
+            "latest manifest hash matches reviewed dry-run plan"
+            if manifest_hash_value == payload.get("manifest_hash")
+            else "latest manifest hash does not match reviewed dry-run plan",
+            current_manifest_hash=manifest_hash_value,
+            plan_manifest_hash=payload.get("manifest_hash"),
+        ),
+        _cleanup_gate_row("restore_drill_current", restore_status == "OK", restore_detail),
+        _cleanup_gate_row(
+            "backup_status_ok",
+            current_status.get("status") == "OK",
+            f"backup status is {current_status.get('status') or 'MISSING'}",
+            missing_critical_files=current_status.get("missing_critical_files"),
+            missing_critical_bytes=current_status.get("missing_critical_bytes"),
+        ),
+    ]
+    rows = payload.get("files") or []
+    blocked_rows = [row for row in rows if row.get("status") != "candidate"]
+    gates.append(_cleanup_gate_row(
+        "blocked_rows",
+        not blocked_rows,
+        "all dry-run rows are verified duplicate candidates"
+        if not blocked_rows else "dry-run includes rows without duplicate-source evidence",
+        blocked_files=len(blocked_rows),
+    ))
+    candidate_rows = [row for row in rows if row.get("status") == "candidate"]
+    validation_actions = []
+    for row in candidate_rows:
         action = {
             "path": row.get("path"),
             "rel_path": row.get("rel_path"),
             "size": int(row.get("size") or 0),
             "source_exists": bool(row.get("source_exists")),
             "source_same_size": bool(row.get("source_same_size")),
+            "source_same_hash": bool(row.get("source_same_hash")),
         }
-        if row.get("status") != "candidate":
-            action["status"] = "skipped"
-            action["reason"] = row.get("reason") or "not a cleanup candidate"
-            actions.append(action)
-            continue
         path = Path(row.get("path") or "")
-        if not _is_path_under(path, latest_root):
-            action["status"] = "skipped"
+        rel = str(row.get("rel_path") or "")
+        rel_path = Path(rel)
+        source_path = source_root / rel
+        if not rel or rel_path.is_absolute() or ".." in rel_path.parts:
+            action["status"] = "blocked"
+            action["reason"] = "relative path is invalid"
+        elif not _is_path_under(path, latest_root):
+            action["status"] = "blocked"
             action["reason"] = "path escapes latest backup root"
+        elif not _is_path_under(source_path, source_root):
+            action["status"] = "blocked"
+            action["reason"] = "source counterpart path escapes source root"
         elif not path.exists():
-            action["status"] = "skipped"
+            action["status"] = "blocked"
             action["reason"] = "already missing"
+        elif rel in LATEST_CONTROL_FILES or rel in manifest_paths:
+            action["status"] = "blocked"
+            action["reason"] = "path is now manifest-listed or reserved"
+        elif not source_path.exists():
+            action["status"] = "blocked"
+            action["reason"] = "source counterpart is missing"
+        elif int(path.stat().st_size) != int(row.get("size") or 0):
+            action["status"] = "blocked"
+            action["reason"] = "mirror file size changed after dry-run"
+        elif int(source_path.stat().st_size) != int(path.stat().st_size):
+            action["status"] = "blocked"
+            action["reason"] = "source counterpart size differs"
         else:
+            backup_sha = sha256_file(path)
+            source_sha = sha256_file(source_path)
+            action["backup_sha256"] = backup_sha
+            action["source_sha256"] = source_sha
+            if row.get("backup_sha256") and row.get("backup_sha256") != backup_sha:
+                action["status"] = "blocked"
+                action["reason"] = "mirror checksum changed after dry-run"
+            elif row.get("source_sha256") and row.get("source_sha256") != source_sha:
+                action["status"] = "blocked"
+                action["reason"] = "source checksum changed after dry-run"
+            elif backup_sha != source_sha:
+                action["status"] = "blocked"
+                action["reason"] = "source counterpart hash differs"
+            else:
+                action["status"] = "ready"
+                action["reason"] = "verified duplicate-source mirror file"
+        validation_actions.append(action)
+    gates.append(_cleanup_gate_row(
+        "candidate_revalidation",
+        all(row.get("status") == "ready" for row in validation_actions),
+        "all cleanup candidates revalidated"
+        if all(row.get("status") == "ready" for row in validation_actions)
+        else "one or more cleanup candidates failed revalidation",
+    ))
+    if not candidate_rows:
+        gates.append(_cleanup_gate_row("candidate_rows", False, "no cleanup candidates in reviewed dry-run plan"))
+    gate_pass = all(row.get("status") == "PASS" for row in gates)
+    actions = []
+    if gate_pass:
+        for action in validation_actions:
+            path = Path(action.get("path") or "")
             path.unlink()
-            action["status"] = "deleted"
-        actions.append(action)
+            actions.append({**action, "status": "deleted", "reason": "deleted after guarded apply validation"})
+    else:
+        actions = [
+            {
+                **action,
+                "status": "skipped" if action.get("status") == "ready" else "blocked",
+                "reason": action.get("reason") if action.get("status") != "ready" else "apply gate blocked before deletion",
+            }
+            for action in validation_actions
+        ]
+        actions.extend({
+            "path": row.get("path"),
+            "rel_path": row.get("rel_path"),
+            "size": int(row.get("size") or 0),
+            "status": "skipped",
+            "reason": row.get("reason") or "not a verified duplicate candidate",
+            "source_exists": bool(row.get("source_exists")),
+            "source_same_size": bool(row.get("source_same_size")),
+            "source_same_hash": bool(row.get("source_same_hash")),
+        } for row in blocked_rows)
+    post_status = backup_status(
+        backup_root=backup_root,
+        max_age_hours=max_age_hours,
+        max_restore_age_hours=max_restore_age_hours,
+        source_root=source_root,
+    )
     return {
         "enabled": True,
-        "status": "PASS",
+        "schema_version": UNMANIFESTED_CLEANUP_SCHEMA_VERSION,
+        "generated_at_utc": utc_iso(),
+        "status": "PASS" if gate_pass else "BLOCK",
+        "dry_run_plan_hash": plan_hash,
+        "manifest_path": str(manifest_path),
+        "manifest_hash": manifest_hash_value,
+        "restore_drill_evidence": {
+            "status": restore.get("status"),
+            "path": restore.get("path"),
+            "manifest_hash": restore.get("manifest_hash"),
+            "generated_at_utc": restore.get("generated_at_utc"),
+            "sla_status": restore_status,
+            "sla_detail": restore_detail,
+        },
+        "operator_review": review,
+        "gates": gates,
         "actions": actions,
+        "post_cleanup_backup_status": {
+            "status": post_status.get("status"),
+            "manifest_hash": post_status.get("manifest_hash"),
+            "restore_drill_sla_status": post_status.get("restore_drill_sla_status"),
+            "missing_critical_files": post_status.get("missing_critical_files"),
+            "missing_critical_bytes": post_status.get("missing_critical_bytes"),
+        },
         "summary": {
             "deleted_files": sum(1 for row in actions if row.get("status") == "deleted"),
             "deleted_bytes": sum(int(row.get("size") or 0) for row in actions if row.get("status") == "deleted"),
             "skipped_files": sum(1 for row in actions if row.get("status") == "skipped"),
+            "blocked_files": sum(1 for row in actions if row.get("status") == "blocked"),
         },
     }
 
@@ -981,6 +1290,13 @@ def render_unmanifested_cleanup_report(payload):
         f"Backup root: `{payload.get('backup_root')}`",
         f"Latest root: `{payload.get('latest_root')}`",
         f"Manifest: `{payload.get('manifest_path')}`",
+        f"Manifest hash: `{payload.get('manifest_hash') or '-'}`",
+        f"Manifest valid: `{payload.get('manifest_valid')}` ({payload.get('manifest_detail') or '-'})",
+        f"Restore drill SLA: **{payload.get('restore_drill_sla_status') or '-'}**",
+        f"Apply permission: `{payload.get('apply_permission')}`",
+        f"Dry-run plan hash: `{payload.get('plan_hash') or '-'}`",
+        f"Mirror role: `{payload.get('mirror_role') or '-'}`",
+        f"Local cache retention days: `{payload.get('local_cache_retention_days')}`",
         "",
         "## Summary",
         "",
@@ -994,14 +1310,25 @@ def render_unmanifested_cleanup_report(payload):
             ["Candidate MiB", round(int(summary.get("candidate_bytes") or 0) / (1024 * 1024), 1)],
             ["Blocked files", summary.get("blocked_files")],
             ["Source same-size files", summary.get("source_same_size_files")],
+            ["Source same-hash files", summary.get("source_same_hash_files")],
         ],
     )
+    gates = payload.get("apply_gates") or []
+    if gates:
+        lines += ["", "## Apply Gates", ""]
+        lines += markdown_table(
+            ["Check", "Status", "Detail"],
+            [
+                [row.get("check"), row.get("status"), row.get("detail")]
+                for row in gates
+            ],
+        )
     candidates = [row for row in payload.get("files") or [] if row.get("status") == "candidate"]
     candidates.sort(key=lambda row: int(row.get("size") or 0), reverse=True)
     if candidates:
         lines += ["", "## Largest Candidates", ""]
         lines += markdown_table(
-            ["Path", "Storage Class", "Delete Gate", "MiB", "Source Exists", "Same Size"],
+            ["Path", "Storage Class", "Delete Gate", "MiB", "Source Exists", "Same Size", "Same Hash"],
             [
                 [
                     row.get("rel_path"),
@@ -1010,8 +1337,28 @@ def render_unmanifested_cleanup_report(payload):
                     round(int(row.get("size") or 0) / (1024 * 1024), 1),
                     row.get("source_exists"),
                     row.get("source_same_size"),
+                    row.get("source_same_hash"),
                 ]
                 for row in candidates[:50]
+            ],
+        )
+    blocked = [row for row in payload.get("files") or [] if row.get("status") != "candidate"]
+    blocked.sort(key=lambda row: int(row.get("size") or 0), reverse=True)
+    if blocked:
+        lines += ["", "## Blocked Rows", ""]
+        lines += markdown_table(
+            ["Path", "MiB", "Status", "Reason", "Source Exists", "Same Size", "Same Hash"],
+            [
+                [
+                    row.get("rel_path"),
+                    round(int(row.get("size") or 0) / (1024 * 1024), 1),
+                    row.get("status"),
+                    row.get("reason"),
+                    row.get("source_exists"),
+                    row.get("source_same_size"),
+                    row.get("source_same_hash"),
+                ]
+                for row in blocked[:50]
             ],
         )
     apply_payload = payload.get("apply") or {}
@@ -1025,8 +1372,19 @@ def render_unmanifested_cleanup_report(payload):
                 ["Deleted files", apply_summary.get("deleted_files")],
                 ["Deleted MiB", round(int(apply_summary.get("deleted_bytes") or 0) / (1024 * 1024), 1)],
                 ["Skipped files", apply_summary.get("skipped_files")],
+                ["Blocked files", apply_summary.get("blocked_files")],
             ],
         )
+        apply_gates = apply_payload.get("gates") or []
+        if apply_gates:
+            lines += ["", "### Apply Gate Details", ""]
+            lines += markdown_table(
+                ["Check", "Status", "Detail"],
+                [
+                    [row.get("check"), row.get("status"), row.get("detail")]
+                    for row in apply_gates
+                ],
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -1711,22 +2069,60 @@ def cmd_status(args):
 
 
 def cmd_prune_unmanifested(args):
-    payload = unmanifested_backup_cleanup_plan(
-        backup_root=args.backup_root,
-        source_root=args.source_root,
-    )
+    if args.apply and args.reviewed_plan:
+        payload = json.loads(Path(args.reviewed_plan).read_text(encoding="utf-8"))
+    else:
+        payload = unmanifested_backup_cleanup_plan(
+            backup_root=args.backup_root,
+            source_root=args.source_root,
+            max_restore_age_hours=args.max_restore_age_hours,
+            local_cache_retention_days=args.local_cache_retention_days,
+        )
     if args.apply:
-        payload["apply"] = apply_unmanifested_backup_cleanup(payload)
+        if not args.reviewed_plan:
+            payload["apply"] = {
+                "enabled": True,
+                "schema_version": UNMANIFESTED_CLEANUP_SCHEMA_VERSION,
+                "generated_at_utc": utc_iso(),
+                "status": "BLOCK",
+                "gates": [
+                    _cleanup_gate_row(
+                        "reviewed_plan",
+                        False,
+                        "--apply requires --reviewed-plan pointing to an inspected dry-run JSON",
+                    )
+                ],
+                "actions": [],
+                "summary": {"deleted_files": 0, "deleted_bytes": 0, "skipped_files": 0, "blocked_files": 0},
+            }
+        else:
+            operator_review = {
+                "approved": bool(args.operator_approve),
+                "approved_by": args.operator_approved_by,
+                "approved_at_utc": args.operator_approved_at_utc or utc_iso(),
+                "note": args.operator_note,
+            }
+            payload["operator_review"] = operator_review
+            payload["apply"] = apply_unmanifested_backup_cleanup(
+                payload,
+                operator_review=operator_review,
+                max_age_hours=args.max_age_hours,
+                max_restore_age_hours=args.max_restore_age_hours,
+            )
     else:
         payload["apply"] = {"enabled": False}
     write_json(args.out, payload)
     write_unmanifested_cleanup_report(args.report, payload)
+    apply_status = (payload.get("apply") or {}).get("status")
     print(
         f"Tape backup unmanifested cleanup: {payload.get('status')} "
-        f"candidates={(payload.get('summary') or {}).get('candidate_files', 0)}"
+        f"candidates={(payload.get('summary') or {}).get('candidate_files', 0)} "
+        f"apply={apply_status or 'disabled'}"
     )
     print(f"JSON written to {args.out}")
     print(f"Report written to {args.report}")
+    if args.apply and apply_status != "PASS":
+        return 2
     return 0 if payload.get("status") in {"PASS", "WARN", "SKIPPED"} else 2
 
 
@@ -1790,6 +2186,14 @@ def build_parser():
     prune.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
     prune.add_argument("--source-root", default=str(REPO_ROOT))
     prune.add_argument("--apply", action="store_true")
+    prune.add_argument("--reviewed-plan", default="")
+    prune.add_argument("--operator-approve", action="store_true")
+    prune.add_argument("--operator-approved-by", default="")
+    prune.add_argument("--operator-approved-at-utc", default="")
+    prune.add_argument("--operator-note", default="")
+    prune.add_argument("--max-age-hours", type=float, default=26.0)
+    prune.add_argument("--max-restore-age-hours", type=float, default=168.0)
+    prune.add_argument("--local-cache-retention-days", type=int, default=DEFAULT_LOCAL_MIRROR_CACHE_RETENTION_DAYS)
     prune.add_argument("--out", default=str(DEFAULT_UNMANIFESTED_CLEANUP_OUT))
     prune.add_argument("--report", default=str(DEFAULT_UNMANIFESTED_CLEANUP_REPORT))
     prune.set_defaults(func=cmd_prune_unmanifested)

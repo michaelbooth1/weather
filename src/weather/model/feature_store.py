@@ -4,7 +4,7 @@ from datetime import datetime
 
 from weather.schema_registry import schema_version
 from weather.sources.eccc_gridded import ECCC_GRIDDED_FEATURE_COLUMNS
-from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
+from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS, derive_marine_context_features
 from weather.sources.mrms_precip import MRMS_PRECIP_FEATURE_COLUMNS
 from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
@@ -1193,6 +1193,8 @@ def build_historical_feature_record(
     global_ensemble_day_mean_spread=None,
     global_ensemble_day_high_p10=None,
     global_ensemble_day_high_p90=None,
+    marine_context_source=None,
+    marine_context_features=None,
     reanalysis_synoptic_features=None,
     wind_group_fn=None,
     cloud_group_fn=None,
@@ -1351,6 +1353,18 @@ def build_historical_feature_record(
         ensemble_day_high_p10=global_ensemble_day_high_p10,
         ensemble_day_high_p90=global_ensemble_day_high_p90,
     )
+    marine_features = {
+        **empty_marine_context_features(),
+        **(marine_context_features or {}),
+    }
+    if marine_context_source and not marine_context_features:
+        marine_features.update(derive_marine_context_features(
+            marine_context_source,
+            current_temp_native=current_temp,
+            forecast_high_native=forecast_high,
+            cutoff_hour=cutoff_hour,
+            wall_minute=wall_minute,
+        ))
     return {
         "date": local_date,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -1386,7 +1400,7 @@ def build_historical_feature_record(
         ),
         **forecast_profile,
         **empty_us_guidance_features(),
-        **empty_marine_context_features(),
+        **marine_features,
         **empty_mrms_precip_features(),
         **empty_eccc_gridded_features(),
         **{

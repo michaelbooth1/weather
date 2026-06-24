@@ -19,6 +19,8 @@ class TestForecastPayloadPersistence(unittest.TestCase):
                         "fetched_at": "2026-06-15T16:00:00+00:00",
                         "data": {
                             "source_url": "https://example.test/blend_nbptx.t00z",
+                            "issued_at": "2026-06-15T12:00:00+00:00",
+                            "valid_time_utc": "2026-06-16T12:00:00+00:00",
                             "raw_payload": {
                                 "source_kind": "nbp_station_text",
                                 "station_id": "KLGA",
@@ -36,6 +38,8 @@ class TestForecastPayloadPersistence(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["source"], "nbm_probabilistic_tmax")
         self.assertEqual(rows[0]["source_url"], "https://example.test/blend_nbptx.t00z")
+        self.assertEqual(rows[0]["provider_issue_time"], "2026-06-15T12:00:00+00:00")
+        self.assertEqual(rows[0]["provider_update_time"], "2026-06-16T12:00:00+00:00")
         self.assertEqual(payload["source_kind"], "nbp_station_text")
         self.assertEqual(payload["station_id"], "KLGA")
 

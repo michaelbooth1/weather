@@ -3,10 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from weather.reporting.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
 from weather.reporting.ten_minute_model_performance import (
     build_candidate_item147,
     candidate_ten_minute_gate,
     rank_slots,
+    read_candidate_checkpoint_rows,
     summarize_by_regime,
     summarize_by_slot,
     summarize_rows,
@@ -134,14 +136,34 @@ class TestTenMinuteModelPerformance(unittest.TestCase):
                         "market_yes": "0.70",
                         "outcome": "1",
                         "captured_at_local": "2026-06-07T03:00:00-04:00",
+                    },
+                    {
+                        "variant_id": "candidate_v1",
+                        "market_id": "toronto",
+                        "target_date": "2026-06-07",
+                        "snapshot_id": "s0301",
+                        "band_key": "eq:80",
+                        "probability": "0.80",
+                        "current_probability": "0.60",
+                        "market_yes": "0.70",
+                        "outcome": "1",
+                        "captured_at_local": "2026-06-07T03:01:00-04:00",
                     }
                 ],
             )
 
             candidate = build_candidate_item147(path, weak_slots={180})
             gate = candidate_ten_minute_gate(candidate, min_weak_market_days=1)
+            row_export_hash = candidate_rows_corpus_hash(read_variant_rows(path))
+            checkpoint_hash = candidate_rows_corpus_hash(read_candidate_checkpoint_rows(path))
 
         self.assertEqual(candidate["weak_slot_overlap"]["candidate_slot_overlap"], 1)
+        self.assertEqual(candidate["source_rows"], 2)
+        self.assertEqual(candidate["checkpoint_rows"], 1)
+        self.assertEqual(candidate["corpus"]["corpus_hash"], row_export_hash)
+        self.assertEqual(candidate["corpus"]["row_export_corpus_hash"], row_export_hash)
+        self.assertEqual(candidate["corpus"]["checkpoint_corpus_hash"], checkpoint_hash)
+        self.assertNotEqual(row_export_hash, checkpoint_hash)
         self.assertEqual(gate["status"], "PASS")
         self.assertEqual(gate["variant_ids"], ["candidate_v1"])
 
