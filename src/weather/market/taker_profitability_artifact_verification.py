@@ -200,11 +200,18 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
         settled_pnl,
     )
     gate_status = str(exchange_gate.get("status") or "").upper()
+    exchange_required = exchange_gate.get("required") is not False
     if not exchange_gate:
         checks.append(_check(
             "exchange_economics_gate_missing",
             "FAIL",
             "Taker profitability artifacts do not cite an exchange-economics gate.",
+        ))
+    elif not exchange_required:
+        checks.append(_check(
+            "exchange_economics_gate_not_required",
+            "SKIP",
+            "Exchange-economics gate was not required for this non-production artifact root.",
         ))
     elif gate_status == "BLOCK" or exchange_gate.get("ok") is False:
         checks.append(_check(
@@ -224,7 +231,8 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
         checks.append(_check("orders_tape_missing", "FAIL", f"Missing orders tape: {orders_path}"))
     else:
         checks.extend(_field_checks(order_scope, ORDER_OPPORTUNITY_FIELDS, scope="orders"))
-        checks.extend(_field_checks(order_scope, EXCHANGE_ECONOMICS_FIELDS, scope="orders_exchange_economics"))
+        if exchange_required:
+            checks.extend(_field_checks(order_scope, EXCHANGE_ECONOMICS_FIELDS, scope="orders_exchange_economics"))
         if filled_orders:
             checks.extend(_field_checks(filled_orders, FILLED_ORDER_FIELDS, scope="orders"))
         else:
@@ -241,14 +249,16 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
         ))
     else:
         checks.extend(_field_checks(strategy_rows, STRATEGY_FIELDS, scope="strategy"))
-        checks.extend(_field_checks(strategy_rows, EXCHANGE_ECONOMICS_FIELDS, scope="strategy_exchange_economics"))
+        if exchange_required:
+            checks.extend(_field_checks(strategy_rows, EXCHANGE_ECONOMICS_FIELDS, scope="strategy_exchange_economics"))
         checks.extend(_field_checks([benchmark_summary], BENCHMARK_FIELDS, scope="market_benchmark"))
 
     if settled_pnl_path.exists():
         settled_summary = (settled_pnl.get("pnl") or {}).get("summary") or settled_pnl.get("summary") or {}
         settled_strategy_rows = _strategy_rows(settled_pnl)
         checks.extend(_field_checks([settled_summary], ("live_profitability_evidence_basis",), scope="finalization"))
-        checks.extend(_field_checks([settled_summary], EXCHANGE_ECONOMICS_FIELDS, scope="finalization_exchange_economics"))
+        if exchange_required:
+            checks.extend(_field_checks([settled_summary], EXCHANGE_ECONOMICS_FIELDS, scope="finalization_exchange_economics"))
         if not _basis_is_after_fee(settled_summary.get("live_profitability_evidence_basis")):
             checks.append(_check(
                 "finalization_live_profitability_basis_not_after_fee_slippage",

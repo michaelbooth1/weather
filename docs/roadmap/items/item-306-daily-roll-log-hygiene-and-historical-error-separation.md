@@ -1,4 +1,4 @@
-# 306. Daily-Roll Log Hygiene And Historical Error Separation [CLOSED 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]
+# 306. Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]
 
 Goal: separate historical daily-roll console errors from current health so log
 audits can distinguish old disk/encoding failures from active-day blockers.

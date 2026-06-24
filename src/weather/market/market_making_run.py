@@ -162,8 +162,9 @@ def _uses_default_snapshot_root(path):
 
 
 def _event_metadata_preflight_payload(path, target, snapshots_root):
-    path = Path(path)
-    required = _uses_default_snapshot_root(snapshots_root) or path.exists()
+    explicit_path = path is not None
+    path = Path(path or event_metadata_validation.DEFAULT_JSON_OUT)
+    required = _uses_default_snapshot_root(snapshots_root) or explicit_path
     payload = event_metadata_validation.load_validation_payload(path) if required else None
     return {
         "required": required,
@@ -1194,9 +1195,9 @@ def build_run_once(
     append=False,
     data_layer_audit_path=DEFAULT_DATA_LAYER_AUDIT,
     platform_verification_path=DEFAULT_PLATFORM_VERIFICATION,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
-    event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
+    event_metadata_validation_path=None,
     evidence_mode=EVIDENCE_MODE_AUTO,
 ):
     mode = normalize_mode(mode)
@@ -1227,11 +1228,14 @@ def build_run_once(
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
     platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
+    exchange_economics_required = _uses_default_snapshot_root(snapshots_root) or exchange_economics_snapshot_path is not None
+    exchange_economics_snapshot_path = exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT
     exchange_economics_gate = exchange_economics.load_exchange_economics_gate(
         exchange_economics_snapshot_path,
         target,
         platform=exchange_economics_platform,
         now=now,
+        required=exchange_economics_required,
     )
     exchange_economics_fields = exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate)
     event_metadata_state = _event_metadata_preflight_payload(

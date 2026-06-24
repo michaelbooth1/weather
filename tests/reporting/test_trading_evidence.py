@@ -31,6 +31,26 @@ def _write_active_mm_run(root, target_date, run_id):
     return run
 
 
+def _exchange_gate():
+    return {
+        "required": True,
+        "ok": True,
+        "status": "PASS",
+        "evidence_basis": "current_exchange_economics",
+        "snapshot_id": "xecon-test",
+        "snapshot_hash": "hash-test",
+    }
+
+
+def _exchange_fields():
+    return {
+        "exchange_economics_gate": _exchange_gate(),
+        "exchange_economics_snapshot_id": "xecon-test",
+        "exchange_economics_hash": "hash-test",
+        "exchange_economics_evidence_basis": "current_exchange_economics",
+    }
+
+
 def _write_zero_fill_taker_run(root, target_date, run_id, reason_code, *, settled, root_cause="policy_no_edge"):
     run = Path(root) / "taker_runs" / target_date / run_id
     run.mkdir(parents=True)
@@ -47,6 +67,7 @@ def _write_zero_fill_taker_run(root, target_date, run_id, reason_code, *, settle
                 "run_id": run_id,
                 "target_date": target_date,
                 "mode": "paper-taker",
+                **_exchange_fields(),
                 "summary": {
                     "latest_tick_rows": 1,
                     "latest_tick_filled_orders": 0,
@@ -76,6 +97,7 @@ def _write_zero_fill_taker_run(root, target_date, run_id, reason_code, *, settle
                     "schema_version": "taker_settlement_finalization_v0.1",
                     "run_id": run_id,
                     "target_date": target_date,
+                    **_exchange_fields(),
                     "summary": {
                         "filled_order_count": 0,
                         "settled_order_count": 0,
@@ -505,6 +527,7 @@ class TestTradingEvidence(unittest.TestCase):
                         "run_id": "taker-1",
                         "target_date": "2026-06-19",
                         "mode": "paper-taker",
+                        **_exchange_fields(),
                         "summary": {
                             "cumulative_filled_orders": 50,
                             "budget_spent_usdc": 59.80507,
@@ -686,6 +709,7 @@ class TestTradingEvidence(unittest.TestCase):
                             "run_id": f"taker-{offset}",
                             "target_date": day,
                             "mode": "paper-taker",
+                            **_exchange_fields(),
                             "summary": {
                                 "cumulative_filled_orders": 50,
                                 "budget_spent_usdc": 60.0,
@@ -737,6 +761,7 @@ class TestTradingEvidence(unittest.TestCase):
                         "run_id": "taker-1",
                         "target_date": "2026-06-19",
                         "mode": "paper-taker",
+                        **_exchange_fields(),
                         "summary": {
                             "cumulative_filled_orders": 50,
                             "budget_spent_usdc": 59.80507,
@@ -765,6 +790,7 @@ class TestTradingEvidence(unittest.TestCase):
                         "target_date": "2026-06-19",
                         "settled_pnl_path": str(settled_path),
                         "settled_report_path": str(run / "settled_report.md"),
+                        **_exchange_fields(),
                         "summary": {
                             "filled_order_count": 4,
                             "budget_spent_usdc": 59.80507,
@@ -797,6 +823,9 @@ class TestTradingEvidence(unittest.TestCase):
                                     "unsettled_order_count": 0,
                                     "net_pnl_usdc": 36.687839,
                                     "quality_candidate_countable": True,
+                                    "exchange_economics_snapshot_id": "xecon-test",
+                                    "exchange_economics_hash": "hash-test",
+                                    "exchange_economics_evidence_basis": "current_exchange_economics",
                                 }
                             ],
                             "strategy_comparison": {

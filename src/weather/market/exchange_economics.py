@@ -441,7 +441,7 @@ def build_snapshot_payload(
     maker_fee_rate=0.05,
     maker_rebate_pool_share=0.25,
     flattening_fee_rate=0.05,
-    reward_formula="polymarket_liquidity_rewards_distance_threshold_v1",
+    reward_formula="polymarket_liquidity_rewards_distance_threshold",
 ):
     source_urls = source_urls or ["https://docs.polymarket.com/"]
     payload = {

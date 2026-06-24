@@ -1,4 +1,4 @@
-# 302. Post-Settlement Disagreement Audit Rehydration Gate [CLOSED 2026-06-24 - POST-LABEL REHYDRATION GATED]
+# 302. Post-Settlement Disagreement Audit Rehydration Gate [COMPLETE 2026-06-24 - POST-LABEL REHYDRATION GATED]
 
 Goal: automatically rehydrate disagreement-audit snapshots after settlement so
 operator reviews use final labels, not stale pending rows.

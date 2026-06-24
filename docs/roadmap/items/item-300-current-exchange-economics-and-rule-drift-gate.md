@@ -1,4 +1,4 @@
-# 300. Current Exchange Economics And Rule-Drift Gate [OPEN 2026-06-24 - PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS]
+# 300. Current Exchange Economics And Rule-Drift Gate [COMPLETE 2026-06-24 - SNAPSHOT AND DRIFT GATES ENFORCED FOR PAPER EVIDENCE]
 
 Goal: keep Polymarket fee, rebate, reward, tick-size, minimum-order, and order
 semantics assumptions current for taker and maker paper evidence, promotion
@@ -49,12 +49,12 @@ snapshot it depends on.
 5. Keep live order submission gated by item 45, but require this item before
    paper or shadow trading evidence can justify promotion or live-readiness.
 
-- [ ] Register the exchange-economics snapshot schema and source metadata.
-- [ ] Add freshness and target-date/platform validation in daily refresh,
+- [x] Register the exchange-economics snapshot schema and source metadata.
+- [x] Add freshness and target-date/platform validation in daily refresh,
   taker bakeoff, maker paper scoring, and trading preflights.
-- [ ] Persist the snapshot id/hash through taker and maker evidence artifacts.
-- [ ] Add a material-drift report and rescore-required blocker.
-- [ ] Add tests for stale fees, changed reward formulas, tick/min-size drift,
+- [x] Persist the snapshot id/hash through taker and maker evidence artifacts.
+- [x] Add a material-drift report and rescore-required blocker.
+- [x] Add tests for stale fees, changed reward formulas, tick/min-size drift,
   and paper-evidence downgrade behavior.
 
 Acceptance: no taker or maker promotion, profitability claim, or live-readiness

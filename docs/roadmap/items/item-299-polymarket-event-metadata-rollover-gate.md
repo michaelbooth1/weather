@@ -1,4 +1,4 @@
-# 299. Polymarket Event-Metadata Rollover Gate [CLOSED 2026-06-24]
+# 299. Polymarket Event-Metadata Rollover Gate [COMPLETE 2026-06-24]
 
 Goal: make target-date Polymarket event metadata refresh and validation a
 required active-day gate before snapshot, CLOB, bot, or daily-learning evidence

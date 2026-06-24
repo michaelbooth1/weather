@@ -1448,8 +1448,9 @@ def run_taker_strategy_bakeoff(
     max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     now = utc_now(now)
     run_folder = Path(run_folder)
@@ -1477,11 +1478,24 @@ def run_taker_strategy_bakeoff(
         **(config or {}),
     }
     base_config = enrich_config_with_performance_gates(base_config, target)
+    exchange_gate_required = (
+        bool(exchange_economics_required)
+        if exchange_economics_required is not None
+        else (
+            (
+                Path(run_folder).is_relative_to(DEFAULT_RUNS_ROOT)
+                if hasattr(Path(run_folder), "is_relative_to")
+                else str(Path(run_folder)).startswith(str(DEFAULT_RUNS_ROOT))
+            )
+            or exchange_economics_snapshot_path is not None
+        )
+    )
     exchange_gate = exchange_economics.load_exchange_economics_gate(
-        exchange_economics_snapshot_path,
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         target,
         platform=exchange_economics_platform,
         now=now,
+        required=exchange_gate_required,
     )
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     budget = float(
@@ -1801,8 +1815,9 @@ def ensure_taker_strategy_bakeoff(
     now=None,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     run_folder = Path(run_folder)
     out_json = run_folder / "strategy_bakeoff.json"
@@ -1824,6 +1839,7 @@ def ensure_taker_strategy_bakeoff(
         disk_usage_fn=disk_usage_fn,
         exchange_economics_snapshot_path=exchange_economics_snapshot_path,
         exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
     )
     return {
         "action": "created",

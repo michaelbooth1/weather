@@ -1810,6 +1810,7 @@ class TestDailyRefresh(unittest.TestCase):
                         "run_id": "taker-1",
                         "target_date": "2026-06-19",
                         "mode": "paper-taker",
+                        "exchange_economics_gate": {"required": False, "ok": True, "status": "PASS"},
                         "summary": {
                             "cumulative_filled_orders": 10,
                             "budget_spent_usdc": 20.0,

@@ -1022,8 +1022,9 @@ def finalization_watchdog(
     champion_min_settled_orders=DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
     champion_ledger_out=None,
     champion_ledger_report_out=None,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     now = utc_now(now)
     folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
@@ -1058,6 +1059,7 @@ def finalization_watchdog(
                     disk_usage_fn=disk_usage_fn,
                     exchange_economics_snapshot_path=exchange_economics_snapshot_path,
                     exchange_economics_platform=exchange_economics_platform,
+                    exchange_economics_required=exchange_economics_required,
                 )
                 bakeoff_action = bakeoff_state.get("action")
                 bakeoff_path = bakeoff_state.get("strategy_bakeoff_path")

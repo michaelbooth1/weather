@@ -1682,6 +1682,7 @@ class TestTakerBot(unittest.TestCase):
                 }
             ])
             (run / "daily_pnl.json").write_text(json.dumps({
+                "exchange_economics_gate": {"required": False, "ok": True, "status": "PASS"},
                 "summary": {"filled_order_count": 0},
                 "by_strategy": [
                     {

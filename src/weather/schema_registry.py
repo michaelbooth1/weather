@@ -201,6 +201,27 @@ REGISTERED_SCHEMAS = (
         "active",
         "Triggered-row replay comparison artifact.",
     ),
+    SchemaSpec(
+        "snapshot_cadence_quality_backfill",
+        "snapshot_cadence_quality_backfill_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Per-folder snapshot-cadence quality backfill artifact.",
+    ),
+    SchemaSpec(
+        "snapshot_cadence_quality_backfill_batch",
+        "snapshot_cadence_quality_backfill_batch_v0.1",
+        "weather.collection.snapshot_store",
+        "active",
+        "Batch summary for snapshot-cadence quality backfills.",
+    ),
+    SchemaSpec(
+        "correlated_regime_exposure",
+        "correlated_regime_exposure_v0.1",
+        "weather.market.mm_risk",
+        "active",
+        "Market-making correlated-regime exposure summary.",
+    ),
     SchemaSpec("adjacent_market_hour_floor_gap", "adjacent_market_hour_floor_gap_v1", "weather.calibration.pooled_feature_model", "active"),
     SchemaSpec(
         "market_hour_kind_bias",

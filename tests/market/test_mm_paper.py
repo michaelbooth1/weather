@@ -276,6 +276,7 @@ def write_live_forward_gate(run_folder, run_id, target_date, stale_market="nyc")
             },
             "gates": [
                 gate("active_event"),
+                gate("event_metadata_validation"),
                 gate("snapshot_model_rows"),
                 gate(
                     "model_freshness",

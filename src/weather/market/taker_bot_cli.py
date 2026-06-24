@@ -17,8 +17,9 @@ def _uses_default_snapshot_root(path):
 
 
 def _event_metadata_state(path, target_date, snapshots_root):
-    path = Path(path)
-    required = _uses_default_snapshot_root(snapshots_root) or path.exists()
+    explicit_path = path is not None
+    path = Path(path or event_metadata_validation.DEFAULT_JSON_OUT)
+    required = _uses_default_snapshot_root(snapshots_root) or explicit_path
     payload = event_metadata_validation.load_validation_payload(path) if required else None
     return {
         "required": required,
@@ -53,12 +54,13 @@ def _event_metadata_gate(state, market_id):
     return gate
 
 
-def _exchange_economics_gate_for_run(snapshot_path, target_date, platform, now):
+def _exchange_economics_gate_for_run(snapshot_path, target_date, platform, now, required=True):
     gate = exchange_economics.load_exchange_economics_gate(
-        snapshot_path,
+        snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         target_date,
         platform=platform,
         now=now,
+        required=required,
     )
     return gate, exchange_economics.exchange_economics_artifact_fields(gate)
 
@@ -316,9 +318,10 @@ def build_run_once(
     strategies=None,
     experiment_id=None,
     strategy_registry=None,
-    event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    event_metadata_validation_path=None,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     now = utc_now(now)
     target = ensure_date(target_date)
@@ -328,6 +331,11 @@ def build_run_once(
         target,
         exchange_economics_platform,
         now,
+        required=(
+            bool(exchange_economics_required)
+            if exchange_economics_required is not None
+            else (_uses_default_snapshot_root(snapshots_root) or exchange_economics_snapshot_path is not None)
+        ),
     )
     strategy_specs = selected_strategy_specs(strategies, base_config=config, registry=strategy_registry)
     strategy_ids = [item["strategy_id"] for item in strategy_specs]
@@ -642,8 +650,9 @@ def recover_run_artifacts_from_orders(
     experiment_id=None,
     strategy_registry=None,
     now=None,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     """Rebuild summary artifacts for a run folder with a complete order tape."""
     now = utc_now(now)
@@ -666,6 +675,11 @@ def recover_run_artifacts_from_orders(
         target,
         exchange_economics_platform,
         now,
+        required=(
+            bool(exchange_economics_required)
+            if exchange_economics_required is not None
+            else (_uses_default_snapshot_root(snapshots_root) or exchange_economics_snapshot_path is not None)
+        ),
     )
     strategy_specs = selected_strategy_specs(strategy_arg, base_config=config, registry=strategy_registry)
     strategy_ids = [item["strategy_id"] for item in strategy_specs]

@@ -2132,9 +2132,10 @@ def build_paper_payload(
     now=None,
     ledger_root=None,
     clob_recon_path=DEFAULT_CLOB_RECON,
-    exchange_economics_snapshot_path=exchange_economics.DEFAULT_SNAPSHOT,
+    exchange_economics_snapshot_path=None,
     exchange_economics_target_date=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
     generated_at = generated_at_iso(now)
@@ -2212,11 +2213,17 @@ def build_paper_payload(
         or paper_score_freshness.get("latest_completed_active_day")
         or paper_score_freshness.get("latest_covered_active_day")
     )
+    exchange_gate_required = (
+        bool(exchange_economics_required)
+        if exchange_economics_required is not None
+        else (Path(backtest_root) == Path(DEFAULT_BACKTEST_ROOT) or exchange_economics_snapshot_path is not None)
+    )
     exchange_gate = exchange_economics.load_exchange_economics_gate(
-        exchange_economics_snapshot_path,
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         economics_target_date,
         platform=exchange_economics_platform,
         now=now or generated_at,
+        required=exchange_gate_required,
     )
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     for row in fill_rows:

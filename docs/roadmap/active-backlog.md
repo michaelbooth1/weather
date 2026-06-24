@@ -4,22 +4,22 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T16:40:30.280456+00:00
-Status: `ERROR`
+Generated: 2026-06-24T18:05:05.554724+00:00
+Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 308 |
-| Active items | 35 |
-| OPEN | 7 |
+| Items | 309 |
+| Active items | 33 |
+| OPEN | 5 |
 | PARTIAL | 28 |
-| COMPLETE | 272 |
-| ROADMAP rows | 308 |
-| ROADMAP primary rows | 308 |
-| Metadata manifest rows | 308 |
-| Lint errors | 1 |
+| COMPLETE | 276 |
+| ROADMAP rows | 309 |
+| ROADMAP primary rows | 309 |
+| Metadata manifest rows | 309 |
+| Lint errors | 0 |
 
 ## Active Items
 
@@ -56,13 +56,9 @@ Status: `ERROR`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 300 | OPEN | 2026-06-24 | PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS | [Current Exchange Economics And Rule-Drift Gate](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
-| 302 | OPEN | 2026-06-24 | AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE | [Post-Settlement Disagreement Audit Rehydration Gate](items/item-302-post-settlement-disagreement-audit-rehydration-gate.md) |
-| 306 | OPEN | 2026-06-24 | OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH | [Daily-Roll Log Hygiene And Historical Error Separation](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
 | 307 | PARTIAL | 2026-06-24 | IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 309 | OPEN | 2026-06-24 | GATE FAILS CLOSED: NO CURRENT SNAPSHOT, TEMPLATE, OR ACCEPT-BASELINE EXISTS | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 
 ## Lint Issues
 
-| Severity | Category | Item | Path | Detail |
-| :--- | :--- | :--- | :--- | :--- |
-| error | roadmap_heading_parse | 299 | docs/roadmap/items/item-299-polymarket-event-metadata-rollover-gate.md | status block does not parse into status, optional date, and disposition |
+- none

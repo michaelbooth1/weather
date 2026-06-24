@@ -610,6 +610,7 @@ def run_taker_finalization_watchdog_step(args):
             "exchange_economics_platform",
             exchange_economics.DEFAULT_PLATFORM,
         ),
+        exchange_economics_required=True,
     )
     status = _taker_finalization_status(payload)
     payload["status"] = status
@@ -707,6 +708,7 @@ def run_maker_paper_score_step(args):
             "exchange_economics_platform",
             exchange_economics.DEFAULT_PLATFORM,
         ),
+        exchange_economics_required=True,
     )
     payload, _known_edge = mm_paper.write_outputs(
         payload,

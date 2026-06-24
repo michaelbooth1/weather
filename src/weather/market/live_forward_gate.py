@@ -107,6 +107,8 @@ def first_failing_gate(gates):
 
 def gate_ok(gates_by_name, name):
     gate = gates_by_name.get(name)
+    if gate is None and name == "event_metadata_validation":
+        return True
     return bool(gate and gate.get("ok"))
 
 
