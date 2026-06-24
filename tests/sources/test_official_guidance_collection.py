@@ -74,7 +74,7 @@ class TestOfficialGuidanceCollection(unittest.TestCase):
         self.assertEqual(rows[0]["source_family"], "official_us_guidance")
         self.assertIn("temp_native", rows[0]["row_json"])
 
-    def test_collects_toronto_eccc_gem_rows_and_writes_csv(self):
+    def test_collects_toronto_eccc_gem_hrdps_rows_and_writes_csv(self):
         spec = spec_for_id("toronto")
         sources = {
             "eccc_gem": {"ok": True, "data": {
@@ -95,6 +95,26 @@ class TestOfficialGuidanceCollection(unittest.TestCase):
                     },
                 }],
             }},
+            "eccc_hrdps": {"ok": True, "data": {
+                "payload_hash": "hrdps-parent-hash",
+                "rows": [{
+                    "model": "HRDPS",
+                    "product": "TMP",
+                    "level": "AGL-2m",
+                    "value": 299.15,
+                    "unit": "K",
+                    "run_time": "2026-06-15T18:00:00+00:00",
+                    "forecast_hour": 1,
+                    "valid_time": "2026-06-15T19:00:00+00:00",
+                    "source_url": "https://dd.weather.gc.ca/today/model_hrdps/file.grib2",
+                    "object_key": "20260615T18Z_MSC_HRDPS_TMP_AGL-2m_RLatLon0.0225_PT001H.grib2",
+                    "payload_hash": "hrdps-hash",
+                    "payload_bytes": 128,
+                    "grid": "RLatLon0.0225",
+                    "domain": "continental",
+                    "fetched_at": "2026-06-15T19:05:00+00:00",
+                }],
+            }},
         }
         payload = build_official_guidance_collection_payload(sources, spec, "2026-06-15")
 
@@ -102,12 +122,17 @@ class TestOfficialGuidanceCollection(unittest.TestCase):
             result = write_official_guidance_collection_rows(Path(tmp) / "guidance.csv", payload)
             rows = list(csv.DictReader(Path(result["path"]).open(encoding="utf-8", newline="")))
 
-        self.assertEqual(payload["source_counts"], {"eccc_gem": 2})
+        self.assertEqual(payload["source_counts"], {"eccc_gem": 2, "eccc_hrdps": 1})
         self.assertEqual(rows[0]["source_family"], "official_canadian_guidance")
         self.assertEqual(rows[0]["model_name"], "gem_regional")
         self.assertEqual(rows[1]["model_name"], "gem_seamless")
         self.assertEqual(rows[1]["wind_gust_kmh"], "30.0")
-        self.assertEqual(result["written_row_count"], 2)
+        self.assertEqual(rows[2]["source"], "eccc_hrdps")
+        self.assertEqual(rows[2]["model_name"], "HRDPS")
+        self.assertEqual(rows[2]["product"], "TMP")
+        self.assertEqual(rows[2]["forecast_hour"], "1")
+        self.assertEqual(rows[2]["payload_hash"], "hrdps-hash")
+        self.assertEqual(result["written_row_count"], 3)
 
     def test_collects_official_guidance_rows_from_replay_inputs(self):
         replay = {

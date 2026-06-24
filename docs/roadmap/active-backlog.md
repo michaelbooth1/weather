@@ -13,8 +13,8 @@ Status: `OK`
 | :--- | :--- |
 | Items | 291 |
 | Active items | 35 |
-| OPEN | 6 |
-| PARTIAL | 29 |
+| OPEN | 5 |
+| PARTIAL | 30 |
 | COMPLETE | 256 |
 | ROADMAP rows | 291 |
 | ROADMAP primary rows | 291 |
@@ -58,7 +58,7 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
-| 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 
 ## Lint Issues
 

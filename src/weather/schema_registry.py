@@ -179,6 +179,13 @@ REGISTERED_SCHEMAS = (
         "Append-only per-folder status rows for CLOB token/book capture attempts.",
     ),
     SchemaSpec(
+        "clob_raw_book_refresh",
+        "clob_raw_book_refresh_v0.1",
+        "weather.market.market_microstructure_capture",
+        "active",
+        "All-market raw CLOB order-book refresh summary with per-market freshness and timeout accounting.",
+    ),
+    SchemaSpec(
         "clob_price_history_raw_response_manifest",
         "clob_price_history_raw_response_manifest_v0.1",
         "weather.market.market_microstructure_capture",

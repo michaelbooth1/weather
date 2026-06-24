@@ -1,4 +1,4 @@
-# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [OPEN 2026-06-23 - 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY]
+# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-24 - FLEET DATA-QUALITY DAILY SLICE LANDED]
 
 Goal: group the now-small `weather.reporting` modules into cohesive subpackages
 by reporting subdomain, so the package is navigable and the import-architecture
@@ -80,11 +80,21 @@ item 206).
 5. Keep each subdomain move behind a green run of the reporting test suite plus
    `schema_registry` and `module_size_audit` tests.
 
-- [ ] Land `fleet/`, `promotion/` absorption, `hourly/` (largest cohesive wins).
-- [ ] Land `data_quality/`, `daily/`, `scorecards/`.
+- [x] Land scoped `fleet/`, `data_quality/`, and `daily/` safe slice.
+- [ ] Land remaining `promotion/` absorption, `hourly/`, and `scorecards/`
+      after item 224 finishes.
 - [ ] Land `validation/`, `casebooks/`, `market/`, `research/`.
-- [ ] schema_registry paths updated atomically; no new root re-export shims.
-- [ ] Intra-reporting architecture-ratchet rules + root-accumulation guard.
+- [x] schema_registry paths updated atomically for moved safe-slice modules; no
+      new root re-export shims.
+- [x] Targeted architecture ratchet blocks the moved safe-slice modules from
+      returning to the reporting root.
+
+2026-06-24 safe-slice update: `fleet_observability*` now lives under
+`weather.reporting.fleet`, the historical/data-quality audit family now lives
+under `weather.reporting.data_quality`, and daily learning/ledger/flow/rollup
+reports now live under `weather.reporting.daily`. Promotion, hourly, research,
+`bottom_location*`, `exact_band*`, and item-224 modules were intentionally left
+at the root or in their existing packages until item 224 finishes.
 
 Acceptance: `weather.reporting` root holds only shared helpers and subpackages;
 every registered artifact's `schema_registry` module path resolves; the

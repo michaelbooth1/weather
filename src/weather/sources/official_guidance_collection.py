@@ -46,6 +46,16 @@ OFFICIAL_GUIDANCE_COLLECTION_COLUMNS = [
     "fetched_at",
     "provider_issue_time",
     "provider_update_time",
+    "run_time",
+    "forecast_hour",
+    "product",
+    "level",
+    "field",
+    "unit",
+    "grid",
+    "domain",
+    "object_key",
+    "payload_bytes",
     "row_json",
 ]
 
@@ -54,7 +64,10 @@ SOURCE_FAMILIES = {
     "open_meteo_multimodel": "multi_model_guidance",
     "open_meteo_global_models": "multi_model_guidance",
     "eccc_gem": "official_canadian_guidance",
+    "eccc_hrdps": "official_canadian_guidance",
 }
+
+HRDPS_SOURCE_KEYS = ("eccc_hrdps", "eccc_hrdps_grib", "hrdps_grib")
 
 
 def parse_date(value) -> date:
@@ -198,6 +211,65 @@ def _model_member_rows(spec, target_date, source, data, captured_at=None, includ
     return output
 
 
+def _hrdps_temperature_value(raw):
+    for key in ("temp_native", "temperature", "temperature_2m", "value"):
+        value = to_float((raw or {}).get(key))
+        if value is not None:
+            if key == "value":
+                field = str((raw or {}).get("field") or (raw or {}).get("product") or "").lower()
+                if field and "tmp" not in field and "temp" not in field:
+                    continue
+            return value
+    return None
+
+
+def _hrdps_rows_from(data):
+    rows = []
+    for key in ("hrdps_rows", "grib_rows", "grib_probes", "probes", "rows"):
+        for raw in (data or {}).get(key) or []:
+            if not isinstance(raw, dict):
+                continue
+            model = str(raw.get("model") or "").upper()
+            product = str(raw.get("product") or raw.get("field") or raw.get("variable") or "").upper()
+            source_url = str(raw.get("source_url") or "")
+            if model == "HRDPS" or "HRDPS" in source_url or product:
+                rows.append(raw)
+    return rows
+
+
+def _hrdps_probe_rows(spec, target_date, source, data, captured_at=None, include_row_json=True):
+    output = []
+    for raw in _hrdps_rows_from(data):
+        row = _base_row(
+            spec,
+            target_date,
+            source,
+            data,
+            raw,
+            captured_at=captured_at,
+            model_name=raw.get("model") or "HRDPS",
+            include_row_json=include_row_json,
+        )
+        row.update({
+            "temp_native": _hrdps_temperature_value(raw),
+            "source_url": raw.get("source_url") or row.get("source_url"),
+            "payload_hash": raw.get("payload_hash") or row.get("payload_hash"),
+            "fetched_at": raw.get("fetched_at") or row.get("fetched_at"),
+            "run_time": raw.get("run_time") or raw.get("run_time_utc"),
+            "forecast_hour": raw.get("forecast_hour"),
+            "product": raw.get("product") or raw.get("variable"),
+            "level": raw.get("level"),
+            "field": raw.get("field"),
+            "unit": raw.get("unit"),
+            "grid": raw.get("grid"),
+            "domain": raw.get("domain"),
+            "object_key": raw.get("object_key"),
+            "payload_bytes": raw.get("payload_bytes"),
+        })
+        output.append(row)
+    return output
+
+
 def build_official_guidance_collection_payload(sources, spec, target_date, captured_at=None, include_row_json=True):
     rows = []
     nws_grid = _source_data(sources, "nws_grid")
@@ -216,6 +288,27 @@ def build_official_guidance_collection_payload(sources, spec, target_date, captu
                 spec,
                 target_date,
                 source,
+                data,
+                captured_at=captured_at,
+                include_row_json=include_row_json,
+            ))
+    eccc_gem = _source_data(sources, "eccc_gem")
+    if eccc_gem:
+        rows.extend(_hrdps_probe_rows(
+            spec,
+            target_date,
+            "eccc_hrdps",
+            eccc_gem,
+            captured_at=captured_at,
+            include_row_json=include_row_json,
+        ))
+    for source_key in HRDPS_SOURCE_KEYS:
+        data = _source_data(sources, source_key)
+        if data:
+            rows.extend(_hrdps_probe_rows(
+                spec,
+                target_date,
+                "eccc_hrdps",
                 data,
                 captured_at=captured_at,
                 include_row_json=include_row_json,
