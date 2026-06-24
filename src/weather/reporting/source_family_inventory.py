@@ -391,9 +391,57 @@ def open_meteo_air_quality_archive_evidence(open_meteo_archive_root=DEFAULT_OPEN
     }
 
 
+def open_meteo_global_model_archive_evidence(open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT):
+    store = OpenMeteoArchiveStore(open_meteo_archive_root)
+    applicable_specs = [
+        spec
+        for spec in REGISTRY.values()
+        if "open_meteo" in spec.sources
+    ]
+    rows = []
+    covered_markets = []
+    for spec in sorted(applicable_specs, key=lambda item: item.id):
+        coverage = store.global_model_coverage(spec)
+        covered = int(coverage.get("covered_days") or 0) > 0
+        if covered:
+            covered_markets.append(spec.id)
+        rows.append({
+            "market_id": spec.id,
+            "station": spec.icao,
+            "covered_days": coverage.get("covered_days", 0),
+            "hourly_rows": coverage.get("hourly_rows", 0),
+            "daily_rows": coverage.get("daily_rows", 0),
+            "first_covered_date": coverage.get("first_covered_date"),
+            "last_covered_date": coverage.get("last_covered_date"),
+            "hourly_path": coverage.get("hourly_path"),
+            "daily_path": coverage.get("daily_path"),
+        })
+    if applicable_specs and len(covered_markets) == len(applicable_specs):
+        status = "historical_global_model_archive_available"
+    elif covered_markets:
+        status = "partial_historical_global_model_archive"
+    else:
+        status = "historical_global_model_archive_missing"
+    return {
+        "family_id": "multi_model_guidance",
+        "source": "open_meteo_global_models",
+        "archive_root": str(Path(open_meteo_archive_root)),
+        "historical_archive_status": status,
+        "market_count": len(applicable_specs),
+        "covered_market_count": len(covered_markets),
+        "covered_markets": sorted(covered_markets),
+        "missing_markets": sorted(spec.id for spec in applicable_specs if spec.id not in covered_markets),
+        "rows": rows,
+    }
+
+
 def archive_evidence_by_family(open_meteo_archive_root=DEFAULT_OPEN_METEO_ARCHIVE_ROOT):
     aq = open_meteo_air_quality_archive_evidence(open_meteo_archive_root)
-    return {aq["family_id"]: aq}
+    global_models = open_meteo_global_model_archive_evidence(open_meteo_archive_root)
+    return {
+        aq["family_id"]: aq,
+        global_models["family_id"]: global_models,
+    }
 
 
 def stats_template():
@@ -1183,8 +1231,13 @@ def effective_historical_archive_status(spec, nbm_station_archive=None, stats=No
     return spec.historical_archive_status
 
 
-def effective_live_only_policy(spec, nbm_station_archive=None):
+def effective_live_only_policy(spec, nbm_station_archive=None, family_archive=None):
     if spec.family_id == "nws_grid" and effective_nbm_station_archive_available(nbm_station_archive):
+        return "parity_required_before_promotion"
+    if (
+        spec.family_id == "multi_model_guidance"
+        and (family_archive or {}).get("historical_archive_status") == "historical_global_model_archive_available"
+    ):
         return "parity_required_before_promotion"
     return spec.live_only_policy
 
@@ -1326,11 +1379,15 @@ def inventory_rows(
         stats = stats_by_family[spec.family_id]
         usage = active_family_usage(spec, model_usage or {})
         lineage = lineage_status(spec, stats)
-        live_only_policy = effective_live_only_policy(spec, nbm_station_archive)
+        family_archive = archive_evidence.get(spec.family_id) or {}
+        live_only_policy = effective_live_only_policy(
+            spec,
+            nbm_station_archive,
+            family_archive=family_archive,
+        )
         parity = parity_status(spec, stats, lineage, usage=usage, live_only_policy=live_only_policy)
         ablation = ablation_for_spec(spec, ablations)
         decision = promotion_decision(spec, lineage, parity, ablation)
-        family_archive = archive_evidence.get(spec.family_id) or {}
         historical_archive_status = (
             family_archive.get("historical_archive_status")
             or effective_historical_archive_status(spec, nbm_station_archive, stats=stats)
@@ -1706,6 +1763,8 @@ def build_source_family_inventory(
             "nbm_station_archive_rows": nbm_station_archive.get("row_count"),
             "open_meteo_aq_archive_status": (archive_evidence.get("open_meteo_expanded") or {}).get("historical_archive_status"),
             "open_meteo_aq_archive_markets": (archive_evidence.get("open_meteo_expanded") or {}).get("covered_market_count"),
+            "open_meteo_global_model_archive_status": (archive_evidence.get("multi_model_guidance") or {}).get("historical_archive_status"),
+            "open_meteo_global_model_archive_markets": (archive_evidence.get("multi_model_guidance") or {}).get("covered_market_count"),
         },
         "historical_reader_summary": reader_summary,
         "nbm_station_archive": nbm_station_archive,
@@ -1751,6 +1810,8 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ["NBM station archive rows", summary.get("nbm_station_archive_rows")],
             ["Open-Meteo AQ archive", summary.get("open_meteo_aq_archive_status") or "-"],
             ["Open-Meteo AQ archive markets", summary.get("open_meteo_aq_archive_markets")],
+            ["Open-Meteo global-model archive", summary.get("open_meteo_global_model_archive_status") or "-"],
+            ["Open-Meteo global-model archive markets", summary.get("open_meteo_global_model_archive_markets")],
             ["Market expansion status", summary.get("market_expansion_status")],
         ],
     )
@@ -1766,6 +1827,20 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
                 ["Covered markets", open_meteo_archive.get("covered_market_count")],
                 ["Covered", ", ".join(open_meteo_archive.get("covered_markets") or []) or "-"],
                 ["Missing", ", ".join(open_meteo_archive.get("missing_markets") or []) or "-"],
+            ],
+        )
+    global_model_archive = (payload.get("open_meteo_archive_evidence") or {}).get("multi_model_guidance") or {}
+    if global_model_archive:
+        lines += ["", "## Open-Meteo Global Model Archive", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", global_model_archive.get("historical_archive_status")],
+                ["Root", global_model_archive.get("archive_root")],
+                ["Markets", global_model_archive.get("market_count")],
+                ["Covered markets", global_model_archive.get("covered_market_count")],
+                ["Covered", ", ".join(global_model_archive.get("covered_markets") or []) or "-"],
+                ["Missing", ", ".join(global_model_archive.get("missing_markets") or []) or "-"],
             ],
         )
     nbm_station_archive = payload.get("nbm_station_archive") or {}

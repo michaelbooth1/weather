@@ -1,4 +1,4 @@
-# 189. ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]
+# 189. ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]
 
 Goal: widen the forecast ensemble the model already consumes with ECMWF and the
 new machine-learning NWP models, which now lead surface-temperature skill.
@@ -23,10 +23,10 @@ US-guidance-style features:
 - `open_meteo_global_models_next_3h_spread`
 - `open_meteo_global_models_run_to_run_high_change`
 
-Remaining work: historical archive/backfill, retraining, and settlement-scored
-predawn/morning gates still need enough live and settled data. ECMWF ensemble,
-Google WeatherNext / GenCast, and Pangu-style members remain optional follow-ons
-unless a stable no-key or already-authorized provider path is added.
+Remaining work: fleet backfill execution, retraining, and settlement-scored
+predawn/morning gates still need enough archived and settled data. ECMWF
+ensemble, Google WeatherNext / GenCast, and Pangu-style members remain optional
+follow-ons unless a stable no-key or already-authorized provider path is added.
 
 Source: `docs/roadmap/high-temperature-projection-research-audit-2026-06-20.md`,
 section 4. The model's forecast ensemble (Open-Meteo multimodel, NWS grid, ECCC
@@ -52,8 +52,40 @@ regimes where the observed path is still weak.
       (scoped to Open-Meteo IFS/AIFS/AIGFS/GraphCast).
 - [x] Extend disagreement / per-model-delta / run-to-run features.
 - [x] Machine-readable global-model guidance gate artifact.
-- [ ] Historical archive/retrain and settlement-scored predawn/morning gate.
+- [x] Historical Open-Meteo global-model archive/backfill support.
+- [ ] Retrain and settlement-scored predawn/morning gate.
 - [ ] Optional additional ML members when a stable no-key provider path exists.
+
+## 2026-06-24 Global-Model Archive Support
+
+Implemented replay-safe archive/backfill support for Open-Meteo global-model
+runs without expanding providers or retraining active artifacts.
+`weather.sources.open_meteo_archives` now has:
+
+- idempotent global-model hourly and daily archive writes with
+  content-addressed raw payloads.
+- `global-models backfill` and `global-models coverage` CLI commands.
+- historical backfill planner support via source
+  `open_meteo_global_models`.
+
+`weather.reporting.source_family_inventory` now reports global-model archive
+coverage for the `multi_model_guidance` family as
+`historical_global_model_archive_available`,
+`partial_historical_global_model_archive`, or
+`historical_global_model_archive_missing`. A complete archive changes the
+family out of `live_only_until_model_run_archive_backfill` and into normal
+parity-required promotion policy; lineage, feature selection, permutation, and
+settlement-scored replay blockers still apply independently.
+
+This intentionally does not retrain or promote an active artifact. The
+global-model guidance gate remains blocked until the archive is populated,
+a global-model-scoped candidate is trained/replayed, ECMWF/AIFS/AIGFS/GraphCast
+features are selected by the candidate artifact, permutation evidence exists,
+and predawn/morning slices are settlement-scored.
+
+Verification:
+
+- `python -m pytest tests\sources\test_open_meteo_archives.py tests\sources\test_historical_sources.py tests\collection\test_historical_backfill_runner.py tests\reporting\test_source_family_inventory.py tests\reporting\test_global_model_guidance_gate.py tests\operations\test_schema_registry.py -q` -> 70 passed.
 
 ## 2026-06-22 Gate Rerun
 

@@ -90,7 +90,7 @@ HRDPS_PRIORITY_PRODUCTS = (
 )
 HRDPS_ARCHIVE_FILE_RE = re.compile(
     r"(?P<object_key>(?P<run>\d{8}T\d{2}Z)_MSC_(?P<model>HRDPS(?:-WEonG)?)_"
-    r"(?P<product>[A-Z0-9-]+)_(?P<level>[^_]+)_(?P<grid>RLatLon[0-9.]+)_"
+    r"(?P<product>[A-Z0-9-]+)_(?P<level>.+?)_(?P<grid>RLatLon[0-9.]+)_"
     r"PT(?P<forecast_hour>\d{3})H\.grib2)"
 )
 HRDPS_ARCHIVE_LINK_RE = re.compile(
@@ -366,6 +366,8 @@ def _hrdps_archive_rows_from_listing(
     products=None,
     captured_at=None,
     include_row_json=True,
+    expected_run=None,
+    expected_forecast_hour=None,
 ):
     selected_products = _hrdps_product_filter(products)
     output = []
@@ -375,6 +377,10 @@ def _hrdps_archive_rows_from_listing(
         if not parsed:
             continue
         meta = parsed.groupdict()
+        if expected_run is not None and meta["run"] != str(expected_run):
+            continue
+        if expected_forecast_hour is not None and meta["forecast_hour"] != str(expected_forecast_hour).zfill(3):
+            continue
         if (meta["product"], meta["level"]) not in selected_products:
             continue
         run_time = _parse_hrdps_run_time(meta["run"])
@@ -534,6 +540,8 @@ def build_hrdps_archive_collection_payload(
                     products=products,
                     captured_at=captured_at,
                     include_row_json=include_row_json,
+                    expected_run=f"{archive}T{run_hour}Z",
+                    expected_forecast_hour=forecast_hour,
                 ))
     source_counts = {}
     for row in rows:

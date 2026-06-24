@@ -128,10 +128,10 @@ infrastructure work remains.
 | 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 186 | [Soil-Moisture & Antecedent Land-Surface Dryness Predictor [COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS]](items/item-186-soil-moisture-antecedent-dryness-predictor.md) |
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
-| 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-22 - GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
-| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-22 - GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
+| 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
+| 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
-| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-22 - GATE REFRESHED, SST/BREEZE SLICE BLOCKED]](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-24 - ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
 | 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
 | 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |
@@ -141,7 +141,7 @@ infrastructure work remains.
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | [Deduplicated Durable Tape Backup Repository [OPEN 2026-06-22 - MIRROR BACKUP REMAINS LONG-TERM ARCHIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
-| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-22 - UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
+| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
 | 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
 | 288 | [Fresh Backup/Restore Deletion Gate Before Data Cleanup [COMPLETE 2026-06-23 - CLEANUP PREFLIGHT FAILS CLOSED ON CANONICAL EVIDENCE]](items/item-288-backup-restore-deletion-gate.md) |
@@ -212,7 +212,7 @@ infrastructure work remains.
 | 134 | [Early-Day Forecast Profile Calibration [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE]](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | [Cutoff-Regime Forecast/Observation Weighting [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS]](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | [Forecast Source-State Reliability Calibrator [PARTIAL 2026-06-22 - DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED]](items/item-136-forecast-source-state-reliability-calibrator.md) |
-| 137 | [Official Guidance Sparse-Coverage Evidence Growth [PARTIAL 2026-06-18 - COVERAGE GATE LIVE, ROW GROWTH BLOCKED]](items/item-137-official-guidance-sparse-coverage-evidence-growth.md) |
+| 137 | [Official Guidance Sparse-Coverage Evidence Growth [COMPLETE 2026-06-24 - SOURCE ROW GROWTH BACKFILLED]](items/item-137-official-guidance-sparse-coverage-evidence-growth.md) |
 | 138 | [Weak Input-Family Pruning And Regime Backfill [PARTIAL 2026-06-22 - GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED]](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
 | 139 | [Scheduled Active Variant Shadow Refresh [COMPLETE 2026-06-21 - INLINE REGISTRY EXECUTION LIVE]](items/item-139-scheduled-active-variant-shadow-refresh.md) |
 | 140 | [Live First-Class Variant Prediction Tape [COMPLETE 2026-06-22 - LIVE VARIANT RUNTIME RUNNERS WIRED]](items/item-140-live-first-class-variant-prediction-tape.md) |
@@ -270,7 +270,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - ROW GATES PASS, ACTIVE CONTRACT BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -328,6 +328,12 @@ infrastructure work remains.
 | 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
 | 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |
 | 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [OPEN 2026-06-24 - PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
+| 293 | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes [OPEN 2026-06-24 - FAIL-OPEN PROMOTION, LOSSY CSV, PRE-SORT TRUNCATION, 0-AS-MISSING]](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
+| 294 | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [OPEN 2026-06-24 - INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS]](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
+| 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [OPEN 2026-06-24 - LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
+| 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [OPEN 2026-06-24 - POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
+| 297 | [Calibration-Drift And Directional-Bias Daily Tracking [OPEN 2026-06-24 - NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
+| 298 | [Automatic Experiment Queue And Drift-Triggered Retrain Loop [OPEN 2026-06-24 - EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY]](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
 
 ### Architecture And Maintainability
 

@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T01:45:19.420647+00:00
+Generated: 2026-06-24T02:01:03.936956+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 292 |
-| Active items | 35 |
-| OPEN | 6 |
-| PARTIAL | 29 |
-| COMPLETE | 257 |
-| ROADMAP rows | 292 |
-| ROADMAP primary rows | 292 |
-| Metadata manifest rows | 292 |
+| Items | 298 |
+| Active items | 40 |
+| OPEN | 12 |
+| PARTIAL | 28 |
+| COMPLETE | 258 |
+| ROADMAP rows | 298 |
+| ROADMAP primary rows | 298 |
+| Metadata manifest rows | 298 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -32,7 +32,6 @@ Status: `OK`
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
-| 137 | PARTIAL | 2026-06-18 | COVERAGE GATE LIVE, ROW GROWTH BLOCKED | [Official Guidance Sparse-Coverage Evidence Growth](items/item-137-official-guidance-sparse-coverage-evidence-growth.md) |
 | 138 | PARTIAL | 2026-06-22 | GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED | [Weak Input-Family Pruning And Regime Backfill](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
 | 144 | PARTIAL | 2026-06-18 | GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED | [Early-Hour Market-Aware Risk Guardrail](items/item-144-early-hour-market-aware-risk-guardrail.md) |
 | 146 | PARTIAL | 2026-06-19 | LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING | [Tape Backup Capacity And CLOB Tiered Retention](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
@@ -45,21 +44,27 @@ Status: `OK`
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 178 | PARTIAL | 2026-06-22 | GATE REFRESHED, VALIDATION BLOCKED | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
-| 188 | PARTIAL | 2026-06-22 | GATE REFRESHED, AQ BACKFILL/SMOKE SLICE BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
-| 189 | PARTIAL | 2026-06-22 | GATE REFRESHED, RUN ARCHIVE/REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
+| 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
+| 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | PARTIAL | 2026-06-24 | REPLAY-SAFE NBP ARCHIVE PROVEN, SCORING BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
-| 191 | PARTIAL | 2026-06-22 | GATE REFRESHED, SST/BREEZE SLICE BLOCKED | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 191 | PARTIAL | 2026-06-24 | ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-24 | BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | PARTIAL | 2026-06-24 | ROW GATES PASS, ACTIVE CONTRACT BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
-| 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
+| 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 292 | OPEN | 2026-06-24 | PER-MARKET CAPS DO NOT BOUND CORRELATED FLEET DOWNSIDE | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
+| 293 | OPEN | 2026-06-24 | FAIL-OPEN PROMOTION, LOSSY CSV, PRE-SORT TRUNCATION, 0-AS-MISSING | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
+| 294 | OPEN | 2026-06-24 | INPUTS CONSUMED WITHOUT FRESHNESS, COVERAGE, OR CONSISTENCY CHECKS | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
+| 295 | OPEN | 2026-06-24 | LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
+| 296 | OPEN | 2026-06-24 | POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
+| 297 | OPEN | 2026-06-24 | NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND | [Calibration-Drift And Directional-Bias Daily Tracking](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
+| 298 | OPEN | 2026-06-24 | EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY | [Automatic Experiment Queue And Drift-Triggered Retrain Loop](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
 
 ## Lint Issues
 

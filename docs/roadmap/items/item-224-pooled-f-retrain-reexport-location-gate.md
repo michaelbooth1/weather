@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED]
+# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - ROW GATES PASS, ACTIVE CONTRACT BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -713,3 +713,91 @@ This removes the previously isolated Seattle bottom-location and exact-band
 technical blocker. The remaining Item 224 work is now a full replay/promotion
 contract for the repaired candidate plus source/missingness repair evidence;
 the same-corpus row export is not broad promotion evidence by itself.
+
+## 2026-06-24 v0.2 row-export diagnostic clears row gates
+
+Built a broader no-market row-export diagnostic that starts from the Item 147
+full-market row export, routes the bottom markets through the Seattle
+warm-support repair where it helped, repairs the three source/missingness hard
+slices, and applies a conservative exact-band guardrail. This is still a
+same-corpus diagnostic row export, not active replay/export-contract evidence.
+
+Artifacts:
+
+- `data/backtest/item224_no_market_market_route_composite_v0_2_rows.csv`
+- `data/backtest/item224_no_market_market_route_composite_v0_2.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_replay_summary.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_replay_summary_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_hourly_candidate_performance_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_ten_minute_performance.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_ten_minute_performance_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_bottom_location.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_bottom_location_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_exact_band_distance_zero_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_source_missingness_location_gate.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`
+- `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md`
+
+Regenerated command examples:
+
+```powershell
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\item224_no_market_market_route_composite_v0_2_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --json-out data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --report-out data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_no_market_market_route_composite_v0_2_rows.csv --json-out data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --report-out data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance_report.md
+python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\item224_no_market_market_route_composite_v0_2_rows.csv --json-out data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --report-out data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance_report.md --slot-csv-out data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_by_slot.csv --candidate-csv-out data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_candidate_by_slot.csv
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
+```
+
+Result: partial unblock, still not Item 224 complete.
+
+- row-export replay metrics clear the market comparison diagnostically:
+  aggregate `delta_vs_current -0.0096`, aggregate `delta_vs_market -0.0039`,
+  and candidate market verdict `PASS`.
+- paired candidate replay remains `BLOCK`; blocked validation remains `BLOCK`
+  because the evidence is a row-export surrogate, so cutover remains
+  `DO_NOT_CUT_OVER`.
+- candidate hourly gate: `PASS`.
+- candidate ten-minute gate: `PASS`. The lineage mismatch is fixed by carrying
+  the full row-export corpus hash `226fe100...` while preserving the
+  ten-minute checkpoint hash `5f79e4...` separately.
+- bottom-location gate: `PASS` with `0` blockers.
+- exact-band/distance-0 gate: `PASS` with `0` blockers.
+- source/missingness location gate: `PASS` with `0` blockers.
+- promotion refresh still blocks broad weather-only claims. The aggregate
+  market delta is negative, but daily-first blocked validation is not countable
+  because the replay summary is surrogate-only; all `11` F markets stay
+  `BLOCK_CANDIDATE`.
+- early-hour promotion no longer blocks on candidate hourly or ten-minute
+  mitigation. It now blocks on active replay/export contract evidence,
+  live-forward SLO, and current-code soak.
+- the top-level pooled-F retrain/location gate remains `BLOCK` with `3`
+  blockers: paired candidate replay, promotion-refresh broad claim, and
+  hourly/ten-minute promotion clearance. The third blocker is now caused by the
+  surrogate replay/export contract, not by candidate weak-slot model
+  performance.
+
+Unblocked:
+
+- Seattle bottom-location weak/early/midday repair evidence.
+- Exact-band and settlement-distance-0 calibration evidence.
+- Source/missingness location evidence for the v0.2 row export.
+- Candidate hourly and ten-minute weak-slot mitigation, including matching
+  variant/corpus lineage.
+
+Still blocked and how to unblock:
+
+- Active replay/export contract: materialize the v0.2 candidate through the
+  active registry/export path, then rerun paired replay so blocked validation
+  can be active-contract evidence rather than row-export surrogate evidence.
+- Daily-first promotion clearance: rerun promotion refresh from that active
+  replay contract; the current row-export metrics are promising but explicitly
+  non-countable.
+- Production readiness: clear live-forward SLO and current-code soak evidence,
+  then refresh `fleet_observability.json`.
+- Countable location readiness: refresh settled-day freshness, physical
+  feature-family ratchet, and tape backup/restore evidence so promotion
+  readiness can count location validation.

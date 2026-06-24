@@ -1,4 +1,4 @@
-# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-22 - GATE REFRESHED, SST/BREEZE SLICE BLOCKED]
+# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-24 - ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY]
 
 Goal: give the lake/sea-breeze signal the water temperature contrast it depends
 on, so the model can anticipate shoreline-cooling days instead of only flagging
@@ -31,8 +31,11 @@ active under onshore flow.
    wind is onshore.
 4. Feature: `marine_onshore_cooling_potential`, the positive cooling magnitude
    available only under onshore flow.
-5. Keep GLSEA/OISST gridded SST as a follow-up adapter for markets where a
-   single station is sparse, missing, or not representative.
+5. Use a cache-first GLSEA/OISST point-extraction adapter for markets where a
+   single station is sparse, missing, or not representative. Operators place
+   provider NetCDF files locally, the adapter extracts nearest market-point SST
+   with provenance, and historical feature assembly consumes the resulting
+   sidecar without leaking future cutoffs.
 
 ## Progress 2026-06-21
 
@@ -44,12 +47,38 @@ active under onshore flow.
   rows keep these live-only fields nullable until backfills/replay gates exist.
 - [x] Added focused source and live-feature tests for the contrast fields.
 - [x] Added machine-readable marine contrast gate artifact.
-- [ ] Add GLSEA Great Lakes SST and/or OISST gridded SST adapters with
+- [x] Add GLSEA Great Lakes SST and/or OISST gridded SST adapters with
   market-point extraction and provenance.
-- [ ] Backfill or replay-gate the station/gridded water-contrast features for
+- [x] Backfill or replay-gate the station/gridded water-contrast features for
   lake/coast-influenced markets.
 - [ ] Settlement-score the onshore-wind/breeze-day slice and require no
   aggregate regression before promotion.
+
+## 2026-06-24 Adapter And Backfill Implementation
+
+Added `weather.sources.marine_water_contrast`, a historical sidecar adapter for
+lake/sea SST contrast features.
+
+- station-history backfill is cutoff-aware and recomputes the same marine
+  feature columns used by serving.
+- GLSEA/OISST support is cache-first: local NetCDF files are converted to
+  market-point SST rows with provider, product, URL, raw path, grid distance,
+  and payload-hash provenance.
+- station-history rows and gridded SST rows can be merged so gridded water
+  temperature drives the water-air contrast while station wind still gates
+  onshore cooling.
+- sidecars are loaded by historical feature assembly for per-market cutoff rows.
+- source-family inventory now recognizes marine water-contrast sidecars and
+  upgrades archive status to `marine_station_archive_available` or
+  `glsea_oisst_archive_available` when evidence is present.
+- historical backfill planning can queue `marine_water_contrast` station-history
+  backfills with missing-range and chunk metadata.
+
+This completes the adapter/provenance/backfill-support portion of the roadmap
+item. The promotion gate remains fail-closed until real backfilled sidecars are
+generated, a marine-contrast-scoped replay selects the contrast columns, and the
+onshore/breeze settlement slice shows positive lift with no aggregate
+regression.
 
 ## 2026-06-22 Gate Rerun
 

@@ -112,6 +112,45 @@ class TestOpenMeteoArchives(unittest.TestCase):
         self.assertEqual(daily_rows[0]["day_high_spread"], "5.0")
         self.assertIn("hourly", raw_payload)
 
+    def test_global_model_store_merges_chunks_and_reports_coverage(self):
+        spec = spec_for_id("nyc")
+        first_payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00"],
+                "temperature_2m_ecmwf_ifs025": [84.0],
+                "temperature_2m_ecmwf_aifs025": [85.0],
+                "temperature_2m_ncep_aigfs025": [83.0],
+                "temperature_2m_gfs_graphcast025": [88.0],
+            }
+        }
+        second_payload = {
+            "hourly": {
+                "time": ["2026-06-01T12:00", "2026-06-02T12:00"],
+                "temperature_2m_ecmwf_ifs025": [86.0, 80.0],
+                "temperature_2m_ecmwf_aifs025": [87.0, 81.0],
+                "temperature_2m_ncep_aigfs025": [84.0, 79.0],
+                "temperature_2m_gfs_graphcast025": [89.0, 82.0],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = OpenMeteoArchiveStore(tmp)
+            store.write_global_model_archive(normalize_open_meteo_global_model_archive(first_payload, spec), spec)
+            result = store.write_global_model_archive(normalize_open_meteo_global_model_archive(second_payload, spec), spec)
+            hourly_rows = list(csv.DictReader(Path(result["hourly_path"]).open(encoding="utf-8", newline="")))
+            daily_rows = list(csv.DictReader(Path(result["daily_path"]).open(encoding="utf-8", newline="")))
+            coverage = store.global_model_coverage(spec, "2026-06-01", "2026-06-03")
+            missing = store.global_model_missing_ranges(spec, "2026-06-01", "2026-06-03", chunk_days=2)
+
+        self.assertEqual(result["hourly_rows"], 2)
+        self.assertEqual(result["daily_rows"], 2)
+        self.assertEqual(len(hourly_rows), 2)
+        self.assertEqual(len(daily_rows), 2)
+        self.assertEqual(hourly_rows[0]["ecmwf_ifs025_temp_native"], "86.0")
+        self.assertEqual(daily_rows[0]["day_max_native"], "86.5")
+        self.assertEqual(coverage["covered_days"], 2)
+        self.assertEqual(missing[0][0].isoformat(), "2026-06-03")
+
     def test_air_quality_store_merges_chunks_and_reports_coverage(self):
         spec = spec_for_id("nyc")
         first_payload = {

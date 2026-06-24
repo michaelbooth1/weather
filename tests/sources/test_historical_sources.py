@@ -259,6 +259,33 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertIn("air-quality", item["command"])
         self.assertIn("--skip-existing", item["command"])
 
+    def test_backfill_plan_includes_open_meteo_global_models_source(self):
+        class FakeStore:
+            def global_model_missing_ranges(self, spec, start_date, end_date, chunk_days=31):
+                return [
+                    (date(2026, 6, 1), date(2026, 6, 2)),
+                    (date(2026, 6, 5), date(2026, 6, 5)),
+                ]
+
+        with patch("weather.collection.historical_backfill_plan.OpenMeteoArchiveStore", return_value=FakeStore()):
+            plan = build_plan(
+                market_ids=["nyc"],
+                sources=["open_meteo_global_models"],
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 5),
+                python="python",
+                open_meteo_global_model_chunk_days=2,
+            )
+
+        self.assertEqual(plan["queue_count"], 1)
+        item = plan["queue"][0]
+        self.assertEqual(item["source"], "open_meteo_global_models")
+        self.assertEqual(item["detail"]["missing_ranges"], 2)
+        self.assertEqual(item["detail"]["missing_days"], 3)
+        self.assertEqual(item["command"][:3], ["python", "-m", "weather.sources.open_meteo_archives"])
+        self.assertIn("global-models", item["command"])
+        self.assertIn("--skip-existing", item["command"])
+
     def test_backfill_plan_includes_marine_water_contrast_source(self):
         class FakeStore:
             def __init__(self, _spec):

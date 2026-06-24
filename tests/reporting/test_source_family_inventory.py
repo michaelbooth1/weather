@@ -7,18 +7,24 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from weather.reporting.source_family_inventory import (
+    FAMILY_SPECS,
     build_source_family_inventory,
     item27_reanalysis_ablation_evidence,
     market_expansion_scorecard,
     open_meteo_air_quality_archive_evidence,
+    open_meteo_global_model_archive_evidence,
     reanalysis_promotion_lane,
     write_outputs,
 )
-from weather.market.market_registry import spec_for_id
+from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
-from weather.model.feature_store import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
+from weather.model.feature_store import MARINE_CONTEXT_FEATURE_COLUMNS, REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.operations.closed_market_day_archive import build_backfill_payload
-from weather.sources.open_meteo_archives import OpenMeteoArchiveStore, normalize_open_meteo_air_quality_archive
+from weather.sources.open_meteo_archives import (
+    OpenMeteoArchiveStore,
+    normalize_open_meteo_air_quality_archive,
+    normalize_open_meteo_global_model_archive,
+)
 from weather.sources.nbm_probabilistic_tmax import NBPStationArchiveStore, parse_nbp_station_tmax
 
 
@@ -310,6 +316,88 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertIn("nyc", evidence["covered_markets"])
         self.assertEqual(rows["open_meteo_expanded"]["historical_archive_status"], "partial_historical_smoke_archive")
         self.assertEqual(rows["open_meteo_expanded"]["historical_archive"]["covered_market_count"], 1)
+
+    def test_open_meteo_global_model_archive_evidence_unblocks_live_only_policy_when_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            open_meteo_root = root / "open_meteo_archives"
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T05:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_global_models",
+                        "ok": "True",
+                        "status": "fresh",
+                    }
+                ],
+            )
+            write_csv(
+                folder / "forecast_payloads_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T05:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "open_meteo_global_models",
+                        "status": "fresh",
+                    }
+                ],
+            )
+            multi_model_columns = next(
+                spec.feature_columns
+                for spec in FAMILY_SPECS
+                if spec.family_id == "multi_model_guidance"
+            )
+            feature_row = {
+                "snapshot_id": "s1",
+                "captured_at_local": "2026-06-18T05:10:00-04:00",
+                "event_slug": folder.name,
+                "market_id": "nyc",
+            }
+            feature_row.update({column: "1.0" for column in multi_model_columns})
+            write_csv(folder / "features_long.csv", [feature_row])
+
+            payload = {
+                "hourly": {
+                    "time": ["2026-06-18T12:00"],
+                    "temperature_2m_ecmwf_ifs025": [84.0],
+                    "temperature_2m_ecmwf_aifs025": [85.0],
+                    "temperature_2m_ncep_aigfs025": [83.0],
+                    "temperature_2m_gfs_graphcast025": [88.0],
+                }
+            }
+            store = OpenMeteoArchiveStore(open_meteo_root)
+            for spec in all_specs():
+                if "open_meteo" not in spec.sources:
+                    continue
+                store.write_global_model_archive(normalize_open_meteo_global_model_archive(payload, spec), spec)
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            evidence = open_meteo_global_model_archive_evidence(open_meteo_root)
+            inventory = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=backtest_root / "missing_candidate_replay.json",
+                locations_config=locations_config,
+                open_meteo_archive_root=open_meteo_root,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in inventory["inventory"]}
+
+        self.assertEqual(evidence["historical_archive_status"], "historical_global_model_archive_available")
+        self.assertEqual(rows["multi_model_guidance"]["historical_archive_status"], "historical_global_model_archive_available")
+        self.assertEqual(rows["multi_model_guidance"]["live_only_policy"], "parity_required_before_promotion")
+        self.assertEqual(rows["multi_model_guidance"]["train_serve_parity_status"], "PASS")
 
     def test_verified_nbp_station_archive_updates_nbm_historical_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -667,6 +755,78 @@ class TestSourceFamilyInventory(unittest.TestCase):
             reanalysis["promotion_decision"]["status"],
             "BLOCK_MISSING_ABLATION",
         )
+
+    def test_marine_water_contrast_sidecar_sets_archive_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            backtest_root = root / "backtest"
+            marine_root = root / "marine_water_contrast"
+            market = spec_for_id("nyc")
+            folder = snapshots_root / "highest-temperature-in-nyc-on-june-18-2026"
+            folder.mkdir(parents=True)
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_local": "2026-06-18T14:10:00-04:00",
+                        "event_slug": folder.name,
+                        "source": "marine_context",
+                        "ok": "True",
+                        "status": "fresh",
+                        "source_family": "marine_context",
+                    }
+                ],
+            )
+            row = {
+                "schema_version": "marine_water_contrast_features_v0.1",
+                "source": "marine_water_contrast",
+                "market_id": market.id,
+                "city": market.city_label,
+                "station": market.icao,
+                "local_date": "2026-06-18",
+                "cutoff_hour": "12",
+                "wall_minute": "720",
+                "feature_source": "station_history_plus_gridded_sst",
+                "sst_provider": "oisst",
+                "sst_product": "NOAA OISST v2.1",
+                "water_body": "Atlantic Ocean",
+                "station_ids": "8518750",
+                "source_urls": "https://www.ncei.noaa.gov/products/optimum-interpolation-sst",
+                "payload_hash": "abc123",
+                "provenance": "{}",
+            }
+            row.update({column: "1.0" for column in MARINE_CONTEXT_FEATURE_COLUMNS})
+            write_csv(
+                marine_root / market.icao.lower() / "features" / "marine_water_contrast_features.csv",
+                [row],
+            )
+            locations_config = root / "locations.json"
+            locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
+
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                marine_water_contrast_root=marine_root,
+                backtest_root=backtest_root,
+                candidate_replay_json=backtest_root / "missing_candidate_replay.json",
+                locations_config=locations_config,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-06-18T20:00:00+00:00",
+            )
+            rows = {row["family_id"]: row for row in payload["inventory"]}
+            marine = rows["marine_context"]
+
+        self.assertEqual(marine["historical_archive_status"], "glsea_oisst_archive_available")
+        self.assertEqual(marine["marine_water_contrast_sidecar"]["rows"], 1)
+        self.assertEqual(
+            marine["marine_water_contrast_sidecar"]["feature_sources"],
+            ["station_history_plus_gridded_sst"],
+        )
+        self.assertEqual(marine["marine_water_contrast_sidecar"]["sst_providers"], ["oisst"])
+        self.assertIn("marine_water_minus_forecast_high", marine["feature_columns_present"])
+        self.assertEqual(marine["train_serve_parity_status"], "PASS")
 
     def test_clob_parity_accepts_structural_blanks_when_availability_is_logged(self):
         with tempfile.TemporaryDirectory() as tmp:

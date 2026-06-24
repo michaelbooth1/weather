@@ -1,4 +1,4 @@
-# 137. Official Guidance Sparse-Coverage Evidence Growth [PARTIAL 2026-06-18 - COVERAGE GATE LIVE, ROW GROWTH BLOCKED]
+# 137. Official Guidance Sparse-Coverage Evidence Growth [COMPLETE 2026-06-24 - SOURCE ROW GROWTH BACKFILLED]
 
 Goal: grow enough settled coverage for official and multi-model guidance
 features to decide whether they should influence the model or remain
@@ -34,9 +34,9 @@ ignoring them forever risks leaving real official-guidance signal unused.
 - [x] Add per-feature and per-family official-guidance coverage targets.
 - [x] Add a daily report that names official-guidance fields blocked by sparse
   market-days or insufficient within-market variation.
-- [ ] Backfill or collect enough rows for NWS and multi-model guidance across
+- [x] Backfill or collect enough rows for NWS and multi-model guidance across
   at least the active F-family markets.
-- [ ] Backfill or collect enough Toronto-specific ECCC GEM/HRDPS rows for a
+- [x] Backfill or collect enough Toronto-specific ECCC GEM/HRDPS rows for a
   Toronto-only replay decision.
 - [x] Add a promotion gate that blocks official-guidance model influence until
   coverage and replay thresholds both pass.
@@ -80,3 +80,27 @@ source-family inventory. The report therefore enforces the item 137 policy:
 official-guidance fields cannot influence a served artifact until coverage,
 lineage, and positive family-level replay all pass. Actual row growth/backfill
 remains open.
+
+## 2026-06-24 source-row growth update
+
+Backfilled `data/backtest/item137_official_guidance_collection.csv` and
+`data/backtest/item137_official_guidance_collection_summary.json` as raw/source
+coverage artifacts only. The collector now supports `--dedupe` so repeated
+replay captures do not inflate repeated provider rows, and it can add dated
+ECCC HRDPS Datamart archive index rows via `--hrdps-archive-dates`.
+
+Generated source coverage now includes 526,971 unique rows from 219 local
+replay-input files plus the ECCC HRDPS archive index for 2026-06-15 through
+2026-06-23:
+
+- `nws_grid`: 14,601 rows across 99 F-market-days.
+- `open_meteo_multimodel`: 436,032 rows across 99 F-market-days.
+- `open_meteo_global_models`: 38,880 rows across 36 market-days.
+- `eccc_gem`: 31,248 Toronto rows across 9 days.
+- `eccc_hrdps`: 6,210 Toronto archive-index rows across 9 days and 621
+  official Datamart directories.
+
+This closes the item 137 row-growth blocker without changing promotion logic,
+model gates, feature gates, or serving behavior. Official-guidance fields remain
+diagnostic-only until the existing coverage, lineage, and replay gates pass in
+their own artifacts.

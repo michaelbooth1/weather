@@ -7,6 +7,7 @@ from pathlib import Path
 
 from weather.market.market_registry import spec_for_id
 from weather.sources.official_guidance_collection import (
+    build_hrdps_archive_collection_payload,
     build_official_guidance_collection_payload,
     collect_official_guidance_from_replay_inputs,
     write_official_guidance_collection_rows,
@@ -201,6 +202,33 @@ class TestOfficialGuidanceCollection(unittest.TestCase):
         self.assertTrue(payload["dedupe"])
         self.assertEqual(payload["duplicate_row_count"], 1)
         self.assertEqual(payload["source_counts"], {"nws_grid": 1})
+
+    def test_builds_hrdps_archive_rows_from_datamart_listing(self):
+        listing = """
+        <a href="20260623T00Z_MSC_HRDPS_TMP_AGL-2m_RLatLon0.0225_PT004H.grib2">x</a> 2026-06-23 02:58 4.1M
+        <a href="20260623T00Z_MSC_HRDPS_GUST_AGL-10m_RLatLon0.0225_PT004H.grib2">x</a> 2026-06-23 02:58 2.3M
+        <a href="20260623T00Z_MSC_HRDPS_TMP_ISBL_0850_RLatLon0.0225_PT004H.grib2">x</a> 2026-06-23 02:58 925K
+        """
+
+        payload = build_hrdps_archive_collection_payload(
+            ["2026-06-23"],
+            products=["TMP:AGL-2m", "GUST:AGL-10m"],
+            captured_at=datetime(2026, 6, 23, 3, 0),
+            fetch_text=lambda _url: listing,
+        )
+
+        self.assertEqual(payload["source"], "hrdps_datamart_archive")
+        self.assertEqual(payload["source_counts"], {"eccc_hrdps": 2})
+        self.assertEqual(payload["directory_count"], 69)
+        first = payload["rows"][0]
+        self.assertEqual(first["market"], "toronto")
+        self.assertEqual(first["source"], "eccc_hrdps")
+        self.assertEqual(first["model_name"], "HRDPS")
+        self.assertEqual(first["valid_time"], "2026-06-23T04:00:00+00:00")
+        self.assertEqual(first["minute_of_day"], 0)
+        self.assertEqual(first["product"], "TMP")
+        self.assertEqual(first["level"], "AGL-2m")
+        self.assertEqual(first["payload_bytes"], 4299161)
 
 
 if __name__ == "__main__":
