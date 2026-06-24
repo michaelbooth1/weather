@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import random
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.io import read_json, write_json_atomic
+from weather.io import read_json, read_jsonl, write_json_atomic
 from weather.paths import data_path
 from weather.reporting.daily import daily_rollup_freshness
 from weather.reporting.daily.daily_learning_render import render_report
@@ -42,12 +43,14 @@ ARTIFACT_FILES = {
     "model_variant_evidence_growth": "model_variant_evidence_growth.json",
     "progress_audit": "progress_audit.json",
     "disagreement_casebook": "disagreement_casebook.json",
+    "event_metadata_validation": "event_metadata_validation.json",
     "fleet_observability": "fleet_observability.json",
     "data_layer_audit": "data_layer_audit.json",
     "snapshot_evaluation": "snapshot_evaluation.json",
     "settled_day_root_cause": "settled_day_root_cause.json",
     "settled_day_freshness": "settled_day_freshness.json",
     "source_family_inventory": "source_family_inventory.json",
+    "proper_scoring_reliability_scorecard": "proper_scoring_reliability_scorecard.json",
     "taker_finalization_watchdog": "taker_finalization_watchdog.json",
     "taker_tail_casebook": "taker_tail_casebook.json",
     "trading_evidence": "trading_evidence.json",
@@ -57,23 +60,34 @@ ARTIFACT_FALLBACK_GLOBS = {
 }
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 IMPACT_SORT_KEYS = (
+    "estimated_impact",
     "impact",
     "impact_score",
     "excess_brier_rows",
     "delta_vs_market",
+    "delta_vs_current",
     "code_effect",
+    "net_pnl_usdc",
+    "pnl_at_risk_usdc",
+    "market_gap",
     "blocked_market_count",
     "affected_market_count",
     "row_count",
     "rows",
     "count",
 )
+PROMOTION_MIN_INDEPENDENT_MARKET_DAYS = 30
+PROMOTION_BOOTSTRAP_RESAMPLES = 1000
+PROMOTION_CI_LEVEL = 0.95
+CALIBRATION_ECE_DRIFT_THRESHOLD = 0.02
+CALIBRATION_BIAS_DRIFT_THRESHOLD = 0.5
 INPUT_FRESHNESS_MAX_SKEW_HOURS = 18.0
 INPUT_CONSISTENCY_BRIER_TOLERANCE = 1e-6
 CRITICAL_INPUTS = (
     "daily_refresh_status",
     "promotion_refresh",
     "snapshot_evaluation",
+    "event_metadata_validation",
     "fleet_observability",
     "data_layer_audit",
     "trading_evidence",
@@ -127,6 +141,24 @@ def _impact_score(row):
         if value is not None:
             values.append(abs(value))
     return max(values) if values else 0.0
+
+
+def _estimated_impact(evidence):
+    if isinstance(evidence, dict):
+        return round(_impact_score(evidence), 6)
+    return 0.0
+
+
+def _rank_learnings(learnings):
+    indexed = list(enumerate(learnings or []))
+    indexed.sort(
+        key=lambda item: (
+            _priority_rank(item[1].get("priority")),
+            -maybe_float(item[1].get("estimated_impact") or 0.0),
+            item[0],
+        )
+    )
+    return [row for _index, row in indexed]
 
 
 def _capped_sorted_rows(rows, limit, source, truncated_sources=None, priority_func=None):
@@ -228,6 +260,18 @@ def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT):
         path, payload = _load_artifact(root, name, filename)
         payloads[name] = payload or {}
         artifacts[name] = _artifact_record(name, path, payload)
+    ledger_path = root / "daily_progress_ledger.jsonl"
+    ledger_rows = read_jsonl(ledger_path)
+    payloads["daily_progress_ledger"] = ledger_rows
+    artifacts["daily_progress_ledger"] = {
+        "name": "daily_progress_ledger",
+        "path": str(ledger_path),
+        "exists": bool(ledger_rows),
+        "schema_version": ledger_rows[-1].get("schema_version") if ledger_rows else None,
+        "generated_at_utc": ledger_rows[-1].get("generated_at_utc") if ledger_rows else None,
+        "status": "OK" if ledger_rows else None,
+        "row_count": len(ledger_rows),
+    }
     payloads["market_day_labels"] = _market_day_labels_summary(root / "market_day_labels.csv")
     return payloads, artifacts
 
@@ -624,6 +668,57 @@ def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
     }
 
 
+def _served_calibration_lane(scorecard):
+    lanes = (scorecard or {}).get("lanes") or []
+    for name in ("weather_only", "current", "candidate", "no_market"):
+        for row in lanes:
+            if row.get("lane") == name:
+                return row
+    section = (((scorecard or {}).get("lane_sections") or {}).get("weather_only") or [])
+    return section[0] if section else {}
+
+
+def _calibration_monitoring_summary(scorecard):
+    if not scorecard:
+        return {
+            "calibration_status": "MISSING",
+            "calibration_ece": None,
+            "calibration_row_count": None,
+            "directional_bias_status": "MISSING",
+            "directional_bias_mean_error": None,
+            "directional_bias_abs_mean_error": None,
+            "directional_bias_source": None,
+        }
+    lane = _served_calibration_lane(scorecard)
+    explicit_bias = scorecard.get("directional_bias") or {}
+    afternoon = scorecard.get("afternoon_post_ramp_slice") or {}
+    ece = maybe_float(first_present(
+        lane.get("ece"),
+        lane.get("expected_calibration_error"),
+        (scorecard.get("summary") or {}).get("model_ece"),
+    ))
+    signed_bias = maybe_float(first_present(
+        explicit_bias.get("signed_bias"),
+        explicit_bias.get("signed_bias_c"),
+        explicit_bias.get("mean_realized_minus_predicted"),
+        explicit_bias.get("mean_signed_error"),
+    ))
+    source = explicit_bias.get("source")
+    if signed_bias is None and afternoon.get("mean_expected_high_bias") is not None:
+        expected_minus_realized = maybe_float(afternoon.get("mean_expected_high_bias"))
+        signed_bias = -expected_minus_realized if expected_minus_realized is not None else None
+        source = "proper_scoring_reliability_scorecard.afternoon_post_ramp_slice"
+    return {
+        "calibration_status": "PRESENT" if ece is not None else "MISSING",
+        "calibration_ece": ece,
+        "calibration_row_count": safe_int(lane.get("row_count")),
+        "directional_bias_status": "PRESENT" if signed_bias is not None else "MISSING",
+        "directional_bias_mean_error": signed_bias,
+        "directional_bias_abs_mean_error": abs(signed_bias) if signed_bias is not None else None,
+        "directional_bias_source": source,
+    }
+
+
 def _scorecard(payloads, daily_refresh_summary=None):
     daily = payloads.get("daily_refresh_status") or {}
     daily_summary = daily_refresh_summary or daily.get("summary") or {}
@@ -657,6 +752,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     progress = payloads.get("progress_audit") or {}
     casebook = (payloads.get("disagreement_casebook") or {}).get("summary") or {}
     fleet = payloads.get("fleet_observability") or {}
+    event_metadata = payloads.get("event_metadata_validation") or {}
     trading = payloads.get("trading_evidence") or {}
     data_layer = payloads.get("data_layer_audit") or {}
     snapshot_eval = payloads.get("snapshot_evaluation") or {}
@@ -665,6 +761,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     source_family_inventory = payloads.get("source_family_inventory") or {}
     taker_finalization = payloads.get("taker_finalization_watchdog") or {}
     taker_tail = payloads.get("taker_tail_casebook") or {}
+    proper_scoring = payloads.get("proper_scoring_reliability_scorecard") or {}
     snapshot_status = snapshot_eval.get("status") or {}
     snapshot_inventory = snapshot_eval.get("snapshot_inventory") or {}
     backlog = snapshot_eval.get("improvement_backlog") or {}
@@ -737,6 +834,13 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "delta_vs_market": maybe_float(aggregate.get("delta_vs_market")),
             "missing_candidate_rows": safe_int((candidate.get("coverage") or {}).get("missing_candidate_rows")),
             "blocked_validation": candidate.get("blocked_validation") or {},
+            "paired_delta_samples": (
+                candidate.get("paired_delta_samples")
+                or candidate.get("market_day_deltas")
+                or aggregate.get("paired_delta_samples")
+                or aggregate.get("market_day_deltas")
+                or []
+            ),
         },
         "shadow_ab_monitor": {
             "status": shadow.get("status"),
@@ -752,6 +856,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
         },
         "variant_learning_gate": daily_summary.get("variant_learning_gate") or {},
         "core_model_trend_claim": progress.get("core_model_trend_claim") or {},
+        "calibration_monitoring": _calibration_monitoring_summary(proper_scoring),
         "casebook": {
             "case_count": safe_int(casebook.get("case_count")),
             "settled_case_count": safe_int(casebook.get("settled_case_count")),
@@ -768,6 +873,15 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "source_status_proof": ((fleet.get("collection") or {}).get("source_status_proof") or {}),
             "tape_backup": fleet.get("tape_backup") or {},
             "mm_paper_evidence": fleet.get("mm_paper_evidence") or {},
+        },
+        "event_metadata_validation": {
+            "status": event_metadata.get("status"),
+            "target_date": event_metadata.get("target_date"),
+            "validation_hash": event_metadata.get("validation_hash"),
+            "summary": event_metadata.get("summary") or {},
+            "first_blocker": ((event_metadata.get("summary") or {}).get("first_blocker") or {}),
+            "refresh_command": event_metadata.get("refresh_command"),
+            "validation_command": event_metadata.get("validation_command"),
         },
         "trading_evidence": trading,
         "taker_finalization_watchdog": {
@@ -824,13 +938,15 @@ def _scorecard(payloads, daily_refresh_summary=None):
 
 
 def _learning(priority, category, source, signal, action, *, evidence=None, retrain_input=False, blocker=False):
+    evidence = evidence or {}
     return {
         "priority": priority,
         "category": category,
         "source": source,
         "signal": signal,
         "action": action,
-        "evidence": evidence or {},
+        "evidence": evidence,
+        "estimated_impact": _estimated_impact(evidence),
         "retrain_input": bool(retrain_input),
         "blocker": bool(blocker),
     }
@@ -1119,7 +1235,97 @@ def _add_core_trend_claim_learning(learnings, claim):
         ))
 
 
-def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None, input_gate=None):
+def _ledger_run_date(row):
+    return str((row or {}).get("run_date") or (row or {}).get("generated_at_utc") or "")[:10]
+
+
+def _ledger_history_values(rows, key, *, run_date=None, limit=14):
+    values = []
+    for row in rows or []:
+        date = _ledger_run_date(row)
+        if run_date and date and date >= str(run_date)[:10]:
+            continue
+        value = maybe_float((row or {}).get(key))
+        if value is not None:
+            values.append(value)
+    return values[-limit:]
+
+
+def _add_calibration_drift_learnings(learnings, calibration, ledger_rows, *, run_date=None):
+    calibration = calibration or {}
+    ece = maybe_float(calibration.get("calibration_ece"))
+    bias_abs = maybe_float(calibration.get("directional_bias_abs_mean_error"))
+    missing = []
+    if calibration.get("calibration_status") != "PRESENT":
+        missing.append("calibration_ece")
+    if calibration.get("directional_bias_status") != "PRESENT":
+        missing.append("directional_bias")
+    if missing:
+        learnings.append(_learning(
+            "P2",
+            "calibration_monitoring",
+            "proper_scoring_reliability_scorecard",
+            "Daily calibration monitoring is missing: " + ", ".join(missing),
+            "Regenerate proper_scoring_reliability_scorecard before treating calibration drift as green.",
+            evidence=calibration,
+            retrain_input=False,
+            blocker=False,
+        ))
+        return
+
+    ece_history = _ledger_history_values(
+        ledger_rows,
+        "model_calibration_ece",
+        run_date=run_date,
+    )
+    if ece is not None and len(ece_history) >= 3:
+        baseline = sum(ece_history) / len(ece_history)
+        if ece - baseline >= CALIBRATION_ECE_DRIFT_THRESHOLD:
+            learnings.append(_learning(
+                "P1",
+                "calibration_drift",
+                "daily_progress_ledger",
+                f"Served-model ECE worsened to {fmt_num(ece, 4)} from recent average {fmt_num(baseline, 4)}.",
+                "Prioritize calibration repair or retrain diagnostics before claiming model-quality improvement.",
+                evidence={
+                    **calibration,
+                    "recent_average_ece": baseline,
+                    "drift_threshold": CALIBRATION_ECE_DRIFT_THRESHOLD,
+                    "history_count": len(ece_history),
+                },
+                retrain_input=True,
+            ))
+
+    bias_history = _ledger_history_values(
+        ledger_rows,
+        "model_directional_bias_abs_mean_error",
+        run_date=run_date,
+    )
+    if bias_abs is not None and len(bias_history) >= 3:
+        baseline = sum(bias_history) / len(bias_history)
+        if bias_abs - baseline >= CALIBRATION_BIAS_DRIFT_THRESHOLD:
+            signed_bias = maybe_float(calibration.get("directional_bias_mean_error")) or 0.0
+            direction = "warm" if signed_bias > 0 else "cold"
+            learnings.append(_learning(
+                "P1",
+                "directional_bias_drift",
+                "daily_progress_ledger",
+                (
+                    f"Directional {direction} bias magnitude worsened to {fmt_num(bias_abs, 4)} "
+                    f"from recent average {fmt_num(baseline, 4)}."
+                ),
+                "Inspect warm/cold centering slices and feed the bias into the next retrain prioritization pass.",
+                evidence={
+                    **calibration,
+                    "recent_average_abs_bias": baseline,
+                    "drift_threshold": CALIBRATION_BIAS_DRIFT_THRESHOLD,
+                    "history_count": len(bias_history),
+                },
+                retrain_input=True,
+            ))
+
+
+def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None, input_gate=None, run_date=None):
     learnings = []
     artifacts = artifacts or {}
     labels_total = scorecard["labels"]["total"]
@@ -1146,8 +1352,31 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     taker_finalization = scorecard.get("taker_finalization_watchdog") or {}
     taker_tail = scorecard.get("taker_tail_casebook") or {}
     rollup_freshness = scorecard.get("rollup_freshness") or {}
+    event_metadata = scorecard.get("event_metadata_validation") or {}
+    calibration_monitoring = scorecard.get("calibration_monitoring") or {}
+    ledger_rows = payloads.get("daily_progress_ledger") or []
 
     _add_input_gate_learnings(learnings, input_gate)
+
+    if event_metadata.get("status") and event_metadata.get("status") != "PASS":
+        first = event_metadata.get("first_blocker") or {}
+        first_issue = first.get("first_issue") or {}
+        learnings.append(_learning(
+            "P0",
+            "event_metadata_validation",
+            "event_metadata_validation",
+            (
+                f"Event metadata validation is {event_metadata.get('status')} for "
+                f"{event_metadata.get('target_date')}: "
+                f"{first_issue.get('code') or first.get('reason') or 'inspect event metadata validation'}."
+            ),
+            first.get("remediation_command")
+            or event_metadata.get("refresh_command")
+            or event_metadata.get("validation_command")
+            or "python -m weather.operations.event_metadata_validation --target-date <YYYY-MM-DD>",
+            evidence=event_metadata,
+            blocker=True,
+        ))
 
     if rollup_freshness.get("status") == "BLOCK":
         first = next(iter(rollup_freshness.get("blockers") or []), {})
@@ -1600,6 +1829,12 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     _add_independent_evidence_sla_learning(learnings, variant)
     _add_variant_learning_gate_blocker(learnings, variant_learning_gate)
     _add_core_trend_claim_learning(learnings, scorecard.get("core_model_trend_claim") or {})
+    _add_calibration_drift_learnings(
+        learnings,
+        calibration_monitoring,
+        ledger_rows,
+        run_date=run_date,
+    )
 
     live_slo = fleet.get("live_forward_slo") or {}
     mm_paper_evidence = fleet.get("mm_paper_evidence") or {}
@@ -1809,6 +2044,109 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     return learnings
 
 
+def _sample_market_day_key(row, index):
+    if not isinstance(row, dict):
+        return f"sample-{index}"
+    return (
+        row.get("market_day")
+        or row.get("market_day_key")
+        or row.get("target_date")
+        or row.get("run_date")
+        or row.get("date")
+        or f"sample-{index}"
+    )
+
+
+def _delta_samples(candidate, key):
+    rows = candidate.get("paired_delta_samples") or []
+    samples = []
+    market_days = set()
+    for index, row in enumerate(rows):
+        if isinstance(row, dict):
+            value = maybe_float(row.get(key))
+            if value is None and key == "delta_vs_current":
+                value = maybe_float(row.get("delta"))
+            if value is None:
+                continue
+            market_days.add(_sample_market_day_key(row, index))
+            samples.append(value)
+        else:
+            value = maybe_float(row)
+            if value is None:
+                continue
+            market_days.add(f"sample-{index}")
+            samples.append(value)
+    return samples, market_days
+
+
+def _bootstrap_mean_ci(values, *, resamples=PROMOTION_BOOTSTRAP_RESAMPLES, level=PROMOTION_CI_LEVEL):
+    values = [float(value) for value in values]
+    if not values:
+        return {"mean": None, "ci_low": None, "ci_high": None}
+    if len(values) == 1:
+        mean = values[0]
+        return {"mean": mean, "ci_low": mean, "ci_high": mean}
+    rng = random.Random(1729)
+    n = len(values)
+    means = []
+    for _index in range(int(resamples)):
+        sample_total = 0.0
+        for _sample_index in range(n):
+            sample_total += values[rng.randrange(n)]
+        means.append(sample_total / n)
+    means.sort()
+    alpha = (1.0 - float(level)) / 2.0
+    low_index = max(0, min(len(means) - 1, int(alpha * len(means))))
+    high_index = max(0, min(len(means) - 1, int((1.0 - alpha) * len(means)) - 1))
+    return {
+        "mean": sum(values) / n,
+        "ci_low": means[low_index],
+        "ci_high": means[high_index],
+    }
+
+
+def _promotion_delta_confidence(candidate, key, *, min_market_days=PROMOTION_MIN_INDEPENDENT_MARKET_DAYS):
+    values, market_days = _delta_samples(candidate, key)
+    ci = _bootstrap_mean_ci(values)
+    reasons = []
+    if not values:
+        reasons.append(f"{key}_paired_samples_missing")
+    if len(market_days) < min_market_days:
+        reasons.append(f"{key}_independent_market_days_below_{min_market_days}")
+    if len(values) < min_market_days:
+        reasons.append(f"{key}_sample_count_below_{min_market_days}")
+    ci_high = ci.get("ci_high")
+    if ci_high is None:
+        reasons.append(f"{key}_confidence_interval_missing")
+    elif ci_high > 0:
+        reasons.append(f"{key}_confidence_interval_upper_above_zero")
+    return {
+        "metric": key,
+        "status": "PASS" if not reasons else "BLOCK",
+        "sample_count": len(values),
+        "independent_market_day_count": len(market_days),
+        "min_independent_market_days": min_market_days,
+        "confidence_level": PROMOTION_CI_LEVEL,
+        "bootstrap_resamples": PROMOTION_BOOTSTRAP_RESAMPLES,
+        "mean_delta": ci.get("mean"),
+        "ci_low": ci.get("ci_low"),
+        "ci_high": ci.get("ci_high"),
+        "reasons": reasons,
+    }
+
+
+def _promotion_confidence(candidate):
+    current = _promotion_delta_confidence(candidate, "delta_vs_current")
+    market = _promotion_delta_confidence(candidate, "delta_vs_market")
+    return {
+        "status": current.get("status"),
+        "delta_vs_current": current,
+        "delta_vs_market": market,
+        "promotion_ready": current.get("status") == "PASS",
+        "reasons": current.get("reasons") or [],
+    }
+
+
 def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
     blockers = [row for row in learnings if row.get("blocker")]
     retrain_inputs = [row for row in learnings if row.get("retrain_input")]
@@ -1831,6 +2169,8 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
     candidate_delta_measured = delta_vs_current is not None
     beats_current_model = bool(candidate_delta_measured and delta_vs_current <= 0)
     beats_market = bool(delta_vs_market is not None and delta_vs_market <= 0)
+    promotion_confidence = _promotion_confidence(candidate)
+    candidate_delta_confident = promotion_confidence.get("promotion_ready") is True
     training_ready = (
         has_corpus
         and not blockers
@@ -1845,6 +2185,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         "candidate_rows_present": candidate_rows > 0,
         "candidate_delta_vs_current_measured": candidate_delta_measured,
         "beats_current_model": beats_current_model,
+        "candidate_delta_vs_current_confident": candidate_delta_confident,
         "no_missing_candidate_rows": safe_int(candidate.get("missing_candidate_rows")) == 0,
         "broad_promotion_evidence_allowed": bool(evidence_allows_broad_promotion),
     }
@@ -1852,6 +2193,8 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         name for name, passed in promotion_checks.items()
         if not passed
     ]
+    if not candidate_delta_confident:
+        promotion_ready_reasons.extend(promotion_confidence.get("reasons") or [])
     promotion_ready = not promotion_ready_reasons
     return {
         "training_ready": bool(training_ready),
@@ -1860,6 +2203,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root):
         "beats_market": beats_market,
         "candidate_delta_vs_current_measured": candidate_delta_measured,
         "candidate_delta_vs_market_measured": delta_vs_market is not None,
+        "promotion_confidence": promotion_confidence,
         "promotion_ready_checks": promotion_checks,
         "promotion_ready_reasons": promotion_ready_reasons,
         "blocker_count": len(blockers),
@@ -1995,7 +2339,9 @@ def build_learning_payload(
         artifacts=artifacts,
         truncated_sources=truncated_sources,
         input_gate=input_gate,
+        run_date=effective_run_date,
     )
+    learnings = _rank_learnings(learnings)
     status = _overall_status(learnings, artifacts)
     summary = {
         "learning_count": len(learnings),

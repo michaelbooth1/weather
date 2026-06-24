@@ -12,6 +12,7 @@ from weather.market.mm_policy import bool_value, maybe_float, parse_time
 SCHEMA_VERSION = "live_forward_gate_v0.2"
 MODEL_REVIEW_REQUIRED_GATES = (
     "active_event",
+    "event_metadata_validation",
     "snapshot_model_rows",
     "model_freshness",
     "source_status_rows",

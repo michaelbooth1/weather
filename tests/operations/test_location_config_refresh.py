@@ -30,7 +30,19 @@ def test_location_config_refresh_splits_volatile_market_events_from_durable_loca
             "title": "Highest temperature in Atlanta on June 20?",
             "endDate": "2026-06-20T12:00:00Z",
             "resolutionSource": "https://example.test/KATL",
-            "markets": [{}, {}],
+            "markets": [
+                {
+                    "id": "m1",
+                    "conditionId": "condition-1",
+                    "groupItemTitle": "80-81",
+                    "outcomes": json.dumps(["Yes", "No"]),
+                    "clobTokenIds": json.dumps(["yes-token", "no-token"]),
+                    "enableOrderBook": True,
+                    "active": True,
+                    "closed": False,
+                },
+                {},
+            ],
         }
     ]
 
@@ -52,6 +64,9 @@ def test_location_config_refresh_splits_volatile_market_events_from_durable_loca
     assert event_row["latest_event_slug"] == "highest-temperature-in-atlanta-on-june-20-2026"
     assert event_row["source_event_dates"] == ["2026-06-20"]
     assert event_row["active_events"][0]["market_count"] == 2
+    market = event_row["active_events"][0]["markets"][0]
+    assert market["condition_id"] == "condition-1"
+    assert market["outcome_tokens"] == {"Yes": "yes-token", "No": "no-token"}
     assert durable["schema_version"] == "location_registry_v0.1"
     assert durable["event_metadata"]["last_refreshed_at_utc"] == generated_at
     assert "latest_event_slug" not in durable["locations"][0]["polymarket"]

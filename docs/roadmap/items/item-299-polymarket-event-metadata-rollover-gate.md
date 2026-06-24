@@ -1,4 +1,4 @@
-# 299. Polymarket Event-Metadata Rollover Gate [OPEN 2026-06-24 - DAILY EVENT DRIFT CAN BREAK COLLECTION BEFORE PREFLIGHT]
+# 299. Polymarket Event-Metadata Rollover Gate [CLOSED 2026-06-24]
 
 Goal: make target-date Polymarket event metadata refresh and validation a
 required active-day gate before snapshot, CLOB, bot, or daily-learning evidence
@@ -51,13 +51,13 @@ books only after an event has already been selected.
    (`weather.operations.location_config_refresh`) and a separate manual-review
    blocker for series-template, outcome-layout, or platform-status drift.
 
-- [ ] Define and register the target-date event metadata validation artifact.
-- [ ] Validate generated metadata against live Gamma/CLOB metadata before
+- [x] Define and register the target-date event metadata validation artifact.
+- [x] Validate generated metadata against live Gamma/CLOB metadata before
   active-day evidence is countable.
-- [ ] Thread event-validation status into fleet observability, daily learning,
+- [x] Thread event-validation status into fleet observability, daily learning,
   snapshot/CLOB loop status, and bot preflights.
-- [ ] Store the validation hash in event-day manifests for trusted folders.
-- [ ] Add stale, mismatched, ambiguous, and blank-token regression tests.
+- [x] Store the validation hash in event-day manifests for trusted folders.
+- [x] Add stale, mismatched, ambiguous, and blank-token regression tests.
 
 Acceptance: a stale or mismatched Polymarket event cannot produce countable
 snapshot, CLOB, taker, maker, promotion, or daily-learning evidence; a trusted

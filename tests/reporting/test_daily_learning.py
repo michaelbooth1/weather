@@ -194,7 +194,12 @@ class TestDailyLearning(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "daily_learning_v0.1")
         self.assertEqual(payload["status"], "ACTIONABLE")
         self.assertTrue(payload["retrain_plan"]["training_ready"])
-        self.assertTrue(payload["retrain_plan"]["promotion_ready"])
+        self.assertFalse(payload["retrain_plan"]["promotion_ready"])
+        self.assertEqual(payload["retrain_plan"]["promotion_confidence"]["status"], "BLOCK")
+        self.assertIn(
+            "delta_vs_current_independent_market_days_below_30",
+            payload["retrain_plan"]["promotion_ready_reasons"],
+        )
         self.assertIn("new_training_evidence", categories)
         self.assertIn("model_gap_slice", categories)
         self.assertIn("experiment_evidence", categories)
@@ -392,6 +397,69 @@ class TestDailyLearning(unittest.TestCase):
         self.assertFalse(retrain["beats_current_model"])
         self.assertIn("candidate_delta_vs_current_measured", retrain["promotion_ready_reasons"])
 
+    def test_promotion_ready_requires_confident_independent_delta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 40
+            promotion["candidate"]["aggregate"]["rows"] = 400
+            promotion["candidate"]["paired_delta_samples"] = [
+                {
+                    "market_day": f"day-{index:02d}",
+                    "delta_vs_current": -0.01,
+                    "delta_vs_market": 0.002,
+                }
+                for index in range(40)
+            ]
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            daily_path = backtest_root / "daily_refresh_status.json"
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            daily["summary"]["labels"]["total"] = 40
+            daily["summary"]["labels"]["quality_counts"] = {"complete": 40}
+            daily_path.write_text(json.dumps(daily), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            confidence = payload["retrain_plan"]["promotion_confidence"]
+
+        self.assertTrue(payload["retrain_plan"]["promotion_ready"])
+        self.assertEqual(confidence["delta_vs_current"]["status"], "PASS")
+        self.assertLessEqual(confidence["delta_vs_current"]["ci_high"], 0)
+
+    def test_promotion_ready_blocks_correlated_delta_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 40
+            promotion["candidate"]["aggregate"]["rows"] = 400
+            promotion["candidate"]["paired_delta_samples"] = [
+                {
+                    "market_day": "same-market-day",
+                    "delta_vs_current": -0.01,
+                    "delta_vs_market": -0.002,
+                }
+                for _index in range(40)
+            ]
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            daily_path = backtest_root / "daily_refresh_status.json"
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            daily["summary"]["labels"]["total"] = 40
+            daily["summary"]["labels"]["quality_counts"] = {"complete": 40}
+            daily_path.write_text(json.dumps(daily), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            confidence = payload["retrain_plan"]["promotion_confidence"]
+
+        self.assertFalse(payload["retrain_plan"]["promotion_ready"])
+        self.assertEqual(confidence["delta_vs_current"]["independent_market_day_count"], 1)
+        self.assertIn(
+            "delta_vs_current_independent_market_days_below_30",
+            payload["retrain_plan"]["promotion_ready_reasons"],
+        )
+
     def test_candidate_rows_preserves_zero_without_falling_back_to_n(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -462,6 +530,7 @@ class TestDailyLearning(unittest.TestCase):
             truncated = payload["summary"]["truncated_sources"]
 
         self.assertTrue(any(row["signal"] == "late-p0" for row in data_learnings))
+        self.assertTrue(all("estimated_impact" in row for row in data_learnings))
         self.assertTrue(any(row["source"] == "data_layer_audit.recommendations" for row in truncated))
         self.assertEqual(
             next(row for row in truncated if row["source"] == "data_layer_audit.recommendations")["dropped_count"],
@@ -1487,6 +1556,59 @@ class TestDailyLearning(unittest.TestCase):
         self.assertEqual(payload["scorecard"]["core_model_trend_claim"]["status"], "DIRECTIONAL")
         self.assertIn("## Core Model Trend Claim", report)
         self.assertIn("need 3 positive-skill comparable days", report)
+
+    def test_build_learning_payload_emits_calibration_and_bias_drift_learnings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "proper_scoring_reliability_scorecard.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "proper_scoring_reliability_scorecard_v0.1",
+                        "generated_at_utc": "2026-06-16T23:59:50+00:00",
+                        "status": "WARN",
+                        "lanes": [
+                            {
+                                "lane": "weather_only",
+                                "row_count": 200,
+                                "ece": 0.08,
+                            }
+                        ],
+                        "directional_bias": {
+                            "source": "fixture",
+                            "mean_realized_minus_predicted": 1.2,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            ledger_rows = [
+                {
+                    "schema_version": "daily_progress_ledger_v0.1",
+                    "run_date": f"2026-06-{day:02d}",
+                    "model_calibration_ece": ece,
+                    "model_directional_bias_abs_mean_error": bias,
+                }
+                for day, ece, bias in [
+                    (13, 0.02, 0.1),
+                    (14, 0.03, 0.2),
+                    (15, 0.02, 0.1),
+                ]
+            ]
+            (backtest_root / "daily_progress_ledger.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in ledger_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            categories = {row["category"] for row in payload["learnings"]}
+            report = render_report(payload)
+
+        self.assertIn("calibration_drift", categories)
+        self.assertIn("directional_bias_drift", categories)
+        self.assertEqual(payload["scorecard"]["calibration_monitoring"]["calibration_ece"], 0.08)
+        self.assertEqual(payload["scorecard"]["calibration_monitoring"]["directional_bias_mean_error"], 1.2)
+        self.assertIn("Calibration and bias", report)
 
     def test_build_learning_payload_blocks_stale_compact_rollup(self):
         with tempfile.TemporaryDirectory() as tmp:

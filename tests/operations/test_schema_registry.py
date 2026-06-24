@@ -150,6 +150,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "closed_market_day_parquet_incremental_v0.1",
         )
         self.assertEqual(schema_version("event_day_manifest"), "event_day_manifest_v0.1")
+        self.assertEqual(schema_version("event_metadata_validation"), "event_metadata_validation_v0.1")
         self.assertEqual(schema_version("event_day_manifest_backfill"), "event_day_manifest_backfill_v0.1")
         self.assertEqual(schema_version("event_day_manifest_writer"), "event_day_manifest_writer_v0.1")
         self.assertEqual(schema_version("cleanup_manifest"), "cleanup_manifest_v0.1")

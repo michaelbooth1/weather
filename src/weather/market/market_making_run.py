@@ -128,6 +128,7 @@ from weather.runtime_identity import (  # noqa: E402
     get_runtime_identity,
     identities_match,
 )
+from weather.operations import event_metadata_validation
 from weather.operations.power import keep_system_awake
 from weather.market.market_making_preflight import (  # noqa: E402
     REMEDIATION_RULES,
@@ -150,6 +151,55 @@ SNAPSHOT_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "loop_status.json"
 CLOB_LOOP_STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "clob_loop_status.json"
 USEFUL_WORK_LIVENESS_SCHEMA_VERSION = "mm_useful_work_liveness_v0.1"
 USEFUL_WORK_STARTUP_GRACE_SECONDS = 180.0
+
+
+def _uses_default_snapshot_root(path):
+    try:
+        return Path(path).resolve() == Path(DEFAULT_SNAPSHOTS_ROOT).resolve()
+    except OSError:
+        return Path(path) == Path(DEFAULT_SNAPSHOTS_ROOT)
+
+
+def _event_metadata_preflight_payload(path, target, snapshots_root):
+    path = Path(path)
+    required = _uses_default_snapshot_root(snapshots_root) or path.exists()
+    payload = event_metadata_validation.load_validation_payload(path) if required else None
+    return {
+        "required": required,
+        "exists": payload is not None,
+        "path": str(path),
+        "target_date": target.isoformat(),
+        "status": (payload or {}).get("status") if payload else ("missing" if required else "not_required"),
+        "validation_hash": (payload or {}).get("validation_hash"),
+        "payload": payload,
+    }
+
+
+def _event_metadata_gate_for_market(validation_state, market_id):
+    if not (validation_state or {}).get("required"):
+        return {"required": False, "ok": True, "reason": "not required for non-default snapshot root"}
+    payload = (validation_state or {}).get("payload")
+    gate = event_metadata_validation.gate_for_market(payload, market_id)
+    if payload and payload.get("target_date") != validation_state.get("target_date"):
+        gate = {
+            **gate,
+            "ok": False,
+            "status": "BLOCK",
+            "reason": (
+                "event metadata validation target_date does not match maker run target_date: "
+                f"{payload.get('target_date')} != {validation_state.get('target_date')}"
+            ),
+            "detail": (
+                "event metadata validation target_date does not match maker run target_date: "
+                f"{payload.get('target_date')} != {validation_state.get('target_date')}"
+            ),
+            "remediation_command": validation_state.get("validation_command")
+            or event_metadata_validation.VALIDATION_COMMAND.replace(
+                "<YYYY-MM-DD>",
+                validation_state.get("target_date") or "<YYYY-MM-DD>",
+            ),
+        }
+    return gate
 
 
 def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
@@ -1143,6 +1193,7 @@ def build_run_once(
     append=False,
     data_layer_audit_path=DEFAULT_DATA_LAYER_AUDIT,
     platform_verification_path=DEFAULT_PLATFORM_VERIFICATION,
+    event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
     evidence_mode=EVIDENCE_MODE_AUTO,
 ):
     mode = normalize_mode(mode)
@@ -1173,6 +1224,15 @@ def build_run_once(
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
     platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
+    event_metadata_state = _event_metadata_preflight_payload(
+        event_metadata_validation_path,
+        target,
+        snapshots_root,
+    )
+    event_metadata_state["validation_command"] = event_metadata_validation.VALIDATION_COMMAND.replace(
+        "<YYYY-MM-DD>",
+        target.isoformat(),
+    )
 
     run_config = build_run_config_payload(
         run_id,
@@ -1192,6 +1252,11 @@ def build_run_once(
     run_config["clob_recon"] = clob_recon_diag
     run_config["data_layer_live_gate"] = data_layer_live_gate
     run_config["platform_verification_gate"] = platform_verification_gate
+    run_config["event_metadata_validation"] = {
+        key: value
+        for key, value in event_metadata_state.items()
+        if key != "payload"
+    }
     write_json(run_folder / "run_config.json", run_config)
 
     raw_quote_rows = []
@@ -1235,6 +1300,7 @@ def build_run_once(
             pilot=pilot,
             data_layer_live_gate=data_layer_live_gate,
             platform_verification_gate=platform_verification_gate,
+            event_metadata_gate=_event_metadata_gate_for_market(event_metadata_state, spec.id),
             current_high_assessment=current_high_assessment,
         )
         preflight_rows.append(preflight)
@@ -1330,6 +1396,11 @@ def build_run_once(
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
+        "event_metadata_validation": {
+            key: value
+            for key, value in event_metadata_state.items()
+            if key != "payload"
+        },
         "markets": preflight_rows,
     }
     live_forward_gate_payload = build_live_forward_gate(
@@ -1639,6 +1710,7 @@ def main(argv=None):
     parser.add_argument("--live-readiness", default=None, help="JSON file proving live account/platform gates.")
     parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT), help="Latest data-layer audit JSON for live-pilot CLOB artifact gating.")
     parser.add_argument("--platform-verification", default=str(DEFAULT_PLATFORM_VERIFICATION), help="Current account/platform verification JSON required for live-pilot.")
+    parser.add_argument("--event-metadata-validation", default=str(event_metadata_validation.DEFAULT_JSON_OUT), help="Event metadata validation JSON required for default-root active-day evidence.")
     parser.add_argument("--once", action="store_true", help="For paper-live-forward, run one tick instead of looping.")
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument("--until-utc", default=None)
@@ -1659,6 +1731,7 @@ def main(argv=None):
         "live_readiness_path": args.live_readiness,
         "data_layer_audit_path": Path(args.data_layer_audit) if args.data_layer_audit else None,
         "platform_verification_path": Path(args.platform_verification) if args.platform_verification else None,
+        "event_metadata_validation_path": Path(args.event_metadata_validation) if args.event_metadata_validation else None,
         "evidence_mode": args.evidence_mode,
         "pilot": args.pilot,
         "confirm_live_orders": args.confirm_live_orders,

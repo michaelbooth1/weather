@@ -112,6 +112,52 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(health["runtime_code_state"], "stale_code")
         self.assertEqual(ensure_decision(health["state"], pid_alive=True), "restart")
 
+    def test_ensure_loop_backs_off_repeated_stale_code_recovery(self):
+        old_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "abc",
+            "source_fingerprint": "old",
+        }
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "abc",
+            "source_fingerprint": "new",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            diagnostics_path = root / "diagnostics.jsonl"
+            console_path = root / "loop_console.log"
+            status_path.write_text(json.dumps(status(runtime_identity=old_identity)), encoding="utf-8")
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (NOW - timedelta(seconds=30)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "STALE_CODE",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            console_path.write_text("", encoding="utf-8")
+
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", diagnostics_path), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", console_path), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "get_runtime_identity", return_value=current_identity), \
+                    patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
+                    patch.object(snapshot_tracker, "stop_loop") as stop_loop, \
+                    patch.object(snapshot_tracker, "start_loop_detached") as start_loop:
+                result = snapshot_tracker.ensure_loop(now=NOW)
+
+        self.assertEqual(result["action"], "backoff")
+        self.assertEqual(result["intended_action"], "restart")
+        self.assertEqual(result["restart_cause"], "STALE_CODE")
+        stop_loop.assert_not_called()
+        start_loop.assert_not_called()
+
     def test_start_loop_detached_writes_snapshot_supervisor_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

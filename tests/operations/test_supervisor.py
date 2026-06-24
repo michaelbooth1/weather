@@ -115,6 +115,82 @@ class TestSupervisorPrimitives(unittest.TestCase):
             "noop",
         )
 
+    def test_quarantine_malformed_jsonl_preserves_valid_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "loop_console.log"
+            first = {"time": "2026-06-16T12:00:00+00:00", "status": "ok"}
+            second = {"time": "2026-06-16T12:01:00+00:00", "status": "still_ok"}
+            path.write_text(
+                json.dumps(first) + "\n"
+                "Traceback: not json\n"
+                + json.dumps(second) + "\n",
+                encoding="utf-8",
+            )
+
+            result = supervisor.quarantine_malformed_jsonl(path)
+            repaired = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            quarantine_rows = [
+                json.loads(line)
+                for line in Path(result["quarantine_path"]).read_text(encoding="utf-8").splitlines()
+            ]
+            backup_exists = Path(result["backup_path"]).exists()
+
+        self.assertEqual(result["malformed_lines"], 1)
+        self.assertEqual(repaired, [first, second])
+        self.assertEqual(quarantine_rows[0]["classification"], "console_text")
+        self.assertTrue(backup_exists)
+
+    def test_supervisor_recovery_guard_backs_off_and_opens_circuit(self):
+        now = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="example",
+                module="weather.example",
+                status_path=root / "status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "console.log",
+                restart_budget=2,
+                restart_backoff_base_seconds=60,
+            )
+
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now - timedelta(seconds=30)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            backoff = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+
+            diagnostics_path.write_text(
+                "\n".join(
+                    json.dumps({
+                        "time": stamp.isoformat(),
+                        "supervisor": "ensure",
+                        "action": "restart",
+                        "state": "DEAD",
+                    })
+                    for stamp in (
+                        now - timedelta(minutes=10),
+                        now - timedelta(minutes=5),
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            circuit = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+
+        self.assertFalse(backoff["allowed"])
+        self.assertEqual(backoff["action"], "backoff")
+        self.assertGreater(backoff["retry_after_seconds"], 0)
+        self.assertFalse(circuit["allowed"])
+        self.assertEqual(circuit["action"], "circuit_open")
+        self.assertEqual(circuit["recent_recovery_count"], 2)
+
     def test_configure_json_console_logging_emits_valid_json_lines(self):
         root_logger = logging.getLogger()
         old_handlers = list(root_logger.handlers)

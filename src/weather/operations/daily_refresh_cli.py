@@ -37,6 +37,7 @@ _DEPENDENCY_NAMES = {
     "promotion_refresh",
     "clob_order_book_tiering",
     "fleet_observability",
+    "event_metadata_validation",
     "data_retention_inventory",
     "run_daily_refresh",
     "load_status",
@@ -356,6 +357,28 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--skip-ingest-quality-gate", action="store_true")
     parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")
+    parser.add_argument("--skip-event-metadata-validation", action="store_true")
+    parser.add_argument(
+        "--event-metadata-target-date",
+        default="",
+        help="Target date for Polymarket event metadata validation; defaults to --as-of or today UTC.",
+    )
+    parser.add_argument(
+        "--event-metadata-markets",
+        default="all",
+        help="Comma-separated market IDs for event metadata validation, or all.",
+    )
+    parser.add_argument("--event-metadata-locations", default=str(event_metadata_validation.DEFAULT_LOCATIONS))
+    parser.add_argument("--event-metadata-config", default=str(event_metadata_validation.DEFAULT_EVENT_METADATA))
+    parser.set_defaults(event_metadata_live_fetch=True)
+    parser.add_argument("--event-metadata-live-fetch", dest="event_metadata_live_fetch", action="store_true")
+    parser.add_argument("--event-metadata-no-live-fetch", dest="event_metadata_live_fetch", action="store_false")
+    parser.add_argument("--event-metadata-timeout-seconds", type=float, default=10.0)
+    parser.add_argument(
+        "--event-metadata-max-age-hours",
+        type=float,
+        default=event_metadata_validation.DEFAULT_MAX_AGE_HOURS,
+    )
     parser.add_argument("--skip-reanalysis-refresh", action="store_true")
     parser.add_argument("--reanalysis-lag-days", type=int, default=10)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=5)

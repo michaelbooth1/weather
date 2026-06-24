@@ -61,6 +61,7 @@ DEFAULT_MIN_TRUST = 25
 DEFAULT_MIN_SETTLED_DAYS = 2
 BROAD_SLO_VERIFY_COMMAND = SNAPSHOT_FLEET_VERIFY_COMMAND
 BROAD_SLO_REQUIRED_GATES = (
+    "event_metadata_validation",
     "snapshot_coverage_gap",
     "latest_model_row_freshness",
     "variant_prediction_freshness",
@@ -75,6 +76,12 @@ BROAD_SLO_RULES = {
         "root_cause": "snapshot_collection_blocked",
         "owner": "weather snapshot/model loop",
         "suggested_command": SNAPSHOT_RESTART_COMMAND,
+        "recoverable_same_day": True,
+    },
+    "event_metadata_validation": {
+        "root_cause": "event_metadata_validation_blocked",
+        "owner": "weather.operations.event_metadata_validation",
+        "suggested_command": "python -m weather.operations.event_metadata_validation --target-date <YYYY-MM-DD>",
         "recoverable_same_day": True,
     },
     "snapshot_coverage_gap": {

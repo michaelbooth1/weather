@@ -1,4 +1,4 @@
-# 295. Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [OPEN 2026-06-24 - LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION]
+# 295. Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [COMPLETE 2026-06-24 - LEDGER HISTORY CONSUMED FOR BLOCKER LIFECYCLE AND ANOMALIES]
 
 Goal: turn the daily analysis from a single-day status dump into a learning
 loop. Mine the existing daily progress ledger history to track each blocker's
@@ -46,14 +46,26 @@ across the full daily-analysis blocker/learning set.
    dead-load) and add the lifecycle/anomaly outputs to both the JSON and the
    report.
 
-- [ ] Add blocker lifecycle classification (new/persisting/resolved) with
+- [x] Add blocker lifecycle classification (new/persisting/resolved) with
   `blocker_age_days` from ledger history.
-- [ ] Add chronic-blocker age escalation and a chronic-blockers report section.
-- [ ] Add robust day-over-day anomaly detection on key ledger numerics.
-- [ ] Persist decision/outcome history for meta-learning and consume the loaded
+- [x] Add chronic-blocker age escalation and a chronic-blockers report section.
+- [x] Add robust day-over-day anomaly detection on key ledger numerics.
+- [x] Persist decision/outcome history for meta-learning and consume the loaded
   ledger in `daily_flow_analysis`.
-- [ ] Add tests with multi-day ledger fixtures covering resolution, chronic
+- [x] Add tests with multi-day ledger fixtures covering resolution, chronic
   persistence, and a metric step-change.
+
+## Completion Notes
+
+`daily_flow_analysis` now derives longitudinal blocker lifecycle state from
+`daily_progress_ledger.jsonl`, including `new_today`, `persisting`, and
+`resolved_today` classifications with `blocker_age_days`. Persisting blockers
+are annotated and chronic/escalated blockers are surfaced in the report. The
+same pipeline detects adverse step changes in ledger numerics and writes a
+compact `daily_flow_analysis_decision_history.jsonl` with decision records and
+resolved outcomes.
+
+Validation: `.\venv\Scripts\python.exe -m pytest tests\reporting\test_daily_flow_analysis.py -q`.
 
 Acceptance: the daily analysis classifies every blocker as new/persisting/
 resolved with an age, escalates chronic blockers, detects adverse day-over-day

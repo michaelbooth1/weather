@@ -252,6 +252,13 @@ REMEDIATION_RULES = {
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
+    "event_metadata_validation": {
+        "root_cause": "event_metadata_validation_blocked",
+        "owner": "weather.operations.event_metadata_validation",
+        "suggested_command": "python -m weather.operations.event_metadata_validation --target-date <YYYY-MM-DD>",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
     "snapshot_model_rows": {
         "root_cause": "missing_snapshot_model_rows",
         "owner": "weather snapshot/model loop",

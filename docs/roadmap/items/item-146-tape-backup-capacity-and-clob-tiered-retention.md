@@ -1,4 +1,4 @@
-# 146. Tape Backup Capacity And CLOB Tiered Retention [PARTIAL 2026-06-19 - LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING]
+# 146. Tape Backup Capacity And CLOB Tiered Retention [COMPLETE 2026-06-24 - DURABLE RESTIC REPOSITORY AND RESTORE DRILL LIVE]
 
 Goal: make the tape backup SLA realistically sustainable now that CLOB order
 book tapes are much larger than the local backup volume can hold.
@@ -15,15 +15,17 @@ verified partial failed-copy file.
 Current state: guarded cleanup plus gzip tiering of settled full-depth CLOB
 books has cleared the local capacity blocker. The canonical
 `data/backtest/tape_backup_status.json` is `OK`, restore-drill SLA is `OK`,
-and fleet observability now reports tape backup as `OK`. The item remains
-partial because the configured backup root is still a same-workstation local
-path; full completion still requires a durable external/NAS/cloud root with
-documented growth headroom.
+and fleet observability now reports tape backup as `OK`. The durable archive
+gap is closed by Item 246's encrypted Restic repository at
+`C:\Users\micha\OneDrive\weather-restic-repo`, with current backup, status,
+and restore-drill evidence. The same-disk `data/tape_backups/latest` mirror is
+now a local restore cache, not the durable archive of record; Item 247 owns
+the remaining guarded mirror-cleanup work.
 
 Why this matters: item 111 made backup status enforceable. Local capacity is no
-longer the active blocker, but the project still cannot claim workstation-loss
-durability while the latest backup root lives on the same local disk as the
-source tapes.
+longer the active blocker, and the durable Restic repository now supplies the
+off-workstation archive of record while the same-disk mirror remains only a
+local restore cache.
 
 ## Design
 
@@ -41,7 +43,7 @@ source tapes.
 6. Document the operator runbook for moving the backup root and verifying the
    new manifest.
 
-- [ ] Provision or configure a backup root with enough free space for the
+- [x] Provision or configure a backup root with enough free space for the
   current critical tape set and 30 days of projected growth.
 - [x] Add a capacity preflight to `weather.operations.tape_backup run`.
 - [x] Reclassify rebuildable CLOB derivatives or compress/tier them before
@@ -181,3 +183,33 @@ Refreshed backup evidence:
 Verification:
 `python -m pytest tests\operations\test_tape_backup.py tests\operations\test_schema_registry.py -q`
 passed with `18 passed, 10 subtests passed`.
+
+## 2026-06-24 durable repository closeout
+
+Item 246 completed the off-workstation durable-storage requirement that kept
+this item partial. Restic is now the supported deduplicated backend, with
+credential material stored outside the repo and the repository initialized at
+`C:\Users\micha\OneDrive\weather-restic-repo`.
+
+Current closeout evidence:
+
+- `data/backtest/tape_backup_status.json`: `OK`; local mirror root
+  `C:\Users\micha\Desktop\github\weather\data\tape_backups`, `59080` files,
+  `85352430388` manifest bytes, zero missing critical files, capacity
+  preflight `PASS`, restore-drill SLA `OK`, and latest restore drill `PASS`.
+- `data/backtest/fleet_observability.json`: fleet status is still `CRITICAL`
+  for unrelated collection/runtime gates, but `summary.tape_backup_status` is
+  `OK`, tape backup has zero missing critical files, and the cleanup deletion
+  gate is `PASS`.
+- `data/backtest/tape_dedup_repository_backup.json`: `PASS`; Restic snapshot
+  `47ebbeebbea804bceb8aa66923b542b90f63f2c104ce7c1c4c55ebd510e2a550`,
+  `17952` listed files, `83629776580` bytes, and no missing critical classes.
+- `data/backtest/tape_dedup_restore_drill.json`: `PASS`; verified raw
+  order-book JSONL, closed-day Parquet, archive manifest, and replay artifact
+  recovery from the durable repository with no recorded failures.
+- `data/backtest/tape_dedup_repository_status.json`: `OK`; one tagged Restic
+  snapshot and restore-drill SLA `OK` for the latest snapshot.
+
+Remaining local-mirror cleanup is intentionally not part of this item anymore:
+Item 247 tracks demoting and pruning `data/tape_backups/latest` through a
+reviewed, restore-verified, fail-closed workflow.

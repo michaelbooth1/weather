@@ -38,10 +38,13 @@ from weather.operations.supervisor import (
     configure_json_console_logging,
     default_ensure_decision,
     launch_detached,
+    loop_file_offsets,
     pid_is_python,
+    quarantine_malformed_loop_lines,
     read_writer_lock,
     read_json_file,
     release_writer_lock,
+    supervisor_recovery_guard,
     terminate_python_pid,
 )
 
@@ -65,10 +68,29 @@ from weather.collection.snapshot_store import (  # noqa: E402
 def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="scheduled", trigger_context=None):
     from weather.market.polymarket_client import PolymarketClient
     from weather.model.toronto_model import TorontoHighTempModel
+    from weather.operations import event_metadata_validation
 
     market_client = PolymarketClient(market_id=market_id)
     event = market_client.get_event()
     event_config = config_from_event(event, fallback_date=market_client.config.target_date)
+    validation = event_metadata_validation.build_validation_payload(
+        target_date=event_config.target_date,
+        markets=[market_id],
+        live_events=[event],
+        fetch_live=False,
+    )
+    validation_gate = event_metadata_validation.gate_for_market(validation, market_id)
+    if not validation_gate.get("ok"):
+        return {
+            "status": "BLOCK",
+            "blocked": True,
+            "market_id": market_id,
+            "event_slug": event_config.event_slug,
+            "target_date": event_config.target_date.isoformat(),
+            "event_metadata_validation": validation_gate,
+            "validation_hash": validation.get("validation_hash"),
+            "reason": validation_gate.get("reason"),
+        }
     model_client = TorontoHighTempModel(target_date=event_config.target_date, market_id=market_id)
     historical_sources = model_client.fetch_historical_sources()
     live_sources = model_client.fetch_live_sources()
@@ -112,7 +134,20 @@ SNAPSHOT_SUPERVISOR = SupervisorSpec(
         "last_error",
         "paused",
     ),
+    restart_budget=6,
+    restart_budget_window_hours=24.0,
+    restart_backoff_base_seconds=120.0,
+    restart_backoff_max_seconds=3600.0,
 )
+
+
+def runtime_supervisor_spec():
+    return SNAPSHOT_SUPERVISOR.with_paths(
+        status_path=LOOP_STATUS_PATH,
+        diagnostics_path=DIAGNOSTICS_PATH,
+        console_log_path=LOOP_CONSOLE_LOG_PATH,
+        pause_flag_path=PAUSE_FLAG_PATH,
+    )
 
 
 class SourceStatusContext:
@@ -576,17 +611,38 @@ def ensure_loop(interval_minutes=10.0, now=None):
     """The supervisor verb Task Scheduler runs every few minutes: keep exactly
     one healthy loop alive across silent deaths, hangs, and reboots."""
     now = now or datetime.now(TORONTO_TZ)
+    spec = runtime_supervisor_spec()
     status = read_loop_status()
     health = loop_health(status, now, interval_minutes)
     alive = pid_is_python((status or {}).get("pid"))
     action = ensure_decision(health["state"], alive)
-    result = {"action": action, "state": health["state"], "pid": health.get("pid")}
+    result = {
+        "action": action,
+        "state": health["state"],
+        "pid": health.get("pid"),
+        "restart_cause": health["state"] if action in {"start", "restart"} else None,
+        "runtime_identity_before": (status or {}).get("runtime_identity"),
+        "current_runtime_identity": health.get("current_runtime_identity"),
+        "loop_offsets_before": loop_file_offsets(spec),
+    }
+    guard = supervisor_recovery_guard(spec, action, now=now)
+    result["recovery_guard"] = guard
+    if action in {"start", "restart"} and not guard.get("allowed"):
+        result["intended_action"] = action
+        result["action"] = guard.get("action")
+        result["reason"] = guard.get("reason")
+        result["remediation"] = guard.get("remediation")
+        append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+        return result
     if action == "restart":
         result["stop"] = stop_loop(now=now)
+        result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
         result["start"] = start_loop_detached(interval_minutes, now=now)
     elif action == "start":
+        result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
         result["start"] = start_loop_detached(interval_minutes, now=now)
     if action != "noop":
+        result["loop_offsets_after"] = loop_file_offsets(spec)
         append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
     return result
 
@@ -667,17 +723,21 @@ def run_loop(
             if runtime.get("runtime_code_state") == "stale_code":
                 status["last_error"] = runtime.get("detail")
                 status["consecutive_errors"] += 1
+                status["stale_code_exit_requested_at"] = now.isoformat()
                 write_loop_status(status)
                 append_diagnostic({
                     "time": now.isoformat(),
                     "status": "stale_code",
                     "detail": runtime.get("detail"),
+                    "action": "exit_cleanly",
                 })
                 print(json.dumps({
                     "status": "stale_code",
                     "time": now.isoformat(),
                     "detail": runtime.get("detail"),
+                    "action": "exit_cleanly",
                 }, sort_keys=True), flush=True)
+                return status
             elif status["paused"]:
                 write_loop_status(status)
                 append_diagnostic({"time": now.isoformat(), "status": "paused"})

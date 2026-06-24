@@ -41,6 +41,7 @@ def _scorecard_rows(scorecard):
     root_cause_summary = root_cause.get("summary") or {}
     core_trend = scorecard.get("core_model_trend_claim") or {}
     core_summary = core_trend.get("summary") or {}
+    calibration = scorecard.get("calibration_monitoring") or {}
     fleet = scorecard.get("fleet") or {}
     live_slo = fleet.get("live_forward_slo") or {}
     live_slo_summary = live_slo.get("summary") or {}
@@ -197,6 +198,15 @@ def _scorecard_rows(scorecard):
                 f"claim_allowed={core_trend.get('claim_allowed')}; "
                 f"positive_days={core_summary.get('positive_skill_days')}; "
                 f"rolling_daily_first={fmt_signed(core_summary.get('rolling_daily_first_brier_skill'))}"
+            ),
+        ],
+        [
+            "Calibration and bias",
+            (
+                f"ece={fmt_num(calibration.get('calibration_ece'), 4)} "
+                f"({calibration.get('calibration_status') or '-'}); "
+                f"bias={fmt_signed(calibration.get('directional_bias_mean_error'), 4)} "
+                f"({calibration.get('directional_bias_status') or '-'})"
             ),
         ],
     ]
@@ -463,6 +473,7 @@ def render_report(payload):
             ["Retrain inputs", summary.get("retrain_input_count", 0)],
             ["Training ready", retrain.get("training_ready")],
             ["Promotion ready", retrain.get("promotion_ready")],
+            ["Promotion confidence", (retrain.get("promotion_confidence") or {}).get("status") or "-"],
         ],
     )
     input_gate = payload.get("input_gate") or scorecard.get("input_gate") or {}
@@ -593,10 +604,11 @@ def render_report(payload):
     lines += ["", "## Learnings", ""]
     if learnings:
         lines += markdown_table(
-            ["Priority", "Category", "Source", "Signal", "Action"],
+            ["Priority", "Impact", "Category", "Source", "Signal", "Action"],
             [
                 [
                     row.get("priority"),
+                    fmt_num(row.get("estimated_impact"), 4),
                     row.get("category"),
                     row.get("source"),
                     row.get("signal"),
@@ -614,6 +626,11 @@ def render_report(payload):
         [
             ["Training ready", retrain.get("training_ready")],
             ["Promotion ready", retrain.get("promotion_ready")],
+            ["Promotion confidence", (retrain.get("promotion_confidence") or {}).get("status") or "-"],
+            [
+                "Delta vs current CI high",
+                fmt_num(((retrain.get("promotion_confidence") or {}).get("delta_vs_current") or {}).get("ci_high"), 6),
+            ],
             ["Blockers", retrain.get("blocker_count")],
             ["First P0 gate", first_gate.get("signal") or "-"],
             ["First P0 action", first_gate.get("action") or "-"],

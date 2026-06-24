@@ -404,9 +404,82 @@ def _observation_recovery_rows(observation):
     ]
 
 
-def broad_live_forward_recovery_rows(collection, clob, observation):
+def event_metadata_alerts(event_metadata):
+    if event_metadata is None:
+        return []
+    event_metadata = event_metadata or {}
+    if not event_metadata or not event_metadata.get("exists", True):
+        return [{
+            "severity": "critical",
+            "market_id": "fleet",
+            "category": "event_metadata_validation",
+            "message": "event metadata validation artifact is missing",
+            "detail": event_metadata,
+        }]
+    if event_metadata.get("status") != "PASS":
+        summary = event_metadata.get("summary") or {}
+        first = summary.get("first_blocker") or {}
+        return [{
+            "severity": "critical",
+            "market_id": first.get("market_id") or "fleet",
+            "category": "event_metadata_validation",
+            "message": (
+                f"event metadata validation {event_metadata.get('status')} "
+                f"for {event_metadata.get('target_date') or 'active target date'}"
+            ),
+            "detail": {
+                "validation_hash": event_metadata.get("validation_hash"),
+                "summary": summary,
+                "first_blocker": first,
+            },
+        }]
+    return []
+
+
+def _event_metadata_recovery_rows(event_metadata):
+    alerts = event_metadata_alerts(event_metadata)
+    if not alerts:
+        return []
+    event_metadata = event_metadata or {}
+    summary = event_metadata.get("summary") or {}
+    first = summary.get("first_blocker") or {}
+    first_issue = first.get("first_issue") or {}
+    detail = (
+        first.get("reason")
+        or first_issue.get("detail")
+        or alerts[0].get("message")
+        or "event metadata validation blocks active-day evidence"
+    )
+    return [_recovery_row(
+        "event_metadata_validation",
+        "event_metadata_validation",
+        {
+            "market_id": first.get("market_id") or "fleet",
+            "event_slug": first.get("event_slug"),
+            "target_date": first.get("target_date") or event_metadata.get("target_date"),
+        },
+        detail,
+        (
+            f"status={event_metadata.get('status')}; "
+            f"validation_hash={event_metadata.get('validation_hash')}; "
+            f"issue_count={summary.get('issue_count')}; "
+            f"first_issue={first_issue.get('code')}"
+        ),
+        {
+            "suggested_command": (
+                first.get("remediation_command")
+                or event_metadata.get("validation_command")
+                or event_metadata.get("refresh_command")
+            ),
+            "recoverable_same_day": first.get("recoverable_same_day"),
+        },
+    )]
+
+
+def broad_live_forward_recovery_rows(collection, clob, observation, event_metadata=None):
     return (
-        _collection_recovery_rows(collection)
+        _event_metadata_recovery_rows(event_metadata)
+        + _collection_recovery_rows(collection)
         + _clob_recovery_rows(clob)
         + _observation_recovery_rows(observation)
     )
@@ -599,18 +672,19 @@ def _snapshot_cadence_proof(collection, recovery_rows):
     }
 
 
-def live_forward_slo_gate(collection, clob, observation):
+def live_forward_slo_gate(collection, clob, observation, event_metadata=None):
     """Single fail-closed gate for live-forward MM evidence.
 
     A paper/live day can count only when the slow weather snapshot tape, fast
     CLOB book tape, and observation-trigger watcher are all fresh and gap-free.
     """
     gates = [
+        _gate_from_alerts("event_metadata_validation", event_metadata_alerts(event_metadata)),
         _gate_from_alerts("snapshot_collection", collection_alerts(collection)),
         _gate_from_alerts("clob_book_capture", clob_alerts(clob)),
         _gate_from_alerts("observation_trigger", observation_alerts(observation)),
     ]
-    recovery_rows = broad_live_forward_recovery_rows(collection, clob, observation)
+    recovery_rows = broad_live_forward_recovery_rows(collection, clob, observation, event_metadata)
     snapshot_cadence = _snapshot_cadence_proof(collection, recovery_rows)
     concrete_gates = _concrete_broad_slo_gates(recovery_rows)
     optional_streams = optional_market_event_stream_gate(clob)

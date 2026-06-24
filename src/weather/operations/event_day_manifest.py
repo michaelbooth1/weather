@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.operations import event_metadata_validation
 from weather.operations.storage_classes import classification_payload, classify_storage_path
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
@@ -26,6 +27,7 @@ MANIFEST_FILENAME = "event_day_manifest.json"
 DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_BACKFILL_JSON = data_path("backtest", "event_day_manifest_backfill.json")
 DEFAULT_BACKFILL_REPORT = data_path("backtest", "event_day_manifest_backfill_report.md")
+DEFAULT_EVENT_METADATA_VALIDATION = data_path("backtest", "event_metadata_validation.json")
 
 
 @dataclass(frozen=True)
@@ -225,12 +227,55 @@ def manifest_hash_valid(manifest: dict[str, Any]) -> bool:
     return bool(manifest.get("manifest_hash")) and manifest.get("manifest_hash") == manifest_content_hash(manifest)
 
 
+def _event_metadata_validation_proof(
+    *,
+    market_id: str | None,
+    target_date: date | None,
+    event_slug: str,
+    path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    path = Path(path) if path else None
+    if payload is None and path and path.exists():
+        payload = event_metadata_validation.load_validation_payload(path)
+    if not payload:
+        return {
+            "status": "MISSING",
+            "required": False,
+            "path": str(path) if path else None,
+            "reason": "event metadata validation artifact not available",
+            "validation_hash": None,
+        }
+    gate = event_metadata_validation.gate_for_market(payload, market_id or "")
+    target_text = target_date.isoformat() if target_date else None
+    target_matches = not target_text or gate.get("target_date") == target_text
+    event_matches = not gate.get("event_slug") or gate.get("event_slug") == event_slug
+    status = "PASS" if gate.get("ok") and target_matches and event_matches else "BLOCK"
+    return {
+        "status": status,
+        "required": True,
+        "path": str(path) if path else None,
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "validation_hash": payload.get("validation_hash"),
+        "target_date": payload.get("target_date"),
+        "market_id": market_id,
+        "event_slug": event_slug,
+        "gate": gate,
+        "target_matches": target_matches,
+        "event_matches": event_matches,
+        "reason": "event metadata validation row passes" if status == "PASS" else gate.get("reason"),
+    }
+
+
 def build_event_day_manifest(
     folder: str | Path,
     *,
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     backup_manifest: dict[str, Any] | None = None,
     restore_drill: dict[str, Any] | None = None,
+    event_metadata_validation_payload: dict[str, Any] | None = None,
+    event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     folder = Path(folder)
@@ -296,6 +341,13 @@ def build_event_day_manifest(
         })
 
     file_records = [record for family in families for record in family.get("files") or []]
+    event_metadata_proof = _event_metadata_validation_proof(
+        market_id=market_id,
+        target_date=target_date,
+        event_slug=event_slug,
+        path=event_metadata_validation_path,
+        payload=event_metadata_validation_payload,
+    )
     checks = [
         {"check": "manifest_hash", "status": "PENDING"},
         {
@@ -305,6 +357,16 @@ def build_event_day_manifest(
         {
             "check": "required_families",
             "status": "PASS" if not any(family.get("status") == "missing_required" for family in families) else "BLOCK",
+        },
+        {
+            "check": "event_metadata_validation",
+            "status": (
+                "PASS"
+                if event_metadata_proof.get("status") in {"PASS", "MISSING"}
+                else "BLOCK"
+            ),
+            "validation_hash": event_metadata_proof.get("validation_hash"),
+            "reason": event_metadata_proof.get("reason"),
         },
     ]
     validation_status = "BLOCK" if any(check["status"] == "BLOCK" for check in checks) else "PASS"
@@ -328,7 +390,9 @@ def build_event_day_manifest(
             "canonical_evidence_files": sum(1 for row in file_records if row.get("storage_class") == "canonical_evidence"),
             "analysis_projection_files": sum(1 for row in file_records if row.get("storage_class") == "analysis_projection"),
             "operator_cache_files": sum(1 for row in file_records if row.get("storage_class") == "operator_cache"),
+            "event_metadata_validation_hash": event_metadata_proof.get("validation_hash"),
         },
+        "event_metadata_validation": event_metadata_proof,
         "validation": {
             "status": validation_status,
             "checks": checks,
@@ -347,6 +411,8 @@ def write_event_day_manifest(
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     backup_manifest: dict[str, Any] | None = None,
     restore_drill: dict[str, Any] | None = None,
+    event_metadata_validation_payload: dict[str, Any] | None = None,
+    event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
     generated_at_utc: str | None = None,
 ) -> Path:
     manifest = build_event_day_manifest(
@@ -354,6 +420,8 @@ def write_event_day_manifest(
         snapshots_root=snapshots_root,
         backup_manifest=backup_manifest,
         restore_drill=restore_drill,
+        event_metadata_validation_payload=event_metadata_validation_payload,
+        event_metadata_validation_path=event_metadata_validation_path,
         generated_at_utc=generated_at_utc,
     )
     path = event_day_manifest_path(folder)

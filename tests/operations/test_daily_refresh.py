@@ -506,6 +506,9 @@ class TestDailyRefresh(unittest.TestCase):
     def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
+        self.assertLess(names.index("ingest_quality_gate"), names.index("event_metadata_validation"))
+        self.assertLess(names.index("event_metadata_validation"), names.index("market_day_labels_finalize"))
+        self.assertLess(names.index("event_metadata_validation"), names.index("trading_evidence"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("taker_finalization_watchdog"))
         self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_tail_casebook"))

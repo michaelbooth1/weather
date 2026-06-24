@@ -120,7 +120,7 @@ infrastructure work remains.
 | 114 | [Data-Layer P0 Gate Closure For Retrain Eligibility [COMPLETE 2026-06-17 - DATA P0 CLEARED]](items/item-114-data-layer-p0-gate-closure-for-retrain-eligibility.md) |
 | 120 | [Settled-Day Finalization Freshness SLA [COMPLETE 2026-06-18 - NIGHTLY PREFLIGHT LIVE]](items/item-120-settled-day-finalization-freshness-sla.md) |
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
-| 146 | [Tape Backup Capacity And CLOB Tiered Retention [PARTIAL 2026-06-19 - LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
+| 146 | [Tape Backup Capacity And CLOB Tiered Retention [COMPLETE 2026-06-24 - DURABLE RESTIC REPOSITORY AND RESTORE DRILL LIVE]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
 | 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 | 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-22 - JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
@@ -149,7 +149,7 @@ infrastructure work remains.
 | 289 | [CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]](items/item-289-clob-price-history-dedup-content-addressed-store.md) |
 | 290 | [Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]](items/item-290-incremental-closed-day-parquet-conversion.md) |
 | 291 | [Schema Registry Reconciliation For Storage And Log Artifacts [COMPLETE 2026-06-24 - STRICT AUDIT CLEAN WITH EXPLICIT NON-SCHEMA EXCLUSIONS]](items/item-291-schema-registry-storage-log-artifact-reconciliation.md) |
-| 299 | [Polymarket Event-Metadata Rollover Gate [OPEN 2026-06-24 - DAILY EVENT DRIFT CAN BREAK COLLECTION BEFORE PREFLIGHT]](items/item-299-polymarket-event-metadata-rollover-gate.md) |
+| 299 | [Polymarket Event-Metadata Rollover Gate [CLOSED 2026-06-24]](items/item-299-polymarket-event-metadata-rollover-gate.md) |
 
 ### [Track B — From Bootstrap To Full Production Model](tracks/track-b-production-model.md)
 
@@ -332,11 +332,17 @@ infrastructure work remains.
 | 292 | [Cross-Market Correlated-Regime Exposure And Joint-Loss Cap For Trading Bots [COMPLETE 2026-06-24 - CORRELATED-REGIME CAPS WIRED INTO TAKER AND MAKER RISK]](items/item-292-cross-market-correlated-regime-exposure-cap.md) |
 | 293 | [Daily-Analysis Correctness And Fail-Closed Robustness Fixes [COMPLETE 2026-06-24 - FAIL-CLOSED PROMOTION AND STABLE DAILY LEDGERS]](items/item-293-daily-analysis-correctness-and-failclosed-robustness-fixes.md) |
 | 294 | [Daily-Analysis Input Freshness, Coverage, And Cross-Artifact Consistency Gate [COMPLETE 2026-06-24 - INPUT GATE FAIL-CLOSED IN DAILY ANALYSIS]](items/item-294-daily-analysis-input-freshness-coverage-and-consistency-gate.md) |
-| 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [OPEN 2026-06-24 - LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
-| 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [OPEN 2026-06-24 - POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
-| 297 | [Calibration-Drift And Directional-Bias Daily Tracking [OPEN 2026-06-24 - NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
+| 295 | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection [COMPLETE 2026-06-24 - LEDGER HISTORY CONSUMED FOR BLOCKER LIFECYCLE AND ANOMALIES]](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
+| 296 | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [COMPLETE 2026-06-24 - IMPACT RANKING AND CONFIDENCE-GATED PROMOTION LIVE]](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
+| 297 | [Calibration-Drift And Directional-Bias Daily Tracking [COMPLETE 2026-06-24 - CALIBRATION AND BIAS LEDGER TREND LIVE]](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
 | 298 | [Automatic Experiment Queue And Drift-Triggered Retrain Loop [OPEN 2026-06-24 - EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY]](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
 | 300 | [Current Exchange Economics And Rule-Drift Gate [OPEN 2026-06-24 - PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS]](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
+| 301 | [June 23 Location Bias And Winner-Rank Repair Packet [OPEN 2026-06-24 - SETTLED JUNE 23 EXPOSED LOCATION-SPECIFIC RANK AND BIAS ERRORS]](items/item-301-june-23-location-bias-and-winner-rank-repair-packet.md) |
+| 302 | [Post-Settlement Disagreement Audit Rehydration Gate [OPEN 2026-06-24 - AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE]](items/item-302-post-settlement-disagreement-audit-rehydration-gate.md) |
+| 303 | [Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization [OPEN 2026-06-24 - ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS DO NOT PRODUCE CANONICAL EVIDENCE]](items/item-303-post-settlement-taker-zero-fill-evidence-and-artifact-canonicalization.md) |
+| 304 | [Maker Current-Run Evidence Selection And Quote-Starvation Gate [OPEN 2026-06-24 - TRADING EVIDENCE CAN MISS COUNTABLE MAKER RUNS AND QUOTE STARVATION]](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
+| 305 | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [OPEN 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
+| 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [OPEN 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
 
 ### Architecture And Maintainability
 
@@ -378,6 +384,8 @@ infrastructure work remains.
 | 204 | [Roadmap Index Ownership Lint And Duplicate Membership [COMPLETE 2026-06-21 - INDEX LINT GATE LIVE]](items/item-204-roadmap-index-ownership-lint-and-duplicate-membership.md) |
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 306 | [Daily-Roll Log Hygiene And Historical Error Separation [OPEN 2026-06-24 - OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - CODE REMEDIATION LANDED, ACTIVE-DAY SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 
 ## Maintenance Conventions
 

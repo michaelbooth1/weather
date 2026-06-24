@@ -48,6 +48,7 @@ from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
 from weather.reporting import active_variant_shadow_refresh
 from weather.operations import replay_status_backfill
+from weather.operations import event_metadata_validation
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
 from weather.reporting import distribution_stage_attribution
@@ -118,6 +119,7 @@ from weather.operations.daily_refresh_steps import (
     run_data_retention_inventory_step,
     run_disagreement_casebook_step,
     run_distribution_stage_attribution_step,
+    run_event_metadata_validation_step,
     run_fleet_observability_step,
     run_frozen_baseline_replay_trend_step,
     run_hourly_model_performance_step,

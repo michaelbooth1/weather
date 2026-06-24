@@ -20,6 +20,7 @@ def preflight_summary_for_market(
     source_rows,
     book_rows,
     clob_feature_rows,
+    event_metadata_gate=None,
     current_high_assessment=None,
 ):
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
@@ -33,6 +34,17 @@ def preflight_summary_for_market(
         gates.append({"name": name, "ok": bool(ok), "severity": severity, "detail": detail})
         return bool(ok)
 
+    event_metadata_gate = event_metadata_gate or {"required": False, "ok": True}
+    if event_metadata_gate.get("required"):
+        if not event_metadata_gate.get("ok"):
+            status = "BLOCK"
+            reasons.append(event_metadata_gate.get("reason") or "event metadata validation blocks active-day evidence")
+        add_gate(
+            "event_metadata_validation",
+            event_metadata_gate.get("ok"),
+            "missing",
+            event_metadata_gate.get("reason") or "event metadata validation",
+        )
     if not snapshot_rows:
         status = "BLOCK"
         reasons.append("missing current snapshot/model rows")
@@ -74,6 +86,7 @@ def preflight_summary_for_market(
         "latest_capture_utc": latest_capture.isoformat() if latest_capture else None,
         "source_status_rows": len(source_rows),
         "source_status_fresh": source_status_is_current(source_rows),
+        "event_metadata_gate": event_metadata_gate,
         "clob_token_discovery": token_discovery,
         "book_rows": len(book_rows),
         "clob_feature_rows": len(clob_feature_rows),

@@ -1,10 +1,56 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_finalization import *  # noqa: F403
+from weather.operations import event_metadata_validation
 from weather.runtime_identity import get_runtime_identity
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+
+def _uses_default_snapshot_root(path):
+    try:
+        return Path(path).resolve() == Path(DEFAULT_SNAPSHOTS_ROOT).resolve()
+    except OSError:
+        return Path(path) == Path(DEFAULT_SNAPSHOTS_ROOT)
+
+
+def _event_metadata_state(path, target_date, snapshots_root):
+    path = Path(path)
+    required = _uses_default_snapshot_root(snapshots_root) or path.exists()
+    payload = event_metadata_validation.load_validation_payload(path) if required else None
+    return {
+        "required": required,
+        "exists": payload is not None,
+        "path": str(path),
+        "target_date": ensure_date(target_date).isoformat(),
+        "status": (payload or {}).get("status") if payload else ("missing" if required else "not_required"),
+        "validation_hash": (payload or {}).get("validation_hash"),
+        "payload": payload,
+    }
+
+
+def _event_metadata_gate(state, market_id):
+    if not (state or {}).get("required"):
+        return {"required": False, "ok": True, "reason": "not required for non-default snapshot root"}
+    payload = (state or {}).get("payload")
+    gate = event_metadata_validation.gate_for_market(payload, market_id)
+    if payload and payload.get("target_date") != state.get("target_date"):
+        gate = {
+            **gate,
+            "ok": False,
+            "status": "BLOCK",
+            "reason": (
+                "event metadata validation target_date does not match taker run target_date: "
+                f"{payload.get('target_date')} != {state.get('target_date')}"
+            ),
+            "remediation_command": event_metadata_validation.VALIDATION_COMMAND.replace(
+                "<YYYY-MM-DD>",
+                state.get("target_date") or "<YYYY-MM-DD>",
+            ),
+        }
+    return gate
+
 
 def discover_inputs(
     target_date,
@@ -13,6 +59,7 @@ def discover_inputs(
     config=None,
     now=None,
     observation_status=None,
+    event_metadata_state=None,
 ):
     now = utc_now(now)
     config = {**DEFAULT_CONFIG, **(config or {})}
@@ -36,6 +83,7 @@ def discover_inputs(
             max_age_seconds=float(config["max_book_age_seconds"]),
             market_id=spec.id,
         )
+        metadata_gate = _event_metadata_gate(event_metadata_state, spec.id)
         market_summaries.append(
             preflight_summary_for_market(
                 spec,
@@ -45,11 +93,12 @@ def discover_inputs(
                 source_rows,
                 book_rows,
                 clob_feature_rows,
+                event_metadata_gate=metadata_gate,
                 current_high_assessment=current_high_assessment,
             )
         )
         market_summaries[-1]["current_high_assessment"] = current_high_assessment
-        if snapshot_rows:
+        if snapshot_rows and metadata_gate.get("ok", True):
             rows.extend(
                 assemble_taker_inputs_for_market(
                     spec.id,
@@ -78,6 +127,7 @@ def build_run_config_payload(
     strategy_specs=None,
     registry=None,
     runtime_identity=None,
+    event_metadata_state=None,
 ):
     strategy_specs = strategy_specs or selected_strategy_specs(None, base_config=config, registry=registry)
     lifecycle = active_strategy_lifecycle_payload(strategy_specs, config=config, target_date=target_date)
@@ -134,6 +184,11 @@ def build_run_config_payload(
             "weak_slot_minutes": config.get("_weak_slot_minutes") or [],
             "hourly_gate_status": config.get("_hourly_gate_status"),
             "hourly_gate_source": config.get("_hourly_gate_source"),
+        },
+        "event_metadata_validation": {
+            key: value
+            for key, value in (event_metadata_state or {}).items()
+            if key != "payload"
         },
         "strategy_registry": strategy_registry_payload(registry=registry),
         "strategies": [
@@ -211,6 +266,7 @@ def build_run_once(
     strategies=None,
     experiment_id=None,
     strategy_registry=None,
+    event_metadata_validation_path=event_metadata_validation.DEFAULT_JSON_OUT,
 ):
     now = utc_now(now)
     target = ensure_date(target_date)
@@ -238,6 +294,7 @@ def build_run_once(
         observation_status = {}
     else:
         observation_status = load_observation_status(observation_status_path, now=now, config=config)
+    event_state = _event_metadata_state(event_metadata_validation_path, target, snapshots_root)
     input_rows, market_summaries = discover_inputs(
         target,
         markets=markets,
@@ -245,6 +302,7 @@ def build_run_once(
         config=config,
         now=now,
         observation_status=observation_status,
+        event_metadata_state=event_state,
     )
     new_rows = []
     budget_ledger = []
@@ -345,6 +403,7 @@ def build_run_once(
         strategy_specs=strategy_specs,
         registry=strategy_registry,
         runtime_identity=runtime_identity,
+        event_metadata_state=event_state,
     )
     pnl_payload = build_pnl_payload(
         all_rows,

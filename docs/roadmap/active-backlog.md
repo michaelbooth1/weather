@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T09:43:51.782483+00:00
+Generated: 2026-06-24T13:41:16.538530+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 300 |
-| Active items | 38 |
-| OPEN | 10 |
-| PARTIAL | 28 |
-| COMPLETE | 262 |
-| ROADMAP rows | 300 |
-| ROADMAP primary rows | 300 |
-| Metadata manifest rows | 300 |
+| Items | 308 |
+| Active items | 42 |
+| OPEN | 15 |
+| PARTIAL | 27 |
+| COMPLETE | 266 |
+| ROADMAP rows | 308 |
+| ROADMAP primary rows | 308 |
+| Metadata manifest rows | 308 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -34,7 +34,6 @@ Status: `OK`
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
 | 138 | PARTIAL | 2026-06-22 | GATE REFRESHED, ACTIVE ARTIFACT PRUNING BLOCKED | [Weak Input-Family Pruning And Regime Backfill](items/item-138-weak-input-family-pruning-and-regime-backfill.md) |
 | 144 | PARTIAL | 2026-06-18 | GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED | [Early-Hour Market-Aware Risk Guardrail](items/item-144-early-hour-market-aware-risk-guardrail.md) |
-| 146 | PARTIAL | 2026-06-19 | LOCAL BACKUP/RESTORE OK; EXTERNAL DURABLE ROOT PENDING | [Tape Backup Capacity And CLOB Tiered Retention](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 147 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY BASELINE | [Early-Hour Winner-Centering Candidate](items/item-147-early-hour-winner-centering-candidate.md) |
 | 156 | OPEN | 2026-06-20 | LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED | [CLOB Midpoint Continuity For Market-Informed Repair](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 | 157 | PARTIAL | 2026-06-22 | JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
@@ -57,12 +56,16 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 295 | OPEN | 2026-06-24 | LEDGER HISTORY DEAD-LOADED, NO BLOCKER LIFECYCLE OR ANOMALY DETECTION | [Longitudinal Daily-Analysis: Closed-Loop Blocker Lifecycle, Chronic Escalation, And Metric Anomaly Detection](items/item-295-longitudinal-daily-analysis-blocker-lifecycle-and-anomaly-detection.md) |
-| 296 | OPEN | 2026-06-24 | POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING | [Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating](items/item-296-impact-and-confidence-aware-daily-prioritization-and-promotion-gating.md) |
-| 297 | OPEN | 2026-06-24 | NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND | [Calibration-Drift And Directional-Bias Daily Tracking](items/item-297-calibration-drift-and-directional-bias-daily-tracking.md) |
 | 298 | OPEN | 2026-06-24 | EXPERIMENT HINTS ARE ADVISORY TEXT, RETRAIN RUNS UNCONDITIONALLY | [Automatic Experiment Queue And Drift-Triggered Retrain Loop](items/item-298-automatic-experiment-queue-and-drift-triggered-retrain-loop.md) |
-| 299 | OPEN | 2026-06-24 | DAILY EVENT DRIFT CAN BREAK COLLECTION BEFORE PREFLIGHT | [Polymarket Event-Metadata Rollover Gate](items/item-299-polymarket-event-metadata-rollover-gate.md) |
 | 300 | OPEN | 2026-06-24 | PAPER AND PROMOTION EVIDENCE CAN USE STALE PLATFORM ASSUMPTIONS | [Current Exchange Economics And Rule-Drift Gate](items/item-300-current-exchange-economics-and-rule-drift-gate.md) |
+| 301 | OPEN | 2026-06-24 | SETTLED JUNE 23 EXPOSED LOCATION-SPECIFIC RANK AND BIAS ERRORS | [June 23 Location Bias And Winner-Rank Repair Packet](items/item-301-june-23-location-bias-and-winner-rank-repair-packet.md) |
+| 302 | OPEN | 2026-06-24 | AUDIT SNAPSHOTS CAN REMAIN PENDING AFTER LABELS SETTLE | [Post-Settlement Disagreement Audit Rehydration Gate](items/item-302-post-settlement-disagreement-audit-rehydration-gate.md) |
+| 303 | OPEN | 2026-06-24 | ZERO-FILL DAYS AND PRE-LABEL BAKEOFFS DO NOT PRODUCE CANONICAL EVIDENCE | [Post-Settlement Taker Zero-Fill Evidence And Artifact Canonicalization](items/item-303-post-settlement-taker-zero-fill-evidence-and-artifact-canonicalization.md) |
+| 304 | OPEN | 2026-06-24 | TRADING EVIDENCE CAN MISS COUNTABLE MAKER RUNS AND QUOTE STARVATION | [Maker Current-Run Evidence Selection And Quote-Starvation Gate](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
+| 305 | OPEN | 2026-06-24 | NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
+| 306 | OPEN | 2026-06-24 | OLD CONSOLE ERRORS OBSCURE CURRENT DAILY HEALTH | [Daily-Roll Log Hygiene And Historical Error Separation](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
+| 307 | PARTIAL | 2026-06-24 | CODE REMEDIATION LANDED, ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 308 | OPEN | 2026-06-24 | MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT | [Model-Performance Scoring Liveness And Regenerate-On-Settlement](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
 
 ## Lint Issues
 

@@ -901,8 +901,37 @@ def capture_market_books(
     include_clob_features=True,
     now=None,
 ):
+    from weather.operations import event_metadata_validation
+
     event_client = PolymarketClient(market_id=market_id)
     event = event_client.get_event()
+    config = config_from_event(event, fallback_date=event_client.config.target_date)
+    validation = event_metadata_validation.build_validation_payload(
+        target_date=config.target_date,
+        markets=[market_id],
+        live_events=[event],
+        fetch_live=False,
+    )
+    validation_gate = event_metadata_validation.gate_for_market(validation, market_id)
+    if not validation_gate.get("ok"):
+        return {
+            "status": "BLOCK",
+            "blocked": True,
+            "market_id": market_id,
+            "event_slug": config.event_slug,
+            "target_date": config.target_date.isoformat(),
+            "event_metadata_validation": validation_gate,
+            "validation_hash": validation.get("validation_hash"),
+            "token_rows": 0,
+            "captured_tokens": 0,
+            "books": 0,
+            "levels": 0,
+            "price_history_rows": 0,
+            "ws_messages": 0,
+            "ws_event_rows": 0,
+            "clob_feature_rows": 0,
+            "reason": validation_gate.get("reason"),
+        }
     return capture_event_books(
         event,
         market_id=market_id,

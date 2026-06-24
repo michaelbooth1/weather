@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import statistics
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "daily_flow_analysis.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "daily_flow_analysis_report.md"
 DEFAULT_ACTIONS_OUT = DEFAULT_BACKTEST_ROOT / "daily_flow_analysis_actions.csv"
+DEFAULT_DECISIONS_OUT = DEFAULT_BACKTEST_ROOT / "daily_flow_analysis_decision_history.jsonl"
 
 ARTIFACT_FILES = {
     "daily_refresh_status": "daily_refresh_status.json",
@@ -47,6 +49,7 @@ ARTIFACT_FALLBACK_GLOBS = {
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 ACTION_COLUMNS = [
     "priority",
+    "estimated_impact",
     "area",
     "owner",
     "source",
@@ -55,6 +58,38 @@ ACTION_COLUMNS = [
     "blocks",
     "evidence",
 ]
+CHRONIC_ESCALATION_DAYS = 3
+CHRONIC_BLOCKER_DAYS = 7
+LEDGER_ANOMALY_METRICS = {
+    "blocker_count": {"direction": "rise", "min_abs_step": 2.0, "label": "daily blocker count"},
+    "evidence_label_total": {"direction": "drop", "min_abs_step": 5.0, "label": "settled label total"},
+    "evidence_corpus_market_days": {"direction": "drop", "min_abs_step": 3.0, "label": "corpus market-days"},
+    "evidence_promotion_grade_market_days": {"direction": "drop", "min_abs_step": 3.0, "label": "promotion-grade market-days"},
+    "candidate_delta_vs_current": {"direction": "rise", "min_abs_step": 0.001, "label": "candidate delta vs current"},
+    "candidate_delta_vs_market": {"direction": "rise", "min_abs_step": 0.001, "label": "candidate delta vs market"},
+    "model_calibration_ece": {"direction": "rise", "min_abs_step": 0.02, "label": "model calibration ECE"},
+    "model_directional_bias_abs_mean_error": {"direction": "rise", "min_abs_step": 0.5, "label": "model directional bias magnitude"},
+    "trading_taker_net_pnl_usdc": {"direction": "drop", "min_abs_step": 10.0, "label": "taker net PnL"},
+    "ops_snapshot_gap_count": {"direction": "rise", "min_abs_step": 5.0, "label": "snapshot gap count"},
+    "ops_snapshot_max_gap_minutes": {"direction": "rise", "min_abs_step": 10.0, "label": "snapshot max gap minutes"},
+}
+IMPACT_SORT_KEYS = (
+    "estimated_impact",
+    "impact",
+    "impact_score",
+    "excess_brier_rows",
+    "delta_vs_market",
+    "delta_vs_current",
+    "code_effect",
+    "net_pnl_usdc",
+    "pnl_at_risk_usdc",
+    "market_gap",
+    "blocked_market_count",
+    "affected_market_count",
+    "row_count",
+    "rows",
+    "count",
+)
 
 
 def utc_iso() -> str:
@@ -75,6 +110,15 @@ def maybe_int(value: Any) -> int | None:
     if number is None:
         return None
     return int(round(number))
+
+
+def _impact_score(row: dict[str, Any] | None) -> float:
+    values = []
+    for key in IMPACT_SORT_KEYS:
+        value = maybe_float((row or {}).get(key))
+        if value is not None:
+            values.append(abs(value))
+    return round(max(values), 6) if values else 0.0
 
 
 def _json_list(value: Any) -> list[Any]:
@@ -153,6 +197,18 @@ def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT) -> tuple[dict[str, Any], di
         "status": "OK" if ledger_rows else None,
         "row_count": len(ledger_rows),
     }
+    decision_history_path = root / DEFAULT_DECISIONS_OUT.name
+    decision_history_rows = read_jsonl(decision_history_path)
+    payloads["daily_flow_analysis_decision_history"] = decision_history_rows
+    artifacts["daily_flow_analysis_decision_history"] = {
+        "name": "daily_flow_analysis_decision_history",
+        "path": str(decision_history_path),
+        "exists": bool(decision_history_rows),
+        "schema_version": decision_history_rows[-1].get("schema_version") if decision_history_rows else None,
+        "generated_at_utc": decision_history_rows[-1].get("generated_at_utc") if decision_history_rows else None,
+        "status": "OK" if decision_history_rows else None,
+        "row_count": len(decision_history_rows),
+    }
     return payloads, artifacts
 
 
@@ -171,16 +227,23 @@ def _action(
     *,
     blocks: bool = False,
     evidence: dict[str, Any] | None = None,
+    estimated_impact: float | None = None,
 ) -> dict[str, Any]:
+    evidence = evidence or {}
     return {
         "priority": _priority(priority),
+        "estimated_impact": (
+            round(float(estimated_impact), 6)
+            if estimated_impact is not None
+            else _impact_score(evidence)
+        ),
         "area": area,
         "owner": owner,
         "source": source,
         "signal": signal,
         "action": action,
         "blocks": bool(blocks),
-        "evidence": evidence or {},
+        "evidence": evidence,
     }
 
 
@@ -203,7 +266,14 @@ def _owner_for_learning(row: dict[str, Any]) -> str:
 def _dedupe_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen = set()
     output = []
-    for row in sorted(actions, key=lambda item: (PRIORITY_ORDER.get(item.get("priority"), 9), item.get("area", ""))):
+    for row in sorted(
+        actions,
+        key=lambda item: (
+            PRIORITY_ORDER.get(item.get("priority"), 9),
+            -maybe_float(item.get("estimated_impact") or 0.0),
+            item.get("area", ""),
+        ),
+    ):
         key = (
             row.get("priority"),
             row.get("area"),
@@ -233,6 +303,7 @@ def _add_daily_learning_actions(actions: list[dict[str, Any]], daily_learning: d
             row.get("action") or "Review daily learning artifact.",
             blocks=bool(row.get("blocker")),
             evidence=row.get("evidence") or {},
+            estimated_impact=maybe_float(row.get("estimated_impact")),
         ))
 
 
@@ -407,6 +478,381 @@ def _add_taker_trading_actions(
         ))
 
 
+def _parse_json_field(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _run_date(row: dict[str, Any]) -> str:
+    return str(row.get("run_date") or row.get("target_date") or row.get("generated_at_utc") or "")[:10]
+
+
+def _normalize_signature(value: Any) -> str:
+    text = str(value or "").lower()
+    output = []
+    previous_space = False
+    for char in text:
+        if char.isalnum():
+            output.append(char)
+            previous_space = False
+        elif not previous_space:
+            output.append(" ")
+            previous_space = True
+    return " ".join("".join(output).split())
+
+
+def _blocker_signature(row: dict[str, Any]) -> str:
+    area = str(row.get("area") or row.get("category") or "unknown")
+    source = str(row.get("source") or "unknown")
+    evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+    if area in {"disk_headroom", "runtime_identity", "taker_strategy_quality", "mm_evidence_starvation"}:
+        return area
+    if area == "refresh_error":
+        return f"refresh_error:{evidence.get('step') or _normalize_signature(row.get('signal')).split(' ')[0]}"
+    if area == "broad_claim_gate":
+        failures = evidence.get("failures") or evidence.get("failure")
+        if isinstance(failures, list) and failures:
+            return f"broad_claim_gate:{_normalize_signature(failures[0])}"
+        if failures:
+            return f"broad_claim_gate:{_normalize_signature(failures)}"
+    return f"{area}:{source}:{_normalize_signature(row.get('signal') or row.get('action'))}"
+
+
+def _historical_action(
+    *,
+    run_date: str,
+    priority: str,
+    area: str,
+    source: str,
+    signal: str,
+    action: str,
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    row = _action(
+        priority,
+        area,
+        "historical owner",
+        source,
+        signal,
+        action,
+        blocks=True,
+        evidence=evidence or {},
+    )
+    row["run_date"] = run_date
+    row["signature"] = _blocker_signature(row)
+    return row
+
+
+def _ledger_blockers(row: dict[str, Any]) -> list[dict[str, Any]]:
+    run_date = _run_date(row)
+    blockers: list[dict[str, Any]] = []
+    for failure in _json_list(_parse_json_field(row.get("broad_improvement_claim_failures"))):
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P1",
+            area="broad_claim_gate",
+            source="daily_progress_ledger",
+            signal=f"Broad improvement claim failure: {failure}",
+            action="Clear the listed claim gate before using broad improvement language.",
+            evidence={"failure": failure},
+        ))
+    for failure in _json_list(_parse_json_field(row.get("daily_refresh_blockers"))):
+        if not isinstance(failure, dict):
+            continue
+        step = failure.get("step") or "unknown_step"
+        reason = failure.get("root_cause_class") or failure.get("error") or "unknown error"
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P0",
+            area="refresh_error",
+            source="daily_progress_ledger",
+            signal=f"{step} failed: {reason}",
+            action=f"Resume daily refresh from {step}.",
+            evidence={"step": step, "root_cause_class": failure.get("root_cause_class"), "error": failure.get("error")},
+        ))
+    if row.get("ops_disk_preflight_status") == "BLOCK":
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P0",
+            area="disk_headroom",
+            source="daily_progress_latest",
+            signal="Daily refresh disk preflight is BLOCK.",
+            action="Run data retention cleanup or move artifacts, then rerun daily refresh.",
+            evidence={
+                "free_bytes": row.get("ops_disk_free_bytes"),
+                "required_free_bytes": row.get("ops_disk_required_free_bytes"),
+                "headroom_bytes": row.get("ops_disk_headroom_bytes"),
+            },
+        ))
+    if row.get("runtime_identity_status") == "BLOCK":
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P0",
+            area="runtime_identity",
+            source="daily_progress_ledger",
+            signal=row.get("runtime_identity_blocking_reason") or "Runtime identity is BLOCK.",
+            action="Segment or reconcile mixed runtime identity before broad claims.",
+            evidence={"runtime_identity_status": row.get("runtime_identity_status")},
+        ))
+    if row.get("ops_live_forward_slo_status") in {"BLOCK", "FAIL", "CRITICAL"}:
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P0",
+            area="collection_health",
+            source="daily_progress_ledger",
+            signal=f"Live-forward SLO is {row.get('ops_live_forward_slo_status')}.",
+            action="Repair live-forward collection SLO before counting active-day evidence.",
+            evidence={"ops_live_forward_slo_status": row.get("ops_live_forward_slo_status")},
+        ))
+    if row.get("trading_taker_quality_status") == "BLOCK":
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P1",
+            area="taker_strategy_quality",
+            source="daily_progress_ledger",
+            signal="Taker quality gate BLOCK.",
+            action="Keep taker strategy-quality claims blocked until rolling evidence clears the gate.",
+            evidence={"trading_taker_quality_status": row.get("trading_taker_quality_status")},
+        ))
+    if row.get("trading_mm_evidence_starvation_status") in {"BLOCK", "CRITICAL"}:
+        blockers.append(_historical_action(
+            run_date=run_date,
+            priority="P0",
+            area="mm_evidence_starvation",
+            source="daily_progress_ledger",
+            signal=f"Market-making evidence starvation is {row.get('trading_mm_evidence_starvation_status')}.",
+            action="Repair market-making evidence collection before counting live-forward proof.",
+            evidence={"trading_mm_evidence_starvation_status": row.get("trading_mm_evidence_starvation_status")},
+        ))
+    return blockers
+
+
+def _historical_blockers_by_date(ledger_rows: list[dict[str, Any]], run_date: str) -> list[tuple[str, dict[str, dict[str, Any]]]]:
+    by_date: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in ledger_rows or []:
+        date = _run_date(row)
+        if not date or (run_date and date >= run_date):
+            continue
+        for blocker in _ledger_blockers(row):
+            by_date.setdefault(date, {})[blocker["signature"]] = blocker
+    return [(date, by_date[date]) for date in sorted(by_date)]
+
+
+def _blocker_age_from_dates(history: list[tuple[str, dict[str, dict[str, Any]]]], signature: str) -> tuple[int, str | None]:
+    age = 1
+    first_seen = None
+    for date, blockers in reversed(history):
+        if signature not in blockers:
+            break
+        age += 1
+        first_seen = date
+    return age, first_seen
+
+
+def _prior_streak_age(history: list[tuple[str, dict[str, dict[str, Any]]]], signature: str) -> tuple[int, str | None]:
+    age = 0
+    first_seen = None
+    for date, blockers in reversed(history):
+        if signature not in blockers:
+            break
+        age += 1
+        first_seen = date
+    return age, first_seen
+
+
+def _build_blocker_lifecycle(
+    *,
+    actions: list[dict[str, Any]],
+    ledger_rows: list[dict[str, Any]],
+    run_date: str,
+) -> dict[str, Any]:
+    history = _historical_blockers_by_date(ledger_rows, run_date)
+    current_rows = []
+    for row in actions:
+        if not row.get("blocks"):
+            continue
+        signature = _blocker_signature(row)
+        age, first_seen = _blocker_age_from_dates(history, signature)
+        lifecycle_status = "persisting" if age > 1 else "new_today"
+        original_priority = _priority(row.get("priority"))
+        effective_priority = "P0" if age >= CHRONIC_ESCALATION_DAYS else original_priority
+        current_rows.append({
+            "signature": signature,
+            "status": lifecycle_status,
+            "blocker_age_days": age,
+            "first_seen_run_date": first_seen or run_date,
+            "latest_run_date": run_date,
+            "priority": original_priority,
+            "effective_priority": effective_priority,
+            "chronic": age >= CHRONIC_BLOCKER_DAYS,
+            "escalated": PRIORITY_ORDER[effective_priority] < PRIORITY_ORDER[original_priority],
+            "area": row.get("area"),
+            "source": row.get("source"),
+            "signal": row.get("signal"),
+            "action": row.get("action"),
+        })
+    current_signatures = {row["signature"] for row in current_rows}
+    previous = history[-1][1] if history else {}
+    resolved = []
+    for signature, blocker in previous.items():
+        if signature in current_signatures:
+            continue
+        age, first_seen = _prior_streak_age(history, signature)
+        resolved.append({
+            "signature": signature,
+            "status": "resolved_today",
+            "blocker_age_days": age,
+            "first_seen_run_date": first_seen or blocker.get("run_date"),
+            "resolved_run_date": run_date,
+            "prior_run_date": blocker.get("run_date"),
+            "area": blocker.get("area"),
+            "source": blocker.get("source"),
+            "signal": blocker.get("signal"),
+            "recommendation_outcome": "resolved_after_prior_daily_analysis",
+        })
+    chronic = [row for row in current_rows if row.get("chronic") or row.get("escalated")]
+    return {
+        "current": current_rows,
+        "resolved_today": resolved,
+        "chronic_blockers": chronic,
+        "summary": {
+            "current_blocker_count": len(current_rows),
+            "new_today_count": sum(1 for row in current_rows if row.get("status") == "new_today"),
+            "persisting_count": sum(1 for row in current_rows if row.get("status") == "persisting"),
+            "resolved_today_count": len(resolved),
+            "chronic_blocker_count": sum(1 for row in current_rows if row.get("chronic")),
+            "escalated_blocker_count": sum(1 for row in current_rows if row.get("escalated")),
+        },
+    }
+
+
+def _apply_lifecycle_to_actions(actions: list[dict[str, Any]], lifecycle: dict[str, Any]) -> None:
+    by_signature = {row.get("signature"): row for row in lifecycle.get("current") or []}
+    for row in actions:
+        if not row.get("blocks"):
+            continue
+        lifecycle_row = by_signature.get(_blocker_signature(row))
+        if not lifecycle_row:
+            continue
+        evidence = dict(row.get("evidence") or {})
+        evidence["blocker_lifecycle"] = {
+            "status": lifecycle_row.get("status"),
+            "blocker_age_days": lifecycle_row.get("blocker_age_days"),
+            "chronic": lifecycle_row.get("chronic"),
+            "escalated": lifecycle_row.get("escalated"),
+        }
+        row["evidence"] = evidence
+        row["blocker_lifecycle"] = evidence["blocker_lifecycle"]
+        if lifecycle_row.get("escalated"):
+            row["priority"] = lifecycle_row.get("effective_priority") or row.get("priority")
+
+
+def _metric_row(row: dict[str, Any], *, blocker_count: int | None = None) -> dict[str, Any]:
+    output = dict(row or {})
+    if blocker_count is not None:
+        output["blocker_count"] = blocker_count
+    return output
+
+
+def _metric_rows_for_anomaly(
+    *,
+    ledger_rows: list[dict[str, Any]],
+    current_progress: dict[str, Any],
+    run_date: str,
+    current_blocker_count: int,
+) -> list[dict[str, Any]]:
+    rows = []
+    for row in ledger_rows or []:
+        date = _run_date(row)
+        if not date or (run_date and date >= run_date):
+            continue
+        rows.append(_metric_row(row, blocker_count=len(_ledger_blockers(row))))
+    current = dict(current_progress or {})
+    current.setdefault("run_date", run_date)
+    rows.append(_metric_row(current, blocker_count=current_blocker_count))
+    return rows
+
+
+def _mad_threshold(values: list[float], minimum: float) -> tuple[float, float, float]:
+    median = statistics.median(values)
+    deviations = [abs(value - median) for value in values]
+    mad = statistics.median(deviations) if deviations else 0.0
+    return median, mad, max(float(minimum), 3.0 * 1.4826 * mad)
+
+
+def _detect_metric_anomalies(
+    *,
+    ledger_rows: list[dict[str, Any]],
+    current_progress: dict[str, Any],
+    run_date: str,
+    lifecycle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = _metric_rows_for_anomaly(
+        ledger_rows=ledger_rows,
+        current_progress=current_progress,
+        run_date=run_date,
+        current_blocker_count=(lifecycle.get("summary") or {}).get("current_blocker_count", 0),
+    )
+    if len(rows) < 4:
+        return []
+    current = rows[-1]
+    history = rows[:-1][-14:]
+    anomalies = []
+    for metric, config in LEDGER_ANOMALY_METRICS.items():
+        current_value = maybe_float(current.get(metric))
+        values = [maybe_float(row.get(metric)) for row in history]
+        values = [value for value in values if value is not None]
+        if current_value is None or len(values) < 3:
+            continue
+        median, mad, threshold = _mad_threshold(values, float(config["min_abs_step"]))
+        if config["direction"] == "drop":
+            adverse_step = median - current_value
+            adverse = adverse_step >= threshold
+        else:
+            adverse_step = current_value - median
+            adverse = adverse_step >= threshold
+        if not adverse:
+            continue
+        previous_value = maybe_float(rows[-2].get(metric))
+        anomalies.append({
+            "metric": metric,
+            "label": config["label"],
+            "direction": config["direction"],
+            "run_date": run_date,
+            "current_value": current_value,
+            "historical_median": median,
+            "historical_mad": mad,
+            "threshold": threshold,
+            "adverse_step": adverse_step,
+            "previous_value": previous_value,
+            "severity": "P0" if metric in {"evidence_label_total", "evidence_corpus_market_days"} else "P1",
+        })
+    return anomalies
+
+
+def _add_metric_anomaly_actions(actions: list[dict[str, Any]], anomalies: list[dict[str, Any]]) -> None:
+    for anomaly in anomalies:
+        actions.append(_action(
+            anomaly.get("severity") or "P1",
+            "metric_anomaly",
+            "model/ops owner",
+            "daily_progress_ledger",
+            (
+                f"{anomaly.get('label')} moved adversely to {fmt_num(anomaly.get('current_value'), 4)} "
+                f"from median {fmt_num(anomaly.get('historical_median'), 4)}."
+            ),
+            "Audit the latest daily-progress inputs for ingestion, label, corpus, or scoring regressions before accepting today's status.",
+            blocks=False,
+            evidence=anomaly,
+        ))
+
+
 def _step_runtime(steps: list[dict[str, Any]]) -> dict[str, Any]:
     durations = [
         {
@@ -503,7 +949,11 @@ def _summary(actions: list[dict[str, Any]], artifacts: dict[str, Any]) -> dict[s
 
 
 def _overall_status(actions: list[dict[str, Any]], artifacts: dict[str, Any]) -> str:
-    if not any(row.get("exists") for row in artifacts.values()):
+    evidence_artifacts = [
+        row for name, row in artifacts.items()
+        if name != "daily_flow_analysis_decision_history"
+    ]
+    if not any(row.get("exists") for row in evidence_artifacts):
         return "MISSING_INPUTS"
     if any(row.get("blocks") for row in actions):
         return "BLOCKED"
@@ -550,7 +1000,13 @@ def build_flow_analysis(
     taker_finalization = payloads.get("taker_finalization_watchdog") or {}
     taker_tail = payloads.get("taker_tail_casebook") or {}
     trading_evidence = payloads.get("trading_evidence") or {}
+    ledger_rows = payloads.get("daily_progress_ledger") or []
     steps = list(daily_refresh_steps or daily_refresh.get("steps") or [])
+    generated = generated_at_utc or utc_iso()
+    effective_run_date = (
+        run_date
+        or str(daily_learning.get("run_date") or daily_progress.get("run_date") or generated)[:10]
+    )
 
     actions: list[dict[str, Any]] = []
     _add_artifact_gap_actions(actions, artifacts)
@@ -565,27 +1021,45 @@ def build_flow_analysis(
         trading_evidence=trading_evidence,
     )
     actions = _dedupe_actions(actions)
+    blocker_lifecycle = _build_blocker_lifecycle(
+        actions=actions,
+        ledger_rows=ledger_rows,
+        run_date=effective_run_date,
+    )
+    _apply_lifecycle_to_actions(actions, blocker_lifecycle)
+    metric_anomalies = _detect_metric_anomalies(
+        ledger_rows=ledger_rows,
+        current_progress=daily_progress,
+        run_date=effective_run_date,
+        lifecycle=blocker_lifecycle,
+    )
+    _add_metric_anomaly_actions(actions, metric_anomalies)
+    actions = _dedupe_actions(actions)
 
-    generated = generated_at_utc or utc_iso()
     decision_record = _decision_record(
         daily_learning=daily_learning,
         daily_progress=daily_progress,
         actions=actions,
     )
+    decision_record["resolved_blockers"] = blocker_lifecycle.get("resolved_today") or []
+    decision_record["metric_anomalies"] = metric_anomalies
     summary = _summary(actions, artifacts)
+    summary["blocker_lifecycle"] = blocker_lifecycle.get("summary") or {}
+    summary["metric_anomaly_count"] = len(metric_anomalies)
     status = _overall_status(actions, artifacts)
     if daily_refresh_summary:
         payloads["daily_refresh_summary"] = daily_refresh_summary
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated,
-        "run_date": run_date
-        or str(daily_learning.get("run_date") or daily_progress.get("run_date") or generated)[:10],
+        "run_date": effective_run_date,
         "status": status,
         "backtest_root": str(Path(backtest_root)),
         "snapshots_root": str(Path(snapshots_root)),
         "summary": summary,
         "decision_record": decision_record,
+        "blocker_lifecycle": blocker_lifecycle,
+        "metric_anomalies": metric_anomalies,
         "runtime": _step_runtime(steps),
         "actions": actions,
         "overnight_runbook": _runbook(actions, decision_record),
@@ -629,11 +1103,16 @@ def build_flow_analysis(
 def _summary_rows(payload: dict[str, Any]) -> list[list[Any]]:
     summary = payload.get("summary") or {}
     decision = payload.get("decision_record") or {}
+    lifecycle_summary = summary.get("blocker_lifecycle") or {}
     return [
         ["Status", payload.get("status")],
         ["Actions", summary.get("action_count")],
         ["Blockers", summary.get("blocker_count")],
         ["P0 / P1", f"{summary.get('p0_count', 0)} / {summary.get('p1_count', 0)}"],
+        ["Persisting blockers", lifecycle_summary.get("persisting_count", 0)],
+        ["Resolved blockers", lifecycle_summary.get("resolved_today_count", 0)],
+        ["Chronic blockers", lifecycle_summary.get("chronic_blocker_count", 0)],
+        ["Metric anomalies", summary.get("metric_anomaly_count", 0)],
         ["Training ready", decision.get("training_ready")],
         ["Promotion ready", decision.get("promotion_ready")],
         ["Broad claim allowed", decision.get("broad_improvement_claim_allowed")],
@@ -648,6 +1127,7 @@ def _action_rows(actions: list[dict[str, Any]], limit: int = 20) -> list[list[An
     return [
         [
             row.get("priority"),
+            fmt_num(row.get("estimated_impact"), 4),
             row.get("area"),
             row.get("owner"),
             row.get("source"),
@@ -655,6 +1135,51 @@ def _action_rows(actions: list[dict[str, Any]], limit: int = 20) -> list[list[An
             row.get("action"),
         ]
         for row in actions[:limit]
+    ]
+
+
+def _lifecycle_rows(rows: list[dict[str, Any]], *, resolved: bool = False, limit: int = 20) -> list[list[Any]]:
+    if resolved:
+        return [
+            [
+                row.get("status"),
+                row.get("area"),
+                row.get("source"),
+                row.get("blocker_age_days"),
+                row.get("prior_run_date"),
+                row.get("resolved_run_date"),
+                row.get("recommendation_outcome"),
+                row.get("signal"),
+            ]
+            for row in rows[:limit]
+        ]
+    return [
+        [
+            row.get("status"),
+            row.get("effective_priority") or row.get("priority"),
+            row.get("area"),
+            row.get("source"),
+            row.get("blocker_age_days"),
+            row.get("first_seen_run_date"),
+            row.get("chronic"),
+            row.get("signal"),
+        ]
+        for row in rows[:limit]
+    ]
+
+
+def _metric_anomaly_rows(rows: list[dict[str, Any]], limit: int = 20) -> list[list[Any]]:
+    return [
+        [
+            row.get("severity"),
+            row.get("label"),
+            row.get("direction"),
+            fmt_num(row.get("current_value"), 4),
+            fmt_num(row.get("historical_median"), 4),
+            fmt_num(row.get("adverse_step"), 4),
+            fmt_num(row.get("threshold"), 4),
+        ]
+        for row in rows[:limit]
     ]
 
 
@@ -698,6 +1223,11 @@ def render_report(payload: dict[str, Any]) -> str:
     artifacts = payload.get("input_artifacts") or {}
     daily_learning_rollup = ((payload.get("source_rollups") or {}).get("daily_learning") or {})
     input_gate = daily_learning_rollup.get("input_gate") or {}
+    lifecycle = payload.get("blocker_lifecycle") or {}
+    lifecycle_current = lifecycle.get("current") or []
+    lifecycle_resolved = lifecycle.get("resolved_today") or []
+    chronic_blockers = lifecycle.get("chronic_blockers") or []
+    metric_anomalies = payload.get("metric_anomalies") or []
     lines = [
         "# Daily Flow Analysis",
         "",
@@ -738,11 +1268,55 @@ def render_report(payload: dict[str, Any]) -> str:
     ]
     if actions:
         lines += markdown_table(
-            ["Priority", "Area", "Owner", "Source", "Signal", "Action"],
+            ["Priority", "Impact", "Area", "Owner", "Source", "Signal", "Action"],
             _action_rows(actions),
         )
     else:
         lines.append("No blocking or high-priority daily-flow actions were detected.")
+    lines += [
+        "",
+        "## Blocker Lifecycle",
+        "",
+    ]
+    if lifecycle_current:
+        lines += markdown_table(
+            ["Status", "Priority", "Area", "Source", "Age", "First Seen", "Chronic", "Signal"],
+            _lifecycle_rows(lifecycle_current),
+        )
+    else:
+        lines.append("No current blockers were detected.")
+    if chronic_blockers:
+        lines += [
+            "",
+            "Chronic or escalated blockers:",
+            "",
+            *markdown_table(
+                ["Status", "Priority", "Area", "Source", "Age", "First Seen", "Chronic", "Signal"],
+                _lifecycle_rows(chronic_blockers),
+            ),
+        ]
+    if lifecycle_resolved:
+        lines += [
+            "",
+            "Resolved today:",
+            "",
+            *markdown_table(
+                ["Status", "Area", "Source", "Age", "Prior Date", "Resolved Date", "Outcome", "Signal"],
+                _lifecycle_rows(lifecycle_resolved, resolved=True),
+            ),
+        ]
+    lines += [
+        "",
+        "## Metric Anomalies",
+        "",
+    ]
+    if metric_anomalies:
+        lines += markdown_table(
+            ["Severity", "Metric", "Direction", "Current", "Median", "Step", "Threshold"],
+            _metric_anomaly_rows(metric_anomalies),
+        )
+    else:
+        lines.append("No adverse ledger metric step-changes were detected.")
     lines += [
         "",
         "## Overnight Runbook",
@@ -841,17 +1415,55 @@ def write_actions_csv(path: str | Path, actions: list[dict[str, Any]]) -> Path:
     return path
 
 
+def append_decision_history(path: str | Path, payload: dict[str, Any]) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run_date = payload.get("run_date")
+    rows = [
+        row for row in read_jsonl(path)
+        if not run_date or row.get("run_date") != run_date
+    ]
+    lifecycle = payload.get("blocker_lifecycle") or {}
+    row = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "run_date": run_date,
+        "status": payload.get("status"),
+        "decision_record": payload.get("decision_record") or {},
+        "action_signatures": [
+            _blocker_signature(action)
+            for action in payload.get("actions") or []
+        ],
+        "blocker_signatures": [
+            blocker.get("signature")
+            for blocker in lifecycle.get("current") or []
+        ],
+        "realized_outcomes": {
+            "resolved_blockers": lifecycle.get("resolved_today") or [],
+            "metric_anomalies": payload.get("metric_anomalies") or [],
+        },
+    }
+    rows.append(row)
+    rows.sort(key=lambda item: str(item.get("run_date") or item.get("generated_at_utc") or ""))
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        for existing in rows:
+            handle.write(json.dumps(existing, sort_keys=True, default=str) + "\n")
+    return path
+
+
 def write_outputs(
     payload: dict[str, Any],
     json_out: str | Path = DEFAULT_JSON_OUT,
     report_out: str | Path = DEFAULT_REPORT_OUT,
     actions_out: str | Path = DEFAULT_ACTIONS_OUT,
+    decisions_out: str | Path | None = None,
 ) -> tuple[Path, Path, Path]:
     json_path = write_json_atomic(json_out, payload, trailing_newline=True)
     report_path = Path(report_out)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(render_report(payload), encoding="utf-8")
     actions_path = write_actions_csv(actions_out, payload.get("actions") or [])
+    append_decision_history(decisions_out or Path(json_out).with_name(DEFAULT_DECISIONS_OUT.name), payload)
     return json_path, report_path, actions_path
 
 

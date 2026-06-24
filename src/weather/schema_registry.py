@@ -668,6 +668,13 @@ REGISTERED_SCHEMAS = (
         "Per-market-day snapshot folder manifest for evidence, projections, rebuild sources, and backup state.",
     ),
     SchemaSpec(
+        "event_metadata_validation",
+        "event_metadata_validation_v0.1",
+        "weather.operations.event_metadata_validation",
+        "active",
+        "Target-date Polymarket event metadata, Gamma, and CLOB token-map validation gate for active-day evidence.",
+    ),
+    SchemaSpec(
         "event_day_manifest_backfill",
         "event_day_manifest_backfill_v0.1",
         "weather.operations.event_day_manifest",

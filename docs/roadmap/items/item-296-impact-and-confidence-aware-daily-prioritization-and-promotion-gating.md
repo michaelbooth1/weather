@@ -1,4 +1,4 @@
-# 296. Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [OPEN 2026-06-24 - POINT-ESTIMATE PROMOTION AND ORDINAL-ONLY ACTION RANKING]
+# 296. Impact- And Confidence-Aware Daily Prioritization And Model Promotion Gating [COMPLETE 2026-06-24 - IMPACT RANKING AND CONFIDENCE-GATED PROMOTION LIVE]
 
 Goal: rank the daily action queue by estimated impact, not just ordinal priority
 and alphabetical area, and gate model promotion on a statistically-confident
@@ -40,14 +40,27 @@ impact-weighted ranking to the daily action queue.
 4. Keep the change fail-closed: missing magnitude defaults to lowest impact, and
    missing confidence inputs block promotion rather than allowing it.
 
-- [ ] Add `estimated_impact` to learnings/actions and rank the queue by
+- [x] Add `estimated_impact` to learnings/actions and rank the queue by
   `(priority, impact)`.
-- [ ] Add a confidence-gated `promotion_ready`/`training_ready` decision with a
+- [x] Add a confidence-gated `promotion_ready`/`training_ready` decision with a
   minimum independent-sample requirement and a delta confidence interval.
-- [ ] Report impact and promotion confidence in the daily analysis outputs.
-- [ ] Add tests proving point-estimate-only deltas and tiny correlated samples
+- [x] Report impact and promotion confidence in the daily analysis outputs.
+- [x] Add tests proving point-estimate-only deltas and tiny correlated samples
   cannot flip promotion ready, and that the queue orders by impact within
   priority.
+
+## Completion Notes
+
+`daily_learning` now exports `estimated_impact` on learnings and sorts them by
+priority and impact. `daily_flow_analysis` carries that field into the operator
+action queue, CSV, and report, and sorts equal-priority actions by descending
+impact. Model promotion readiness now includes a fail-closed
+`promotion_confidence` block requiring paired delta samples, at least 30
+independent market-days, and a deterministic bootstrap confidence interval with
+`delta_vs_current` upper bound at or below zero. Missing samples and correlated
+samples block promotion.
+
+Validation: `.\venv\Scripts\python.exe -m pytest tests\reporting\test_daily_learning.py tests\reporting\test_daily_flow_analysis.py -q`.
 
 Acceptance: the daily action queue is ordered by estimated impact within each
 priority tier, and model `promotion_ready`/`training_ready` requires a

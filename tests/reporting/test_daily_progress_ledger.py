@@ -434,6 +434,58 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertEqual(row["evidence_frozen_baseline_brier_delta_current_minus_baseline"], -0.02)
         self.assertNotIn("independent_baseline_missing", failures)
 
+    def test_build_progress_row_records_calibration_and_directional_bias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            write_json(
+                backtest / "proper_scoring_reliability_scorecard.json",
+                {
+                    "schema_version": "proper_scoring_reliability_scorecard_v0.1",
+                    "status": "PASS",
+                    "lanes": [
+                        {
+                            "lane": "weather_only",
+                            "row_count": 120,
+                            "ece": 0.0825,
+                        }
+                    ],
+                    "directional_bias": {
+                        "source": "fixture",
+                        "mean_realized_minus_predicted": 1.25,
+                    },
+                },
+            )
+            daily_refresh = {
+                "status": "ok",
+                "generated_at_utc": "2026-06-21T23:59:00+00:00",
+                "summary": {"labels": {"total": 3, "quality_counts": {"complete": 3}}},
+                "steps": [],
+            }
+
+            row = build_progress_row(
+                backtest_root=backtest,
+                snapshots_root=root / "snapshots",
+                daily_refresh_status=daily_refresh,
+            )
+            write_progress_outputs(
+                row,
+                jsonl_out=root / "ledger.jsonl",
+                csv_out=root / "ledger.csv",
+                latest_out=root / "latest.json",
+                report_out=root / "ledger.md",
+            )
+            report = (root / "ledger.md").read_text(encoding="utf-8")
+
+        self.assertEqual(row["model_calibration_status"], "PRESENT")
+        self.assertEqual(row["model_calibration_ece"], 0.0825)
+        self.assertEqual(row["model_calibration_row_count"], 120)
+        self.assertEqual(row["model_directional_bias_status"], "PRESENT")
+        self.assertEqual(row["model_directional_bias_mean_error"], 1.25)
+        self.assertEqual(row["model_directional_bias_abs_mean_error"], 1.25)
+        self.assertIn("Calibration ECE", report)
+        self.assertIn("Directional bias mean error", report)
+
     def test_write_progress_outputs_appends_jsonl_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

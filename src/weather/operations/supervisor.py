@@ -4,11 +4,12 @@ import os
 import json
 import logging
 import signal
+import shutil
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -66,9 +67,39 @@ class SupervisorSpec:
     lock_path: Path | None = None
     tolerated_states: tuple[str, ...] = ("RUNNING", "PAUSED", "ERRORING")
     status_schema_fields: tuple[str, ...] = field(default_factory=tuple)
+    restart_budget: int = 12
+    restart_budget_window_hours: float = 24.0
+    restart_backoff_base_seconds: float = 120.0
+    restart_backoff_max_seconds: float = 3600.0
 
     def command(self, *args: object, python_executable: str | None = None) -> list[str]:
         return build_module_command(self.module, *args, python_executable=python_executable)
+
+    def with_paths(
+        self,
+        *,
+        status_path: str | Path | None = None,
+        diagnostics_path: str | Path | None = None,
+        console_log_path: str | Path | None = None,
+        pause_flag_path: str | Path | None = None,
+        lock_path: str | Path | None = None,
+    ) -> "SupervisorSpec":
+        return SupervisorSpec(
+            name=self.name,
+            module=self.module,
+            status_path=Path(status_path) if status_path is not None else self.status_path,
+            diagnostics_path=Path(diagnostics_path) if diagnostics_path is not None else self.diagnostics_path,
+            console_log_path=Path(console_log_path) if console_log_path is not None else self.console_log_path,
+            cwd=self.cwd,
+            pause_flag_path=Path(pause_flag_path) if pause_flag_path is not None else self.pause_flag_path,
+            lock_path=Path(lock_path) if lock_path is not None else self.lock_path,
+            tolerated_states=self.tolerated_states,
+            status_schema_fields=self.status_schema_fields,
+            restart_budget=self.restart_budget,
+            restart_budget_window_hours=self.restart_budget_window_hours,
+            restart_backoff_base_seconds=self.restart_backoff_base_seconds,
+            restart_backoff_max_seconds=self.restart_backoff_max_seconds,
+        )
 
 
 def build_module_command(
@@ -249,6 +280,224 @@ def jsonl_integrity(path: str | Path, *, max_examples: int = 3) -> dict[str, Any
                     })
     result["ok"] = result["malformed_lines"] == 0
     return result
+
+
+def quarantine_malformed_jsonl(path: str | Path, *, backup: bool = True) -> dict[str, Any]:
+    """Rewrite a JSONL file with only valid lines and quarantine malformed ones."""
+    path = Path(path)
+    valid_lines: list[str] = []
+    malformed: list[dict[str, Any]] = []
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "skipped": False,
+            "valid_json_lines": 0,
+            "malformed_lines": 0,
+            "backup_path": None,
+            "quarantine_path": None,
+        }
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_number, raw in enumerate(handle, start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                json.loads(line)
+                valid_lines.append(line)
+            except json.JSONDecodeError as exc:
+                malformed.append({
+                    "line": line_number,
+                    "classification": classify_malformed_jsonl_line(line, exc),
+                    "error": str(exc),
+                    "text": line,
+                })
+    backup_path = None
+    quarantine_path = None
+    if malformed:
+        if backup:
+            backup_path = path.with_suffix(path.suffix + ".malformed.bak")
+            if not backup_path.exists():
+                shutil.copy2(path, backup_path)
+        quarantine_path = path.with_suffix(path.suffix + ".malformed.quarantine.jsonl")
+        with quarantine_path.open("w", encoding="utf-8", newline="\n") as handle:
+            for row in malformed:
+                handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+        with path.open("w", encoding="utf-8", newline="\n") as handle:
+            for line in valid_lines:
+                handle.write(line + "\n")
+    return {
+        "path": str(path),
+        "exists": True,
+        "skipped": False,
+        "valid_json_lines": len(valid_lines),
+        "malformed_lines": len(malformed),
+        "backup_path": str(backup_path) if backup_path else None,
+        "quarantine_path": str(quarantine_path) if quarantine_path else None,
+    }
+
+
+def _file_offset(path: str | Path) -> dict[str, Any]:
+    path = Path(path)
+    result = {"path": str(path), "exists": path.exists(), "size_bytes": 0, "line_count": 0}
+    if not path.exists():
+        return result
+    try:
+        result["size_bytes"] = path.stat().st_size
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            result["line_count"] = sum(1 for _line in handle)
+    except OSError as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def loop_file_offsets(spec: SupervisorSpec) -> dict[str, Any]:
+    return {
+        "status": _file_offset(spec.status_path),
+        "diagnostics": _file_offset(spec.diagnostics_path),
+        "console": _file_offset(spec.console_log_path),
+    }
+
+
+def quarantine_malformed_loop_lines(
+    spec: SupervisorSpec,
+    *,
+    backup: bool = True,
+    allow_active: bool = False,
+) -> dict[str, Any]:
+    lock = read_writer_lock(spec.status_path)
+    pid = lock.get("pid")
+    active_writer = bool(lock.get("exists") and pid_is_python(pid))
+    if active_writer and not allow_active:
+        return {
+            "skipped": True,
+            "reason": "active_writer_lock",
+            "active_writer": {
+                "pid": pid,
+                "lock_path": lock.get("path"),
+                "status_path": str(spec.status_path),
+            },
+            "files": [],
+        }
+    files = []
+    for path in (spec.diagnostics_path, spec.console_log_path):
+        integrity = jsonl_integrity(path)
+        if int(integrity.get("malformed_lines") or 0):
+            repaired = quarantine_malformed_jsonl(path, backup=backup)
+            repaired["before"] = integrity
+            files.append(repaired)
+    return {
+        "skipped": False,
+        "reason": None,
+        "active_writer": {"pid": pid, "lock_path": lock.get("path"), "status_path": str(spec.status_path)},
+        "files": files,
+        "malformed_lines": sum(int(row.get("malformed_lines") or 0) for row in files),
+    }
+
+
+def _event_time(event: dict[str, Any]) -> datetime | None:
+    for key in ("time", "timestamp", "created_at_utc", "captured_at_utc"):
+        parsed = parse_iso_datetime(event.get(key))
+        if parsed is not None:
+            return parsed.astimezone(timezone.utc)
+    return None
+
+
+def _recovery_event(event: dict[str, Any]) -> bool:
+    return (
+        str(event.get("supervisor") or "").lower() == "ensure"
+        and str(event.get("action") or "").lower() in {"start", "restart"}
+    )
+
+
+def recent_recovery_events(
+    diagnostics_path: str | Path,
+    *,
+    now: datetime,
+    window_hours: float,
+) -> list[dict[str, Any]]:
+    diagnostics_path = Path(diagnostics_path)
+    if not diagnostics_path.exists():
+        return []
+    now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    window_start = now_utc - timedelta(hours=float(window_hours))
+    events: list[dict[str, Any]] = []
+    with diagnostics_path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_number, raw in enumerate(handle, start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or not _recovery_event(event):
+                continue
+            event_time = _event_time(event)
+            if event_time is None or event_time < window_start:
+                continue
+            events.append({"line": line_number, "time": event_time, "event": event})
+    return events
+
+
+def supervisor_recovery_guard(
+    spec: SupervisorSpec,
+    action: str,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    action = str(action or "").lower()
+    if action not in {"start", "restart"}:
+        return {"allowed": True, "action": action, "reason": "not_recovery_action"}
+    now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    events = recent_recovery_events(
+        spec.diagnostics_path,
+        now=now_utc,
+        window_hours=spec.restart_budget_window_hours,
+    )
+    count = len(events)
+    budget = int(spec.restart_budget)
+    event_times = [row["time"] for row in events if row.get("time")]
+    last = max(event_times) if event_times else None
+    backoff_seconds = 0.0
+    retry_at = None
+    retry_after = 0.0
+    if count > 0:
+        backoff_seconds = min(
+            float(spec.restart_backoff_max_seconds),
+            float(spec.restart_backoff_base_seconds) * (2 ** max(0, count - 1)),
+        )
+    if last is not None and backoff_seconds > 0:
+        retry_at = last + timedelta(seconds=backoff_seconds)
+        retry_after = max(0.0, (retry_at - now_utc).total_seconds())
+    base = {
+        "loop": spec.name,
+        "requested_action": action,
+        "recent_recovery_count": count,
+        "restart_budget": budget,
+        "restart_budget_window_hours": float(spec.restart_budget_window_hours),
+        "backoff_seconds": round(backoff_seconds, 3),
+        "last_recovery_at_utc": last.isoformat() if last else None,
+        "retry_at_utc": retry_at.isoformat() if retry_at else None,
+        "retry_after_seconds": round(retry_after, 3),
+    }
+    if count >= budget:
+        return {
+            **base,
+            "allowed": False,
+            "action": "circuit_open",
+            "reason": f"restart_budget_exceeded={count}>={budget}",
+            "remediation": "inspect the loop diagnostics and console log, fix the root cause, then run an explicit restart",
+        }
+    if retry_after > 0:
+        return {
+            **base,
+            "allowed": False,
+            "action": "backoff",
+            "reason": f"restart_backoff_active={round(retry_after, 1)}s",
+            "remediation": "wait for the supervisor backoff window or inspect the loop diagnostics before manual restart",
+        }
+    return {**base, "allowed": True, "action": action, "reason": "within_restart_budget"}
 
 
 def parse_iso_datetime(value: object, *, default_tz=timezone.utc) -> datetime | None:

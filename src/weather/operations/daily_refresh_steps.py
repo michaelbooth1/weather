@@ -21,6 +21,7 @@ from weather.market.market_day_labels import discover_default_folders, parse_ove
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
+from weather.operations import event_metadata_validation
 from weather.operations import nightly_health_checks
 from weather.operations import replay_status_backfill
 from weather.operations.daily_refresh_locks import (
@@ -67,6 +68,7 @@ from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 STEP_ORDER = (
     "reanalysis_recent_refresh",
     "ingest_quality_gate",
+    "event_metadata_validation",
     "market_day_labels_finalize",
     "taker_finalization_watchdog",
     "taker_tail_casebook",
@@ -355,6 +357,50 @@ def run_ingest_quality_gate_step(args):
         "summary": summary,
         "fail_reasons": gate["fail_reasons"],
         "warn_reasons": gate["warn_reasons"],
+    }
+
+
+def run_event_metadata_validation_step(args):
+    if getattr(args, "skip_event_metadata_validation", False):
+        return {"status": "SKIPPED", "reason": "skip_event_metadata_validation"}
+    configured_date = (
+        getattr(args, "event_metadata_target_date", "")
+        or getattr(args, "as_of", "")
+        or None
+    )
+    target = parse_date_arg(configured_date) if configured_date else utc_now().date()
+    fetch_live = bool(getattr(args, "event_metadata_live_fetch", False))
+    payload = event_metadata_validation.build_validation_payload(
+        target_date=target,
+        markets=getattr(args, "event_metadata_markets", "") or getattr(args, "markets", "") or "all",
+        locations_path=getattr(args, "event_metadata_locations", event_metadata_validation.DEFAULT_LOCATIONS),
+        event_metadata_path=getattr(args, "event_metadata_config", event_metadata_validation.DEFAULT_EVENT_METADATA),
+        fetch_live=fetch_live,
+        timeout_seconds=getattr(args, "event_metadata_timeout_seconds", 10.0),
+        max_age_hours=getattr(args, "event_metadata_max_age_hours", event_metadata_validation.DEFAULT_MAX_AGE_HOURS),
+    )
+    json_out, report_out = event_metadata_validation.write_outputs(
+        payload,
+        json_out=backtest_path(args, "event_metadata_validation.json"),
+        report_out=backtest_path(args, "event_metadata_validation_report.md"),
+    )
+    setattr(args, "_daily_refresh_event_metadata_validation_payload", payload)
+    summary = payload.get("summary") or {}
+    first = summary.get("first_blocker") or {}
+    return {
+        "status": payload.get("status"),
+        "target_date": payload.get("target_date"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "validation_hash": payload.get("validation_hash"),
+        "summary": summary,
+        "first_blocker": {
+            "market_id": first.get("market_id"),
+            "event_slug": first.get("event_slug"),
+            "reason": first.get("reason"),
+            "remediation_command": first.get("remediation_command"),
+            "first_issue": (first.get("first_issue") or {}).get("code"),
+        },
     }
 
 
@@ -1660,6 +1706,7 @@ def build_rollup_freshness_status(args, *, generated_at_overrides=None):
 DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
+    ("event_metadata_validation", run_event_metadata_validation_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
     ("taker_tail_casebook", run_taker_tail_casebook_step),
@@ -1724,6 +1771,7 @@ def run_step(name, runner, args):
 def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
+    event_metadata = ((by_name.get("event_metadata_validation") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
     taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
@@ -1770,6 +1818,13 @@ def pipeline_summary(steps):
             "summary": ingest.get("summary") or {},
             "fail_reasons": ingest.get("fail_reasons") or [],
             "warn_reasons": ingest.get("warn_reasons") or [],
+        },
+        "event_metadata_validation": {
+            "status": event_metadata.get("status"),
+            "target_date": event_metadata.get("target_date"),
+            "validation_hash": event_metadata.get("validation_hash"),
+            "summary": event_metadata.get("summary") or {},
+            "first_blocker": event_metadata.get("first_blocker") or {},
         },
         "taker_finalization_watchdog": {
             "status": taker_finalization.get("status"),

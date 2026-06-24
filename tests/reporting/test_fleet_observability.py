@@ -470,6 +470,39 @@ class TestFleetObservability(unittest.TestCase):
         self.assertTrue(gate["counts_toward_live_forward_gate"])
         self.assertEqual(gate["status"], "PASS")
 
+    def test_live_forward_slo_blocks_on_event_metadata_validation(self):
+        collection = {"markets": [{"market_id": "atlanta", "action_required": False}]}
+        clob = {
+            "loop": {"state": "RUNNING", "heartbeat_age_seconds": 10.0},
+            "books": {"markets": [{"market_id": "atlanta", "ok": True, "captures": 100}]},
+        }
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+        event_metadata = {
+            "exists": True,
+            "status": "BLOCK",
+            "target_date": "2026-06-24",
+            "validation_hash": "hash-1",
+            "summary": {
+                "issue_count": 1,
+                "first_blocker": {
+                    "market_id": "atlanta",
+                    "event_slug": "highest-temperature-in-atlanta-on-june-24-2026",
+                    "target_date": "2026-06-24",
+                    "reason": "target event missing",
+                    "first_issue": {"code": "target_event_missing"},
+                    "remediation_command": "python -m weather.operations.location_config_refresh",
+                    "recoverable_same_day": True,
+                },
+            },
+        }
+
+        gate = live_forward_slo_gate(collection, clob, observation, event_metadata)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["first_blocker"]["gate"], "event_metadata_validation")
+        self.assertEqual(gate["summary"]["first_blocking_owner"], "weather.operations.event_metadata_validation")
+
     def test_optional_market_event_stream_warning_does_not_block_live_forward_slo(self):
         collection = {"markets": [{"market_id": "toronto", "action_required": False}]}
         clob = {

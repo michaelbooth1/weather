@@ -71,4 +71,16 @@ blocked missing-source rows. Apply is blocked because the latest manifest hash
 does not validate and the blocked rows have no source counterpart. No cleanup
 was applied.
 
+Current review (2026-06-24 13:25 UTC): reran
+`python -m weather.operations.tape_backup prune-unmanifested` against the
+current local mirror. The latest local manifest now validates, the restore drill
+SLA is `OK`, and the dry-run plan hash is
+`c886ced92e42d6bc8a00d6af0609569c1d107e75fa3990fb267fc0270e0b6f0a`, but
+`apply_permission=false` remains correct. The plan still has 28 unmanifested
+rows: 4 byte-identical zero-byte operator-cache candidates and 24 blocked
+missing-source `order_books_long.csv` mirror rows totaling 23,518,335,013
+bytes. Because all meaningful reclaim bytes are missing source-counterpart
+evidence, item 247 cannot be safely finished yet without either source evidence
+or a per-row durable-repository restore proof for those 24 blocked mirror files.
+
 Related: items 65, 111, 124, 146, 154, 239, 246.

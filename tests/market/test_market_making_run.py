@@ -20,6 +20,9 @@ from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
 from weather.market.market_making_model_variants import build_model_variant_quote_rows
 from weather.market.market_making_preflight import build_preflight_remediation
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
+from weather.market.market_making_run_support import classify_zero_trade_root_cause, preflight_market
+from weather.market.market_config import config_for_date
+from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
 
 
@@ -82,6 +85,50 @@ def test_preflight_book_audit_uses_clob_startup_gap_policy():
     assert result["gaps_over_threshold"] == 0
     assert result["startup_gaps_ignored"] == 2
     assert result["ignored_gap_cutoff_utc"] == "2026-06-16T13:55:00+00:00"
+
+
+def test_event_metadata_gate_blocks_maker_preflight_as_market_discovery():
+    now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        write_csv(
+            folder / "clob_tokens.csv",
+            ["clob_token_id", "outcome", "condition_id", "active", "closed"],
+            [{"clob_token_id": "yes-token", "outcome": "Yes", "condition_id": "condition-1", "active": "true", "closed": "false"}],
+        )
+        write_csv(
+            folder / "order_books_summary.csv",
+            ["captured_at_utc", "clob_token_id", "midpoint"],
+            [{"captured_at_utc": now.isoformat(), "clob_token_id": "yes-token", "midpoint": "0.5"}],
+        )
+        row = preflight_market(
+            spec_for_id("atlanta"),
+            config_for_date("2026-06-14", "atlanta"),
+            folder,
+            [{"snapshot_id": "s1", "captured_at_utc": now.isoformat(), "market_status": "active"}],
+            [{"captured_at_utc": now.isoformat(), "ok": "true", "status": "fresh"}],
+            [{"captured_at_utc": now.isoformat(), "clob_token_id": "yes-token", "midpoint": "0.5", "min_order_size": "5", "tick_size": "0.01"}],
+            [{"snapshot_id": "s1", "range_label": "80-81"}],
+            {"promotion_state": "PAPER", "action": "paper"},
+            {"fresh": True, "reason": "ok"},
+            now,
+            "paper",
+            {
+                "max_book_age_seconds": 300,
+                "max_model_age_seconds": 300,
+                "max_watcher_age_seconds": 300,
+            },
+            event_metadata_gate={
+                "required": True,
+                "ok": False,
+                "reason": "target event missing from generated metadata",
+            },
+        )
+
+    assert row["status"] == "BLOCK"
+    assert row["first_failing_gate"]["name"] == "event_metadata_validation"
+    diagnosis = classify_zero_trade_root_cause([row], permission_rows=0, output_rows=1)
+    assert diagnosis["root_cause_class"] == "blocked_by_market_discovery"
 
 
 def write_market_fixture(root, stale_book=False, blank_tokens=False, inactive_tokens=False):

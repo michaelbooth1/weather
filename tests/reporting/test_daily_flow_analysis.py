@@ -258,6 +258,43 @@ class TestDailyFlowAnalysis(unittest.TestCase):
         self.assertTrue(payload["decision_record"]["training_ready"])
         self.assertIn("No blocking or high-priority daily-flow actions", report)
 
+    def test_build_flow_analysis_orders_same_priority_actions_by_impact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_flow_artifacts(backtest_root, blocked=False)
+            learning_path = backtest_root / "daily_learning.json"
+            learning = json.loads(learning_path.read_text(encoding="utf-8"))
+            learning["status"] = "ACTIONABLE"
+            learning["learnings"] = [
+                {
+                    "priority": "P1",
+                    "category": "alpha_low_impact",
+                    "source": "snapshot_evaluation",
+                    "signal": "low impact first alphabetically",
+                    "action": "Handle low impact.",
+                    "blocker": False,
+                    "estimated_impact": 0.1,
+                    "evidence": {"excess_brier_rows": 0.1},
+                },
+                {
+                    "priority": "P1",
+                    "category": "zeta_high_impact",
+                    "source": "snapshot_evaluation",
+                    "signal": "high impact later alphabetically",
+                    "action": "Handle high impact.",
+                    "blocker": False,
+                    "estimated_impact": 4.2,
+                    "evidence": {"excess_brier_rows": 4.2},
+                },
+            ]
+            learning_path.write_text(json.dumps(learning), encoding="utf-8")
+
+            payload = build_flow_analysis(backtest_root=backtest_root)
+
+        p1_actions = [row for row in payload["actions"] if row["priority"] == "P1"]
+        self.assertEqual(p1_actions[0]["area"], "zeta_high_impact")
+        self.assertEqual(p1_actions[0]["estimated_impact"], 4.2)
+
     def test_build_flow_analysis_surfaces_current_run_step_errors(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -322,6 +359,89 @@ class TestDailyFlowAnalysis(unittest.TestCase):
         self.assertIn("taker_tail_no_go", areas)
         self.assertIn("Taker And Trading", report)
         self.assertIn("BLOCK_BAD_TAIL_SLICES", report)
+
+    def test_build_flow_analysis_tracks_blocker_lifecycle_and_metric_anomalies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_flow_artifacts(backtest_root, blocked=False)
+            progress_path = backtest_root / "daily_progress_latest.json"
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            progress.update(
+                {
+                    "run_date": "2026-06-21",
+                    "ops_disk_preflight_status": "BLOCK",
+                    "ops_disk_free_bytes": 100,
+                    "ops_disk_required_free_bytes": 500,
+                    "ops_disk_headroom_bytes": -400,
+                    "evidence_label_total": 5,
+                }
+            )
+            progress_path.write_text(json.dumps(progress), encoding="utf-8")
+            ledger_rows = [
+                {
+                    "schema_version": "daily_progress_ledger_v0.1",
+                    "run_date": "2026-06-18",
+                    "evidence_label_total": 100,
+                    "ops_disk_preflight_status": "OBSERVED",
+                },
+                {
+                    "schema_version": "daily_progress_ledger_v0.1",
+                    "run_date": "2026-06-19",
+                    "evidence_label_total": 102,
+                    "ops_disk_preflight_status": "BLOCK",
+                },
+                {
+                    "schema_version": "daily_progress_ledger_v0.1",
+                    "run_date": "2026-06-20",
+                    "evidence_label_total": 101,
+                    "ops_disk_preflight_status": "BLOCK",
+                    "runtime_identity_status": "BLOCK",
+                    "runtime_identity_blocking_reason": "mixed_runtime_identity_unsegmented",
+                },
+            ]
+            (backtest_root / "daily_progress_ledger.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in ledger_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            payload = build_flow_analysis(
+                backtest_root=backtest_root,
+                generated_at_utc="2026-06-21T23:59:00+00:00",
+            )
+            write_outputs(
+                payload,
+                json_out=backtest_root / "daily_flow_analysis.json",
+                report_out=backtest_root / "daily_flow_analysis_report.md",
+                actions_out=backtest_root / "daily_flow_analysis_actions.csv",
+                decisions_out=backtest_root / "daily_flow_analysis_decision_history.jsonl",
+            )
+            lifecycle = payload["blocker_lifecycle"]
+            disk = next(row for row in lifecycle["current"] if row["area"] == "disk_headroom")
+            anomaly_metrics = {row["metric"] for row in payload["metric_anomalies"]}
+            history_rows = [
+                json.loads(line)
+                for line in (backtest_root / "daily_flow_analysis_decision_history.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            report = (backtest_root / "daily_flow_analysis_report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(disk["status"], "persisting")
+        self.assertEqual(disk["blocker_age_days"], 3)
+        self.assertTrue(disk["escalated"] is False)
+        self.assertEqual(lifecycle["resolved_today"][0]["area"], "runtime_identity")
+        self.assertEqual(
+            lifecycle["resolved_today"][0]["recommendation_outcome"],
+            "resolved_after_prior_daily_analysis",
+        )
+        self.assertIn("evidence_label_total", anomaly_metrics)
+        self.assertEqual(history_rows[0]["run_date"], "2026-06-21")
+        self.assertEqual(
+            history_rows[0]["realized_outcomes"]["resolved_blockers"][0]["area"],
+            "runtime_identity",
+        )
+        self.assertIn("## Blocker Lifecycle", report)
+        self.assertIn("## Metric Anomalies", report)
 
 
 if __name__ == "__main__":

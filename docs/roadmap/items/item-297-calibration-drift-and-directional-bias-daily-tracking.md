@@ -1,4 +1,4 @@
-# 297. Calibration-Drift And Directional-Bias Daily Tracking [OPEN 2026-06-24 - NO DAILY CALIBRATION OR DIRECTIONAL-BIAS TREND]
+# 297. Calibration-Drift And Directional-Bias Daily Tracking [COMPLETE 2026-06-24 - CALIBRATION AND BIAS LEDGER TREND LIVE]
 
 Goal: track the served model's calibration quality and directional (warm/cold)
 bias as first-class daily ledger columns so calibration drift is visible as a
@@ -37,11 +37,24 @@ and directional-bias column with drift detection in the daily analysis ledger.
    reported as `MISSING`, not silently zero, and the column is evidence for
    retrain prioritization rather than an automatic promotion gate.
 
-- [ ] Add daily served-model calibration (ECE/reliability) and signed warm/cold
+- [x] Add daily served-model calibration (ECE/reliability) and signed warm/cold
   bias columns to the ledger.
-- [ ] Include calibration and bias in the 7/14-day rollups and report.
-- [ ] Emit a calibration/bias drift learning on adverse threshold or trend.
-- [ ] Add tests with improving and degrading calibration/bias fixtures.
+- [x] Include calibration and bias in the 7/14-day rollups and report.
+- [x] Emit a calibration/bias drift learning on adverse threshold or trend.
+- [x] Add tests with improving and degrading calibration/bias fixtures.
+
+## Completion Notes
+
+`daily_progress_ledger` now reads
+`proper_scoring_reliability_scorecard.json` and persists served-model
+calibration and signed directional-bias fields without silently zeroing missing
+inputs. The ledger report shows latest values plus 7/14-day ECE and bias
+rollups. `daily_learning` consumes the ledger history and emits diagnostic
+`calibration_drift` and `directional_bias_drift` learnings when ECE or absolute
+warm/cold bias worsens versus recent history. `daily_flow_analysis` anomaly
+detection also includes the new calibration and bias ledger metrics.
+
+Validation: `.\venv\Scripts\python.exe -m pytest tests\reporting\test_daily_progress_ledger.py tests\reporting\test_daily_learning.py tests\reporting\test_daily_flow_analysis.py -q`.
 
 Acceptance: each daily ledger row records served-model calibration quality and a
 signed directional bias, the rollups and report show their trend, and an adverse

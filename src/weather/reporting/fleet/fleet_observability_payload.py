@@ -5,6 +5,7 @@ from pathlib import Path
 
 from weather.reporting.fleet.fleet_observability_gates import *  # noqa: F403
 from weather.operations.closed_market_day_archive import DEFAULT_INCREMENTAL_JSON
+from weather.operations import event_metadata_validation
 from weather.reporting.trading_evidence import (
     DEFAULT_MM_RUNS_ROOT,
     DEFAULT_TAKER_RUNS_ROOT,
@@ -273,6 +274,30 @@ def parquet_incremental_alerts(status):
     return []
 
 
+def event_metadata_validation_summary(path=None):
+    path = Path(path or event_metadata_validation.DEFAULT_JSON_OUT)
+    payload = event_metadata_validation.load_validation_payload(path)
+    if not payload:
+        return {
+            "exists": False,
+            "path": str(path),
+            "status": "missing",
+            "summary": {},
+        }
+    return {
+        "exists": True,
+        "path": str(path),
+        "schema_version": payload.get("schema_version"),
+        "generated_at_utc": payload.get("generated_at_utc"),
+        "status": payload.get("status"),
+        "target_date": payload.get("target_date"),
+        "validation_hash": payload.get("validation_hash"),
+        "summary": payload.get("summary") or {},
+        "validation_command": payload.get("validation_command"),
+        "refresh_command": payload.get("refresh_command"),
+    }
+
+
 def build_observability_payload(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -312,7 +337,10 @@ def build_observability_payload(
     clob = clob_summary(snapshots_root=snapshots_root)
     observation = observation_summary()
     loop_integrity = loop_artifact_integrity()
-    live_forward_slo = live_forward_slo_gate(collection, clob, observation)
+    event_metadata = event_metadata_validation_summary(
+        Path(snapshots_root).parent / "backtest" / "event_metadata_validation.json"
+    )
+    live_forward_slo = live_forward_slo_gate(collection, clob, observation, event_metadata)
     current_code_soak = current_code_soak_summary(loop_integrity, live_forward_slo)
     mm_paper_evidence = mm_paper_evidence_summary()
     mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
@@ -338,6 +366,7 @@ def build_observability_payload(
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
     alerts.extend(provenance_alerts(provenance))
+    alerts.extend(event_metadata_alerts(event_metadata))
     alerts.extend(clob_alerts(clob))
     alerts.extend(observation_alerts(observation))
     alerts.extend(loop_integrity_alerts(loop_integrity))
@@ -357,6 +386,7 @@ def build_observability_payload(
         "historical_gap_coverage": gap_coverage,
         "artifact_provenance": provenance,
         "trust_readiness": trust,
+        "event_metadata_validation": event_metadata,
         "clob": clob,
         "observation_trigger": observation,
         "loop_integrity": loop_integrity,
@@ -376,6 +406,8 @@ def build_observability_payload(
             "critical_alerts": sum(1 for row in alerts if row.get("severity") == "critical"),
             "warning_alerts": sum(1 for row in alerts if row.get("severity") == "warning"),
             "live_forward_slo_status": live_forward_slo.get("status"),
+            "event_metadata_validation_status": event_metadata.get("status"),
+            "event_metadata_validation_hash": event_metadata.get("validation_hash"),
             "mm_paper_model_review_countable_markets": (
                 (mm_paper_evidence.get("by_class") or {})
                 .get("model_review_evidence", {})

@@ -34,12 +34,15 @@ from weather.operations.supervisor import (
     configure_json_console_logging,
     file_lock_is_stale,
     launch_detached,
+    loop_file_offsets,
     pid_is_python,
     process_query_creationflags,
+    quarantine_malformed_loop_lines,
     read_writer_lock,
     read_json_file,
     release_file_lock,
     release_writer_lock,
+    supervisor_recovery_guard,
     terminate_python_pid,
 )
 from weather.paths import REPO_ROOT
@@ -127,7 +130,21 @@ CLOB_SUPERVISOR = SupervisorSpec(
         "last_error",
         "paused",
     ),
+    restart_budget=12,
+    restart_budget_window_hours=24.0,
+    restart_backoff_base_seconds=120.0,
+    restart_backoff_max_seconds=3600.0,
 )
+
+
+def runtime_clob_supervisor_spec():
+    return CLOB_SUPERVISOR.with_paths(
+        status_path=CLOB_LOOP_STATUS_PATH,
+        diagnostics_path=CLOB_DIAGNOSTICS_PATH,
+        console_log_path=CLOB_LOOP_CONSOLE_LOG_PATH,
+        pause_flag_path=CLOB_PAUSE_FLAG_PATH,
+        lock_path=CLOB_SUPERVISOR_LOCK_PATH,
+    )
 
 
 def utc_now():
@@ -175,6 +192,22 @@ def clob_discovery_sanity_from_status(status):
     rows = [row for row in results.values() if isinstance(row, dict)]
     if not rows:
         return {"status": "UNKNOWN", "ok": True, "reason": "loop market results are not structured"}
+    metadata_blocked = [
+        row for row in rows
+        if ((row.get("event_metadata_validation") or {}).get("ok") is False)
+        or row.get("status") == "BLOCK"
+    ]
+    if metadata_blocked and len(metadata_blocked) == len(rows):
+        first_gate = metadata_blocked[0].get("event_metadata_validation") or {}
+        return {
+            "status": "BLOCK",
+            "ok": False,
+            "root_cause": "event_metadata_validation_blocked",
+            "reason": first_gate.get("reason") or "event metadata validation blocked the latest CLOB loop iteration",
+            "market_count": len(rows),
+            "remediation_command": first_gate.get("remediation_command")
+            or "python -m weather.operations.event_metadata_validation --target-date <YYYY-MM-DD>",
+        }
     all_zero_tokens = all((to_number(row.get("captured_tokens")) or 0) == 0 for row in rows)
     all_zero_books = all((to_number(row.get("books")) or 0) == 0 for row in rows)
     all_no_error = all(not row.get("error") for row in rows)
@@ -915,6 +948,7 @@ def ensure_clob_loop(
     now=None,
 ):
     now = now or utc_now()
+    spec = runtime_clob_supervisor_spec()
     lock_handle = acquire_clob_supervisor_lock()
     if lock_handle is None:
         return {"action": "locked", "state": "UNKNOWN", "reason": "another CLOB supervisor action is running"}
@@ -935,13 +969,34 @@ def ensure_clob_loop(
             "action": action,
             "state": health["state"],
             "pid": health.get("pid"),
+            "restart_cause": (
+                "orphan_processes"
+                if has_orphans
+                else "runtime_identity"
+                if not runtime_matches_current
+                else health["state"]
+                if action in {"start", "restart"}
+                else None
+            ),
             "running_process_count": len(loop_processes),
             "running_pids": [row["pid"] for row in loop_processes],
             "orphan_processes_detected": has_orphans,
             "runtime_identity_matches_current": runtime_matches_current,
+            "runtime_identity_before": (status or {}).get("runtime_identity"),
+            "loop_offsets_before": loop_file_offsets(spec),
         }
+        guard = supervisor_recovery_guard(spec, action, now=now)
+        result["recovery_guard"] = guard
+        if action in {"start", "restart"} and not guard.get("allowed"):
+            result["intended_action"] = action
+            result["action"] = guard.get("action")
+            result["reason"] = guard.get("reason")
+            result["remediation"] = guard.get("remediation")
+            append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+            return result
         if action == "restart":
             result["stop"] = stop_clob_loop(now=now)
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_clob_loop_detached(
                 market_id=market_id,
                 interval_seconds=interval_seconds,
@@ -960,6 +1015,7 @@ def ensure_clob_loop(
                 now=now,
             )
         elif action == "start":
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_clob_loop_detached(
                 market_id=market_id,
                 interval_seconds=interval_seconds,
@@ -978,6 +1034,7 @@ def ensure_clob_loop(
                 now=now,
             )
         if action != "noop":
+            result["loop_offsets_after"] = loop_file_offsets(spec)
             append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
         return result
     finally:

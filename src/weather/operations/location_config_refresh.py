@@ -146,8 +146,72 @@ def event_market_count(event: dict) -> int:
     return len(markets) if isinstance(markets, list) else 0
 
 
+def parse_json_list(value):
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def bool_value(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return None
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y", "active", "enabled"}:
+        return True
+    if lowered in {"0", "false", "no", "n", "inactive", "closed", "disabled"}:
+        return False
+    return None
+
+
+def normalized_market(market: dict) -> dict:
+    outcomes = parse_json_list(market.get("outcomes"))
+    token_ids = parse_json_list(market.get("clobTokenIds") or market.get("clob_token_ids"))
+    outcome_rows = []
+    for index in range(max(len(outcomes), len(token_ids))):
+        outcome_rows.append({
+            "index": index,
+            "name": str(outcomes[index]) if index < len(outcomes) else "",
+            "token_id": str(token_ids[index]) if index < len(token_ids) else "",
+        })
+    outcome_tokens = {
+        str(row["name"]): row["token_id"]
+        for row in outcome_rows
+        if row.get("name")
+    }
+    return {
+        "polymarket_market_id": str(market.get("id") or market.get("marketId") or ""),
+        "condition_id": str(market.get("conditionId") or market.get("condition_id") or ""),
+        "range_label": (
+            market.get("groupItemTitle")
+            or market.get("group_item_title")
+            or market.get("question")
+        ),
+        "question": market.get("question"),
+        "enable_order_book": bool_value(market.get("enableOrderBook") if "enableOrderBook" in market else market.get("enable_order_book")),
+        "active": bool_value(market.get("active")),
+        "closed": bool_value(market.get("closed")),
+        "outcomes": outcome_rows,
+        "outcome_tokens": outcome_tokens,
+    }
+
+
 def normalized_event(event: dict) -> dict:
     slug = event.get("slug") or event.get("eventSlug")
+    markets = [
+        normalized_market(market)
+        for market in event.get("markets") or []
+        if isinstance(market, dict)
+    ]
     return {
         "event_id": str(event.get("id") or event.get("eventId") or ""),
         "event_date": event_date_from_slug(slug),
@@ -157,6 +221,7 @@ def normalized_event(event: dict) -> dict:
         "end_date": event.get("endDate") or event.get("end_date"),
         "resolution_source_url": event.get("resolutionSource") or event.get("resolution_source"),
         "market_count": event_market_count(event),
+        "markets": markets,
     }
 
 

@@ -49,11 +49,14 @@ from weather.operations.supervisor import (
     atomic_write_json,
     configure_json_console_logging,
     launch_detached,
+    loop_file_offsets,
     pid_is_python,
+    quarantine_malformed_loop_lines,
     read_writer_lock,
     read_json_file,
     release_file_lock,
     release_writer_lock,
+    supervisor_recovery_guard,
     terminate_python_pid,
 )
 from weather.schema_registry import schema_version
@@ -106,9 +109,23 @@ OBSERVATION_SUPERVISOR = SupervisorSpec(
         "last_error",
         "paused",
     ),
+    restart_budget=12,
+    restart_budget_window_hours=24.0,
+    restart_backoff_base_seconds=120.0,
+    restart_backoff_max_seconds=3600.0,
 )
 
 OBSERVATION_SOURCES = ("wu_history", "wu_current", "metar", "eccc_swob")
+
+
+def runtime_observation_supervisor_spec():
+    return OBSERVATION_SUPERVISOR.with_paths(
+        status_path=STATUS_PATH,
+        diagnostics_path=DIAGNOSTICS_PATH,
+        console_log_path=CONSOLE_LOG_PATH,
+        pause_flag_path=PAUSE_FLAG_PATH,
+        lock_path=SUPERVISOR_LOCK_PATH,
+    )
 
 
 def utc_now():
@@ -855,6 +872,7 @@ def ensure_watcher_loop(
     now=None,
 ):
     now = now or utc_now()
+    spec = runtime_observation_supervisor_spec()
     handle = acquire_supervisor_lock()
     if handle is None:
         return {"action": "locked", "reason": "another observation trigger supervisor action is running"}
@@ -863,13 +881,38 @@ def ensure_watcher_loop(
         alive = pid_is_python((status or {}).get("pid"))
         health = watcher_health(status, now=now, interval_seconds=interval_seconds, pid_alive=alive)
         action = ensure_decision(health["state"], alive, health.get("last_error"))
-        result = {"action": action, "state": health["state"], "pid": health.get("pid")}
+        result = {
+            "action": action,
+            "state": health["state"],
+            "pid": health.get("pid"),
+            "restart_cause": (
+                "source_identity_error"
+                if source_identity_error(health.get("last_error"))
+                else health["state"]
+                if action in {"start", "restart"}
+                else None
+            ),
+            "runtime_identity_before": (status or {}).get("runtime_identity"),
+            "loop_offsets_before": loop_file_offsets(spec),
+        }
+        guard = supervisor_recovery_guard(spec, action, now=now)
+        result["recovery_guard"] = guard
+        if action in {"start", "restart"} and not guard.get("allowed"):
+            result["intended_action"] = action
+            result["action"] = guard.get("action")
+            result["reason"] = guard.get("reason")
+            result["remediation"] = guard.get("remediation")
+            append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+            return result
         if action == "restart":
             result["stop"] = stop_watcher_loop(now=now)
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_watcher_detached(market, interval_seconds, stale_after_seconds, now=now)
         elif action == "start":
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_watcher_detached(market, interval_seconds, stale_after_seconds, now=now)
         if action != "noop":
+            result["loop_offsets_after"] = loop_file_offsets(spec)
             append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
         return result
     finally:

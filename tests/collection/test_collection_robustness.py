@@ -130,6 +130,41 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(written["last_snapshot_id"], "atlanta-snapshot")
         self.assertEqual(written["last_market_in_progress"], None)
 
+    def test_run_loop_exits_cleanly_on_stale_runtime_identity(self):
+        current = datetime(2026, 6, 14, 12, 0)
+        slept = []
+        stale_guard = {
+            "runtime_code_state": "stale_code",
+            "detail": "running process code identity differs from current source tree",
+        }
+
+        def capture_fn(**_kwargs):
+            raise AssertionError("stale-code loop should exit before capture")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "runtime_identity_status", return_value=stale_guard):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=5,
+                    capture_fn=capture_fn,
+                    sleep_fn=slept.append,
+                    now_fn=lambda: current,
+                )
+                diagnostics = [
+                    json.loads(line)
+                    for line in (tmp_path / "diagnostics.jsonl").read_text(encoding="utf-8").splitlines()
+                ]
+
+        self.assertEqual(slept, [])
+        self.assertEqual(status["iterations"], 1)
+        self.assertEqual(status["stale_code_exit_requested_at"], current.isoformat())
+        self.assertEqual(diagnostics[-1]["status"], "stale_code")
+        self.assertEqual(diagnostics[-1]["action"], "exit_cleanly")
+
 
 class TestSnapshotStoreRuntimeGuard(unittest.TestCase):
     def test_maybe_write_returns_stale_code_result_without_writing(self):

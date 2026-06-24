@@ -189,6 +189,65 @@ def _scoreboard_first_blocker(scoreboard):
     return ""
 
 
+def _first_present(*values):
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def _served_calibration_lane(scorecard):
+    lanes = scorecard.get("lanes") or []
+    preferred = ("weather_only", "current", "candidate", "no_market")
+    for name in preferred:
+        for row in lanes:
+            if row.get("lane") == name:
+                return row
+    section = ((scorecard.get("lane_sections") or {}).get("weather_only") or [])
+    return section[0] if section else {}
+
+
+def _daily_calibration_metrics(scorecard):
+    if not scorecard:
+        return {
+            "calibration_status": "MISSING",
+            "calibration_ece": None,
+            "calibration_row_count": None,
+            "directional_bias_status": "MISSING",
+            "directional_bias_mean_error": None,
+            "directional_bias_abs_mean_error": None,
+            "directional_bias_source": None,
+        }
+    lane = _served_calibration_lane(scorecard)
+    explicit_bias = scorecard.get("directional_bias") or {}
+    afternoon = scorecard.get("afternoon_post_ramp_slice") or {}
+    ece = maybe_float(_first_present(
+        lane.get("ece"),
+        lane.get("expected_calibration_error"),
+        (scorecard.get("summary") or {}).get("model_ece"),
+    ))
+    signed_bias = maybe_float(_first_present(
+        explicit_bias.get("signed_bias"),
+        explicit_bias.get("signed_bias_c"),
+        explicit_bias.get("mean_realized_minus_predicted"),
+        explicit_bias.get("mean_signed_error"),
+    ))
+    source = explicit_bias.get("source")
+    if signed_bias is None and afternoon.get("mean_expected_high_bias") is not None:
+        expected_minus_realized = maybe_float(afternoon.get("mean_expected_high_bias"))
+        signed_bias = -expected_minus_realized if expected_minus_realized is not None else None
+        source = "proper_scoring_reliability_scorecard.afternoon_post_ramp_slice"
+    return {
+        "calibration_status": "PRESENT" if ece is not None else "MISSING",
+        "calibration_ece": ece,
+        "calibration_row_count": maybe_int(lane.get("row_count")),
+        "directional_bias_status": "PRESENT" if signed_bias is not None else "MISSING",
+        "directional_bias_mean_error": signed_bias,
+        "directional_bias_abs_mean_error": abs(signed_bias) if signed_bias is not None else None,
+        "directional_bias_source": source,
+    }
+
+
 def broad_claim_failures(row):
     failures = []
     if not bool(row.get("model_claim_allowed")):
@@ -234,6 +293,7 @@ def build_progress_row(
     snapshot_eval = _artifact(backtest_root, "snapshot_evaluation.json")
     daily_learning = _artifact(backtest_root, "daily_learning.json")
     market_objective = _artifact(backtest_root, "market_beating_objective_scoreboard.json")
+    proper_scoring = _artifact(backtest_root, "proper_scoring_reliability_scorecard.json")
     trading = build_trading_evidence_summary(
         mm_runs_root=backtest_root.parent / "mm_runs",
         taker_runs_root=backtest_root.parent / "taker_runs",
@@ -275,6 +335,7 @@ def build_progress_row(
     taker = trading.get("taker") or {}
     taker_quality = taker.get("quality_gate") or {}
     label_quality = _quality_counts(daily_refresh)
+    calibration = _daily_calibration_metrics(proper_scoring)
     row = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
@@ -327,6 +388,13 @@ def build_progress_row(
             frozen_overall.get("brier_delta_current_minus_market")
         ),
         "evidence_variant_sla_status": ((variant.get("evidence_sla") or {}).get("status")),
+        "model_calibration_status": calibration["calibration_status"],
+        "model_calibration_ece": calibration["calibration_ece"],
+        "model_calibration_row_count": calibration["calibration_row_count"],
+        "model_directional_bias_status": calibration["directional_bias_status"],
+        "model_directional_bias_mean_error": calibration["directional_bias_mean_error"],
+        "model_directional_bias_abs_mean_error": calibration["directional_bias_abs_mean_error"],
+        "model_directional_bias_source": calibration["directional_bias_source"],
         "runtime_identity_status": runtime_evidence.get("status"),
         "runtime_identity_mixed": runtime_evidence.get("mixed_runtime_identity"),
         "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
@@ -615,6 +683,12 @@ def render_report(rows):
                 "Frozen Brier current-baseline",
                 fmt(latest.get("evidence_frozen_baseline_brier_delta_current_minus_baseline")),
             ],
+            ["Calibration status", latest.get("model_calibration_status") or "-"],
+            ["Calibration ECE", fmt(latest.get("model_calibration_ece"))],
+            ["Calibration rows", fmt(latest.get("model_calibration_row_count"))],
+            ["Directional bias status", latest.get("model_directional_bias_status") or "-"],
+            ["Directional bias mean error", fmt(latest.get("model_directional_bias_mean_error"))],
+            ["Directional bias source", latest.get("model_directional_bias_source") or "-"],
             ["Runtime identity status", latest.get("runtime_identity_status") or "-"],
             ["Runtime identity mixed", latest.get("runtime_identity_mixed")],
             ["Runtime identity count", latest.get("runtime_identity_count")],
@@ -690,7 +764,10 @@ def render_report(rows):
     )
     lines += ["", "## 7 And 14 Day Rollup", ""]
     lines += markdown_table(
-        ["Window", "Rows", "Claim Days", "Avg Rolling Skill", "Avg Snapshot Gaps", "Latest Taker P&L"],
+        [
+            "Window", "Rows", "Claim Days", "Avg Rolling Skill", "Avg Snapshot Gaps",
+            "Avg ECE", "Avg Bias", "Latest Taker P&L",
+        ],
         [
             [
                 "7d",
@@ -698,6 +775,8 @@ def render_report(rows):
                 sum(1 for row in recent7 if row.get("broad_improvement_claim_allowed")),
                 fmt(_avg(recent7, "model_rolling_daily_first_brier_skill")),
                 fmt(_avg(recent7, "ops_snapshot_gap_count")),
+                fmt(_avg(recent7, "model_calibration_ece")),
+                fmt(_avg(recent7, "model_directional_bias_mean_error")),
                 fmt(latest.get("trading_taker_net_pnl_usdc")),
             ],
             [
@@ -706,6 +785,8 @@ def render_report(rows):
                 sum(1 for row in recent14 if row.get("broad_improvement_claim_allowed")),
                 fmt(_avg(recent14, "model_rolling_daily_first_brier_skill")),
                 fmt(_avg(recent14, "ops_snapshot_gap_count")),
+                fmt(_avg(recent14, "model_calibration_ece")),
+                fmt(_avg(recent14, "model_directional_bias_mean_error")),
                 fmt(latest.get("trading_taker_net_pnl_usdc")),
             ],
         ],
@@ -714,7 +795,7 @@ def render_report(rows):
     lines += markdown_table(
         [
             "Date", "Claim", "Market Beat", "Rolling Skill", "Positive Days", "Promo Days",
-            "Live SLO", "Snapshot Gaps", "MM Mode", "Taker P&L", "Taker Source",
+            "Live SLO", "Snapshot Gaps", "ECE", "Bias", "MM Mode", "Taker P&L", "Taker Source",
         ],
         [
             [
@@ -726,6 +807,8 @@ def render_report(rows):
                 row.get("evidence_promotion_grade_market_days"),
                 row.get("ops_live_forward_slo_status"),
                 row.get("ops_snapshot_gap_count"),
+                fmt(row.get("model_calibration_ece")),
+                fmt(row.get("model_directional_bias_mean_error")),
                 row.get("trading_mm_evidence_mode"),
                 fmt(row.get("trading_taker_net_pnl_usdc")),
                 row.get("trading_taker_pnl_source") or "-",

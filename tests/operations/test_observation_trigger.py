@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -106,6 +106,52 @@ class ObservationTriggerTests(unittest.TestCase):
             ensure_decision("ERRORING", pid_alive=True, last_error="ConnectionError: upstream timeout"),
             "noop",
         )
+
+    def test_ensure_watcher_loop_backoff_blocks_repeated_source_identity_restart(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            diagnostics_path = root / "diagnostics.jsonl"
+            console_path = root / "console.log"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 2468,
+                    "last_heartbeat": now.isoformat(),
+                    "interval_seconds": 60,
+                    "consecutive_errors": 1,
+                    "last_error": "RuntimeError: snapshot process code identity differs from current source tree",
+                }),
+                encoding="utf-8",
+            )
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now - timedelta(seconds=30)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEGRADED",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            console_path.write_text("", encoding="utf-8")
+
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", diagnostics_path), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", console_path), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(observation_trigger, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(observation_trigger, "acquire_supervisor_lock", return_value=object()), \
+                    patch.object(observation_trigger, "release_supervisor_lock"), \
+                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch.object(observation_trigger, "stop_watcher_loop") as stop_loop, \
+                    patch.object(observation_trigger, "start_watcher_detached") as start_loop:
+                result = observation_trigger.ensure_watcher_loop(now=now)
+
+        self.assertEqual(result["action"], "backoff")
+        self.assertEqual(result["intended_action"], "restart")
+        self.assertEqual(result["restart_cause"], "source_identity_error")
+        stop_loop.assert_not_called()
+        start_loop.assert_not_called()
 
     def test_fresh_provisional_heartbeat_with_dead_pid_is_dead(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)

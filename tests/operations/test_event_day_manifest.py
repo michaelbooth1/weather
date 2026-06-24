@@ -101,6 +101,40 @@ class TestEventDayManifest(unittest.TestCase):
         mm_record = families["market_making_runs"]["files"][0]
         self.assertEqual(mm_record["role"], "canonical_evidence")
 
+    def test_manifest_cites_event_metadata_validation_hash_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            slug = "highest-temperature-in-austin-on-june-22-2026"
+            folder = self.make_folder(root, slug=slug)
+            validation_payload = {
+                "schema_version": "event_metadata_validation_v0.1",
+                "status": "PASS",
+                "target_date": "2026-06-22",
+                "validation_hash": "event-validation-hash",
+                "market_rows": [
+                    {
+                        "market_id": "austin",
+                        "target_date": "2026-06-22",
+                        "event_slug": slug,
+                        "status": "PASS",
+                        "ok": True,
+                        "reason": "validated",
+                    }
+                ],
+            }
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                event_metadata_validation_payload=validation_payload,
+            )
+
+        self.assertTrue(manifest_hash_valid(manifest))
+        self.assertEqual(manifest["event_metadata_validation"]["status"], "PASS")
+        self.assertEqual(manifest["summary"]["event_metadata_validation_hash"], "event-validation-hash")
+        checks = {row["check"]: row for row in manifest["validation"]["checks"]}
+        self.assertEqual(checks["event_metadata_validation"]["status"], "PASS")
+
     def test_deletion_candidate_gate_requires_manifest_record_and_backup_proof(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

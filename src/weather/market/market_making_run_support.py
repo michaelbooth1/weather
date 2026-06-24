@@ -366,7 +366,9 @@ def classify_zero_trade_root_cause(preflight_rows, *, permission_rows=0, output_
     first_gate = first_failed_gate(blocked[0]) if blocked else {}
     if blocked:
         if len(blocked) == len(rows) and rows and all(
-            has_failed_gate(row, "clob_discovery") or has_failed_gate(row, "active_event")
+            has_failed_gate(row, "clob_discovery")
+            or has_failed_gate(row, "active_event")
+            or has_failed_gate(row, "event_metadata_validation")
             for row in blocked
         ):
             root_class = "blocked_by_market_discovery"
@@ -473,6 +475,7 @@ def preflight_market(
     pilot=False,
     data_layer_live_gate=None,
     platform_verification_gate=None,
+    event_metadata_gate=None,
     current_high_assessment=None,
 ):
     gates = []
@@ -511,6 +514,14 @@ def preflight_market(
             blockers.append(detail)
 
     add_gate("active_event", any(boolish_active(row.get("market_status")) for row in snapshot_rows), "missing", "no active current market rows")
+    event_metadata_gate = event_metadata_gate or {"required": False, "ok": True}
+    if event_metadata_gate.get("required"):
+        add_gate(
+            "event_metadata_validation",
+            bool(event_metadata_gate.get("ok")),
+            "missing",
+            event_metadata_gate.get("reason") or "event metadata validation does not permit active-day evidence",
+        )
     add_gate("snapshot_model_rows", bool(snapshot_rows), "missing", "missing current snapshot/model rows")
     add_gate(
         "model_freshness",
@@ -609,6 +620,7 @@ def preflight_market(
         "live_gate": live_gate,
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
+        "event_metadata_gate": event_metadata_gate,
         "current_high_assessment": current_high_assessment or {},
     }
 
